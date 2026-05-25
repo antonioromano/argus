@@ -53,9 +53,15 @@ export function ElectronToolbar({
           fontWeight: 600,
           color: 'var(--color-text-muted)',
           userSelect: 'none',
+          display: 'inline-flex',
+          alignItems: 'baseline',
+          gap: 6,
         }}
       >
         Argus
+        <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.7 }}>
+          v{__ARGUS_VERSION__}
+        </span>
       </div>
 
       {/* Right-side controls — must all be no-drag */}

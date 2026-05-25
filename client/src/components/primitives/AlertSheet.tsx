@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-interface MacAlertSheetProps {
+interface AlertSheetProps {
   isOpen: boolean;
   title: string;
   message: string;
@@ -18,7 +18,7 @@ interface MacAlertSheetProps {
  * actions (e.g., delete session, restart). Renders centred over the full
  * viewport with a light overlay behind it.
  */
-export function MacAlertSheet({
+export function AlertSheet({
   isOpen,
   title,
   message,
@@ -27,7 +27,7 @@ export function MacAlertSheet({
   onConfirm,
   onCancel,
   altAction,
-}: MacAlertSheetProps) {
+}: AlertSheetProps) {
   // Auto-focus the confirm button so Enter / Space works immediately.
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -39,11 +39,33 @@ export function MacAlertSheet({
     }
   }, [isOpen]);
 
-  // Dismiss on Escape
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss on Escape + trap Tab/Shift+Tab focus inside the panel.
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
+      if (e.key === 'Escape') {
+        onCancel();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>('button:not([disabled])'),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !panel.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -65,13 +87,14 @@ export function MacAlertSheet({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--color-alert-overlay, rgba(0,0,0,0.20))',
+        background: 'var(--color-overlay-weak)',
         zIndex: 200,
         // Scale animation applied via CSS animation on the inner panel
       }}
     >
       {/* Alert panel */}
       <div
+        ref={panelRef}
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
@@ -80,7 +103,7 @@ export function MacAlertSheet({
           width: 300,
           background: 'var(--color-bg-sheet, var(--color-bg-modal))',
           borderRadius: 12,
-          boxShadow: 'var(--shadow-sheet, 0 24px 80px rgba(0,0,0,0.32), 0 8px 24px rgba(0,0,0,0.18))',
+          boxShadow: 'var(--shadow-sheet)',
           padding: '20px 20px 16px',
           // Scale-in entrance
           animation: 'mac-alert-in 150ms ease-out both',

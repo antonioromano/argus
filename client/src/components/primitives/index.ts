@@ -4,7 +4,7 @@ export { StatusPill } from './StatusPill.js';
 export { Badge } from './Badge.js';
 export { IconButton } from './IconButton.js';
 export { Button } from './Button.js';
-export { Modal } from './Modal.js';
+export { AlertSheet } from './AlertSheet.js';
 export { Skeleton } from './Skeleton.js';
 export { TriStateCheckbox } from './TriStateCheckbox.js';
 export { InlineIconLink } from './InlineIconLink.js';

@@ -50,14 +50,13 @@ import { ResizeDivider } from './ResizeDivider.js';
 import { EphemeralTerminal } from './EphemeralTerminal.js';
 import { Tooltip } from './primitives/Tooltip.js';
 import { InlineIconLink } from './primitives/InlineIconLink.js';
-import { MacAlertSheet } from './mac/MacAlertSheet.js';
 import { useResizablePanel } from '../hooks/useResizablePanel.js';
+import { showNativeMessageBox } from '../utils/nativeDialog.js';
 import { api } from '../services/api.js';
 import { VirtualFileTree } from './explorer/VirtualFileTree.js';
 import { FileTreeRow } from './explorer/FileTreeRow.js';
 import { ExplorerContextMenu, type ContextMenuAction } from './explorer/ExplorerContextMenu.js';
 import { InlineNameInput } from './explorer/InlineNameInput.js';
-import { ConfirmActionDialog } from './explorer/ConfirmActionDialog.js';
 import type { VirtualRow } from '../hooks/useVirtualTree.js';
 
 SyntaxHighlighter.registerLanguage('tsx', tsxLang);
@@ -91,8 +90,6 @@ SyntaxHighlighter.registerLanguage('docker', dockerLang);
 SyntaxHighlighter.registerLanguage('makefile', makefileLang);
 
 const NARROW_BREAKPOINT = 520;
-
-const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -197,9 +194,6 @@ export function ExplorerPanel({
   const [editContent, setEditContent] = useState('');
   const [originalMtimeMs, setOriginalMtimeMs] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
-  const [showConflictModal, setShowConflictModal] = useState(false);
-  const pendingNavRef = useRef<(() => void) | null>(null);
 
   // ── Toast ────────────────────────────────────────────────────────────────────
   const [toastVisible, setToastVisible] = useState(false);
@@ -225,9 +219,6 @@ export function ExplorerPanel({
   const [inlineCreate, setInlineCreate] = useState<{ parentPath: string; isDir: boolean } | null>(null);
   const [inlineRename, setInlineRename] = useState<{ entry: DirectoryEntry } | null>(null);
 
-  // ── Confirm dialogs ───────────────────────────────────────────────────────────
-  const [confirmDelete, setConfirmDelete] = useState<{ entry: DirectoryEntry } | null>(null);
-  const [confirmRevert, setConfirmRevert] = useState<{ entry: DirectoryEntry } | null>(null);
 
   // ── Layout refs & state ───────────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
@@ -379,13 +370,19 @@ export function ExplorerPanel({
     onSelectSession?.(id);
   }, [onSelectSession]);
 
-  const handleSessionSelect = useCallback((id: string) => {
+  const handleSessionSelect = useCallback(async (id: string) => {
     if (isEditMode && editContent !== fileContent?.content) {
-      pendingNavRef.current = () => doSessionSelect(id);
-      setShowUnsavedModal(true);
-    } else {
-      doSessionSelect(id);
+      const idx = await showNativeMessageBox({
+        type: 'warning',
+        message: 'Unsaved changes',
+        detail: 'You have unsaved changes. Discard them?',
+        buttons: ['Keep editing', 'Discard'],
+        cancelId: 0,
+        defaultId: 0,
+      });
+      if (idx === 0) return;
     }
+    doSessionSelect(id);
   }, [isEditMode, editContent, fileContent, doSessionSelect]);
 
   // ── File select helpers ───────────────────────────────────────────────────────
@@ -406,6 +403,10 @@ export function ExplorerPanel({
       if (fetchIdRef.current === id) {
         setFileContent(content);
         setOriginalMtimeMs(content.mtimeMs);
+        // IDE-style: open editable files directly in edit mode.
+        // Binary / oversized (truncated) files fall back to preview.
+        setEditContent(content.content);
+        setIsEditMode(!content.truncated);
       }
     } catch (err) {
       if (fetchIdRef.current === id) {
@@ -416,13 +417,21 @@ export function ExplorerPanel({
     }
   }, [isNarrow]);
 
-  const handleFileSelect = useCallback((filePath: string, ext: string) => {
+  const handleFileSelect = useCallback(async (filePath: string, ext: string) => {
     if (isEditMode && editContent !== fileContent?.content) {
-      pendingNavRef.current = () => doFileSelect(filePath, ext);
-      setShowUnsavedModal(true);
-    } else {
-      doFileSelect(filePath, ext);
+      const idx = await showNativeMessageBox({
+        type: 'warning',
+        message: 'Unsaved changes',
+        detail: 'You have unsaved changes. Discard them?',
+        buttons: ['Keep editing', 'Discard'],
+        cancelId: 0,
+        defaultId: 0,
+      });
+      if (idx === 0) return;
+      setIsEditMode(false);
+      setEditContent('');
     }
+    doFileSelect(filePath, ext);
   }, [isEditMode, editContent, fileContent, doFileSelect]);
 
   // ── Clipboard helpers ─────────────────────────────────────────────────────────
@@ -455,18 +464,21 @@ export function ExplorerPanel({
     setIsEditMode(true);
   }, [fileContent]);
 
-  const handleCancelEdit = useCallback(() => {
+  const handleCancelEdit = useCallback(async () => {
     const isDirty = editContent !== fileContent?.content;
     if (isDirty) {
-      pendingNavRef.current = () => {
-        setIsEditMode(false);
-        setEditContent('');
-      };
-      setShowUnsavedModal(true);
-    } else {
-      setIsEditMode(false);
-      setEditContent('');
+      const idx = await showNativeMessageBox({
+        type: 'warning',
+        message: 'Unsaved changes',
+        detail: 'You have unsaved changes. Discard them?',
+        buttons: ['Keep editing', 'Discard'],
+        cancelId: 0,
+        defaultId: 0,
+      });
+      if (idx === 0) return;
     }
+    setIsEditMode(false);
+    setEditContent('');
   }, [editContent, fileContent]);
 
   const handleSave = useCallback(async (overwrite = false) => {
@@ -480,7 +492,16 @@ export function ExplorerPanel({
         originalMtimeMs: overwrite ? undefined : (originalMtimeMs ?? undefined),
       });
       if (result.conflict) {
-        setShowConflictModal(true);
+        const idx = await showNativeMessageBox({
+          type: 'warning',
+          message: 'File modified externally',
+          detail: 'This file was changed since you started editing. What would you like to do?',
+          buttons: ['Cancel', 'Reload file', 'Overwrite'],
+          cancelId: 0,
+          defaultId: 0,
+        });
+        if (idx === 1 && selectedFilePath) doFileSelect(selectedFilePath, selectedExt);
+        else if (idx === 2) handleSave(true);
         return;
       }
       if (!result.success) {
@@ -523,6 +544,66 @@ export function ExplorerPanel({
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [isEditMode, editContent, fileContent]);
+
+  // ── Delete (direct async — no React state needed) ────────────────────────────
+  const executeDelete = useCallback(async (entry: DirectoryEntry) => {
+    const session = sessions.find(s => s.id === selectedSessionId);
+    if (!session) return;
+    try {
+      const result = await api.deleteFile(session.id, entry.path);
+      if (!result.success) { showToast(result.error ?? 'Failed to delete', 'error'); return; }
+      if (selectedFilePath === entry.path) {
+        setSelectedFilePath(null);
+        setFileContent(null);
+        setFileError(null);
+      }
+      setTreeKey(k => k + 1);
+      refreshGitStatus();
+    } catch {
+      showToast('Failed to delete', 'error');
+    }
+  }, [sessions, selectedSessionId, selectedFilePath, showToast, refreshGitStatus]);
+
+  const handleDeleteRequest = useCallback(async (entry: DirectoryEntry) => {
+    const idx = await showNativeMessageBox({
+      type: 'warning',
+      message: `Delete ${entry.isFile ? 'file' : 'folder'}`,
+      detail: `Are you sure you want to delete "${entry.name}"? This cannot be undone.`,
+      buttons: ['Cancel', 'Delete'],
+      cancelId: 0,
+      defaultId: 0,
+    });
+    if (idx === 1) await executeDelete(entry);
+  }, [executeDelete]);
+
+  // ── Revert (direct async) ─────────────────────────────────────────────────────
+  const executeRevert = useCallback(async (entry: DirectoryEntry) => {
+    const session = sessions.find(s => s.id === selectedSessionId);
+    if (!session) return;
+    const relPath = entry.path.startsWith(session.folderPath + '/')
+      ? entry.path.slice(session.folderPath.length + 1)
+      : entry.path;
+    try {
+      const result = await api.revertFileToHead(session.id, relPath);
+      if (!result.success) { showToast(result.error ?? 'Failed to revert', 'error'); return; }
+      if (selectedFilePath === entry.path) doFileSelect(entry.path, selectedExt);
+      refreshGitStatus();
+    } catch {
+      showToast('Failed to revert', 'error');
+    }
+  }, [sessions, selectedSessionId, selectedFilePath, selectedExt, doFileSelect, showToast, refreshGitStatus]);
+
+  const handleRevertRequest = useCallback(async (entry: DirectoryEntry) => {
+    const idx = await showNativeMessageBox({
+      type: 'warning',
+      message: 'Revert to HEAD',
+      detail: `Discard all local changes to "${entry.name}" and restore the last committed version?`,
+      buttons: ['Cancel', 'Revert'],
+      cancelId: 0,
+      defaultId: 0,
+    });
+    if (idx === 1) await executeRevert(entry);
+  }, [executeRevert]);
 
   // ── Context menu action handler ───────────────────────────────────────────────
   const handleContextAction = useCallback(async (action: ContextMenuAction) => {
@@ -580,9 +661,7 @@ export function ExplorerPanel({
         break;
 
       case 'delete':
-        if (contextEntry) {
-          setConfirmDelete({ entry: contextEntry });
-        }
+        if (contextEntry) await handleDeleteRequest(contextEntry);
         break;
 
       case 'show-diff':
@@ -625,9 +704,7 @@ export function ExplorerPanel({
         break;
 
       case 'revert-to-head':
-        if (contextEntry) {
-          setConfirmRevert({ entry: contextEntry });
-        }
+        if (contextEntry) await handleRevertRequest(contextEntry);
         break;
 
       case 'add-to-gitignore':
@@ -641,7 +718,7 @@ export function ExplorerPanel({
         }
         break;
     }
-  }, [sessions, selectedSessionId, contextMenu, handleFileSelect, handleOpenPath, onOpenInDiff, refreshGitStatus, showToast]);
+  }, [sessions, selectedSessionId, contextMenu, handleFileSelect, handleOpenPath, onOpenInDiff, refreshGitStatus, showToast, handleDeleteRequest, handleRevertRequest]);
 
   // ── Inline create confirm ─────────────────────────────────────────────────────
   const handleInlineCreateConfirm = useCallback(async (name: string) => {
@@ -688,53 +765,6 @@ export function ExplorerPanel({
       showToast('Failed to rename', 'error');
     }
   }, [sessions, selectedSessionId, inlineRename, showToast, refreshGitStatus, selectedFilePath]);
-
-  // ── Delete confirm ────────────────────────────────────────────────────────────
-  const handleDeleteConfirm = useCallback(async () => {
-    const session = sessions.find(s => s.id === selectedSessionId);
-    if (!session || !confirmDelete) return;
-    try {
-      const result = await api.deleteFile(session.id, confirmDelete.entry.path);
-      if (!result.success) {
-        showToast(result.error ?? 'Failed to delete', 'error');
-        return;
-      }
-      if (selectedFilePath === confirmDelete.entry.path) {
-        setSelectedFilePath(null);
-        setFileContent(null);
-        setFileError(null);
-      }
-      setConfirmDelete(null);
-      setTreeKey(k => k + 1);
-      refreshGitStatus();
-    } catch {
-      showToast('Failed to delete', 'error');
-    }
-  }, [sessions, selectedSessionId, confirmDelete, selectedFilePath, showToast, refreshGitStatus]);
-
-  // ── Revert confirm ────────────────────────────────────────────────────────────
-  const handleRevertConfirm = useCallback(async () => {
-    const session = sessions.find(s => s.id === selectedSessionId);
-    if (!session || !confirmRevert) return;
-    const relPath = confirmRevert.entry.path.startsWith(session.folderPath + '/')
-      ? confirmRevert.entry.path.slice(session.folderPath.length + 1)
-      : confirmRevert.entry.path;
-    try {
-      const result = await api.revertFileToHead(session.id, relPath);
-      if (!result.success) {
-        showToast(result.error ?? 'Failed to revert', 'error');
-        return;
-      }
-      setConfirmRevert(null);
-      // Reload file content if it was being previewed
-      if (selectedFilePath === confirmRevert.entry.path) {
-        doFileSelect(confirmRevert.entry.path, selectedExt);
-      }
-      refreshGitStatus();
-    } catch {
-      showToast('Failed to revert', 'error');
-    }
-  }, [sessions, selectedSessionId, confirmRevert, selectedFilePath, selectedExt, doFileSelect, showToast, refreshGitStatus]);
 
   // ── Derived values ────────────────────────────────────────────────────────────
   const selectedSession = sessions.find(s => s.id === selectedSessionId);
@@ -1432,6 +1462,8 @@ export function ExplorerPanel({
             showIgnored={showIgnored}
             selectedFilePath={selectedFilePath}
             onFileSelect={handleFileSelect}
+            onRenameRequest={(entry) => setInlineRename({ entry })}
+            onDeleteRequest={handleDeleteRequest}
             renderRow={renderRow}
           />
         </>
@@ -1599,6 +1631,8 @@ export function ExplorerPanel({
                       showIgnored={showIgnored}
                       selectedFilePath={selectedFilePath}
                       onFileSelect={handleFileSelect}
+                      onRenameRequest={(entry) => setInlineRename({ entry })}
+                      onDeleteRequest={handleDeleteRequest}
                       renderRow={renderRow}
                     />
                   </>
@@ -1665,198 +1699,6 @@ export function ExplorerPanel({
         </>
       )}
 
-      {/* ── Unsaved changes modal (UNCHANGED from original) ── */}
-      {isElectron ? (
-        <MacAlertSheet
-          isOpen={showUnsavedModal}
-          title="Unsaved changes"
-          message="You have unsaved changes. Discard them?"
-          confirmLabel="Discard"
-          confirmDestructive
-          onConfirm={() => {
-            setShowUnsavedModal(false);
-            pendingNavRef.current?.();
-            pendingNavRef.current = null;
-          }}
-          onCancel={() => setShowUnsavedModal(false)}
-        />
-      ) : showUnsavedModal && (
-        <div
-          onClick={() => setShowUnsavedModal(false)}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(12,13,24,0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 10000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--color-bg-header)',
-              border: '1px solid var(--color-border-base)',
-              borderRadius: 'var(--radius-xl)',
-              padding: '24px',
-              maxWidth: '360px',
-              width: '90vw',
-              boxShadow: 'var(--shadow-float)',
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: '8px', color: 'var(--color-text-primary)' }}>
-              Unsaved changes
-            </div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: '20px' }}>
-              You have unsaved changes. Discard them?
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowUnsavedModal(false)}
-                style={{
-                  padding: '6px 14px', borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--color-border-base)',
-                  background: 'none', cursor: 'pointer',
-                  fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)',
-                }}
-              >
-                Keep editing
-              </button>
-              <button
-                onClick={() => {
-                  setShowUnsavedModal(false);
-                  pendingNavRef.current?.();
-                  pendingNavRef.current = null;
-                }}
-                style={{
-                  padding: '6px 14px', borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: 'var(--color-status-error, #f7768e)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--text-sm)', fontWeight: 600,
-                  color: '#fff',
-                }}
-              >
-                Discard
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Conflict modal (UNCHANGED from original) ── */}
-      {isElectron ? (
-        <MacAlertSheet
-          isOpen={showConflictModal}
-          title="File modified externally"
-          message="This file was changed since you started editing. What would you like to do?"
-          confirmLabel="Overwrite"
-          confirmDestructive
-          altAction={{
-            label: 'Reload file',
-            onClick: () => { if (selectedFilePath) doFileSelect(selectedFilePath, selectedExt); },
-          }}
-          onConfirm={() => { setShowConflictModal(false); handleSave(true); }}
-          onCancel={() => setShowConflictModal(false)}
-        />
-      ) : showConflictModal && (
-        <div
-          onClick={() => setShowConflictModal(false)}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(12,13,24,0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 10000,
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--color-bg-header)',
-              border: '1px solid var(--color-border-base)',
-              borderRadius: 'var(--radius-xl)',
-              padding: '24px',
-              maxWidth: '400px',
-              width: '90vw',
-              boxShadow: 'var(--shadow-float)',
-            }}
-          >
-            <div style={{ fontWeight: 600, fontSize: 'var(--text-md)', marginBottom: '8px', color: 'var(--color-text-primary)' }}>
-              File modified externally
-            </div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)', marginBottom: '20px' }}>
-              This file was changed since you started editing. What would you like to do?
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => setShowConflictModal(false)}
-                style={{
-                  padding: '6px 14px', borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--color-border-base)',
-                  background: 'none', cursor: 'pointer',
-                  fontSize: 'var(--text-sm)', color: 'var(--color-text-secondary)',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setShowConflictModal(false);
-                  if (selectedFilePath) doFileSelect(selectedFilePath, selectedExt);
-                }}
-                style={{
-                  padding: '6px 14px', borderRadius: 'var(--radius-sm)',
-                  border: '1px solid var(--color-border-base)',
-                  background: 'none', cursor: 'pointer',
-                  fontSize: 'var(--text-sm)', color: 'var(--color-text-primary)',
-                }}
-              >
-                Reload file
-              </button>
-              <button
-                onClick={() => {
-                  setShowConflictModal(false);
-                  handleSave(true);
-                }}
-                style={{
-                  padding: '6px 14px', borderRadius: 'var(--radius-sm)',
-                  border: 'none',
-                  background: 'var(--color-status-error, #f7768e)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--text-sm)', fontWeight: 600,
-                  color: '#fff',
-                }}
-              >
-                Overwrite
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Delete confirmation dialog ── */}
-      {confirmDelete && (
-        <ConfirmActionDialog
-          title={`Delete ${confirmDelete.entry.isFile ? 'file' : 'folder'}`}
-          description={`Are you sure you want to delete "${confirmDelete.entry.name}"? This cannot be undone.`}
-          confirmLabel="Delete"
-          isDestructive
-          onConfirm={handleDeleteConfirm}
-          onCancel={() => setConfirmDelete(null)}
-        />
-      )}
-
-      {/* ── Revert confirmation dialog ── */}
-      {confirmRevert && (
-        <ConfirmActionDialog
-          title="Revert to HEAD"
-          description={`Discard all local changes to "${confirmRevert.entry.name}" and restore the last committed version?`}
-          confirmLabel="Revert"
-          isDestructive
-          onConfirm={handleRevertConfirm}
-          onCancel={() => setConfirmRevert(null)}
-        />
-      )}
 
       {/* ── Toast ── */}
       {toastVisible && (

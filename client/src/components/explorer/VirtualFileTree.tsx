@@ -1,7 +1,8 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useVirtualTree, type VirtualRow } from '../../hooks/useVirtualTree.js';
 import type { GitFileStatusCode } from '@argus/shared';
+import type { DirectoryEntry } from '@argus/shared';
 
 interface VirtualFileTreeProps {
   rootPath: string;
@@ -11,6 +12,8 @@ interface VirtualFileTreeProps {
   showIgnored?: boolean;
   selectedFilePath: string | null;
   onFileSelect: (path: string, ext: string) => void;
+  onRenameRequest?: (entry: DirectoryEntry) => void;
+  onDeleteRequest?: (entry: DirectoryEntry) => void;
   renderRow: (
     row: VirtualRow,
     isSelected: boolean,
@@ -25,7 +28,9 @@ export function VirtualFileTree({
   showUntracked,
   showIgnored,
   selectedFilePath,
-  onFileSelect: _onFileSelect,
+  onFileSelect,
+  onRenameRequest,
+  onDeleteRequest,
   renderRow,
 }: VirtualFileTreeProps) {
   const { rows, isLoading, toggleExpand } = useVirtualTree({
@@ -45,6 +50,62 @@ export function VirtualFileTree({
     estimateSize: () => 22,
     overscan: 10,
   });
+
+  // Keyboard cursor index (independent of "open file" selectedFilePath)
+  const [kbFocusIdx, setKbFocusIdx] = useState(-1);
+
+  // Sync keyboard cursor when selectedFilePath changes (e.g. click, programmatic)
+  useEffect(() => {
+    if (selectedFilePath) {
+      const idx = rows.findIndex(r => r.entry.path === selectedFilePath);
+      if (idx >= 0) setKbFocusIdx(idx);
+    }
+  }, [selectedFilePath, rows]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (rows.length === 0) return;
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        const next = kbFocusIdx < rows.length - 1 ? kbFocusIdx + 1 : (kbFocusIdx < 0 ? 0 : kbFocusIdx);
+        setKbFocusIdx(next);
+        virtualizer.scrollToIndex(next, { align: 'auto' });
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        if (kbFocusIdx <= 0) break;
+        setKbFocusIdx(kbFocusIdx - 1);
+        virtualizer.scrollToIndex(kbFocusIdx - 1, { align: 'auto' });
+        break;
+      }
+      case 'Enter': {
+        e.preventDefault();
+        const idx = kbFocusIdx >= 0 ? kbFocusIdx : rows.findIndex(r => r.entry.path === selectedFilePath);
+        if (idx < 0 || idx >= rows.length) break;
+        const row = rows[idx];
+        if (row.entry.isFile) {
+          onFileSelect(row.entry.path, row.entry.ext);
+        } else {
+          void toggleExpand(row.entry.path);
+        }
+        break;
+      }
+      case 'F2': {
+        e.preventDefault();
+        const idx = kbFocusIdx >= 0 ? kbFocusIdx : rows.findIndex(r => r.entry.path === selectedFilePath);
+        if (idx >= 0 && idx < rows.length) onRenameRequest?.(rows[idx].entry);
+        break;
+      }
+      case 'Delete':
+      case 'Backspace': {
+        e.preventDefault();
+        const idx = kbFocusIdx >= 0 ? kbFocusIdx : rows.findIndex(r => r.entry.path === selectedFilePath);
+        if (idx >= 0 && idx < rows.length) onDeleteRequest?.(rows[idx].entry);
+        break;
+      }
+    }
+  };
 
   if (isLoading) {
     return (
@@ -90,13 +151,16 @@ export function VirtualFileTree({
   return (
     <div
       ref={parentRef}
-      style={{ overflow: 'auto', height: '100%', position: 'relative' }}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      style={{ overflow: 'auto', height: '100%', position: 'relative', outline: 'none' }}
     >
       {/* Spacer that gives the virtualizer its total scroll height */}
       <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
         {virtualizer.getVirtualItems().map(virtualItem => {
           const row = rows[virtualItem.index];
           const isSelected = selectedFilePath === row.entry.path;
+          const isKbFocused = kbFocusIdx === virtualItem.index;
           return (
             <div
               key={virtualItem.key}
@@ -108,6 +172,8 @@ export function VirtualFileTree({
                 width: '100%',
                 height: `${virtualItem.size}px`,
                 transform: `translateY(${virtualItem.start}px)`,
+                outline: isKbFocused && !isSelected ? '1px solid var(--color-accent, #4a90e2)' : 'none',
+                outlineOffset: '-1px',
               }}
             >
               {renderRow(row, isSelected, toggleExpand)}

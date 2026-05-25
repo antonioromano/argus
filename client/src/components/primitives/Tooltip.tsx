@@ -12,7 +12,7 @@ interface TooltipProps {
     [key: string]: unknown;
   }>;
   position?: 'top' | 'bottom' | 'left' | 'right';
-  /** Show delay in ms. Default: 600 */
+  /** Show delay in ms. Default: 1200 (matches macOS HIToolTip cadence). */
   delay?: number;
 }
 
@@ -62,7 +62,7 @@ function getCoords(rect: DOMRect, position: string): Coords {
   }
 }
 
-export function Tooltip({ content, children, position = 'top', delay = 600 }: TooltipProps) {
+export function Tooltip({ content, children, position = 'top', delay = 1200 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,7 +112,7 @@ export function Tooltip({ content, children, position = 'top', delay = 600 }: To
         background: 'var(--color-bg-elevated)',
         color: 'var(--color-text-primary)',
         border: '1px solid var(--color-border-base)',
-        borderRadius: 'var(--radius-sm)',
+        borderRadius: 'var(--radius-md)',
         padding: '4px 8px',
         fontSize: 'var(--text-sm)',
         fontWeight: 400,

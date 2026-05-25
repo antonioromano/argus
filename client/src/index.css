@@ -35,9 +35,10 @@ body {
   height: calc(100dvh - env(safe-area-inset-top, 0px));
 }
 
+/* Overlay scrollbar — visible only on hover (mimics native macOS) */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -45,12 +46,26 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 120ms ease;
+}
+
+*:hover > ::-webkit-scrollbar-thumb,
+:hover::-webkit-scrollbar-thumb {
   background: var(--color-surface-highest);
-  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-bright);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: var(--color-surface-highest) transparent;
 }
 
 /* xterm.js viewport scrollbar — more visible than the global 5px default */
@@ -88,6 +103,15 @@ body {
 
 .terminal-panel:focus-within::after {
   opacity: 0;
+}
+
+/* Bell flash — wired from useTerminal.ts onBell. */
+.terminal-bell-flash {
+  animation: terminal-bell-flash 0.2s ease-out;
+}
+@keyframes terminal-bell-flash {
+  0%   { background: var(--color-accent-subtle); }
+  100% { background: transparent; }
 }
 
 /* Mobile bottom nav — hidden on desktop */

@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import { isMac, isPrimaryModifier } from '../utils/platform.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -80,12 +81,23 @@ export function useTerminal(
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
       scrollback: 5000,
       scrollSensitivity: 3,
       fastScrollSensitivity: 10,
+      macOptionIsMeta: isMac,
+    });
+
+    // Visual bell — xterm v5 removed bellStyle, so wire it manually via onBell.
+    terminal.onBell(() => {
+      const el = container as HTMLElement;
+      el.classList.remove('terminal-bell-flash');
+      // Force reflow to retrigger the animation.
+      void el.offsetWidth;
+      el.classList.add('terminal-bell-flash');
+      window.setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
     });
 
     terminal.loadAddon(fitAddon);
@@ -145,10 +157,9 @@ export function useTerminal(
         return false;
       }
 
-      // Cmd+K/L (Mac) or Ctrl+K/L (non-Mac) clears the terminal
-      const isMac = navigator.platform.toUpperCase().includes('MAC');
-      const modifier = isMac ? event.metaKey : event.ctrlKey;
-      if (modifier && (event.key === 'k' || event.key === 'K' || event.key === 'l' || event.key === 'L')) {
+      // Cmd+L (Mac) or Ctrl+L (others) clears the terminal — matches Terminal.app convention.
+      // Cmd+K is reserved for the global Command Palette (see App.tsx).
+      if (isPrimaryModifier(event) && (event.key === 'l' || event.key === 'L')) {
         if (event.type === 'keydown') {
           terminal.clear();
           socket.emit('session:clear-buffer', sessionId);

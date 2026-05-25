@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Argus is a web-based dashboard for managing multiple Claude Code CLI sessions simultaneously. It spawns `claude` processes via pseudo-terminals (node-pty), streams their I/O through Socket.io to a React frontend with xterm.js terminals, and detects session state (running/waiting/idle/exited) by analyzing terminal output.
+Argus is an **Electron desktop app** for managing multiple Claude Code CLI sessions on macOS. It spawns `claude` processes via pseudo-terminals (node-pty), streams their I/O through Socket.io to a React frontend with xterm.js terminals, and detects session state (running/waiting/idle/exited) by analyzing terminal output. A mobile companion (`/mobile` route) is reachable from a phone browser via ngrok tunnel.
 
 ## Commands
 
@@ -12,23 +12,20 @@ Argus is a web-based dashboard for managing multiple Claude Code CLI sessions si
 # Install dependencies (monorepo-wide)
 npm install
 
-# Run both server and client in dev mode (concurrent)
+# Run the Electron app in dev mode (builds all workspaces, then launches Electron)
 npm run dev
 
-# Run only the server (Express + Socket.io on port 5400)
-npm run dev -w server
+# Package a signed macOS .dmg
+npm run package:mac
 
-# Run only the client (Vite on port 5402)
-npm run dev -w client
-
-# Build
-npm run build -w shared   # Build shared types first
-npm run build -w server   # Then server
-npm run build -w client   # Then client
+# Build all workspaces (shared → server → client → electron)
+npm run build:all
 
 # Lint (client only)
 npm run lint -w client
 ```
+
+The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) still exists for fast hot-reload iteration on UI changes, but Electron is the only supported client surface. The browser `<header>` and `window.confirm` fallback have been removed.
 
 ## Architecture
 

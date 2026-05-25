@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   DndContext,
   useDraggable,
@@ -67,18 +67,18 @@ function DraggableFileRow({ fileKey, status, isSelected, isUnstagedOnly, onSelec
         display: 'flex', alignItems: 'center', gap: '6px',
         padding: '2px 8px 2px 24px',
         cursor: isDragging ? 'grabbing' : 'pointer',
-        background: isSelected ? 'var(--color-selection-bg, rgba(255,255,255,0.08))' : 'transparent',
+        background: isSelected ? 'var(--color-accent, #4a90e2)' : 'transparent',
         fontSize: '12px',
         opacity: isDragging ? 0.5 : 1,
         userSelect: 'none',
       }}
     >
       <StatusBadge status={status} />
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: isSelected ? '#fff' : undefined, fontWeight: isSelected ? 500 : undefined }}>
         {filename}
       </span>
       {parentPath && (
-        <span style={{ color: 'var(--color-text-muted)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0, maxWidth: '120px' }}>
+        <span style={{ color: isSelected ? 'rgba(255,255,255,0.7)' : 'var(--color-text-muted)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0, maxWidth: '120px' }}>
           {parentPath}
         </span>
       )}
@@ -166,38 +166,57 @@ export function ChangelistFileList({
     ? changedFilePaths
     : changedFilePaths.filter(fp => gitStatuses[fp] !== '?');
 
-  if (visibleFilePaths.length === 0) return null;
-
   // Build a set of all file keys already explicitly assigned to a non-default list
-  const assignedToNonDefault = new Set<string>();
-  for (const list of changelists.lists) {
-    if (!list.isDefault) {
-      for (const fk of list.fileKeys) assignedToNonDefault.add(fk);
+  const assignedToNonDefault = useMemo(() => {
+    const s = new Set<string>();
+    for (const list of changelists.lists) {
+      if (!list.isDefault) for (const fk of list.fileKeys) s.add(fk);
     }
-  }
+    return s;
+  }, [changelists.lists]);
 
-  // Determine which files belong to each list:
-  // - Non-default lists: only the files in their fileKeys (intersected with visible changed files)
-  // - Default list: all visible changed files NOT in any non-default list
-  function getFilesForList(list: ChangelistEntry): string[] {
-    if (list.isDefault) {
-      return visibleFilePaths.filter(fp => !assignedToNonDefault.has(fp));
-    }
+  const getFilesForList = useCallback((list: ChangelistEntry): string[] => {
+    if (list.isDefault) return visibleFilePaths.filter(fp => !assignedToNonDefault.has(fp));
     return list.fileKeys.filter(fk => visibleFilePaths.includes(fk));
-  }
+  }, [visibleFilePaths, assignedToNonDefault]);
 
-  function determineSource(filePath: string): 'unstaged' | 'staged' | 'branch' {
+  const determineSource = useCallback((filePath: string): 'unstaged' | 'staged' | 'branch' => {
     if (stagedFilePaths.has(filePath)) return 'staged';
     if (unstagedOnlyFilePaths.has(filePath)) return 'unstaged';
     return 'branch';
-  }
+  }, [stagedFilePaths, unstagedOnlyFilePaths]);
+
+  // Flat ordered list of visible file keys for keyboard navigation
+  const visibleItems = useMemo(() => {
+    const items: Array<{ fileKey: string; source: 'unstaged' | 'staged' | 'branch' }> = [];
+    for (const list of changelists.lists) {
+      if (collapsed[list.id]) continue;
+      for (const fk of getFilesForList(list)) {
+        items.push({ fileKey: fk, source: determineSource(fk) });
+      }
+    }
+    return items;
+  }, [changelists.lists, collapsed, getFilesForList, determineSource]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (visibleItems.length === 0) return;
+    const idx = visibleItems.findIndex(item => item.fileKey === selectedFilePath);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const next = idx < visibleItems.length - 1 ? idx + 1 : (idx < 0 ? 0 : idx);
+      if (next !== idx || idx < 0) onSelectFile(visibleItems[next < 0 ? 0 : next].fileKey, visibleItems[next < 0 ? 0 : next].source);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (idx > 0) onSelectFile(visibleItems[idx - 1].fileKey, visibleItems[idx - 1].source);
+    }
+  };
+
+  if (visibleFilePaths.length === 0) return null;
 
   function handleHeaderClick(list: ChangelistEntry) {
     if (list.id !== activeId) {
-      // Non-active header: set as active, don't toggle collapse
       onSetActive(list.id);
     } else {
-      // Already-active header: toggle collapse
       setCollapsed(prev => ({ ...prev, [list.id]: !prev[list.id] }));
     }
   }
@@ -205,26 +224,25 @@ export function ChangelistFileList({
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over) return;
-
     const fileKey = active.id as string;
     const targetListId = over.id as string;
-
-    // Verify the drop target is an actual changelist id
     const targetList = changelists.lists.find(l => l.id === targetListId);
     if (!targetList) return;
-
     onMoveFile(fileKey, targetListId);
   }
 
   return (
     <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+        style={{ display: 'flex', flexDirection: 'column', outline: 'none' }}
+      >
         {changelists.lists.map(list => {
           const filesInList = getFilesForList(list);
           const isActive = list.id === activeId;
           const isCollapsed = !!collapsed[list.id];
 
-          // Count staged and unstaged-only files in this list
           const stagedCount = filesInList.filter(fp => stagedFilePaths.has(fp)).length;
           const unstagedOnlyCount = filesInList.filter(fp => unstagedOnlyFilePaths.has(fp)).length;
 

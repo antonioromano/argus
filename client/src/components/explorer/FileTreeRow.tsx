@@ -75,7 +75,7 @@ export function FileTreeRow({
         paddingRight: '8px',
         cursor: 'pointer',
         background: isSelected
-          ? 'var(--color-selection-bg, rgba(255,255,255,0.08))'
+          ? 'var(--color-accent, #4a90e2)'
           : 'transparent',
         userSelect: 'none',
         fontSize: '12px',
@@ -123,7 +123,8 @@ export function FileTreeRow({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
-          color: 'var(--color-text)',
+          color: isSelected ? '#fff' : 'var(--color-text)',
+          fontWeight: isSelected ? 500 : 400,
         }}
       >
         {row.entry.name}

@@ -12,12 +12,7 @@ import { useGitDiff } from './hooks/useGitDiff.js';
 import { useNotifications } from './hooks/useNotifications.js';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import { Dashboard } from './components/Dashboard.js';
-import { CreateSessionModal } from './components/CreateSessionModal.js';
-import { CloneSessionModal } from './components/CloneSessionModal.js';
-import { NgrokModal } from './components/NgrokModal.js';
-import { UpdateModal } from './components/UpdateModal.js';
 import { MacUpdateSheet } from './components/mac/MacUpdateSheet.js';
-import { SettingsModal } from './components/SettingsModal.js';
 import { PasswordGate } from './components/PasswordGate.js';
 import { GitDiffPanel } from './components/GitDiffPanel.js';
 import { ExplorerPanel } from './components/ExplorerPanel.js';
@@ -28,11 +23,8 @@ import type { AppTab } from './components/NavTabs.js';
 import { MobileBottomNav } from './components/MobileBottomNav.js';
 import { SidebarSettingsMenu } from './components/SidebarSettingsMenu.js';
 import { api, setToken } from './services/api.js';
-import { WifiOff, Settings, Maximize2, Minimize2, Globe, ArrowUpCircle, Sun, Moon, Loader2, Terminal, GitBranch, FolderOpen } from 'lucide-react';
-
-// True when running inside the Electron desktop app.
-// Used to gate the macOS-native layout so browser users get the original UI.
-const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
+import { WifiOff, Loader2 } from 'lucide-react';
+import { isPrimaryModifier } from './utils/platform.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { useResizablePanel } from './hooks/useResizablePanel.js';
 import { ResizeDivider } from './components/ResizeDivider.js';
@@ -40,7 +32,7 @@ import { MacActivityBar } from './components/mac/MacActivityBar.js';
 import { MacSessionSidebar } from './components/mac/MacSessionSidebar.js';
 import { MacCreateSessionSheet } from './components/mac/MacCreateSessionSheet.js';
 import { MacCloneSessionSheet } from './components/mac/MacCloneSessionSheet.js';
-import { MacAlertSheet } from './components/mac/MacAlertSheet.js';
+import { showNativeMessageBox } from './utils/nativeDialog.js';
 import { MacPreferencesPanel } from './components/mac/MacPreferencesPanel.js';
 import { MacRemotePanel } from './components/mac/MacRemotePanel.js';
 import { MacUpdateBanner } from './components/mac/MacUpdateBanner.js';
@@ -159,8 +151,6 @@ function AppInner() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [cloneModalState, setCloneModalState] = useState<{ folderPath: string; agentType?: string } | null>(null);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [pendingRestartId, setPendingRestartId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('sessions');
   const socket = useSocket();
   const socketConnected = useSocketStatus();
@@ -346,17 +336,6 @@ function AppInner() {
     triggerRefit();
   }, [triggerRefit]);
 
-  // Cmd+K opens command palette
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === 'k') {
-        e.preventDefault();
-        setShowCommandPalette(p => !p);
-      }
-    };
-    document.addEventListener('keydown', handler, true);
-    return () => document.removeEventListener('keydown', handler, true);
-  }, []);
 
   // Escape key priority: command palette → diff fullscreen → diff close → explorer fullscreen → explorer close → exit focus
   useEffect(() => {
@@ -425,24 +404,46 @@ function AppInner() {
     await updateConfig({ agentFlags: { ...config.agentFlags, [agentId]: [...current, flag] } });
   }, [config, updateConfig]);
 
-  const handleDelete = useCallback((id: string) => {
-    setPendingDeleteId(id);
-  }, []);
+  const handleDelete = useCallback(async (id: string) => {
+    const idx = await showNativeMessageBox({
+      type: 'warning',
+      message: 'Close Session?',
+      detail: 'The Claude process will be terminated.',
+      buttons: ['Cancel', 'Close Session'],
+      cancelId: 0,
+      defaultId: 0,
+    });
+    if (idx !== 1) return;
+    if (focusedSessionId === id) {
+      const liveIds = new Set(sessions.filter(s => s.id !== id).map(s => s.id));
+      let previous: string | null = null;
+      while (focusHistoryRef.current.length > 0) {
+        const candidate = focusHistoryRef.current.pop()!;
+        if (liveIds.has(candidate)) { previous = candidate; break; }
+      }
+      setFocusedSessionId(previous);
+    } else {
+      focusHistoryRef.current = focusHistoryRef.current.filter(h => h !== id);
+    }
+    await deleteSession(id);
+  }, [focusedSessionId, sessions, deleteSession]);
 
-  const handleRestart = useCallback((id: string) => {
+  const handleRestart = useCallback(async (id: string) => {
     const session = sessions.find(s => s.id === id);
     if (!session || session.status === 'exited') {
       api.restartSession(id);
-    } else {
-      setPendingRestartId(id);
+      return;
     }
+    const idx = await showNativeMessageBox({
+      type: 'question',
+      message: 'Restart Session?',
+      detail: 'The running session will be terminated and restarted with the same configuration.',
+      buttons: ['Cancel', 'Restart'],
+      cancelId: 0,
+      defaultId: 0,
+    });
+    if (idx === 1) await api.restartSession(id);
   }, [sessions]);
-
-  const handleRestartConfirm = useCallback(async () => {
-    if (!pendingRestartId) return;
-    await api.restartSession(pendingRestartId);
-    setPendingRestartId(null);
-  }, [pendingRestartId]);
 
   // Stack of previously-focused session ids. When the focused session is closed,
   // we pop the most recent still-alive id instead of exiting focus mode.
@@ -480,26 +481,6 @@ function AppInner() {
       return changed ? next : prev;
     });
   }, [sessions, focusedSessionId]);
-
-  const handleDeleteConfirm = useCallback(async () => {
-    if (!pendingDeleteId) return;
-    if (focusedSessionId === pendingDeleteId) {
-      const liveIds = new Set(sessions.filter((s) => s.id !== pendingDeleteId).map((s) => s.id));
-      let previous: string | null = null;
-      while (focusHistoryRef.current.length > 0) {
-        const candidate = focusHistoryRef.current.pop()!;
-        if (liveIds.has(candidate)) {
-          previous = candidate;
-          break;
-        }
-      }
-      setFocusedSessionId(previous);
-    } else {
-      focusHistoryRef.current = focusHistoryRef.current.filter((h) => h !== pendingDeleteId);
-    }
-    await deleteSession(pendingDeleteId);
-    setPendingDeleteId(null);
-  }, [pendingDeleteId, focusedSessionId, sessions, deleteSession]);
 
   // On mobile, keep focus mode always active — auto-focus first session when none is focused
   useEffect(() => {
@@ -612,10 +593,127 @@ function AppInner() {
 
   useEffect(() => {
     document.title = waitingCount > 0 ? `(${waitingCount}) Argus` : 'Argus';
+    window.electronApp?.setBadge(waitingCount);
   }, [waitingCount]);
 
+  // Global keyboard shortcuts.
+  // The lists of sessions/handlers may change between renders, so we keep
+  // them in a ref to avoid re-binding the listener on every state update.
+  const shortcutCtxRef = useRef({
+    orderedSessions,
+    focusedSessionId,
+    handleNewSession,
+    handleDelete,
+    handleFocus,
+    toggleTheme,
+  });
+  shortcutCtxRef.current = {
+    orderedSessions,
+    focusedSessionId,
+    handleNewSession,
+    handleDelete,
+    handleFocus,
+    toggleTheme,
+  };
+
   useEffect(() => {
-    if (isElectron) document.documentElement.classList.add('is-electron');
+    const handler = (e: KeyboardEvent) => {
+      if (!isPrimaryModifier(e)) return;
+      const ctx = shortcutCtxRef.current;
+
+      // Cmd+K — toggle command palette
+      if (e.key === 'k' || e.key === 'K') {
+        if (e.shiftKey) return; // leave Cmd+Shift+K alone for browser devtools
+        e.preventDefault();
+        setShowCommandPalette(p => !p);
+        return;
+      }
+
+      // Cmd+N — new session
+      if ((e.key === 'n' || e.key === 'N') && !e.shiftKey) {
+        e.preventDefault();
+        void ctx.handleNewSession();
+        return;
+      }
+
+      // Cmd+W — close focused session (or unfocus if none)
+      if ((e.key === 'w' || e.key === 'W') && !e.shiftKey) {
+        e.preventDefault();
+        if (ctx.focusedSessionId) {
+          void ctx.handleDelete(ctx.focusedSessionId);
+        } else {
+          setFocusedSessionId(null);
+        }
+        return;
+      }
+
+      // Cmd+, — open settings
+      if (e.key === ',') {
+        e.preventDefault();
+        setShowSettingsModal(true);
+        return;
+      }
+
+      // Cmd+Shift+L — toggle theme
+      if ((e.key === 'l' || e.key === 'L') && e.shiftKey) {
+        e.preventDefault();
+        ctx.toggleTheme();
+        return;
+      }
+
+      // Cmd+1..9 — jump to session N (1-indexed)
+      if (!e.shiftKey && e.key >= '1' && e.key <= '9') {
+        const idx = parseInt(e.key, 10) - 1;
+        const target = ctx.orderedSessions[idx];
+        if (target) {
+          e.preventDefault();
+          ctx.handleFocus(target.id);
+        }
+        return;
+      }
+
+      // Cmd+Shift+[ / Cmd+Shift+] — cycle prev/next session
+      if (e.shiftKey && (e.key === '[' || e.key === ']' || e.key === '{' || e.key === '}')) {
+        const list = ctx.orderedSessions;
+        if (list.length === 0) return;
+        const currentIdx = ctx.focusedSessionId
+          ? list.findIndex(s => s.id === ctx.focusedSessionId)
+          : -1;
+        const direction = e.key === '[' || e.key === '{' ? -1 : 1;
+        const nextIdx = currentIdx < 0
+          ? (direction > 0 ? 0 : list.length - 1)
+          : (currentIdx + direction + list.length) % list.length;
+        const target = list[nextIdx];
+        if (target) {
+          e.preventDefault();
+          ctx.handleFocus(target.id);
+        }
+      }
+    };
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, []);
+
+  // Native menu bar → renderer bridges. Subscribe once; the preload's contextBridge
+  // returns an unsubscribe function from each onMenu call.
+  useEffect(() => {
+    const bridge = window.electronApp;
+    if (!bridge) return;
+    const ctx = shortcutCtxRef;
+    const offs = [
+      bridge.onMenu('menu:new-session', () => { void ctx.current.handleNewSession(); }),
+      bridge.onMenu('menu:close-session', () => {
+        if (ctx.current.focusedSessionId) void ctx.current.handleDelete(ctx.current.focusedSessionId);
+      }),
+      bridge.onMenu('menu:open-settings', () => setShowSettingsModal(true)),
+      bridge.onMenu('menu:toggle-palette', () => setShowCommandPalette(p => !p)),
+      bridge.onMenu('menu:toggle-theme', () => ctx.current.toggleTheme()),
+    ];
+    return () => { offs.forEach(off => off()); };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.add('is-electron');
     return () => { document.documentElement.classList.remove('is-electron'); };
   }, []);
 
@@ -634,13 +732,6 @@ function AppInner() {
       link.setAttribute('href', href);
     }
   }, [sessions]);
-
-  const ngrokBorderColor = ngrok.status?.tunnelStatus === 'connected'
-    ? 'var(--color-success)'
-    : 'var(--color-border-subtle)';
-  const ngrokColor = ngrok.status?.tunnelStatus === 'connected'
-    ? 'var(--color-success)'
-    : 'var(--color-text-secondary)';
 
   if (isStyleguide) {
     return (
@@ -679,183 +770,19 @@ function AppInner() {
     <>
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
-      {/* Toolbar: macOS-native in Electron, browser header otherwise */}
-      {isElectron ? (
-        <ElectronToolbar
-          onNewSession={handleNewSession}
-          onOpenSettings={() => setShowSettingsModal(true)}
-          onToggleTheme={toggleTheme}
-          onOpenRemote={() => setShowNgrokModal(true)}
-          isDark={isDark}
-          ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
-          updateAvailable={updateStatus?.hasUpdate && !dismissedUpdate}
-          updateVersion={updateStatus?.latestVersion ?? undefined}
-          onOpenUpdate={() => setShowUpdateModal(true)}
-        />
-      ) : !focusedSessionId && (
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            height: 'var(--header-height)',
-            padding: '0 var(--space-4)',
-            paddingLeft: isElectron ? '80px' : 'var(--space-4)',
-            paddingTop: 'env(safe-area-inset-top, 0px)',
-            background: 'var(--color-bg-deepest)',
-            borderBottom: 'none',
-            gap: 'var(--space-1)',
-            flexShrink: 0,
-            ...(isElectron ? { WebkitAppRegion: 'drag' } as React.CSSProperties : {}),
-          }}
-        >
-          {/* Brand */}
-          <span style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--color-text-primary)', marginRight: 'var(--space-3)', ...(isElectron ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties : {}) }}>
-            Argus
-          </span>
+      <ElectronToolbar
+        onNewSession={handleNewSession}
+        onOpenSettings={() => setShowSettingsModal(true)}
+        onToggleTheme={toggleTheme}
+        onOpenRemote={() => setShowNgrokModal(true)}
+        isDark={isDark}
+        ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
+        updateAvailable={updateStatus?.hasUpdate && !dismissedUpdate}
+        updateVersion={updateStatus?.latestVersion ?? undefined}
+        onOpenUpdate={() => setShowUpdateModal(true)}
+      />
 
-          {/* Inline tab buttons — browser only (Electron uses ActivityBar) */}
-          {!isElectron && ([
-            { id: 'sessions' as AppTab, label: 'Terminal Sessions', icon: Terminal },
-            { id: 'git-diff' as AppTab, label: 'Git Diff', icon: GitBranch },
-            { id: 'explorer' as AppTab, label: 'Explorer', icon: FolderOpen },
-          ]).map((tab) => {
-            const isActive = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setActiveTab(tab.id)}
-                className={!isActive ? 'hover-bg-surface' : ''}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '0 12px',
-                  height: '32px',
-                  border: 'none',
-                  borderBottom: isActive ? '2px solid var(--color-accent)' : '2px solid transparent',
-                  background: isActive ? 'var(--color-surface-highest)' : 'transparent',
-                  color: isActive ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--text-base)',
-                  fontWeight: isActive ? 600 : 400,
-                  fontFamily: 'var(--font-sans)',
-                  transition: 'background var(--transition-fast), color var(--transition-fast)',
-                  borderRadius: 'var(--radius-sm)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <Icon size={13} strokeWidth={1.75} />
-                {tab.label}
-                {tab.id === 'sessions' && waitingCount > 0 && (
-                  <span style={{
-                    fontSize: 'var(--text-xs)',
-                    background: 'rgba(245, 158, 11, 0.15)',
-                    color: 'var(--color-status-waiting)',
-                    padding: '1px 5px',
-                    borderRadius: 'var(--radius-pill)',
-                    fontWeight: 600,
-                  }}>{waitingCount}</span>
-                )}
-              </button>
-            );
-          })}
-
-          {/* Spacer */}
-          <div style={{ flex: 1 }} />
-
-          {/* Action buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', ...(isElectron ? { WebkitAppRegion: 'no-drag' } as React.CSSProperties : {}) }}>
-            {/* Settings — hidden on mobile (moved to bottom nav) */}
-            <span className="header-settings-btn">
-              <HeaderButton onClick={() => setShowSettingsModal(true)} title="Settings">
-                <Settings size={15} strokeWidth={1.75} />
-              </HeaderButton>
-            </span>
-
-            {/* Fullscreen — hidden on mobile (Fullscreen API unsupported on iOS) */}
-            <span className="header-fullscreen-btn">
-              <HeaderButton onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
-                {isFullscreen ? <Minimize2 size={15} strokeWidth={1.75} /> : <Maximize2 size={15} strokeWidth={1.75} />}
-              </HeaderButton>
-            </span>
-
-            {/* Remote access */}
-            <HeaderButton
-              onClick={() => setShowNgrokModal(true)}
-              title={ngrok.status?.tunnelStatus === 'connected' ? `Remote: ${ngrok.status.publicUrl}` : 'Remote Access'}
-              style={{ position: 'relative', borderColor: ngrokBorderColor, color: ngrokColor }}
-            >
-              <Globe size={15} strokeWidth={1.75} />
-              {ngrok.status?.tunnelStatus === 'connected' && (
-                <span style={{
-                  position: 'absolute',
-                  top: '-3px',
-                  right: '-3px',
-                  width: '7px',
-                  height: '7px',
-                  borderRadius: '50%',
-                  background: 'var(--color-success)',
-                  border: '2px solid var(--color-bg-header)',
-                }} />
-              )}
-            </HeaderButton>
-
-            {/* Update available */}
-            {updateStatus?.hasUpdate && (
-              <HeaderButton
-                onClick={() => setShowUpdateModal(true)}
-                title={`Update available: v${updateStatus.latestVersion}`}
-                style={{ position: 'relative', borderColor: 'var(--color-success)', color: 'var(--color-success)' }}
-              >
-                <ArrowUpCircle size={15} strokeWidth={1.75} />
-                <span style={{
-                  position: 'absolute',
-                  top: '-3px',
-                  right: '-3px',
-                  width: '7px',
-                  height: '7px',
-                  borderRadius: '50%',
-                  background: 'var(--color-success)',
-                  border: '2px solid var(--color-bg-header)',
-                }} />
-              </HeaderButton>
-            )}
-
-            {/* Theme toggle */}
-            <HeaderButton onClick={toggleTheme} title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}>
-              {isDark ? <Sun size={15} strokeWidth={1.75} /> : <Moon size={15} strokeWidth={1.75} />}
-            </HeaderButton>
-
-            {/* New Session */}
-            <button
-              onClick={handleNewSession}
-              className="hover-opacity"
-              style={{
-                padding: '0 14px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                fontSize: 'var(--text-md)',
-                border: '1px solid transparent',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--color-btn-primary-bg)',
-                color: 'var(--color-btn-primary-text)',
-                cursor: 'pointer',
-                fontWeight: 600,
-                gap: '6px',
-                transition: 'opacity var(--transition-fast)',
-              }}
-            >
-              + New Session
-            </button>
-          </div>
-        </header>
-      )}
-
-      {isElectron && updateStatus?.hasUpdate && !dismissedUpdate && (
+      {updateStatus?.hasUpdate && !dismissedUpdate && (
         <MacUpdateBanner
           version={updateStatus.latestVersion ?? ''}
           onUpdate={() => setShowUpdateModal(true)}
@@ -885,100 +812,7 @@ function AppInner() {
         </div>
       )}
 
-      {/* Browser layout: simple tab panels (no ActivityBar, no sidebar) */}
-      {!isElectron && (
-        <div id="main-content" style={{ height: 'calc(100vh - var(--header-height))', overflow: 'hidden' }}>
-          <div style={{ display: activeTab === 'sessions' ? 'contents' : 'none' }}>
-            <ErrorBoundary variant="tab" label="Sessions">
-              <div role="tabpanel" id="tabpanel-sessions" aria-labelledby="tab-sessions" style={{ display: 'contents' }}>
-                <Dashboard
-                  sessions={orderedSessions}
-                  socket={socket}
-                  theme={theme}
-                  onDeleteSession={handleDelete}
-                  onRestartSession={handleRestart}
-                  onCreateSession={handleNewSession}
-                  onCloneSession={handleClone}
-                  onReorder={reorder}
-                  focusedSessionId={focusedSessionId}
-                  onFocusSession={handleFocus}
-                  onUnfocusSession={handleUnfocus}
-                  getDiffState={getDiffState}
-                  onToggleDiff={handleToggleDiff}
-                  onToggleDiffFullscreen={handleToggleDiffFullscreen}
-                  onCloseDiff={handleCloseDiff}
-                  getExplorerState={getExplorerState}
-                  onToggleExplorer={handleToggleExplorer}
-                  unreadSessions={unreadSessions}
-                  sidebarSettingsMenu={
-                    <SidebarSettingsMenu
-                      isDark={isDark}
-                      isFullscreen={isFullscreen}
-                      ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
-                      onOpenSettings={() => setShowSettingsModal(true)}
-                      onToggleFullscreen={toggleFullscreen}
-                      onOpenRemote={() => setShowNgrokModal(true)}
-                      onToggleTheme={toggleTheme}
-                    />
-                  }
-                />
-              </div>
-            </ErrorBoundary>
-          </div>
-          <div style={{ display: activeTab === 'git-diff' ? 'contents' : 'none' }}>
-            <div role="tabpanel" id="tabpanel-git-diff" aria-labelledby="tab-git-diff" style={{ display: 'contents' }}>
-              {sessions.length > 0 ? (
-                <ErrorBoundary variant="tab" label="Git Diff">
-                  <GlobalGitDiffView
-                    sessionId={focusedSessionId ?? sessions[0].id}
-                    sessionStatus={sessions.find(s => s.id === (focusedSessionId ?? sessions[0].id))?.status ?? 'idle'}
-                    theme={theme}
-                    sessions={sessions}
-                    currentSessionId={focusedSessionId ?? sessions[0].id}
-                    onSelectSession={setFocusedSessionId}
-                    onOpenInExplorer={handleOpenFileInExplorer}
-                    initialSearchQuery={diffSearchQuery}
-                    diffCollapsedSectionsCache={diffCollapsedSectionsCache}
-                    onCollapsedSectionsChange={handleDiffCollapsedSectionsChange}
-                    showTerminal={sharedTerminalOpen}
-                    onToggleTerminal={toggleSharedTerminal}
-                  />
-                </ErrorBoundary>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: `calc(100vh - var(--header-height))`, color: 'var(--color-text-muted)', fontSize: 'var(--text-md)' }}>
-                  No sessions — create a session to view git diff
-                </div>
-              )}
-            </div>
-          </div>
-          <div style={{ display: activeTab === 'explorer' ? 'contents' : 'none' }}>
-            <div role="tabpanel" id="tabpanel-explorer" aria-labelledby="tab-explorer" style={{ display: 'contents' }}>
-              <ErrorBoundary variant="tab" label="Explorer">
-                <ExplorerPanel
-                  sessions={orderedSessions}
-                  theme={theme}
-                  onSelectSession={handleFocus}
-                  focusedSessionId={focusedSessionId}
-                  initialFilePath={explorerState.selectedFilePath}
-                  initialSearchQuery={explorerState.searchQuery}
-                  onExplorerStateChange={setExplorerState}
-                  socket={socket}
-                  onOpenInDiff={handleOpenDiffView}
-                  treeExpandedPaths={treeExpandedPathsCache}
-                  treeDataCache={treeDataCache}
-                  onTreeExpandedPathsChange={handleTreeExpandedPathsChange}
-                  onTreeDataChange={handleTreeDataChange}
-                  showTerminal={sharedTerminalOpen}
-                  onToggleTerminal={toggleSharedTerminal}
-                />
-              </ErrorBoundary>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* macOS-native layout (Electron only): ActivityBar | Sidebar | ResizeDivider | Content */}
-      {isElectron && (
+      {/* macOS-native layout: ActivityBar | Sidebar | ResizeDivider | Content */}
       <div
         id="main-content"
         style={{
@@ -1252,7 +1086,6 @@ function AppInner() {
 
         </div>
       </div>
-      )} {/* end isElectron macOS layout */}
 
       {/* Shared terminals — one per session, kept alive across session/tab switches */}
       {sharedTerminalOpen && (() => {
@@ -1301,59 +1134,32 @@ function AppInner() {
         );
       })()}
 
-      {isElectron ? (
-        <MacCreateSessionSheet
-          isOpen={showCreateModal}
-          onClose={() => { setShowCreateModal(false); setPickedFolder(null); }}
-          onCreate={handleCreate}
-          theme={theme}
-          initialFolderPath={pickedFolder}
-          defaultAgentType={config?.defaultAgent}
-          agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
-          agentFlags={config?.agentFlags}
-          onSaveFlag={handleSaveFlag}
-        />
-      ) : showCreateModal && (
-        <CreateSessionModal
-          onClose={() => { setShowCreateModal(false); setPickedFolder(null); }}
-          onCreate={handleCreate}
-          theme={theme}
-          initialFolderPath={pickedFolder}
-          defaultAgentType={config?.defaultAgent}
-          agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
-          agentFlags={config?.agentFlags}
-          onSaveFlag={handleSaveFlag}
-        />
-      )}
+      <MacCreateSessionSheet
+        isOpen={showCreateModal}
+        onClose={() => { setShowCreateModal(false); setPickedFolder(null); }}
+        onCreate={handleCreate}
+        theme={theme}
+        initialFolderPath={pickedFolder}
+        defaultAgentType={config?.defaultAgent}
+        agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
+        agentFlags={config?.agentFlags}
+        onSaveFlag={handleSaveFlag}
+      />
 
-      {isElectron ? (
-        <MacCloneSessionSheet
-          isOpen={!!cloneModalState}
-          folderPath={cloneModalState?.folderPath ?? ''}
-          currentAgentType={cloneModalState?.agentType}
-          defaultAgentType={config?.defaultAgent}
-          agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
-          theme={theme}
-          onClone={handleCloneConfirm}
-          onClose={() => setCloneModalState(null)}
-          agentFlags={config?.agentFlags}
-          onSaveFlag={handleSaveFlag}
-        />
-      ) : cloneModalState && (
-        <CloneSessionModal
-          folderPath={cloneModalState.folderPath}
-          currentAgentType={cloneModalState.agentType}
-          defaultAgentType={config?.defaultAgent}
-          agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
-          theme={theme}
-          onClone={handleCloneConfirm}
-          onClose={() => setCloneModalState(null)}
-          agentFlags={config?.agentFlags}
-          onSaveFlag={handleSaveFlag}
-        />
-      )}
+      <MacCloneSessionSheet
+        isOpen={!!cloneModalState}
+        folderPath={cloneModalState?.folderPath ?? ''}
+        currentAgentType={cloneModalState?.agentType}
+        defaultAgentType={config?.defaultAgent}
+        agents={config ? [...BUILTIN_AGENTS, ...config.customAgents] : []}
+        theme={theme}
+        onClone={handleCloneConfirm}
+        onClose={() => setCloneModalState(null)}
+        agentFlags={config?.agentFlags}
+        onSaveFlag={handleSaveFlag}
+      />
 
-      {isElectron ? config && (
+      {config && (
         <MacPreferencesPanel
           isOpen={showSettingsModal}
           config={config}
@@ -1362,110 +1168,26 @@ function AppInner() {
           version={updateStatus?.currentVersion}
           onOpenRemote={() => { setShowSettingsModal(false); setShowNgrokModal(true); }}
         />
-      ) : showSettingsModal && config && (
-        <SettingsModal
-          config={config}
-          onClose={() => setShowSettingsModal(false)}
-          onSave={updateConfig}
-          theme={theme}
-          version={updateStatus?.currentVersion}
-        />
       )}
 
-      {isElectron ? (
-        <MacRemotePanel
-          isOpen={showNgrokModal}
-          onClose={() => setShowNgrokModal(false)}
-          status={ngrok.status}
-          loading={ngrok.loading}
-          error={ngrok.error}
-          onStart={ngrok.startTunnel}
-          onStop={ngrok.stopTunnel}
-          onRecheck={ngrok.recheckInstallation}
-        />
-      ) : showNgrokModal && (
-        <NgrokModal
-          onClose={() => setShowNgrokModal(false)}
-          theme={theme}
-          status={ngrok.status}
-          loading={ngrok.loading}
-          error={ngrok.error}
-          onStart={ngrok.startTunnel}
-          onStop={ngrok.stopTunnel}
-          onRecheck={ngrok.recheckInstallation}
-        />
-      )}
+      <MacRemotePanel
+        isOpen={showNgrokModal}
+        onClose={() => setShowNgrokModal(false)}
+        status={ngrok.status}
+        loading={ngrok.loading}
+        error={ngrok.error}
+        onStart={ngrok.startTunnel}
+        onStop={ngrok.stopTunnel}
+        onRecheck={ngrok.recheckInstallation}
+      />
 
       {showUpdateModal && updateStatus && (
-        isElectron ? (
-          <MacUpdateSheet
-            status={updateStatus}
-            onClose={() => setShowUpdateModal(false)}
-          />
-        ) : (
-          <UpdateModal
-            status={updateStatus}
-            onClose={() => setShowUpdateModal(false)}
-          />
-        )
+        <MacUpdateSheet
+          status={updateStatus}
+          onClose={() => setShowUpdateModal(false)}
+        />
       )}
 
-      {isElectron ? (
-        <>
-          <MacAlertSheet
-            isOpen={!!pendingDeleteId}
-            title="Close Session?"
-            message="The Claude process will be terminated."
-            confirmLabel="Close Session"
-            confirmDestructive
-            onConfirm={handleDeleteConfirm}
-            onCancel={() => setPendingDeleteId(null)}
-          />
-          <MacAlertSheet
-            isOpen={!!pendingRestartId}
-            title="Restart Session?"
-            message="The running session will be terminated and restarted with the same configuration."
-            confirmLabel="Restart"
-            onConfirm={handleRestartConfirm}
-            onCancel={() => setPendingRestartId(null)}
-          />
-        </>
-      ) : (
-        <>
-          {/* Confirm delete dialog */}
-          {pendingDeleteId && (
-            <div
-              onClick={() => setPendingDeleteId(null)}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 'var(--z-modal-top)' as unknown as number }}
-            >
-              <div role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-bg-modal)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '360px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', border: '1px solid var(--color-border-base)' }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)' }}>Close Session?</h3>
-                <p style={{ margin: '0 0 20px', fontSize: 'var(--text-md)', color: 'var(--color-text-secondary)' }}>The Claude process will be terminated.</p>
-                <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-                  <button onClick={() => setPendingDeleteId(null)} style={{ padding: '8px 16px', fontSize: 'var(--text-md)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', background: 'transparent', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>Cancel</button>
-                  <button autoFocus onClick={handleDeleteConfirm} style={{ padding: '8px 16px', fontSize: 'var(--text-md)', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--color-error)', color: '#fff', cursor: 'pointer', fontWeight: 500 }}>Close Session</button>
-                </div>
-              </div>
-            </div>
-          )}
-          {/* Confirm restart dialog */}
-          {pendingRestartId && (
-            <div
-              onClick={() => setPendingRestartId(null)}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 'var(--z-modal-top)' as unknown as number }}
-            >
-              <div role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-bg-modal)', borderRadius: 'var(--radius-xl)', padding: 'var(--space-6)', width: '360px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.35)', border: '1px solid var(--color-border-base)' }}>
-                <h3 style={{ margin: '0 0 8px', fontSize: 'var(--text-xl)', fontWeight: 600, color: 'var(--color-text-primary)' }}>Restart Session?</h3>
-                <p style={{ margin: '0 0 20px', fontSize: 'var(--text-md)', color: 'var(--color-text-secondary)' }}>The running session will be terminated and restarted with the same configuration.</p>
-                <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-                  <button onClick={() => setPendingRestartId(null)} style={{ padding: '8px 16px', fontSize: 'var(--text-md)', border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', background: 'transparent', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>Cancel</button>
-                  <button autoFocus onClick={handleRestartConfirm} style={{ padding: '8px 16px', fontSize: 'var(--text-md)', border: 'none', borderRadius: 'var(--radius-md)', background: 'var(--color-accent)', color: '#fff', cursor: 'pointer', fontWeight: 500 }}>Restart</button>
-                </div>
-              </div>
-            </div>
-          )}
-        </>
-      )}
       <MobileBottomNav
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -1558,42 +1280,3 @@ function GlobalGitDiffView({
   );
 }
 
-/** Small icon button used in the app header. */
-function HeaderButton({
-  onClick,
-  title,
-  children,
-  style,
-}: {
-  onClick: () => void;
-  title: string;
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className="ghost-border hover-bg-surface"
-      style={{
-        background: 'none',
-        border: 'none',
-        borderRadius: 'var(--radius-sm)',
-        padding: '0',
-        width: '32px',
-        height: '32px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        fontSize: 'var(--text-md)',
-        color: 'var(--color-text-secondary)',
-        transition: 'background var(--transition-fast)',
-        ...style,
-      }}
-    >
-      {children}
-    </button>
-  );
-}

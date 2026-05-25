@@ -31,6 +31,8 @@ export function useNotifications({
     const notif = new Notification(session.name, {
       body: folderName,
       tag: `session-${session.id}`,
+      icon: '/favicon-orange.svg',
+      silent: false,
     });
 
     notif.onclick = () => {

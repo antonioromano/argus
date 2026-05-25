@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   disabled?: boolean;
   onClick?: () => void;
@@ -11,27 +11,57 @@ interface ButtonProps {
   style?: React.CSSProperties;
 }
 
-const VARIANTS: Record<string, React.CSSProperties> = {
+const VARIANTS: Record<string, { style: React.CSSProperties; fontWeight: number }> = {
   primary: {
-    background: 'var(--color-btn-primary-bg)',
-    color: 'var(--color-btn-primary-text)',
-    border: 'none',
+    style: {
+      background: 'var(--color-accent)',
+      color: 'var(--color-btn-primary-text)',
+      border: 'none',
+    },
+    fontWeight: 600,
   },
   secondary: {
-    background: 'transparent',
-    color: 'var(--color-text-secondary)',
-    border: '1px solid var(--color-border-subtle)',
+    style: {
+      background: 'transparent',
+      color: 'var(--color-text-secondary)',
+      border: '1px solid var(--color-border-subtle)',
+    },
+    fontWeight: 500,
   },
   ghost: {
-    background: 'transparent',
-    color: 'var(--color-text-secondary)',
-    border: 'none',
+    style: {
+      background: 'transparent',
+      color: 'var(--color-text-secondary)',
+      border: 'none',
+    },
+    fontWeight: 400,
   },
   danger: {
-    background: 'var(--color-error)',
-    color: '#ffffff',
-    border: 'none',
+    style: {
+      background: 'var(--color-error)',
+      color: '#ffffff',
+      border: 'none',
+    },
+    fontWeight: 600,
   },
+};
+
+const SIZE_PADDING: Record<'sm' | 'md' | 'lg', string> = {
+  sm: '4px 10px',
+  md: '8px 16px',
+  lg: '10px 20px',
+};
+
+const SIZE_FONT: Record<'sm' | 'md' | 'lg', string> = {
+  sm: 'var(--text-sm)',
+  md: 'var(--text-md)',
+  lg: 'var(--text-md)',
+};
+
+const SIZE_MIN_HEIGHT: Record<'sm' | 'md' | 'lg', number> = {
+  sm: 24,
+  md: 28,
+  lg: 32,
 };
 
 export function Button({
@@ -45,6 +75,7 @@ export function Button({
   style,
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  const v = VARIANTS[variant];
 
   return (
     <button
@@ -54,18 +85,21 @@ export function Button({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: '6px',
-        padding: size === 'sm' ? '4px 10px' : '8px 16px',
-        fontSize: size === 'sm' ? 'var(--text-sm)' : 'var(--text-md)',
-        borderRadius: 'var(--radius-sm)',
+        padding: SIZE_PADDING[size],
+        fontSize: SIZE_FONT[size],
+        minHeight: SIZE_MIN_HEIGHT[size],
+        borderRadius: 'var(--radius-lg)',
         cursor: isDisabled ? 'not-allowed' : 'pointer',
         opacity: isDisabled ? 0.6 : 1,
-        fontWeight: 500,
-        transition: `opacity var(--transition-fast), background var(--transition-fast)`,
-        ...VARIANTS[variant],
+        fontWeight: v.fontWeight,
+        transition: 'opacity var(--transition-fast), background var(--transition-fast), transform var(--transition-fast)',
+        fontFamily: 'var(--font-sans)',
+        ...v.style,
         ...style,
       }}
-      className={isDisabled ? '' : 'hover-opacity'}
+      className={isDisabled ? '' : 'btn-press hover-opacity'}
     >
       {loading ? 'Loading…' : children}
     </button>

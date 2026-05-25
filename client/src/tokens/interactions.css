@@ -42,30 +42,30 @@
 }
 
 .terminal-card[data-status="running"]::before {
-  background: radial-gradient(ellipse at 50% 0%, rgba(174, 198, 255, 0.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(174, 198, 255, 0.04) 0%, transparent 70%);
   opacity: 1;
 }
 .terminal-card[data-status="waiting"]::before {
-  background: radial-gradient(ellipse at 50% 0%, rgba(245, 158, 11, 0.10) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(245, 158, 11, 0.05) 0%, transparent 70%);
   opacity: 1;
 }
 .terminal-card[data-status="idle"]::before {
-  background: radial-gradient(ellipse at 50% 0%, rgba(165, 213, 112, 0.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(165, 213, 112, 0.04) 0%, transparent 70%);
   opacity: 1;
 }
 
-/* Status border */
+/* Status border — 1px hairline matches macOS conventions */
 .terminal-card[data-status="running"] {
-  border: 2px solid var(--color-status-running-led);
+  border: 1px solid var(--color-status-running-led);
 }
 .terminal-card[data-status="waiting"] {
-  border: 2px solid var(--color-status-waiting-led);
+  border: 1px solid var(--color-status-waiting-led);
 }
 .terminal-card[data-status="idle"] {
-  border: 2px solid var(--color-status-idle-led);
+  border: 1px solid var(--color-status-idle-led);
 }
 .terminal-card[data-status="exited"] {
-  border: 2px solid var(--color-border-ghost);
+  border: 1px solid var(--color-border-ghost);
 }
 
 /* Hover intensifies the border */
@@ -92,6 +92,11 @@
 }
 .hover-opacity:hover {
   opacity: 0.85;
+}
+
+/* Native mac-style press feedback for buttons. */
+.btn-press:active {
+  transform: scale(0.97);
 }
 .hover-error:hover {
   background: var(--color-error-subtle) !important;

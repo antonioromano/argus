@@ -76,8 +76,6 @@ export function GitDiffPanel({
   onExpandFileContext: _onExpandFileContext,
   expandingFiles: _expandingFiles,
 }: GitDiffPanelProps) {
-  const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
-
   const containerRef = useRef<HTMLDivElement>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
   const [isNarrow, setIsNarrow] = useState(false);
@@ -91,12 +89,7 @@ export function GitDiffPanel({
   const [currentBranch, setCurrentBranch] = useState('');
   const [behindCount, setBehindCount] = useState<number | undefined>(undefined);
   const [branchLoading, setBranchLoading] = useState(false);
-  const [creatingBranch, setCreatingBranch] = useState(false);
-  const [newBranchName, setNewBranchName] = useState('');
   const [branchError, setBranchError] = useState('');
-  const [showPullAndBranch, setShowPullAndBranch] = useState(false);
-  const [pullBranchName, setPullBranchName] = useState('');
-  const [pullBaseBranch, setPullBaseBranch] = useState('');
   const [showBranchSheet, setShowBranchSheet] = useState(false);
 
   // Panel-level state hook
@@ -315,30 +308,6 @@ export function GitDiffPanel({
     }
   }
 
-  async function handleCreateBranch() {
-    const name = newBranchName.trim();
-    if (!name) return;
-    if (/\s/.test(name)) {
-      setBranchError('Branch name cannot contain spaces');
-      return;
-    }
-    setBranchLoading(true);
-    setBranchError('');
-    try {
-      const result = await api.gitCreateBranch(currentSessionId, name);
-      if (result.success) {
-        setCreatingBranch(false);
-        setNewBranchName('');
-        await loadBranches();
-        onRefresh();
-      } else {
-        setBranchError(result.error ?? 'Create branch failed');
-      }
-    } finally {
-      setBranchLoading(false);
-    }
-  }
-
   async function handlePull() {
     if (branchLoading) return;
     setBranchLoading(true);
@@ -394,29 +363,6 @@ export function GitDiffPanel({
       const msg = err instanceof Error ? err.message : 'Pull and branch failed';
       setBranchError(msg);
       throw err;
-    } finally {
-      setBranchLoading(false);
-    }
-  }
-
-  async function handlePullAndBranch() {
-    const name = pullBranchName.trim();
-    if (!name || branchLoading) return;
-    setBranchLoading(true);
-    setBranchError('');
-    try {
-      const result = await api.gitPullAndBranch(currentSessionId, name, pullBaseBranch || undefined);
-      if (result.success) {
-        setShowPullAndBranch(false);
-        setPullBranchName('');
-        setPullBaseBranch('');
-        await loadBranches();
-        onRefresh();
-      } else {
-        setBranchError(result.error ?? 'Pull and branch failed');
-      }
-    } catch (err) {
-      setBranchError(err instanceof Error ? err.message : 'Pull and branch failed');
     } finally {
       setBranchLoading(false);
     }
@@ -483,131 +429,6 @@ export function GitDiffPanel({
     padding: '0 4px',
     lineHeight: 1,
   } as const;
-
-  const inputStyle = {
-    flex: 1,
-    boxSizing: 'border-box' as const,
-    fontSize: '12px',
-    padding: '3px 8px',
-    border: '1px solid var(--color-border-subtle)',
-    borderRadius: '4px',
-    background: 'var(--color-bg-input)',
-    color: 'var(--color-text-primary)',
-    outline: 'none',
-    fontFamily: 'var(--font-mono)',
-  };
-
-  // Branch row JSX (from original GitDiffPanel)
-  const branchRow = branches.length > 0 || creatingBranch || showPullAndBranch ? (
-    <div style={{ padding: '4px 8px 4px', flexShrink: 0, overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
-        {!creatingBranch && !showPullAndBranch ? (
-          <>
-            <select
-              value={currentBranch}
-              onChange={e => handleBranchChange(e.target.value)}
-              disabled={branchLoading}
-              style={{
-                ...inputStyle,
-                minWidth: 0,
-                cursor: branchLoading ? 'not-allowed' : 'pointer',
-                opacity: branchLoading ? 0.6 : 1,
-              }}
-            >
-              {branches.map(b => <option key={b} value={b}>{b}</option>)}
-              {currentBranch && !branches.includes(currentBranch) && (
-                <option value={currentBranch}>{currentBranch}</option>
-              )}
-            </select>
-            <button
-              onClick={handlePull}
-              disabled={branchLoading}
-              title={behindCount ? `Pull (${behindCount} commit${behindCount !== 1 ? 's' : ''} behind)` : 'Pull'}
-              style={{ ...headerBtnStyle, flexShrink: 0, position: 'relative' }}
-            >
-              ↓
-              {!!behindCount && behindCount > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '-2px',
-                  right: '-1px',
-                  width: '6px',
-                  height: '6px',
-                  borderRadius: '50%',
-                  background: 'var(--color-accent)',
-                  pointerEvents: 'none',
-                }} />
-              )}
-            </button>
-            <button
-              onClick={() => { setCreatingBranch(true); setNewBranchName(''); setBranchError(''); }}
-              title="Create new branch"
-              style={{ ...headerBtnStyle, flexShrink: 0 }}
-            >+</button>
-            <button
-              onClick={() => {
-                setShowPullAndBranch(true);
-                setPullBranchName('');
-                setPullBaseBranch(branches.find(b => b === 'main' || b === 'master') || currentBranch);
-                setBranchError('');
-              }}
-              disabled={branchLoading}
-              title="Pull latest & create branch"
-              style={{ ...headerBtnStyle, flexShrink: 0, fontSize: '12px' }}
-            >↓+</button>
-          </>
-        ) : showPullAndBranch ? (
-          <>
-            <input
-              autoFocus
-              value={pullBranchName}
-              onChange={e => setPullBranchName(e.target.value)}
-              placeholder="new-branch-name"
-              disabled={branchLoading}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); handlePullAndBranch(); }
-                if (e.key === 'Escape') { setShowPullAndBranch(false); setBranchError(''); }
-              }}
-              style={{ ...inputStyle, minWidth: 0 }}
-            />
-            <select
-              value={pullBaseBranch}
-              onChange={e => setPullBaseBranch(e.target.value)}
-              disabled={branchLoading}
-              title="Base branch"
-              style={{ ...inputStyle, maxWidth: '100px', flexShrink: 0 }}
-            >
-              {branches.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
-            <button onClick={handlePullAndBranch} disabled={branchLoading} title="Confirm" style={{ ...headerBtnStyle, flexShrink: 0 }}>✓</button>
-            <button onClick={() => { setShowPullAndBranch(false); setBranchError(''); }} title="Cancel" style={{ ...headerBtnStyle, flexShrink: 0 }}>✕</button>
-          </>
-        ) : (
-          <>
-            <input
-              autoFocus
-              value={newBranchName}
-              onChange={e => setNewBranchName(e.target.value)}
-              placeholder="new-branch-name"
-              disabled={branchLoading}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); handleCreateBranch(); }
-                if (e.key === 'Escape') { setCreatingBranch(false); setBranchError(''); }
-              }}
-              style={{ ...inputStyle, minWidth: 0 }}
-            />
-            <button onClick={handleCreateBranch} disabled={branchLoading} title="Confirm" style={{ ...headerBtnStyle, flexShrink: 0 }}>✓</button>
-            <button onClick={() => { setCreatingBranch(false); setBranchError(''); }} title="Cancel" style={{ ...headerBtnStyle, flexShrink: 0 }}>✕</button>
-          </>
-        )}
-      </div>
-      {branchError && (
-        <div style={{ fontSize: '11px', color: 'var(--color-error)', marginTop: '2px', padding: '0 2px' }}>
-          {branchError}
-        </div>
-      )}
-    </div>
-  ) : null;
 
   // Diff viewer toolbar
   const diffViewerToolbar = (
@@ -1020,58 +841,21 @@ export function GitDiffPanel({
       {isNarrow ? (
         /* Narrow layout: simplified accordion-based view */
         <>
-          {isElectron ? (
-            <MacDiffToolbar
-              branches={branches}
-              currentBranch={currentBranch}
-              onBranchChange={handleBranchChange}
-              branchLoading={branchLoading}
-              behindCount={behindCount}
-              onPull={branches.length > 0 ? handlePull : undefined}
-              onOpenBranchSheet={branches.length > 0 ? () => setShowBranchSheet(true) : undefined}
-              searchQuery={panel.searchQuery}
-              onSearchChange={panel.setSearchQuery}
-              wordWrap={wordWrap}
-              onToggleWordWrap={() => setWordWrap(w => { const next = !w; localStorage.setItem('gitdiff-word-wrap', String(next)); return next; })}
-              isLoading={isLoading}
-              onRefresh={onRefresh}
-            />
-          ) : (
-            <>
-              {branchRow}
-              <div style={{ padding: '4px 8px 6px', borderBottom: '1px solid var(--color-border-base)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <input
-                  className="diff-search-input"
-                  type="text"
-                  placeholder="Search files and content…"
-                  value={panel.searchQuery}
-                  onChange={e => panel.setSearchQuery(e.target.value)}
-                  onClick={e => e.stopPropagation()}
-                  onKeyDown={e => {
-                    if (e.key === 'Escape') {
-                      e.stopPropagation();
-                      if (panel.searchQuery) panel.setSearchQuery('');
-                      else (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    boxSizing: 'border-box',
-                    fontSize: '12px',
-                    padding: '3px 8px',
-                    border: '1px solid var(--color-border-subtle)',
-                    borderRadius: '4px',
-                    background: 'var(--color-bg-input)',
-                    color: 'var(--color-text-primary)',
-                    outline: 'none',
-                  }}
-                />
-                <button onClick={onRefresh} style={{ ...headerBtnStyle, opacity: isLoading ? 0.5 : 1, flexShrink: 0 }} title="Refresh diff">
-                  {'↻'}
-                </button>
-              </div>
-            </>
-          )}
+          <MacDiffToolbar
+            branches={branches}
+            currentBranch={currentBranch}
+            onBranchChange={handleBranchChange}
+            branchLoading={branchLoading}
+            behindCount={behindCount}
+            onPull={branches.length > 0 ? handlePull : undefined}
+            onOpenBranchSheet={branches.length > 0 ? () => setShowBranchSheet(true) : undefined}
+            searchQuery={panel.searchQuery}
+            onSearchChange={panel.setSearchQuery}
+            wordWrap={wordWrap}
+            onToggleWordWrap={() => setWordWrap(w => { const next = !w; localStorage.setItem('gitdiff-word-wrap', String(next)); return next; })}
+            isLoading={isLoading}
+            onRefresh={onRefresh}
+          />
           <div style={{ flex: 1, overflow: 'auto', padding: '8px', minHeight: 0 }}>
             {error && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', gap: '8px' }}>
@@ -1129,48 +913,21 @@ export function GitDiffPanel({
 
           {/* File list sidebar (resizable) */}
           <div ref={fileListRef} style={{ width: `${fileListWidth}px`, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-bg-surface)', overflow: 'hidden' }}>
-            {isElectron ? (
-              <MacDiffToolbar
-                branches={branches}
-                currentBranch={currentBranch}
-                onBranchChange={handleBranchChange}
-                branchLoading={branchLoading}
-                behindCount={behindCount}
-                onPull={branches.length > 0 ? handlePull : undefined}
-                onOpenBranchSheet={branches.length > 0 ? () => setShowBranchSheet(true) : undefined}
-                searchQuery={panel.searchQuery}
-                onSearchChange={panel.setSearchQuery}
-                wordWrap={wordWrap}
-                onToggleWordWrap={() => setWordWrap(w => { const next = !w; localStorage.setItem('gitdiff-word-wrap', String(next)); return next; })}
-                isLoading={isLoading}
-                onRefresh={onRefresh}
-              />
-            ) : (
-              <>
-                {branchRow}
-                <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-border-base)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <input
-                    className="diff-search-input"
-                    type="text"
-                    placeholder="Search files…"
-                    value={panel.searchQuery}
-                    onChange={e => panel.setSearchQuery(e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                    onKeyDown={e => {
-                      if (e.key === 'Escape') {
-                        e.stopPropagation();
-                        if (panel.searchQuery) panel.setSearchQuery('');
-                        else (e.target as HTMLInputElement).blur();
-                      }
-                    }}
-                    style={{ flex: 1, boxSizing: 'border-box', fontSize: '12px', padding: '3px 8px', border: '1px solid var(--color-border-subtle)', borderRadius: '4px', background: 'var(--color-bg-input)', color: 'var(--color-text-primary)', outline: 'none' }}
-                  />
-                  <button onClick={onRefresh} style={{ ...headerBtnStyle, opacity: isLoading ? 0.5 : 1, flexShrink: 0 }} title="Refresh diff">
-                    {'↻'}
-                  </button>
-                </div>
-              </>
-            )}
+            <MacDiffToolbar
+              branches={branches}
+              currentBranch={currentBranch}
+              onBranchChange={handleBranchChange}
+              branchLoading={branchLoading}
+              behindCount={behindCount}
+              onPull={branches.length > 0 ? handlePull : undefined}
+              onOpenBranchSheet={branches.length > 0 ? () => setShowBranchSheet(true) : undefined}
+              searchQuery={panel.searchQuery}
+              onSearchChange={panel.setSearchQuery}
+              wordWrap={wordWrap}
+              onToggleWordWrap={() => setWordWrap(w => { const next = !w; localStorage.setItem('gitdiff-word-wrap', String(next)); return next; })}
+              isLoading={isLoading}
+              onRefresh={onRefresh}
+            />
 
             {/* File list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
@@ -1279,18 +1036,16 @@ export function GitDiffPanel({
       )}
 
       {/* macOS branch management sheet */}
-      {isElectron && (
-        <MacDiffBranchSheet
-          isOpen={showBranchSheet}
-          onClose={() => setShowBranchSheet(false)}
-          branches={branches}
-          currentBranch={currentBranch}
-          onCreateBranch={createBranchDirect}
-          onPullAndBranch={pullAndBranchDirect}
-          branchLoading={branchLoading}
-          branchError={branchError}
-        />
-      )}
+      <MacDiffBranchSheet
+        isOpen={showBranchSheet}
+        onClose={() => setShowBranchSheet(false)}
+        branches={branches}
+        currentBranch={currentBranch}
+        onCreateBranch={createBranchDirect}
+        onPullAndBranch={pullAndBranchDirect}
+        branchLoading={branchLoading}
+        branchError={branchError}
+      />
     </div>
   );
 }

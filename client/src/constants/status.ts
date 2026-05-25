@@ -8,9 +8,9 @@ export const STATUS_COLORS: Record<SessionStatus, string> = {
   exited:  'var(--color-status-exited)',
 };
 
-/** Human-readable status labels. */
+/** Human-readable status labels (sentence case to match macOS HIG). */
 export const STATUS_LABELS: Record<SessionStatus, string> = {
-  waiting: 'Waiting for input',
+  waiting: 'Waiting',
   running: 'Running',
   idle:    'Idle',
   exited:  'Exited',

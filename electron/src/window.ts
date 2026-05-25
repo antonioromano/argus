@@ -18,6 +18,9 @@ export function createWindow(): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    vibrancy: 'sidebar',
+    visualEffectState: 'active',
+    backgroundColor: '#00000000',
     show: false,
     webPreferences: {
       nodeIntegration: false,

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { FileText, FileCode, FileJson, GitCommit, FolderOpen, Search } from 'lucide-react';
 import type { SessionInfo, FileSearchResult } from '@argus/shared';
 import { api } from '../services/api.js';
+import { isMac } from '../utils/platform.js';
+
+const paletteShortcutLabel = isMac ? '⌘K' : 'Ctrl+K';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -121,7 +124,7 @@ export function CommandPalette({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(12, 13, 24, 0.65)',
+        background: 'var(--color-overlay-strong)',
         backdropFilter: 'blur(4px)',
         display: 'flex',
         alignItems: 'flex-start',
@@ -180,7 +183,7 @@ export function CommandPalette({
             padding: '2px 6px',
             fontFamily: 'var(--font-mono)',
             flexShrink: 0,
-          }}>⌘K</kbd>
+          }}>{paletteShortcutLabel}</kbd>
         </div>
 
         {/* Results */}
