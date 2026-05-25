@@ -33,9 +33,22 @@ A web-based dashboard for managing multiple AI coding agent sessions simultaneou
 
 ## Installation
 
+### Desktop App (macOS)
+
+Install via Homebrew:
+
 ```bash
-git clone https://github.com/antonioromano/code-orchestrator.git
-cd code-orchestrator
+brew tap antonioromano/argus https://github.com/antonioromano/argus
+brew install --cask argus
+```
+
+> The app is unsigned. On first launch, right-click → **Open** to bypass Gatekeeper.
+
+### Manual (macOS / Linux)
+
+```bash
+git clone https://github.com/antonioromano/argus.git
+cd argus
 ./setup.sh
 ```
 
@@ -69,7 +82,7 @@ swarm help         # Show all commands
 For a persistent, always-on installation (e.g., served over Tailscale), use the `argus` CLI instead of `swarm`:
 
 ```bash
-git clone https://github.com/antonioromano/code-orchestrator.git ~/argus
+git clone https://github.com/antonioromano/argus.git ~/argus
 cd ~/argus
 npm install && npm run build
 bin/argus setup     # Symlink 'argus' into PATH

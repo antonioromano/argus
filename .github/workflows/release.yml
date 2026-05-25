@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and package DMGs
+        run: npm run package:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARM_SHA=$(shasum -a 256 "dist/Argus-${VERSION}-arm64.dmg" | awk '{print $1}')
+          X64_SHA=$(shasum -a 256 "dist/Argus-${VERSION}.dmg" | awk '{print $1}')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "arm=${ARM_SHA}" >> "$GITHUB_OUTPUT"
+          echo "x64=${X64_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          fail_on_unmatched_files: true
+
+      - name: Update Cask
+        env:
+          VERSION: ${{ steps.sha.outputs.version }}
+          ARM: ${{ steps.sha.outputs.arm }}
+          X64: ${{ steps.sha.outputs.x64 }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PYEOF'
+          import re, os
+          version = os.environ['VERSION']
+          arm     = os.environ['ARM']
+          x64     = os.environ['X64']
+
+          with open('Casks/argus.rb') as f:
+              content = f.read()
+
+          content = re.sub(r'version "[^"]*"', f'version "{version}"', content)
+          content = re.sub(
+              r'(on_arm do\s+sha256 ")[a-f0-9]+(")',
+              rf'\g<1>{arm}\g<2>',
+              content, flags=re.DOTALL
+          )
+          content = re.sub(
+              r'(on_intel do\s+sha256 ")[a-f0-9]+(")',
+              rf'\g<1>{x64}\g<2>',
+              content, flags=re.DOTALL
+          )
+
+          with open('Casks/argus.rb', 'w') as f:
+              f.write(content)
+          PYEOF
+
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/antonioromano/argus.git"
+          git add Casks/argus.rb
+          git commit -m "chore: bump cask to ${VERSION}"
+          git push origin HEAD:main
