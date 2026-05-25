@@ -1,0 +1,378 @@
+@import './tokens/interactions.css';
+
+* {
+  box-sizing: border-box;
+}
+
+/* Skip to main content link (screen-reader / keyboard accessibility) */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 8px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.1s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-bg-deepest);
+}
+
+#root {
+  width: 100%;
+  height: calc(100dvh - env(safe-area-inset-top, 0px));
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-highest);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-surface-bright);
+}
+
+/* xterm.js viewport scrollbar — more visible than the global 5px default */
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+}
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.8);
+}
+
+/* Non-focused terminal overlay — dims inactive terminals in grid view */
+.terminal-panel {
+  position: relative;
+  contain: layout style paint;
+}
+
+.terminal-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 3;
+  border-radius: inherit;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+.terminal-panel:focus-within::after {
+  opacity: 0;
+}
+
+/* Mobile bottom nav — hidden on desktop */
+.mobile-bottom-nav {
+  display: flex;
+}
+
+/* Mobile terminal input bar — hidden on desktop */
+.mobile-terminal-input {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .mobile-bottom-nav {
+    display: none !important;
+  }
+}
+
+/* Pad body content on mobile to account for bottom nav */
+@media (max-width: 767px) {
+  #root {
+    padding-bottom: 64px;
+  }
+
+  /* Sessions: make dashboard scrollable on mobile */
+  .dashboard-outer {
+    overflow-y: auto !important;
+  }
+  .dashboard-grid {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .session-group-card {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  .session-group-grid {
+    flex: none !important;
+    overflow: visible !important;
+    grid-auto-rows: auto !important;
+  }
+  /* Give each terminal a fixed height so xterm renders properly.
+     440px = ~340px terminal + ~100px for the mobile input bar */
+  .terminal-panel {
+    min-height: 440px !important;
+    flex: none !important;
+  }
+
+  /* Mobile only shows one terminal at a time (auto-focus mode) — the
+     "unfocused" dim overlay serves no purpose here and can confuse tap
+     targets on iOS Safari. Remove it entirely on mobile. */
+  .terminal-panel::after {
+    display: none !important;
+  }
+
+  /* Native iOS scroll on xterm viewport — replaces the old JS touch handler */
+  .xterm-viewport {
+    -webkit-overflow-scrolling: touch; /* iOS momentum scroll */
+    overscroll-behavior: contain;      /* don't chain to page/background at edges */
+    touch-action: pan-y;               /* vertical pan only; taps still fall through */
+  }
+
+  /* Mobile terminal input toolbar */
+  .mobile-terminal-input {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--color-bg-elevated);
+    border-top: 1px solid var(--color-border-base);
+    flex-shrink: 0;
+  }
+
+  .mobile-terminal-quickkeys {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  .mobile-quickkey-btn {
+    flex-shrink: 0;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 6px;
+    border: 1px solid var(--color-border-base);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-quickkey-btn:active {
+    background: var(--color-accent-subtle);
+    border-color: var(--color-accent);
+  }
+
+  .mobile-terminal-textrow {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .mobile-terminal-text-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px !important;
+    font-family: var(--font-mono);
+    padding: 8px 12px;
+    min-height: 44px;
+    border: 1px solid var(--color-border-base);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-surface);
+    color: var(--color-text-primary);
+    outline: none;
+    box-sizing: border-box;
+  }
+
+  .mobile-terminal-send-btn {
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 0 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--color-accent);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-terminal-send-btn:active {
+    opacity: 0.8;
+  }
+
+  /* Focus mode: hide desktop sidebar, show mobile dropdown header */
+  .focus-sidebar {
+    display: none !important;
+  }
+
+  .focus-header-mobile {
+    display: flex !important;
+  }
+
+  /* Search inputs: prevent iOS auto-zoom (font-size must be >= 16px) */
+  .diff-search-input {
+    font-size: 16px !important;
+    padding: 8px 12px !important;
+    min-height: 44px !important;
+  }
+
+  /* Session dropdown: larger touch target */
+  .diff-session-select {
+    font-size: 16px !important;
+    padding: 8px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    min-height: 44px !important;
+  }
+
+  /* Settings button moved to bottom nav on mobile */
+  .header-settings-btn {
+    display: none !important;
+  }
+
+  /* Fullscreen API not supported on iOS — hide the button on mobile */
+  .header-fullscreen-btn {
+    display: none !important;
+  }
+}
+
+/* Markdown preview styles */
+.md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4, .md-preview h5, .md-preview h6 {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  margin: 1.2em 0 0.4em;
+  line-height: 1.3;
+}
+.md-preview h1 { font-size: 1.5em; border-bottom: 1px solid var(--color-border-base); padding-bottom: 0.3em; }
+.md-preview h2 { font-size: 1.25em; border-bottom: 1px solid var(--color-border-base); padding-bottom: 0.2em; }
+.md-preview h3 { font-size: 1.1em; }
+.md-preview p { margin: 0.6em 0; }
+.md-preview a { color: var(--color-accent); text-decoration: underline; }
+.md-preview ul, .md-preview ol { margin: 0.5em 0; padding-left: 1.5em; }
+.md-preview li { margin: 0.2em 0; }
+.md-preview code { font-family: var(--font-mono); font-size: 0.88em; background: var(--color-bg-elevated); padding: 0.1em 0.35em; border-radius: 3px; }
+.md-preview pre { background: var(--color-bg-elevated); border: 1px solid var(--color-border-base); border-radius: var(--radius-sm); padding: 12px 14px; overflow-x: auto; margin: 0.6em 0; }
+.md-preview pre code { background: none; padding: 0; }
+.md-preview blockquote { border-left: 3px solid var(--color-border-base); margin: 0.6em 0; padding: 0.2em 0.8em; color: var(--color-text-muted); }
+.md-preview table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
+.md-preview th, .md-preview td { border: 1px solid var(--color-border-base); padding: 6px 10px; text-align: left; }
+.md-preview th { background: var(--color-bg-elevated); font-weight: 600; }
+.md-preview hr { border: none; border-top: 1px solid var(--color-border-base); margin: 1em 0; }
+
+/* Commit FAB (mobile only — controlled by React isMobile state) */
+.commit-fab {
+  position: fixed;
+  bottom: calc(64px + 16px);
+  right: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.commit-fab:active {
+  transform: scale(0.92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.commit-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--color-error);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 5px;
+  min-width: 18px;
+  text-align: center;
+  line-height: 14px;
+  pointer-events: none;
+}
+
+/* Commit bottom sheet (mobile only — controlled by React state) */
+.commit-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 100;
+  animation: commitFadeIn 0.2s ease;
+}
+
+@keyframes commitFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.commit-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 101;
+  border-radius: 16px 16px 0 0;
+  background: var(--color-bg-elevated);
+  border-top: 1px solid var(--color-border-base);
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: commitSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  overscroll-behavior: contain;
+}
+
+@keyframes commitSlideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.commit-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-base);
+  margin: 10px auto 2px;
+}
+.md-preview img { max-width: 100%; height: auto; }

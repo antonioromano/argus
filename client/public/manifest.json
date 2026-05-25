@@ -1,0 +1,17 @@
+{
+  "name": "Argus",
+  "short_name": "Argus",
+  "description": "Multi-session Claude Code dashboard",
+  "start_url": "/mobile",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1C1C1E",
+  "background_color": "#1C1C1E",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64",
+      "type": "image/x-icon"
+    }
+  ]
+}

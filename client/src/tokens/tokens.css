@@ -1,0 +1,220 @@
+/* ============================================================
+   CODE ORCHESTRATOR — DESIGN TOKENS
+   All CSS custom properties (design system source of truth).
+   Light theme is the default (:root). Dark theme overrides via
+   the [data-theme="dark"] attribute set on <html>.
+   ============================================================ */
+
+:root {
+  /* === SPACING SCALE === */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* === BORDER RADIUS === */
+  --radius-sm:   2px;
+  --radius-md:   4px;
+  --radius-lg:   8px;
+  --radius-xl:  12px;
+  --radius-pill: 9999px;
+
+  /* === Z-INDEX SCALE === */
+  --z-modal:     100;
+  --z-modal-top: 200;
+  --z-tooltip:   300;
+
+  /* === LAYOUT === */
+  --header-height:   52px;
+  --nav-tabs-height: 0px;  /* Tabs merged into header */
+  --shared-terminal-height: 0px;  /* Set dynamically when shared terminal is open */
+  --activity-bar-width:    48px;
+  --sidebar-default-width: 200px;
+  --resize-divider-width:  4px;
+
+  /* === TYPOGRAPHY === */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, Monaco, 'Cascadia Code', monospace;
+
+  --text-xs:   10px;
+  --text-sm:   11px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   16px;
+  --text-xl:   18px;
+  --text-hero: 48px;
+
+  /* === TRANSITIONS === */
+  --transition-fast: 0.12s ease;
+  --transition-base: 0.18s ease;
+
+  /* === SHADOWS === */
+  --shadow-float: 0 12px 40px rgba(0,0,0,0.4), 0 0 8px rgba(122,162,247,0.1);
+
+  /* === STATUS COLORS (same in both themes) === */
+  --color-status-waiting: #FFD60A;   /* macOS system yellow */
+  --color-status-running: #30D158;   /* macOS system green */
+  --color-status-idle:    #a5d570;
+  --color-status-exited:  #9ca3af;
+
+  /* === GHOST BORDERS === */
+  --color-border-ghost:       rgba(196, 198, 209, 0.15);
+  --color-border-ghost-hover: rgba(196, 198, 209, 0.40);
+
+  /* === GLASS EFFECTS === */
+  --color-bg-glass: rgba(241, 243, 254, 0.80);
+
+  /* === STATUS LED (high-opacity variants of status colors) === */
+  --color-status-waiting-led: rgba(255, 214, 10, 0.9);   /* macOS system yellow */
+  --color-status-running-led: rgba(48, 209, 88, 0.9);    /* macOS system green */
+  --color-status-idle-led:    rgba(165, 213, 112, 0.9);
+  --color-status-exited-led:  rgba(156, 163, 175, 0.9);
+
+  /* === DIFF COLORS === */
+  --color-diff-add-bg:     rgba(165,213,112,0.12);
+  --color-diff-add-text:   #2d6a0e;
+  --color-diff-add-gutter: rgba(165,213,112,0.2);
+  --color-diff-add-border: #7ab648;
+  --color-diff-del-bg:     rgba(255,180,171,0.12);
+  --color-diff-del-text:   #ba1a1a;
+  --color-diff-del-gutter: rgba(255,180,171,0.2);
+  --color-diff-del-border: #e05a4a;
+  --color-diff-context-text:      #43474f;
+  --color-diff-hunk-bg:           #ebedf8;
+  --color-diff-hunk-text:         #747780;
+  --color-diff-line-num:          #747780;
+  --color-diff-selected-highlight: rgba(99,102,241,0.12);
+
+  /* ── LIGHT THEME (default) ── */
+  --color-bg-deepest:  #ffffff;
+  --color-bg-base:     #f9f9ff;
+  --color-bg-surface:  #f1f3fe;
+  --color-bg-elevated: #ebedf8;
+  --color-bg-header:   #f9f9ff;
+  --color-bg-modal:    #ebedf8;
+  --color-bg-input:    #ffffff;
+  --color-bg-code:     #f0f0f0;
+  --color-bg-card:     #f1f3fe;
+
+  --color-surface-bright:   #e5e8f3;
+  --color-surface-high:     #e0e2ed;
+  --color-surface-highest:  #e0e2ed;
+
+  --color-border-base:   #c4c6d1;
+  --color-border-subtle: #747780;
+
+  --color-text-primary:   #181c23;
+  --color-text-secondary: #43474f;
+  --color-text-muted:     #747780;
+
+  --color-accent:           #193c71;
+  --color-accent-bg:        #f0f4ff;
+  --color-accent-subtle:    rgba(25, 60, 113, 0.1);
+  --color-primary-container: #7aa2f7;
+  --color-success:          #1a7f37;
+  --color-error:            #cf222e;
+  --color-error-bg:         #fee2e2;
+  --color-error-subtle:     rgba(207, 34, 46, 0.08);
+  --color-warning:          #a06800;
+  --color-warning-bg:       rgba(180, 120, 0, 0.07);
+  --color-warning-border:   #c08000;
+
+  /* === SIDEBAR / ACTIVITY BAR BACKGROUNDS (light) === */
+  --color-bg-activity-bar: rgba(210, 210, 215, 0.98);
+  --color-bg-sidebar:      rgba(225, 225, 230, 0.97);
+
+  /* === PRIMARY BUTTON (theme-aware) === */
+  --color-btn-primary-bg:   linear-gradient(135deg, #4a7fe0 0%, #193c71 100%);
+  --color-btn-primary-text: #ffffff;
+}
+
+[data-theme="dark"] {
+  --color-bg-deepest:  #0c0d18;
+  --color-bg-base:     #12131d;
+  --color-bg-surface:  #1a1b26;
+  --color-bg-elevated: #1e1f2a;
+  --color-bg-header:   #0c0d18;
+  --color-bg-modal:    #1e1f2a;
+  --color-bg-input:    #1a1b26;
+  --color-bg-code:     #0c0d18;
+  --color-bg-card:     #1a1b26;
+
+  --color-surface-bright:   #383844;
+  --color-surface-high:     #282935;
+  --color-surface-highest:  #333440;
+
+  --color-border-base:   #2f3549;
+  --color-border-subtle: #434751;
+
+  --color-text-primary:   #e2e1f1;
+  --color-text-secondary: #c3c6d3;
+  --color-text-muted:     #8d909d;
+
+  --color-accent:           #7aa2f7;
+  --color-accent-bg:        #1a1b26;
+  --color-accent-subtle:    rgba(122, 162, 247, 0.12);
+  --color-primary-container: #7aa2f7;
+  --color-success:          #a5d570;
+  --color-error:            #f7768e;
+  --color-error-bg:         #3b2030;
+  --color-error-subtle:     rgba(247, 118, 142, 0.1);
+  --color-warning:          #e0af68;
+  --color-warning-bg:       rgba(224, 175, 104, 0.08);
+  --color-warning-border:   #e0af68;
+
+  /* === GHOST BORDERS (dark) === */
+  --color-border-ghost:       rgba(67, 71, 81, 0.15);
+  --color-border-ghost-hover: rgba(67, 71, 81, 0.40);
+
+  /* === GLASS EFFECTS (dark) === */
+  --color-bg-glass: rgba(26, 27, 38, 0.80);
+
+  /* === SIDEBAR / ACTIVITY BAR BACKGROUNDS (dark) === */
+  --color-bg-activity-bar: rgba(22, 22, 24, 0.98);
+  --color-bg-sidebar:      rgba(36, 36, 38, 0.97);
+
+  /* === PRIMARY BUTTON (dark theme) === */
+  --color-btn-primary-bg:   linear-gradient(135deg, #aec6ff 0%, #7aa2f7 100%);
+  --color-btn-primary-text: #002e6b;
+
+  /* === DIFF COLORS === */
+  --color-diff-add-bg:     rgba(165,213,112,0.1);
+  --color-diff-add-text:   #a5d570;
+  --color-diff-add-gutter: rgba(165,213,112,0.15);
+  --color-diff-add-border: #a5d570;
+  --color-diff-del-bg:     rgba(255,180,171,0.1);
+  --color-diff-del-text:   #ffb4ab;
+  --color-diff-del-gutter: rgba(255,180,171,0.15);
+  --color-diff-del-border: #ffb4ab;
+  --color-diff-context-text:      #c3c6d3;
+  --color-diff-hunk-bg:           #1e1f2a;
+  --color-diff-hunk-text:         #8d909d;
+  --color-diff-line-num:          #8d909d;
+  --color-diff-selected-highlight: rgba(99,102,241,0.15);
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Global styles that depend on tokens ── */
+
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 2px var(--color-accent-subtle);
+}

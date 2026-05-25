@@ -1,0 +1,33 @@
+node_modules/
+dist/
+*.js.map
+*.d.ts.map
+
+# Server data
+server/data/
+data-dev/
+server/data-dev/
+
+# Vite
+client/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code local settings
+.claude/
+
+# Planning docs (used in PRs, not tracked)
+docs/brainstorms/
+docs/plans/
+
+# Environment
+.env
+.env.local

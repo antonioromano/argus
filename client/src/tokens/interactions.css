@@ -1,0 +1,126 @@
+/* ============================================================
+   INTERACTIONS — Hover, focus, animation, and pseudo-element rules.
+
+   Boundary convention:
+     CSS classes own: hover, focus, active, animations, pseudo-elements
+     Inline styles own: layout, spacing, sizing, conditional/dynamic values
+   ============================================================ */
+
+/* === GHOST BORDERS (composable via box-shadow) === */
+
+.ghost-border {
+  box-shadow: inset 0 0 0 1px var(--color-border-ghost);
+  transition: box-shadow var(--transition-base);
+}
+.ghost-border:hover {
+  box-shadow: inset 0 0 0 1px var(--color-border-ghost-hover);
+}
+
+/* === TERMINAL CARD — State glow + LED border === */
+
+.terminal-card {
+  position: relative;
+  transition: border-color 0.3s ease;
+}
+
+/* Ensure card content sits above the ::before glow layer */
+.terminal-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* State glow pseudo-element — z-index: 1 to sit above bg but below content */
+.terminal-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 1;
+  transition: opacity 0.3s ease;
+}
+
+.terminal-card[data-status="running"]::before {
+  background: radial-gradient(ellipse at 50% 0%, rgba(174, 198, 255, 0.08) 0%, transparent 70%);
+  opacity: 1;
+}
+.terminal-card[data-status="waiting"]::before {
+  background: radial-gradient(ellipse at 50% 0%, rgba(245, 158, 11, 0.10) 0%, transparent 70%);
+  opacity: 1;
+}
+.terminal-card[data-status="idle"]::before {
+  background: radial-gradient(ellipse at 50% 0%, rgba(165, 213, 112, 0.08) 0%, transparent 70%);
+  opacity: 1;
+}
+
+/* Status border */
+.terminal-card[data-status="running"] {
+  border: 2px solid var(--color-status-running-led);
+}
+.terminal-card[data-status="waiting"] {
+  border: 2px solid var(--color-status-waiting-led);
+}
+.terminal-card[data-status="idle"] {
+  border: 2px solid var(--color-status-idle-led);
+}
+.terminal-card[data-status="exited"] {
+  border: 2px solid var(--color-border-ghost);
+}
+
+/* Hover intensifies the border */
+.terminal-card:hover[data-status="running"] {
+  border-color: rgba(174, 198, 255, 0.75);
+}
+.terminal-card:hover[data-status="waiting"] {
+  border-color: rgba(245, 158, 11, 0.75);
+}
+.terminal-card:hover[data-status="idle"] {
+  border-color: rgba(165, 213, 112, 0.75);
+}
+.terminal-card:hover[data-status="exited"] {
+  border-color: var(--color-border-ghost-hover);
+}
+
+/* === HOVER UTILITIES === */
+
+.hover-bg-surface:hover {
+  background: var(--color-bg-surface) !important;
+}
+.hover-bg-elevated:hover {
+  background: var(--color-bg-elevated) !important;
+}
+.hover-opacity:hover {
+  opacity: 0.85;
+}
+.hover-error:hover {
+  background: var(--color-error-subtle) !important;
+  color: var(--color-error) !important;
+}
+.hover-success:hover {
+  background: rgba(0, 200, 100, 0.12) !important;
+  color: var(--color-success) !important;
+}
+
+/* === GLASSMORPHISM === */
+
+.glass-overlay {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.glass-panel {
+  background: var(--color-bg-glass);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: inset 0 0 0 1px var(--color-border-ghost), var(--shadow-float);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-panel {
+    background: var(--color-bg-modal);
+  }
+  .glass-overlay {
+    background: rgba(12, 13, 24, 0.85);
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@argus/shared",
+  "version": "0.15.1",
+  "private": true,
+  "main": "src/types.ts",
+  "types": "src/types.ts",
+  "scripts": {
+    "build": "tsc"
+  }
+}
