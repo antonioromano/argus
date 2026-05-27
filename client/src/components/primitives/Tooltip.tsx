@@ -12,7 +12,7 @@ interface TooltipProps {
     [key: string]: unknown;
   }>;
   position?: 'top' | 'bottom' | 'left' | 'right';
-  /** Show delay in ms. Default: 1200 (matches macOS HIToolTip cadence). */
+  /** Show delay in ms. Default: 400 (web cadence; opt-in 1200 matches macOS HIToolTip). */
   delay?: number;
 }
 
@@ -62,7 +62,7 @@ function getCoords(rect: DOMRect, position: string): Coords {
   }
 }
 
-export function Tooltip({ content, children, position = 'top', delay = 1200 }: TooltipProps) {
+export function Tooltip({ content, children, position = 'top', delay = 400 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,18 +109,20 @@ export function Tooltip({ content, children, position = 'top', delay = 1200 }: T
         transform: `translate(${coords.translateX}, ${coords.translateY})`,
         transformOrigin: coords.transformOrigin,
         zIndex: 300,
-        background: 'var(--color-bg-elevated)',
-        color: 'var(--color-text-primary)',
-        border: '1px solid var(--color-border-base)',
-        borderRadius: 'var(--radius-md)',
+        background: 'var(--bg-3)',
+        color: 'var(--fg-0)',
+        border: '1px solid var(--line-3)',
+        borderRadius: 'var(--r-2)',
         padding: '4px 8px',
-        fontSize: 'var(--text-sm)',
-        fontWeight: 400,
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--t-tiny)',
+        fontWeight: 500,
+        letterSpacing: '0.02em',
         whiteSpace: 'nowrap',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+        boxShadow: 'var(--shadow-pop)',
         pointerEvents: 'none',
         opacity: visible ? 1 : 0,
-        transition: 'opacity var(--transition-fast)',
+        transition: 'opacity var(--dur-fast) var(--ease-std)',
       }
     : { display: 'none' };
 

@@ -30,6 +30,10 @@ const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
     /manually approve edits/i,
     /shift\+tab to approve/i,
     /Esc to cancel/i,
+    /Enter to select/i,           // AskUserQuestion footer
+    /↑.+to navigate/i,           // AskUserQuestion navigation hint
+    /^\s*❯\s+\d+\./,             // selected item in AskUserQuestion list (❯ 1. Label)
+    /☐\s/,                       // AskUserQuestion checkbox header label
     /Tell Claude what to change/i,
     /Press Enter to continue/i,
   ],
@@ -59,8 +63,9 @@ const IDLE_SETTLE_MS = 500;
 const DEBOUNCE_MS = 300;
 const ACTIVITY_WINDOW_MS = 150;
 const ACTIVITY_MIN_FEEDS = 3;
-const SCAN_ROWS = 10;                 // rows from the bottom of the visible window to scan
+const SCAN_ROWS = 15;                 // rows from the bottom of the visible window to scan
 const CURSOR_ESC_WINDOW_MS = 1500;    // how long a recent cursor-style change counts as a hint
+const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIGWINCH redraw window
 
 /**
  * State detector built on top of a headless xterm.js terminal emulator.
@@ -81,6 +86,8 @@ export class StateDetector {
   private runningTimer: ReturnType<typeof setTimeout> | null = null;
   private feedCount = 0;
   private lastCursorStyleAt = 0;
+  private lastResizeAt = 0;
+  private destroyed = false;
   /** Serialises `term.write()` calls so buffer reads happen after the parser has caught up. */
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -116,12 +123,19 @@ export class StateDetector {
     } catch {
       // xterm throws on invalid sizes — ignore and keep current grid
     }
+    // Stamp so the activity heuristic suppresses 'running' during the SIGWINCH redraw burst.
+    this.lastResizeAt = Date.now();
   }
 
   feed(data: string): void {
+    // pty flushes buffered output on kill, so onData can fire after destroy().
+    // Ignore it — the emulator is disposed and the timers are gone.
+    if (this.destroyed) return;
+
     // Feed raw bytes (ANSI and all) to the emulator so the grid updates correctly.
     this.writeQueue = this.writeQueue.then(
       () => new Promise<void>((resolve) => {
+        if (this.destroyed) { resolve(); return; }
         this.term.write(data, () => resolve());
       }),
     );
@@ -137,8 +151,12 @@ export class StateDetector {
       if (count >= ACTIVITY_MIN_FEEDS) {
         // Gate on actual screen state — don't flicker to 'running' if the
         // input box is already visible (Claude re-renders its prompt frequently).
+        // Also suppress during resize grace window: SIGWINCH causes a full redraw
+        // burst that looks like activity but isn't real agent work.
+        const resizeAge = Date.now() - this.lastResizeAt;
         this.writeQueue.then(() => {
-          if (!this.screenShowsPrompt()) this.scheduleStatus('running');
+          if (this.destroyed) return;
+          if (!this.screenShowsPrompt() && resizeAge >= RESIZE_GRACE_MS) this.scheduleStatus('running');
         });
       }
     }, ACTIVITY_WINDOW_MS);
@@ -151,6 +169,7 @@ export class StateDetector {
   }
 
   private settle(): void {
+    if (this.destroyed) return;
     const hasPrompt = this.screenShowsPrompt();
     const recentCursorStyle = Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
 
@@ -228,6 +247,7 @@ export class StateDetector {
   }
 
   destroy(): void {
+    this.destroyed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.runningTimer) clearTimeout(this.runningTimer);

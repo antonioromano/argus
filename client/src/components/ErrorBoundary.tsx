@@ -5,9 +5,7 @@ interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
   onReset?: () => void;
-  /** Used for contextual error messages (e.g. session name) */
   label?: string;
-  /** 'tab' for full-area fallback, 'card' for card-sized fallback (default: 'card') */
   variant?: 'tab' | 'card';
 }
 
@@ -36,79 +34,39 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   };
 
   render() {
-    if (!this.state.hasError) {
-      return this.props.children;
-    }
-
-    if (this.props.fallback) {
-      return this.props.fallback;
-    }
+    if (!this.state.hasError) return this.props.children;
+    if (this.props.fallback) return this.props.fallback;
 
     const { label, variant = 'card' } = this.props;
     const errorMessage = this.state.error?.message ?? 'An unexpected error occurred';
 
-    if (variant === 'tab') {
-      return (
-        <div style={{
+    return (
+      <div
+        style={{
+          flex: 1,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          height: '100%',
-          gap: 'var(--space-3)',
-          color: 'var(--color-text-muted)',
-          padding: 'var(--space-6)',
-        }}>
-          <span style={{ fontSize: 'var(--text-md)' }}>
-            {label ? `"${label}" crashed` : 'This panel crashed'}
-          </span>
-          <span style={{ fontSize: 'var(--text-sm)', opacity: 0.7, maxWidth: 400, textAlign: 'center' }}>
-            {errorMessage}
-          </span>
-          <button
-            onClick={this.handleReset}
-            style={{
-              marginTop: 'var(--space-2)',
-              padding: 'var(--space-2) var(--space-4)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              background: 'var(--color-bg-surface)',
-              color: 'var(--color-text)',
-              cursor: 'pointer',
-              fontSize: 'var(--text-sm)',
-            }}
-          >
-            Try Again
-          </button>
-        </div>
-      );
-    }
-
-    // 'card' variant — preserves grid card dimensions
-    return (
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 'var(--space-2)',
-        background: 'var(--color-bg-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
-        color: 'var(--color-text-muted)',
-        padding: 'var(--space-4)',
-        overflow: 'hidden',
-        minHeight: 0,
-      }}>
-        <span style={{ fontSize: 'var(--text-sm)', fontWeight: 500 }}>
+          gap: 'var(--s-2)',
+          background: variant === 'tab' ? 'transparent' : 'var(--bg-2)',
+          border: variant === 'tab' ? 'none' : '1px solid var(--line-2)',
+          borderRadius: 'var(--r-2)',
+          color: 'var(--fg-2)',
+          padding: variant === 'tab' ? 'var(--s-6)' : 'var(--s-4)',
+          overflow: 'hidden',
+          minHeight: 0,
+          fontFamily: 'var(--font-mono)',
+        }}
+      >
+        <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500 }}>
           {label ? `"${label}" crashed` : 'Session crashed'}
         </span>
         <span style={{
-          fontSize: 'var(--text-xs)',
-          opacity: 0.7,
+          fontSize: 'var(--t-sm)',
+          opacity: 0.8,
           textAlign: 'center',
-          maxWidth: 300,
+          maxWidth: 360,
           wordBreak: 'break-word',
         }}>
           {errorMessage}
@@ -116,14 +74,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <button
           onClick={this.handleReset}
           style={{
-            marginTop: 'var(--space-1)',
-            padding: 'var(--space-1) var(--space-3)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
+            marginTop: 'var(--s-1)',
+            padding: 'var(--s-1) var(--s-3)',
+            border: '1px solid var(--line-3)',
+            borderRadius: 'var(--r-2)',
             background: 'transparent',
-            color: 'var(--color-text-muted)',
+            color: 'var(--fg-1)',
             cursor: 'pointer',
-            fontSize: 'var(--text-xs)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--t-tiny)',
+            letterSpacing: 'var(--tracking-eye)',
+            textTransform: 'uppercase',
           }}
         >
           Retry

@@ -10,20 +10,15 @@ interface InlineIconLinkProps {
   opacity?: number;
 }
 
-/**
- * Tiny icon button meant to sit inline within text rows (file tree nodes,
- * diff file headers, untracked-file rows, etc.).  Renders at the given
- * `size` (default 13) with muted colour that transitions to `hoverColor`
- * (default accent) on hover.  Wrapped in a Tooltip for discoverability.
- */
 export function InlineIconLink({
   icon: Icon,
   label,
   onClick,
   size = 13,
-  hoverColor = 'var(--color-accent)',
+  hoverColor = 'var(--accent)',
   opacity,
 }: InlineIconLinkProps) {
+  const mutedColor = 'var(--fg-3)';
   return (
     <Tooltip content={label} position="top">
       <button
@@ -34,18 +29,18 @@ export function InlineIconLink({
           border: 'none',
           padding: '0 2px',
           cursor: 'pointer',
-          color: 'var(--color-text-muted)',
+          color: mutedColor,
           display: 'inline-flex',
           alignItems: 'center',
           flexShrink: 0,
-          borderRadius: '3px',
+          borderRadius: 'var(--r-1)',
           opacity: opacity ?? 1,
-          transition: 'color var(--transition-fast), opacity var(--transition-fast)',
+          transition: 'color var(--dur-fast), opacity var(--dur-fast)',
         }}
         onMouseEnter={(e) => { e.currentTarget.style.color = hoverColor; e.currentTarget.style.opacity = '1'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; e.currentTarget.style.opacity = String(opacity ?? 1); }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = mutedColor; e.currentTarget.style.opacity = String(opacity ?? 1); }}
       >
-        <Icon size={size} strokeWidth={1.75} />
+        <Icon size={size} strokeWidth={1.6} />
       </button>
     </Tooltip>
   );

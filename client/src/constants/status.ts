@@ -1,34 +1,53 @@
 import type { SessionStatus } from '@argus/shared';
 
-/** Canonical status colors — reference CSS tokens so they auto-switch with theme. */
+/** Canonical status colors — Argus OS design tokens (auto-switch dark/light). */
 export const STATUS_COLORS: Record<SessionStatus, string> = {
-  waiting: 'var(--color-status-waiting)',
-  running: 'var(--color-status-running)',
-  idle:    'var(--color-status-idle)',
-  exited:  'var(--color-status-exited)',
+  waiting: 'var(--status-waiting)',
+  running: 'var(--status-running)',
+  idle:    'var(--status-idle)',
+  exited:  'var(--status-exited)',
 };
 
-/** Human-readable status labels (sentence case to match macOS HIG). */
+export const STATUS_BG_COLORS: Record<SessionStatus, string> = {
+  waiting: 'var(--status-waiting-bg)',
+  running: 'var(--status-running-bg)',
+  idle:    'var(--status-idle-bg)',
+  exited:  'var(--status-exited-bg)',
+};
+
+/** Uppercase mono labels — design language. */
 export const STATUS_LABELS: Record<SessionStatus, string> = {
-  waiting: 'Waiting',
-  running: 'Running',
-  idle:    'Idle',
-  exited:  'Exited',
+  waiting: 'WAITING',
+  running: 'RUNNING',
+  idle:    'IDLE',
+  exited:  'EXITED',
 };
 
-/** Ambient glow shadows for session card status (used alongside a solid border).
- *  @deprecated Prefer CSS classes in interactions.css — terminal-card[data-status] */
+export const STATUS_PULSE: Record<SessionStatus, boolean> = {
+  waiting: true,
+  running: false,
+  idle:    false,
+  exited:  false,
+};
+
+export const STATUS_MARQUEE: Record<SessionStatus, boolean> = {
+  waiting: false,
+  running: true,
+  idle:    false,
+  exited:  false,
+};
+
+/** @deprecated kept for back-compat with archived components. */
 export const STATUS_GLOW_SHADOWS: Record<SessionStatus, string> = {
-  running: '0 0 10px rgba(174,198,255,0.4)',
-  waiting: '0 0 10px rgba(245,158,11,0.4)',
-  idle:    '0 0 8px rgba(165,213,112,0.35)',
+  waiting: '0 0 16px var(--accent-glow)',
+  running: 'none',
+  idle:    'none',
   exited:  'none',
 };
 
-/** Radial gradient state glows for non-CSS consumers (e.g. tooltips). */
 export const STATUS_STATE_GLOWS: Record<SessionStatus, string> = {
-  running: 'radial-gradient(ellipse at 50% 0%, rgba(174,198,255,0.08) 0%, transparent 70%)',
-  waiting: 'radial-gradient(ellipse at 50% 0%, rgba(245,158,11,0.10) 0%, transparent 70%)',
-  idle:    'radial-gradient(ellipse at 50% 0%, rgba(165,213,112,0.08) 0%, transparent 70%)',
+  waiting: 'radial-gradient(ellipse at 50% 0%, var(--status-waiting-bg) 0%, transparent 70%)',
+  running: 'radial-gradient(ellipse at 50% 0%, var(--status-running-bg) 0%, transparent 70%)',
+  idle:    'radial-gradient(ellipse at 50% 0%, var(--status-idle-bg) 0%, transparent 70%)',
   exited:  'none',
 };

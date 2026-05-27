@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
@@ -104,6 +105,15 @@ export function useTerminal(
     terminal.loadAddon(new WebLinksAddon());
 
     terminal.open(container);
+
+    // WebGL renderer — graceful fallback to canvas if context creation fails.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      terminal.loadAddon(webgl);
+    } catch (err) {
+      console.warn('[useTerminal] WebGL renderer unavailable, falling back to canvas:', err);
+    }
 
     // Delay fit to allow container to settle, then report dimensions to server
     requestAnimationFrame(() => {
@@ -218,8 +228,10 @@ export function useTerminal(
 
   // Update theme without recreating the terminal
   useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+    const t = terminalRef.current;
+    if (t) {
+      t.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+      t.refresh(0, t.rows - 1);
     }
   }, [theme]);
 
