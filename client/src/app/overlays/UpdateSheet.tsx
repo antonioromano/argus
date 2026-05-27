@@ -70,18 +70,18 @@ export function UpdateSheet({ status, onClose }: UpdateSheetProps) {
         </div>
 
         <Notice kind="warn" icon={AlertTriangle}>
-          This will restart the server and terminate all active sessions.
+          Argus will close and all active sessions will end. It relaunches automatically once the new version is installed.
         </Notice>
 
         {!applied && (
           <Notice kind="info">
-            Dependencies will be installed automatically via <code className="mono">npm install</code> before the server restarts.
+            The new version is installed via Homebrew (<code className="mono">brew upgrade --cask argus</code>). Requires Homebrew on your PATH.
           </Notice>
         )}
 
         {applied && (
           <Notice kind="ok" icon={CheckCircle2}>
-            <strong>Update applied.</strong> Reconnecting…
+            <strong>Updating via Homebrew…</strong> Argus will relaunch shortly.
           </Notice>
         )}
 

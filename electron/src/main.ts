@@ -1,10 +1,63 @@
 import { app, dialog, ipcMain, BrowserWindow, Menu, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
+import { execFile, spawn } from 'child_process';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setAppQuitting, getWindow } from './window.js';
 import { createTray } from './tray.js';
+
+interface ApplyUpdateResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Self-update via Homebrew. Pre-checks brew presence (returns an error the modal
+ * can show without quitting), then spawns a detached helper that waits for this
+ * process to exit, runs `brew upgrade --cask argus`, and relaunches Argus.
+ */
+function applyBrewUpdate(): Promise<ApplyUpdateResult> {
+  const loginShell = process.env.SHELL || '/bin/zsh';
+  return new Promise((resolve) => {
+    // Pre-check: is brew on PATH? Login shell so we get the user's full PATH.
+    execFile(loginShell, ['-l', '-c', 'command -v brew'], (err, stdout) => {
+      const brewPath = (stdout || '').trim();
+      if (err || !brewPath) {
+        resolve({
+          success: false,
+          error: 'Homebrew not found. Update via the GitHub release link below.',
+        });
+        return;
+      }
+
+      const logFile = join(app.getPath('userData'), 'update.log');
+      // Helper runs after we exit: poll our PID until gone, upgrade, relaunch.
+      const script = [
+        `echo "[argus-update] $(date) starting" >> "${logFile}"`,
+        `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
+        `brew update >> "${logFile}" 2>&1`,
+        `brew upgrade --cask argus >> "${logFile}" 2>&1`,
+        `echo "[argus-update] $(date) relaunching" >> "${logFile}"`,
+        `open -a Argus`,
+      ].join('\n');
+
+      const child = spawn(loginShell, ['-l', '-c', script], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+
+      // Quit after the HTTP response flushes. Real quit path (not hide-to-tray).
+      setTimeout(() => {
+        setAppQuitting(true);
+        app.quit();
+      }, 500);
+
+      resolve({ success: true });
+    });
+  });
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -184,6 +237,9 @@ async function main() {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+
+  // Inject brew-based self-update so the in-app "Update now" button works in the desktop app.
+  server.setApplyUpdateFn(applyBrewUpdate);
 
   await server.startServer();
   shutdownServer = server.shutdownServer as () => Promise<void>;

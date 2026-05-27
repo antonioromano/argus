@@ -108,6 +108,12 @@ const changelistStore = new ChangelistStore();
 const updateService = new UpdateService();
 updateService.setIo(io);
 
+// Injected by the Electron host before startServer() — performs the brew-based
+// self-update + relaunch. Forwarded to UpdateService so the apply route can use it.
+export function setApplyUpdateFn(fn: import('./services/UpdateService.js').ApplyUpdateFn): void {
+  updateService.setApplyUpdateFn(fn);
+}
+
 // Routes
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });

@@ -12,7 +12,7 @@ const execFile = promisify(execFileCb);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_PACKAGE_JSON = path.resolve(__dirname, '..', '..', '..', 'package.json');
 const REPO_OWNER = 'antonioromano';
-const REPO_NAME = 'code-orchestrator';
+const REPO_NAME = 'argus';
 const REPO_BRANCH = 'master';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const CHECK_COOLDOWN_MS = 60 * 1000; // 60 seconds between on-demand checks
@@ -30,6 +30,16 @@ interface RemotePackageJson {
   version?: string;
 }
 
+export interface ApplyUpdateResult {
+  success: boolean;
+  error?: string;
+  warning?: string;
+  requiresConfirmation?: boolean;
+}
+
+/** Injected by the Electron host to perform a brew-based self-update + relaunch. */
+export type ApplyUpdateFn = () => Promise<ApplyUpdateResult>;
+
 export class UpdateService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private readonly installedVersion: string = getCurrentVersion();
@@ -39,9 +49,15 @@ export class UpdateService {
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private isApplying: boolean = false;
   private lastCheckAt: number = 0;
+  private applyUpdateFn: ApplyUpdateFn | null = null;
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
     this.io = io;
+  }
+
+  /** Electron host injects the brew-based apply (download + relaunch) implementation. */
+  setApplyUpdateFn(fn: ApplyUpdateFn): void {
+    this.applyUpdateFn = fn;
   }
 
   start(): void {
@@ -104,8 +120,14 @@ export class UpdateService {
   }
 
   async applyUpdate(force?: boolean): Promise<{ success: boolean; error?: string; warning?: string; requiresConfirmation?: boolean }> {
-    // In-app git pull is not applicable when running inside the Electron desktop app
+    // Inside the Electron desktop app, git pull does not apply. Defer to the
+    // brew-based apply fn injected by the host. If none is set, fall back to refusal.
     if (process.versions.electron) {
+      if (this.applyUpdateFn) {
+        const result = await this.applyUpdateFn();
+        if (result.success) this.io?.emit('update:applying');
+        return result;
+      }
       return {
         success: false,
         error: 'In-app update not available in the desktop app. Download the latest release from GitHub.',
