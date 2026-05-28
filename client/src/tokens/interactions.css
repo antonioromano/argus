@@ -79,6 +79,10 @@
   opacity: 1;
 }
 
+[data-theme="light"] .text-input-wrap input::placeholder {
+  opacity: 0.45;
+}
+
 /* === HOVER UTILITIES === */
 .hover-bg-1:hover { background: var(--bg-1) !important; }
 .hover-bg-2:hover { background: var(--bg-2) !important; }
