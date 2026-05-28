@@ -43,6 +43,7 @@ export function Remote({ onBack }: RemoteProps) {
       >
         <button
           onClick={onBack}
+          className="eyebrow"
           style={{
             background: 'transparent',
             border: '1px solid var(--line-2)',
@@ -55,10 +56,7 @@ export function Remote({ onBack }: RemoteProps) {
             alignItems: 'center',
             gap: 4,
             flexShrink: 0,
-            fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-tiny)',
-            letterSpacing: 'var(--tracking-eye)',
-            textTransform: 'uppercase',
           }}
         >
           <ChevronLeft size={14} strokeWidth={1.6} /> BACK

@@ -34,6 +34,7 @@ export class NgrokService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollAttempts = 0;
+  private pendingStartReject: ((err: Error) => void) | null = null;
   private readonly MAX_POLL_ATTEMPTS = 20;
   private readonly sleepPrevention: SleepPreventionService;
 
@@ -122,12 +123,14 @@ export class NgrokService {
     });
 
     return new Promise((resolve, reject) => {
+      this.pendingStartReject = reject;
       this.pollAttempts = 0;
       this.pollInterval = setInterval(async () => {
         this.pollAttempts++;
 
         if (this.tunnelStatus === 'error') {
           this.stopPolling();
+          this.pendingStartReject = null;
           reject(new Error(this.error || 'ngrok failed to start'));
           return;
         }
@@ -135,6 +138,7 @@ export class NgrokService {
         const url = await this.pollNgrokApi();
         if (url) {
           this.stopPolling();
+          this.pendingStartReject = null;
           this.publicUrl = url;
           this.tunnelStatus = 'connected';
           this.error = null;
@@ -146,6 +150,7 @@ export class NgrokService {
 
         if (this.pollAttempts >= this.MAX_POLL_ATTEMPTS) {
           this.stopPolling();
+          this.pendingStartReject = null;
           this.tunnelStatus = 'error';
           this.error = 'Timed out waiting for ngrok tunnel';
           this.broadcastStatus();
@@ -157,6 +162,10 @@ export class NgrokService {
 
   async stop(): Promise<void> {
     this.stopPolling();
+    if (this.pendingStartReject) {
+      this.pendingStartReject(new Error('ngrok stopped while connecting'));
+      this.pendingStartReject = null;
+    }
     this.sleepPrevention.stop();
     if (this.process) {
       this.process.kill('SIGTERM');

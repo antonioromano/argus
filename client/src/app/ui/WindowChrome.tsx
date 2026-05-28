@@ -9,7 +9,7 @@ interface WindowChromeProps {
 }
 
 /**
- * Argus OS root window. 36px draggable title bar + main content area.
+ * Argus OS root window. 44px draggable title bar + main content area.
  * Electron traffic-light region is owned by macOS automatically (via no-frame
  * window settings); this chrome supplies title/subtitle and right-side toolbar
  * slot for app-level controls.
@@ -29,43 +29,19 @@ export function WindowChrome({ title = 'ARGUS', subtitle, leading, toolbar, chil
       }}
     >
       <div
-        style={{
-          height: 44,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-3)',
-          padding: '0 var(--s-3) 0 80px',
-          background: 'var(--bg-1)',
-          borderBottom: '1px solid var(--line-2)',
-          // @ts-expect-error Electron WebkitAppRegion
-          WebkitAppRegion: 'drag',
-        }}
+        className="argus-titlebar"
+        // @ts-expect-error Electron WebkitAppRegion
+        style={{ WebkitAppRegion: 'drag' }}
       >
-        <div
-          style={{
-            fontSize: 'var(--t-tiny)',
-            color: 'var(--fg-2)',
-            fontFamily: 'var(--font-mono)',
-            letterSpacing: 'var(--tracking-eye)',
-            textTransform: 'uppercase',
-            pointerEvents: 'none',
-            userSelect: 'none',
-            flexShrink: 0,
-          }}
-        >
+        <div className="argus-titlebar-title">
           {title}
-          {subtitle && <span style={{ color: 'var(--fg-3)' }}> / {subtitle}</span>}
+          {subtitle && <span className="argus-titlebar-title-sub"> / {subtitle}</span>}
         </div>
         {leading && (
           <div
-            style={{
-              // @ts-expect-error Electron WebkitAppRegion
-              WebkitAppRegion: 'no-drag',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--s-2)',
-            }}
+            className="argus-titlebar-slot"
+            // @ts-expect-error Electron WebkitAppRegion
+            style={{ WebkitAppRegion: 'no-drag' }}
           >
             {leading}
           </div>
@@ -73,13 +49,9 @@ export function WindowChrome({ title = 'ARGUS', subtitle, leading, toolbar, chil
         <div style={{ flex: 1 }} />
         {toolbar && (
           <div
-            style={{
-              // @ts-expect-error Electron WebkitAppRegion
-              WebkitAppRegion: 'no-drag',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--s-2)',
-            }}
+            className="argus-titlebar-slot"
+            // @ts-expect-error Electron WebkitAppRegion
+            style={{ WebkitAppRegion: 'no-drag' }}
           >
             {toolbar}
           </div>

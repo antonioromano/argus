@@ -9,16 +9,14 @@ export function Badge({ label, color, size = 'sm' }: BadgeProps) {
   const fgColor = color ?? 'var(--accent)';
   return (
     <span
+      className="eyebrow"
       style={{
         fontSize,
         padding: size === 'sm' ? '1px 6px' : '2px 8px',
         borderRadius: 'var(--r-1)',
         background: 'var(--bg-3)',
         color: fgColor,
-        fontFamily: 'var(--font-mono)',
         fontWeight: 500,
-        letterSpacing: 'var(--tracking-eye)',
-        textTransform: 'uppercase',
         flexShrink: 0,
         whiteSpace: 'nowrap',
         display: 'inline-block',

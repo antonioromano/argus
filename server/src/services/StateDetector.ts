@@ -236,6 +236,7 @@ export class StateDetector {
   }
 
   setExited(): void {
+    if (this.destroyed) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.runningTimer) clearTimeout(this.runningTimer);

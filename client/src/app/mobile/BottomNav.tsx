@@ -40,6 +40,7 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
             onClick={() => onChange(t.id)}
             aria-current={sel ? 'page' : undefined}
             aria-label={t.label}
+            className="eyebrow"
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -53,10 +54,6 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
               color: sel ? 'var(--accent)' : 'var(--fg-2)',
               cursor: 'pointer',
               padding: 0,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-micro)',
-              letterSpacing: 'var(--tracking-eye)',
-              textTransform: 'uppercase',
             }}
           >
             <Icon size={20} strokeWidth={sel ? 2 : 1.6} />

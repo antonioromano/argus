@@ -94,6 +94,7 @@ function ToastView({ item }: { item: ToastItem }) {
 
   return (
     <div
+      className="eyebrow"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -104,10 +105,7 @@ function ToastView({ item }: { item: ToastItem }) {
         color: palette.fg,
         border: `1px solid ${palette.border}`,
         borderRadius: 'var(--r-2)',
-        fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-tiny)',
-        letterSpacing: 'var(--tracking-eye)',
-        textTransform: 'uppercase',
         boxShadow: 'var(--shadow-sheet)',
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(4px)',

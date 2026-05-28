@@ -320,6 +320,7 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
   return (
     <div
       role="alert"
+      className="eyebrow"
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -328,10 +329,7 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
         background: 'var(--warn-bg)',
         borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
         color: 'var(--warn)',
-        fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-tiny)',
-        letterSpacing: 'var(--tracking-eye)',
-        textTransform: 'uppercase',
         flexShrink: 0,
       }}
     >

@@ -96,7 +96,7 @@
   --fg-0: #14110c;
   --fg-1: #3a342a;
   --fg-2: #6a6258;
-  --fg-3: #9a9286;
+  --fg-3: #7a7268;          /* AA on cream paper */
   --fg-4: #c5beaf;
   --fg-on-accent: #2A1A00;
 
@@ -174,6 +174,9 @@
   --tracking-tight: -0.015em;
   --tracking-flat:  0;
   --tracking-eye:   0.14em;     /* uppercase eyebrows */
+
+  /* Icon stroke — locked default for lucide icons */
+  --icon-stroke: 1.6;
 
   /* Spacing — 4px base */
   --s-0: 0;

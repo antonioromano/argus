@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -6,7 +6,6 @@ import { Square as SquareIcon, Plus, PowerOff, Minus, Maximize2, Check, Focus } 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, EmptyState, Button, IconButton } from '../../components/primitives/index.js';
-import { STATUS_COLORS } from '../../constants/status.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 
@@ -26,14 +25,7 @@ interface MosaicProps {
   onKill: (session: SessionInfo) => void;
 }
 
-const MAX_TILES = 8;
-
-/** Choose column count to keep tiles as large as possible for a given count. */
-function colsForCount(n: number): number {
-  if (n <= 1) return 1;
-  if (n <= 4) return 2;
-  return 3;
-}
+const MAX_TILES = 12;
 
 export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupColorOf, onOpenSession, onCreate, onKill, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
@@ -66,10 +58,7 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
 
   if (sessions.length === 0) {
     return (
-      <div
-        className="grid-bg"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}
-      >
+      <div className="grid-bg argus-mosaic-empty">
         <EmptyState
           icon={SquareIcon}
           title="No sessions yet"
@@ -86,10 +75,7 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
 
   if (filtered.length === 0) {
     return (
-      <div
-        className="grid-bg"
-        style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}
-      >
+      <div className="grid-bg argus-mosaic-empty">
         <EmptyState
           icon={SquareIcon}
           title="No matching sessions"
@@ -103,7 +89,6 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
   const overflow = filtered.length > MAX_TILES;
   const minTiles = tiles.filter((s) => isMinimized(s.id));
   const activeTiles = tiles.filter((s) => !isMinimized(s.id));
-  const cols = colsForCount(activeTiles.length);
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
     ? focusedId
@@ -112,10 +97,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
   return (
     <div className="grid-bg" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: overflow ? 'auto' : 'hidden' }}>
       {minTiles.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-2)', padding: 'var(--s-3) var(--s-3) 0' }}>
-          {minTiles.map((s) => (
+        <div className="argus-mosaic-minrow">
+          {minTiles.map((s, i) => (
             <MosaicTile
               key={s.id}
+              idx={i}
               session={s}
               socket={socket}
               theme={theme}
@@ -134,20 +120,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
         </div>
       )}
       {activeTiles.length > 0 && (
-        <div
-          style={{
-            flex: 1,
-            minHeight: 0,
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gridAutoRows: '1fr',
-            gap: 'var(--s-3)',
-            padding: 'var(--s-3)',
-          }}
-        >
-          {activeTiles.map((s) => (
+        <div className="argus-mosaic">
+          {activeTiles.map((s, i) => (
             <MosaicTile
               key={s.id}
+              idx={i}
               session={s}
               socket={socket}
               theme={theme}
@@ -170,6 +147,7 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
 }
 
 function MosaicTile({
+  idx,
   session,
   socket,
   theme,
@@ -184,6 +162,7 @@ function MosaicTile({
   onKill,
   onOpenDiff,
 }: {
+  idx: number;
   session: SessionInfo;
   socket: TypedSocket;
   theme: 'dark' | 'light';
@@ -198,7 +177,6 @@ function MosaicTile({
   onKill: () => void;
   onOpenDiff?: () => void;
 }) {
-  const edge = STATUS_COLORS[session.status];
   const [copied, setCopied] = useState(false);
   const copyPath = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -208,49 +186,22 @@ function MosaicTile({
   };
   return (
     <div
+      className="argus-tile"
+      data-status={session.status}
+      data-minimized={minimized || undefined}
       onPointerDown={onFocus}
-      style={{
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-        minWidth: 0,
-        background: 'var(--bg-2)',
-        border: `1px solid ${session.status === 'waiting' ? edge : 'var(--line-2)'}`,
-        borderRadius: 'var(--r-2)',
-        overflow: 'hidden',
-        ...(minimized ? { width: 240, flexShrink: 0 } : {}),
-      }}
+      style={{ ['--i' as string]: idx } as CSSProperties}
     >
       {((hasFocusedSibling && !isFocused) || !windowFocused) && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.13)',
-            borderRadius: 'var(--r-2)',
-            pointerEvents: 'none',
-            zIndex: 2,
-            transition: 'opacity var(--dur-fast)',
-          }}
-        />
+        <div className="argus-tile-overlay" />
       )}
       <div
+        className="argus-tile-header"
         role="button"
         tabIndex={0}
         onClick={minimized ? onToggleMinimize : onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); minimized ? onToggleMinimize() : onOpen(); } }}
         title={`Open ${session.folderPath}`}
-        style={{
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
-          padding: 'var(--s-1) var(--s-3)',
-          background: 'var(--bg-1)',
-          borderBottom: minimized ? 'none' : '1px solid var(--line-2)',
-          flexShrink: 0,
-        }}
       >
         <AgentGlyph agent={session.agentType} size={16} />
         {groupColor && (

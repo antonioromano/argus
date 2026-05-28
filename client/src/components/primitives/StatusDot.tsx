@@ -1,5 +1,5 @@
 import type { SessionStatus } from '@argus/shared';
-import { STATUS_COLORS, STATUS_PULSE, STATUS_LABELS } from '../../constants/status.js';
+import { STATUS_PULSE, STATUS_LABELS } from '../../constants/status.js';
 
 interface StatusDotProps {
   status: SessionStatus;
@@ -11,23 +11,16 @@ interface StatusDotProps {
 }
 
 export function StatusDot({ status, size = 8, pulse, decorative }: StatusDotProps) {
-  const color = STATUS_COLORS[status];
   const shouldPulse = pulse ?? STATUS_PULSE[status];
   return (
     <span
+      className="argus-status argus-dot"
+      data-status={status}
+      data-pulse={shouldPulse || undefined}
       role={decorative ? 'presentation' : 'img'}
       aria-label={decorative ? undefined : STATUS_LABELS[status]}
       aria-hidden={decorative || undefined}
-      style={{
-        display: 'inline-block',
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        background: color,
-        boxShadow: shouldPulse ? `0 0 8px ${color}` : 'none',
-        animation: shouldPulse ? 'argus-pulse-dot var(--dur-ambient) ease-in-out infinite' : undefined,
-        flexShrink: 0,
-      }}
+      style={{ width: size, height: size }}
     />
   );
 }

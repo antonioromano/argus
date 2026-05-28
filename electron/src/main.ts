@@ -272,7 +272,11 @@ app.on('before-quit', (e) => {
   setAppQuitting(true);
 
   const doShutdown = shutdownServer ?? (() => Promise.resolve());
-  doShutdown()
+  const timeout = new Promise<void>((resolve) => setTimeout(() => {
+    console.warn('[electron] shutdown timed out after 10s — forcing quit');
+    resolve();
+  }, 10_000));
+  Promise.race([doShutdown(), timeout])
     .catch(console.error)
     .finally(() => app.quit());
 });

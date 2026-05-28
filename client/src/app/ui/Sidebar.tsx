@@ -54,36 +54,13 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
   ];
 
   return (
-    <aside
-      style={{
-        width: collapsed ? 56 : 220,
-        flexShrink: 0,
-        background: 'var(--bg-1)',
-        borderRight: '1px solid var(--line-2)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: 'var(--s-3) var(--s-2)',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        transition: 'width 180ms var(--ease-std)',
-      }}
-    >
+    <aside className="argus-sidebar" data-collapsed={collapsed || undefined}>
       <button
         type="button"
+        className="argus-sidebar-collapse-btn"
         onClick={toggleCollapsed}
         title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        style={{
-          all: 'unset',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'flex-end',
-          padding: '6px var(--s-2)',
-          color: 'var(--fg-2)',
-          borderRadius: 'var(--r-2)',
-          marginBottom: 'var(--s-2)',
-        }}
       >
         {collapsed ? <PanelLeftOpen size={15} strokeWidth={1.6} /> : <PanelLeftClose size={15} strokeWidth={1.6} />}
       </button>
@@ -122,9 +99,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
         >
           <StatusDot status={ngrokConnected ? 'running' : 'idle'} size={8} />
           {!collapsed && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-2)', flex: 1, letterSpacing: 'var(--tracking-eye)' }}>
-              v{version}
-            </span>
+            <span className="eyebrow num" style={{ flex: 1 }}>v{version}</span>
           )}
         </div>
       )}
@@ -134,64 +109,25 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
 
 function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean; collapsed: boolean; onClick: () => void }) {
   const Icon = item.icon;
-  const [hover, setHover] = useState(false);
-  const [pressed, setPressed] = useState(false);
-  const color = item.highlight ? 'var(--accent)' : active ? 'var(--fg-0)' : hover ? 'var(--fg-0)' : 'var(--fg-1)';
-  const bg = pressed
-    ? 'var(--accent-bg)'
-    : active
-      ? 'var(--bg-3)'
-      : hover
-        ? 'var(--bg-2)'
-        : 'transparent';
   return (
     <button
       type="button"
+      className="argus-sidebar-row"
+      data-active={active || undefined}
+      data-highlight={item.highlight || undefined}
       onClick={onClick}
       title={collapsed ? item.label : undefined}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => { setHover(false); setPressed(false); }}
-      onMouseDown={() => setPressed(true)}
-      onMouseUp={() => setPressed(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      style={{
-        all: 'unset',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        gap: 'var(--s-2)',
-        padding: '6px var(--s-2)',
-        background: bg,
-        color,
-        borderRadius: 'var(--r-2)',
-        fontSize: 'var(--t-sm)',
-        borderLeft: `2px solid ${active ? 'var(--accent)' : hover ? 'var(--accent-edge)' : 'transparent'}`,
-        marginBottom: 1,
-        boxSizing: 'border-box',
-        transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast), border-color var(--dur-fast)',
-      }}
     >
-      <Icon
-        size={13}
-        strokeWidth={1.6}
-        color={item.highlight ? 'var(--accent)' : 'currentColor'}
-      />
-      {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
-      {!collapsed && item.count !== undefined && item.count > 0 && (
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-micro)',
-            color: item.highlight ? 'var(--accent)' : 'var(--fg-3)',
-            letterSpacing: 'var(--tracking-eye)',
-          }}
-        >
-          {item.count}
+      <Icon size={13} strokeWidth={1.6} color={item.highlight ? 'var(--accent)' : 'currentColor'} />
+      <span className="argus-sidebar-label">{item.label}</span>
+      {item.count !== undefined && item.count > 0 && (
+        <span className="argus-sidebar-count">{item.count}</span>
+      )}
+      {item.kbd && (
+        <span className="argus-sidebar-kbd">
+          <Kbd>{item.kbd}</Kbd>
         </span>
       )}
-      {!collapsed && item.kbd && <Kbd>{item.kbd}</Kbd>}
     </button>
   );
 }

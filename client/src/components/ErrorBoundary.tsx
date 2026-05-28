@@ -73,6 +73,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         </span>
         <button
           onClick={this.handleReset}
+          className="eyebrow"
           style={{
             marginTop: 'var(--s-1)',
             padding: 'var(--s-1) var(--s-3)',
@@ -81,10 +82,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             background: 'transparent',
             color: 'var(--fg-1)',
             cursor: 'pointer',
-            fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-tiny)',
-            letterSpacing: 'var(--tracking-eye)',
-            textTransform: 'uppercase',
           }}
         >
           Retry
