@@ -77,11 +77,33 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
               fontWeight: 500,
               color: 'var(--fg-0)',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
             }}
           >
-            {s.name}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              {s.name}
+            </span>
+            {s.worktreeBranch && (
+              <span
+                style={{
+                  flexShrink: 0,
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--t-micro)',
+                  letterSpacing: 'var(--tracking-eye)',
+                  background: 'var(--accent-bg)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent-edge)',
+                  borderRadius: 'var(--r-1)',
+                  padding: '1px 5px',
+                  maxWidth: 120,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={s.worktreeBranch}
+              >
+                {s.worktreeBranch}
+              </span>
+            )}
           </div>
           <div
             className="eyebrow"

@@ -9,6 +9,8 @@ export interface PersistedSession {
   createdAt: string;
   agentType: string;
   flags: string[];
+  worktreePath?: string;
+  worktreeBranch?: string;
 }
 
 export class SessionStore {
@@ -32,6 +34,8 @@ export class SessionStore {
         ...s,
         agentType: s.agentType || 'claude',
         flags: s.flags || [],
+        worktreePath: s.worktreePath,
+        worktreeBranch: s.worktreeBranch,
       }));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {

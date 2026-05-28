@@ -345,6 +345,39 @@ export class GitService {
     }
   }
 
+  async getGitRoot(folderPath: string): Promise<string> {
+    return (await execGit(['rev-parse', '--show-toplevel'], folderPath)).trim();
+  }
+
+  async worktreeAdd(gitRoot: string, destPath: string, branchName: string, baseBranch: string): Promise<void> {
+    await execGitWithStderr(['worktree', 'add', destPath, '-b', branchName, baseBranch], gitRoot);
+  }
+
+  async worktreeRemove(gitRoot: string, destPath: string, force = false): Promise<void> {
+    const args = ['worktree', 'remove', destPath];
+    if (force) args.push('--force');
+    await execGitWithStderr(args, gitRoot);
+  }
+
+  async worktreeDirtyCheck(worktreePath: string): Promise<boolean> {
+    try {
+      const output = await execGit(['status', '--porcelain'], worktreePath);
+      return output.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  // Returns true when branchName has commits not yet in targetBranch (i.e. unmerged).
+  async worktreeUnmergedCheck(gitRoot: string, branchName: string, targetBranch = 'HEAD'): Promise<boolean> {
+    try {
+      await execGit(['merge-base', '--is-ancestor', branchName, targetBranch], gitRoot);
+      return false; // is ancestor → fully merged
+    } catch {
+      return true; // not ancestor → unmerged commits exist
+    }
+  }
+
   private async getBranchDiff(folderPath: string): Promise<string> {
     try {
       return await execGit(['diff', 'HEAD'], folderPath);

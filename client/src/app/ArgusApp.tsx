@@ -212,8 +212,8 @@ function DesktopInner() {
       ? sessions.find((s) => s.id === app.activeSessionId) ?? null
       : null;
 
-  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[]) => {
-    const created = await createSession(folderPath, name, agentType, flags);
+  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
+    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
     app.closeOverlay();
     app.openSession(created.id);
   };
@@ -484,6 +484,7 @@ function DesktopInner() {
         <Overlay onClose={app.closeOverlay}>
           <SettingsOverlay
             config={config as AppConfig}
+            sessions={sessions}
             onClose={app.closeOverlay}
             onSave={updateConfig}
             onSaveFlag={handleSaveFlag}

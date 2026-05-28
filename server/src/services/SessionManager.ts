@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import { access } from 'fs/promises';
+import { access, mkdir } from 'fs/promises';
+import { createHash } from 'crypto';
 import path from 'path';
+import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
@@ -28,6 +30,8 @@ interface ManagedSession {
   pty: IPty;
   stateDetector: StateDetector;
   outputBuffer: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
@@ -74,9 +78,40 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string): Promise<SessionInfo> {
-    // Validate folder exists
-    await access(folderPath);
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string): Promise<SessionInfo> {
+    let effectiveFolderPath = folderPath;
+    let worktreePath: string | undefined;
+
+    if (worktreeBranch) {
+      if (existingId) {
+        // Restoring a worktree session — folderPath IS the worktree dir (already exists on disk)
+        worktreePath = folderPath;
+        effectiveFolderPath = folderPath;
+        await access(effectiveFolderPath);
+      } else {
+        // New worktree session — validate repo exists, then create worktree
+        await access(folderPath);
+        if (!this.gitService) throw new Error('GitService not available for worktree creation');
+        const gitRoot = await this.gitService.getGitRoot(folderPath);
+        const hash = createHash('sha256').update(gitRoot).digest('hex').slice(0, 6);
+        const slug = `${path.basename(gitRoot)}-${hash}`;
+        worktreePath = path.join(os.homedir(), '.argus', 'worktrees', slug, worktreeBranch);
+
+        // Enforce one active session per worktree
+        for (const session of this.sessions.values()) {
+          if (session.status !== 'exited' && session.folderPath === worktreePath) {
+            throw new Error(`A live session already uses worktree "${worktreeBranch}". Close it first.`);
+          }
+        }
+
+        await mkdir(path.dirname(worktreePath), { recursive: true });
+        await this.gitService.worktreeAdd(gitRoot, worktreePath, worktreeBranch, worktreeBase ?? 'HEAD');
+        effectiveFolderPath = worktreePath;
+      }
+    } else {
+      // Non-worktree session
+      await access(folderPath);
+    }
 
     // Resolve agent type: explicit > config default > 'claude'
     const config = await this.configStore.load();
@@ -87,7 +122,7 @@ export class SessionManager {
     const command = agentDef?.command ?? resolvedAgentType;
 
     const id = existingId ?? uuidv4();
-    const sessionName = name || path.basename(folderPath);
+    const sessionName = name || path.basename(effectiveFolderPath);
     const createdAt = existingCreatedAt ?? new Date().toISOString();
 
     const stateDetector = new StateDetector((status) => {
@@ -99,12 +134,12 @@ export class SessionManager {
     }, resolvedAgentType);
 
     const resolvedFlags = flags || [];
-    const ptyProcess = this.ptyManager.spawn(folderPath, command, 120, 30, resolvedFlags);
+    const ptyProcess = this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, resolvedFlags);
 
     const session: ManagedSession = {
       id,
       name: sessionName,
-      folderPath,
+      folderPath: effectiveFolderPath,
       agentType: resolvedAgentType,
       flags: resolvedFlags,
       status: 'running',
@@ -112,6 +147,8 @@ export class SessionManager {
       pty: ptyProcess,
       stateDetector,
       outputBuffer: '',
+      worktreePath,
+      worktreeBranch,
     };
 
     ptyProcess.onData((data) => {
@@ -248,7 +285,7 @@ export class SessionManager {
         continue;
       }
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch);
         console.log(`Restored session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -271,6 +308,8 @@ export class SessionManager {
       agentType: session.agentType,
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
+      worktreePath: session.worktreePath,
+      worktreeBranch: session.worktreeBranch,
     };
   }
 
@@ -298,6 +337,8 @@ export class SessionManager {
       createdAt: s.createdAt,
       agentType: s.agentType,
       flags: s.flags,
+      worktreePath: s.worktreePath,
+      worktreeBranch: s.worktreeBranch,
     }));
     await this.store.save(data);
   }

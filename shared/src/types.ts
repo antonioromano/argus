@@ -44,6 +44,8 @@ export interface SessionInfo {
   agentType: AgentType;
   flags: string[];  // flags this session was created with
   hasGitChanges?: boolean;
+  worktreePath?: string;    // set for worktree sessions; equals folderPath
+  worktreeBranch?: string;  // branch name this worktree is on
 }
 
 export interface CreateSessionRequest {
@@ -51,6 +53,8 @@ export interface CreateSessionRequest {
   name?: string;
   agentType?: AgentType;
   flags?: string[];  // resolved flag value strings to append to command
+  worktreeBranch?: string;  // if set, create a git worktree on this branch
+  worktreeBase?: string;    // base branch/commit for the new branch (default: HEAD)
 }
 
 export interface CreateSessionResponse extends SessionInfo {}

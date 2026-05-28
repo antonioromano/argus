@@ -53,6 +53,38 @@ export const api = {
     await authFetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
   },
 
+  checkWorktree: async (params: {
+    repoPath: string;
+    branch?: string;
+    worktreePath?: string;
+    worktreeBranch?: string;
+  }): Promise<{
+    isGitRepo: boolean;
+    branchExists?: boolean;
+    headCommit?: string | null;
+    isDirty?: boolean;
+    isUnmerged?: boolean;
+  }> => {
+    const q = new URLSearchParams({ repoPath: params.repoPath });
+    if (params.branch) q.set('branch', params.branch);
+    if (params.worktreePath) q.set('worktreePath', params.worktreePath);
+    if (params.worktreeBranch) q.set('worktreeBranch', params.worktreeBranch);
+    const res = await authFetch(`${API_BASE}/worktrees/check?${q}`);
+    return res.json();
+  },
+
+  deleteWorktree: async (worktreePath: string, repoPath: string, force = false): Promise<void> => {
+    const res = await authFetch(`${API_BASE}/worktrees`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worktreePath, repoPath, force }),
+    });
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to delete worktree');
+    }
+  },
+
   restartSession: async (id: string): Promise<SessionInfo> => {
     const res = await authFetch(`${API_BASE}/sessions/${id}/restart`, { method: 'PATCH' });
     if (!res.ok) {

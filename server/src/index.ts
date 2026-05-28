@@ -25,6 +25,7 @@ import { NgrokService } from './services/NgrokService.js';
 import { UpdateService } from './services/UpdateService.js';
 import { createConfigRoutes, createAgentRoutes } from './routes/config.js';
 import { createUpdateRoutes } from './routes/update.js';
+import { createWorktreeRoutes } from './routes/worktrees.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 
@@ -137,6 +138,7 @@ app.use('/api/auth', createAuthRoutes(authService));
 app.use('/api/config', createConfigRoutes(configStore));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
+app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
 
 // Socket.io
 setupSocketHandler(io, sessionManager, authService, updateService);

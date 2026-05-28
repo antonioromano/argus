@@ -74,7 +74,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
   });
 
   router.post('/', async (req, res) => {
-    const { folderPath, name, agentType, flags } = req.body as CreateSessionRequest;
+    const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase } = req.body as CreateSessionRequest;
 
     if (!folderPath) {
       res.status(400).json({ error: 'folderPath is required' });
@@ -90,7 +90,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
 
     try {
-      const session = await manager.createSession(folderPath, name, agentType, flags);
+      const session = await manager.createSession(folderPath, name, agentType, flags, undefined, undefined, worktreeBranch, worktreeBase);
 
       // Update sticky defaults: record which flags were enabled for this agent
       const config = await configStore.load();

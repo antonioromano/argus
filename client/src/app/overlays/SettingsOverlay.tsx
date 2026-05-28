@@ -1,6 +1,7 @@
 import { useState, Fragment } from 'react';
-import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus } from '@argus/shared';
-import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink } from 'lucide-react';
+import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
+import { api } from '../../services/api.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { useTheme } from '../../context/ThemeContext.js';
@@ -19,6 +20,7 @@ import {
 
 interface SettingsOverlayProps {
   config: AppConfig;
+  sessions?: SessionInfo[];
   onClose: () => void;
   onSave: (data: Partial<AppConfig>) => Promise<AppConfig>;
   onSaveFlag: (agentId: string, flag: AgentFlag) => Promise<void>;
@@ -31,13 +33,14 @@ interface SettingsOverlayProps {
   initialTab?: string;
 }
 
-type Tab = 'general' | 'agents' | 'notif' | 'remote';
+type Tab = 'general' | 'agents' | 'notif' | 'remote' | 'worktrees';
 
 const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
   { id: 'general', icon: SlidersHorizontal, label: 'General' },
   { id: 'agents', icon: Cpu, label: 'Agents' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
   { id: 'remote', icon: Wifi, label: 'Remote' },
+  { id: 'worktrees', icon: GitBranch, label: 'Worktrees' },
 ];
 
 const BUILTIN: AgentDefinition[] = [
@@ -48,8 +51,8 @@ const BUILTIN: AgentDefinition[] = [
 
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 
-export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
-  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote'].includes(initialTab)) ? initialTab as Tab : 'agents';
+export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
+  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees'].includes(initialTab)) ? initialTab as Tab : 'agents';
   const [tab, setTab] = useState<Tab>(validInitial);
   const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
@@ -69,6 +72,48 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
 
   const connected = ngrokStatus?.tunnelStatus === 'connected';
   const publicUrl = connected ? ngrokStatus?.publicUrl ?? null : null;
+
+  // Worktrees tab state
+  const worktreeSessions = sessions.filter((s) => !!s.worktreeBranch);
+  const [deletingWorktree, setDeletingWorktree] = useState<SessionInfo | null>(null);
+  const [worktreeDeleteCheck, setWorktreeDeleteCheck] = useState<{ isDirty?: boolean; isUnmerged?: boolean } | null>(null);
+  const [worktreeDeleting, setWorktreeDeleting] = useState(false);
+  const [worktreeDeleteError, setWorktreeDeleteError] = useState<string | null>(null);
+
+  const handleWorktreeDeleteClick = async (session: SessionInfo) => {
+    setWorktreeDeleteError(null);
+    setDeletingWorktree(session);
+    try {
+      // repoPath: for worktree sessions folderPath IS the worktree dir; we use it for git root resolution
+      const check = await api.checkWorktree({
+        repoPath: session.folderPath,
+        worktreePath: session.folderPath,
+        worktreeBranch: session.worktreeBranch,
+      });
+      setWorktreeDeleteCheck({ isDirty: check.isDirty, isUnmerged: check.isUnmerged });
+    } catch {
+      setWorktreeDeleteCheck({});
+    }
+  };
+
+  const handleWorktreeDeleteConfirm = async () => {
+    if (!deletingWorktree) return;
+    setWorktreeDeleting(true);
+    setWorktreeDeleteError(null);
+    try {
+      await api.deleteWorktree(
+        deletingWorktree.folderPath,
+        deletingWorktree.folderPath,
+        worktreeDeleteCheck?.isDirty || false,
+      );
+      setDeletingWorktree(null);
+      setWorktreeDeleteCheck(null);
+    } catch (err) {
+      setWorktreeDeleteError(err instanceof Error ? err.message : 'Failed to delete worktree');
+    } finally {
+      setWorktreeDeleting(false);
+    }
+  };
 
   const handleNotifToggle = async (v: boolean) => {
     if (v && 'Notification' in window && Notification.permission === 'default') {
@@ -119,6 +164,7 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
   };
 
   return (
+    <>
     <Sheet
       eyebrow="ARGUS · SETTINGS"
       title="Preferences"
@@ -545,8 +591,128 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
               </div>
             </div>
           )}
+          {tab === 'worktrees' && (
+            <div style={{ maxWidth: 720 }}>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Worktrees</div>
+              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
+                Worktrees
+              </h2>
+              {worktreeSessions.length === 0 ? (
+                <div style={{ color: 'var(--fg-2)', fontSize: 'var(--t-sm)', padding: 'var(--s-4) 0' }}>
+                  No worktree sessions. Create a session with a worktree to see it here.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+                  {worktreeSessions.map((s) => {
+                    const isLive = s.status !== 'exited';
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--s-3)',
+                          padding: 'var(--s-3) var(--s-4)',
+                          background: 'var(--bg-1)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-2)',
+                        }}
+                      >
+                        <GitBranch size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', fontWeight: 500 }}>
+                            {s.worktreeBranch}
+                          </div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {s.folderPath}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}>
+                          <span style={{
+                            fontSize: 'var(--t-micro)',
+                            fontFamily: 'var(--font-mono)',
+                            letterSpacing: 'var(--tracking-eye)',
+                            color: isLive ? 'var(--status-running)' : 'var(--fg-3)',
+                          }}>
+                            {s.name} · {s.status}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isLive}
+                            onClick={() => void handleWorktreeDeleteClick(s)}
+                            title={isLive ? 'Close session first' : 'Delete worktree'}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {worktreeDeleteError && (
+                <div style={{ color: 'var(--status-error)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-3)' }}>
+                  {worktreeDeleteError}
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
     </Sheet>
+
+    {/* Worktree delete confirm dialog */}
+    {deletingWorktree !== null && worktreeDeleteCheck !== null && (() => {
+      const warnings: string[] = [];
+      if (worktreeDeleteCheck.isDirty) warnings.push('This worktree has uncommitted changes.');
+      if (worktreeDeleteCheck.isUnmerged) warnings.push('This branch has unmerged commits.');
+      const msg = warnings.length > 0
+        ? warnings.join(' ') + '\n\nDelete the worktree directory anyway?'
+        : `Delete worktree "${deletingWorktree.worktreeBranch}"? This removes the directory but keeps the branch in git.`;
+      return (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'var(--overlay-bg)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={() => { setDeletingWorktree(null); setWorktreeDeleteCheck(null); }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-2)',
+              border: '1px solid var(--line-2)',
+              borderRadius: 'var(--r-3)',
+              padding: 'var(--s-5)',
+              maxWidth: 420,
+              width: '100%',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginBottom: 'var(--s-3)' }}>
+              Delete worktree?
+            </div>
+            <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginBottom: 'var(--s-4)', whiteSpace: 'pre-line' }}>
+              {msg}
+            </div>
+            {worktreeDeleteError && (
+              <div style={{ color: 'var(--status-error)', fontSize: 'var(--t-sm)', marginBottom: 'var(--s-3)' }}>
+                {worktreeDeleteError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={() => { setDeletingWorktree(null); setWorktreeDeleteCheck(null); setWorktreeDeleteError(null); }}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={worktreeDeleting} onClick={() => void handleWorktreeDeleteConfirm()}>
+                Delete worktree
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+    </>
   );
 }
