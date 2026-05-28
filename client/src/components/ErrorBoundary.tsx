@@ -60,7 +60,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         }}
       >
         <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500 }}>
-          {label ? `"${label}" crashed` : 'Session crashed'}
+          {label ? `"${label}" crashed` : 'Shell crashed'}
         </span>
         <span style={{
           fontSize: 'var(--t-sm)',

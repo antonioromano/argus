@@ -32,7 +32,7 @@ export function Focus({ session, onBack }: FocusProps) {
       >
         <button
           onClick={onBack}
-          aria-label="Back to sessions"
+          aria-label="Back to shells"
           className="eyebrow"
           style={{
             background: 'transparent',

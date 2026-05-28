@@ -1,17 +1,20 @@
 import { useState, Fragment } from 'react';
-import type { AppConfig, AgentDefinition, AgentFlag } from '@argus/shared';
-import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag } from 'lucide-react';
+import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus } from '@argus/shared';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { useTheme } from '../../context/ThemeContext.js';
 import type { ThemeMode } from '../../context/ThemeContext.js';
 import {
   Sheet,
   Section,
+  Field,
   Chip,
   Toggle,
   IconButton,
   Button,
   TextInput,
+  StatusDot,
 } from '../../components/primitives/index.js';
 
 interface SettingsOverlayProps {
@@ -20,14 +23,21 @@ interface SettingsOverlayProps {
   onSave: (data: Partial<AppConfig>) => Promise<AppConfig>;
   onSaveFlag: (agentId: string, flag: AgentFlag) => Promise<void>;
   onDeleteFlag: (agentId: string, flagId: string) => Promise<void>;
+  ngrokStatus: NgrokStatus | null;
+  ngrokLoading: boolean;
+  ngrokError: string | null;
+  onNgrokStart: (password: string) => void;
+  onNgrokStop: () => void;
+  initialTab?: string;
 }
 
-type Tab = 'general' | 'agents' | 'notif';
+type Tab = 'general' | 'agents' | 'notif' | 'remote';
 
 const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
   { id: 'general', icon: SlidersHorizontal, label: 'General' },
   { id: 'agents', icon: Cpu, label: 'Agents' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
+  { id: 'remote', icon: Wifi, label: 'Remote' },
 ];
 
 const BUILTIN: AgentDefinition[] = [
@@ -38,8 +48,9 @@ const BUILTIN: AgentDefinition[] = [
 
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 
-export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteFlag }: SettingsOverlayProps) {
-  const [tab, setTab] = useState<Tab>('agents');
+export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
+  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote'].includes(initialTab)) ? initialTab as Tab : 'agents';
+  const [tab, setTab] = useState<Tab>(validInitial);
   const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
 
@@ -50,6 +61,14 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [flagInput, setFlagInput] = useState('');
   const [flagError, setFlagError] = useState<string | null>(null);
+
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [pwErr, setPwErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const connected = ngrokStatus?.tunnelStatus === 'connected';
+  const publicUrl = connected ? ngrokStatus?.publicUrl ?? null : null;
 
   const handleNotifToggle = async (v: boolean) => {
     if (v && 'Notification' in window && Notification.permission === 'default') {
@@ -75,6 +94,28 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
     setFlagError(null);
     await onSaveFlag(agentId, { id: crypto.randomUUID(), value, enabled: true });
     setFlagInput('');
+  };
+
+  const handleNgrokStart = () => {
+    if (password.length < 4) {
+      setPwErr('Min 4 characters');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setPwErr('Passwords do not match');
+      return;
+    }
+    setPwErr(null);
+    onNgrokStart(password);
+    setPassword('');
+    setConfirmPassword('');
+  };
+
+  const copy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
   };
 
   return (
@@ -332,7 +373,7 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
                 <Toggle
                   checked={config.notificationsEnabled}
                   onChange={handleNotifToggle}
-                  label="Native desktop notifications when a session enters waiting"
+                  label="Native desktop notifications when a shell enters waiting"
                 />
                 {config.notificationsEnabled && notifPermission === 'denied' && (
                   <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--warn)' }}>
@@ -343,6 +384,163 @@ export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteF
                   <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
                     This surface can't show desktop notifications.
                   </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {tab === 'remote' && (
+            <div style={{ maxWidth: 520 }}>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Remote</div>
+              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
+                Remote access
+              </h2>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--s-2)',
+                    padding: 'var(--s-3) var(--s-4)',
+                    background: 'var(--bg-1)',
+                    border: '1px solid var(--line-2)',
+                    borderRadius: 'var(--r-2)',
+                  }}
+                >
+                  {connected ? (
+                    <>
+                      <StatusDot status="running" size={8} />
+                      <Wifi size={14} strokeWidth={1.6} color="var(--accent)" />
+                      <span className="eyebrow" style={{ color: 'var(--accent)' }}>ACTIVE</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff size={14} strokeWidth={1.6} color="var(--fg-3)" />
+                      <span className="eyebrow">OFFLINE</span>
+                    </>
+                  )}
+                  {ngrokStatus && !ngrokStatus.installed && (
+                    <span className="eyebrow" style={{ color: 'var(--warn)' }}>NGROK NOT INSTALLED</span>
+                  )}
+                </div>
+
+                {ngrokError && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '10px var(--s-3)',
+                      background: 'var(--danger-bg)',
+                      border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
+                      borderRadius: 'var(--r-2)',
+                      color: 'var(--danger)',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 'var(--t-sm)',
+                    }}
+                  >
+                    <AlertTriangle size={12} strokeWidth={1.6} />
+                    {ngrokError}
+                  </div>
+                )}
+
+                {connected && publicUrl && (
+                  <>
+                    <Field label="Public URL">
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--s-2)',
+                          padding: '6px var(--s-3)',
+                          background: 'var(--bg-inset)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-2)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 'var(--t-sm)',
+                            color: 'var(--accent)',
+                            flex: 1,
+                            wordBreak: 'break-all',
+                          }}
+                        >
+                          {publicUrl}
+                        </span>
+                        <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => copy(publicUrl)}>
+                          {copied ? 'Copied' : 'Copy'}
+                        </Button>
+                        <a
+                          href={publicUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="eyebrow"
+                          style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <ExternalLink size={11} strokeWidth={1.6} /> OPEN
+                        </a>
+                      </div>
+                    </Field>
+
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--s-3)' }}>
+                      <div
+                        style={{
+                          background: '#fff',
+                          padding: 'var(--s-3)',
+                          borderRadius: 'var(--r-3)',
+                          boxShadow: 'var(--shadow-pop)',
+                        }}
+                      >
+                        <QRCodeSVG value={`${publicUrl}/mobile`} size={160} bgColor="#fff" fgColor="#000" />
+                      </div>
+                    </div>
+                    <p className="eyebrow" style={{ textAlign: 'center', color: 'var(--fg-3)' }}>
+                      SCAN TO OPEN MOBILE COMPANION
+                    </p>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button variant="danger" onClick={onNgrokStop} loading={ngrokLoading} disabled={ngrokLoading}>
+                        Stop tunnel
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {!connected && (
+                  <>
+                    <Field label="Password" required hint="Min 4 characters" error={pwErr ?? undefined}>
+                      <TextInput
+                        value={password}
+                        onChange={setPassword}
+                        type="password"
+                        placeholder="Set password"
+                        mono
+                      />
+                    </Field>
+                    <Field label="Confirm password" required>
+                      <TextInput
+                        value={confirmPassword}
+                        onChange={setConfirmPassword}
+                        type="password"
+                        placeholder="Re-enter password"
+                        mono
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleNgrokStart(); }}
+                      />
+                    </Field>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <Button
+                        variant="primary"
+                        onClick={handleNgrokStart}
+                        loading={ngrokLoading}
+                        disabled={ngrokLoading || password.length < 4 || password !== confirmPassword}
+                      >
+                        Start tunnel
+                      </Button>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

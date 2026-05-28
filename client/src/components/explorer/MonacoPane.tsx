@@ -1,6 +1,6 @@
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -12,9 +12,12 @@ interface MonacoPaneProps {
   theme: 'dark' | 'light';
   readOnly?: boolean;
   onSaveShortcut?: () => void;
+  revealLine?: number;
 }
 
-export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut }: MonacoPaneProps) {
+export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, revealLine }: MonacoPaneProps) {
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+
   // Theme registration happens once.
   useEffect(() => {
     monaco.editor.defineTheme('argus-dark', {
@@ -27,6 +30,13 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   }, []);
 
+  // Imperatively reveal line when revealLine prop changes (e.g. from search results).
+  useEffect(() => {
+    if (!revealLine || !editorRef.current) return;
+    editorRef.current.revealLineInCenter(revealLine);
+    editorRef.current.setPosition({ lineNumber: revealLine, column: 1 });
+  }, [revealLine]);
+
   return (
     <Editor
       value={value}
@@ -34,10 +44,15 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
       theme={theme === 'dark' ? 'vs-dark' : 'vs'}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monacoInstance) => {
+        editorRef.current = editor;
         if (onSaveShortcut) {
           editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
             onSaveShortcut();
           });
+        }
+        if (revealLine) {
+          editor.revealLineInCenter(revealLine);
+          editor.setPosition({ lineNumber: revealLine, column: 1 });
         }
       }}
       options={{

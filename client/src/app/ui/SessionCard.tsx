@@ -36,7 +36,7 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
           onClick?.();
         }
       }}
-      aria-label={`Open session ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
+      aria-label={`Open shell ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
       className="terminal-card"
       data-status={s.status}
       style={{
@@ -172,7 +172,7 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
         {onMore && (
           <IconButton
             icon={MoreHorizontal}
-            label="Session menu"
+            label="Shell menu"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onMore(e); }}
           />
@@ -180,7 +180,7 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
         {onKill && (
           <IconButton
             icon={PowerOff}
-            label="Close session"
+            label="Close shell"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onKill(); }}
           />

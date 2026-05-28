@@ -168,9 +168,9 @@ export function Focus({
             >
               Files
             </Button>
-            <IconButton icon={Copy} label="Start a new session from the same folder" size="sm" onClick={onClone} />
+            <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
             <IconButton icon={LayoutGrid} label="Exit focus" size="sm" onClick={onBack} />
-            <IconButton icon={PowerOff} label="Close session" size="sm" onClick={onKill} />
+            <IconButton icon={PowerOff} label="Close shell" size="sm" onClick={onKill} />
             <span hidden><Terminal /></span>
           </div>
 

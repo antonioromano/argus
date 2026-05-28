@@ -79,9 +79,9 @@ export function CloneSheet({
 
   return (
     <Sheet
-      title="Clone session"
+      title="Clone shell"
       eyebrow="ARGUS · CLONE"
-      subtitle={`New session in ${folderPath}`}
+      subtitle={`New shell in ${folderPath}`}
       width={520}
       onClose={onClose}
       footer={
@@ -96,7 +96,7 @@ export function CloneSheet({
             disabled={submitting}
             loading={submitting}
           >
-            Clone session
+            Clone shell
           </Button>
         </>
       }

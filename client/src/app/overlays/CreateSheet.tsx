@@ -127,7 +127,7 @@ export function CreateSheet({
 
   if (!config) {
     return (
-      <Sheet title="New session" eyebrow="ARGUS · CREATE" onClose={onClose} width={560}>
+      <Sheet title="New shell" eyebrow="ARGUS · CREATE" onClose={onClose} width={560}>
         <LoadingState label="Loading config" />
       </Sheet>
     );
@@ -136,7 +136,7 @@ export function CreateSheet({
   return (
     <>
     <Sheet
-      title="New session"
+      title="New shell"
       eyebrow="ARGUS · CREATE"
       subtitle="Spin up an agent. Pick a folder, configure flags, hit Spawn."
       width={560}
@@ -155,7 +155,7 @@ export function CreateSheet({
             disabled={creating || !folderPath.trim()}
             loading={creating}
           >
-            Spawn session <span style={{ marginLeft: 6 }}><Kbd>⌘↵</Kbd></span>
+            Spawn shell <span style={{ marginLeft: 6 }}><Kbd>⌘↵</Kbd></span>
           </Button>
         </>
       }
@@ -201,7 +201,7 @@ export function CreateSheet({
           </div>
         </Field>
 
-        <Field label="Session name" hint="optional · auto from folder otherwise">
+        <Field label="Shell name" hint="optional · auto from folder otherwise">
           <TextInput
             value={name}
             onChange={setName}
@@ -290,7 +290,7 @@ export function CreateSheet({
     </Sheet>
     <AlertSheet
       isOpen={confirmDiscard}
-      title="Discard new session?"
+      title="Discard new shell?"
       message="You'll lose the folder, name, and flag changes."
       confirmLabel="Discard"
       confirmDestructive

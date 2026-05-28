@@ -235,22 +235,33 @@ export function createFilesystemRoutes(
 
     await walk(resolved, 0);
 
-    // Content search via grep (best-effort)
-    const contentResults: { path: string; name: string; ext: string }[] = [];
+    // Content search via grep (best-effort) — -rn gives path:line:content output
+    const contentResults: { path: string; name: string; ext: string; lineNumber: number }[] = [];
     await new Promise<void>((resolve) => {
       const excludeDirArgs = [...EXCLUDED_SEARCH_DIRS].flatMap(d => ['--exclude-dir', d]);
       execFile(
         'grep',
-        ['-ril', query, resolved, ...excludeDirArgs],
+        ['-rn', query, resolved, ...excludeDirArgs],
         { timeout: 8000 },
         (_err, stdout) => {
           const lines = stdout ? stdout.trim().split('\n').filter(Boolean) : [];
+          const seenPaths = new Set<string>();
           for (const line of lines) {
-            if (filenameSeen.has(line)) continue;
-            const ext = path.extname(line).toLowerCase();
-            if (BINARY_EXTENSIONS.has(ext) || EXCLUDED_SEARCH_EXTS.has(ext)) continue;
-            contentResults.push({ path: line, name: path.basename(line), ext });
             if (filenameResults.length + contentResults.length >= 50) break;
+            // line format: /abs/path/to/file.ts:42:matched content
+            // find the colon after the resolved root prefix to locate lineNum
+            const colonPos = line.indexOf(':', resolved.length + 1);
+            if (colonPos === -1) continue;
+            const filePath = line.slice(0, colonPos);
+            if (filenameSeen.has(filePath) || seenPaths.has(filePath)) continue;
+            const rest = line.slice(colonPos + 1);
+            const nextColon = rest.indexOf(':');
+            const lineNumber = nextColon !== -1 ? parseInt(rest.slice(0, nextColon), 10) : NaN;
+            if (!Number.isFinite(lineNumber)) continue;
+            const ext = path.extname(filePath).toLowerCase();
+            if (BINARY_EXTENSIONS.has(ext) || EXCLUDED_SEARCH_EXTS.has(ext)) continue;
+            seenPaths.add(filePath);
+            contentResults.push({ path: filePath, name: path.basename(filePath), ext, lineNumber });
           }
           resolve();
         },

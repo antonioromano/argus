@@ -23,7 +23,7 @@ export function Diff({ sessions }: DiffProps) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
         <Header />
-        <EmptyState icon={GitBranch} title="No sessions" hint="Create a session on your Mac." />
+        <EmptyState icon={GitBranch} title="No shells" hint="Create a shell on your Mac." />
       </div>
     );
   }

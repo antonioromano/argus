@@ -27,7 +27,7 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
       <div style={{ width: 260 }} data-shortcut-host="filter" onKeyDown={onKeyDown}>
         <TextInput
           icon={Search}
-          placeholder="Filter sessions, folders, agents…"
+          placeholder="Filter shells"
           suffix="⌘F"
           value={filter}
           onChange={onFilter}

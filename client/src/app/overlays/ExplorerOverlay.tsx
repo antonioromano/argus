@@ -9,12 +9,14 @@ import {
   Eye,
   SplitSquareHorizontal,
   AlertTriangle,
+  Search,
 } from 'lucide-react';
 import { Button, IconButton, Chip, LoadingState, ErrorState } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
 import { useFileBuffer } from '../../hooks/useFileBuffer.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
 import { FileTreeView } from '../../components/explorer/FileTreeView.js';
+import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { MonacoPane } from '../../components/explorer/MonacoPane.js';
 import { MarkdownPreview } from '../../components/explorer/MarkdownPreview.js';
 import { useTheme } from '../../context/ThemeContext.js';
@@ -27,37 +29,41 @@ interface ExplorerOverlayProps {
   session: SessionInfo;
   onClose: () => void;
   initialFilePath?: string;
+  initialLine?: number;
 }
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export function ExplorerOverlay({ session, onClose, initialFilePath }: ExplorerOverlayProps) {
+export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine }: ExplorerOverlayProps) {
   const { theme } = useTheme();
   const [selectedPath, setSelectedPath] = useState<string | null>(initialFilePath ?? null);
   const [viewMode, setViewMode] = useState<ViewMode>(
     initialFilePath && isMarkdownPath(initialFilePath) ? 'split' : 'edit',
   );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [revealLine, setRevealLine] = useState<number | undefined>(initialLine);
 
   const tree = useFileTree(session.folderPath);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
   const buffer = useFileBuffer({ sessionId: session.id, filePath: selectedPath });
 
-  const onPickFile = useCallback((path: string) => {
+  const onPickFile = useCallback((path: string, line?: number) => {
     setSelectedPath(path);
+    setRevealLine(line);
     setViewMode(isMarkdownPath(path) ? 'split' : 'edit');
   }, []);
 
-  // ⌘S / Ctrl+S
+  // ⌘S / ⌘K — capture phase so ⌘K beats the global CommandPalette handler.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const meta = e.metaKey || e.ctrlKey;
       if (!meta) return;
-      if (e.key.toLowerCase() !== 's') return;
-      e.preventDefault();
-      void buffer.save();
+      const k = e.key.toLowerCase();
+      if (k === 's') { e.preventDefault(); void buffer.save(); }
+      if (k === 'k') { e.preventDefault(); e.stopPropagation(); setSearchOpen((o) => !o); }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
   }, [buffer]);
 
   const isMd = !!selectedPath && isMarkdownPath(selectedPath);
@@ -112,6 +118,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath }: ExplorerO
             onChange={setViewMode}
           />
         )}
+        <IconButton icon={Search} label="Search files (⌘K)" size="sm" onClick={() => setSearchOpen((o) => !o)} />
         <IconButton icon={RefreshCw} label="Refresh tree" size="sm" onClick={tree.refresh} />
         <Button
           variant={buffer.dirty ? 'primary' : 'ghost'}
@@ -135,6 +142,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath }: ExplorerO
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
+            position: 'relative',
           }}
         >
           {tree.isLoading && tree.visibleNodes.length === 0 ? (
@@ -151,6 +159,13 @@ export function ExplorerOverlay({ session, onClose, initialFilePath }: ExplorerO
                   tree.toggle(node.path);
                 }
               }}
+            />
+          )}
+          {searchOpen && (
+            <FileSearchPanel
+              folderPath={session.folderPath}
+              onSelectFile={(path, line) => onPickFile(path, line)}
+              onClose={() => setSearchOpen(false)}
             />
           )}
         </aside>
@@ -177,6 +192,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath }: ExplorerO
               theme={theme}
               isMd={isMd}
               viewMode={viewMode}
+              revealLine={revealLine}
             />
           )}
         </main>
@@ -193,9 +209,10 @@ interface EditorAreaProps {
   theme: 'dark' | 'light';
   isMd: boolean;
   viewMode: ViewMode;
+  revealLine?: number;
 }
 
-function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode }: EditorAreaProps) {
+function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, revealLine }: EditorAreaProps) {
   const language = monacoLanguageFor(path);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStoredRatio());
   const [isDragging, setIsDragging] = useState(false);
@@ -236,6 +253,7 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode }: Ed
           language={language}
           theme={theme}
           onSaveShortcut={onSave}
+          revealLine={revealLine}
         />
       </div>
     );
@@ -255,6 +273,7 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode }: Ed
           language={language}
           theme={theme}
           onSaveShortcut={onSave}
+          revealLine={revealLine}
         />
       </div>
       <ResizeDivider

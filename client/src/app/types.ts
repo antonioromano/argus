@@ -7,10 +7,9 @@ export type Overlay =
   | { kind: 'clone'; folderPath: string; agentType?: string }
   | { kind: 'palette' }
   | { kind: 'update' }
-  | { kind: 'settings' }
-  | { kind: 'remote' }
+  | { kind: 'settings'; initialTab?: string }
   | { kind: 'diff'; sessionId: string; file?: string }
-  | { kind: 'explorer'; sessionId: string; filePath?: string }
+  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | null;
 
@@ -22,11 +21,7 @@ export type SidePanel =
 export type SidebarKey =
   | 'sessions'
   | 'palette'
-  | 'remote'
-  | 'settings'
-  | 'theme'
-  | 'diff'
-  | 'explorer';
+  | 'settings';
 
 export interface SessionCounts {
   total: number;

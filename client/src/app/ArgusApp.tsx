@@ -30,7 +30,6 @@ import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
-import { RemoteOverlay } from './overlays/RemoteOverlay.js';
 import { DiffOverlay } from './overlays/DiffOverlay.js';
 import { ExplorerOverlay } from './overlays/ExplorerOverlay.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
@@ -142,7 +141,9 @@ function DesktopInner() {
 
   // A deleted group simply yields no active group → filter falls away on its own.
   const activeGroup = groups.groups.find((g) => g.id === activeGroupId) ?? null;
-  const groupFilterIds = activeGroup ? new Set(activeGroup.sessionIds) : null;
+  const groupFilterIds = activeGroupId === '__others__'
+    ? new Set(grouped.others.map((s) => s.id))
+    : activeGroup ? new Set(activeGroup.sessionIds) : null;
   const groupColorOf = (sessionId: string): string | null => {
     const g = groups.groups.find((grp) => grp.sessionIds.includes(sessionId));
     if (g) return resolveGroupColor(g.color, isDark);
@@ -247,36 +248,16 @@ function DesktopInner() {
       case 'palette':
         app.openOverlay({ kind: 'palette' });
         return;
-      case 'remote':
-        app.openOverlay({ kind: 'remote' });
-        return;
       case 'settings':
         app.openOverlay({ kind: 'settings' });
-        return;
-      case 'theme':
-        toggleTheme();
-        return;
-      case 'diff':
-        if (activeSession) app.openOverlay({ kind: 'diff', sessionId: activeSession.id });
-        else if (sessions.length > 0) app.openOverlay({ kind: 'sessionPicker', target: 'diff' });
-        return;
-      case 'explorer':
-        if (activeSession) app.openOverlay({ kind: 'explorer', sessionId: activeSession.id });
-        else if (sessions.length > 0) app.openOverlay({ kind: 'sessionPicker', target: 'explorer' });
         return;
     }
   };
 
   const sidebarActive: SidebarKey =
-    app.overlay?.kind === 'remote'
-      ? 'remote'
-      : app.overlay?.kind === 'settings'
-        ? 'settings'
-        : app.overlay?.kind === 'diff' || (app.overlay?.kind === 'sessionPicker' && app.overlay.target === 'diff')
-          ? 'diff'
-          : app.overlay?.kind === 'explorer' || (app.overlay?.kind === 'sessionPicker' && app.overlay.target === 'explorer')
-            ? 'explorer'
-            : 'sessions';
+    app.overlay?.kind === 'settings'
+      ? 'settings'
+      : 'sessions';
 
   const headerLeading = (
     <TopToolbar
@@ -340,7 +321,7 @@ function DesktopInner() {
       <ElectronToolbar
         onOpenSettings={() => app.openOverlay({ kind: 'settings' })}
         onToggleTheme={toggleTheme}
-        onOpenRemote={() => app.openOverlay({ kind: 'remote' })}
+        onOpenRemote={() => app.openOverlay({ kind: 'settings', initialTab: 'remote' })}
         isDark={isDark}
         ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
         updateAvailable={updateStatus?.hasUpdate}
@@ -388,7 +369,6 @@ function DesktopInner() {
           active={sidebarActive}
           counts={counts}
           onSelect={handleSidebar}
-          isDark={isDark}
           version={updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
           sessionTree={
@@ -405,6 +385,13 @@ function DesktopInner() {
               onSetOthersColor={groups.setOthersColor}
               onDeleteGroup={groups.deleteGroup}
               onKillGroup={setPendingKillGroup}
+              onKillOthers={() => setPendingKillGroup({
+                id: '__others__',
+                name: 'Others',
+                color: 'gray',
+                collapsed: false,
+                sessionIds: grouped.others.map((s) => s.id),
+              })}
               onOpenSession={app.openSession}
             />
           }
@@ -501,18 +488,12 @@ function DesktopInner() {
             onSave={updateConfig}
             onSaveFlag={handleSaveFlag}
             onDeleteFlag={handleDeleteFlag}
-          />
-        </Overlay>
-      )}
-      {app.overlay?.kind === 'remote' && (
-        <Overlay onClose={app.closeOverlay}>
-          <RemoteOverlay
-            status={ngrok.status}
-            loading={ngrok.loading}
-            error={ngrok.error}
-            onStart={ngrok.startTunnel}
-            onStop={ngrok.stopTunnel}
-            onClose={app.closeOverlay}
+            ngrokStatus={ngrok.status}
+            ngrokLoading={ngrok.loading}
+            ngrokError={ngrok.error}
+            onNgrokStart={ngrok.startTunnel}
+            onNgrokStop={ngrok.stopTunnel}
+            initialTab={app.overlay.initialTab}
           />
         </Overlay>
       )}
@@ -550,7 +531,7 @@ function DesktopInner() {
 
       <AlertSheet
         isOpen={!!pendingKill}
-        title="Close session?"
+        title="Close shell?"
         message={`This ends the “${pendingKill?.name}” agent process. Files on disk and git history are not touched.`}
         confirmLabel="Delete"
         confirmDestructive
@@ -567,7 +548,7 @@ function DesktopInner() {
 
       <AlertSheet
         isOpen={!!pendingKillGroup}
-        title="Close all sessions in group?"
+        title="Close all shells in group?"
         message={`This ends every agent process in “${pendingKillGroup?.name}” (${pendingKillGroup?.sessionIds.length ?? 0}). Files on disk and git history are not touched.`}
         confirmLabel="Close all"
         confirmDestructive

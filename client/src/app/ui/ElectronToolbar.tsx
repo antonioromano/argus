@@ -78,7 +78,7 @@ export function ElectronToolbar({
           style={{
             ...iconBtn(ngrokConnected),
             position: 'relative',
-            border: `1px solid ${ngrokConnected ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+            border: `1px solid ${ngrokConnected ? 'var(--accent-edge)' : 'transparent'}`,
             color: ngrokConnected ? 'var(--accent)' : 'var(--fg-2)',
           }}
         >

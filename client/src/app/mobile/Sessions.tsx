@@ -136,7 +136,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote }: S
           className="eyebrow"
           style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}
         >
-          {sessions.length} · {sessions.length === 1 ? 'session' : 'sessions'}
+          {sessions.length} · {sessions.length === 1 ? 'shell' : 'shells'}
         </span>
       </div>
 

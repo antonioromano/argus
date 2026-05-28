@@ -9,7 +9,7 @@ interface BottomNavProps {
 }
 
 const tabs: { id: MobileTab; icon: LucideIcon; label: string }[] = [
-  { id: 'sessions', icon: Terminal,   label: 'Sessions' },
+  { id: 'sessions', icon: Terminal,   label: 'Shells' },
   { id: 'diff',     icon: GitBranch,  label: 'Diff' },
   { id: 'remote',   icon: Wifi,       label: 'Remote' },
 ];

@@ -13,9 +13,9 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
   const title = target === 'diff' ? 'Open Diff' : 'Open Files';
   return (
     <Sheet
-      eyebrow="Pick a session"
+      eyebrow="Pick a shell"
       title={title}
-      subtitle="No session is open — choose which one to inspect."
+      subtitle="No shell is open — choose which one to inspect."
       onClose={onClose}
       width={460}
     >

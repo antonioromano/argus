@@ -1,7 +1,7 @@
 import { useState, Fragment } from 'react';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Square, Search, Wifi, Settings, Sun, Moon, FolderOpen, GitCompare, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Square, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd } from '../../components/primitives/index.js';
 import { StatusDot } from '../../components/primitives/index.js';
@@ -12,7 +12,6 @@ interface SidebarProps {
   active?: SidebarKey;
   counts?: Partial<SessionCounts>;
   onSelect: (key: SidebarKey) => void;
-  isDark: boolean;
   version?: string;
   ngrokConnected?: boolean;
   /** Group tree rendered under the Sessions item (hidden when the sidebar is collapsed). */
@@ -28,7 +27,7 @@ interface Item {
   highlight?: boolean;
 }
 
-export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, version, ngrokConnected, sessionTree }: SidebarProps) {
+export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
   });
@@ -41,16 +40,12 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
   };
 
   const pilot: Item[] = [
-    { id: 'sessions', icon: Square,    label: 'Sessions', count: counts.total, highlight: !!counts.waiting },
+    { id: 'sessions', icon: Square,    label: 'Shells', count: counts.total, highlight: !!counts.waiting },
     { id: 'palette',  icon: Search,    label: 'Command palette', kbd: '⌘K' },
   ];
 
   const tools: Item[] = [
-    { id: 'diff',     icon: GitCompare,  label: 'Diff' },
-    { id: 'explorer', icon: FolderOpen,  label: 'Files' },
-    { id: 'remote',   icon: Wifi,        label: 'Remote', highlight: ngrokConnected },
-    { id: 'settings', icon: Settings,    label: 'Settings' },
-    { id: 'theme',    icon: isDark ? Sun : Moon, label: isDark ? 'Light mode' : 'Dark mode' },
+    { id: 'settings', icon: Settings, label: 'Settings' },
   ];
 
   return (

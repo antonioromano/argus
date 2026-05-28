@@ -61,11 +61,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
       <div className="grid-bg argus-mosaic-empty">
         <EmptyState
           icon={SquareIcon}
-          title="No sessions yet"
+          title="No shells yet"
           hint="Spin up your first agent. Pick a folder, pick an agent, you're off."
           action={
             <Button variant="primary" icon={Plus} onClick={onCreate}>
-              New session
+              New shell
             </Button>
           }
         />
@@ -78,8 +78,8 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
       <div className="grid-bg argus-mosaic-empty">
         <EmptyState
           icon={SquareIcon}
-          title="No matching sessions"
-          hint={`Nothing matches “${filter.trim()}”. Clear the filter to see all sessions.`}
+          title="No matching shells"
+          hint={`Nothing matches "${filter.trim()}". Clear the filter to see all shells.`}
         />
       </div>
     );
@@ -237,7 +237,7 @@ function MosaicTile({
         {session.hasGitChanges && <DirtyBadge size="sm" onClick={onOpenDiff ? (e?: React.MouseEvent) => { e?.stopPropagation(); onOpenDiff(); } : undefined} />}
         <IconButton
           icon={minimized ? Maximize2 : Minus}
-          label={minimized ? 'Restore session' : 'Minimize session'}
+          label={minimized ? 'Restore shell' : 'Minimize shell'}
           size="sm"
           onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }}
         />
@@ -249,7 +249,7 @@ function MosaicTile({
         />
         <IconButton
           icon={PowerOff}
-          label="Close session"
+          label="Close shell"
           size="sm"
           onClick={(e) => { e.stopPropagation(); onKill(); }}
         />

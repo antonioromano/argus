@@ -281,6 +281,7 @@ export interface FileSearchResult {
   name: string;
   ext: string;
   matchType: 'filename' | 'content';
+  lineNumber?: number;
 }
 
 export interface FileSearchResponse {

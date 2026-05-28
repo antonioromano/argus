@@ -21,13 +21,14 @@ interface SessionTreeProps {
   onSetOthersColor: (color: string) => void;
   onDeleteGroup: (id: string) => void;
   onKillGroup: (group: SessionGroup) => void;
+  onKillOthers: () => void;
   onOpenSession: (id: string) => void;
 }
 
 export function SessionTree({
   grouped, activeGroupId, isDark,
   onAssign, onToggleCollapsed, onFilterGroup, onCreateGroup,
-  onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onOpenSession,
+  onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers, onOpenSession,
 }: SessionTreeProps) {
   const dragId = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -71,8 +72,11 @@ export function SessionTree({
         isDark={isDark}
         collapsed={othersCollapsed}
         dropping={dropTarget === OTHERS}
+        active={activeGroupId === OTHERS}
         onChevron={() => setOthersCollapsed((v) => !v)}
         onSetColor={onSetOthersColor}
+        onFilter={() => onFilterGroup(activeGroupId === OTHERS ? null : OTHERS)}
+        onKill={onKillOthers}
         onDragOverGroup={() => setDropTarget(OTHERS)}
         onDragLeaveGroup={() => setDropTarget((t) => (t === OTHERS ? null : t))}
         onDrop={() => handleDrop(null)}
@@ -211,14 +215,16 @@ function GroupNode({
 
 /* ---------- others node ---------- */
 function OthersNode({
-  sessions, color, isDark, collapsed, dropping,
+  sessions, color, isDark, collapsed, dropping, active,
   onChevron, onSetColor, onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf, onOpenSession,
+  onFilter, onKill,
 }: {
   sessions: SessionInfo[];
   color: string | null;
   isDark: boolean;
   collapsed: boolean;
   dropping: boolean;
+  active: boolean;
   onChevron: () => void;
   onSetColor: (color: string) => void;
   onDragOverGroup: () => void;
@@ -226,6 +232,8 @@ function OthersNode({
   onDrop: () => void;
   onDragStartLeaf: (id: string) => void;
   onOpenSession: (id: string) => void;
+  onFilter: () => void;
+  onKill: () => void;
 }) {
   const [hover, setHover] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -239,8 +247,8 @@ function OthersNode({
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
-        style={{ ...headStyle, background: dropping ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
-          borderLeft: `2px solid ${dropping ? 'var(--accent-edge)' : 'transparent'}` }}
+        style={{ ...headStyle, background: dropping ? 'var(--accent-bg)' : active ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
+          borderLeft: `2px solid ${dropping ? 'var(--accent-edge)' : active ? 'var(--accent)' : 'transparent'}` }}
       >
         <button type="button" onClick={onChevron} title="Collapse / expand" style={chevBtnStyle}>
           <ChevronRight size={12} strokeWidth={2}
@@ -256,6 +264,22 @@ function OthersNode({
         </button>
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-2)' }}>Others</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{sessions.length}</span>
+
+        {/* always-visible filter toggle */}
+        <button
+          type="button"
+          onClick={onFilter}
+          title={active ? 'Clear filter' : 'Filter to Others'}
+          style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+            color: active ? 'var(--accent)' : 'var(--fg-3)' }}
+        >
+          {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
+        </button>
+
+        {/* hover-revealed kill */}
+        <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
+          <Act title="Kill all in Others" onClick={onKill}><PowerOff size={11} strokeWidth={1.8} /></Act>
+        </span>
       </div>
 
       {picking && (

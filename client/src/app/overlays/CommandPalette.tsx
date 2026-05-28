@@ -12,7 +12,7 @@ interface CommandPaletteProps {
   activeSessionId: string | null;
   onClose: () => void;
   onJumpSession: (id: string) => void;
-  onOpenInExplorer: (filePath: string) => void;
+  onOpenInExplorer: (filePath: string, lineNumber?: number) => void;
   onOpenInDiff: (fileName: string) => void;
 }
 
@@ -35,6 +35,8 @@ export function CommandPalette({
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listboxId = 'cmd-palette-listbox';
@@ -103,7 +105,7 @@ export function CommandPalette({
         } else {
           const r = results[selectedIndex - sessionItems.length];
           if (r) {
-            onOpenInExplorer(r.path);
+            onOpenInExplorer(r.path, r.lineNumber);
             onClose();
           }
         }
@@ -114,13 +116,38 @@ export function CommandPalette({
   }, [selectedIndex, total, sessionItems, results, onClose, onJumpSession, onOpenInExplorer]);
 
   useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
-    const item = list.children[selectedIndex] as HTMLElement | undefined;
+    const item = document.getElementById(optionId(selectedIndex));
     item?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
+  useEffect(() => {
+    const fileIdx = selectedIndex - sessionItems.length;
+    if (fileIdx < 0 || fileIdx >= results.length) {
+      setPreviewContent(null);
+      setPreviewLoading(false);
+      return;
+    }
+    const r = results[fileIdx];
+    setPreviewLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const resp = await api.getFileContent(r.path);
+        setPreviewContent(resp.content);
+      } catch {
+        setPreviewContent(null);
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 200);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [selectedIndex, sessionItems.length, results]);
+
   const rootPath = activeSession?.folderPath ?? '';
+  const selectedFileResult = selectedIndex >= sessionItems.length
+    ? (results[selectedIndex - sessionItems.length] ?? null)
+    : null;
 
   return (
     <div
@@ -156,7 +183,7 @@ export function CommandPalette({
           aria-activedescendant={total > 0 ? optionId(selectedIndex) : undefined}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={activeSession ? `Search in ${activeSession.name}…` : 'Jump to session…'}
+          placeholder={activeSession ? `Search in ${activeSession.name}…` : 'Jump to shell…'}
           style={{
             flex: 1,
             background: 'none',
@@ -238,7 +265,7 @@ export function CommandPalette({
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSelected}
-                    onClick={() => { onOpenInExplorer(r.path); onClose(); }}
+                    onClick={() => { onOpenInExplorer(r.path, r.lineNumber); onClose(); }}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
                       display: 'flex',
@@ -299,7 +326,7 @@ export function CommandPalette({
                     </button>
                     <button
                       title="Open in Explorer"
-                      onClick={(e) => { e.stopPropagation(); onOpenInExplorer(r.path); onClose(); }}
+                      onClick={(e) => { e.stopPropagation(); onOpenInExplorer(r.path, r.lineNumber); onClose(); }}
                       style={{
                         background: 'none',
                         border: 'none',
@@ -337,6 +364,14 @@ export function CommandPalette({
         </div>
       )}
 
+      {selectedFileResult && (
+        <FilePreviewStrip
+          result={selectedFileResult}
+          content={previewContent}
+          loading={previewLoading}
+        />
+      )}
+
       <div
         style={{
           display: 'flex',
@@ -357,6 +392,170 @@ export function CommandPalette({
             {label}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+interface FilePreviewStripProps {
+  result: import('@argus/shared').FileSearchResult;
+  content: string | null;
+  loading: boolean;
+}
+
+function FilePreviewStrip({ result, content, loading }: FilePreviewStripProps) {
+  const isContent = result.matchType === 'content';
+  const lineNumber = result.lineNumber;
+
+  const codeLines = (() => {
+    if (!content) return [];
+    const all = content.split('\n');
+    const matchIdx = lineNumber != null ? lineNumber - 1 : 0;
+    const start = Math.max(0, matchIdx - 3);
+    const end = Math.min(all.length, matchIdx + 5);
+    return all.slice(start, end).map((text, i) => ({ text, num: start + i + 1 }));
+  })();
+
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--line-2)',
+        display: 'flex',
+        flexDirection: 'row',
+        height: 148,
+        flexShrink: 0,
+        overflow: 'hidden',
+        background: 'var(--bg-1)',
+      }}
+    >
+      {/* Left: file info */}
+      <div
+        style={{
+          width: 152,
+          flexShrink: 0,
+          borderRight: '1px solid var(--line-2)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 6,
+          padding: '10px 14px',
+          background: 'var(--bg-1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <FileText size={12} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-sm)',
+              color: 'var(--fg-0)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {result.name}
+          </span>
+        </div>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--t-micro)',
+            textTransform: 'uppercase' as const,
+            letterSpacing: 'var(--tracking-eye)',
+            padding: '1px 5px',
+            borderRadius: 'var(--r-1)',
+            alignSelf: 'flex-start',
+            color: isContent ? 'var(--fg-3)' : 'var(--accent)',
+            background: isContent ? 'var(--bg-0)' : 'var(--accent-bg)',
+            border: `1px solid ${isContent ? 'var(--line-2)' : 'var(--accent-edge)'}`,
+          }}
+        >
+          {result.matchType}
+        </span>
+        {isContent && lineNumber != null && (
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-micro)',
+              color: 'var(--accent)',
+              letterSpacing: '0.04em',
+            }}
+          >
+            line {lineNumber}
+          </span>
+        )}
+      </div>
+
+      {/* Right: code preview */}
+      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+        {loading && (
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-sm)',
+              color: 'var(--fg-4)',
+              padding: '0 12px',
+            }}
+          >
+            Loading…
+          </span>
+        )}
+        {!loading && codeLines.length === 0 && (
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-sm)',
+              color: 'var(--fg-4)',
+              padding: '0 12px',
+            }}
+          >
+            No preview
+          </span>
+        )}
+        {!loading && codeLines.map(({ text, num }) => {
+          const isMatch = num === lineNumber;
+          return (
+            <div
+              key={num}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                lineHeight: '1.65',
+                paddingLeft: isMatch ? 10 : 12,
+                paddingRight: 12,
+                borderLeft: `2px solid ${isMatch ? 'var(--accent)' : 'transparent'}`,
+                background: isMatch ? 'var(--accent-bg)' : 'transparent',
+                whiteSpace: 'pre' as const,
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  color: isMatch ? 'rgba(255,180,84,0.6)' : 'var(--fg-4)',
+                  minWidth: 28,
+                  textAlign: 'right' as const,
+                  marginRight: 12,
+                  flexShrink: 0,
+                  fontSize: 10,
+                }}
+              >
+                {num}
+              </span>
+              <span
+                style={{
+                  color: isMatch ? 'var(--fg-0)' : 'var(--fg-2)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {text || ' '}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
