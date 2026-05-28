@@ -218,8 +218,8 @@ function DesktopInner() {
     app.openSession(created.id);
   };
 
-  const handleClone = async (folderPath: string, agentType: string, flags: string[]) => {
-    const created = await createSession(folderPath, undefined, agentType, flags);
+  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
+    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
     app.closeOverlay();
     app.openSession(created.id);
   };

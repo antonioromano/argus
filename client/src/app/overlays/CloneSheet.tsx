@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, GitBranch } from 'lucide-react';
+import { api } from '../../services/api.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
   Sheet,
@@ -23,7 +24,7 @@ interface CloneSheetProps {
   folderPath: string;
   currentAgentType?: string;
   onClose: () => void;
-  onClone: (folderPath: string, agentType: string, flags: string[]) => Promise<void>;
+  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -41,6 +42,14 @@ export function CloneSheet({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Worktree state — folderPath is a static prop, check once on mount
+  const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
+  const [useWorktree, setUseWorktree] = useState(true);
+  const [branchName, setBranchName] = useState(() => {
+    const slug = folderPath.split('/').pop()?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ?? 'session';
+    return `argus/${slug}`;
+  });
+
   const agents = config ? [...BUILTIN, ...config.customAgents] : BUILTIN;
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
@@ -51,12 +60,19 @@ export function CloneSheet({
     setFlagStates(initial);
   }, [agentId, currentFlags.length]);
 
+  useEffect(() => {
+    api.checkWorktree({ repoPath: folderPath })
+      .then((r) => setIsGitRepo(r.isGitRepo))
+      .catch(() => setIsGitRepo(false));
+  }, [folderPath]);
+
   const handleSubmit = async () => {
     setSubmitting(true);
     setError(null);
     try {
       const flags = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onClone(folderPath, agentId, flags);
+      const branch = (isGitRepo && useWorktree) ? branchName.trim() : undefined;
+      await onClone(folderPath, agentId, flags, branch || undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
@@ -105,6 +121,29 @@ export function CloneSheet({
         <Field label="Folder" hint="locked — clones inherit folder">
           <TextInput value={folderPath} mono disabled />
         </Field>
+
+        {isGitRepo === true && (
+          <Field label="Worktree branch" hint={useWorktree ? 'isolates this session on its own branch' : undefined}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+              {useWorktree && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                  <GitBranch size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                  <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
+                </div>
+              )}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', cursor: 'pointer' }}>
+                <Checkbox checked={!useWorktree} onChange={(v) => setUseWorktree(!v)} size={14} />
+                <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)' }}>Use main repo (no worktree)</span>
+              </label>
+            </div>
+          </Field>
+        )}
+
+        {isGitRepo === false && (
+          <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', padding: '0 2px' }}>
+            Worktree isolation requires a git repo. Initialize one to enable this.
+          </div>
+        )}
 
         <Field label="Agent" required>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--s-2)' }}>

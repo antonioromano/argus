@@ -48,7 +48,7 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
 
         if (branchExists) {
           try {
-            const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--format=%H %s', branch], { cwd: gitRoot });
+            const { stdout: logOut } = await execFileAsync('git', ['log', '-1', '--format=%H %s', '--', branch], { cwd: gitRoot });
             result.headCommit = logOut.trim();
           } catch {
             result.headCommit = null;
