@@ -75,7 +75,7 @@
 }
 
 .text-input-wrap input::placeholder {
-  color: var(--fg-3);
+  color: var(--fg-2);
   opacity: 1;
 }
 
