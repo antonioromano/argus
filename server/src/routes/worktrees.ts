@@ -33,12 +33,16 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
     const result: Record<string, unknown> = { isGitRepo: true };
 
     if (branch) {
+      if (/^-/.test(branch) || branch.includes('..')) {
+        res.status(400).json({ error: 'Invalid branch name' });
+        return;
+      }
       try {
         const gitRoot = await gitService.getGitRoot(repoPath);
         const { execFile } = await import('child_process');
         const { promisify } = await import('util');
         const execFileAsync = promisify(execFile);
-        const { stdout } = await execFileAsync('git', ['branch', '--list', branch], { cwd: gitRoot });
+        const { stdout } = await execFileAsync('git', ['branch', '--list', '--', branch], { cwd: gitRoot });
         const branchExists = stdout.trim().length > 0;
         result.branchExists = branchExists;
 

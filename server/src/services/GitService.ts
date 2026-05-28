@@ -350,7 +350,10 @@ export class GitService {
   }
 
   async worktreeAdd(gitRoot: string, destPath: string, branchName: string, baseBranch: string): Promise<void> {
-    await execGitWithStderr(['worktree', 'add', destPath, '-b', branchName, baseBranch], gitRoot);
+    if (/^-/.test(branchName) || /^-/.test(baseBranch)) {
+      throw new Error('Invalid branch or base name');
+    }
+    await execGitWithStderr(['worktree', 'add', destPath, '-b', branchName, '--', baseBranch], gitRoot);
   }
 
   async worktreeRemove(gitRoot: string, destPath: string, force = false): Promise<void> {
@@ -370,8 +373,11 @@ export class GitService {
 
   // Returns true when branchName has commits not yet in targetBranch (i.e. unmerged).
   async worktreeUnmergedCheck(gitRoot: string, branchName: string, targetBranch = 'HEAD'): Promise<boolean> {
+    if (/^-/.test(branchName) || /^-/.test(targetBranch)) {
+      return false; // treat invalid refs as merged to avoid blocking deletion
+    }
     try {
-      await execGit(['merge-base', '--is-ancestor', branchName, targetBranch], gitRoot);
+      await execGit(['merge-base', '--is-ancestor', '--', branchName, targetBranch], gitRoot);
       return false; // is ancestor → fully merged
     } catch {
       return true; // not ancestor → unmerged commits exist

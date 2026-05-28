@@ -92,10 +92,19 @@ export class SessionManager {
         // New worktree session — validate repo exists, then create worktree
         await access(folderPath);
         if (!this.gitService) throw new Error('GitService not available for worktree creation');
+        // Validate branch name: no leading dash, no path traversal, git-safe chars only
+        if (!/^(?!-)[A-Za-z0-9._/-]+$/.test(worktreeBranch) || worktreeBranch.includes('..')) {
+          throw new Error('Invalid worktree branch name');
+        }
+
         const gitRoot = await this.gitService.getGitRoot(folderPath);
         const hash = createHash('sha256').update(gitRoot).digest('hex').slice(0, 6);
         const slug = `${path.basename(gitRoot)}-${hash}`;
-        worktreePath = path.join(os.homedir(), '.argus', 'worktrees', slug, worktreeBranch);
+        const WORKTREES_BASE = path.join(os.homedir(), '.argus', 'worktrees');
+        worktreePath = path.resolve(path.join(WORKTREES_BASE, slug, worktreeBranch));
+        if (!worktreePath.startsWith(WORKTREES_BASE + path.sep)) {
+          throw new Error('Invalid worktree branch name');
+        }
 
         // Enforce one active session per worktree
         for (const session of this.sessions.values()) {
