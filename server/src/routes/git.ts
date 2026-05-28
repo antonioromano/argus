@@ -2,9 +2,10 @@ import express, { Router } from 'express';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { GitService } from '../services/GitService.js';
 import type { ChangelistStore } from '../persistence/ChangelistStore.js';
-import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse } from '@argus/shared';
+import type { CommitSelectionStore } from '../persistence/CommitSelectionStore.js';
+import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
 
-export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore): Router {
+export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore, commitSelectionStore: CommitSelectionStore): Router {
   const router = Router();
 
   router.get('/sessions/:id/diff', async (req, res) => {
@@ -398,6 +399,33 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
 
     await changelistStore.save(session.folderPath, state);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ success: true });
+  });
+
+  router.get('/sessions/:id/commit-selection', async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const state = await commitSelectionStore.load(session.folderPath);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(state);
+  });
+
+  router.put('/sessions/:id/commit-selection', express.json(), async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const state = req.body as CommitSelectionState;
+    if (state?.version !== 1 || !Array.isArray(state?.files)) {
+      res.status(400).json({ error: 'Invalid commit-selection state' });
+      return;
+    }
+    await commitSelectionStore.save(session.folderPath, state);
     res.setHeader('Cache-Control', 'no-cache');
     res.json({ success: true });
   });

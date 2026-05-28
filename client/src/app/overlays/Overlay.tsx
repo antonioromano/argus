@@ -16,7 +16,7 @@ export function Overlay({ onClose, children, align = 'center' }: OverlayProps) {
 
   return (
     <div
-      onClick={onClose}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       className="glass-overlay"
       style={{
         position: 'fixed',
@@ -30,7 +30,10 @@ export function Overlay({ onClose, children, align = 'center' }: OverlayProps) {
         animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
       }}
     >
-      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', maxHeight: '90vh', maxWidth: '90vw' }}>
+      <div
+        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        style={{ display: 'inline-flex', maxHeight: '90vh', maxWidth: '90vw' }}
+      >
         {children}
       </div>
     </div>

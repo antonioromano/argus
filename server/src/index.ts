@@ -13,6 +13,7 @@ import { OrderStore } from './persistence/OrderStore.js';
 import { GroupStore } from './persistence/GroupStore.js';
 import { ConfigStore } from './persistence/ConfigStore.js';
 import { ChangelistStore } from './persistence/ChangelistStore.js';
+import { CommitSelectionStore } from './persistence/CommitSelectionStore.js';
 import { AgentRegistry } from './services/AgentRegistry.js';
 import { AuthService } from './services/AuthService.js';
 import { createSessionRoutes } from './routes/sessions.js';
@@ -108,6 +109,9 @@ sessionManager.setGitService(gitService);
 // Changelist store
 const changelistStore = new ChangelistStore();
 
+// Commit selection store (IntelliJ-style per-change-block checkbox state)
+const commitSelectionStore = new CommitSelectionStore();
+
 // Update service
 const updateService = new UpdateService();
 updateService.setIo(io);
@@ -127,7 +131,7 @@ app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, groupSt
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
-app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore));
+app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/auth', createAuthRoutes(authService));
 app.use('/api/config', createConfigRoutes(configStore));

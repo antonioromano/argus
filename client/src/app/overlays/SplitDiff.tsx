@@ -1,8 +1,22 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { File as DiffFile, Chunk, Change } from 'parse-diff';
+import { segmentChangeBlocks, type ChangeBlock } from './diff/changeBlocks.js';
+import { BlockGutterCell } from './diff/BlockGutterCell.js';
 
 const GUTTER = 34;
+const BLOCK_GUTTER_W = 50;
 const ROW_LH = 1.6;
+
+export interface SplitDiffSelectionProps {
+  filePath: string;
+  isChecked: (filePath: string, hash: string) => boolean;
+  onToggle: (block: ChangeBlock) => void;
+  onRevert: (block: ChangeBlock) => Promise<void> | void;
+}
+
+export interface SplitDiffEditProps {
+  editLine: (lineNo: number, text: string) => void;
+}
 
 type Seg =
   | { type: 'ctx'; change: Change }
@@ -76,24 +90,65 @@ function DelRow({ c }: { c: Change }) {
   );
 }
 
-function AddRow({ c }: { c: Change }) {
+function EditableCode({
+  text,
+  lineNo,
+  editLine,
+}: {
+  text: string;
+  lineNo: number | undefined;
+  editLine: (lineNo: number, text: string) => void;
+}) {
+  if (lineNo == null) return <span>{text}</span>;
+  return (
+    <span
+      contentEditable
+      suppressContentEditableWarning
+      spellCheck={false}
+      onInput={(e) => {
+        editLine(lineNo, (e.currentTarget.textContent ?? '').replace(/\n/g, ''));
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.preventDefault();
+      }}
+      style={{ outline: 'none', display: 'inline-block', minWidth: 1 }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function AddRow({ c, edit }: { c: Change; edit?: SplitDiffEditProps }) {
   const ln = (c as Change & { ln?: number }).ln;
   return (
     <div style={{ ...rowStyle, background: 'var(--diff-add)', color: 'var(--diff-add-fg)' }}>
       <div style={{ ...lnStyle, background: 'transparent' }}>{ln}</div>
       <div style={{ ...markStyle, color: 'var(--diff-add-tok)' }}>+</div>
-      <div style={codeStyle}>{lineText(c)}</div>
+      <div style={codeStyle}>
+        {edit ? (
+          <EditableCode text={lineText(c)} lineNo={ln} editLine={edit.editLine} />
+        ) : (
+          lineText(c)
+        )}
+      </div>
     </div>
   );
 }
 
-function CtxRow({ c, side }: { c: Change; side: 'l' | 'r' }) {
+function CtxRow({ c, side, edit }: { c: Change; side: 'l' | 'r'; edit?: SplitDiffEditProps }) {
   const n = side === 'l' ? (c as Change & { ln1?: number }).ln1 : (c as Change & { ln2?: number }).ln2;
+  const editable = edit && side === 'r' && n != null;
   return (
     <div style={{ ...rowStyle, color: 'var(--fg-1)' }}>
       <div style={lnStyle}>{n}</div>
       <div style={{ ...markStyle, color: 'var(--fg-4)' }} />
-      <div style={codeStyle}>{lineText(c)}</div>
+      <div style={codeStyle}>
+        {editable ? (
+          <EditableCode text={lineText(c)} lineNo={n} editLine={edit.editLine} />
+        ) : (
+          lineText(c)
+        )}
+      </div>
     </div>
   );
 }
@@ -108,14 +163,24 @@ function FillRow() {
   );
 }
 
-function ChunkSplit({ chunk }: { chunk: Chunk }) {
+function ChunkSplit({
+  chunk,
+  chunkIndex,
+  selection,
+  edit,
+}: {
+  chunk: Chunk;
+  chunkIndex: number;
+  selection?: SplitDiffSelectionProps;
+  edit?: SplitDiffEditProps;
+}) {
   const uid = useId();
   const gridRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<Array<{ d: string; id: string }>>([]);
 
-  const { segs, blocks } = useMemo(() => {
+  const { segs, blocks, changeBlocks } = useMemo(() => {
     const segs = segment(chunk.changes);
     const blocks: Block[] = [];
     let rowIdx = 0;
@@ -126,8 +191,11 @@ function ChunkSplit({ chunk }: { chunk: Chunk }) {
         rowIdx += Math.max(s.dels.length, s.adds.length);
       }
     }
-    return { segs, blocks };
-  }, [chunk]);
+    const changeBlocks = selection
+      ? segmentChangeBlocks(selection.filePath, chunkIndex, chunk)
+      : [];
+    return { segs, blocks, changeBlocks };
+  }, [chunk, chunkIndex, selection]);
 
   useLayoutEffect(() => {
     const grid = gridRef.current;
@@ -171,20 +239,37 @@ function ChunkSplit({ chunk }: { chunk: Chunk }) {
   }, [blocks, uid]);
 
   let rowKey = 0;
+  let blockCursor = 0;
   const leftRows: React.ReactNode[] = [];
   const rightRows: React.ReactNode[] = [];
+  const gutterRows: React.ReactNode[] = [];
   for (const s of segs) {
     if (s.type === 'ctx') {
       leftRows.push(<CtxRow key={rowKey} c={s.change} side="l" />);
-      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" />);
+      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" edit={edit} />);
+      if (selection) gutterRows.push(<BlockGutterCell key={rowKey} block={null} isChecked={false} onToggle={() => {}} onRevert={() => {}} />);
       rowKey += 1;
     } else {
       const h = Math.max(s.dels.length, s.adds.length);
+      const blk = selection ? changeBlocks[blockCursor] : null;
       for (let k = 0; k < h; k++) {
         leftRows.push(k < s.dels.length ? <DelRow key={rowKey} c={s.dels[k]} /> : <FillRow key={rowKey} />);
-        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} /> : <FillRow key={rowKey} />);
+        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} edit={edit} /> : <FillRow key={rowKey} />);
+        if (selection) {
+          const isFirstRow = k === 0;
+          gutterRows.push(
+            <BlockGutterCell
+              key={rowKey}
+              block={isFirstRow ? blk ?? null : null}
+              isChecked={isFirstRow && blk ? selection.isChecked(selection.filePath, blk.hash) : false}
+              onToggle={selection.onToggle}
+              onRevert={selection.onRevert}
+            />,
+          );
+        }
         rowKey += 1;
       }
+      blockCursor += 1;
     }
   }
 
@@ -193,8 +278,16 @@ function ChunkSplit({ chunk }: { chunk: Chunk }) {
       <div style={{ color: 'var(--fg-3)', padding: '3px 10px', background: 'var(--bg-1)' }}>{chunk.content}</div>
       <div
         ref={gridRef}
-        style={{ position: 'relative', display: 'grid', gridTemplateColumns: `1fr ${GUTTER}px 1fr`, background: 'var(--bg-0)' }}
+        style={{
+          position: 'relative',
+          display: 'grid',
+          gridTemplateColumns: selection
+            ? `${BLOCK_GUTTER_W}px 1fr ${GUTTER}px 1fr`
+            : `1fr ${GUTTER}px 1fr`,
+          background: 'var(--bg-0)',
+        }}
       >
+        {selection && <div style={{ minWidth: 0 }}>{gutterRows}</div>}
         <div ref={leftRef} style={{ minWidth: 0 }}>{leftRows}</div>
         <div style={{ background: 'var(--bg-1)', borderLeft: '1px solid var(--line-2)', borderRight: '1px solid var(--line-2)' }} />
         <div ref={rightRef} style={{ minWidth: 0 }}>{rightRows}</div>
@@ -218,11 +311,19 @@ function ChunkSplit({ chunk }: { chunk: Chunk }) {
   );
 }
 
-export function SplitDiff({ target }: { target: DiffFile }) {
+export function SplitDiff({
+  target,
+  selection,
+  edit,
+}: {
+  target: DiffFile;
+  selection?: SplitDiffSelectionProps;
+  edit?: SplitDiffEditProps;
+}) {
   return (
     <>
       {target.chunks.map((chunk, i) => (
-        <ChunkSplit key={i} chunk={chunk} />
+        <ChunkSplit key={i} chunk={chunk} chunkIndex={i} selection={selection} edit={edit} />
       ))}
     </>
   );

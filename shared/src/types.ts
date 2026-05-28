@@ -349,6 +349,24 @@ export interface ChangelistStateResponse {
   lists: ChangelistEntry[];
 }
 
+// Commit selection (IntelliJ-style per-change-block checkboxes for the diff overlay)
+
+export interface CommitSelectionBlock {
+  hash: string; // sha256(filePath + "\n" + joined plain-text lines)
+}
+
+export interface CommitSelectionFile {
+  filePath: string;
+  source: 'unstaged';
+  fromPath?: string;
+  blocks: CommitSelectionBlock[];
+}
+
+export interface CommitSelectionState {
+  version: 1;
+  files: CommitSelectionFile[];
+}
+
 // File CRUD request/response types
 
 export interface FileCrudResponse {

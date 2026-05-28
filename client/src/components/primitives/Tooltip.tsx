@@ -24,6 +24,8 @@ interface Coords {
   translateY: string;
 }
 
+const VIEWPORT_PAD = 8;
+
 function getCoords(rect: DOMRect, position: string): Coords {
   const GAP = 6;
   switch (position) {
@@ -62,10 +64,37 @@ function getCoords(rect: DOMRect, position: string): Coords {
   }
 }
 
+function clampToViewport(
+  coords: Coords,
+  ttRect: { width: number; height: number },
+): Coords {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Compute resolved top-left of tooltip box after translate.
+  const parsePct = (s: string): number =>
+    s.endsWith('%') ? parseFloat(s) / 100 : 0;
+  const tx = parsePct(coords.translateX) * ttRect.width;
+  const ty = parsePct(coords.translateY) * ttRect.height;
+  let left = coords.left + tx;
+  let top = coords.top + ty;
+  const maxLeft = vw - ttRect.width - VIEWPORT_PAD;
+  const maxTop = vh - ttRect.height - VIEWPORT_PAD;
+  if (left < VIEWPORT_PAD) left = VIEWPORT_PAD;
+  if (left > maxLeft) left = Math.max(VIEWPORT_PAD, maxLeft);
+  if (top < VIEWPORT_PAD) top = VIEWPORT_PAD;
+  if (top > maxTop) top = Math.max(VIEWPORT_PAD, maxTop);
+  return {
+    ...coords,
+    left: left - tx,
+    top: top - ty,
+  };
+}
+
 export function Tooltip({ content, children, position = 'top', delay = 400 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const show = useCallback((el: Element) => {
     timerRef.current = setTimeout(() => {
@@ -81,6 +110,16 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
   }, []);
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  // After tooltip becomes visible, measure & clamp to viewport.
+  useEffect(() => {
+    if (!visible || !coords || !tooltipRef.current) return;
+    const ttRect = tooltipRef.current.getBoundingClientRect();
+    const clamped = clampToViewport(coords, { width: ttRect.width, height: ttRect.height });
+    if (clamped.left !== coords.left || clamped.top !== coords.top) {
+      setCoords(clamped);
+    }
+  }, [visible, coords]);
 
   const cloned = cloneElement(children, {
     onMouseEnter: (e: RMouseEvent) => {
@@ -130,7 +169,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     <>
       {cloned}
       {createPortal(
-        <div role="tooltip" style={tooltipStyle}>{content}</div>,
+        <div ref={tooltipRef} role="tooltip" style={tooltipStyle}>{content}</div>,
         document.body,
       )}
     </>
