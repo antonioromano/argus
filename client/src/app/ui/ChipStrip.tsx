@@ -1,15 +1,17 @@
 import type { SessionInfo } from '@argus/shared';
 import { StatusDot } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
+import { filterSessions } from '../../utils/sessionFilter.js';
 
 interface ChipStripProps {
   sessions: SessionInfo[];
   activeId: string;
+  filter?: string;
   onSelect: (id: string) => void;
 }
 
-export function ChipStrip({ sessions, activeId, onSelect }: ChipStripProps) {
-  const others = sessions.filter((s) => s.id !== activeId);
+export function ChipStrip({ sessions, activeId, filter, onSelect }: ChipStripProps) {
+  const others = filterSessions(sessions, filter ?? '').filter((s) => s.id !== activeId);
   return (
     <div
       className="argus-scroll"

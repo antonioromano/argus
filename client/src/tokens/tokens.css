@@ -303,6 +303,24 @@ body {
   100% { background-position: -200% 0; }
 }
 
+/* ===== THEME TRANSITION (View Transitions API) ===== */
+::view-transition-old(root) {
+  animation: argus-theme-out var(--dur-slow) var(--ease-std);
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  animation: argus-theme-in var(--dur-slow) var(--ease-std);
+  mix-blend-mode: normal;
+}
+@keyframes argus-theme-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes argus-theme-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
 /* C2 — Reduced motion: respect user preference globally */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -311,6 +329,8 @@ body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation: none; }
 }
 
 /* H3 — Global focus-visible ring (only keyboard focus, not mouse) */

@@ -10,6 +10,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
 import { OrderStore } from './persistence/OrderStore.js';
+import { GroupStore } from './persistence/GroupStore.js';
 import { ConfigStore } from './persistence/ConfigStore.js';
 import { ChangelistStore } from './persistence/ChangelistStore.js';
 import { AgentRegistry } from './services/AgentRegistry.js';
@@ -84,6 +85,9 @@ sessionManager.setIo(io);
 // Order store
 const orderStore = new OrderStore(path.join(dataDir, 'order.json'));
 
+// Group store
+const groupStore = new GroupStore(path.join(dataDir, 'groups.json'));
+
 // Auth service
 const authService = new AuthService();
 authService.setIo(io);
@@ -118,7 +122,7 @@ export function setApplyUpdateFn(fn: import('./services/UpdateService.js').Apply
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
-app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, configStore));
+app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, groupStore, configStore));
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).

@@ -27,14 +27,14 @@ export function Remote({ onBack }: RemoteProps) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-0)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           padding: '0 var(--s-3)',
           paddingTop: 'env(safe-area-inset-top, 0px)',
-          height: 52,
+          minHeight: 52,
           background: 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
@@ -49,10 +49,11 @@ export function Remote({ onBack }: RemoteProps) {
             cursor: 'pointer',
             color: 'var(--accent)',
             borderRadius: 'var(--r-2)',
-            padding: '4px 8px',
+            padding: '0 12px',
+            minHeight: 44,
             display: 'flex',
             alignItems: 'center',
-            gap: 2,
+            gap: 4,
             flexShrink: 0,
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-tiny)',

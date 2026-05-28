@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
+import { useGroups } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
 import { api, setToken } from '../../services/api.js';
 import { reconnectSocket } from '../../hooks/useSocket.js';
@@ -58,6 +59,8 @@ export function MobileApp() {
 function Inner() {
   const socket = useSocket();
   const { sessions } = useSessions(socket);
+  const groups = useGroups();
+  const grouped = groups.groupedSessions(sessions);
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -71,11 +74,12 @@ function Inner() {
   }
 
   return (
-    <>
-      <div style={{ paddingBottom: 64 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {tab === 'sessions' && (
           <Sessions
             sessions={sessions}
+            grouped={grouped}
             publicUrl={publicUrl}
             onSelect={setFocusedId}
             onRemote={() => setTab('remote')}
@@ -85,6 +89,6 @@ function Inner() {
         {tab === 'remote' && <Remote onBack={() => setTab('sessions')} />}
       </div>
       <BottomNav active={tab} onChange={setTab} />
-    </>
+    </div>
   );
 }

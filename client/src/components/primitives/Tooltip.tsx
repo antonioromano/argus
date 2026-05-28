@@ -108,7 +108,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         left: coords.left,
         transform: `translate(${coords.translateX}, ${coords.translateY})`,
         transformOrigin: coords.transformOrigin,
-        zIndex: 300,
+        zIndex: 1100,
         background: 'var(--bg-3)',
         color: 'var(--fg-0)',
         border: '1px solid var(--line-3)',

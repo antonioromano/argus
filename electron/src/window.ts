@@ -19,7 +19,7 @@ export function createWindow(): BrowserWindow {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     vibrancy: 'sidebar',
-    visualEffectState: 'active',
+    visualEffectState: 'followWindow',
     backgroundColor: '#00000000',
     show: false,
     webPreferences: {

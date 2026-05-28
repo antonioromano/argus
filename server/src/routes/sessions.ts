@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
+import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { CreateSessionRequest } from '@argus/shared';
+import type { CreateSessionRequest, SessionGroup } from '@argus/shared';
 
 // Only allow safe flag characters — blocks shell metacharacters like ; | & ` $() etc.
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
@@ -16,7 +17,16 @@ function validateFlags(flags: string[]): string | null {
   return null;
 }
 
-export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, configStore: ConfigStore): Router {
+// Enforce single-membership: a session id may appear in at most one group (first wins).
+function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
+  const seen = new Set<string>();
+  return groups.map((g) => ({
+    ...g,
+    sessionIds: g.sessionIds.filter((id) => (seen.has(id) ? false : (seen.add(id), true))),
+  }));
+}
+
+export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, groupStore: GroupStore, configStore: ConfigStore): Router {
   const router = Router();
 
   router.get('/', (_req, res) => {
@@ -36,6 +46,22 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
     await orderStore.save(order);
     res.json({ order });
+  });
+
+  router.get('/groups', async (_req, res) => {
+    const groups = await groupStore.load();
+    res.json({ groups });
+  });
+
+  router.put('/groups', async (req, res) => {
+    const { groups } = req.body;
+    if (!Array.isArray(groups)) {
+      res.status(400).json({ error: 'groups must be an array of SessionGroup' });
+      return;
+    }
+    const deduped = dedupeGroupMembership(groups as SessionGroup[]);
+    await groupStore.save(deduped);
+    res.json({ groups: deduped });
   });
 
   router.get('/:id', (req, res) => {

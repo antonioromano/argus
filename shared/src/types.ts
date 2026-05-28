@@ -55,6 +55,22 @@ export interface CreateSessionRequest {
 
 export interface CreateSessionResponse extends SessionInfo {}
 
+export interface SessionGroup {
+  id: string;            // crypto.randomUUID()
+  name: string;
+  color: string;         // groupColors palette key
+  collapsed: boolean;
+  sessionIds: string[];  // membership + within-group display order
+}
+
+export interface GetGroupsResponse {
+  groups: SessionGroup[];
+}
+
+export interface SaveGroupsRequest {
+  groups: SessionGroup[];
+}
+
 export interface PathCompletionResponse {
   completions: string[];
 }

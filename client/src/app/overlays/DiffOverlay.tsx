@@ -3,6 +3,7 @@ import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
 import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
+import { SplitDiff } from './SplitDiff.js';
 import {
   IconButton,
   Button,
@@ -15,6 +16,7 @@ import {
 interface DiffOverlayProps {
   session: SessionInfo;
   onClose: () => void;
+  initialFile?: string;
 }
 
 type Source = 'unstaged' | 'staged' | 'branch';
@@ -47,14 +49,14 @@ function summarize(rawDiff: string, source: Source): FileSummary[] {
   }
 }
 
-export function DiffOverlay({ session, onClose }: DiffOverlayProps) {
+export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
     sessionStatus: session.status,
   });
   const [viewMode, setViewMode] = useState<'split' | 'unified'>('split');
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(initialFile ?? null);
 
   const files = useMemo((): FileSummary[] => {
     if (!diff) return [];
@@ -66,6 +68,14 @@ export function DiffOverlay({ session, onClose }: DiffOverlayProps) {
   }, [diff]);
 
   const total = files.length + (diff?.untracked.length ?? 0);
+
+  const effectiveSelected: string | null = useMemo(() => {
+    if (selectedFile && files.some((f) => `${f.source}::${f.path}` === selectedFile)) {
+      return selectedFile;
+    }
+    if (files.length > 0) return `${files[0].source}::${files[0].path}`;
+    return null;
+  }, [files, selectedFile]);
 
   return (
     <div
@@ -145,7 +155,7 @@ export function DiffOverlay({ session, onClose }: DiffOverlayProps) {
                 </div>
                 {grp.map((f) => {
                   const id = `${f.source}::${f.path}`;
-                  const sel = selectedFile === id;
+                  const sel = effectiveSelected === id;
                   return (
                     <button
                       key={id}
@@ -188,17 +198,19 @@ export function DiffOverlay({ session, onClose }: DiffOverlayProps) {
           })}
         </aside>
 
-        <main style={{ flex: 1, minWidth: 0, background: 'var(--bg-inset)', overflow: 'auto' }} className="argus-scroll">
-          {selectedFile ? (
-            <DiffViewer
-              file={files.find((f) => `${f.source}::${f.path}` === selectedFile)!}
-              mode={viewMode}
-            />
-          ) : (
-            <div style={{ padding: 'var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
-              Select a file to view its diff.
-            </div>
-          )}
+        <main style={{ flex: 1, minWidth: 0, background: 'var(--bg-0)', overflow: 'auto' }} className="argus-scroll">
+          {(() => {
+            const selected = effectiveSelected
+              ? files.find((f) => `${f.source}::${f.path}` === effectiveSelected)
+              : undefined;
+            return selected ? (
+              <DiffViewer file={selected} mode={viewMode} />
+            ) : (
+              <div style={{ padding: 'var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
+                {isLoading ? 'Loading diff…' : 'No files to view.'}
+              </div>
+            );
+          })()}
         </main>
       </div>
     </div>
@@ -219,6 +231,10 @@ const modeBtn = (active: boolean): React.CSSProperties => ({
   letterSpacing: 'var(--tracking-eye)',
 });
 
+function lineText(c: { content: string }): string {
+  return c.content.replace(/^[+\- ]/, '');
+}
+
 function DiffViewer({ file, mode }: { file: FileSummary; mode: 'split' | 'unified' }) {
   const files = useMemo(() => parseDiff(file.raw), [file.raw]);
   const target = files.find((f) => (f.to ?? f.from) === file.path);
@@ -231,35 +247,39 @@ function DiffViewer({ file, mode }: { file: FileSummary; mode: 'split' | 'unifie
       >
         {file.path} · {mode.toUpperCase()}
       </div>
-      {target.chunks.map((chunk, i) => (
-        <div key={i} style={{ marginBottom: 'var(--s-4)' }}>
-          <div style={{ color: 'var(--fg-3)', padding: '2px var(--s-2)', background: 'var(--bg-1)', borderRadius: 'var(--r-1)', marginBottom: 4 }}>
-            {chunk.content}
+      {mode === 'split' ? (
+        <SplitDiff target={target} />
+      ) : (
+        target.chunks.map((chunk, i) => (
+          <div key={i} style={{ marginBottom: 'var(--s-4)' }}>
+            <div style={{ color: 'var(--fg-3)', padding: '2px var(--s-2)', background: 'var(--bg-1)', borderRadius: 'var(--r-1)', marginBottom: 4 }}>
+              {chunk.content}
+            </div>
+            {chunk.changes.map((c, j) => {
+              const isAdd = c.type === 'add';
+              const isDel = c.type === 'del';
+              return (
+                <div
+                  key={j}
+                  style={{
+                    display: 'flex',
+                    gap: 'var(--s-2)',
+                    padding: '0 var(--s-2)',
+                    background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
+                    color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-1)',
+                    whiteSpace: 'pre',
+                  }}
+                >
+                  <span style={{ width: 14, color: 'var(--fg-4)', flexShrink: 0 }}>
+                    {isAdd ? '+' : isDel ? '−' : ' '}
+                  </span>
+                  <span>{lineText(c)}</span>
+                </div>
+              );
+            })}
           </div>
-          {chunk.changes.map((c, j) => {
-            const isAdd = c.type === 'add';
-            const isDel = c.type === 'del';
-            return (
-              <div
-                key={j}
-                style={{
-                  display: 'flex',
-                  gap: 'var(--s-2)',
-                  padding: '0 var(--s-2)',
-                  background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
-                  color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-1)',
-                  whiteSpace: 'pre',
-                }}
-              >
-                <span style={{ width: 14, color: 'var(--fg-4)', flexShrink: 0 }}>
-                  {isAdd ? '+' : isDel ? '−' : ' '}
-                </span>
-                <span>{c.content.replace(/^[+\- ]/, '')}</span>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }

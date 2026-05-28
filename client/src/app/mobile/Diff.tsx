@@ -21,7 +21,7 @@ export function Diff({ sessions }: DiffProps) {
 
   if (sessions.length === 0) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-0)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
         <Header />
         <EmptyState icon={GitBranch} title="No sessions" hint="Create a session on your Mac." />
       </div>
@@ -37,7 +37,7 @@ export function Diff({ sessions }: DiffProps) {
     : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-0)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <Header />
       <div style={{ padding: 'var(--s-3) var(--s-4)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)' }}>
         <select
@@ -100,7 +100,7 @@ function Header() {
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '0 var(--s-4)',
-        height: 52,
+        minHeight: 52,
         paddingTop: 'env(safe-area-inset-top, 0px)',
         background: 'var(--bg-1)',
         borderBottom: '1px solid var(--line-2)',

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 
 // The resolved (applied) theme — what actually gets written to the DOM
@@ -82,8 +83,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // exiting system mode if it was active.
   const toggle = useCallback(() => {
     const next: ThemeMode = theme === 'dark' ? 'light' : 'dark';
-    setModeState(next);
-    localStorage.setItem('theme-mode', next);
+    const apply = () => {
+      setModeState(next);
+      localStorage.setItem('theme-mode', next);
+    };
+    if (!document.startViewTransition) { apply(); return; }
+    document.startViewTransition(() => flushSync(apply));
   }, [theme]);
 
   return (

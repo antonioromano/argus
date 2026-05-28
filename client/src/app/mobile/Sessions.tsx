@@ -1,13 +1,48 @@
+import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import { Wifi, Share2 } from 'lucide-react';
+import { Wifi, Share2, ChevronRight } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusDot, StatusPill, DirtyBadge } from '../../components/primitives/index.js';
+import { resolveGroupColor } from '../../constants/groupColors.js';
+import type { GroupedSessions } from '../../hooks/useGroups.js';
 
 interface SessionsProps {
   sessions: SessionInfo[];
+  grouped: GroupedSessions;
   publicUrl: string | null;
   onSelect: (id: string) => void;
   onRemote: () => void;
+}
+
+function byStatus(a: SessionInfo, b: SessionInfo): number {
+  if (a.status === 'waiting' && b.status !== 'waiting') return -1;
+  if (b.status === 'waiting' && a.status !== 'waiting') return 1;
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
+function Section({ title, color, sessions, onSelect }: { title: string; color: string | null; sessions: SessionInfo[]; onSelect: (id: string) => void }) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (sessions.length === 0) return null;
+  const sorted = [...sessions].sort(byStatus);
+  return (
+    <div>
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+          padding: 'var(--s-3) var(--s-4) var(--s-1)', background: 'var(--bg-1)',
+          borderBottom: '1px solid var(--line-1)', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <ChevronRight size={12} strokeWidth={2}
+          style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms ease', color: 'var(--fg-3)' }} />
+        {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />}
+        <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
+        <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{sessions.length}</span>
+      </button>
+      {!collapsed && sorted.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} />)}
+    </div>
+  );
 }
 
 function timeAgo(d: string): string {
@@ -76,31 +111,20 @@ function Row({ session, onSelect }: { session: SessionInfo; onSelect: () => void
   );
 }
 
-export function Sessions({ sessions, publicUrl, onSelect, onRemote }: SessionsProps) {
-  const active = sessions
-    .filter((s) => s.status === 'running' || s.status === 'waiting')
-    .sort((a, b) => {
-      if (a.status === 'waiting' && b.status !== 'waiting') return -1;
-      if (b.status === 'waiting' && a.status !== 'waiting') return 1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  const idle = sessions
-    .filter((s) => s.status !== 'running' && s.status !== 'waiting')
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
+export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote }: SessionsProps) {
   const truncatedUrl = publicUrl
     ? publicUrl.replace(/^https?:\/\//, '').slice(0, 28) + (publicUrl.length > 32 ? '…' : '')
     : null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-0)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 var(--s-4)',
-          height: 52,
+          minHeight: 52,
           paddingTop: 'env(safe-area-inset-top, 0px)',
           background: 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
@@ -135,22 +159,16 @@ export function Sessions({ sessions, publicUrl, onSelect, onRemote }: SessionsPr
           </div>
         ) : (
           <>
-            {active.length > 0 && (
-              <div>
-                <div className="eyebrow" style={{ padding: 'var(--s-3) var(--s-4) var(--s-1)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)' }}>
-                  ACTIVE · {active.length}
-                </div>
-                {active.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} />)}
-              </div>
-            )}
-            {idle.length > 0 && (
-              <div>
-                <div className="eyebrow" style={{ padding: 'var(--s-3) var(--s-4) var(--s-1)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)' }}>
-                  IDLE · {idle.length}
-                </div>
-                {idle.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} />)}
-              </div>
-            )}
+            {grouped.groups.map(({ group, sessions: gs }) => (
+              <Section
+                key={group.id}
+                title={group.name}
+                color={resolveGroupColor(group.color, true)}
+                sessions={gs}
+                onSelect={onSelect}
+              />
+            ))}
+            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} onSelect={onSelect} />
           </>
         )}
       </div>

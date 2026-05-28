@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
+import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Square, Search, Wifi, Settings, Sun, Moon, FolderOpen, GitCompare, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
@@ -14,6 +15,8 @@ interface SidebarProps {
   isDark: boolean;
   version?: string;
   ngrokConnected?: boolean;
+  /** Group tree rendered under the Sessions item (hidden when the sidebar is collapsed). */
+  sessionTree?: ReactNode;
 }
 
 interface Item {
@@ -25,7 +28,7 @@ interface Item {
   highlight?: boolean;
 }
 
-export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, version, ngrokConnected }: SidebarProps) {
+export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, version, ngrokConnected, sessionTree }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
   });
@@ -60,7 +63,8 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
         display: 'flex',
         flexDirection: 'column',
         padding: 'var(--s-3) var(--s-2)',
-        overflow: 'hidden',
+        overflowY: 'auto',
+        overflowX: 'hidden',
         transition: 'width 180ms var(--ease-std)',
       }}
     >
@@ -86,7 +90,12 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, isDark, ve
 
       {!collapsed && <div className="eyebrow" style={{ padding: '0 var(--s-2)', marginBottom: 'var(--s-2)' }}>Pilot</div>}
       {pilot.map((it) => (
-        <Row key={it.id} item={it} active={active === it.id} collapsed={collapsed} onClick={() => onSelect(it.id)} />
+        <Fragment key={it.id}>
+          <Row item={it} active={active === it.id} collapsed={collapsed} onClick={() => onSelect(it.id)} />
+          {it.id === 'sessions' && !collapsed && sessionTree && (
+            <div style={{ marginBottom: 'var(--s-2)' }}>{sessionTree}</div>
+          )}
+        </Fragment>
       ))}
 
       <div style={{ flex: 1 }} />

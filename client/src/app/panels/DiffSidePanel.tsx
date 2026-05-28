@@ -7,8 +7,9 @@ import { Chip, IconButton, LoadingState, EmptyState, ErrorState, Button } from '
 
 interface DiffSidePanelProps {
   session: SessionInfo;
-  onExpand: () => void;
+  onExpand: (file?: string) => void;
   onCommit?: () => void;
+  width?: number;
 }
 
 interface FileSummary {
@@ -37,7 +38,7 @@ function summarize(rawDiff: string, source: 'unstaged' | 'staged' | 'branch'): F
   }
 }
 
-export function DiffSidePanel({ session, onExpand, onCommit }: DiffSidePanelProps) {
+export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: DiffSidePanelProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
@@ -54,11 +55,12 @@ export function DiffSidePanel({ session, onExpand, onCommit }: DiffSidePanelProp
   }, [diff]);
 
   const totalFiles = files.length + (diff?.untracked.length ?? 0);
+  const notAGitRepo = !!error && /not a git repository/i.test(error);
 
   return (
     <aside
       style={{
-        width: 320,
+        width,
         flexShrink: 0,
         background: 'var(--bg-1)',
         borderLeft: '1px solid var(--line-2)',
@@ -80,12 +82,19 @@ export function DiffSidePanel({ session, onExpand, onCommit }: DiffSidePanelProp
         <div style={{ flex: 1 }} />
         {totalFiles > 0 && <Chip dot="var(--dirty)">{totalFiles} files</Chip>}
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
-        <IconButton icon={Maximize2} label="Expand" size="sm" onClick={onExpand} />
+        <IconButton icon={Maximize2} label="Expand" size="sm" onClick={() => onExpand()} />
       </div>
 
       <div className="argus-scroll" style={{ flex: 1, overflow: 'auto', padding: 'var(--s-2) 0' }}>
         {isLoading && totalFiles === 0 && <LoadingState label="Loading diff" />}
-        {error && !isLoading && (
+        {notAGitRepo && !isLoading && (
+          <EmptyState
+            icon={GitBranch}
+            title="Not a git repo"
+            hint="This folder isn't tracked by git."
+          />
+        )}
+        {error && !notAGitRepo && !isLoading && (
           <ErrorState title="Diff failed" detail={error} onRetry={refresh} />
         )}
         {!isLoading && !error && totalFiles === 0 && (
@@ -98,7 +107,7 @@ export function DiffSidePanel({ session, onExpand, onCommit }: DiffSidePanelProp
         {files.map((f) => (
           <button
             key={`${f.source}::${f.path}`}
-            onClick={onExpand}
+            onClick={() => onExpand(`${f.source}::${f.path}`)}
             style={{
               all: 'unset',
               cursor: 'pointer',
@@ -161,7 +170,7 @@ export function DiffSidePanel({ session, onExpand, onCommit }: DiffSidePanelProp
 
       {totalFiles > 0 && (
         <div style={{ padding: 'var(--s-3) var(--s-4)', borderTop: '1px solid var(--line-2)' }}>
-          <Button variant="primary" full icon={GitCommit} onClick={onCommit ?? onExpand}>
+          <Button variant="primary" full icon={GitCommit} onClick={onCommit ?? (() => onExpand())}>
             Commit · {totalFiles} file{totalFiles !== 1 ? 's' : ''}
           </Button>
         </div>

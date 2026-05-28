@@ -3,21 +3,24 @@ import { useTheme } from '../context/ThemeContext.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
+import { useGroups } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
 import { isPrimaryModifier } from '../utils/platform.js';
-import type { AgentFlag, SessionInfo, AppConfig } from '@argus/shared';
+import type { AgentFlag, SessionInfo, AppConfig, SessionGroup } from '@argus/shared';
+import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Bell, Plus } from 'lucide-react';
-import { AlertSheet, Button } from '../components/primitives/index.js';
+import { AlertSheet, Button, ToastProvider } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
 import { WindowChrome } from './ui/WindowChrome.js';
 import { ElectronToolbar } from './ui/ElectronToolbar.js';
 import { Sidebar } from './ui/Sidebar.js';
+import { SessionTree } from './ui/SessionTree.js';
 import { TopToolbar } from './ui/TopToolbar.js';
 import { Mosaic } from './views/Mosaic.js';
 import { Focus } from './views/Focus.js';
@@ -125,13 +128,26 @@ function DesktopInner() {
   const { status: updateStatus } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
   const { getOrderedSessions } = useSessionOrder();
+  const groups = useGroups();
 
   const app = useAppView();
   const [filter, setFilter] = useState('');
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
+  const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
+  const grouped = groups.groupedSessions(orderedSessions);
+
+  // A deleted group simply yields no active group → filter falls away on its own.
+  const activeGroup = groups.groups.find((g) => g.id === activeGroupId) ?? null;
+  const groupFilterIds = activeGroup ? new Set(activeGroup.sessionIds) : null;
+  const groupColorOf = (sessionId: string): string | null => {
+    const g = groups.groups.find((grp) => grp.sessionIds.includes(sessionId));
+    if (g) return resolveGroupColor(g.color, isDark);
+    return grouped.othersColor ? resolveGroupColor(grouped.othersColor, isDark) : null;
+  };
 
   // Auto-exit focus when active session disappears
   useEffect(() => {
@@ -256,15 +272,15 @@ function DesktopInner() {
             ? 'explorer'
             : 'sessions';
 
-  const headerLeading =
-    app.view === 'dashboard' ? (
-      <TopToolbar
-        filter={filter}
-        onFilter={setFilter}
-        sessions={orderedSessions}
-        onSelectSession={app.openSession}
-      />
-    ) : undefined;
+  const headerLeading = (
+    <TopToolbar
+      filter={filter}
+      onFilter={setFilter}
+      sessions={orderedSessions}
+      activeSessionId={app.activeSessionId ?? undefined}
+      onSelectSession={app.openSession}
+    />
+  );
 
   const headerToolbar = (
     <>
@@ -332,9 +348,9 @@ function DesktopInner() {
   );
 
   return (
+    <ToastProvider>
     <WindowChrome
       title="ARGUS"
-      subtitle={app.view === 'dashboard' ? undefined : activeSession ? activeSession.name : 'FOCUS'}
       leading={headerLeading}
       toolbar={headerToolbar}
     >
@@ -371,6 +387,23 @@ function DesktopInner() {
           isDark={isDark}
           version={updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
+          sessionTree={
+            <SessionTree
+              grouped={grouped}
+              activeGroupId={activeGroupId}
+              isDark={isDark}
+              onAssign={groups.assign}
+              onToggleCollapsed={groups.toggleCollapsed}
+              onFilterGroup={(id) => { setActiveGroupId(id); app.exitFocus(); }}
+              onCreateGroup={(name) => groups.createGroup(name)}
+              onRenameGroup={groups.renameGroup}
+              onSetColor={groups.setColor}
+              onSetOthersColor={groups.setOthersColor}
+              onDeleteGroup={groups.deleteGroup}
+              onKillGroup={setPendingKillGroup}
+              onOpenSession={app.openSession}
+            />
+          }
         />
 
         <main id="main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -380,6 +413,8 @@ function DesktopInner() {
               filter={filter}
               socket={socket}
               theme={theme}
+              groupFilterIds={groupFilterIds}
+              groupColorOf={groupColorOf}
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={setPendingKill}
@@ -394,12 +429,13 @@ function DesktopInner() {
               socket={socket}
               theme={theme}
               sidePanel={app.sidePanel}
+              filter={filter}
               onSelect={app.setActiveSession}
               onBack={app.exitFocus}
               onToggleDiff={() => app.toggleSidePanel('diff', activeSession.id)}
               onToggleExplorer={() => app.toggleSidePanel('explorer', activeSession.id)}
-              onExpandDiff={() => app.openOverlay({ kind: 'diff', sessionId: activeSession.id })}
-              onExpandExplorer={() => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id })}
+              onExpandDiff={(file) => app.openOverlay({ kind: 'diff', sessionId: activeSession.id, file })}
+              onExpandExplorer={(filePath) => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath })}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => setPendingKill(activeSession)}
             />
@@ -477,19 +513,20 @@ function DesktopInner() {
         </Overlay>
       )}
       {app.overlay?.kind === 'diff' && (() => {
-        const targetId = (app.overlay as { sessionId: string }).sessionId;
-        const session = sessions.find((s) => s.id === targetId);
+        const ov = app.overlay as { sessionId: string; file?: string };
+        const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
           <Overlay onClose={app.closeOverlay}>
-            <DiffOverlay session={session} onClose={app.closeOverlay} />
+            <DiffOverlay session={session} onClose={app.closeOverlay} initialFile={ov.file} />
           </Overlay>
         ) : null;
       })()}
       {app.overlay?.kind === 'explorer' && (() => {
-        const session = sessions.find((s) => s.id === (app.overlay as { sessionId: string }).sessionId);
+        const ov = app.overlay as { sessionId: string; filePath?: string };
+        const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
           <Overlay onClose={app.closeOverlay}>
-            <ExplorerOverlay session={session} onClose={app.closeOverlay} />
+            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} />
           </Overlay>
         ) : null;
       })()}
@@ -523,6 +560,25 @@ function DesktopInner() {
         }}
         onCancel={() => setPendingKill(null)}
       />
+
+      <AlertSheet
+        isOpen={!!pendingKillGroup}
+        title="Close all sessions in group?"
+        message={`This ends every agent process in “${pendingKillGroup?.name}” (${pendingKillGroup?.sessionIds.length ?? 0}). Files on disk and git history are not touched.`}
+        confirmLabel="Close all"
+        confirmDestructive
+        onConfirm={() => {
+          if (pendingKillGroup) {
+            for (const id of [...pendingKillGroup.sessionIds]) {
+              void deleteSession(id);
+              if (app.view === 'focus' && app.activeSessionId === id) app.exitFocus();
+            }
+          }
+          setPendingKillGroup(null);
+        }}
+        onCancel={() => setPendingKillGroup(null)}
+      />
     </WindowChrome>
+    </ToastProvider>
   );
 }

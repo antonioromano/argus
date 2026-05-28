@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -8,6 +8,7 @@ import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, EmptyState, Button, IconButton } from '../../components/primitives/index.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
+import { filterSessions } from '../../utils/sessionFilter.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -17,6 +18,9 @@ interface MosaicProps {
   filter: string;
   socket: TypedSocket;
   theme: 'dark' | 'light';
+  /** When set, only these session ids stay as active tiles; the rest are forced-minimized. */
+  groupFilterIds?: Set<string> | null;
+  groupColorOf?: (sessionId: string) => string | null;
   onOpenSession: (id: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
@@ -31,20 +35,23 @@ function colsForCount(n: number): number {
   return 3;
 }
 
-function filterSessions(sessions: SessionInfo[], q: string): SessionInfo[] {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return sessions;
-  return sessions.filter((s) =>
-    s.name.toLowerCase().includes(needle) ||
-    s.folderPath.toLowerCase().includes(needle) ||
-    s.agentType.toLowerCase().includes(needle),
-  );
-}
-
-export function Mosaic({ sessions, filter, socket, theme, onOpenSession, onCreate, onKill, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupColorOf, onOpenSession, onCreate, onKill, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const [minimized, setMinimized] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [windowFocused, setWindowFocused] = useState(true);
+
+  useEffect(() => {
+    const onFocus = () => setWindowFocused(true);
+    const onBlur  = () => { setWindowFocused(false); setFocusedId(null); };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, []);
+
   const toggleMinimize = (id: string) =>
     setMinimized((prev) => {
       const next = new Set(prev);
@@ -52,6 +59,10 @@ export function Mosaic({ sessions, filter, socket, theme, onOpenSession, onCreat
       else next.add(id);
       return next;
     });
+
+  // Effective minimized = user-minimized ∪ (everything outside the active group filter).
+  const isMinimized = (id: string) =>
+    minimized.has(id) || (!!groupFilterIds && !groupFilterIds.has(id));
 
   if (sessions.length === 0) {
     return (
@@ -73,10 +84,25 @@ export function Mosaic({ sessions, filter, socket, theme, onOpenSession, onCreat
     );
   }
 
+  if (filtered.length === 0) {
+    return (
+      <div
+        className="grid-bg"
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}
+      >
+        <EmptyState
+          icon={SquareIcon}
+          title="No matching sessions"
+          hint={`Nothing matches “${filter.trim()}”. Clear the filter to see all sessions.`}
+        />
+      </div>
+    );
+  }
+
   const tiles = filtered.slice(0, MAX_TILES);
   const overflow = filtered.length > MAX_TILES;
-  const minTiles = tiles.filter((s) => minimized.has(s.id));
-  const activeTiles = tiles.filter((s) => !minimized.has(s.id));
+  const minTiles = tiles.filter((s) => isMinimized(s.id));
+  const activeTiles = tiles.filter((s) => !isMinimized(s.id));
   const cols = colsForCount(activeTiles.length);
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
@@ -93,9 +119,11 @@ export function Mosaic({ sessions, filter, socket, theme, onOpenSession, onCreat
               session={s}
               socket={socket}
               theme={theme}
+              groupColor={groupColorOf?.(s.id) ?? null}
               minimized
               isFocused={false}
               hasFocusedSibling={false}
+              windowFocused={windowFocused}
               onFocus={() => {}}
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
@@ -123,9 +151,11 @@ export function Mosaic({ sessions, filter, socket, theme, onOpenSession, onCreat
               session={s}
               socket={socket}
               theme={theme}
+              groupColor={groupColorOf?.(s.id) ?? null}
               minimized={false}
               isFocused={activeFocusedId === s.id}
               hasFocusedSibling={activeFocusedId !== null && activeFocusedId !== s.id}
+              windowFocused={windowFocused}
               onFocus={() => setFocusedId(s.id)}
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
@@ -143,9 +173,11 @@ function MosaicTile({
   session,
   socket,
   theme,
+  groupColor,
   minimized,
   isFocused,
   hasFocusedSibling,
+  windowFocused,
   onFocus,
   onToggleMinimize,
   onOpen,
@@ -155,9 +187,11 @@ function MosaicTile({
   session: SessionInfo;
   socket: TypedSocket;
   theme: 'dark' | 'light';
+  groupColor?: string | null;
   minimized: boolean;
   isFocused: boolean;
   hasFocusedSibling: boolean;
+  windowFocused: boolean;
   onFocus: () => void;
   onToggleMinimize: () => void;
   onOpen: () => void;
@@ -188,7 +222,7 @@ function MosaicTile({
         ...(minimized ? { width: 240, flexShrink: 0 } : {}),
       }}
     >
-      {hasFocusedSibling && !isFocused && (
+      {((hasFocusedSibling && !isFocused) || !windowFocused) && (
         <div
           style={{
             position: 'absolute',
@@ -219,6 +253,13 @@ function MosaicTile({
         }}
       >
         <AgentGlyph agent={session.agentType} size={16} />
+        {groupColor && (
+          <span
+            aria-hidden
+            title="Group"
+            style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
+          />
+        )}
         <span
           onClick={copyPath}
           title="Click to copy path"

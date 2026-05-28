@@ -9,8 +9,8 @@ export type Overlay =
   | { kind: 'update' }
   | { kind: 'settings' }
   | { kind: 'remote' }
-  | { kind: 'diff'; sessionId: string }
-  | { kind: 'explorer'; sessionId: string }
+  | { kind: 'diff'; sessionId: string; file?: string }
+  | { kind: 'explorer'; sessionId: string; filePath?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | null;
 

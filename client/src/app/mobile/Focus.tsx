@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { ChevronLeft } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusPill, DirtyBadge } from '../../components/primitives/index.js';
-import { AnsiTerminal, useTerminalBuffer } from './AnsiTerminal.js';
+import { useSocket } from '../../hooks/useSocket.js';
+import { MobileTerminal } from './MobileTerminal.js';
 import { ActionBar } from './ActionBar.js';
 
 interface FocusProps {
@@ -11,8 +13,8 @@ interface FocusProps {
 }
 
 export function Focus({ session, onBack }: FocusProps) {
-  const { rawLines } = useTerminalBuffer(session.id);
-  const lastLine = [...rawLines].reverse().find((l) => l.trim() !== '') ?? '';
+  const socket = useSocket();
+  const [lastLine, setLastLine] = useState('');
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-inset)' }}>
       <div
@@ -74,7 +76,7 @@ export function Focus({ session, onBack }: FocusProps) {
         </div>
       </div>
 
-      <AnsiTerminal sessionId={session.id} style={{ flex: 1, minHeight: 0 }} />
+      <MobileTerminal sessionId={session.id} socket={socket} onTail={setLastLine} />
 
       <ActionBar session={session} lastRawLine={lastLine} />
     </div>

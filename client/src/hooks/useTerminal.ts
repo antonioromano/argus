@@ -15,6 +15,10 @@ interface UseTerminalOptions {
   sessionId: string;
   socket: TypedSocket;
   theme: 'dark' | 'light';
+  /** Display-only: no stdin, no keyboard capture (mobile feeds input via a separate compose bar). */
+  readOnly?: boolean;
+  /** Called (debounced) with the bottom non-empty terminal row — used for mobile chip detection. */
+  onTail?: (line: string) => void;
 }
 
 const DARK_THEME = {
@@ -69,9 +73,11 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme } = options;
+  const { sessionId, socket, theme, readOnly = false, onTail } = options;
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  const onTailRef = useRef(onTail);
+  useEffect(() => { onTailRef.current = onTail; }, [onTail]);
 
   // Create terminal and wire up socket
   useEffect(() => {
@@ -80,7 +86,8 @@ export function useTerminal(
 
     const fitAddon = new FitAddon();
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: !readOnly,
+      disableStdin: readOnly,
       fontSize: 13,
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
@@ -144,15 +151,31 @@ export function useTerminal(
     };
     socket.on('connect', handleReconnect);
 
+    // Debounced read of the bottom non-empty buffer row (read-only / mobile chip detection)
+    let tailTimer: ReturnType<typeof setTimeout> | null = null;
+    const emitTail = () => {
+      if (!onTailRef.current) return;
+      const buf = terminal.buffer.active;
+      for (let y = buf.baseY + terminal.rows - 1; y >= 0; y--) {
+        const text = buf.getLine(y)?.translateToString(true) ?? '';
+        if (text.trim() !== '') { onTailRef.current(text); return; }
+      }
+      onTailRef.current('');
+    };
+
     // Socket -> Terminal
     const handleOutput = ({ sessionId: sid, data }: { sessionId: string; data: string }) => {
       if (sid === sessionId) {
         terminal.write(data);
+        if (onTailRef.current) {
+          if (tailTimer) clearTimeout(tailTimer);
+          tailTimer = setTimeout(emitTail, 150);
+        }
       }
     };
     socket.on('session:output', handleOutput);
 
-    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+    if (!readOnly) terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       // Shift+Enter: send ESC+CR so Claude Code inserts a newline
       if (
         event.key === 'Enter' &&
@@ -179,10 +202,12 @@ export function useTerminal(
       return true;
     });
 
-    // Terminal -> Socket
-    const onDataDisposable = terminal.onData((data) => {
-      socket.emit('session:input', { sessionId, data });
-    });
+    // Terminal -> Socket (interactive only; mobile sends via the compose bar)
+    const onDataDisposable = readOnly
+      ? null
+      : terminal.onData((data) => {
+          socket.emit('session:input', { sessionId, data });
+        });
 
     // Resize handling
     const doFit = () => {
@@ -214,9 +239,10 @@ export function useTerminal(
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (tailTimer) clearTimeout(tailTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
-      onDataDisposable.dispose();
+      onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('connect', handleReconnect);
       socket.emit('session:leave', sessionId);
@@ -224,7 +250,7 @@ export function useTerminal(
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, socket, containerRef]);
+  }, [sessionId, socket, containerRef, readOnly]);
 
   // Update theme without recreating the terminal
   useEffect(() => {

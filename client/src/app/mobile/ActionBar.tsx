@@ -47,14 +47,22 @@ function chipStyle(kind: Chip['kind']): React.CSSProperties {
 export function ActionBar({ session, lastRawLine }: ActionBarProps) {
   const socket = useSocket();
   const [text, setText] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const chips = detect(lastRawLine, session.status);
 
   const send = (d: string) => socket.emit('session:input', { sessionId: session.id, data: d });
   const submit = () => {
-    if (!text) return;
+    if (!text.trim()) return;
     send(text + '\n');
     setText('');
+    const el = inputRef.current;
+    if (el) el.style.height = 'auto';
+  };
+
+  // Auto-grow the textarea up to ~5 rows.
+  const autoGrow = (el: HTMLTextAreaElement) => {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
   };
 
   const chipsRef = useRef<HTMLDivElement>(null);
@@ -89,7 +97,8 @@ export function ActionBar({ session, lastRawLine }: ActionBarProps) {
               key={c.label}
               onClick={() => send(c.value)}
               style={{
-                padding: '6px var(--s-3)',
+                padding: '0 var(--s-3)',
+                minHeight: 44,
                 borderRadius: 'var(--r-2)',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--t-tiny)',
@@ -98,6 +107,8 @@ export function ActionBar({ session, lastRawLine }: ActionBarProps) {
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
                 ...chipStyle(c.kind),
               }}
             >
@@ -107,41 +118,48 @@ export function ActionBar({ session, lastRawLine }: ActionBarProps) {
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', padding: 'var(--s-2) var(--s-3)' }}>
-        <input
+      <form
+        onSubmit={(e) => { e.preventDefault(); submit(); }}
+        style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--s-2)', padding: 'var(--s-2) var(--s-3)' }}
+      >
+        <textarea
           ref={inputRef}
-          type="text"
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          rows={1}
+          onChange={(e) => { setText(e.target.value); autoGrow(e.target); }}
           placeholder="Send message…"
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
+          enterKeyHint="enter"
           style={{
             flex: 1,
             background: 'var(--bg-2)',
             border: '1px solid var(--line-2)',
             borderRadius: 'var(--r-2)',
-            padding: '8px var(--s-3)',
+            padding: '10px var(--s-3)',
             fontSize: 16,
+            lineHeight: 1.4,
             fontFamily: 'var(--font-mono)',
             color: 'var(--fg-0)',
             outline: 'none',
             minHeight: 44,
+            maxHeight: 132,
+            resize: 'none',
+            boxSizing: 'border-box',
           }}
         />
         <button
-          onClick={submit}
-          disabled={!text}
+          type="submit"
+          disabled={!text.trim()}
           style={{
             width: 44,
             height: 44,
             borderRadius: 'var(--r-2)',
-            background: text ? 'var(--accent)' : 'var(--bg-3)',
-            color: text ? 'var(--fg-on-accent)' : 'var(--fg-3)',
+            background: text.trim() ? 'var(--accent)' : 'var(--bg-3)',
+            color: text.trim() ? 'var(--fg-on-accent)' : 'var(--fg-3)',
             border: 'none',
-            cursor: text ? 'pointer' : 'default',
+            cursor: text.trim() ? 'pointer' : 'default',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -151,7 +169,7 @@ export function ActionBar({ session, lastRawLine }: ActionBarProps) {
         >
           <ArrowUp size={16} strokeWidth={2} />
         </button>
-      </div>
+      </form>
     </div>
   );
 }

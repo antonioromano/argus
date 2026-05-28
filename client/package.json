@@ -16,6 +16,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource/ibm-plex-sans": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-virtual": "^3.13.25",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@xterm/addon-fit": "^0.10.0",
@@ -25,12 +26,14 @@
     "ansi-to-html": "^0.7.2",
     "dompurify": "^3.0.0",
     "lucide-react": "^1.0.1",
+    "monaco-editor": "^0.55.1",
     "parse-diff": "^0.11.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
+    "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {

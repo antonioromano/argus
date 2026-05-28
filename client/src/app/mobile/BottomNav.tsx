@@ -19,18 +19,16 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
     <nav
       aria-label="Main navigation"
       style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 64,
+        flexShrink: 0,
         background: 'var(--bg-1)',
         borderTop: '1px solid var(--line-2)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-around',
         zIndex: 1000,
-        paddingBottom: 'env(safe-area-inset-bottom)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        boxSizing: 'content-box' as React.CSSProperties['boxSizing'],
+        height: 64,
       }}
     >
       {tabs.map((t) => {
@@ -49,7 +47,7 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
               justifyContent: 'center',
               gap: 3,
               width: 64,
-              height: '100%',
+              height: 64,
               border: 'none',
               background: 'transparent',
               color: sel ? 'var(--accent)' : 'var(--fg-2)',
