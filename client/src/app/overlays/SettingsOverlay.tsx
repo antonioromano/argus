@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AppConfig, AgentDefinition } from '@argus/shared';
-import { Sliders, Cpu, Flag, Bell, Keyboard, Sparkles, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Cpu, Flag, Bell, Plus, Pencil, Trash2 } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
   Sheet,
@@ -17,15 +17,12 @@ interface SettingsOverlayProps {
   onSave: (data: Partial<AppConfig>) => Promise<AppConfig>;
 }
 
-type Tab = 'general' | 'agents' | 'flags' | 'notif' | 'short' | 'adv';
+type Tab = 'agents' | 'flags' | 'notif';
 
-const TABS: { id: Tab; icon: typeof Sliders; label: string }[] = [
-  { id: 'general', icon: Sliders, label: 'General' },
+const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
   { id: 'agents', icon: Cpu, label: 'Agents' },
   { id: 'flags', icon: Flag, label: 'Flag library' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
-  { id: 'short', icon: Keyboard, label: 'Shortcuts' },
-  { id: 'adv', icon: Sparkles, label: 'Advanced' },
 ];
 
 const BUILTIN: AgentDefinition[] = [
@@ -92,6 +89,8 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
                   display: 'flex',
                   alignItems: 'center',
                   gap: 'var(--s-2)',
+                  width: '100%',
+                  boxSizing: 'border-box',
                   padding: '6px var(--s-2)',
                   background: active ? 'var(--bg-3)' : 'transparent',
                   color: active ? 'var(--fg-0)' : 'var(--fg-1)',
@@ -180,7 +179,16 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
                 ))}
               </Section>
 
-              <Section title="Flag library">
+            </div>
+          )}
+
+          {tab === 'flags' && (
+            <div style={{ maxWidth: 720 }}>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Flag library</div>
+              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
+                Flag library
+              </h2>
+              <Section title={`Flags for ${config.defaultAgent}`}>
                 <div style={{ padding: 'var(--s-3) var(--s-4)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {(config.agentFlags[config.defaultAgent] ?? []).map((f) => (
                     <Chip key={f.id} icon={Flag}>{f.value}</Chip>
@@ -221,17 +229,6 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
             </div>
           )}
 
-          {(tab === 'general' || tab === 'flags' || tab === 'short' || tab === 'adv') && (
-            <div style={{ maxWidth: 720, color: 'var(--fg-2)' }}>
-              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · {TABS.find((x) => x.id === tab)?.label}</div>
-              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
-                Coming soon
-              </h2>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
-                This section is a placeholder.
-              </p>
-            </div>
-          )}
         </main>
       </div>
     </Sheet>
