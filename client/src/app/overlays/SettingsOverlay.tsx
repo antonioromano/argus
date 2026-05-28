@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import type { AppConfig, AgentDefinition } from '@argus/shared';
-import { Cpu, Flag, Bell, Plus, Pencil, Trash2 } from 'lucide-react';
+import { useState, Fragment } from 'react';
+import type { AppConfig, AgentDefinition, AgentFlag } from '@argus/shared';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { useTheme } from '../../context/ThemeContext.js';
+import type { ThemeMode } from '../../context/ThemeContext.js';
 import {
   Sheet,
   Section,
@@ -9,19 +11,22 @@ import {
   Toggle,
   IconButton,
   Button,
+  TextInput,
 } from '../../components/primitives/index.js';
 
 interface SettingsOverlayProps {
   config: AppConfig;
   onClose: () => void;
   onSave: (data: Partial<AppConfig>) => Promise<AppConfig>;
+  onSaveFlag: (agentId: string, flag: AgentFlag) => Promise<void>;
+  onDeleteFlag: (agentId: string, flagId: string) => Promise<void>;
 }
 
-type Tab = 'agents' | 'flags' | 'notif';
+type Tab = 'general' | 'agents' | 'notif';
 
 const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
+  { id: 'general', icon: SlidersHorizontal, label: 'General' },
   { id: 'agents', icon: Cpu, label: 'Agents' },
-  { id: 'flags', icon: Flag, label: 'Flag library' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
 ];
 
@@ -31,13 +36,20 @@ const BUILTIN: AgentDefinition[] = [
   { id: 'codex', name: 'Codex', command: 'codex', builtin: true },
 ];
 
-export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProps) {
+const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
+
+export function SettingsOverlay({ config, onClose, onSave, onSaveFlag, onDeleteFlag }: SettingsOverlayProps) {
   const [tab, setTab] = useState<Tab>('agents');
+  const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
     'Notification' in window ? Notification.permission : 'unsupported'
   );
+
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [flagInput, setFlagInput] = useState('');
+  const [flagError, setFlagError] = useState<string | null>(null);
 
   const handleNotifToggle = async (v: boolean) => {
     if (v && 'Notification' in window && Notification.permission === 'default') {
@@ -45,6 +57,24 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
       setNotifPermission(result);
     }
     await onSave({ notificationsEnabled: v });
+  };
+
+  const toggleAgent = (agentId: string) => {
+    setExpandedAgent((prev) => (prev === agentId ? null : agentId));
+    setFlagInput('');
+    setFlagError(null);
+  };
+
+  const handleAddFlag = async (agentId: string) => {
+    const value = flagInput.trim();
+    if (!value) return;
+    if (!FLAG_PATTERN.test(value)) {
+      setFlagError('Must start with -- or - followed by alphanumeric characters');
+      return;
+    }
+    setFlagError(null);
+    await onSaveFlag(agentId, { id: crypto.randomUUID(), value, enabled: true });
+    setFlagInput('');
   };
 
   return (
@@ -111,6 +141,43 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
           className="argus-scroll"
           style={{ flex: 1, overflow: 'auto', padding: 'var(--s-6) var(--s-7)' }}
         >
+          {tab === 'general' && (
+            <div style={{ maxWidth: 720 }}>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · General</div>
+              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
+                General
+              </h2>
+              <Section title="Appearance">
+                <div style={{ padding: 'var(--s-4)' }}>
+                  <div style={{ marginBottom: 'var(--s-2)', fontSize: 'var(--t-sm)', color: 'var(--fg-2)' }}>Theme</div>
+                  <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+                    {(['system', 'dark', 'light'] as ThemeMode[]).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setMode(m)}
+                        style={{
+                          all: 'unset',
+                          cursor: 'pointer',
+                          padding: '6px var(--s-3)',
+                          background: mode === m ? 'var(--accent-bg)' : 'var(--bg-2)',
+                          border: `1px solid ${mode === m ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                          borderRadius: 'var(--r-2)',
+                          fontSize: 'var(--t-sm)',
+                          color: mode === m ? 'var(--accent)' : 'var(--fg-1)',
+                          minWidth: 64,
+                          textAlign: 'center',
+                          boxSizing: 'border-box',
+                        }}
+                      >
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </Section>
+            </div>
+          )}
+
           {tab === 'agents' && (
             <div style={{ maxWidth: 720 }}>
               <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Agents</div>
@@ -150,55 +217,107 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
               </Section>
 
               <Section title="Installed agents" action={<Button variant="outline" size="sm" icon={Plus}>Add custom</Button>}>
-                {agents.map((a) => (
-                  <div
-                    key={a.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--s-3)',
-                      padding: 'var(--s-3) var(--s-4)',
-                      borderBottom: '1px solid var(--line-1)',
-                    }}
-                  >
-                    <AgentGlyph agent={a.id} size={28} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>{a.name}</div>
-                      <div className="mono" style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-                        $ {a.command} {a.builtin ? '' : '· custom'}
+                {agents.map((a) => {
+                  const expanded = expandedAgent === a.id;
+                  const agentFlags = config.agentFlags[a.id] ?? [];
+                  return (
+                    <Fragment key={a.id}>
+                      <div
+                        onClick={() => toggleAgent(a.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--s-3)',
+                          padding: 'var(--s-3) var(--s-4)',
+                          borderBottom: expanded ? 'none' : '1px solid var(--line-1)',
+                          cursor: 'pointer',
+                          background: expanded ? 'var(--bg-2)' : 'transparent',
+                        }}
+                      >
+                        <AgentGlyph agent={a.id} size={28} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>{a.name}</div>
+                          <div className="mono" style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+                            $ {a.command} {a.builtin ? '' : '· custom'}
+                          </div>
+                        </div>
+                        <Chip>{agentFlags.length} flags</Chip>
+                        {!a.builtin && (
+                          <>
+                            <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => e.stopPropagation()} />
+                            <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => e.stopPropagation()} />
+                          </>
+                        )}
+                        {expanded
+                          ? <ChevronDown size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                          : <ChevronRight size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                        }
                       </div>
-                    </div>
-                    <Chip>{(config.agentFlags[a.id] ?? []).length} flags</Chip>
-                    {!a.builtin && (
-                      <>
-                        <IconButton icon={Pencil} label="Edit" size="sm" />
-                        <IconButton icon={Trash2} label="Remove" size="sm" />
-                      </>
-                    )}
-                  </div>
-                ))}
-              </Section>
-
-            </div>
-          )}
-
-          {tab === 'flags' && (
-            <div style={{ maxWidth: 720 }}>
-              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Flag library</div>
-              <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
-                Flag library
-              </h2>
-              <Section title={`Flags for ${config.defaultAgent}`}>
-                <div style={{ padding: 'var(--s-3) var(--s-4)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {(config.agentFlags[config.defaultAgent] ?? []).map((f) => (
-                    <Chip key={f.id} icon={Flag}>{f.value}</Chip>
-                  ))}
-                  {(config.agentFlags[config.defaultAgent] ?? []).length === 0 && (
-                    <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>
-                      NO FLAGS YET · ADD VIA CREATE SHEET
-                    </span>
-                  )}
-                </div>
+                      {expanded && (
+                        <div style={{
+                          padding: 'var(--s-3) var(--s-4)',
+                          background: 'var(--bg-2)',
+                          borderBottom: '1px solid var(--line-1)',
+                          borderTop: '1px solid var(--line-1)',
+                        }}>
+                          {agentFlags.length === 0 ? (
+                            <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', marginBottom: 'var(--s-3)' }}>
+                              No flags yet
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', marginBottom: 'var(--s-3)' }}>
+                              {agentFlags.map((f) => (
+                                <div
+                                  key={f.id}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}
+                                >
+                                  <span
+                                    className="mono"
+                                    style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}
+                                  >
+                                    {f.value}
+                                  </span>
+                                  <IconButton
+                                    icon={Trash2}
+                                    label="Delete flag"
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); onDeleteFlag(a.id, f.id); }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'flex-start' }}>
+                            <div style={{ flex: 1 }}>
+                              <TextInput
+                                value={flagInput}
+                                onChange={(v) => { setFlagInput(v); setFlagError(null); }}
+                                placeholder="--flag value"
+                                mono
+                                onKeyDown={(e) => { if (e.key === 'Enter') void handleAddFlag(a.id); }}
+                                error={!!flagError}
+                              />
+                              {flagError && (
+                                <div style={{ marginTop: 4, fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>
+                                  {flagError}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              icon={Flag}
+                              onClick={(e) => { e.stopPropagation(); void handleAddFlag(a.id); }}
+                              disabled={!flagInput.trim()}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </Section>
             </div>
           )}
@@ -228,7 +347,6 @@ export function SettingsOverlay({ config, onClose, onSave }: SettingsOverlayProp
               </div>
             </div>
           )}
-
         </main>
       </div>
     </Sheet>

@@ -232,6 +232,12 @@ function DesktopInner() {
     await updateConfig({ agentFlags: { ...config.agentFlags, [agentId]: updated } });
   };
 
+  const handleDeleteFlag = async (agentId: string, flagId: string) => {
+    if (!config) return;
+    const updated = (config.agentFlags[agentId] ?? []).filter((f) => f.id !== flagId);
+    await updateConfig({ agentFlags: { ...config.agentFlags, [agentId]: updated } });
+  };
+
   const handleSidebar = (key: SidebarKey) => {
     switch (key) {
       case 'sessions':
@@ -471,12 +477,10 @@ function DesktopInner() {
             activeSessionId={app.activeSessionId}
             onClose={app.closeOverlay}
             onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
-            onOpenInExplorer={(p) => {
+            onOpenInExplorer={(filePath, lineNumber) => {
               if (activeSession) {
-                app.openOverlay({ kind: 'explorer', sessionId: activeSession.id });
+                app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber });
               }
-              // path open hook deferred (Explorer overlay is placeholder)
-              void p;
             }}
             onOpenInDiff={() => {
               if (activeSession) app.openOverlay({ kind: 'diff', sessionId: activeSession.id });
@@ -495,6 +499,8 @@ function DesktopInner() {
             config={config as AppConfig}
             onClose={app.closeOverlay}
             onSave={updateConfig}
+            onSaveFlag={handleSaveFlag}
+            onDeleteFlag={handleDeleteFlag}
           />
         </Overlay>
       )}
@@ -520,11 +526,11 @@ function DesktopInner() {
         ) : null;
       })()}
       {app.overlay?.kind === 'explorer' && (() => {
-        const ov = app.overlay as { sessionId: string; filePath?: string };
+        const ov = app.overlay as { sessionId: string; filePath?: string; lineNumber?: number };
         const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
           <Overlay onClose={app.closeOverlay}>
-            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} />
+            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} initialLine={ov.lineNumber} />
           </Overlay>
         ) : null;
       })()}
