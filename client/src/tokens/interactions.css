@@ -74,6 +74,11 @@
   border-color: var(--accent) !important;
 }
 
+.text-input-wrap input::placeholder {
+  color: var(--fg-3);
+  opacity: 1;
+}
+
 /* === HOVER UTILITIES === */
 .hover-bg-1:hover { background: var(--bg-1) !important; }
 .hover-bg-2:hover { background: var(--bg-2) !important; }
