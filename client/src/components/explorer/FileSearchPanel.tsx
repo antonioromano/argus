@@ -49,6 +49,8 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
         });
         setResults(sorted);
         setSelectedIndex(0);
+      } catch {
+        setResults([]);
       } finally {
         setSearching(false);
       }
@@ -103,7 +105,7 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
       style={{
         position: 'absolute',
         inset: 0,
-        zIndex: 10,
+        zIndex: 'var(--z-sticky)',
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-1)',
@@ -131,6 +133,8 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
           role="combobox"
           aria-expanded={results.length > 0}
           aria-autocomplete="list"
+          aria-controls={results.length > 0 ? 'file-search-listbox' : undefined}
+          aria-activedescendant={results.length > 0 ? `file-search-opt-${selectedIndex}` : undefined}
           style={{
             flex: 1,
             background: 'none',
@@ -145,7 +149,7 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
           style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-tiny)',
-            color: 'var(--fg-4)',
+            color: 'var(--fg-3)',
             flexShrink: 0,
           }}
         >
@@ -170,6 +174,7 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
       {/* Results */}
       <div
         ref={listRef}
+        id="file-search-listbox"
         role="listbox"
         aria-label="File search results"
         style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
@@ -185,6 +190,7 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
           return (
             <div
               key={r.path + (r.lineNumber ?? '')}
+              id={`file-search-opt-${i}`}
               data-idx={i}
               role="option"
               aria-selected={selected}
@@ -254,7 +260,7 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
           flexShrink: 0,
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--t-tiny)',
-          color: 'var(--fg-4)',
+          color: 'var(--fg-3)',
         }}
       >
         <span>↑↓ navigate</span>
@@ -270,5 +276,5 @@ const emptyStyle: React.CSSProperties = {
   textAlign: 'center',
   fontFamily: 'var(--font-mono)',
   fontSize: 'var(--t-sm)',
-  color: 'var(--fg-4)',
+  color: 'var(--fg-3)',
 };

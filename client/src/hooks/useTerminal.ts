@@ -103,13 +103,15 @@ export function useTerminal(
     });
 
     // Visual bell — xterm v5 removed bellStyle, so wire it manually via onBell.
+    let bellTimer: ReturnType<typeof setTimeout> | null = null;
     terminal.onBell(() => {
       const el = container as HTMLElement;
       el.classList.remove('terminal-bell-flash');
       // Force reflow to retrigger the animation.
       void el.offsetWidth;
       el.classList.add('terminal-bell-flash');
-      window.setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
+      if (bellTimer) clearTimeout(bellTimer);
+      bellTimer = window.setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
     });
 
     terminal.loadAddon(fitAddon);
@@ -250,6 +252,7 @@ export function useTerminal(
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       if (tailTimer) clearTimeout(tailTimer);
+      if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);

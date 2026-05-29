@@ -20,6 +20,8 @@ interface MosaicProps {
   theme: 'dark' | 'light';
   /** When set, only these session ids stay as active tiles; the rest are forced-minimized. */
   groupFilterIds?: Set<string> | null;
+  /** Active group id — resets the per-shell "force shown" override when the filter changes. */
+  activeGroupId?: string | null;
   groupColorOf?: (sessionId: string) => string | null;
   onOpenSession: (id: string) => void;
   onCreate: () => void;
@@ -33,10 +35,16 @@ interface MosaicProps {
 }
 
 const MAX_TILES = 12;
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
-export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupColorOf, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const [minimized, setMinimized] = useState<Set<string>>(new Set());
+  // Shells the user clicked to pop back out of the filtered chip row (bypass the group filter).
+  // Tagged with the group they belong to so they auto-reset when the active filter changes.
+  const [forced, setForced] = useState<{ group: string | null; ids: Set<string> }>({ group: null, ids: new Set() });
+  const currentGroup = activeGroupId ?? null;
+  const forceShown = forced.group === currentGroup ? forced.ids : EMPTY_SET;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
 
@@ -59,9 +67,18 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
       return next;
     });
 
-  // Effective minimized = user-minimized ∪ (everything outside the active group filter).
+  const restoreFromFilter = (id: string) =>
+    setForced((prev) => {
+      const ids = new Set(prev.group === currentGroup ? prev.ids : []);
+      ids.add(id);
+      return { group: currentGroup, ids };
+    });
+
+  // With a group filter active, the filter alone decides visibility: members stay active
+  // (even if hand-minimized), non-members collapse — unless force-shown by a chip click.
+  // No filter → plain hand-minimize state.
   const isMinimized = (id: string) =>
-    minimized.has(id) || (!!groupFilterIds && !groupFilterIds.has(id));
+    groupFilterIds ? (!groupFilterIds.has(id) && !forceShown.has(id)) : minimized.has(id);
 
   if (sessions.length === 0) {
     return (
@@ -86,7 +103,9 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
         <EmptyState
           icon={SquareIcon}
           title="No matching shells"
-          hint={`Nothing matches "${filter.trim()}". Clear the filter to see all shells.`}
+          hint={filter.trim()
+            ? `Nothing matches "${filter.trim()}". Clear the filter to see all shells.`
+            : 'No shells to display.'}
         />
       </div>
     );
@@ -118,7 +137,7 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
               hasFocusedSibling={false}
               windowFocused={windowFocused}
               onFocus={() => {}}
-              onToggleMinimize={() => toggleMinimize(s.id)}
+              onToggleMinimize={groupFilterIds ? () => restoreFromFilter(s.id) : () => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
               onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
@@ -157,6 +176,20 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
               onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
             />
           ))}
+        </div>
+      )}
+      {overflow && (
+        <div
+          className="eyebrow"
+          style={{
+            flexShrink: 0,
+            padding: 'var(--s-2) var(--s-4)',
+            textAlign: 'center',
+            color: 'var(--fg-3)',
+            borderTop: '1px solid var(--line-1)',
+          }}
+        >
+          + {filtered.length - MAX_TILES} more {filtered.length - MAX_TILES === 1 ? 'shell' : 'shells'} hidden — refine the filter or open from the sidebar
         </div>
       )}
     </div>
@@ -205,12 +238,12 @@ function MosaicTile({
   onOpenDiff?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const copyPath = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const doCopy = () => {
     void navigator.clipboard.writeText(session.folderPath);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
+  const copyPath = (e: React.MouseEvent) => { e.stopPropagation(); doCopy(); };
   return (
     <div
       className="argus-tile"
@@ -239,7 +272,11 @@ function MosaicTile({
         <StatusPill status={session.status} size="sm" />
         <Tooltip content="Click to copy path">
           <span
+            role="button"
+            tabIndex={0}
+            aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
             onClick={copyPath}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
             style={{
               flex: '0 1 auto',
               minWidth: 0,

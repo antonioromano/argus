@@ -39,9 +39,19 @@ export class AuthService {
   }
 
   generateToken(): string {
+    this.sweepExpiredTokens();
     const token = crypto.randomUUID();
     this.validTokens.set(token, Date.now());
     return token;
+  }
+
+  /** Drop expired tokens. Called on issue so the Map can't grow without bound
+   *  from clients that authenticate once and never trigger an expiry check. */
+  private sweepExpiredTokens(): void {
+    const now = Date.now();
+    for (const [token, createdAt] of this.validTokens) {
+      if (now - createdAt > TOKEN_TTL_MS) this.validTokens.delete(token);
+    }
   }
 
   validateToken(token: string): boolean {

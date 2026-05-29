@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import os from 'os';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { GitService } from '../services/GitService.js';
 
@@ -15,13 +16,24 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
   //   branch     (optional) — if set, also checks if this branch exists
   //   worktreePath (optional) — if set, also checks dirty/unmerged status for delete flow
   router.get('/check', async (req, res) => {
-    const repoPath = path.resolve(String(req.query.repoPath ?? ''));
-    const branch = req.query.branch ? String(req.query.branch) : undefined;
-    const worktreePath = req.query.worktreePath ? String(req.query.worktreePath) : undefined;
-
-    if (!repoPath) {
-      res.status(400).json({ error: 'repoPath is required' });
+    const rawRepoPath = String(req.query.repoPath ?? '');
+    if (!path.isAbsolute(rawRepoPath)) {
+      res.status(400).json({ error: 'repoPath must be an absolute path' });
       return;
+    }
+    const repoPath = path.resolve(rawRepoPath);
+    const branch = req.query.branch ? String(req.query.branch) : undefined;
+    // Worktrees always live under the managed base — scope the dirty-check path to it
+    // rather than running git status against an arbitrary directory.
+    const rawWorktreePath = req.query.worktreePath ? String(req.query.worktreePath) : undefined;
+    let worktreePath: string | undefined;
+    if (rawWorktreePath) {
+      const scoped = resolveWithinBase(WORKTREES_BASE, rawWorktreePath);
+      if (!scoped) {
+        res.status(400).json({ error: 'worktreePath must be within the managed worktrees directory' });
+        return;
+      }
+      worktreePath = scoped;
     }
 
     const isGitRepo = await gitService.isGitRepo(repoPath);
@@ -78,6 +90,30 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
     }
 
     res.json(result);
+  });
+
+  // GET /api/worktrees/branches?repoPath=...
+  // Lists branches for a repo path (used by the create-session base-branch picker).
+  router.get('/branches', async (req, res) => {
+    const rawRepoPath = String(req.query.repoPath ?? '');
+    if (!path.isAbsolute(rawRepoPath)) {
+      res.status(400).json({ error: 'repoPath must be an absolute path' });
+      return;
+    }
+    const repoPath = path.resolve(rawRepoPath);
+    const isGitRepo = await gitService.isGitRepo(repoPath);
+    if (!isGitRepo) {
+      res.json({ branches: [], currentBranch: '' });
+      return;
+    }
+    try {
+      const gitRoot = await gitService.getGitRoot(repoPath);
+      const result = await gitService.getBranches(gitRoot);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
   });
 
   // DELETE /api/worktrees

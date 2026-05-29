@@ -11,7 +11,7 @@ const TMUX_SOCKET = 'argus';
 const TMUX_NAME_PREFIX = 'argus-';
 
 /** Single-quote a string for safe use inside a POSIX `sh -c` command. */
-function shquote(s: string): string {
+export function shquote(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`;
 }
 

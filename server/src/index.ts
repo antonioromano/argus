@@ -31,6 +31,11 @@ import { createAuthMiddleware } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.ARGUS_PORT || process.env.PORT) || 5401;
+// Bind loopback only by default — the app is reached locally (Electron/browser) or
+// via ngrok (which dials localhost), never directly over the LAN. Binding 0.0.0.0
+// would expose the API to every device on the network. Power users can opt back in
+// with ARGUS_HOST=0.0.0.0.
+const HOST = process.env.ARGUS_HOST || '127.0.0.1';
 
 // Injected folder picker — set by Electron host before startServer() is called.
 // We keep a mutable options object so the filesystem route reads the current fn
@@ -163,7 +168,7 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE' && listenRetries < 5) {
     listenRetries++;
     console.log(`Port ${PORT} in use, retrying in 500ms… (${listenRetries}/5)`);
-    setTimeout(() => httpServer.listen(PORT), 500);
+    setTimeout(() => httpServer.listen(PORT, HOST), 500);
   } else {
     console.error('Server error:', err);
     process.exit(1);
@@ -174,8 +179,8 @@ export async function startServer(): Promise<void> {
   await sessionManager.restoreSessions();
   updateService.start();
   return new Promise((resolve) => {
-    httpServer.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+    httpServer.listen(PORT, HOST, () => {
+      console.log(`Server running on ${HOST}:${PORT}`);
       resolve();
     });
   });

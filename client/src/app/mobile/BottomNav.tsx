@@ -25,7 +25,7 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'space-around',
-        zIndex: 1000,
+        zIndex: 'var(--z-sheet)',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         boxSizing: 'content-box' as React.CSSProperties['boxSizing'],
         height: 64,

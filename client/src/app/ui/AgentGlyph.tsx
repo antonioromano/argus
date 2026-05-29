@@ -76,7 +76,7 @@ export function AgentGlyph({ agent, size = 18 }: AgentGlyphProps) {
         borderRadius: 'var(--r-1)',
         fontFamily: 'var(--font-mono)',
         fontWeight: 600,
-        fontSize: size <= 16 ? 9 : size <= 20 ? 11 : 13,
+        fontSize: size <= 16 ? 10 : size <= 20 ? 11 : 13,
         lineHeight: 1,
         flexShrink: 0,
       }}

@@ -85,6 +85,12 @@ export function CommandPalette({
 
   const total = sessionItems.length + results.length;
 
+  // Keep selection in range as the list grows/shrinks (e.g. session-only
+  // filtering changes sessionItems.length without re-running the results effect).
+  useEffect(() => {
+    setSelectedIndex((i) => Math.min(i, Math.max(0, total - 1)));
+  }, [total]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -92,6 +98,7 @@ export function CommandPalette({
         onClose();
         return;
       }
+      if (total === 0) return; // nothing to navigate/select — avoid index -1
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, total - 1));
@@ -496,7 +503,7 @@ function FilePreviewStrip({ result, content, loading }: FilePreviewStripProps) {
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-sm)',
-              color: 'var(--fg-4)',
+              color: 'var(--fg-3)',
               padding: '0 12px',
             }}
           >
@@ -508,7 +515,7 @@ function FilePreviewStrip({ result, content, loading }: FilePreviewStripProps) {
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-sm)',
-              color: 'var(--fg-4)',
+              color: 'var(--fg-3)',
               padding: '0 12px',
             }}
           >
@@ -524,7 +531,7 @@ function FilePreviewStrip({ result, content, loading }: FilePreviewStripProps) {
                 display: 'flex',
                 alignItems: 'baseline',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 11,
+                fontSize: 'var(--t-tiny)',
                 lineHeight: '1.65',
                 paddingLeft: isMatch ? 10 : 12,
                 paddingRight: 12,
@@ -536,7 +543,7 @@ function FilePreviewStrip({ result, content, loading }: FilePreviewStripProps) {
             >
               <span
                 style={{
-                  color: isMatch ? 'rgba(255,180,84,0.6)' : 'var(--fg-4)',
+                  color: isMatch ? 'color-mix(in srgb, var(--accent) 65%, transparent)' : 'var(--fg-4)',
                   minWidth: 28,
                   textAlign: 'right' as const,
                   marginRight: 12,

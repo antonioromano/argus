@@ -18,14 +18,15 @@ interface MonacoPaneProps {
 export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, revealLine }: MonacoPaneProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-  // Theme registration happens once.
+  // Register the Argus editor theme once. Background matches --bg-inset (#0a0b0d)
+  // so the editor well lines up with the inset terminals/code wells.
   useEffect(() => {
     monaco.editor.defineTheme('argus-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [],
       colors: {
-        'editor.background': '#0a0a0a',
+        'editor.background': '#0a0b0d',
       },
     });
   }, []);
@@ -41,7 +42,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     <Editor
       value={value}
       language={language}
-      theme={theme === 'dark' ? 'vs-dark' : 'vs'}
+      theme={theme === 'dark' ? 'argus-dark' : 'vs'}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monacoInstance) => {
         editorRef.current = editor;

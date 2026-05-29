@@ -27,7 +27,9 @@ export function ReplyBar({ session, onSend }: ReplyBarProps) {
         </>
       ) : (
         <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>
-          Session is {session.status} — type in the terminal above.
+          {session.status === 'exited'
+            ? 'Session has exited — restart it to continue.'
+            : `Session is ${session.status} — type in the terminal above.`}
         </span>
       )}
       <div style={{ flex: 1 }} />

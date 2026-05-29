@@ -202,8 +202,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
       chunks: [{ chunkIndex: block.chunkIndex, selectedChangeIndices: block.changeIndicesInChunk }],
     });
     if (result.success) {
-      selection.toggle(filePath, block.hash); // no-op if not checked; safe path is to ensure cleared
-      // simplest: drop just-reverted hash by setting blocks for file minus this hash on next gc
+      selection.uncheck(filePath, block.hash); // hash no longer exists post-revert; drop it unconditionally
       await refresh();
     }
   };
@@ -315,7 +314,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
           {session.name}
         </span>
-        {total > 0 && <Chip dot="var(--dirty)">{total} files</Chip>}
+        {total > 0 && <Chip dot="var(--dirty)">{total} {total === 1 ? 'file' : 'files'}</Chip>}
         <div style={{ flex: 1 }} />
         <div style={{ display: 'inline-flex', borderRadius: 'var(--r-2)', overflow: 'hidden', border: '1px solid var(--line-2)' }}>
           <button
@@ -525,7 +524,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                               onClick={() => setPendingRevertFile(null)}
                               style={{
                                 all: 'unset', cursor: 'pointer',
-                                padding: '3px 10px', borderRadius: 3,
+                                padding: '3px 10px', borderRadius: 'var(--r-2)',
                                 border: '1px solid var(--line-3)', color: 'var(--fg-2)',
                                 fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
                               }}
@@ -537,8 +536,8 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                               disabled={isReverting}
                               style={{
                                 all: 'unset', cursor: isReverting ? 'wait' : 'pointer',
-                                padding: '3px 10px', borderRadius: 3,
-                                background: 'var(--danger)', color: 'var(--bg-0)',
+                                padding: '3px 10px', borderRadius: 'var(--r-2)',
+                                background: 'var(--danger)', color: '#fff',
                                 fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
                               }}
                             >
@@ -654,7 +653,7 @@ function FileCheckbox({ visible, state, disabled, onClick }: FileCheckboxProps) 
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          borderRadius: 3,
+          borderRadius: 'var(--r-2)',
           border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
           background: filled ? 'var(--accent)' : 'transparent',
           color: filled ? 'var(--bg-0)' : 'var(--fg-3)',
@@ -717,7 +716,7 @@ function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }:
           alignItems: 'center',
           gap: 3,
           padding: '2px 6px',
-          borderRadius: 3,
+          borderRadius: 'var(--r-2)',
           border: '1px solid var(--line-3)',
           color,
           fontFamily: 'var(--font-mono)',

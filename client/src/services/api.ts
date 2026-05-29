@@ -73,6 +73,13 @@ export const api = {
     return res.json();
   },
 
+  listBranchesForRepo: async (repoPath: string): Promise<{ branches: string[]; currentBranch: string; behindCount?: number }> => {
+    const q = new URLSearchParams({ repoPath });
+    const res = await authFetch(`${API_BASE}/worktrees/branches?${q}`);
+    if (!res.ok) return { branches: [], currentBranch: '' };
+    return res.json();
+  },
+
   deleteWorktree: async (worktreePath: string, repoPath: string, force = false): Promise<void> => {
     const res = await authFetch(`${API_BASE}/worktrees`, {
       method: 'DELETE',

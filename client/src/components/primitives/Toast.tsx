@@ -57,6 +57,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ push }}>
       {children}
       <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
         style={{
           position: 'fixed',
           bottom: 16,
@@ -65,7 +68,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           flexDirection: 'column',
           alignItems: 'flex-end',
           gap: 8,
-          zIndex: 9999,
+          zIndex: 'var(--z-toast)',
           pointerEvents: 'none',
         }}
       >

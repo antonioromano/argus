@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
 import { Copy, Check, GitBranch } from 'lucide-react';
 import { api } from '../../services/api.js';
@@ -12,6 +12,7 @@ import {
   Kbd,
   Checkbox,
   ErrorState,
+  AlertSheet,
 } from '../../components/primitives/index.js';
 
 const BUILTIN: AgentDefinition[] = [
@@ -51,10 +52,26 @@ export function CloneSheet({
     const slug = folderPath.split('/').pop()?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ?? 'session';
     return `argus/${slug}`;
   });
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const initialAgentId = currentAgentType ?? config?.defaultAgent ?? 'claude';
+  const initialBranch = useRef(branchName);
+  const submitRef = useRef<() => void>(() => {});
 
   const agents = config ? [...BUILTIN, ...config.customAgents] : BUILTIN;
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
+
+  const isDirty =
+    agentId !== initialAgentId ||
+    newFlag.trim() !== '' ||
+    useWorktree ||
+    branchName !== initialBranch.current;
+
+  const handleClose = () => {
+    if (isDirty) setConfirmDiscard(true);
+    else onClose();
+  };
 
   useEffect(() => {
     const initial: Record<string, boolean> = {};
@@ -106,16 +123,32 @@ export function CloneSheet({
     }
   };
 
+  // ⌘↵ submit — bind once, call latest handler via ref.
+  useEffect(() => { submitRef.current = () => void handleSubmit(); });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        submitRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
+    <>
     <Sheet
       title="Clone shell"
       eyebrow="ARGUS · CLONE"
       subtitle={`New shell in ${folderPath}`}
       width={520}
-      onClose={onClose}
+      onClose={handleClose}
+      dirty={isDirty}
+      onConfirmClose={() => setConfirmDiscard(true)}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={handleClose}>
             Cancel <span style={{ marginLeft: 6 }}><Kbd>esc</Kbd></span>
           </Button>
           <Button
@@ -125,7 +158,7 @@ export function CloneSheet({
             disabled={submitting}
             loading={submitting}
           >
-            Clone shell
+            Clone shell <span style={{ marginLeft: 6 }}><Kbd>⌘↵</Kbd></span>
           </Button>
         </>
       }
@@ -175,7 +208,7 @@ export function CloneSheet({
             <div style={{
               padding: '7px 12px',
               background: 'var(--warn-bg)',
-              borderTop: '1px solid rgba(184,130,26,0.2)',
+              borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--s-3)',
@@ -191,7 +224,7 @@ export function CloneSheet({
                   fontSize: 'var(--t-xs)',
                   color: 'var(--warn)',
                   background: 'transparent',
-                  border: '1px solid rgba(184,130,26,0.4)',
+                  border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
                   borderRadius: 'var(--r-1)',
                   cursor: initializingGit ? 'default' : 'pointer',
                   padding: '2px 8px',
@@ -273,5 +306,15 @@ export function CloneSheet({
         {error && <ErrorState title="Cannot clone" detail={error} />}
       </div>
     </Sheet>
+    <AlertSheet
+      isOpen={confirmDiscard}
+      title="Discard changes?"
+      message="You have unsaved selections. Close this sheet and discard them?"
+      confirmLabel="Discard"
+      confirmDestructive
+      onConfirm={() => { setConfirmDiscard(false); onClose(); }}
+      onCancel={() => setConfirmDiscard(false)}
+    />
+    </>
   );
 }

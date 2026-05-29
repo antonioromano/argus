@@ -649,7 +649,7 @@ body {
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: var(--t-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -691,7 +691,7 @@ body {
 [data-theme="light"] .argus-drop-pill {
   --drop-pill-hl: rgba(255, 255, 255, 0.6);
   color: var(--accent-lo);
-  background: #fff8ec;
+  background: var(--bg-0);
   border: 1.5px solid var(--accent);
 }
 

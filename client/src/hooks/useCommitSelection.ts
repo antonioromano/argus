@@ -13,6 +13,7 @@ export interface UseCommitSelectionResult {
   state: CommitSelectionState;
   isChecked: (filePath: string, hash: string) => boolean;
   toggle: (filePath: string, hash: string, source?: 'unstaged', fromPath?: string) => void;
+  uncheck: (filePath: string, hash: string) => void;
   setBlocksForFile: (filePath: string, hashes: string[], source?: 'unstaged', fromPath?: string) => void;
   clearForFiles: (filePaths: string[]) => void;
   gcStale: (validHashesByFile: Map<string, ReadonlySet<string>>) => void;
@@ -53,6 +54,9 @@ export function useCommitSelection({ sessionId, isOpen }: UseCommitSelectionOpti
     if (!sessionId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
+      // Null the handle once fired so the unmount-flush effect doesn't see a
+      // stale truthy timer and re-POST a save with no pending change.
+      saveTimer.current = null;
       const snapshot = stateRef.current;
       void api.saveCommitSelection(sessionId, snapshot).catch(() => {});
     }, SAVE_DEBOUNCE_MS);
@@ -103,6 +107,26 @@ export function useCommitSelection({ sessionId, isOpen }: UseCommitSelectionOpti
             files[idx] = { ...f, blocks: newBlocks };
           }
         }
+        return { ...prev, files };
+      });
+      queueSave();
+    },
+    [queueSave],
+  );
+
+  // Unconditionally drop a single hash (unlike toggle, never re-adds). Used when
+  // a block is reverted and its hash no longer exists in the diff.
+  const uncheck = useCallback(
+    (filePath: string, hash: string) => {
+      setState((prev) => {
+        const idx = prev.files.findIndex((f) => f.filePath === filePath);
+        if (idx === -1) return prev;
+        const f = prev.files[idx];
+        if (!f.blocks.some((b) => b.hash === hash)) return prev;
+        const files = prev.files.slice();
+        const newBlocks = f.blocks.filter((b) => b.hash !== hash);
+        if (newBlocks.length === 0) files.splice(idx, 1);
+        else files[idx] = { ...f, blocks: newBlocks };
         return { ...prev, files };
       });
       queueSave();
@@ -165,6 +189,7 @@ export function useCommitSelection({ sessionId, isOpen }: UseCommitSelectionOpti
     state,
     isChecked,
     toggle,
+    uncheck,
     setBlocksForFile,
     clearForFiles,
     gcStale,

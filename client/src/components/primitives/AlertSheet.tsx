@@ -6,6 +6,8 @@ interface AlertSheetProps {
   message: string;
   confirmLabel: string;
   confirmDestructive?: boolean;
+  /** Disables actions and shows the confirm button as busy (for async confirms). */
+  confirmLoading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   altAction?: { label: string; onClick: () => void };
@@ -17,6 +19,7 @@ export function AlertSheet({
   message,
   confirmLabel,
   confirmDestructive = false,
+  confirmLoading = false,
   onConfirm,
   onCancel,
   altAction,
@@ -82,7 +85,7 @@ export function AlertSheet({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 2000,
+        zIndex: 'var(--z-overlay)',
       }}
     >
       <div
@@ -125,9 +128,9 @@ export function AlertSheet({
           {message}
         </p>
         <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>
-          <button onClick={onCancel} style={ghostBtn}>Cancel</button>
+          <button onClick={onCancel} disabled={confirmLoading} style={{ ...ghostBtn, opacity: confirmLoading ? 0.5 : 1 }}>Cancel</button>
           {altAction && (
-            <button onClick={() => { altAction.onClick(); onCancel(); }} style={ghostBtn}>
+            <button onClick={() => { altAction.onClick(); onCancel(); }} disabled={confirmLoading} style={ghostBtn}>
               {altAction.label}
             </button>
           )}
@@ -135,6 +138,8 @@ export function AlertSheet({
           <button
             ref={confirmRef}
             onClick={onConfirm}
+            disabled={confirmLoading}
+            aria-busy={confirmLoading}
             style={{
               flex: 1,
               height: 32,
@@ -145,10 +150,11 @@ export function AlertSheet({
               fontSize: 'var(--t-sm)',
               fontWeight: 600,
               fontFamily: 'var(--font-sans)',
-              cursor: 'pointer',
+              cursor: confirmLoading ? 'default' : 'pointer',
+              opacity: confirmLoading ? 0.7 : 1,
             }}
           >
-            {confirmLabel}
+            {confirmLoading ? 'Working…' : confirmLabel}
           </button>
         </div>
       </div>

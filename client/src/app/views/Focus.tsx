@@ -138,10 +138,21 @@ export function Focus({
             <StatusPill status={active.status} />
             <Tooltip content="Click to copy path">
               <span
+                role="button"
+                tabIndex={0}
+                aria-label={copied ? 'Path copied' : `Copy path ${active.folderPath}`}
                 onClick={() => {
                   void navigator.clipboard.writeText(active.folderPath);
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1200);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    void navigator.clipboard.writeText(active.folderPath);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1200);
+                  }
                 }}
                 style={{
                   fontFamily: 'var(--font-mono)',

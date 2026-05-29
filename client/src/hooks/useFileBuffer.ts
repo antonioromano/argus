@@ -59,6 +59,26 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     }
   }, []);
 
+  // Persist a queued autosave without UI churn. Used on unmount / file switch so
+  // an edit made within the AUTOSAVE_MS window isn't silently lost. Reads refs,
+  // so it stays valid during effect cleanup (filePathRef still holds the path
+  // being torn down at that point).
+  const flush = useCallback(async () => {
+    const cur = stateRef.current;
+    const path = filePathRef.current;
+    if (!path || !cur.dirty || cur.saving) return;
+    try {
+      await api.writeFile({
+        sessionId,
+        path,
+        content: cur.content,
+        originalMtimeMs: cur.mtimeMs || undefined,
+      });
+    } catch {
+      // Best-effort flush; the interactive save() path surfaces errors to the user.
+    }
+  }, [sessionId]);
+
   const load = useCallback(async (path: string) => {
     setState((s) => ({ ...s, loading: true, error: null, conflict: false }));
     try {
@@ -103,8 +123,9 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     void load(filePath);
     return () => {
       clearTimer();
+      void flush(); // persist a pending autosave for the file being switched away from
     };
-  }, [filePath, load, clearTimer]);
+  }, [filePath, load, clearTimer, flush]);
 
   const save = useCallback(async () => {
     const cur = stateRef.current;
@@ -162,12 +183,13 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     await load(filePath);
   }, [filePath, load]);
 
-  // Cleanup: cancel pending timer on unmount.
+  // Cleanup: flush a pending autosave, then cancel the timer on unmount.
   useEffect(() => {
     return () => {
       clearTimer();
+      void flush();
     };
-  }, [clearTimer]);
+  }, [clearTimer, flush]);
 
   return { ...state, setContent, save, reload };
 }

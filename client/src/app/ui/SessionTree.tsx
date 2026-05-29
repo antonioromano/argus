@@ -324,10 +324,16 @@ function Leaf({ session, onDragStart, onOpen }: { session: SessionInfo; isDark: 
     <Tooltip content={session.folderPath}>
       <div
         draggable
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${label}`}
         onDragStart={onDragStart}
         onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
         style={{
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',

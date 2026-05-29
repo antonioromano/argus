@@ -45,7 +45,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'var(--bg-0)',
-        zIndex: 9999,
+        zIndex: 'var(--z-overlay)',
       }}
     >
       <form

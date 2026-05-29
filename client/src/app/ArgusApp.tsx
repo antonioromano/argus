@@ -409,6 +409,7 @@ function DesktopInner() {
               socket={socket}
               theme={theme}
               groupFilterIds={groupFilterIds}
+              activeGroupId={activeGroupId}
               groupColorOf={groupColorOf}
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
@@ -447,7 +448,7 @@ function DesktopInner() {
 
       {/* Overlays */}
       {app.overlay?.kind === 'create' && (
-        <Overlay onClose={app.closeOverlay}>
+        <Overlay onClose={app.closeOverlay} dialog={false}>
           <CreateSheet
             config={config}
             onClose={app.closeOverlay}
@@ -457,7 +458,7 @@ function DesktopInner() {
         </Overlay>
       )}
       {app.overlay?.kind === 'clone' && (
-        <Overlay onClose={app.closeOverlay}>
+        <Overlay onClose={app.closeOverlay} label="Clone session">
           <CloneSheet
             config={config}
             folderPath={app.overlay.folderPath}
@@ -469,7 +470,7 @@ function DesktopInner() {
         </Overlay>
       )}
       {app.overlay?.kind === 'palette' && (
-        <Overlay onClose={app.closeOverlay} align="top">
+        <Overlay onClose={app.closeOverlay} align="top" label="Command palette">
           <CommandPalette
             sessions={sessions}
             activeSessionId={app.activeSessionId}
@@ -487,12 +488,12 @@ function DesktopInner() {
         </Overlay>
       )}
       {app.overlay?.kind === 'update' && updateStatus && (
-        <Overlay onClose={app.closeOverlay}>
+        <Overlay onClose={app.closeOverlay} label="Update Argus">
           <UpdateSheet status={updateStatus} onClose={app.closeOverlay} />
         </Overlay>
       )}
       {app.overlay?.kind === 'settings' && config && (
-        <Overlay onClose={app.closeOverlay}>
+        <Overlay onClose={app.closeOverlay} label="Settings">
           <SettingsOverlay
             config={config as AppConfig}
             sessions={sessions}
@@ -513,7 +514,7 @@ function DesktopInner() {
         const ov = app.overlay as { sessionId: string; file?: string };
         const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
-          <Overlay onClose={app.closeOverlay}>
+          <Overlay onClose={app.closeOverlay} label="Diff viewer">
             <DiffOverlay session={session} onClose={app.closeOverlay} initialFile={ov.file} />
           </Overlay>
         ) : null;
@@ -522,7 +523,7 @@ function DesktopInner() {
         const ov = app.overlay as { sessionId: string; filePath?: string; lineNumber?: number };
         const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
-          <Overlay onClose={app.closeOverlay}>
+          <Overlay onClose={app.closeOverlay} label="File explorer">
             <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} initialLine={ov.lineNumber} />
           </Overlay>
         ) : null;
@@ -530,7 +531,7 @@ function DesktopInner() {
       {app.overlay?.kind === 'sessionPicker' && (() => {
         const target = app.overlay.target;
         return (
-          <Overlay onClose={app.closeOverlay}>
+          <Overlay onClose={app.closeOverlay} label="Pick a session">
             <SessionPickerSheet
               sessions={orderedSessions}
               target={target}

@@ -5,6 +5,7 @@ import path from 'path';
 import { getPathCompletions } from '../utils/fsAutocomplete.js';
 import { getDirectoryChildren } from '../utils/fsChildren.js';
 import { atomicWrite } from '../utils/atomicWrite.js';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
 
@@ -30,8 +31,8 @@ function validateSessionPath(
   if (!path.isAbsolute(rawPath)) return { error: 'invalid path', status: 400 };
   const session = sessionManager.getSession(sessionId);
   if (!session) return { error: 'session not found', status: 404 };
-  const resolved = path.resolve(rawPath);
-  if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+  const resolved = resolveWithinBase(session.folderPath, rawPath);
+  if (!resolved) {
     return { error: 'path is outside session working directory', status: 403 };
   }
   return { session, resolved };
@@ -70,12 +71,13 @@ export function createFilesystemRoutes(
       return;
     }
 
-    // Security: reject relative paths; use resolve() to normalize // and ../ safely
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ error: 'invalid path' });
+    // Security: only serve files inside a folder Argus manages a session for.
+    // Without this scoping the endpoint would read any text file on disk.
+    const resolved = sessionManager.resolveWithinAnySession(rawPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
-    const resolved = path.resolve(rawPath);
 
     const ext = path.extname(resolved).toLowerCase();
 
@@ -131,19 +133,14 @@ export function createFilesystemRoutes(
       return;
     }
 
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ error: 'invalid path' });
-      return;
-    }
-
     const session = sessionManager.getSession(sessionId);
     if (!session) {
       res.status(404).json({ error: 'session not found' });
       return;
     }
 
-    const resolved = path.resolve(rawPath);
-    if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    if (!resolved) {
       res.status(403).json({ error: 'path is outside session working directory' });
       return;
     }
@@ -192,9 +189,10 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = path.resolve(rootPath);
-    if (resolved !== rootPath) {
-      res.status(400).json({ error: 'invalid path' });
+    // Security: only search inside a folder Argus manages a session for.
+    const resolved = sessionManager.resolveWithinAnySession(rootPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
 
@@ -239,9 +237,12 @@ export function createFilesystemRoutes(
     const contentResults: { path: string; name: string; ext: string; lineNumber: number }[] = [];
     await new Promise<void>((resolve) => {
       const excludeDirArgs = [...EXCLUDED_SEARCH_DIRS].flatMap(d => ['--exclude-dir', d]);
+      // -F: treat query as a literal string, not a regex (avoids errors/odd matches
+      // on chars like [ ( etc). -e: bind it as the pattern so a leading '-' isn't
+      // parsed as a flag. --: end options before the path operand.
       execFile(
         'grep',
-        ['-rn', query, resolved, ...excludeDirArgs],
+        ['-rn', '-F', '-e', query, ...excludeDirArgs, '--', resolved],
         { timeout: 8000 },
         (_err, stdout) => {
           const lines = stdout ? stdout.trim().split('\n').filter(Boolean) : [];
@@ -283,10 +284,6 @@ export function createFilesystemRoutes(
       res.status(400).json({ success: false, error: 'sessionId and path are required' });
       return;
     }
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ success: false, error: 'invalid path' });
-      return;
-    }
 
     const session = sessionManager.getSession(sessionId);
     if (!session) {
@@ -294,8 +291,8 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = path.resolve(rawPath);
-    if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    if (!resolved) {
       res.status(403).json({ success: false, error: 'path is outside session working directory' });
       return;
     }

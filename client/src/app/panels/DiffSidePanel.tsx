@@ -82,7 +82,7 @@ export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: Diff
         <GitBranch size={13} strokeWidth={1.6} color="var(--dirty)" />
         <span className="eyebrow" style={{ color: 'var(--fg-0)' }}>Diff</span>
         <div style={{ flex: 1 }} />
-        {totalFiles > 0 && <Chip dot="var(--dirty)">{totalFiles} files</Chip>}
+        {totalFiles > 0 && <Chip dot="var(--dirty)">{totalFiles} {totalFiles === 1 ? 'file' : 'files'}</Chip>}
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
         <IconButton icon={Maximize2} label="Expand" size="sm" onClick={() => onExpand()} />
       </div>

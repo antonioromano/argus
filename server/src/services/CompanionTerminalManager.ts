@@ -29,13 +29,22 @@ export class CompanionTerminalManager {
     this.kill(sessionId);
 
     const shell = process.env.SHELL || '/bin/zsh';
-    const ptyProcess = pty.spawn(shell, ['-l'], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: folderPath,
-      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-    });
+    let ptyProcess: IPty;
+    try {
+      ptyProcess = pty.spawn(shell, ['-l'], {
+        name: 'xterm-256color',
+        cols,
+        rows,
+        cwd: folderPath,
+        env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      });
+    } catch {
+      // pty.spawn throws synchronously on e.g. a deleted cwd. Report failure via
+      // the exit callback instead of letting it bubble out of the socket handler
+      // and crash the server.
+      onExit(-1);
+      return;
+    }
 
     const entry: CompanionEntry = { pty: ptyProcess, buffer: '' };
     this.terminals.set(sessionId, entry);

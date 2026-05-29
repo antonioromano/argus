@@ -16,6 +16,7 @@ import {
   Button,
   TextInput,
   StatusDot,
+  AlertSheet,
 } from '../../components/primitives/index.js';
 
 interface SettingsOverlayProps {
@@ -50,6 +51,8 @@ const BUILTIN: AgentDefinition[] = [
 ];
 
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
+// Mirrors the server guard (config.ts) — custom agent commands are shell-spawned.
+const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
 
 export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
   const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees'].includes(initialTab)) ? initialTab as Tab : 'agents';
@@ -127,6 +130,60 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
     setExpandedAgent((prev) => (prev === agentId ? null : agentId));
     setFlagInput('');
     setFlagError(null);
+  };
+
+  // ── Custom agent CRUD ──────────────────────────────────────────────
+  const [editingAgent, setEditingAgent] = useState<{ id: string | null; name: string; command: string; installUrl: string } | null>(null);
+  const [agentFormError, setAgentFormError] = useState<string | null>(null);
+  const [savingAgent, setSavingAgent] = useState(false);
+  const [removingAgent, setRemovingAgent] = useState<AgentDefinition | null>(null);
+
+  const startAddAgent = () => { setEditingAgent({ id: null, name: '', command: '', installUrl: '' }); setAgentFormError(null); };
+  const startEditAgent = (a: AgentDefinition) => {
+    setEditingAgent({ id: a.id, name: a.name, command: a.command, installUrl: a.installUrl ?? '' });
+    setAgentFormError(null);
+  };
+
+  const saveAgent = async () => {
+    if (!editingAgent) return;
+    const name = editingAgent.name.trim();
+    const command = editingAgent.command.trim();
+    const installUrl = editingAgent.installUrl.trim();
+    if (!name) { setAgentFormError('Name is required.'); return; }
+    if (!command) { setAgentFormError('Command is required.'); return; }
+    if (!COMMAND_PATTERN.test(command)) {
+      setAgentFormError('Command may contain only letters, numbers, and _ @ . / - characters.');
+      return;
+    }
+    setSavingAgent(true);
+    setAgentFormError(null);
+    try {
+      const existing = config.customAgents;
+      const next: AgentDefinition[] = editingAgent.id === null
+        ? [...existing, { id: crypto.randomUUID(), name, command, builtin: false, ...(installUrl ? { installUrl } : {}) }]
+        : existing.map((a) => a.id === editingAgent.id ? { ...a, name, command, installUrl: installUrl || undefined } : a);
+      await onSave({ customAgents: next });
+      setEditingAgent(null);
+    } catch (err) {
+      setAgentFormError(err instanceof Error ? err.message : 'Failed to save agent.');
+    } finally {
+      setSavingAgent(false);
+    }
+  };
+
+  const confirmRemoveAgent = async () => {
+    if (!removingAgent) return;
+    const id = removingAgent.id;
+    const nextAgents = config.customAgents.filter((a) => a.id !== id);
+    const nextFlags = { ...config.agentFlags };
+    delete nextFlags[id];
+    const patch: Partial<AppConfig> = { customAgents: nextAgents, agentFlags: nextFlags };
+    if (config.defaultAgent === id) patch.defaultAgent = 'claude';
+    try {
+      await onSave(patch);
+    } finally {
+      setRemovingAgent(null);
+    }
   };
 
   const handleAddFlag = async (agentId: string) => {
@@ -303,7 +360,39 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 </div>
               </Section>
 
-              <Section title="Installed agents" action={<Button variant="outline" size="sm" icon={Plus}>Add custom</Button>}>
+              <Section title="Installed agents" action={<Button variant="outline" size="sm" icon={Plus} onClick={startAddAgent}>Add custom</Button>}>
+                {editingAgent && (
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 'var(--s-3)',
+                    padding: 'var(--s-4)',
+                    background: 'var(--bg-2)',
+                    border: '1px solid var(--accent-edge)',
+                    borderRadius: 'var(--r-2)',
+                    marginBottom: 'var(--s-3)',
+                  }}>
+                    <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
+                      {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
+                    </div>
+                    <Field label="Name" required>
+                      <TextInput value={editingAgent.name} onChange={(v) => setEditingAgent((s) => s && { ...s, name: v })} placeholder="e.g. Aider" />
+                    </Field>
+                    <Field label="Command" required hint="binary + args · letters, numbers, _ @ . / - only">
+                      <TextInput value={editingAgent.command} onChange={(v) => setEditingAgent((s) => s && { ...s, command: v })} placeholder="e.g. aider" mono />
+                    </Field>
+                    <Field label="Install URL" hint="optional">
+                      <TextInput value={editingAgent.installUrl} onChange={(v) => setEditingAgent((s) => s && { ...s, installUrl: v })} placeholder="https://…" mono />
+                    </Field>
+                    {agentFormError && (
+                      <div style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{agentFormError}</div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--s-2)' }}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditingAgent(null)}>Cancel</Button>
+                      <Button variant="primary" size="sm" loading={savingAgent} onClick={() => void saveAgent()}>
+                        {editingAgent.id === null ? 'Add agent' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {agents.map((a) => {
                   const expanded = expandedAgent === a.id;
                   const agentFlags = config.agentFlags[a.id] ?? [];
@@ -331,8 +420,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                         <Chip>{agentFlags.length} flags</Chip>
                         {!a.builtin && (
                           <>
-                            <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => e.stopPropagation()} />
-                            <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => e.stopPropagation()} />
+                            <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => { e.stopPropagation(); startEditAgent(a); }} />
+                            <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => { e.stopPropagation(); setRemovingAgent(a); }} />
                           </>
                         )}
                         {expanded
@@ -657,7 +746,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 </div>
               )}
               {worktreeDeleteError && (
-                <div style={{ color: 'var(--status-error)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-3)' }}>
+                <div style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-3)' }}>
                   {worktreeDeleteError}
                 </div>
               )}
@@ -667,55 +756,38 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
       </div>
     </Sheet>
 
+    {/* Custom agent remove confirm */}
+    <AlertSheet
+      isOpen={removingAgent !== null}
+      title="Remove agent?"
+      message={`Remove "${removingAgent?.name ?? ''}"? Its saved flags will be cleared. This does not uninstall the CLI.`}
+      confirmLabel="Remove agent"
+      confirmDestructive
+      onConfirm={() => void confirmRemoveAgent()}
+      onCancel={() => setRemovingAgent(null)}
+    />
+
     {/* Worktree delete confirm dialog */}
-    {deletingWorktree !== null && worktreeDeleteCheck !== null && (() => {
+    {(() => {
+      const open = deletingWorktree !== null && worktreeDeleteCheck !== null;
       const warnings: string[] = [];
-      if (worktreeDeleteCheck.isDirty) warnings.push('This worktree has uncommitted changes.');
-      if (worktreeDeleteCheck.isUnmerged) warnings.push('This branch has unmerged commits.');
-      const msg = warnings.length > 0
+      if (worktreeDeleteCheck?.isDirty) warnings.push('This worktree has uncommitted changes.');
+      if (worktreeDeleteCheck?.isUnmerged) warnings.push('This branch has unmerged commits.');
+      const baseMsg = warnings.length > 0
         ? warnings.join(' ') + '\n\nDelete the worktree directory anyway?'
-        : `Delete worktree "${deletingWorktree.worktreeBranch}"? This removes the directory but keeps the branch in git.`;
+        : `Delete worktree "${deletingWorktree?.worktreeBranch ?? ''}"? This removes the directory but keeps the branch in git.`;
+      const message = worktreeDeleteError ? `${baseMsg}\n\n${worktreeDeleteError}` : baseMsg;
       return (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 9999,
-            background: 'var(--overlay-bg)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onClick={() => { setDeletingWorktree(null); setWorktreeDeleteCheck(null); }}
-        >
-          <div
-            style={{
-              background: 'var(--bg-2)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--r-3)',
-              padding: 'var(--s-5)',
-              maxWidth: 420,
-              width: '100%',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginBottom: 'var(--s-3)' }}>
-              Delete worktree?
-            </div>
-            <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginBottom: 'var(--s-4)', whiteSpace: 'pre-line' }}>
-              {msg}
-            </div>
-            {worktreeDeleteError && (
-              <div style={{ color: 'var(--status-error)', fontSize: 'var(--t-sm)', marginBottom: 'var(--s-3)' }}>
-                {worktreeDeleteError}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
-              <Button variant="ghost" onClick={() => { setDeletingWorktree(null); setWorktreeDeleteCheck(null); setWorktreeDeleteError(null); }}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={worktreeDeleting} onClick={() => void handleWorktreeDeleteConfirm()}>
-                Delete worktree
-              </Button>
-            </div>
-          </div>
-        </div>
+        <AlertSheet
+          isOpen={open}
+          title="Delete worktree?"
+          message={message}
+          confirmLabel="Delete worktree"
+          confirmDestructive
+          confirmLoading={worktreeDeleting}
+          onConfirm={() => void handleWorktreeDeleteConfirm()}
+          onCancel={() => { setDeletingWorktree(null); setWorktreeDeleteCheck(null); setWorktreeDeleteError(null); }}
+        />
       );
     })()}
     </>

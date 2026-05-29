@@ -210,18 +210,14 @@
   --dur-slow: 360ms;
   --dur-ambient: 2400ms;     /* waiting pulse */
 
-  /* Density (driven by tweaks) */
-  --density: 1;             /* 0.85 compact, 1 regular, 1.15 cozy */
-  --row-h: calc(32px * var(--density));
-  --row-h-lg: calc(40px * var(--density));
-
   /* Z stack */
   --z-grid: 0;
   --z-card: 1;
   --z-sticky: 10;
   --z-pop: 100;
   --z-sheet: 1000;
-  --z-overlay: 2000;
+  --z-tooltip: 1100;   /* above sheets/overlays so tips show over them */
+  --z-overlay: 2000;   /* alert dialogs / password gate — above everything but toasts */
   --z-toast: 3000;
 }
 

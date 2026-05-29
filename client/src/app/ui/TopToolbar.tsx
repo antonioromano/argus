@@ -34,29 +34,34 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
         />
       </div>
       {matches.length > 0 && (
-        <Tooltip content={`${matches.filter((s) => s.status === 'waiting').length} waiting · ${matches.filter((s) => s.status === 'running').length} running`}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {matches.map((s) => {
-              const isActive = s.id === activeSessionId;
-              return (
-                <Tooltip key={s.id} content={`${s.name} · ${s.status}`}>
-                  <span
-                    onClick={() => onSelectSession?.(s.id)}
-                    style={{
-                      width: 14,
-                      height: 12,
-                      background: STATUS_COLORS[s.status],
-                      opacity: isActive ? 1 : s.status === 'idle' ? 0.4 : 1,
-                      boxShadow: isActive ? 'inset 0 0 0 2px var(--fg-0)' : 'none',
-                      animation: s.status === 'waiting' ? 'argus-pulse-bar 2.4s ease-in-out infinite' : 'none',
-                      cursor: onSelectSession ? 'pointer' : 'default',
-                    }}
-                  />
-                </Tooltip>
-              );
-            })}
-          </div>
-        </Tooltip>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {matches.map((s) => {
+            const isActive = s.id === activeSessionId;
+            return (
+              <Tooltip key={s.id} content={`${s.name} · ${s.status}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelectSession?.(s.id)}
+                  aria-label={`${s.name} · ${s.status}`}
+                  aria-current={isActive || undefined}
+                  disabled={!onSelectSession}
+                  style={{
+                    width: 14,
+                    height: 12,
+                    padding: 0,
+                    border: 'none',
+                    borderRadius: 0,
+                    background: STATUS_COLORS[s.status],
+                    opacity: isActive ? 1 : s.status === 'idle' ? 0.4 : 1,
+                    boxShadow: isActive ? 'inset 0 0 0 2px var(--fg-0)' : 'none',
+                    animation: s.status === 'waiting' ? 'argus-pulse-bar 2.4s ease-in-out infinite' : 'none',
+                    cursor: onSelectSession ? 'pointer' : 'default',
+                  }}
+                />
+              </Tooltip>
+            );
+          })}
+        </div>
       )}
     </div>
   );

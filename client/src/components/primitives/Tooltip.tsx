@@ -26,6 +26,22 @@ interface Coords {
 
 const VIEWPORT_PAD = 8;
 
+// Module-level singleton: only one tooltip is ever visible app-wide. A second
+// tooltip showing dismisses the first (covers nested triggers + focus/hover at
+// once). Global scroll/resize dismiss the active one so it never floats stale.
+let activeHide: (() => void) | null = null;
+let globalListenersBound = false;
+
+function bindGlobalListeners() {
+  if (globalListenersBound || typeof window === 'undefined') return;
+  globalListenersBound = true;
+  const dismiss = () => activeHide?.();
+  window.addEventListener('scroll', dismiss, true);
+  window.addEventListener('resize', dismiss);
+  // A drag starting after a tooltip showed would otherwise leave it floating.
+  window.addEventListener('dragstart', dismiss, true);
+}
+
 function getCoords(rect: DOMRect, position: string): Coords {
   const GAP = 6;
   switch (position) {
@@ -96,7 +112,13 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
+  const hide = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setVisible(false);
+  }, []);
+
   const show = useCallback((el: Element) => {
+    bindGlobalListeners();
     timerRef.current = setTimeout(() => {
       const rect = el.getBoundingClientRect();
       setCoords(getCoords(rect, position));
@@ -104,12 +126,18 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     }, delay);
   }, [position, delay]);
 
-  const hide = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setVisible(false);
-  }, []);
-
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  // Singleton registry: when this tooltip becomes visible it dismisses any other
+  // visible tooltip and registers itself as the active one. Runs in an effect
+  // (outside render), so a single tooltip is ever shown app-wide — covers nested
+  // triggers and keyboard-focus + mouse-hover at the same time.
+  useEffect(() => {
+    if (!visible) return;
+    if (activeHide && activeHide !== hide) activeHide();
+    activeHide = hide;
+    return () => { if (activeHide === hide) activeHide = null; };
+  }, [visible, hide]);
 
   // After tooltip becomes visible, measure & clamp to viewport.
   useEffect(() => {
@@ -147,7 +175,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         left: coords.left,
         transform: `translate(${coords.translateX}, ${coords.translateY})`,
         transformOrigin: coords.transformOrigin,
-        zIndex: 1100,
+        zIndex: 'var(--z-tooltip)',
         background: 'var(--bg-3)',
         color: 'var(--fg-0)',
         border: '1px solid var(--line-3)',

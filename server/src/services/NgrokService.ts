@@ -80,6 +80,14 @@ export class NgrokService {
       throw new Error('ngrok is not installed');
     }
 
+    // Claim 'connecting' synchronously — BEFORE any await — so a second start()
+    // racing in can't slip past the guard above and spawn a duplicate ngrok
+    // process (orphaning the first).
+    this.tunnelStatus = 'connecting';
+    this.error = null;
+    this.publicUrl = null;
+    this.broadcastStatus();
+
     // Reuse an already-running ngrok instance if available
     const existingUrl = await this.pollNgrokApi();
     if (existingUrl) {
@@ -91,13 +99,16 @@ export class NgrokService {
       return existingUrl;
     }
 
-    this.tunnelStatus = 'connecting';
-    this.error = null;
-    this.publicUrl = null;
-    this.broadcastStatus();
-
     let stderrBuffer = '';
-    this.process = spawn(this.ngrokPath, ['http', String(port)], { stdio: 'pipe' });
+    try {
+      this.process = spawn(this.ngrokPath, ['http', String(port)], { stdio: 'pipe' });
+    } catch (err) {
+      this.tunnelStatus = 'error';
+      this.error = err instanceof Error ? err.message : 'failed to spawn ngrok';
+      this.publicUrl = null;
+      this.broadcastStatus();
+      throw new Error(this.error);
+    }
 
     this.process.stderr?.on('data', (data: Buffer) => {
       stderrBuffer += data.toString();

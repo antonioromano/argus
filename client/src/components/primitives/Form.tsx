@@ -57,6 +57,8 @@ interface TextInputProps {
   autoComplete?: string;
   spellCheck?: boolean;
   autoCapitalize?: 'on' | 'off' | 'words' | 'sentences' | 'characters';
+  /** id of a <datalist> to wire native autocomplete suggestions. */
+  list?: string;
 }
 
 export function TextInput({
@@ -77,6 +79,7 @@ export function TextInput({
   autoComplete,
   spellCheck,
   autoCapitalize,
+  list,
 }: TextInputProps) {
   return (
     <div className="text-input-wrap" style={{
@@ -103,6 +106,7 @@ export function TextInput({
         onFocus={onFocus}
         onBlur={onBlur}
         placeholder={placeholder}
+        list={list}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
         autoCapitalize={autoCapitalize}

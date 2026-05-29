@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
-import { useEffect, useId, useRef } from 'react';
+import { useCallback, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './IconButton.js';
-
-const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 interface SheetProps {
   title?: string;
@@ -34,53 +33,13 @@ export function Sheet({
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const attemptClose = () => {
+  const attemptClose = useCallback(() => {
     if (!onClose) return;
     if (dirty && onConfirmClose) onConfirmClose();
     else onClose();
-  };
+  }, [onClose, dirty, onConfirmClose]);
 
-  // Escape + focus trap + initial focus + focus restore
-  useEffect(() => {
-    if (!isOpen) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-
-    const id = requestAnimationFrame(() => {
-      const panel = panelRef.current;
-      if (!panel) return;
-      const first = panel.querySelector<HTMLElement>(FOCUSABLE);
-      first?.focus();
-    });
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onClose) {
-        if (dirty && onConfirmClose) onConfirmClose();
-        else onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const panel = panelRef.current;
-      if (!panel) return;
-      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && (active === first || !panel.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => {
-      cancelAnimationFrame(id);
-      document.removeEventListener('keydown', handler);
-      previouslyFocused?.focus?.();
-    };
-  }, [isOpen, onClose, onConfirmClose, dirty]);
+  useFocusTrap({ isOpen, panelRef, onEscape: onClose ? attemptClose : undefined });
 
   if (!isOpen) return null;
 
@@ -91,7 +50,7 @@ export function Sheet({
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 1000,
+        zIndex: 'var(--z-sheet)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

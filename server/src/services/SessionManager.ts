@@ -18,6 +18,7 @@ import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
 import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
 
 interface ManagedSession {
@@ -71,7 +72,23 @@ export class SessionManager {
 
   setGitService(gitService: GitService): void {
     this.gitService = gitService;
+    // Clear any prior timer so a second call doesn't orphan the first interval.
+    if (this.gitPollTimer) clearInterval(this.gitPollTimer);
     this.gitPollTimer = setInterval(() => this.pollGitStatus(), GIT_POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Resolve `rawPath` if it falls within some managed session's working directory.
+   * Returns the normalized path, or null. Read/search routes use this to scope
+   * filesystem access to folders Argus actually manages — without it those routes
+   * would read arbitrary files anywhere on disk.
+   */
+  resolveWithinAnySession(rawPath: string): string | null {
+    for (const session of this.sessions.values()) {
+      const resolved = resolveWithinBase(session.folderPath, rawPath);
+      if (resolved) return resolved;
+    }
+    return null;
   }
 
   private async pollGitStatus(): Promise<void> {
@@ -192,6 +209,9 @@ export class SessionManager {
     };
 
     ptyProcess.onData((data) => {
+      // Ignore late output from a pty that restart already replaced (node-pty
+      // flushes buffered bytes on kill, so this can fire after the swap).
+      if (session.pty !== ptyProcess) return;
       // Buffer output for replay on reconnect
       session.outputBuffer += data;
       if (session.outputBuffer.length > 100_000) {
@@ -202,6 +222,8 @@ export class SessionManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      // A replaced pty's exit must not be reported as the session exiting.
+      if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
@@ -270,7 +292,15 @@ export class SessionManager {
       ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, 120, 30, session.flags)
       : this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
 
+    // Swap in the new pty + detector BEFORE wiring handlers. The identity guard
+    // below compares against session.pty, so this ordering both (a) admits the new
+    // pty's first bytes and (b) makes the OLD pty's trailing onData/onExit — fired
+    // async by kill() above — no-ops, instead of emitting a spurious session:exit.
+    session.pty = ptyProcess;
+    session.stateDetector = stateDetector;
+
     ptyProcess.onData((data) => {
+      if (session.pty !== ptyProcess) return;
       session.outputBuffer += data;
       if (session.outputBuffer.length > 100_000) {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
@@ -280,12 +310,10 @@ export class SessionManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
-
-    session.pty = ptyProcess;
-    session.stateDetector = stateDetector;
 
     this.io?.to(id).emit('session:status', { sessionId: id, status: 'running' });
     return this.toSessionInfo(session);
