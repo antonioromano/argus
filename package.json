@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -20,7 +20,7 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac"
+    "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac -p never"
   },
   "dependencies": {
     "fix-path": "^4.0.0"
