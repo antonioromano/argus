@@ -31,3 +31,6 @@ docs/plans/
 # Environment
 .env
 .env.local
+
+# TypeScript incremental build cache (machine-specific; must not be committed)
+*.tsbuildinfo
