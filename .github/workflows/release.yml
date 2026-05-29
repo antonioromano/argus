@@ -10,10 +10,12 @@ permissions:
 
 jobs:
   release:
-    # Intel runner builds DMGs on HFS+, which avoids the flaky APFS
-    # `hdiutil detach … resource busy` failures on the arm64 macos-14/15 runners.
-    # Cross-arch packaging (arm64 + x64) works fine from an Intel host.
-    runs-on: macos-13
+    # macos-15 (arm64) has fast runner availability. The previous APFS
+    # `hdiutil detach … resource busy` failures were not the runner's fault —
+    # electron-builder builds both arch DMGs in parallel and they collided on a
+    # shared volume mount. Fixed by giving each arch a unique DMG volume name
+    # (see dmg.title "Argus ${arch}" in package.json).
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
