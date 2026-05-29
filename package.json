@@ -42,6 +42,13 @@
       "node_modules/**",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "electron/resources/tmux",
+        "to": "tmux",
+        "filter": ["**/*"]
+      }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [

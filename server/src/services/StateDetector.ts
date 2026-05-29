@@ -152,6 +152,16 @@ export class StateDetector {
     this.lastResizeAt = Date.now();
   }
 
+  /**
+   * Suppress the activity heuristic during the full-screen repaint tmux sends
+   * right after we re-attach to a surviving session — otherwise the redraw burst
+   * looks like agent activity and flips status to 'running'. Reuses the resize
+   * grace window.
+   */
+  markAttachRedraw(): void {
+    this.lastResizeAt = Date.now();
+  }
+
   feed(data: string): void {
     // pty flushes buffered output on kill, so onData can fire after destroy().
     // Ignore it — the emulator is disposed and the timers are gone.

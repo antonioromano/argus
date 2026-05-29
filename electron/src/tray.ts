@@ -1,7 +1,7 @@
 import { Tray, Menu, nativeImage, app } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { showWindow } from './window.js';
+import { showWindow, setStopAllOnQuit } from './window.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,8 +22,15 @@ export function createTray(): Tray {
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: 'Quit (Keep Sessions Running)',
       click: () => {
+        app.quit();
+      },
+    },
+    {
+      label: 'Quit & Stop All Sessions',
+      click: () => {
+        setStopAllOnQuit(true);
         app.quit();
       },
     },

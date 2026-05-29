@@ -11,7 +11,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@argus/shared';
-import { PtyManager } from './PtyManager.js';
+import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
@@ -34,13 +34,17 @@ interface ManagedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
+  /** tmux session name backing this agent (undefined in non-persistent mode). */
+  tmuxName?: string;
+  /** True when the agent runs inside tmux and survives an app quit. */
+  persistent: boolean;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
 
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
-  private ptyManager = new PtyManager();
+  private ptyManager: PtyManager;
   private agentRegistry = new AgentRegistry();
   readonly companionTerminals = new CompanionTerminalManager();
   private store: SessionStore;
@@ -53,6 +57,12 @@ export class SessionManager {
   constructor(dataDir: string, configStore: ConfigStore) {
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
+    this.ptyManager = new PtyManager(dataDir);
+  }
+
+  /** True when sessions run inside tmux and survive an app quit. */
+  isPersistent(): boolean {
+    return this.ptyManager.isTmuxAvailable();
   }
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
@@ -81,7 +91,7 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string): Promise<SessionInfo> {
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false): Promise<SessionInfo> {
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -151,7 +161,18 @@ export class SessionManager {
     }, resolvedAgentType);
 
     const resolvedFlags = flags || [];
-    const ptyProcess = this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, resolvedFlags);
+
+    // tmux-backed when available (survives app quit); otherwise a plain pty.
+    const persistent = this.ptyManager.isTmuxAvailable();
+    const tmuxName = persistent ? tmuxSessionName(id) : undefined;
+    const ptyProcess = persistent && tmuxName
+      ? this.ptyManager.spawnTmux(tmuxName, effectiveFolderPath, command, 120, 30, resolvedFlags)
+      : this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, resolvedFlags);
+
+    // Re-attaching to a live survivor: start neutral and let the detector
+    // reclassify from the repaint, and suppress the redraw activity burst.
+    if (attachExisting) stateDetector.markAttachRedraw();
+    const initialStatus: SessionStatus = attachExisting ? 'idle' : 'running';
 
     const session: ManagedSession = {
       id,
@@ -159,13 +180,15 @@ export class SessionManager {
       folderPath: effectiveFolderPath,
       agentType: resolvedAgentType,
       flags: resolvedFlags,
-      status: 'running',
+      status: initialStatus,
       createdAt,
       pty: ptyProcess,
       stateDetector,
       outputBuffer: '',
       worktreePath,
       worktreeBranch,
+      tmuxName,
+      persistent,
     };
 
     ptyProcess.onData((data) => {
@@ -196,7 +219,8 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
 
     session.stateDetector.destroy();
-    this.ptyManager.kill(session.pty);
+    this.ptyManager.kill(session.pty);                       // detaches the tmux client
+    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName); // actually stop the agent
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
@@ -210,9 +234,12 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
 
-    // Tear down old pty and companion terminal
+    // Tear down old pty and companion terminal. Kill the tmux session too so the
+    // surviving conversation is discarded — otherwise new-session -A would just
+    // reattach to the old process and "restart" would be a no-op.
     session.stateDetector.destroy();
     this.ptyManager.kill(session.pty);
+    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
     this.companionTerminals.kill(id);
 
     // Reset state
@@ -239,7 +266,9 @@ export class SessionManager {
     }, session.agentType);
 
     // Spawn fresh pty with the same flags as the original session
-    const ptyProcess = this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
+    const ptyProcess = session.persistent && session.tmuxName
+      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, 120, 30, session.flags)
+      : this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
 
     ptyProcess.onData((data) => {
       session.outputBuffer += data;
@@ -301,18 +330,46 @@ export class SessionManager {
   async restoreSessions(): Promise<void> {
     const persisted = await this.store.load();
 
+    // Scan for survivors once: tmux sessions still alive from a previous run.
+    const tmuxAvailable = this.ptyManager.isTmuxAvailable();
+    const survivors = tmuxAvailable ? this.ptyManager.listArgusSessions() : new Set<string>();
+    const knownNames = new Set<string>();
+
     for (const p of persisted) {
+      const tmuxName = tmuxSessionName(p.id);
+      knownNames.add(tmuxName);
+
       try {
         await access(p.folderPath);
       } catch {
         console.warn(`Skipping session "${p.name}": folder not accessible (${p.folderPath})`);
         continue;
       }
+
+      // Decide whether a live agent survived to re-attach to.
+      let attach = false;
+      if (survivors.has(tmuxName)) {
+        if (this.ptyManager.isTmuxPaneDead(tmuxName)) {
+          // Agent exited while detached — discard the dead session and start fresh.
+          this.ptyManager.killTmuxSession(tmuxName);
+        } else {
+          attach = true;
+        }
+      }
+
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch);
-        console.log(`Restored session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach);
+        console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
+      }
+    }
+
+    // Reap orphan argus-* tmux sessions with no matching persisted record
+    // (e.g. sessions.json was deleted, or a crash left them behind).
+    if (tmuxAvailable) {
+      for (const name of survivors) {
+        if (!knownNames.has(name)) this.ptyManager.killTmuxSession(name);
       }
     }
 
@@ -338,6 +395,11 @@ export class SessionManager {
     };
   }
 
+  /**
+   * App-quit teardown: DETACH only. Killing the tmux client (pty) detaches
+   * without stopping the agent, so tmux-backed sessions keep running in the
+   * background and reattach on next launch. Never kills tmux sessions here.
+   */
   async shutdown(): Promise<void> {
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
@@ -346,12 +408,24 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       try {
         session.stateDetector.destroy();
-        this.ptyManager.kill(session.pty);
+        this.ptyManager.kill(session.pty); // detaches tmux client; agent survives
       } catch {
         // pty may already be dead — continue to next session
       }
     }
     await this.persistSessions();
+  }
+
+  /**
+   * "Quit & Stop All Sessions": actually terminate every agent (not just detach),
+   * then run the normal shutdown. Kills the whole argus tmux server to be sure.
+   */
+  async stopAllAndShutdown(): Promise<void> {
+    for (const session of this.sessions.values()) {
+      if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
+    }
+    if (this.ptyManager.isTmuxAvailable()) this.ptyManager.killTmuxServer();
+    await this.shutdown();
   }
 
   private async persistSessions(): Promise<void> {

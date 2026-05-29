@@ -6,9 +6,21 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let win: BrowserWindow | null = null;
 let appIsQuitting = false;
+let stopAllOnQuit = false;
 
 export function setAppQuitting(v: boolean): void {
   appIsQuitting = v;
+}
+
+// Whether the pending quit should also STOP all agent sessions (vs. the default
+// keep-alive quit that detaches and leaves them running in tmux). Set by the
+// "Quit & Stop All Sessions" menu item / tray entry; read in before-quit.
+export function setStopAllOnQuit(v: boolean): void {
+  stopAllOnQuit = v;
+}
+
+export function getStopAllOnQuit(): boolean {
+  return stopAllOnQuit;
 }
 
 export function createWindow(): BrowserWindow {

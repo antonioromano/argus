@@ -125,7 +125,7 @@ export function setApplyUpdateFn(fn: import('./services/UpdateService.js').Apply
 
 // Routes
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', persistentSessions: sessionManager.isPersistent() });
 });
 app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, groupStore, configStore));
 // Pass the mutable options object directly so the filesystem route reads the current
@@ -184,6 +184,15 @@ export async function startServer(): Promise<void> {
 export async function shutdownServer(): Promise<void> {
   updateService.stop();
   await sessionManager.shutdown();
+  await ngrokService.stop();
+}
+
+// "Quit & Stop All Sessions" path — terminates every agent instead of detaching,
+// so tmux-backed sessions do NOT survive this quit. Wired to a dedicated Electron
+// menu item / tray entry.
+export async function shutdownServerStoppingAll(): Promise<void> {
+  updateService.stop();
+  await sessionManager.stopAllAndShutdown();
   await ngrokService.stop();
 }
 

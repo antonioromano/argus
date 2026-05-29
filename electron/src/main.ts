@@ -4,7 +4,7 @@ import { execFile, spawn } from 'child_process';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow, setAppQuitting, getWindow, showWindow } from './window.js';
+import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit } from './window.js';
 import { createTray } from './tray.js';
 
 interface ApplyUpdateResult {
@@ -62,6 +62,7 @@ function applyBrewUpdate(): Promise<ApplyUpdateResult> {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let shutdownServer: (() => Promise<void>) | null = null;
+let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 
 function readAppVersion(): string {
   try {
@@ -100,7 +101,15 @@ function buildAppMenu(): Menu {
       { role: 'hideOthers' },
       { role: 'unhide' },
       { type: 'separator' },
-      { role: 'quit' },
+      { role: 'quit' }, // keep-alive: detaches, sessions keep running in the background
+      {
+        label: 'Quit & Stop All Sessions',
+        accelerator: 'CmdOrCtrl+Shift+Q',
+        click: () => {
+          setStopAllOnQuit(true);
+          app.quit();
+        },
+      },
     ],
   };
 
@@ -283,6 +292,7 @@ async function main() {
 
   await server.startServer();
   shutdownServer = server.shutdownServer as () => Promise<void>;
+  shutdownServerStoppingAll = server.shutdownServerStoppingAll as () => Promise<void>;
 
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
@@ -316,7 +326,9 @@ app.on('before-quit', (e) => {
   // Signal the window close-handler that this is a real quit, not a hide-to-tray.
   setAppQuitting(true);
 
-  const doShutdown = shutdownServer ?? (() => Promise.resolve());
+  // Default quit detaches (keep-alive); "Quit & Stop All" terminates every agent.
+  const chosen = getStopAllOnQuit() ? shutdownServerStoppingAll : shutdownServer;
+  const doShutdown = chosen ?? (() => Promise.resolve());
   const timeout = new Promise<void>((resolve) => setTimeout(() => {
     console.warn('[electron] shutdown timed out after 10s — forcing quit');
     resolve();
