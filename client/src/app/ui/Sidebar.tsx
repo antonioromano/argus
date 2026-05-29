@@ -66,7 +66,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         </button>
       </Tooltip>
 
-      {!collapsed && <div className="eyebrow" style={{ padding: '0 var(--s-2)', marginBottom: 'var(--s-2)' }}>Pilot</div>}
+      <div className="eyebrow" style={{ padding: '0 var(--s-2)', marginBottom: 'var(--s-2)' }}>Pilot</div>
       {pilot.map((it) => (
         <Fragment key={it.id}>
           <Row item={it} active={active === it.id} collapsed={collapsed} onClick={() => onSelect(it.id)} />
@@ -80,7 +80,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 
       <div style={{ flex: 1 }} />
 
-      {!collapsed && <div className="eyebrow" style={{ padding: '0 var(--s-2)', margin: 'var(--s-4) 0 var(--s-2)' }}>System</div>}
+      <div className="eyebrow" style={{ padding: '0 var(--s-2)', margin: 'var(--s-4) 0 var(--s-2)' }}>System</div>
       {tools.map((it) => (
         <Row key={it.id} item={it} active={active === it.id} collapsed={collapsed} onClick={() => onSelect(it.id)} />
       ))}
@@ -97,14 +97,12 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
                 borderRadius: 'var(--r-2)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: collapsed ? 'center' : 'flex-start',
+                justifyContent: 'flex-start',
                 gap: 'var(--s-2)',
               }}
             >
               <StatusDot status={ngrokConnected ? 'running' : 'idle'} size={8} />
-              {!collapsed && (
-                <span className="eyebrow num" style={{ flex: 1 }}>v{version}</span>
-              )}
+              <span className="eyebrow num argus-sidebar-version-txt" style={{ flex: 1 }}>v{version}</span>
             </div>
           );
           return collapsed ? <Tooltip content={`v${version}`}>{versionBox}</Tooltip> : versionBox;

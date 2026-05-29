@@ -487,7 +487,19 @@ body {
   overflow: hidden;
   transition: opacity 100ms var(--ease-std);
 }
-.argus-sidebar-row > .argus-sidebar-label { flex: 1; transition: opacity 120ms var(--ease-std); }
+.argus-sidebar-row > .argus-sidebar-label { flex: 1; white-space: nowrap; overflow: hidden; transition: opacity 120ms var(--ease-std); }
+
+/* Keep eyebrows + version text mounted on collapse — fade only, preserve box/space (no layout jump) */
+.argus-sidebar .eyebrow { transition: opacity 120ms var(--ease-std); }
+.argus-sidebar[data-collapsed="true"] .eyebrow { opacity: 0; pointer-events: none; }
+.argus-sidebar-version-txt { transition: opacity 120ms var(--ease-std); }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-version-txt {
+  opacity: 0;
+  width: 0;
+  min-width: 0;
+  flex: 0 0 0;
+  overflow: hidden;
+}
 
 /* Session tree collapse animation */
 .argus-sidebar-tree {
@@ -495,7 +507,7 @@ body {
   max-height: 600px;
   opacity: 1;
   margin-bottom: var(--s-2);
-  transition: max-height 240ms cubic-bezier(.4,0,.2,1), opacity 180ms ease;
+  transition: max-height 320ms var(--ease-out), opacity 260ms var(--ease-out);
 }
 .argus-sidebar-tree--collapsed {
   max-height: 0;
@@ -503,13 +515,14 @@ body {
   margin-bottom: 0;
 }
 
-/* Stagger — command palette fades in when tree expands */
-@keyframes argus-stagger-down {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
+/* Stagger — command palette eases as the tree opens/closes, both directions, no flash */
+@keyframes argus-stagger-in  { from { opacity: .45; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@keyframes argus-stagger-out { from { opacity: .45; transform: translateY(3px);  } to { opacity: 1; transform: none; } }
 .argus-sidebar[data-animating="expanding"] .argus-sidebar-row[data-stagger="0"] {
-  animation: argus-stagger-down 280ms cubic-bezier(.4,0,.2,1) 60ms both;
+  animation: argus-stagger-in 360ms var(--ease-out) both;
+}
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-row[data-stagger="0"] {
+  animation: argus-stagger-out 360ms var(--ease-out) both;
 }
 
 .argus-sidebar-count {
