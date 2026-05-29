@@ -70,7 +70,7 @@ const corsOriginFn = (
 };
 
 app.use(cors({ origin: corsOriginFn }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },

@@ -1,12 +1,14 @@
 import type { SessionInfo } from '@argus/shared';
 import { MoreHorizontal, PowerOff } from 'lucide-react';
 import { AgentGlyph } from './AgentGlyph.js';
-import { StatusBar, DirtyBadge, IconButton } from '../../components/primitives/index.js';
+import { StatusBar, DirtyBadge, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 
 interface SessionCardProps {
   session: SessionInfo;
   lastOut?: string;
+  groupColor?: string | null;
   onClick?: () => void;
   onMore?: (e: React.MouseEvent) => void;
   onKill?: () => void;
@@ -21,7 +23,7 @@ function defaultLastOut(s: SessionInfo): string {
   return '[process exited]';
 }
 
-export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOpenDiff, focus }: SessionCardProps) {
+export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, onKill, onOpenDiff, focus }: SessionCardProps) {
   const statusColor = STATUS_COLORS[s.status];
   const statusLabel = STATUS_LABELS[s.status];
   const preview = lastOut ?? defaultLastOut(s);
@@ -66,6 +68,24 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
         }}
       >
         <AgentGlyph agent={s.agentType} />
+        {groupColor && (
+          <span
+            aria-hidden
+            style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0, marginTop: 6 }}
+          />
+        )}
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--t-micro)',
+            color: statusColor,
+            letterSpacing: 'var(--tracking-eye)',
+            flexShrink: 0,
+            marginTop: 4,
+          }}
+        >
+          {statusLabel}
+        </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -80,29 +100,30 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
             }}
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-              {s.name}
+              {shellLabel(s)}
             </span>
             {s.worktreeBranch && (
-              <span
-                style={{
-                  flexShrink: 0,
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-micro)',
-                  letterSpacing: 'var(--tracking-eye)',
-                  background: 'var(--accent-bg)',
-                  color: 'var(--accent)',
-                  border: '1px solid var(--accent-edge)',
-                  borderRadius: 'var(--r-1)',
-                  padding: '1px 5px',
-                  maxWidth: 120,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-                title={s.worktreeBranch}
-              >
-                {s.worktreeBranch}
-              </span>
+              <Tooltip content={s.worktreeBranch}>
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--t-micro)',
+                    letterSpacing: 'var(--tracking-eye)',
+                    background: 'var(--accent-bg)',
+                    color: 'var(--accent)',
+                    border: '1px solid var(--accent-edge)',
+                    borderRadius: 'var(--r-1)',
+                    padding: '1px 5px',
+                    maxWidth: 120,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {s.worktreeBranch.replace(/^argus\//, '')}
+                </span>
+              </Tooltip>
             )}
           </div>
           <div
@@ -117,17 +138,6 @@ export function SessionCard({ session: s, lastOut, onClick, onMore, onKill, onOp
             {s.folderPath}
           </div>
         </div>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-micro)',
-            color: statusColor,
-            letterSpacing: 'var(--tracking-eye)',
-            flexShrink: 0,
-          }}
-        >
-          {statusLabel}
-        </span>
       </div>
 
       <div

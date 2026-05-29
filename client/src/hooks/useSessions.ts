@@ -22,9 +22,9 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status }: { sessionId: string; status: SessionStatus }) => {
+    const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status } : s)),
+        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt } : s)),
       );
     };
 

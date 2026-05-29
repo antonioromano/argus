@@ -34,6 +34,11 @@ export function WindowChrome({ title = 'ARGUS', subtitle, leading, toolbar, chil
         style={{ WebkitAppRegion: 'drag' }}
       >
         <div className="argus-titlebar-title">
+          <img
+            src="/spartan.png"
+            alt=""
+            style={{ height: 22, width: 22, verticalAlign: 'middle', marginRight: 8, borderRadius: 4 }}
+          />
           {title}
           {subtitle && <span className="argus-titlebar-title-sub"> / {subtitle}</span>}
         </div>

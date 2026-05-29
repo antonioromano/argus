@@ -16,6 +16,7 @@ export type Overlay =
 export type SidePanel =
   | { kind: 'diff'; sessionId: string }
   | { kind: 'explorer'; sessionId: string }
+  | { kind: 'terminal'; sessionId: string }
   | null;
 
 export type SidebarKey =

@@ -16,6 +16,7 @@ import { StateDetector } from './StateDetector.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
+import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import type { GitService } from './GitService.js';
 
@@ -32,6 +33,7 @@ interface ManagedSession {
   outputBuffer: string;
   worktreePath?: string;
   worktreeBranch?: string;
+  lastPrompt?: string;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
@@ -40,6 +42,7 @@ export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private ptyManager = new PtyManager();
   private agentRegistry = new AgentRegistry();
+  readonly companionTerminals = new CompanionTerminalManager();
   private store: SessionStore;
   private configStore: ConfigStore;
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
@@ -138,7 +141,12 @@ export class SessionManager {
       const session = this.sessions.get(id);
       if (session) {
         session.status = status;
-        this.io?.to(id).emit('session:status', { sessionId: id, status });
+        if (status === 'waiting') {
+          session.lastPrompt = session.stateDetector.getLastPromptText();
+        } else {
+          session.lastPrompt = undefined;
+        }
+        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
       }
     }, resolvedAgentType);
 
@@ -189,6 +197,7 @@ export class SessionManager {
 
     session.stateDetector.destroy();
     this.ptyManager.kill(session.pty);
+    this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     cleanupSessionDimensions(id);
@@ -201,9 +210,10 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
 
-    // Tear down old pty
+    // Tear down old pty and companion terminal
     session.stateDetector.destroy();
     this.ptyManager.kill(session.pty);
+    this.companionTerminals.kill(id);
 
     // Reset state
     session.outputBuffer = '';
@@ -219,7 +229,12 @@ export class SessionManager {
       const s = this.sessions.get(id);
       if (s) {
         s.status = status;
-        this.io?.to(id).emit('session:status', { sessionId: id, status });
+        if (status === 'waiting') {
+          s.lastPrompt = s.stateDetector.getLastPromptText();
+        } else {
+          s.lastPrompt = undefined;
+        }
+        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: s.lastPrompt });
       }
     }, session.agentType);
 
@@ -319,6 +334,7 @@ export class SessionManager {
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
+      lastPrompt: session.lastPrompt,
     };
   }
 

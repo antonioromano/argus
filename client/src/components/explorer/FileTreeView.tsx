@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatusCode } from '@argus/shared';
 import type { VisibleNode } from '../../hooks/useFileTree.js';
+import { Tooltip } from '../primitives/index.js';
 
 const ROW_HEIGHT = 22;
 const INDENT_PX = 12;
@@ -167,17 +168,18 @@ function StatusDot({ status }: { status?: GitFileStatusCode }) {
   if (!status) return null;
   const color = STATUS_COLOR[status];
   return (
-    <span
-      title={STATUS_LABEL[status]}
-      style={{
-        width: 6,
-        height: 6,
-        borderRadius: '50%',
-        background: color,
-        flexShrink: 0,
-        marginLeft: 4,
-      }}
-    />
+    <Tooltip content={STATUS_LABEL[status]}>
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: color,
+          flexShrink: 0,
+          marginLeft: 4,
+        }}
+      />
+    </Tooltip>
   );
 }
 

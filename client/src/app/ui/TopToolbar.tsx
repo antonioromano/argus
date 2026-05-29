@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
-import { TextInput } from '../../components/primitives/index.js';
+import { TextInput, Tooltip } from '../../components/primitives/index.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 
@@ -34,30 +34,29 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
         />
       </div>
       {matches.length > 0 && (
-        <div
-          style={{ display: 'flex', alignItems: 'center', gap: 1 }}
-          title={`${matches.filter((s) => s.status === 'waiting').length} waiting · ${matches.filter((s) => s.status === 'running').length} running`}
-        >
-          {matches.map((s) => {
-            const isActive = s.id === activeSessionId;
-            return (
-              <span
-                key={s.id}
-                title={`${s.name} · ${s.status}`}
-                onClick={() => onSelectSession?.(s.id)}
-                style={{
-                  width: 14,
-                  height: 12,
-                  background: STATUS_COLORS[s.status],
-                  opacity: isActive ? 1 : s.status === 'idle' ? 0.4 : 1,
-                  boxShadow: isActive ? 'inset 0 0 0 2px var(--fg-0)' : 'none',
-                  animation: s.status === 'waiting' ? 'argus-pulse-bar 2.4s ease-in-out infinite' : 'none',
-                  cursor: onSelectSession ? 'pointer' : 'default',
-                }}
-              />
-            );
-          })}
-        </div>
+        <Tooltip content={`${matches.filter((s) => s.status === 'waiting').length} waiting · ${matches.filter((s) => s.status === 'running').length} running`}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {matches.map((s) => {
+              const isActive = s.id === activeSessionId;
+              return (
+                <Tooltip key={s.id} content={`${s.name} · ${s.status}`}>
+                  <span
+                    onClick={() => onSelectSession?.(s.id)}
+                    style={{
+                      width: 14,
+                      height: 12,
+                      background: STATUS_COLORS[s.status],
+                      opacity: isActive ? 1 : s.status === 'idle' ? 0.4 : 1,
+                      boxShadow: isActive ? 'inset 0 0 0 2px var(--fg-0)' : 'none',
+                      animation: s.status === 'waiting' ? 'argus-pulse-bar 2.4s ease-in-out infinite' : 'none',
+                      cursor: onSelectSession ? 'pointer' : 'default',
+                    }}
+                  />
+                </Tooltip>
+              );
+            })}
+          </div>
+        </Tooltip>
       )}
     </div>
   );

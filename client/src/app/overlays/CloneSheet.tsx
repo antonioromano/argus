@@ -45,6 +45,7 @@ export function CloneSheet({
 
   // Worktree state — folderPath is a static prop, check once on mount
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
+  const [initializingGit, setInitializingGit] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [branchName, setBranchName] = useState(() => {
     const slug = folderPath.split('/').pop()?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') ?? 'session';
@@ -78,6 +79,17 @@ export function CloneSheet({
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGitInit = async () => {
+    setInitializingGit(true);
+    try {
+      await api.gitInit(folderPath);
+      const r = await api.checkWorktree({ repoPath: folderPath });
+      setIsGitRepo(r.isGitRepo);
+    } catch { /* user can retry */ } finally {
+      setInitializingGit(false);
     }
   };
 
@@ -164,10 +176,32 @@ export function CloneSheet({
               padding: '7px 12px',
               background: 'var(--warn-bg)',
               borderTop: '1px solid rgba(184,130,26,0.2)',
-              fontSize: 'var(--t-xs)',
-              color: 'var(--warn)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--s-3)',
             }}>
-              ⚠ Initialize a git repository in this folder to enable agent isolation.
+              <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
+                ⚠ Not a git repository
+              </span>
+              <button
+                type="button"
+                onClick={handleGitInit}
+                disabled={initializingGit}
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  color: 'var(--warn)',
+                  background: 'transparent',
+                  border: '1px solid rgba(184,130,26,0.4)',
+                  borderRadius: 'var(--r-1)',
+                  cursor: initializingGit ? 'default' : 'pointer',
+                  padding: '2px 8px',
+                  fontFamily: 'var(--font-sans)',
+                  opacity: initializingGit ? 0.6 : 1,
+                  flexShrink: 0,
+                }}
+              >
+                {initializingGit ? 'Initializing…' : 'Initialize'}
+              </button>
             </div>
           )}
         </div>

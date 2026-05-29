@@ -12,8 +12,8 @@ import { api, setToken } from '../services/api.js';
 import { isPrimaryModifier } from '../utils/platform.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Bell, Plus } from 'lucide-react';
-import { AlertSheet, Button, ToastProvider } from '../components/primitives/index.js';
+import { WifiOff, Loader2, Plus } from 'lucide-react';
+import { AlertSheet, Button, ToastProvider, pushToast } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
@@ -129,11 +129,19 @@ function DesktopInner() {
   const { getOrderedSessions } = useSessionOrder();
   const groups = useGroups();
 
+  type MergeFlow =
+    | null
+    | { phase: 'confirm'; session: SessionInfo; targetBranch: string; parentRepoPath: string }
+    | { phase: 'merging'; session: SessionInfo; targetBranch: string; parentRepoPath: string }
+    | { phase: 'success'; session: SessionInfo; targetBranch: string; mergedBranch: string; parentRepoPath: string }
+    | { phase: 'error'; session: SessionInfo; error: string };
+
   const app = useAppView();
   const [filter, setFilter] = useState('');
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
   const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
@@ -224,6 +232,49 @@ function DesktopInner() {
     app.openSession(created.id);
   };
 
+  const handleMerge = async (session: SessionInfo) => {
+    try {
+      const info = await api.getWorktreeParentInfo(session.id);
+      setMergeFlow({ phase: 'confirm', session, targetBranch: info.defaultBranch, parentRepoPath: info.parentRepoPath });
+    } catch (err) {
+      setMergeFlow({ phase: 'error', session, error: err instanceof Error ? err.message : 'Failed to detect target branch' });
+    }
+  };
+
+  const executeMerge = async () => {
+    if (mergeFlow?.phase !== 'confirm') return;
+    const { session, targetBranch, parentRepoPath } = mergeFlow;
+    setMergeFlow({ phase: 'merging', session, targetBranch, parentRepoPath });
+    try {
+      const result = await api.mergeWorktree(session.id, targetBranch);
+      if (result.success) {
+        setMergeFlow({ phase: 'success', session, targetBranch, mergedBranch: result.mergedBranch ?? session.worktreeBranch ?? '', parentRepoPath: result.parentRepoPath ?? parentRepoPath });
+      } else {
+        setMergeFlow({ phase: 'error', session, error: result.error ?? 'Merge failed' });
+      }
+    } catch (err) {
+      setMergeFlow({ phase: 'error', session, error: err instanceof Error ? err.message : 'Merge failed' });
+    }
+  };
+
+  const handleMergeDeleteWorktree = async () => {
+    if (mergeFlow?.phase !== 'success') return;
+    const { session, parentRepoPath } = mergeFlow;
+    setMergeFlow(null);
+    try {
+      await deleteSession(session.id);
+    } catch {
+      pushToast('Failed to close session', 'warn');
+      return;
+    }
+    if (app.view === 'focus' && app.activeSessionId === session.id) app.exitFocus();
+    try {
+      await api.deleteWorktree(session.worktreePath!, parentRepoPath, false);
+    } catch {
+      pushToast('Session closed, but worktree cleanup failed — check ~/.argus/worktrees', 'warn');
+    }
+  };
+
   const handleSaveFlag = async (agentId: string, flag: AgentFlag) => {
     if (!config) return;
     const existing = config.agentFlags[agentId] ?? [];
@@ -271,53 +322,6 @@ function DesktopInner() {
 
   const headerToolbar = (
     <>
-      {app.view === 'dashboard' && (
-        <button
-          onClick={() => {}}
-          aria-label="Notifications"
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 28,
-            height: 28,
-            background: 'transparent',
-            border: '1px solid transparent',
-            borderRadius: 'var(--r-2)',
-            color: 'var(--fg-2)',
-            cursor: 'pointer',
-            // @ts-expect-error Electron-only
-            WebkitAppRegion: 'no-drag',
-          }}
-        >
-          <Bell size={14} strokeWidth={1.6} />
-          {counts.waiting > 0 && (
-            <span
-              style={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                minWidth: 14,
-                height: 14,
-                padding: '0 4px',
-                background: 'var(--accent)',
-                color: 'var(--fg-on-accent)',
-                borderRadius: 'var(--r-pill)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 9,
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                lineHeight: 1,
-              }}
-            >
-              {counts.waiting}
-            </span>
-          )}
-        </button>
-      )}
       <ElectronToolbar
         onOpenSettings={() => app.openOverlay({ kind: 'settings' })}
         onToggleTheme={toggleTheme}
@@ -409,6 +413,12 @@ function DesktopInner() {
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={setPendingKill}
+              onMerge={handleMerge}
+              onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
+              mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
+              onFocusDiff={(id) => { app.openSession(id); app.openSidePanel({ kind: 'diff', sessionId: id }); }}
+              onFocusExplorer={(id) => { app.openSession(id); app.openSidePanel({ kind: 'explorer', sessionId: id }); }}
+              onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
               onOpenDiff={(id) => app.openOverlay({ kind: 'diff', sessionId: id })}
             />
           )}
@@ -425,6 +435,7 @@ function DesktopInner() {
               onBack={app.exitFocus}
               onToggleDiff={() => app.toggleSidePanel('diff', activeSession.id)}
               onToggleExplorer={() => app.toggleSidePanel('explorer', activeSession.id)}
+              onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
               onExpandDiff={(file) => app.openOverlay({ kind: 'diff', sessionId: activeSession.id, file })}
               onExpandExplorer={(filePath) => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath })}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
@@ -533,8 +544,12 @@ function DesktopInner() {
       <AlertSheet
         isOpen={!!pendingKill}
         title="Close shell?"
-        message={`This ends the “${pendingKill?.name}” agent process. Files on disk and git history are not touched.`}
-        confirmLabel="Delete"
+        message={
+          pendingKill?.worktreePath
+            ? `This session has work that hasn't been applied to your project yet. Close anyway?`
+            : `This ends the "${pendingKill?.name}" agent process. Files on disk and git history are not touched.`
+        }
+        confirmLabel="Close"
         confirmDestructive
         onConfirm={() => {
           if (pendingKill) {
@@ -548,9 +563,37 @@ function DesktopInner() {
       />
 
       <AlertSheet
+        isOpen={mergeFlow?.phase === 'confirm'}
+        title="Apply changes?"
+        message={mergeFlow?.phase === 'confirm' ? `Apply this session's work to ${mergeFlow.targetBranch}.` : ''}
+        confirmLabel="Apply"
+        onConfirm={() => { void executeMerge(); }}
+        onCancel={() => setMergeFlow(null)}
+      />
+
+      <AlertSheet
+        isOpen={mergeFlow?.phase === 'success'}
+        title="Changes applied"
+        message={mergeFlow?.phase === 'success' ? `Your work is now in ${mergeFlow.targetBranch}. Close this session?` : ''}
+        confirmLabel="Close session"
+        confirmDestructive
+        onConfirm={() => { void handleMergeDeleteWorktree(); }}
+        onCancel={() => setMergeFlow(null)}
+      />
+
+      <AlertSheet
+        isOpen={mergeFlow?.phase === 'error'}
+        title="Couldn't apply changes"
+        message={mergeFlow?.phase === 'error' ? mergeFlow.error : ''}
+        confirmLabel="Got it"
+        onConfirm={() => setMergeFlow(null)}
+        onCancel={() => setMergeFlow(null)}
+      />
+
+      <AlertSheet
         isOpen={!!pendingKillGroup}
         title="Close all shells in group?"
-        message={`This ends every agent process in “${pendingKillGroup?.name}” (${pendingKillGroup?.sessionIds.length ?? 0}). Files on disk and git history are not touched.`}
+        message={`This ends every agent process in "${pendingKillGroup?.name}" (${pendingKillGroup?.sessionIds.length ?? 0}). Files on disk and git history are not touched.`}
         confirmLabel="Close all"
         confirmDestructive
         onConfirm={() => {

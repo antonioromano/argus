@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
-import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff } from 'lucide-react';
+import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
@@ -22,6 +22,7 @@ import {
   LoadingState,
   EmptyState,
   ErrorState,
+  Tooltip,
 } from '../../components/primitives/index.js';
 
 interface DiffOverlayProps {
@@ -73,6 +74,10 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
   const [stagingPath, setStagingPath] = useState<string | null>(null);
   const [unstagingPath, setUnstagingPath] = useState<string | null>(null);
   const [ignoringPath, setIgnoringPath] = useState<string | null>(null);
+  const [pendingRevertFile, setPendingRevertFile] = useState<string | null>(null);
+  const [revertingFilePath, setRevertingFilePath] = useState<string | null>(null);
+  const [skipConfirmFile, setSkipConfirmFile] = useState(() => localStorage.getItem('argus.revert.skipConfirm') === '1');
+  const [hoveredFile, setHoveredFile] = useState<string | null>(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
@@ -152,6 +157,37 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
     } finally {
       setIgnoringPath(null);
     }
+  };
+
+  const handleRevertFile = async (f: FileSummary) => {
+    const parsed = parseDiff(f.raw).find((p) => (p.to ?? p.from) === f.path);
+    if (!parsed) return;
+    const allHashes = hashesByFile.get(f.path) ?? new Set<string>();
+    const chunks = resolveSelectionToChunkIndices(f.path, parsed, allHashes);
+    if (chunks.length === 0) return;
+    setRevertingFilePath(f.path);
+    try {
+      const result = await api.discardPatch(session.id, {
+        filePath: f.path,
+        fromPath: parsed.from && parsed.from !== f.path ? parsed.from : undefined,
+        source: 'unstaged',
+        chunks,
+      });
+      if (result.success) {
+        selection.clearForFiles([f.path]);
+        await refresh();
+      }
+    } finally {
+      setRevertingFilePath(null);
+      setPendingRevertFile(null);
+    }
+  };
+
+  const toggleSkipConfirmFile = () => {
+    const next = !skipConfirmFile;
+    setSkipConfirmFile(next);
+    if (next) localStorage.setItem('argus.revert.skipConfirm', '1');
+    else localStorage.removeItem('argus.revert.skipConfirm');
   };
 
   const handleToggle = (filePath: string) => (block: ChangeBlock) => {
@@ -350,91 +386,168 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                         : checkedCount >= totalBlocks
                           ? 'all'
                           : 'partial';
+                  const isHovered = hoveredFile === f.path;
+                  const isConfirming = pendingRevertFile === f.path;
+                  const isReverting = revertingFilePath === f.path;
                   return (
-                    <button
-                      key={id}
-                      onClick={() => setSelectedFile(id)}
-                      style={{
-                        all: 'unset',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--s-2)',
-                        padding: '6px var(--s-4)',
-                        width: '100%',
-                        boxSizing: 'border-box',
-                        background: sel ? 'var(--bg-2)' : 'transparent',
-                        borderLeft: `2px solid ${sel ? 'var(--accent)' : 'transparent'}`,
-                        boxShadow: sel ? 'var(--shadow-1)' : 'none',
-                      }}
-                    >
-                      <FileCheckbox
-                        visible={f.source === 'unstaged'}
-                        state={fileState}
-                        disabled={!allHashes || totalBlocks === 0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!allHashes) return;
-                          if (fileState === 'all') {
-                            selection.setBlocksForFile(f.path, []);
-                          } else {
-                            selection.setBlocksForFile(f.path, [...allHashes]);
-                          }
-                        }}
-                      />
-                      <span
+                    <Fragment key={id}>
+                      <button
+                        onClick={() => setSelectedFile(id)}
+                        onMouseEnter={() => setHoveredFile(f.path)}
+                        onMouseLeave={() => setHoveredFile(null)}
                         style={{
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: 'var(--t-tiny)',
-                          color: sel ? 'var(--accent)' : 'var(--fg-1)',
-                          flex: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          all: 'unset',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--s-2)',
+                          padding: '6px var(--s-4)',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          background: isConfirming ? 'color-mix(in srgb, var(--danger) 8%, transparent)' : sel ? 'var(--bg-2)' : 'transparent',
+                          borderLeft: `2px solid ${isConfirming ? 'var(--danger)' : sel ? 'var(--accent)' : 'transparent'}`,
+                          boxShadow: sel ? 'var(--shadow-1)' : 'none',
                         }}
                       >
-                        {f.path}
-                      </span>
-                      {f.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
-                      {f.source !== 'untracked' && f.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
-                      {f.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
-                      {f.source !== 'untracked' && (
-                        <>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{f.add}</span>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{f.del}</span>
-                        </>
-                      )}
-                      {f.source === 'untracked' && (
-                        <>
-                          <SidebarChipButton
-                            label={stagingPath === f.path ? 'STAGING…' : 'STAGE'}
-                            icon={Plus}
-                            tone="accent"
-                            busy={stagingPath === f.path}
-                            title="Stage (track) this file"
-                            onActivate={() => stageUntracked(f.path)}
-                          />
-                          <SidebarChipButton
-                            label={ignoringPath === f.path ? 'IGNORING…' : 'IGNORE'}
-                            icon={EyeOff}
-                            tone="muted"
-                            busy={ignoringPath === f.path}
-                            title="Add to .gitignore"
-                            onActivate={() => ignoreFile(f.path)}
-                          />
-                        </>
-                      )}
-                      {f.source === 'staged' && (
-                        <SidebarChipButton
-                          label={unstagingPath === f.path ? 'UNSTAGING…' : 'UNSTAGE'}
-                          icon={Minus}
-                          tone="muted"
-                          busy={unstagingPath === f.path}
-                          title="Unstage this file"
-                          onActivate={() => unstageFile(f.path)}
+                        <FileCheckbox
+                          visible={f.source === 'unstaged'}
+                          state={fileState}
+                          disabled={!allHashes || totalBlocks === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!allHashes) return;
+                            if (fileState === 'all') {
+                              selection.setBlocksForFile(f.path, []);
+                            } else {
+                              selection.setBlocksForFile(f.path, [...allHashes]);
+                            }
+                          }}
                         />
+                        <span
+                          style={{
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 'var(--t-tiny)',
+                            color: sel ? 'var(--accent)' : 'var(--fg-1)',
+                            flex: 1,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {f.path}
+                        </span>
+                        {f.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
+                        {f.source !== 'untracked' && f.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
+                        {f.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
+                        {f.source !== 'untracked' && !isHovered && !isConfirming && (
+                          <>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{f.add}</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{f.del}</span>
+                          </>
+                        )}
+                        {f.source === 'unstaged' && (isHovered || isConfirming) && (
+                          <SidebarChipButton
+                            label={isReverting ? 'REVERTING…' : 'REVERT'}
+                            icon={RotateCcw}
+                            tone="danger"
+                            busy={isReverting}
+                            title="Revert all changes in this file"
+                            onActivate={() => {
+                              if (skipConfirmFile) {
+                                void handleRevertFile(f);
+                              } else {
+                                setPendingRevertFile(f.path);
+                              }
+                            }}
+                          />
+                        )}
+                        {f.source === 'untracked' && (
+                          <>
+                            <SidebarChipButton
+                              label={stagingPath === f.path ? 'STAGING…' : 'STAGE'}
+                              icon={Plus}
+                              tone="accent"
+                              busy={stagingPath === f.path}
+                              title="Stage (track) this file"
+                              onActivate={() => stageUntracked(f.path)}
+                            />
+                            <SidebarChipButton
+                              label={ignoringPath === f.path ? 'IGNORING…' : 'IGNORE'}
+                              icon={EyeOff}
+                              tone="muted"
+                              busy={ignoringPath === f.path}
+                              title="Add to .gitignore"
+                              onActivate={() => ignoreFile(f.path)}
+                            />
+                          </>
+                        )}
+                        {f.source === 'staged' && (
+                          <SidebarChipButton
+                            label={unstagingPath === f.path ? 'UNSTAGING…' : 'UNSTAGE'}
+                            icon={Minus}
+                            tone="muted"
+                            busy={unstagingPath === f.path}
+                            title="Unstage this file"
+                            onActivate={() => unstageFile(f.path)}
+                          />
+                        )}
+                      </button>
+                      {isConfirming && (
+                        <div style={{
+                          padding: '8px var(--s-4)',
+                          background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+                          borderLeft: '2px solid var(--danger)',
+                          borderTop: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
+                        }}>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', marginBottom: 8 }}>
+                            Revert all changes? Cannot be undone.
+                          </div>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>
+                            <span
+                              role="checkbox"
+                              aria-checked={skipConfirmFile}
+                              onClick={(e) => { e.stopPropagation(); toggleSkipConfirmFile(); }}
+                              style={{
+                                width: 13, height: 13, flexShrink: 0,
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                borderRadius: 2,
+                                border: `1px solid ${skipConfirmFile ? 'var(--accent)' : 'var(--line-3)'}`,
+                                background: skipConfirmFile ? 'var(--accent)' : 'var(--bg-2)',
+                                color: skipConfirmFile ? 'var(--bg-0)' : 'transparent',
+                              }}
+                            >
+                              {skipConfirmFile && <Check size={9} strokeWidth={2.5} />}
+                            </span>
+                            <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>Don't ask again</span>
+                          </label>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => setPendingRevertFile(null)}
+                              style={{
+                                all: 'unset', cursor: 'pointer',
+                                padding: '3px 10px', borderRadius: 3,
+                                border: '1px solid var(--line-3)', color: 'var(--fg-2)',
+                                fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => void handleRevertFile(f)}
+                              disabled={isReverting}
+                              style={{
+                                all: 'unset', cursor: isReverting ? 'wait' : 'pointer',
+                                padding: '3px 10px', borderRadius: 3,
+                                background: 'var(--danger)', color: 'var(--bg-0)',
+                                fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
+                              }}
+                            >
+                              {isReverting ? 'Reverting…' : 'Revert file'}
+                            </button>
+                          </div>
+                        </div>
                       )}
-                    </button>
+                    </Fragment>
                   );
                 })}
               </div>
@@ -521,56 +634,55 @@ function FileCheckbox({ visible, state, disabled, onClick }: FileCheckboxProps) 
   }
   const filled = state !== 'none';
   return (
-    <span
-      role="checkbox"
-      aria-checked={state === 'all' ? 'true' : state === 'partial' ? 'mixed' : 'false'}
-      tabIndex={0}
-      onClick={disabled ? undefined : onClick}
-      onKeyDown={(e) => {
-        if (disabled) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick(e as unknown as React.MouseEvent);
-        }
-      }}
-      title={
-        state === 'all' ? 'Uncheck all blocks in this file' : 'Check all blocks in this file'
-      }
-      style={{
-        width: 14,
-        height: 14,
-        flexShrink: 0,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderRadius: 3,
-        border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
-        background: filled ? 'var(--accent)' : 'transparent',
-        color: filled ? 'var(--bg-0)' : 'var(--fg-3)',
-        cursor: disabled ? 'default' : 'pointer',
-        opacity: disabled ? 0.4 : 1,
-      }}
-    >
-      {state === 'all' && <Check size={10} strokeWidth={2.5} />}
-      {state === 'partial' && (
-        <span
-          style={{
-            width: 7,
-            height: 2,
-            background: 'var(--bg-0)',
-            borderRadius: 1,
-            display: 'inline-block',
-          }}
-        />
-      )}
-    </span>
+    <Tooltip content={state === 'all' ? 'Uncheck all blocks in this file' : 'Check all blocks in this file'}>
+      <span
+        role="checkbox"
+        aria-checked={state === 'all' ? 'true' : state === 'partial' ? 'mixed' : 'false'}
+        tabIndex={0}
+        onClick={disabled ? undefined : onClick}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e as unknown as React.MouseEvent);
+          }
+        }}
+        style={{
+          width: 14,
+          height: 14,
+          flexShrink: 0,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 3,
+          border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
+          background: filled ? 'var(--accent)' : 'transparent',
+          color: filled ? 'var(--bg-0)' : 'var(--fg-3)',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.4 : 1,
+        }}
+      >
+        {state === 'all' && <Check size={10} strokeWidth={2.5} />}
+        {state === 'partial' && (
+          <span
+            style={{
+              width: 7,
+              height: 2,
+              background: 'var(--bg-0)',
+              borderRadius: 1,
+              display: 'inline-block',
+            }}
+          />
+        )}
+      </span>
+    </Tooltip>
   );
 }
 
 interface SidebarChipButtonProps {
   label: string;
   icon: LucideIcon;
-  tone: 'accent' | 'muted';
+  tone: 'accent' | 'muted' | 'danger';
   busy: boolean;
   title: string;
   onActivate: () => void;
@@ -581,38 +693,41 @@ function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }:
     ? 'var(--fg-3)'
     : tone === 'accent'
       ? 'var(--accent)'
-      : 'var(--fg-2)';
+      : tone === 'danger'
+        ? 'var(--danger)'
+        : 'var(--fg-2)';
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      title={title}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!busy) onActivate();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+    <Tooltip content={title}>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
           e.stopPropagation();
           if (!busy) onActivate();
-        }
-      }}
-      style={{
-        cursor: busy ? 'wait' : 'pointer',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 3,
-        padding: '2px 6px',
-        borderRadius: 3,
-        border: '1px solid var(--line-3)',
-        color,
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--t-micro)',
-      }}
-    >
-      <Icon size={10} strokeWidth={2} />
-      {label}
-    </span>
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.stopPropagation();
+            if (!busy) onActivate();
+          }
+        }}
+        style={{
+          cursor: busy ? 'wait' : 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 3,
+          padding: '2px 6px',
+          borderRadius: 3,
+          border: '1px solid var(--line-3)',
+          color,
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--t-micro)',
+        }}
+      >
+        <Icon size={10} strokeWidth={2} />
+        {label}
+      </span>
+    </Tooltip>
   );
 }
 

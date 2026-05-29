@@ -526,4 +526,34 @@ export const api = {
     });
     return res.json();
   },
+
+  getWorktreeParentInfo: async (sessionId: string): Promise<{ parentRepoPath: string; defaultBranch: string }> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-worktree-parent-info`);
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to get worktree info');
+    }
+    return res.json();
+  },
+
+  mergeWorktree: async (sessionId: string, targetBranch?: string): Promise<{ success: boolean; targetBranch?: string; mergedBranch?: string; parentRepoPath?: string; error?: string }> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-merge-worktree`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetBranch }),
+    });
+    return res.json();
+  },
+
+  gitInit: async (folderPath: string): Promise<void> => {
+    const res = await authFetch(`${API_BASE}/worktrees/init`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath }),
+    });
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to initialize git repository');
+    }
+  },
 };

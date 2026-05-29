@@ -19,8 +19,15 @@ export interface ElectronAppBridge {
   onMenu(channel: MenuChannel, cb: () => void): () => void;
 }
 
+export interface ElectronNotificationsBridge {
+  show(payload: { id: string; title: string; body: string }): void;
+  close(id: string): void;
+  onClick(cb: (id: string) => void): () => void;
+}
+
 declare global {
   interface Window {
     electronApp?: ElectronAppBridge;
+    electronNotifications?: ElectronNotificationsBridge;
   }
 }

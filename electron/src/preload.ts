@@ -47,3 +47,17 @@ contextBridge.exposeInMainWorld('electronApp', {
     return () => ipcRenderer.off(channel, listener);
   },
 });
+
+contextBridge.exposeInMainWorld('electronNotifications', {
+  show: (payload: { id: string; title: string; body: string }): void => {
+    ipcRenderer.send('notif:show', payload);
+  },
+  close: (id: string): void => {
+    ipcRenderer.send('notif:close', id);
+  },
+  onClick: (cb: (id: string) => void): (() => void) => {
+    const listener = (_e: unknown, id: string) => cb(id);
+    ipcRenderer.on('notif:click', listener);
+    return () => ipcRenderer.off('notif:click', listener);
+  },
+});

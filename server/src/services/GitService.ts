@@ -371,6 +371,46 @@ export class GitService {
     }
   }
 
+  async getParentRepoPath(worktreePath: string): Promise<string> {
+    const commonDir = (await execGit(['rev-parse', '--git-common-dir'], worktreePath)).trim();
+    const absCommonDir = path.isAbsolute(commonDir)
+      ? commonDir
+      : path.resolve(worktreePath, commonDir);
+    return absCommonDir.endsWith('/.git') ? absCommonDir.slice(0, -5) : absCommonDir;
+  }
+
+  async mergeWorktreeBranch(parentRepoPath: string, sourceBranch: string, targetBranch: string): Promise<{ success: boolean; error?: string }> {
+    if (/^-/.test(sourceBranch) || /^-/.test(targetBranch)) {
+      return { success: false, error: 'Invalid branch name' };
+    }
+    // Capture current branch so we can restore it if checkout succeeds but merge fails
+    let originalBranch: string | null = null;
+    try {
+      const ref = (await execGit(['rev-parse', '--abbrev-ref', 'HEAD'], parentRepoPath)).trim();
+      if (ref !== 'HEAD') originalBranch = ref; // 'HEAD' = detached, skip restore
+    } catch { /* proceed without restore capability */ }
+
+    let checkedOut = false;
+    try {
+      await execGitWithStderr(['checkout', targetBranch], parentRepoPath);
+      checkedOut = true;
+      await execGitWithStderr(['merge', '--no-ff', sourceBranch], parentRepoPath);
+      return { success: true };
+    } catch (err) {
+      const e = err as { message?: string; stderr?: string };
+      try { await execGitWithStderr(['merge', '--abort'], parentRepoPath); } catch { /* no merge in progress */ }
+      // Restore original branch if checkout moved HEAD but merge failed
+      if (checkedOut && originalBranch) {
+        try { await execGitWithStderr(['checkout', originalBranch], parentRepoPath); } catch { /* ignore */ }
+      }
+      return { success: false, error: e.stderr || e.message || 'Merge failed' };
+    }
+  }
+
+  async init(folderPath: string): Promise<void> {
+    await execGitWithStderr(['init'], folderPath);
+  }
+
   // Returns true when branchName has commits not yet in targetBranch (i.e. unmerged).
   async worktreeUnmergedCheck(gitRoot: string, branchName: string, targetBranch = 'HEAD'): Promise<boolean> {
     if (/^-/.test(branchName) || /^-/.test(targetBranch)) {

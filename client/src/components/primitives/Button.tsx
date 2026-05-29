@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Spinner } from './Spinner.js';
+import { Tooltip } from './Tooltip.js';
 
 export type ButtonVariant = 'primary' | 'solid' | 'outline' | 'ghost' | 'danger' | 'secondary';
 
@@ -59,15 +60,14 @@ export function Button({
   const s = SIZES[size];
   const iconSize = size === 'sm' ? 12 : 14;
   const isFilled = variant === 'primary' || variant === 'solid' || danger;
-  return (
+  const btn = (
     <button
       type={type}
       onClick={isDisabled ? undefined : onClick}
       disabled={isDisabled}
       aria-busy={loading || undefined}
-      title={title}
       autoFocus={autoFocus}
-      className={`${isDisabled ? '' : 'btn-press'} ${className ?? ''}`.trim()}
+      className={`${isDisabled ? '' : 'btn-press'} ${!isDisabled && variant === 'ghost' ? 'hover-bg-3' : ''} ${className ?? ''}`.replace(/\s+/g, ' ').trim()}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -96,4 +96,5 @@ export function Button({
       {IconRight && <IconRight size={iconSize} strokeWidth={1.6} />}
     </button>
   );
+  return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;
 }

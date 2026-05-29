@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, Plus, PowerOff, Minus, Maximize2, Check, Focus } from 'lucide-react';
+import { Square as SquareIcon, Plus, PowerOff, Minus, Maximize2, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, DirtyBadge, EmptyState, Button, IconButton } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -23,11 +24,17 @@ interface MosaicProps {
   onOpenSession: (id: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
+  onMerge?: (session: SessionInfo) => void;
+  onClone?: (session: SessionInfo) => void;
+  onFocusDiff?: (id: string) => void;
+  onFocusExplorer?: (id: string) => void;
+  onFocusTerminal?: (id: string) => void;
+  mergingSessionId?: string | null;
 }
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupColorOf, onOpenSession, onCreate, onKill, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupColorOf, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const [minimized, setMinimized] = useState<Set<string>>(new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -114,6 +121,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
+              onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
+              onClone={onClone ? () => onClone(s) : undefined}
+              onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
+              onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
+              onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
               onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
             />
           ))}
@@ -137,6 +149,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, groupC
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
+              onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
+              onClone={onClone ? () => onClone(s) : undefined}
+              onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
+              onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
+              onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
               onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
             />
           ))}
@@ -160,6 +177,11 @@ function MosaicTile({
   onToggleMinimize,
   onOpen,
   onKill,
+  onMerge,
+  onClone,
+  onFocusDiff,
+  onFocusExplorer,
+  onFocusTerminal,
   onOpenDiff,
 }: {
   idx: number;
@@ -175,6 +197,11 @@ function MosaicTile({
   onToggleMinimize: () => void;
   onOpen: () => void;
   onKill: () => void;
+  onMerge?: () => void;
+  onClone?: () => void;
+  onFocusDiff?: () => void;
+  onFocusExplorer?: () => void;
+  onFocusTerminal?: () => void;
   onOpenDiff?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -201,40 +228,64 @@ function MosaicTile({
         tabIndex={0}
         onClick={minimized ? onToggleMinimize : onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); minimized ? onToggleMinimize() : onOpen(); } }}
-        title={`Open ${session.folderPath}`}
       >
         <AgentGlyph agent={session.agentType} size={16} />
         {groupColor && (
           <span
             aria-hidden
-            title="Group"
             style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
           />
         )}
-        <span
-          onClick={copyPath}
-          title="Click to copy path"
-          style={{
-            flex: '0 1 auto',
-            minWidth: 0,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-tiny)',
-            color: copied ? 'var(--accent)' : 'var(--fg-0)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-          }}
-        >
-          {copied && <Check size={11} strokeWidth={2} />}
-          {copied ? 'Copied path' : minimized ? session.name : session.folderPath}
-        </span>
-        <div style={{ flex: 1 }} />
         <StatusPill status={session.status} size="sm" />
+        <Tooltip content="Click to copy path">
+          <span
+            onClick={copyPath}
+            style={{
+              flex: '0 1 auto',
+              minWidth: 0,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-tiny)',
+              color: copied ? 'var(--accent)' : 'var(--fg-0)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {copied && <Check size={11} strokeWidth={2} />}
+            {copied ? 'Copied path' : shellLabel(session)}
+          </span>
+        </Tooltip>
+        <div style={{ flex: 1 }} />
         {session.hasGitChanges && <DirtyBadge size="sm" onClick={onOpenDiff ? (e?: React.MouseEvent) => { e?.stopPropagation(); onOpenDiff(); } : undefined} />}
+        {onFocusDiff && (
+          <IconButton
+            icon={GitCompare}
+            label="Open diff in focus"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onFocusDiff(); }}
+          />
+        )}
+        {onFocusExplorer && (
+          <IconButton
+            icon={FolderOpen}
+            label="Open files in focus"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onFocusExplorer(); }}
+          />
+        )}
+        {onFocusTerminal && (
+          <IconButton
+            icon={Terminal}
+            label="Open shell in focus"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onFocusTerminal(); }}
+          />
+        )}
+        <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
         <IconButton
           icon={minimized ? Maximize2 : Minus}
           label={minimized ? 'Restore shell' : 'Minimize shell'}
@@ -247,6 +298,22 @@ function MosaicTile({
           size="sm"
           onClick={(e) => { e.stopPropagation(); onOpen(); }}
         />
+        {onClone && (
+          <IconButton
+            icon={Copy}
+            label="Start a new shell from the same folder"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onClone(); }}
+          />
+        )}
+        {onMerge && (
+          <IconButton
+            icon={ArrowDownToLine}
+            label="Apply to project"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); onMerge(); }}
+          />
+        )}
         <IconButton
           icon={PowerOff}
           label="Close shell"

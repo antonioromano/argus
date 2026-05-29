@@ -1,10 +1,10 @@
-import { app, dialog, ipcMain, BrowserWindow, Menu, shell } from 'electron';
+import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, spawn } from 'child_process';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow, setAppQuitting, getWindow } from './window.js';
+import { createWindow, setAppQuitting, getWindow, showWindow } from './window.js';
 import { createTray } from './tray.js';
 
 interface ApplyUpdateResult {
@@ -216,6 +216,46 @@ async function main() {
     app.dock?.setBadge(count > 0 ? String(count) : '');
   });
 
+  // Native notifications. Renderer can't set an icon via the Web Notification
+  // API on macOS (Chromium ignores it and falls back to the bundle icon, which
+  // is the Electron atom in dev). Routing through main lets us pass an explicit
+  // nativeImage so the spartan icon always shows.
+  const notifIcon = nativeImage.createFromPath(
+    join(__dirname, '..', 'assets', 'icon_spartan_amber_v2_128.png'),
+  );
+  const activeNotifs = new Map<string, Notification>();
+
+  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
+    const existing = activeNotifs.get(payload.id);
+    if (existing) existing.close();
+
+    const notif = new Notification({
+      title: payload.title,
+      body: payload.body,
+      icon: notifIcon,
+      silent: false,
+    });
+    notif.on('click', () => {
+      showWindow();
+      const win = getWindow();
+      if (win && !win.isDestroyed()) win.webContents.send('notif:click', payload.id);
+      activeNotifs.delete(payload.id);
+    });
+    notif.on('close', () => {
+      if (activeNotifs.get(payload.id) === notif) activeNotifs.delete(payload.id);
+    });
+    notif.show();
+    activeNotifs.set(payload.id, notif);
+  });
+
+  ipcMain.on('notif:close', (_event, id: string) => {
+    const notif = activeNotifs.get(id);
+    if (notif) {
+      notif.close();
+      activeNotifs.delete(id);
+    }
+  });
+
   // Native About panel
   const version = readAppVersion();
   app.setAboutPanelOptions({
@@ -243,6 +283,11 @@ async function main() {
 
   await server.startServer();
   shutdownServer = server.shutdownServer as () => Promise<void>;
+
+  if (process.platform === 'darwin') {
+    const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
+    app.dock?.setIcon(dockIcon);
+  }
 
   createWindow();
   createTray();

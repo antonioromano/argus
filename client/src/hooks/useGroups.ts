@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SessionInfo, SessionGroup } from '@argus/shared';
 import { api } from '../services/api.js';
-import { DEFAULT_GROUP_COLOR } from '../constants/groupColors.js';
+import { DEFAULT_GROUP_COLOR, OTHERS_DEFAULT_COLOR } from '../constants/groupColors.js';
 
 // Reserved entry that only carries the Others bucket's color (never holds membership).
 export const OTHERS_GROUP_ID = '__others__';
@@ -126,7 +126,7 @@ export function useGroups() {
       return { group, sessions };
     });
     const others = ordered.filter((s) => !claimed.has(s.id));
-    const othersColor = groups.find((g) => g.id === OTHERS_GROUP_ID)?.color ?? null;
+    const othersColor = groups.find((g) => g.id === OTHERS_GROUP_ID)?.color ?? OTHERS_DEFAULT_COLOR;
     return { groups: out, others, othersColor };
   }, [groups]);
 

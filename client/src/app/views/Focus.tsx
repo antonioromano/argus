@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, LayoutGrid, PowerOff } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, PowerOff } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, DirtyBadge, Button, IconButton } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 import { DiffSidePanel } from '../panels/DiffSidePanel.js';
 import { ExplorerSidePanel } from '../panels/ExplorerSidePanel.js';
+import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import type { SidePanel } from '../types.js';
@@ -40,6 +42,7 @@ interface FocusProps {
   onBack: () => void;
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
+  onToggleTerminal: () => void;
   onExpandDiff: (file?: string) => void;
   onExpandExplorer: (filePath?: string) => void;
   onClone: () => void;
@@ -57,12 +60,14 @@ export function Focus({
   onBack,
   onToggleDiff,
   onToggleExplorer,
+  onToggleTerminal,
   onExpandDiff,
   onExpandExplorer,
   onClone,
   onKill,
 }: FocusProps) {
   const [copied, setCopied] = useState(false);
+  const [terminalFocused, setTerminalFocused] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState<number>(readStoredWidth);
   const [isResizing, setIsResizing] = useState(false);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -74,6 +79,8 @@ export function Focus({
   useEffect(() => {
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
   }, [sidePanelWidth]);
+
+  useEffect(() => { setTerminalFocused(false); }, [active.id]);
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -107,7 +114,8 @@ export function Focus({
 
   const sidePanelOpen =
     (sidePanel?.kind === 'diff' && sidePanel.sessionId === active.id) ||
-    (sidePanel?.kind === 'explorer' && sidePanel.sessionId === active.id);
+    (sidePanel?.kind === 'explorer' && sidePanel.sessionId === active.id) ||
+    (sidePanel?.kind === 'terminal' && sidePanel.sessionId === active.id);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -127,29 +135,29 @@ export function Focus({
             }}
           >
             <AgentGlyph agent={active.agentType} size={16} />
-            <span
-              onClick={() => {
-                void navigator.clipboard.writeText(active.folderPath);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
-              }}
-              title="Click to copy path"
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-sm)',
-                fontWeight: 500,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                cursor: 'pointer',
-                color: copied ? 'var(--accent)' : 'var(--fg-0)',
-                minWidth: 0,
-              }}
-            >
-              {copied ? 'Copied path' : active.folderPath}
-            </span>
-
             <StatusPill status={active.status} />
+            <Tooltip content="Click to copy path">
+              <span
+                onClick={() => {
+                  void navigator.clipboard.writeText(active.folderPath);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1200);
+                }}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--t-sm)',
+                  fontWeight: 500,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  color: copied ? 'var(--accent)' : 'var(--fg-0)',
+                  minWidth: 0,
+                }}
+              >
+                {copied ? 'Copied path' : shellLabel(active)}
+              </span>
+            </Tooltip>
             {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <div style={{ flex: 1 }} />
             <Button
@@ -168,15 +176,23 @@ export function Focus({
             >
               Files
             </Button>
+            <Button
+              variant={sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
+              size="sm"
+              icon={Terminal}
+              onClick={onToggleTerminal}
+            >
+              Shell
+            </Button>
+            <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
+            <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
             <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
-            <IconButton icon={LayoutGrid} label="Exit focus" size="sm" onClick={onBack} />
             <IconButton icon={PowerOff} label="Close shell" size="sm" onClick={onKill} />
-            <span hidden><Terminal /></span>
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', paddingRight: 'var(--s-3)' }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
             <ErrorBoundary key={active.id} label={active.name}>
-              <TerminalShell session={active} socket={socket} theme={theme} status={active.status} />
+              <TerminalShell session={active} socket={socket} theme={theme} status={active.status} focused={terminalFocused} onFocusChange={setTerminalFocused} framed={false} />
             </ErrorBoundary>
           </div>
 
@@ -196,6 +212,14 @@ export function Focus({
         )}
         {sidePanel?.kind === 'explorer' && sidePanel.sessionId === active.id && (
           <ExplorerSidePanel session={active} onExpand={onExpandExplorer} width={sidePanelWidth} />
+        )}
+        {sidePanel?.kind === 'terminal' && sidePanel.sessionId === active.id && (
+          <CompanionTerminalPanel
+            session={active}
+            socket={socket}
+            theme={theme}
+            width={sidePanelWidth}
+          />
         )}
       </div>
     </div>

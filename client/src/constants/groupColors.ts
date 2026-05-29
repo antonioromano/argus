@@ -16,7 +16,10 @@ export const GROUP_COLORS: GroupColor[] = [
   { key: 'amber',  label: 'Amber',  dark: '#FFB454', light: '#B26A00' },
   { key: 'pink',   label: 'Pink',   dark: '#FF8FB0', light: '#B83A63' },
   { key: 'teal',   label: 'Teal',   dark: '#5FE3D0', light: '#0E7F76' },
+  { key: 'grey',   label: 'Grey',   dark: '#9CA3AF', light: '#6B7280' },
 ];
+
+export const OTHERS_DEFAULT_COLOR = 'grey';
 
 export const DEFAULT_GROUP_COLOR = GROUP_COLORS[0].key;
 

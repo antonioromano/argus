@@ -17,7 +17,7 @@ export interface AppViewApi extends AppViewState {
   closeOverlay: () => void;
   openSidePanel: (next: NonNullable<SidePanel>) => void;
   closeSidePanel: () => void;
-  toggleSidePanel: (kind: 'diff' | 'explorer', sessionId: string) => void;
+  toggleSidePanel: (kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => void;
 }
 
 /**
@@ -67,7 +67,7 @@ export function useAppView(): AppViewApi {
     setState((s) => ({ ...s, sidePanel: null }));
   }, []);
 
-  const toggleSidePanel = useCallback((kind: 'diff' | 'explorer', sessionId: string) => {
+  const toggleSidePanel = useCallback((kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => {
     setState((s) => {
       const current = s.sidePanel;
       if (current && current.kind === kind && current.sessionId === sessionId) {

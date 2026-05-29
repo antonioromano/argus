@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
 import type { SessionInfo, SessionGroup } from '@argus/shared';
 import { ChevronRight, Plus, Trash2, PowerOff, Check, X, Eye, EyeOff } from 'lucide-react';
-import { StatusDot } from '../../components/primitives/index.js';
+import { StatusDot, Tooltip } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions } from '../../hooks/useGroups.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 
 const OTHERS = '__others__';
 
@@ -144,28 +145,33 @@ function GroupNode({
           borderLeft: `2px solid ${active ? 'var(--accent)' : dropping ? 'var(--accent-edge)' : 'transparent'}`,
         }}
       >
-        <button type="button" onClick={onChevron} title="Collapse / expand" style={chevBtnStyle}>
-          <ChevronRight
-            size={12}
-            strokeWidth={2}
-            style={{ transform: group.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
-          />
-        </button>
-        <button
-          type="button"
-          onClick={() => !editing && setPicking((v) => !v)}
-          title="Set color"
-          style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
-        </button>
+        <Tooltip content="Collapse / expand">
+          <button type="button" onClick={onChevron} style={chevBtnStyle}>
+            <ChevronRight
+              size={12}
+              strokeWidth={2}
+              style={{ transform: group.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
+            />
+          </button>
+        </Tooltip>
+        <Tooltip content="Set color">
+          <button
+            type="button"
+            onClick={() => !editing && setPicking((v) => !v)}
+            style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />
+          </button>
+        </Tooltip>
 
         {editing ? (
           <NameInput initial={group.name} onCommit={(n) => { if (n.trim()) onRename(n.trim()); setEditing(false); }} onCancel={() => setEditing(false)} inline />
         ) : (
-          <button type="button" onClick={() => setEditing(true)} title="Rename" style={nameBtnStyle}>
-            {group.name}
-          </button>
+          <Tooltip content="Rename">
+            <button type="button" onClick={() => setEditing(true)} style={nameBtnStyle}>
+              {group.name}
+            </button>
+          </Tooltip>
         )}
 
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
@@ -173,15 +179,16 @@ function GroupNode({
         </span>
 
         {/* always-visible filter toggle */}
-        <button
-          type="button"
-          onClick={onFilter}
-          title={active ? 'Clear filter' : 'Filter to this group'}
-          style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
-            color: active ? 'var(--accent)' : 'var(--fg-3)' }}
-        >
-          {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
-        </button>
+        <Tooltip content={active ? 'Clear filter' : 'Filter to this group'}>
+          <button
+            type="button"
+            onClick={onFilter}
+            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+              color: active ? 'var(--accent)' : 'var(--fg-3)' }}
+          >
+            {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
+          </button>
+        </Tooltip>
 
         {/* hover actions — always rendered, opacity toggled so the row never reflows */}
         <span style={{ ...actionsStyle, opacity: hover && !editing ? 1 : 0, pointerEvents: hover && !editing ? 'auto' : 'none' }}>
@@ -193,15 +200,15 @@ function GroupNode({
       {picking && (
         <div style={swatchRowStyle}>
           {GROUP_COLORS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              title={c.label}
-              onClick={() => { onSetColor(c.key); setPicking(false); }}
-              style={{ all: 'unset', cursor: 'pointer', width: 14, height: 14, borderRadius: '50%',
-                background: resolveGroupColor(c.key, isDark),
-                outline: c.key === group.color ? '2px solid var(--fg-2)' : 'none', outlineOffset: 1 }}
-            />
+            <Tooltip key={c.key} content={c.label}>
+              <button
+                type="button"
+                onClick={() => { onSetColor(c.key); setPicking(false); }}
+                style={{ all: 'unset', cursor: 'pointer', width: 14, height: 14, borderRadius: '50%',
+                  background: resolveGroupColor(c.key, isDark),
+                  outline: c.key === group.color ? '2px solid var(--fg-2)' : 'none', outlineOffset: 1 }}
+              />
+            </Tooltip>
           ))}
         </div>
       )}
@@ -250,31 +257,35 @@ function OthersNode({
         style={{ ...headStyle, background: dropping ? 'var(--accent-bg)' : active ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
           borderLeft: `2px solid ${dropping ? 'var(--accent-edge)' : active ? 'var(--accent)' : 'transparent'}` }}
       >
-        <button type="button" onClick={onChevron} title="Collapse / expand" style={chevBtnStyle}>
-          <ChevronRight size={12} strokeWidth={2}
-            style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setPicking((v) => !v)}
-          title="Set color"
-          style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, display: 'block' }} />
-        </button>
+        <Tooltip content="Collapse / expand">
+          <button type="button" onClick={onChevron} style={chevBtnStyle}>
+            <ChevronRight size={12} strokeWidth={2}
+              style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Set color">
+          <button
+            type="button"
+            onClick={() => setPicking((v) => !v)}
+            style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, display: 'block' }} />
+          </button>
+        </Tooltip>
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-2)' }}>Others</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{sessions.length}</span>
 
         {/* always-visible filter toggle */}
-        <button
-          type="button"
-          onClick={onFilter}
-          title={active ? 'Clear filter' : 'Filter to Others'}
-          style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
-            color: active ? 'var(--accent)' : 'var(--fg-3)' }}
-        >
-          {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
-        </button>
+        <Tooltip content={active ? 'Clear filter' : 'Filter to Others'}>
+          <button
+            type="button"
+            onClick={onFilter}
+            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+              color: active ? 'var(--accent)' : 'var(--fg-3)' }}
+          >
+            {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
+          </button>
+        </Tooltip>
 
         {/* hover-revealed kill */}
         <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
@@ -285,15 +296,15 @@ function OthersNode({
       {picking && (
         <div style={swatchRowStyle}>
           {GROUP_COLORS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              title={c.label}
-              onClick={() => { onSetColor(c.key); setPicking(false); }}
-              style={{ all: 'unset', cursor: 'pointer', width: 14, height: 14, borderRadius: '50%',
-                background: resolveGroupColor(c.key, isDark),
-                outline: c.key === color ? '2px solid var(--fg-2)' : 'none', outlineOffset: 1 }}
-            />
+            <Tooltip key={c.key} content={c.label}>
+              <button
+                type="button"
+                onClick={() => { onSetColor(c.key); setPicking(false); }}
+                style={{ all: 'unset', cursor: 'pointer', width: 14, height: 14, borderRadius: '50%',
+                  background: resolveGroupColor(c.key, isDark),
+                  outline: c.key === color ? '2px solid var(--fg-2)' : 'none', outlineOffset: 1 }}
+              />
+            </Tooltip>
           ))}
         </div>
       )}
@@ -308,28 +319,29 @@ function OthersNode({
 /* ---------- leaf ---------- */
 function Leaf({ session, onDragStart, onOpen }: { session: SessionInfo; isDark: boolean; onDragStart: () => void; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
-  const label = session.name || session.folderPath.split('/').filter(Boolean).pop() || session.folderPath;
+  const label = shellLabel(session);
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onClick={onOpen}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title={session.folderPath}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
-        padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
-        cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
-      }}
-    >
-      <StatusDot status={session.status} size={6} decorative />
-      <AgentGlyph agent={session.agentType} size={12} />
-      <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
-        color: hover ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {label}
-      </span>
-    </div>
+    <Tooltip content={session.folderPath}>
+      <div
+        draggable
+        onDragStart={onDragStart}
+        onClick={onOpen}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
+          padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
+          cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
+        }}
+      >
+        <StatusDot status={session.status} size={6} decorative />
+        <AgentGlyph agent={session.agentType} size={12} />
+        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
+          color: hover ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+      </div>
+    </Tooltip>
   );
 }
 
@@ -358,17 +370,18 @@ function NameInput({ initial = '', placeholder, onCommit, onCancel, inline }: {
 function Act({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   const [h, setH] = useState(false);
   return (
-    <button
-      type="button"
-      title={title}
-      onMouseEnter={() => setH(true)}
-      onMouseLeave={() => setH(false)}
-      onClick={(e) => { e.stopPropagation(); onClick(); }}
-      style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
-        color: h ? 'var(--fg-0)' : 'var(--fg-3)', background: h ? 'var(--bg-3)' : 'transparent' }}
-    >
-      {children}
-    </button>
+    <Tooltip content={title}>
+      <button
+        type="button"
+        onMouseEnter={() => setH(true)}
+        onMouseLeave={() => setH(false)}
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+          color: h ? 'var(--fg-0)' : 'var(--fg-3)', background: h ? 'var(--bg-3)' : 'transparent' }}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

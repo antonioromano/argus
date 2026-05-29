@@ -58,7 +58,7 @@ export function AlertSheet({
   if (!isOpen) return null;
 
   const confirmBg = confirmDestructive ? 'var(--danger)' : 'var(--accent)';
-  const confirmFg = confirmDestructive ? 'var(--fg-on-accent)' : 'var(--fg-on-accent)';
+  const confirmFg = confirmDestructive ? '#ffffff' : 'var(--fg-on-accent)';
 
   const ghostBtn: React.CSSProperties = {
     flex: 1,

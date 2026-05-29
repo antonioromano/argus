@@ -1,4 +1,5 @@
 import { Globe, Sun, Moon, Settings, ArrowUp } from 'lucide-react';
+import { Tooltip } from '../../components/primitives/index.js';
 
 interface ElectronToolbarProps {
   onOpenSettings: () => void;
@@ -72,45 +73,46 @@ export function ElectronToolbar({
           </button>
         )}
 
-        <button
-          onClick={onOpenRemote}
-          title="Remote Access"
-          style={{
-            ...iconBtn(ngrokConnected),
-            position: 'relative',
-            border: `1px solid ${ngrokConnected ? 'var(--accent-edge)' : 'transparent'}`,
-            color: ngrokConnected ? 'var(--accent)' : 'var(--fg-2)',
-          }}
-        >
-          <Globe size={13} strokeWidth={1.6} />
-          {ngrokConnected && (
-            <span
-              style={{
-                position: 'absolute',
-                top: -2,
-                right: -2,
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: 'var(--accent)',
-                boxShadow: '0 0 6px var(--accent)',
-                border: '1.5px solid var(--bg-1)',
-              }}
-            />
-          )}
-        </button>
+        <Tooltip content="Remote Access">
+          <button
+            onClick={onOpenRemote}
+            style={{
+              ...iconBtn(ngrokConnected),
+              position: 'relative',
+              border: `1px solid ${ngrokConnected ? 'var(--accent-edge)' : 'transparent'}`,
+              color: ngrokConnected ? 'var(--accent)' : 'var(--fg-2)',
+            }}
+          >
+            <Globe size={13} strokeWidth={1.6} />
+            {ngrokConnected && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -2,
+                  right: -2,
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: 'var(--accent)',
+                  boxShadow: '0 0 6px var(--accent)',
+                  border: '1.5px solid var(--bg-1)',
+                }}
+              />
+            )}
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={onToggleTheme}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={iconBtn()}
-        >
-          {isDark ? <Sun size={13} strokeWidth={1.6} /> : <Moon size={13} strokeWidth={1.6} />}
-        </button>
+        <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+          <button onClick={onToggleTheme} style={iconBtn()}>
+            {isDark ? <Sun size={13} strokeWidth={1.6} /> : <Moon size={13} strokeWidth={1.6} />}
+          </button>
+        </Tooltip>
 
-        <button onClick={onOpenSettings} title="Settings" style={iconBtn()}>
-          <Settings size={13} strokeWidth={1.6} />
-        </button>
+        <Tooltip content="Settings">
+          <button onClick={onOpenSettings} style={iconBtn()}>
+            <Settings size={13} strokeWidth={1.6} />
+          </button>
+        </Tooltip>
     </div>
   );
 }

@@ -125,5 +125,28 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
     }
   });
 
+  // POST /api/worktrees/init
+  // Body: { folderPath: string }
+  router.post('/init', async (req, res) => {
+    const { folderPath } = req.body as { folderPath?: string };
+    if (!folderPath) {
+      res.status(400).json({ error: 'folderPath is required' });
+      return;
+    }
+    const resolved = path.resolve(folderPath);
+    const home = os.homedir();
+    if (!resolved.startsWith(home + path.sep) && resolved !== home) {
+      res.status(400).json({ error: 'folderPath must be within the home directory' });
+      return;
+    }
+    try {
+      await gitService.init(resolved);
+      res.status(200).json({ success: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   return router;
 }

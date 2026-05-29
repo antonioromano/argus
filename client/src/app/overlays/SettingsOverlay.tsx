@@ -40,7 +40,7 @@ const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
   { id: 'agents', icon: Cpu, label: 'Agents' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
   { id: 'remote', icon: Wifi, label: 'Remote' },
-  { id: 'worktrees', icon: GitBranch, label: 'Worktrees' },
+  { id: 'worktrees', icon: GitBranch, label: 'Agent Isolation' },
 ];
 
 const BUILTIN: AgentDefinition[] = [
@@ -593,10 +593,15 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
           )}
           {tab === 'worktrees' && (
             <div style={{ maxWidth: 720 }}>
-              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Worktrees</div>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Agent Isolation</div>
               <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
-                Worktrees
+                Agent Isolation
               </h2>
+              <div style={{ color: 'var(--fg-2)', fontSize: 'var(--t-sm)', lineHeight: 1.6, marginBottom: 'var(--s-5)' }}>
+                Each isolated session runs in its own git worktree — a separate working directory branched off your repo.
+                Changes stay sandboxed until you're ready to merge, so multiple agents can work in parallel without stepping on each other's files.
+                Sessions with isolation enabled appear here; remove a worktree once its work is merged or discarded.
+              </div>
               {worktreeSessions.length === 0 ? (
                 <div style={{ color: 'var(--fg-2)', fontSize: 'var(--t-sm)', padding: 'var(--s-4) 0' }}>
                   No worktree sessions. Create a session with a worktree to see it here.

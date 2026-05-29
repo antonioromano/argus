@@ -19,6 +19,8 @@ interface UseTerminalOptions {
   readOnly?: boolean;
   /** Called (debounced) with the bottom non-empty terminal row — used for mobile chip detection. */
   onTail?: (line: string) => void;
+  /** Called when xterm gains or loses keyboard focus. */
+  onFocusChange?: (focused: boolean) => void;
 }
 
 const DARK_THEME = {
@@ -73,11 +75,13 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onTail } = options;
+  const { sessionId, socket, theme, readOnly = false, onTail, onFocusChange } = options;
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const onTailRef = useRef(onTail);
   useEffect(() => { onTailRef.current = onTail; }, [onTail]);
+  const onFocusChangeRef = useRef(onFocusChange);
+  useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
 
   // Create terminal and wire up socket
   useEffect(() => {
@@ -112,6 +116,12 @@ export function useTerminal(
     terminal.loadAddon(new WebLinksAddon());
 
     terminal.open(container);
+
+    const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');
+    const onXtermFocus = () => onFocusChangeRef.current?.(true);
+    const onXtermBlur  = () => onFocusChangeRef.current?.(false);
+    xtermTextarea?.addEventListener('focus', onXtermFocus);
+    xtermTextarea?.addEventListener('blur', onXtermBlur);
 
     // WebGL renderer — graceful fallback to canvas if context creation fails.
     try {
@@ -242,6 +252,8 @@ export function useTerminal(
       if (tailTimer) clearTimeout(tailTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
+      xtermTextarea?.removeEventListener('focus', onXtermFocus);
+      xtermTextarea?.removeEventListener('blur', onXtermBlur);
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('connect', handleReconnect);

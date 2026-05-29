@@ -47,11 +47,12 @@ export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: Diff
 
   const files = useMemo((): FileSummary[] => {
     if (!diff) return [];
+    const seen = new Set<string>();
     return [
       ...summarize(diff.unstaged, 'unstaged'),
       ...summarize(diff.staged, 'staged'),
       ...summarize(diff.branch, 'branch'),
-    ];
+    ].filter((f) => (seen.has(f.path) ? false : (seen.add(f.path), true)));
   }, [diff]);
 
   const totalFiles = files.length + (diff?.untracked.length ?? 0);
@@ -73,8 +74,9 @@ export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: Diff
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--s-2)',
-          padding: 'var(--s-3) var(--s-4)',
+          padding: 'var(--s-1) var(--s-4)',
           borderBottom: '1px solid var(--line-2)',
+          flexShrink: 0,
         }}
       >
         <GitBranch size={13} strokeWidth={1.6} color="var(--dirty)" />

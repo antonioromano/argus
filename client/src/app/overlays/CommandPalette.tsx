@@ -3,7 +3,7 @@ import type { SessionInfo, FileSearchResult } from '@argus/shared';
 import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen } from 'lucide-react';
 import { isMac } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
-import { Kbd } from '../../components/primitives/index.js';
+import { Kbd, Tooltip } from '../../components/primitives/index.js';
 
 const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
@@ -309,23 +309,24 @@ export function CommandPalette({
                     >
                       {r.matchType}
                     </span>
+                    <Tooltip content="View in Diff">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOpenInDiff(r.name); onClose(); }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          padding: 2,
+                          color: isSelected ? 'var(--accent)' : 'var(--fg-3)',
+                          opacity: isSelected ? 1 : 0,
+                          transition: 'opacity var(--dur-fast)',
+                        }}
+                      >
+                        <GitCommit size={12} strokeWidth={1.6} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Open in Explorer">
                     <button
-                      title="View in Diff"
-                      onClick={(e) => { e.stopPropagation(); onOpenInDiff(r.name); onClose(); }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        padding: 2,
-                        color: isSelected ? 'var(--accent)' : 'var(--fg-3)',
-                        opacity: isSelected ? 1 : 0,
-                        transition: 'opacity var(--dur-fast)',
-                      }}
-                    >
-                      <GitCommit size={12} strokeWidth={1.6} />
-                    </button>
-                    <button
-                      title="Open in Explorer"
                       onClick={(e) => { e.stopPropagation(); onOpenInExplorer(r.path, r.lineNumber); onClose(); }}
                       style={{
                         background: 'none',
@@ -339,6 +340,7 @@ export function CommandPalette({
                     >
                       <FolderOpen size={12} strokeWidth={1.6} />
                     </button>
+                    </Tooltip>
                   </div>
                 );
               })}

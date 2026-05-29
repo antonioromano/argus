@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
-import { Play, Folder, Check, GitBranch } from 'lucide-react';
+import { Play, Check, GitBranch } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
@@ -9,8 +9,6 @@ import {
   TextInput,
   Button,
   Kbd,
-  Chip,
-  IconButton,
   Checkbox,
   Toggle,
   ErrorState,
@@ -214,8 +212,9 @@ export function CreateSheet({
         onSubmit={handleSubmit}
         style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}
       >
-        <Field label="Working folder" required hint="⌘O to browse">
+        <Field label="Working folder" required hint="click or ⌘O to browse">
           <div
+            onClick={handlePickFolder}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -225,29 +224,26 @@ export function CreateSheet({
               background: 'var(--bg-1)',
               border: '1px solid var(--line-2)',
               borderRadius: 'var(--r-2)',
+              cursor: 'pointer',
             }}
           >
-            <Folder size={14} strokeWidth={1.6} color="var(--accent)" />
             <input
               type="text"
-              value={folderPath}
-              onChange={(e) => setFolderPath(e.target.value)}
+              value={picking ? 'opening…' : folderPath}
+              readOnly
               placeholder="~/work/argus"
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
               style={{
                 flex: 1,
                 background: 'transparent',
                 border: 0,
                 outline: 'none',
-                color: 'var(--fg-0)',
+                color: picking ? 'var(--fg-2)' : 'var(--fg-0)',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--t-sm)',
+                cursor: 'pointer',
+                pointerEvents: 'none',
               }}
             />
-            <Chip onClick={handlePickFolder}>{picking ? 'opening…' : 'browse'}</Chip>
-            <IconButton icon={Folder} label="Pick folder" size="sm" onClick={handlePickFolder} />
           </div>
         </Field>
 
