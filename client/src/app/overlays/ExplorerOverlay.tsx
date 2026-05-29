@@ -15,7 +15,7 @@ import { Button, IconButton, Chip, LoadingState, ErrorState } from '../../compon
 import { useFileTree } from '../../hooks/useFileTree.js';
 import { useFileBuffer } from '../../hooks/useFileBuffer.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
-import { FileTreeView } from '../../components/explorer/FileTreeView.js';
+import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
 import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { MonacoPane } from '../../components/explorer/MonacoPane.js';
 import { MarkdownPreview } from '../../components/explorer/MarkdownPreview.js';
@@ -43,7 +43,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine
   const [searchOpen, setSearchOpen] = useState(false);
   const [revealLine, setRevealLine] = useState<number | undefined>(initialLine);
 
-  const tree = useFileTree(session.folderPath);
+  const tree = useFileTree(session.folderPath, session.id);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
   const buffer = useFileBuffer({ sessionId: session.id, filePath: selectedPath });
 
@@ -148,17 +148,12 @@ export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine
           {tree.isLoading && tree.visibleNodes.length === 0 ? (
             <LoadingState label="Loading tree" />
           ) : (
-            <FileTreeView
-              nodes={tree.visibleNodes}
-              selectedPath={selectedPath}
+            <ExplorerFileTree
+              tree={tree}
+              sessionId={session.id}
               gitStatuses={gitStatuses}
-              onSelect={(node) => {
-                if (node.entry.isFile) {
-                  onPickFile(node.path);
-                } else {
-                  tree.toggle(node.path);
-                }
-              }}
+              selectedPath={selectedPath}
+              onOpenFile={(path) => onPickFile(path)}
             />
           )}
           {searchOpen && (

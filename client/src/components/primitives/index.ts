@@ -8,6 +8,8 @@ export { IconButton } from './IconButton.js';
 export { Button } from './Button.js';
 export type { ButtonVariant } from './Button.js';
 export { AlertSheet } from './AlertSheet.js';
+export { ContextMenu } from './ContextMenu.js';
+export type { ContextMenuItem, ContextMenuEntry } from './ContextMenu.js';
 export { Skeleton } from './Skeleton.js';
 export { TriStateCheckbox } from './TriStateCheckbox.js';
 export { InlineIconLink } from './InlineIconLink.js';

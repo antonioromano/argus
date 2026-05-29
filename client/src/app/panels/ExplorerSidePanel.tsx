@@ -3,7 +3,7 @@ import { FolderOpen, Maximize2, RefreshCw } from 'lucide-react';
 import { IconButton, Tooltip } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
-import { FileTreeView } from '../../components/explorer/FileTreeView.js';
+import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
 
 interface ExplorerSidePanelProps {
   session: SessionInfo;
@@ -12,7 +12,7 @@ interface ExplorerSidePanelProps {
 }
 
 export function ExplorerSidePanel({ session, onExpand, width = 320 }: ExplorerSidePanelProps) {
-  const tree = useFileTree(session.folderPath);
+  const tree = useFileTree(session.folderPath, session.id);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
   const folderName = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
 
@@ -58,17 +58,12 @@ export function ExplorerSidePanel({ session, onExpand, width = 320 }: ExplorerSi
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={tree.refresh} />
         <IconButton icon={Maximize2} label="Expand" size="sm" onClick={() => onExpand()} />
       </div>
-      <FileTreeView
-        nodes={tree.visibleNodes}
-        selectedPath={null}
+      <ExplorerFileTree
+        tree={tree}
+        sessionId={session.id}
         gitStatuses={gitStatuses}
-        onSelect={(node) => {
-          if (node.entry.isFile) {
-            onExpand(node.path);
-          } else {
-            tree.toggle(node.path);
-          }
-        }}
+        selectedPath={null}
+        onOpenFile={(path) => onExpand(path)}
       />
     </aside>
   );

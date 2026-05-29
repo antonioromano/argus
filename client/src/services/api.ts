@@ -100,11 +100,11 @@ export const api = {
     return data.completions;
   },
 
-  openPath: async (sessionId: string, filePath: string): Promise<void> => {
+  openPath: async (sessionId: string, filePath: string, reveal = false): Promise<void> => {
     const res = await authFetch(`${API_BASE}/fs/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, path: filePath }),
+      body: JSON.stringify({ sessionId, path: filePath, reveal }),
     });
     if (!res.ok) {
       const err = await res.json() as { error?: string };

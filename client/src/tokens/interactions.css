@@ -118,3 +118,8 @@
     background: var(--bg-1);
   }
 }
+
+/* === CONTEXT MENU ITEMS === */
+.argus-ctx-item { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.argus-ctx-item:not(:disabled):hover { background: var(--bg-3); color: var(--accent); }
+.argus-ctx-item[data-danger]:not(:disabled):hover { background: var(--danger-bg); color: var(--danger); }

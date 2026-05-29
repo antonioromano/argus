@@ -277,7 +277,7 @@ export function createFilesystemRoutes(
   });
 
   router.post('/open', express.json(), async (req, res) => {
-    const { sessionId, path: rawPath } = req.body as { sessionId?: string; path?: string };
+    const { sessionId, path: rawPath, reveal } = req.body as { sessionId?: string; path?: string; reveal?: boolean };
 
     if (!sessionId || !rawPath) {
       res.status(400).json({ success: false, error: 'sessionId and path are required' });
@@ -309,8 +309,13 @@ export function createFilesystemRoutes(
 
     const platform = process.platform;
     const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'explorer' : 'xdg-open';
+    // `reveal` selects the item in the OS file manager rather than opening it.
+    const args =
+      reveal && platform === 'darwin' ? ['-R', resolved]
+      : reveal && platform === 'win32' ? ['/select,', resolved]
+      : [resolved];
 
-    execFile(cmd, [resolved], (err) => {
+    execFile(cmd, args, (err) => {
       if (err) {
         res.status(500).json({ success: false, error: `failed to open: ${err.message}` });
         return;
