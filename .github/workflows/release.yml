@@ -27,6 +27,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # node-pty is a native module; electron-builder's install-app-deps
+      # rebuilds it via node-gyp, which needs distutils. Python 3.12+ removed
+      # distutils from the stdlib, so pin 3.11 (ships distutils) on the runner.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: npm ci
 
