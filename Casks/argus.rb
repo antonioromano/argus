@@ -17,6 +17,14 @@ cask "argus" do
 
   app "Argus.app"
 
+  # App is ad-hoc signed (no Apple Developer cert). Strip the quarantine flag
+  # Homebrew adds on download so Gatekeeper opens it without the manual
+  # right-click -> Open dance. Best-effort; harmless if it no-ops.
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-cr", "#{appdir}/Argus.app"]
+  end
+
   zap trash: [
     "~/Library/Application Support/Argus",
     "~/Library/Logs/Argus",
