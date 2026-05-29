@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.16.6",
+  "version": "0.16.7",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -23,7 +23,14 @@
     "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac -p never"
   },
   "dependencies": {
-    "fix-path": "^4.0.0"
+    "@xterm/headless": "^6.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "fix-path": "^4.0.0",
+    "node-pty": "^1.1.0",
+    "semver": "^7.7.1",
+    "socket.io": "^4.8.3",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
