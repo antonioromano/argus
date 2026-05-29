@@ -10,7 +10,10 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-15
+    # Intel runner builds DMGs on HFS+, which avoids the flaky APFS
+    # `hdiutil detach … resource busy` failures on the arm64 macos-14/15 runners.
+    # Cross-arch packaging (arm64 + x64) works fine from an Intel host.
+    runs-on: macos-13
 
     steps:
       - uses: actions/checkout@v4
