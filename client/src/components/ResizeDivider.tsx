@@ -9,38 +9,28 @@ interface ResizeDividerProps {
 export function ResizeDivider({ isDragging, onMouseDown, orientation = 'vertical' }: ResizeDividerProps) {
   const [isHovered, setIsHovered] = useState(false);
   const isActive = isDragging || isHovered;
-
+  const baseStyle: React.CSSProperties = {
+    flexShrink: 0,
+    background: isActive ? 'var(--accent-edge)' : 'var(--line-2)',
+    transition: isDragging ? 'none' : 'background var(--dur-fast) var(--ease-std)',
+    userSelect: 'none',
+  };
   if (orientation === 'vertical') {
     return (
       <div
         onMouseDown={onMouseDown}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        style={{
-          width: '3px',
-          cursor: 'col-resize',
-          flexShrink: 0,
-          background: isActive ? 'var(--color-accent)' : 'var(--color-border-ghost)',
-          transition: isDragging ? 'none' : 'background 0.15s',
-          userSelect: 'none',
-        }}
+        style={{ ...baseStyle, width: 3, cursor: 'col-resize' }}
       />
     );
   }
-
   return (
     <div
       onMouseDown={onMouseDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      style={{
-        height: '3px',
-        cursor: 'row-resize',
-        flexShrink: 0,
-        background: isActive ? 'var(--color-accent)' : 'var(--color-border-ghost)',
-        transition: isDragging ? 'none' : 'background 0.15s',
-        userSelect: 'none',
-      }}
+      style={{ ...baseStyle, height: 3, cursor: 'row-resize' }}
     />
   );
 }

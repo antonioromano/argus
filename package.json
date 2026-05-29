@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.15.1",
+  "version": "0.16.0",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -14,9 +14,9 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
-    "dev": "PORT=5401 DATA_DIR=data-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev": "npm run electron:dev",
+    "dev:web": "PORT=5401 DATA_DIR=data-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
-    "start": "NODE_ENV=production node server/dist/index.js",
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && ARGUS_PORT=5403 electron .",
@@ -41,6 +41,13 @@
       "shared/dist/**",
       "node_modules/**",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "electron/resources/tmux",
+        "to": "tmux",
+        "filter": ["**/*"]
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

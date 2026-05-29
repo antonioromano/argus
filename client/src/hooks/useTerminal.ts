@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import { isMac, isPrimaryModifier } from '../utils/platform.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -13,6 +15,12 @@ interface UseTerminalOptions {
   sessionId: string;
   socket: TypedSocket;
   theme: 'dark' | 'light';
+  /** Display-only: no stdin, no keyboard capture (mobile feeds input via a separate compose bar). */
+  readOnly?: boolean;
+  /** Called (debounced) with the bottom non-empty terminal row — used for mobile chip detection. */
+  onTail?: (line: string) => void;
+  /** Called when xterm gains or loses keyboard focus. */
+  onFocusChange?: (focused: boolean) => void;
 }
 
 const DARK_THEME = {
@@ -67,9 +75,13 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme } = options;
+  const { sessionId, socket, theme, readOnly = false, onTail, onFocusChange } = options;
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  const onTailRef = useRef(onTail);
+  useEffect(() => { onTailRef.current = onTail; }, [onTail]);
+  const onFocusChangeRef = useRef(onFocusChange);
+  useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
 
   // Create terminal and wire up socket
   useEffect(() => {
@@ -78,20 +90,49 @@ export function useTerminal(
 
     const fitAddon = new FitAddon();
     const terminal = new Terminal({
-      cursorBlink: true,
+      cursorBlink: !readOnly,
+      disableStdin: readOnly,
       fontSize: 13,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
       scrollback: 5000,
       scrollSensitivity: 3,
       fastScrollSensitivity: 10,
+      macOptionIsMeta: isMac,
+    });
+
+    // Visual bell — xterm v5 removed bellStyle, so wire it manually via onBell.
+    let bellTimer: ReturnType<typeof setTimeout> | null = null;
+    terminal.onBell(() => {
+      const el = container as HTMLElement;
+      el.classList.remove('terminal-bell-flash');
+      // Force reflow to retrigger the animation.
+      void el.offsetWidth;
+      el.classList.add('terminal-bell-flash');
+      if (bellTimer) clearTimeout(bellTimer);
+      bellTimer = window.setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
     });
 
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
 
     terminal.open(container);
+
+    const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');
+    const onXtermFocus = () => onFocusChangeRef.current?.(true);
+    const onXtermBlur  = () => onFocusChangeRef.current?.(false);
+    xtermTextarea?.addEventListener('focus', onXtermFocus);
+    xtermTextarea?.addEventListener('blur', onXtermBlur);
+
+    // WebGL renderer — graceful fallback to canvas if context creation fails.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      terminal.loadAddon(webgl);
+    } catch (err) {
+      console.warn('[useTerminal] WebGL renderer unavailable, falling back to canvas:', err);
+    }
 
     // Delay fit to allow container to settle, then report dimensions to server
     requestAnimationFrame(() => {
@@ -122,15 +163,31 @@ export function useTerminal(
     };
     socket.on('connect', handleReconnect);
 
+    // Debounced read of the bottom non-empty buffer row (read-only / mobile chip detection)
+    let tailTimer: ReturnType<typeof setTimeout> | null = null;
+    const emitTail = () => {
+      if (!onTailRef.current) return;
+      const buf = terminal.buffer.active;
+      for (let y = buf.baseY + terminal.rows - 1; y >= 0; y--) {
+        const text = buf.getLine(y)?.translateToString(true) ?? '';
+        if (text.trim() !== '') { onTailRef.current(text); return; }
+      }
+      onTailRef.current('');
+    };
+
     // Socket -> Terminal
     const handleOutput = ({ sessionId: sid, data }: { sessionId: string; data: string }) => {
       if (sid === sessionId) {
         terminal.write(data);
+        if (onTailRef.current) {
+          if (tailTimer) clearTimeout(tailTimer);
+          tailTimer = setTimeout(emitTail, 150);
+        }
       }
     };
     socket.on('session:output', handleOutput);
 
-    terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+    if (!readOnly) terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       // Shift+Enter: send ESC+CR so Claude Code inserts a newline
       if (
         event.key === 'Enter' &&
@@ -145,10 +202,9 @@ export function useTerminal(
         return false;
       }
 
-      // Cmd+K/L (Mac) or Ctrl+K/L (non-Mac) clears the terminal
-      const isMac = navigator.platform.toUpperCase().includes('MAC');
-      const modifier = isMac ? event.metaKey : event.ctrlKey;
-      if (modifier && (event.key === 'k' || event.key === 'K' || event.key === 'l' || event.key === 'L')) {
+      // Cmd+L (Mac) or Ctrl+L (others) clears the terminal — matches Terminal.app convention.
+      // Cmd+K is reserved for the global Command Palette (see App.tsx).
+      if (isPrimaryModifier(event) && (event.key === 'l' || event.key === 'L')) {
         if (event.type === 'keydown') {
           terminal.clear();
           socket.emit('session:clear-buffer', sessionId);
@@ -158,10 +214,12 @@ export function useTerminal(
       return true;
     });
 
-    // Terminal -> Socket
-    const onDataDisposable = terminal.onData((data) => {
-      socket.emit('session:input', { sessionId, data });
-    });
+    // Terminal -> Socket (interactive only; mobile sends via the compose bar)
+    const onDataDisposable = readOnly
+      ? null
+      : terminal.onData((data) => {
+          socket.emit('session:input', { sessionId, data });
+        });
 
     // Resize handling
     const doFit = () => {
@@ -193,9 +251,13 @@ export function useTerminal(
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (tailTimer) clearTimeout(tailTimer);
+      if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
-      onDataDisposable.dispose();
+      xtermTextarea?.removeEventListener('focus', onXtermFocus);
+      xtermTextarea?.removeEventListener('blur', onXtermBlur);
+      onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('connect', handleReconnect);
       socket.emit('session:leave', sessionId);
@@ -203,12 +265,14 @@ export function useTerminal(
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, socket, containerRef]);
+  }, [sessionId, socket, containerRef, readOnly]);
 
   // Update theme without recreating the terminal
   useEffect(() => {
-    if (terminalRef.current) {
-      terminalRef.current.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+    const t = terminalRef.current;
+    if (t) {
+      t.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+      t.refresh(0, t.rows - 1);
     }
   }, [theme]);
 

@@ -3,7 +3,6 @@ import { Tooltip } from './Tooltip.js';
 
 interface IconButtonProps {
   icon: LucideIcon;
-  /** Used as aria-label and tooltip content. */
   label: string;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   variant?: 'ghost' | 'outlined';
@@ -22,32 +21,29 @@ export function IconButton({
   size = 'md',
   active = false,
   disabled = false,
+  className,
   style,
 }: IconButtonProps) {
-  const dim = size === 'sm' ? 28 : 32;
-  const iconSize = size === 'sm' ? 14 : 16;
-
+  const dim = size === 'sm' ? 24 : 28;
+  const iconSize = size === 'sm' ? 12 : 14;
   const base: React.CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     width: dim,
     height: dim,
-    borderRadius: 'var(--radius-sm)',
-    border: variant === 'outlined' ? 'none' : 'none',
-    background: active ? 'var(--color-accent-subtle)' : 'transparent',
-    color: active ? 'var(--color-accent)' : 'var(--color-text-muted)',
+    borderRadius: 'var(--r-2)',
+    border: variant === 'outlined' ? '1px solid var(--line-2)' : '1px solid transparent',
+    background: active ? 'var(--bg-3)' : 'transparent',
+    color: active ? 'var(--accent)' : 'var(--fg-2)',
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.45 : 1,
-    transition: `background var(--transition-fast), color var(--transition-fast)`,
+    transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
     flexShrink: 0,
     padding: 0,
     ...style,
   };
-
-  const hoverClass = variant === 'outlined' ? 'ghost-border' : '';
-  const btnClass = [hoverClass, !disabled && !active ? 'hover-bg-surface' : ''].filter(Boolean).join(' ');
-
+  const btnClass = [!disabled && !active ? 'hover-bg-3' : '', className].filter(Boolean).join(' ');
   return (
     <Tooltip content={label} position="top">
       <button
@@ -57,7 +53,7 @@ export function IconButton({
         className={btnClass}
         style={base}
       >
-        <Icon size={iconSize} strokeWidth={1.75} />
+        <Icon size={iconSize} strokeWidth={1.6} />
       </button>
     </Tooltip>
   );

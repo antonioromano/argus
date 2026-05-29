@@ -11,10 +11,10 @@
   left: 8px;
   z-index: 9999;
   padding: 8px 16px;
-  background: var(--color-accent);
-  color: #fff;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
-  font-size: 14px;
+  background: var(--accent);
+  color: var(--fg-on-accent);
+  border-radius: 0 0 var(--r-2) var(--r-2);
+  font-size: var(--t-base);
   font-weight: 600;
   text-decoration: none;
   transition: top 0.1s;
@@ -27,7 +27,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--color-bg-deepest);
+  background: var(--bg-0);
 }
 
 #root {
@@ -35,9 +35,11 @@ body {
   height: calc(100dvh - env(safe-area-inset-top, 0px));
 }
 
+/* Overlay scrollbar — visible only on hover for pointer devices,
+ * always-visible (low alpha) for touch devices that have no hover. */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -45,15 +47,44 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-surface-highest);
-  border-radius: 3px;
+  background: transparent;
+  border-radius: 4px;
+  transition: background 120ms ease;
+}
+
+@media (hover: hover) {
+  *:hover > ::-webkit-scrollbar-thumb,
+  :hover::-webkit-scrollbar-thumb {
+    background: var(--line-3);
+  }
+}
+
+@media (hover: none) {
+  ::-webkit-scrollbar-thumb {
+    background: var(--line-2);
+  }
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-surface-bright);
+  background: var(--fg-3);
 }
 
-/* xterm.js viewport scrollbar — more visible than the global 5px default */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+@media (hover: hover) {
+  *:hover {
+    scrollbar-color: var(--line-3) transparent;
+  }
+}
+@media (hover: none) {
+  * {
+    scrollbar-color: var(--line-2) transparent;
+  }
+}
+
+/* xterm.js viewport scrollbar */
 .xterm-viewport::-webkit-scrollbar {
   width: 8px;
 }
@@ -61,49 +92,33 @@ body {
   background: transparent;
 }
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.5);
+  background: var(--line-3);
   border-radius: 4px;
 }
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.8);
+  background: var(--fg-3);
 }
 
-/* Non-focused terminal overlay — dims inactive terminals in grid view */
 .terminal-panel {
   position: relative;
   contain: layout style paint;
 }
 
-.terminal-panel::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  pointer-events: none;
-  z-index: 3;
-  border-radius: inherit;
-  opacity: 1;
-  transition: opacity 0.2s ease;
+/* Bell flash — wired from useTerminal.ts onBell. */
+.terminal-bell-flash {
+  animation: terminal-bell-flash 0.2s ease-out;
+}
+@keyframes terminal-bell-flash {
+  0%   { background: var(--accent-bg); }
+  100% { background: transparent; }
 }
 
-.terminal-panel:focus-within::after {
-  opacity: 0;
-}
-
-/* Mobile bottom nav — hidden on desktop */
-.mobile-bottom-nav {
-  display: flex;
-}
+/* Hide overflow scrollbar on mobile chip strip */
+.mobile-chips-row::-webkit-scrollbar { display: none; }
 
 /* Mobile terminal input bar — hidden on desktop */
 .mobile-terminal-input {
   display: none;
-}
-
-@media (min-width: 768px) {
-  .mobile-bottom-nav {
-    display: none !important;
-  }
 }
 
 /* Pad body content on mobile to account for bottom nav */
@@ -112,7 +127,6 @@ body {
     padding-bottom: 64px;
   }
 
-  /* Sessions: make dashboard scrollable on mobile */
   .dashboard-outer {
     overflow-y: auto !important;
   }
@@ -129,35 +143,27 @@ body {
     overflow: visible !important;
     grid-auto-rows: auto !important;
   }
-  /* Give each terminal a fixed height so xterm renders properly.
-     440px = ~340px terminal + ~100px for the mobile input bar */
   .terminal-panel {
     min-height: 440px !important;
     flex: none !important;
   }
-
-  /* Mobile only shows one terminal at a time (auto-focus mode) — the
-     "unfocused" dim overlay serves no purpose here and can confuse tap
-     targets on iOS Safari. Remove it entirely on mobile. */
   .terminal-panel::after {
     display: none !important;
   }
 
-  /* Native iOS scroll on xterm viewport — replaces the old JS touch handler */
   .xterm-viewport {
-    -webkit-overflow-scrolling: touch; /* iOS momentum scroll */
-    overscroll-behavior: contain;      /* don't chain to page/background at edges */
-    touch-action: pan-y;               /* vertical pan only; taps still fall through */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
-  /* Mobile terminal input toolbar */
   .mobile-terminal-input {
     display: flex;
     flex-direction: column;
     gap: 6px;
     padding: 6px 8px;
-    background: var(--color-bg-elevated);
-    border-top: 1px solid var(--color-border-base);
+    background: var(--bg-2);
+    border-top: 1px solid var(--line-2);
     flex-shrink: 0;
   }
 
@@ -175,12 +181,12 @@ body {
     min-width: 36px;
     height: 36px;
     padding: 0 6px;
-    border: 1px solid var(--color-border-base);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg-surface);
-    color: var(--color-text-primary);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-2);
+    background: var(--bg-2);
+    color: var(--fg-0);
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--t-sm);
     font-weight: 500;
     cursor: pointer;
     display: inline-flex;
@@ -190,8 +196,8 @@ body {
   }
 
   .mobile-quickkey-btn:active {
-    background: var(--color-accent-subtle);
-    border-color: var(--color-accent);
+    background: var(--accent-bg);
+    border-color: var(--accent);
   }
 
   .mobile-terminal-textrow {
@@ -207,10 +213,10 @@ body {
     font-family: var(--font-mono);
     padding: 8px 12px;
     min-height: 44px;
-    border: 1px solid var(--color-border-base);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg-surface);
-    color: var(--color-text-primary);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-2);
+    background: var(--bg-2);
+    color: var(--fg-0);
     outline: none;
     box-sizing: border-box;
   }
@@ -220,11 +226,11 @@ body {
     min-height: 44px;
     padding: 0 16px;
     border: none;
-    border-radius: var(--radius-sm);
-    background: var(--color-accent);
-    color: #ffffff;
+    border-radius: var(--r-2);
+    background: var(--accent);
+    color: var(--fg-on-accent);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--t-base);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
@@ -233,7 +239,6 @@ body {
     opacity: 0.8;
   }
 
-  /* Focus mode: hide desktop sidebar, show mobile dropdown header */
   .focus-sidebar {
     display: none !important;
   }
@@ -242,14 +247,12 @@ body {
     display: flex !important;
   }
 
-  /* Search inputs: prevent iOS auto-zoom (font-size must be >= 16px) */
   .diff-search-input {
     font-size: 16px !important;
     padding: 8px 12px !important;
     min-height: 44px !important;
   }
 
-  /* Session dropdown: larger touch target */
   .diff-session-select {
     font-size: 16px !important;
     padding: 8px !important;
@@ -258,12 +261,10 @@ body {
     min-height: 44px !important;
   }
 
-  /* Settings button moved to bottom nav on mobile */
   .header-settings-btn {
     display: none !important;
   }
 
-  /* Fullscreen API not supported on iOS — hide the button on mobile */
   .header-fullscreen-btn {
     display: none !important;
   }
@@ -271,28 +272,29 @@ body {
 
 /* Markdown preview styles */
 .md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4, .md-preview h5, .md-preview h6 {
-  color: var(--color-text-primary);
+  color: var(--fg-0);
   font-weight: 600;
   margin: 1.2em 0 0.4em;
   line-height: 1.3;
 }
-.md-preview h1 { font-size: 1.5em; border-bottom: 1px solid var(--color-border-base); padding-bottom: 0.3em; }
-.md-preview h2 { font-size: 1.25em; border-bottom: 1px solid var(--color-border-base); padding-bottom: 0.2em; }
+.md-preview h1 { font-size: 1.5em; border-bottom: 1px solid var(--line-2); padding-bottom: 0.3em; }
+.md-preview h2 { font-size: 1.25em; border-bottom: 1px solid var(--line-2); padding-bottom: 0.2em; }
 .md-preview h3 { font-size: 1.1em; }
 .md-preview p { margin: 0.6em 0; }
-.md-preview a { color: var(--color-accent); text-decoration: underline; }
+.md-preview a { color: var(--accent); text-decoration: underline; }
 .md-preview ul, .md-preview ol { margin: 0.5em 0; padding-left: 1.5em; }
 .md-preview li { margin: 0.2em 0; }
-.md-preview code { font-family: var(--font-mono); font-size: 0.88em; background: var(--color-bg-elevated); padding: 0.1em 0.35em; border-radius: 3px; }
-.md-preview pre { background: var(--color-bg-elevated); border: 1px solid var(--color-border-base); border-radius: var(--radius-sm); padding: 12px 14px; overflow-x: auto; margin: 0.6em 0; }
+.md-preview code { font-family: var(--font-mono); font-size: 0.88em; background: var(--bg-2); padding: 0.1em 0.35em; border-radius: 3px; }
+.md-preview pre { background: var(--bg-inset); border: 1px solid var(--line-2); border-radius: var(--r-2); padding: 12px 14px; overflow-x: auto; margin: 0.6em 0; }
 .md-preview pre code { background: none; padding: 0; }
-.md-preview blockquote { border-left: 3px solid var(--color-border-base); margin: 0.6em 0; padding: 0.2em 0.8em; color: var(--color-text-muted); }
+.md-preview blockquote { border-left: 3px solid var(--line-2); margin: 0.6em 0; padding: 0.2em 0.8em; color: var(--fg-2); }
 .md-preview table { border-collapse: collapse; width: 100%; margin: 0.8em 0; }
-.md-preview th, .md-preview td { border: 1px solid var(--color-border-base); padding: 6px 10px; text-align: left; }
-.md-preview th { background: var(--color-bg-elevated); font-weight: 600; }
-.md-preview hr { border: none; border-top: 1px solid var(--color-border-base); margin: 1em 0; }
+.md-preview th, .md-preview td { border: 1px solid var(--line-2); padding: 6px 10px; text-align: left; }
+.md-preview th { background: var(--bg-2); font-weight: 600; }
+.md-preview hr { border: none; border-top: 1px solid var(--line-2); margin: 1em 0; }
+.md-preview img { max-width: 100%; height: auto; }
 
-/* Commit FAB (mobile only — controlled by React isMobile state) */
+/* Commit FAB (mobile only) */
 .commit-fab {
   position: fixed;
   bottom: calc(64px + 16px);
@@ -300,8 +302,8 @@ body {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: var(--color-accent);
-  color: #fff;
+  background: var(--accent);
+  color: var(--fg-on-accent);
   border: none;
   cursor: pointer;
   display: flex;
@@ -322,8 +324,8 @@ body {
   position: absolute;
   top: -4px;
   right: -4px;
-  background: var(--color-error);
-  color: #fff;
+  background: var(--danger);
+  color: var(--fg-on-accent);
   border-radius: 10px;
   font-size: 10px;
   font-weight: 700;
@@ -334,11 +336,11 @@ body {
   pointer-events: none;
 }
 
-/* Commit bottom sheet (mobile only — controlled by React state) */
+/* Commit bottom sheet (mobile only) */
 .commit-sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--bg-overlay);
   z-index: 100;
   animation: commitFadeIn 0.2s ease;
 }
@@ -355,8 +357,8 @@ body {
   right: 0;
   z-index: 101;
   border-radius: 16px 16px 0 0;
-  background: var(--color-bg-elevated);
-  border-top: 1px solid var(--color-border-base);
+  background: var(--bg-2);
+  border-top: 1px solid var(--line-2);
   max-height: 85vh;
   overflow-y: auto;
   animation: commitSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
@@ -372,7 +374,374 @@ body {
   width: 36px;
   height: 4px;
   border-radius: 2px;
-  background: var(--color-border-base);
+  background: var(--line-2);
   margin: 10px auto 2px;
 }
-.md-preview img { max-width: 100%; height: auto; }
+
+/* ============================================================
+   ARGUS COMPONENT CLASSES — promoted from inline styles.
+   Variant via data-* attributes. Hover via :hover (no React).
+   ============================================================ */
+
+/* === STATUS — pill / dot / bar share one data-status mapping === */
+.argus-status[data-status="waiting"] { --st-color: var(--status-waiting); --st-bg: var(--status-waiting-bg); }
+.argus-status[data-status="running"] { --st-color: var(--status-running); --st-bg: var(--status-running-bg); }
+.argus-status[data-status="idle"]    { --st-color: var(--status-idle);    --st-bg: var(--status-idle-bg); }
+.argus-status[data-status="exited"]  { --st-color: var(--status-exited);  --st-bg: var(--status-exited-bg); }
+
+.argus-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px var(--s-2);
+  background: var(--st-bg);
+  color: var(--st-color);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  letter-spacing: var(--tracking-eye);
+  border: 1px solid color-mix(in srgb, var(--st-color) 20%, transparent);
+  border-radius: var(--r-1);
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.argus-pill[data-size="sm"] { padding: 2px var(--s-2); font-size: var(--t-micro); }
+
+.argus-dot {
+  display: inline-block;
+  border-radius: 50%;
+  background: var(--st-color);
+  flex-shrink: 0;
+}
+.argus-dot[data-pulse="true"] {
+  box-shadow: 0 0 8px var(--st-color);
+  animation: argus-pulse-dot var(--dur-ambient) ease-in-out infinite;
+}
+
+.argus-bar {
+  position: relative;
+  width: 100%;
+  background: var(--st-color);
+  overflow: hidden;
+}
+.argus-bar[data-status="waiting"] {
+  animation: argus-pulse-bar var(--dur-ambient) ease-in-out infinite;
+}
+.argus-bar-marquee {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(115deg, transparent 0, transparent 4px, rgba(0,0,0,0.25) 4px, rgba(0,0,0,0.25) 8px);
+  animation: argus-marquee 1.5s linear infinite;
+}
+
+/* === SIDEBAR === */
+.argus-sidebar {
+  flex-shrink: 0;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-2);
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-3) var(--s-2);
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition: width 180ms var(--ease-std);
+  width: 220px;
+}
+.argus-sidebar[data-collapsed="true"] { width: 56px; }
+
+.argus-sidebar-row {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--s-2);
+  padding: 6px var(--s-2);
+  color: var(--fg-1);
+  background: transparent;
+  border-radius: var(--r-2);
+  font-size: var(--t-sm);
+  margin-bottom: 1px;
+  box-sizing: border-box;
+  transition: background var(--dur-fast) var(--ease-std),
+              color var(--dur-fast);
+}
+.argus-sidebar-row svg { flex-shrink: 0; }
+.argus-sidebar-row:hover { background: var(--bg-2); color: var(--fg-0); }
+.argus-sidebar-row:active { background: var(--accent-bg); }
+.argus-sidebar-row[data-active="true"] { background: var(--bg-3); color: var(--fg-0); }
+.argus-sidebar-row[data-highlight="true"] { color: var(--accent); }
+.argus-sidebar-row[data-highlight="true"]:hover { color: var(--accent); }
+
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-label,
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-count,
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-kbd {
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  max-width: 0;
+  min-width: 0;
+  flex: 0 0 0;
+  margin: 0;
+  overflow: hidden;
+  transition: opacity 100ms var(--ease-std);
+}
+.argus-sidebar-row > .argus-sidebar-label { flex: 1; white-space: nowrap; overflow: hidden; transition: opacity 120ms var(--ease-std); }
+
+/* Keep eyebrows + version text mounted on collapse — fade only, preserve box/space (no layout jump) */
+.argus-sidebar .eyebrow { transition: opacity 120ms var(--ease-std); }
+.argus-sidebar[data-collapsed="true"] .eyebrow { opacity: 0; pointer-events: none; }
+.argus-sidebar-version-txt { transition: opacity 120ms var(--ease-std); }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-version-txt {
+  opacity: 0;
+  width: 0;
+  min-width: 0;
+  flex: 0 0 0;
+  overflow: hidden;
+}
+
+/* Session tree collapse animation */
+.argus-sidebar-tree {
+  overflow: hidden;
+  max-height: 600px;
+  opacity: 1;
+  margin-bottom: var(--s-2);
+  transition: max-height 320ms var(--ease-out), opacity 260ms var(--ease-out);
+}
+.argus-sidebar-tree--collapsed {
+  max-height: 0;
+  opacity: 0;
+  margin-bottom: 0;
+}
+
+/* Stagger — command palette eases as the tree opens/closes, both directions, no flash */
+@keyframes argus-stagger-in  { from { opacity: .45; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@keyframes argus-stagger-out { from { opacity: .45; transform: translateY(3px);  } to { opacity: 1; transform: none; } }
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-row[data-stagger="0"] {
+  animation: argus-stagger-in 360ms var(--ease-out) both;
+}
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-row[data-stagger="0"] {
+  animation: argus-stagger-out 360ms var(--ease-out) both;
+}
+
+.argus-sidebar-count {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-3);
+  letter-spacing: var(--tracking-eye);
+  font-variant-numeric: tabular-nums;
+}
+.argus-sidebar-row[data-highlight="true"] .argus-sidebar-count { color: var(--accent); }
+
+.argus-sidebar-collapse-btn {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 6px var(--s-2);
+  color: var(--fg-2);
+  border-radius: var(--r-2);
+  margin-bottom: var(--s-2);
+  justify-content: flex-end;
+}
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { justify-content: center; }
+
+/* === TITLEBAR === */
+.argus-titlebar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0 var(--s-3) 0 80px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+}
+.argus-titlebar-title {
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-eye);
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+.argus-titlebar-title-sub { color: var(--fg-3); }
+.argus-titlebar-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+/* === MOSAIC === */
+.argus-mosaic {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr));
+  grid-auto-rows: 1fr;
+  gap: var(--s-3);
+  padding: var(--s-3);
+}
+.argus-mosaic-minrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-3) 0;
+}
+.argus-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+  animation: argus-fade-in var(--dur-base) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+.argus-tile[data-status="waiting"] { border-color: var(--status-waiting); }
+.argus-tile[data-minimized="true"] { width: min(240px, 100%); flex-shrink: 0; }
+
+.argus-tile-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-3);
+  background: var(--bg-1);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.argus-tile:not([data-minimized="true"]) .argus-tile-header {
+  border-bottom: 1px solid var(--line-2);
+}
+
+.argus-tile-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.13);
+  pointer-events: none;
+  z-index: 2;
+  transition: opacity var(--dur-fast);
+}
+
+/* === File drop overlay (TerminalShell drag-over) === */
+.argus-drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-overlay);
+  backdrop-filter: blur(3px) saturate(115%);
+  -webkit-backdrop-filter: blur(3px) saturate(115%);
+  pointer-events: none;
+  z-index: 3;
+  animation: argus-drop-fade 120ms ease-out;
+}
+.argus-drop-pill {
+  --drop-pill-hl: rgba(255, 255, 255, 0.18);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent-lo);
+  padding: 9px 16px 9px 13px;
+  border-radius: 999px;
+  box-shadow:
+    0 1px 0 var(--drop-pill-hl) inset,
+    0 8px 22px var(--accent-glow),
+    0 0 0 4px var(--accent-bg);
+  animation: argus-drop-pulse 1.4s ease-in-out infinite;
+}
+.argus-drop-pill svg {
+  flex-shrink: 0;
+  animation: argus-drop-arrow 1.4s ease-in-out infinite;
+}
+@keyframes argus-drop-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes argus-drop-pulse {
+  0%, 100% { box-shadow: 0 1px 0 var(--drop-pill-hl) inset, 0 8px 22px var(--accent-glow), 0 0 0 4px var(--accent-bg); }
+  50%      { box-shadow: 0 1px 0 var(--drop-pill-hl) inset, 0 10px 28px var(--accent-glow), 0 0 0 8px var(--accent-bg); }
+}
+@keyframes argus-drop-arrow {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(2px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .argus-drop-overlay,
+  .argus-drop-pill,
+  .argus-drop-pill svg { animation: none !important; }
+}
+
+/* Light-theme: cream pill + amber text (variant 4). Inverts the relationship
+   so the pill floats brightly against the dimmed cream backdrop. */
+[data-theme="light"] .argus-drop-pill {
+  --drop-pill-hl: rgba(255, 255, 255, 0.6);
+  color: var(--accent-lo);
+  background: var(--bg-0);
+  border: 1.5px solid var(--accent);
+}
+
+/* === WAITING SWEEP — Track 2 signature moment === */
+.terminal-card[data-status="waiting"]::after,
+.argus-tile[data-status="waiting"]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  animation: argus-sweep 3.6s linear infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* === INLINE ICON LINK === */
+.argus-inline-icon {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--fg-3);
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: var(--r-1);
+  opacity: var(--rest-opacity, 1);
+  transition: color var(--dur-fast), opacity var(--dur-fast);
+}
+.argus-inline-icon:hover {
+  color: var(--hover-color, var(--accent));
+  opacity: 1;
+}
+
+/* === MOSAIC empty-state vignette === */
+.argus-mosaic-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+  position: relative;
+}
+.argus-mosaic-empty::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, var(--accent-bg) 0%, transparent 60%);
+  pointer-events: none;
+}
+

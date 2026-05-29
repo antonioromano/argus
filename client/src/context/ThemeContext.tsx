@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 
 // The resolved (applied) theme — what actually gets written to the DOM
@@ -74,17 +75,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setMode = useCallback((m: ThemeMode) => {
-    setModeState(m);
-    localStorage.setItem('theme-mode', m);
+    const apply = () => {
+      setModeState(m);
+      localStorage.setItem('theme-mode', m);
+    };
+    if (!document.startViewTransition) { apply(); return; }
+    document.startViewTransition(() => flushSync(apply));
   }, []);
 
   // Backwards-compat toggle: flips between dark and light explicitly,
   // exiting system mode if it was active.
   const toggle = useCallback(() => {
-    const next: ThemeMode = theme === 'dark' ? 'light' : 'dark';
-    setModeState(next);
-    localStorage.setItem('theme-mode', next);
-  }, [theme]);
+    setMode(theme === 'dark' ? 'light' : 'dark');
+  }, [theme, setMode]);
 
   return (
     <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', mode, setMode, toggle }}>

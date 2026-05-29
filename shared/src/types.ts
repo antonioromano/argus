@@ -44,6 +44,9 @@ export interface SessionInfo {
   agentType: AgentType;
   flags: string[];  // flags this session was created with
   hasGitChanges?: boolean;
+  worktreePath?: string;    // set for worktree sessions; equals folderPath
+  worktreeBranch?: string;  // branch name this worktree is on
+  lastPrompt?: string;      // extracted prompt text when status === 'waiting'; used by notifications
 }
 
 export interface CreateSessionRequest {
@@ -51,9 +54,27 @@ export interface CreateSessionRequest {
   name?: string;
   agentType?: AgentType;
   flags?: string[];  // resolved flag value strings to append to command
+  worktreeBranch?: string;  // if set, create a git worktree on this branch
+  worktreeBase?: string;    // base branch/commit for the new branch (default: HEAD)
 }
 
 export interface CreateSessionResponse extends SessionInfo {}
+
+export interface SessionGroup {
+  id: string;            // crypto.randomUUID()
+  name: string;
+  color: string;         // groupColors palette key
+  collapsed: boolean;
+  sessionIds: string[];  // membership + within-group display order
+}
+
+export interface GetGroupsResponse {
+  groups: SessionGroup[];
+}
+
+export interface SaveGroupsRequest {
+  groups: SessionGroup[];
+}
 
 export interface PathCompletionResponse {
   completions: string[];
@@ -71,11 +92,16 @@ export interface ClientToServerEvents {
   'ephemeral:input': (payload: { id: string; data: string }) => void;
   'ephemeral:resize': (payload: { id: string; cols: number; rows: number }) => void;
   'ephemeral:kill': (payload: { id: string }) => void;
+  // Companion terminals (one per session, persists while parent session is alive)
+  'ct:join': (sessionId: string) => void;
+  'ct:leave': (sessionId: string) => void;
+  'ct:input': (payload: { sessionId: string; data: string }) => void;
+  'ct:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;
 }
 
 export interface ServerToClientEvents {
   'session:output': (payload: { sessionId: string; data: string }) => void;
-  'session:status': (payload: { sessionId: string; status: SessionStatus }) => void;
+  'session:status': (payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => void;
   'session:exit': (payload: { sessionId: string; exitCode: number }) => void;
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
@@ -88,6 +114,9 @@ export interface ServerToClientEvents {
   // Ephemeral terminal responses
   'ephemeral:output': (payload: { id: string; data: string }) => void;
   'ephemeral:exit': (payload: { id: string; exitCode: number }) => void;
+  // Companion terminal responses
+  'ct:output': (payload: { sessionId: string; data: string }) => void;
+  'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;
 }
 
 export interface UpdateStatus {
@@ -265,6 +294,7 @@ export interface FileSearchResult {
   name: string;
   ext: string;
   matchType: 'filename' | 'content';
+  lineNumber?: number;
 }
 
 export interface FileSearchResponse {
@@ -331,6 +361,24 @@ export interface ChangelistStateResponse {
   version: number;
   activeId: string;
   lists: ChangelistEntry[];
+}
+
+// Commit selection (IntelliJ-style per-change-block checkboxes for the diff overlay)
+
+export interface CommitSelectionBlock {
+  hash: string; // sha256(filePath + "\n" + joined plain-text lines)
+}
+
+export interface CommitSelectionFile {
+  filePath: string;
+  source: 'unstaged';
+  fromPath?: string;
+  blocks: CommitSelectionBlock[];
+}
+
+export interface CommitSelectionState {
+  version: 1;
+  files: CommitSelectionFile[];
 }
 
 // File CRUD request/response types

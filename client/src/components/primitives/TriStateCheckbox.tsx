@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 
 interface TriStateCheckboxProps {
   checked: boolean | 'indeterminate';
@@ -8,32 +8,39 @@ interface TriStateCheckboxProps {
   label?: string;
 }
 
-export function TriStateCheckbox({ checked, onChange, size = 13, disabled = false, label }: TriStateCheckboxProps) {
-  const ref = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    ref.current.indeterminate = checked === 'indeterminate';
-  }, [checked]);
-
+export function TriStateCheckbox({ checked, onChange, size = 14, disabled = false, label }: TriStateCheckboxProps) {
+  const isOn = checked === true;
+  const isMixed = checked === 'indeterminate';
+  const filled = isOn || isMixed;
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked === true}
-      onChange={onChange}
-      onClick={e => e.stopPropagation()}
-      disabled={disabled}
-      aria-checked={checked === 'indeterminate' ? 'mixed' : checked}
+    <span
+      role="checkbox"
+      tabIndex={disabled ? -1 : 0}
+      aria-checked={isMixed ? 'mixed' : isOn}
       aria-label={label}
+      onClick={(e) => { e.stopPropagation(); if (!disabled) onChange(); }}
+      onKeyDown={(e) => { if (!disabled && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); onChange(); } }}
       style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         width: size,
         height: size,
         minWidth: size,
+        borderRadius: 'var(--r-1)',
+        background: filled ? 'var(--accent)' : 'transparent',
+        border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        accentColor: 'var(--color-accent)',
         flexShrink: 0,
+        opacity: disabled ? 0.5 : 1,
+        transition: 'background var(--dur-fast), border-color var(--dur-fast)',
       }}
-    />
+    >
+      {isMixed ? (
+        <span style={{ width: size * 0.5, height: 2, background: 'var(--fg-on-accent)' }} />
+      ) : isOn ? (
+        <Check size={size - 4} strokeWidth={2.5} color="var(--fg-on-accent)" />
+      ) : null}
+    </span>
   );
 }

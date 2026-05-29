@@ -34,6 +34,7 @@ export class NgrokService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollAttempts = 0;
+  private pendingStartReject: ((err: Error) => void) | null = null;
   private readonly MAX_POLL_ATTEMPTS = 20;
   private readonly sleepPrevention: SleepPreventionService;
 
@@ -79,6 +80,14 @@ export class NgrokService {
       throw new Error('ngrok is not installed');
     }
 
+    // Claim 'connecting' synchronously — BEFORE any await — so a second start()
+    // racing in can't slip past the guard above and spawn a duplicate ngrok
+    // process (orphaning the first).
+    this.tunnelStatus = 'connecting';
+    this.error = null;
+    this.publicUrl = null;
+    this.broadcastStatus();
+
     // Reuse an already-running ngrok instance if available
     const existingUrl = await this.pollNgrokApi();
     if (existingUrl) {
@@ -90,13 +99,16 @@ export class NgrokService {
       return existingUrl;
     }
 
-    this.tunnelStatus = 'connecting';
-    this.error = null;
-    this.publicUrl = null;
-    this.broadcastStatus();
-
     let stderrBuffer = '';
-    this.process = spawn(this.ngrokPath, ['http', String(port)], { stdio: 'pipe' });
+    try {
+      this.process = spawn(this.ngrokPath, ['http', String(port)], { stdio: 'pipe' });
+    } catch (err) {
+      this.tunnelStatus = 'error';
+      this.error = err instanceof Error ? err.message : 'failed to spawn ngrok';
+      this.publicUrl = null;
+      this.broadcastStatus();
+      throw new Error(this.error);
+    }
 
     this.process.stderr?.on('data', (data: Buffer) => {
       stderrBuffer += data.toString();
@@ -122,12 +134,14 @@ export class NgrokService {
     });
 
     return new Promise((resolve, reject) => {
+      this.pendingStartReject = reject;
       this.pollAttempts = 0;
       this.pollInterval = setInterval(async () => {
         this.pollAttempts++;
 
         if (this.tunnelStatus === 'error') {
           this.stopPolling();
+          this.pendingStartReject = null;
           reject(new Error(this.error || 'ngrok failed to start'));
           return;
         }
@@ -135,6 +149,7 @@ export class NgrokService {
         const url = await this.pollNgrokApi();
         if (url) {
           this.stopPolling();
+          this.pendingStartReject = null;
           this.publicUrl = url;
           this.tunnelStatus = 'connected';
           this.error = null;
@@ -146,6 +161,7 @@ export class NgrokService {
 
         if (this.pollAttempts >= this.MAX_POLL_ATTEMPTS) {
           this.stopPolling();
+          this.pendingStartReject = null;
           this.tunnelStatus = 'error';
           this.error = 'Timed out waiting for ngrok tunnel';
           this.broadcastStatus();
@@ -157,6 +173,10 @@ export class NgrokService {
 
   async stop(): Promise<void> {
     this.stopPolling();
+    if (this.pendingStartReject) {
+      this.pendingStartReject(new Error('ngrok stopped while connecting'));
+      this.pendingStartReject = null;
+    }
     this.sleepPrevention.stop();
     if (this.process) {
       this.process.kill('SIGTERM');

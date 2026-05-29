@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import { access } from 'fs/promises';
+import { access, mkdir } from 'fs/promises';
+import { createHash } from 'crypto';
 import path from 'path';
+import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
@@ -9,12 +11,14 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@argus/shared';
-import { PtyManager } from './PtyManager.js';
+import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
+import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
 
 interface ManagedSession {
@@ -28,14 +32,22 @@ interface ManagedSession {
   pty: IPty;
   stateDetector: StateDetector;
   outputBuffer: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  lastPrompt?: string;
+  /** tmux session name backing this agent (undefined in non-persistent mode). */
+  tmuxName?: string;
+  /** True when the agent runs inside tmux and survives an app quit. */
+  persistent: boolean;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
 
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
-  private ptyManager = new PtyManager();
+  private ptyManager: PtyManager;
   private agentRegistry = new AgentRegistry();
+  readonly companionTerminals = new CompanionTerminalManager();
   private store: SessionStore;
   private configStore: ConfigStore;
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
@@ -46,6 +58,12 @@ export class SessionManager {
   constructor(dataDir: string, configStore: ConfigStore) {
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
+    this.ptyManager = new PtyManager(dataDir);
+  }
+
+  /** True when sessions run inside tmux and survive an app quit. */
+  isPersistent(): boolean {
+    return this.ptyManager.isTmuxAvailable();
   }
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
@@ -54,7 +72,23 @@ export class SessionManager {
 
   setGitService(gitService: GitService): void {
     this.gitService = gitService;
+    // Clear any prior timer so a second call doesn't orphan the first interval.
+    if (this.gitPollTimer) clearInterval(this.gitPollTimer);
     this.gitPollTimer = setInterval(() => this.pollGitStatus(), GIT_POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Resolve `rawPath` if it falls within some managed session's working directory.
+   * Returns the normalized path, or null. Read/search routes use this to scope
+   * filesystem access to folders Argus actually manages — without it those routes
+   * would read arbitrary files anywhere on disk.
+   */
+  resolveWithinAnySession(rawPath: string): string | null {
+    for (const session of this.sessions.values()) {
+      const resolved = resolveWithinBase(session.folderPath, rawPath);
+      if (resolved) return resolved;
+    }
+    return null;
   }
 
   private async pollGitStatus(): Promise<void> {
@@ -74,9 +108,49 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string): Promise<SessionInfo> {
-    // Validate folder exists
-    await access(folderPath);
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false): Promise<SessionInfo> {
+    let effectiveFolderPath = folderPath;
+    let worktreePath: string | undefined;
+
+    if (worktreeBranch) {
+      if (existingId) {
+        // Restoring a worktree session — folderPath IS the worktree dir (already exists on disk)
+        worktreePath = folderPath;
+        effectiveFolderPath = folderPath;
+        await access(effectiveFolderPath);
+      } else {
+        // New worktree session — validate repo exists, then create worktree
+        await access(folderPath);
+        if (!this.gitService) throw new Error('GitService not available for worktree creation');
+        // Validate branch name: no leading dash, no path traversal, git-safe chars only
+        if (!/^(?!-)[A-Za-z0-9._/-]+$/.test(worktreeBranch) || worktreeBranch.includes('..')) {
+          throw new Error('Invalid worktree branch name');
+        }
+
+        const gitRoot = await this.gitService.getGitRoot(folderPath);
+        const hash = createHash('sha256').update(gitRoot).digest('hex').slice(0, 6);
+        const slug = `${path.basename(gitRoot)}-${hash}`;
+        const WORKTREES_BASE = path.join(os.homedir(), '.argus', 'worktrees');
+        worktreePath = path.resolve(path.join(WORKTREES_BASE, slug, worktreeBranch));
+        if (!worktreePath.startsWith(WORKTREES_BASE + path.sep)) {
+          throw new Error('Invalid worktree branch name');
+        }
+
+        // Enforce one active session per worktree
+        for (const session of this.sessions.values()) {
+          if (session.status !== 'exited' && session.folderPath === worktreePath) {
+            throw new Error(`A live session already uses worktree "${worktreeBranch}". Close it first.`);
+          }
+        }
+
+        await mkdir(path.dirname(worktreePath), { recursive: true });
+        await this.gitService.worktreeAdd(gitRoot, worktreePath, worktreeBranch, worktreeBase ?? 'HEAD');
+        effectiveFolderPath = worktreePath;
+      }
+    } else {
+      // Non-worktree session
+      await access(folderPath);
+    }
 
     // Resolve agent type: explicit > config default > 'claude'
     const config = await this.configStore.load();
@@ -87,34 +161,57 @@ export class SessionManager {
     const command = agentDef?.command ?? resolvedAgentType;
 
     const id = existingId ?? uuidv4();
-    const sessionName = name || path.basename(folderPath);
+    const sessionName = name || path.basename(effectiveFolderPath);
     const createdAt = existingCreatedAt ?? new Date().toISOString();
 
     const stateDetector = new StateDetector((status) => {
       const session = this.sessions.get(id);
       if (session) {
         session.status = status;
-        this.io?.to(id).emit('session:status', { sessionId: id, status });
+        if (status === 'waiting') {
+          session.lastPrompt = session.stateDetector.getLastPromptText();
+        } else {
+          session.lastPrompt = undefined;
+        }
+        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
       }
     }, resolvedAgentType);
 
     const resolvedFlags = flags || [];
-    const ptyProcess = this.ptyManager.spawn(folderPath, command, 120, 30, resolvedFlags);
+
+    // tmux-backed when available (survives app quit); otherwise a plain pty.
+    const persistent = this.ptyManager.isTmuxAvailable();
+    const tmuxName = persistent ? tmuxSessionName(id) : undefined;
+    const ptyProcess = persistent && tmuxName
+      ? this.ptyManager.spawnTmux(tmuxName, effectiveFolderPath, command, 120, 30, resolvedFlags)
+      : this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, resolvedFlags);
+
+    // Re-attaching to a live survivor: start neutral and let the detector
+    // reclassify from the repaint, and suppress the redraw activity burst.
+    if (attachExisting) stateDetector.markAttachRedraw();
+    const initialStatus: SessionStatus = attachExisting ? 'idle' : 'running';
 
     const session: ManagedSession = {
       id,
       name: sessionName,
-      folderPath,
+      folderPath: effectiveFolderPath,
       agentType: resolvedAgentType,
       flags: resolvedFlags,
-      status: 'running',
+      status: initialStatus,
       createdAt,
       pty: ptyProcess,
       stateDetector,
       outputBuffer: '',
+      worktreePath,
+      worktreeBranch,
+      tmuxName,
+      persistent,
     };
 
     ptyProcess.onData((data) => {
+      // Ignore late output from a pty that restart already replaced (node-pty
+      // flushes buffered bytes on kill, so this can fire after the swap).
+      if (session.pty !== ptyProcess) return;
       // Buffer output for replay on reconnect
       session.outputBuffer += data;
       if (session.outputBuffer.length > 100_000) {
@@ -125,6 +222,8 @@ export class SessionManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      // A replaced pty's exit must not be reported as the session exiting.
+      if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
@@ -142,7 +241,9 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
 
     session.stateDetector.destroy();
-    this.ptyManager.kill(session.pty);
+    this.ptyManager.kill(session.pty);                       // detaches the tmux client
+    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName); // actually stop the agent
+    this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     cleanupSessionDimensions(id);
@@ -155,9 +256,13 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
 
-    // Tear down old pty
+    // Tear down old pty and companion terminal. Kill the tmux session too so the
+    // surviving conversation is discarded — otherwise new-session -A would just
+    // reattach to the old process and "restart" would be a no-op.
     session.stateDetector.destroy();
     this.ptyManager.kill(session.pty);
+    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
+    this.companionTerminals.kill(id);
 
     // Reset state
     session.outputBuffer = '';
@@ -173,14 +278,29 @@ export class SessionManager {
       const s = this.sessions.get(id);
       if (s) {
         s.status = status;
-        this.io?.to(id).emit('session:status', { sessionId: id, status });
+        if (status === 'waiting') {
+          s.lastPrompt = s.stateDetector.getLastPromptText();
+        } else {
+          s.lastPrompt = undefined;
+        }
+        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: s.lastPrompt });
       }
     }, session.agentType);
 
     // Spawn fresh pty with the same flags as the original session
-    const ptyProcess = this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
+    const ptyProcess = session.persistent && session.tmuxName
+      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, 120, 30, session.flags)
+      : this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
+
+    // Swap in the new pty + detector BEFORE wiring handlers. The identity guard
+    // below compares against session.pty, so this ordering both (a) admits the new
+    // pty's first bytes and (b) makes the OLD pty's trailing onData/onExit — fired
+    // async by kill() above — no-ops, instead of emitting a spurious session:exit.
+    session.pty = ptyProcess;
+    session.stateDetector = stateDetector;
 
     ptyProcess.onData((data) => {
+      if (session.pty !== ptyProcess) return;
       session.outputBuffer += data;
       if (session.outputBuffer.length > 100_000) {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
@@ -190,12 +310,10 @@ export class SessionManager {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
+      if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
-
-    session.pty = ptyProcess;
-    session.stateDetector = stateDetector;
 
     this.io?.to(id).emit('session:status', { sessionId: id, status: 'running' });
     return this.toSessionInfo(session);
@@ -240,18 +358,46 @@ export class SessionManager {
   async restoreSessions(): Promise<void> {
     const persisted = await this.store.load();
 
+    // Scan for survivors once: tmux sessions still alive from a previous run.
+    const tmuxAvailable = this.ptyManager.isTmuxAvailable();
+    const survivors = tmuxAvailable ? this.ptyManager.listArgusSessions() : new Set<string>();
+    const knownNames = new Set<string>();
+
     for (const p of persisted) {
+      const tmuxName = tmuxSessionName(p.id);
+      knownNames.add(tmuxName);
+
       try {
         await access(p.folderPath);
       } catch {
         console.warn(`Skipping session "${p.name}": folder not accessible (${p.folderPath})`);
         continue;
       }
+
+      // Decide whether a live agent survived to re-attach to.
+      let attach = false;
+      if (survivors.has(tmuxName)) {
+        if (this.ptyManager.isTmuxPaneDead(tmuxName)) {
+          // Agent exited while detached — discard the dead session and start fresh.
+          this.ptyManager.killTmuxSession(tmuxName);
+        } else {
+          attach = true;
+        }
+      }
+
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt);
-        console.log(`Restored session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach);
+        console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
+      }
+    }
+
+    // Reap orphan argus-* tmux sessions with no matching persisted record
+    // (e.g. sessions.json was deleted, or a crash left them behind).
+    if (tmuxAvailable) {
+      for (const name of survivors) {
+        if (!knownNames.has(name)) this.ptyManager.killTmuxSession(name);
       }
     }
 
@@ -271,9 +417,17 @@ export class SessionManager {
       agentType: session.agentType,
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
+      worktreePath: session.worktreePath,
+      worktreeBranch: session.worktreeBranch,
+      lastPrompt: session.lastPrompt,
     };
   }
 
+  /**
+   * App-quit teardown: DETACH only. Killing the tmux client (pty) detaches
+   * without stopping the agent, so tmux-backed sessions keep running in the
+   * background and reattach on next launch. Never kills tmux sessions here.
+   */
   async shutdown(): Promise<void> {
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
@@ -282,12 +436,24 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       try {
         session.stateDetector.destroy();
-        this.ptyManager.kill(session.pty);
+        this.ptyManager.kill(session.pty); // detaches tmux client; agent survives
       } catch {
         // pty may already be dead — continue to next session
       }
     }
     await this.persistSessions();
+  }
+
+  /**
+   * "Quit & Stop All Sessions": actually terminate every agent (not just detach),
+   * then run the normal shutdown. Kills the whole argus tmux server to be sure.
+   */
+  async stopAllAndShutdown(): Promise<void> {
+    for (const session of this.sessions.values()) {
+      if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
+    }
+    if (this.ptyManager.isTmuxAvailable()) this.ptyManager.killTmuxServer();
+    await this.shutdown();
   }
 
   private async persistSessions(): Promise<void> {
@@ -298,6 +464,8 @@ export class SessionManager {
       createdAt: s.createdAt,
       agentType: s.agentType,
       flags: s.flags,
+      worktreePath: s.worktreePath,
+      worktreeBranch: s.worktreeBranch,
     }));
     await this.store.save(data);
   }

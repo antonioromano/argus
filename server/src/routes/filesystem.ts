@@ -5,6 +5,7 @@ import path from 'path';
 import { getPathCompletions } from '../utils/fsAutocomplete.js';
 import { getDirectoryChildren } from '../utils/fsChildren.js';
 import { atomicWrite } from '../utils/atomicWrite.js';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
 
@@ -30,8 +31,8 @@ function validateSessionPath(
   if (!path.isAbsolute(rawPath)) return { error: 'invalid path', status: 400 };
   const session = sessionManager.getSession(sessionId);
   if (!session) return { error: 'session not found', status: 404 };
-  const resolved = path.resolve(rawPath);
-  if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+  const resolved = resolveWithinBase(session.folderPath, rawPath);
+  if (!resolved) {
     return { error: 'path is outside session working directory', status: 403 };
   }
   return { session, resolved };
@@ -70,12 +71,13 @@ export function createFilesystemRoutes(
       return;
     }
 
-    // Security: reject relative paths; use resolve() to normalize // and ../ safely
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ error: 'invalid path' });
+    // Security: only serve files inside a folder Argus manages a session for.
+    // Without this scoping the endpoint would read any text file on disk.
+    const resolved = sessionManager.resolveWithinAnySession(rawPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
-    const resolved = path.resolve(rawPath);
 
     const ext = path.extname(resolved).toLowerCase();
 
@@ -131,19 +133,14 @@ export function createFilesystemRoutes(
       return;
     }
 
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ error: 'invalid path' });
-      return;
-    }
-
     const session = sessionManager.getSession(sessionId);
     if (!session) {
       res.status(404).json({ error: 'session not found' });
       return;
     }
 
-    const resolved = path.resolve(rawPath);
-    if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    if (!resolved) {
       res.status(403).json({ error: 'path is outside session working directory' });
       return;
     }
@@ -192,9 +189,10 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = path.resolve(rootPath);
-    if (resolved !== rootPath) {
-      res.status(400).json({ error: 'invalid path' });
+    // Security: only search inside a folder Argus manages a session for.
+    const resolved = sessionManager.resolveWithinAnySession(rootPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
 
@@ -235,22 +233,36 @@ export function createFilesystemRoutes(
 
     await walk(resolved, 0);
 
-    // Content search via grep (best-effort)
-    const contentResults: { path: string; name: string; ext: string }[] = [];
+    // Content search via grep (best-effort) — -rn gives path:line:content output
+    const contentResults: { path: string; name: string; ext: string; lineNumber: number }[] = [];
     await new Promise<void>((resolve) => {
       const excludeDirArgs = [...EXCLUDED_SEARCH_DIRS].flatMap(d => ['--exclude-dir', d]);
+      // -F: treat query as a literal string, not a regex (avoids errors/odd matches
+      // on chars like [ ( etc). -e: bind it as the pattern so a leading '-' isn't
+      // parsed as a flag. --: end options before the path operand.
       execFile(
         'grep',
-        ['-ril', query, resolved, ...excludeDirArgs],
+        ['-rn', '-F', '-e', query, ...excludeDirArgs, '--', resolved],
         { timeout: 8000 },
         (_err, stdout) => {
           const lines = stdout ? stdout.trim().split('\n').filter(Boolean) : [];
+          const seenPaths = new Set<string>();
           for (const line of lines) {
-            if (filenameSeen.has(line)) continue;
-            const ext = path.extname(line).toLowerCase();
-            if (BINARY_EXTENSIONS.has(ext) || EXCLUDED_SEARCH_EXTS.has(ext)) continue;
-            contentResults.push({ path: line, name: path.basename(line), ext });
             if (filenameResults.length + contentResults.length >= 50) break;
+            // line format: /abs/path/to/file.ts:42:matched content
+            // find the colon after the resolved root prefix to locate lineNum
+            const colonPos = line.indexOf(':', resolved.length + 1);
+            if (colonPos === -1) continue;
+            const filePath = line.slice(0, colonPos);
+            if (filenameSeen.has(filePath) || seenPaths.has(filePath)) continue;
+            const rest = line.slice(colonPos + 1);
+            const nextColon = rest.indexOf(':');
+            const lineNumber = nextColon !== -1 ? parseInt(rest.slice(0, nextColon), 10) : NaN;
+            if (!Number.isFinite(lineNumber)) continue;
+            const ext = path.extname(filePath).toLowerCase();
+            if (BINARY_EXTENSIONS.has(ext) || EXCLUDED_SEARCH_EXTS.has(ext)) continue;
+            seenPaths.add(filePath);
+            contentResults.push({ path: filePath, name: path.basename(filePath), ext, lineNumber });
           }
           resolve();
         },
@@ -266,14 +278,10 @@ export function createFilesystemRoutes(
   });
 
   router.post('/open', express.json(), async (req, res) => {
-    const { sessionId, path: rawPath } = req.body as { sessionId?: string; path?: string };
+    const { sessionId, path: rawPath, reveal } = req.body as { sessionId?: string; path?: string; reveal?: boolean };
 
     if (!sessionId || !rawPath) {
       res.status(400).json({ success: false, error: 'sessionId and path are required' });
-      return;
-    }
-    if (!path.isAbsolute(rawPath)) {
-      res.status(400).json({ success: false, error: 'invalid path' });
       return;
     }
 
@@ -283,8 +291,8 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = path.resolve(rawPath);
-    if (!resolved.startsWith(session.folderPath + path.sep) && resolved !== session.folderPath) {
+    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    if (!resolved) {
       res.status(403).json({ success: false, error: 'path is outside session working directory' });
       return;
     }
@@ -298,8 +306,13 @@ export function createFilesystemRoutes(
 
     const platform = process.platform;
     const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'explorer' : 'xdg-open';
+    // `reveal` selects the item in the OS file manager rather than opening it.
+    const args =
+      reveal && platform === 'darwin' ? ['-R', resolved]
+      : reveal && platform === 'win32' ? ['/select,', resolved]
+      : [resolved];
 
-    execFile(cmd, [resolved], (err) => {
+    execFile(cmd, args, (err) => {
       if (err) {
         res.status(500).json({ success: false, error: `failed to open: ${err.message}` });
         return;

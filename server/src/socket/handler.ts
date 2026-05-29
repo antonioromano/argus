@@ -131,6 +131,69 @@ export function setupSocketHandler(
       ephemeralManager.kill(id);
     });
 
+    // Companion terminal events (one per session, persists while parent session is alive)
+    socket.on('ct:join', (sessionId: string) => {
+      const session = manager.getSession(sessionId);
+      if (!session) return;
+
+      const ctRoom = `ct:${sessionId}`;
+
+      if (!manager.companionTerminals.isAlive(sessionId)) {
+        // Register dimension tracking before spawning so the room key exists
+        if (!clientDimensions.has(ctRoom)) {
+          clientDimensions.set(ctRoom, new Map());
+        }
+        manager.companionTerminals.spawn(
+          sessionId,
+          session.folderPath,
+          120,
+          30,
+          (data) => io.to(ctRoom).emit('ct:output', { sessionId, data }),
+          (exitCode) => {
+            io.to(ctRoom).emit('ct:exit', { sessionId, exitCode });
+            clientDimensions.delete(ctRoom);
+          },
+        );
+      } else {
+        if (!clientDimensions.has(ctRoom)) {
+          clientDimensions.set(ctRoom, new Map());
+        }
+      }
+
+      void socket.join(ctRoom);
+      const buffer = manager.companionTerminals.getBuffer(sessionId);
+      if (buffer) {
+        socket.emit('ct:output', { sessionId, data: buffer });
+      }
+    });
+
+    socket.on('ct:leave', (sessionId: string) => {
+      const ctRoom = `ct:${sessionId}`;
+      void socket.leave(ctRoom);
+      const sockets = clientDimensions.get(ctRoom);
+      if (sockets) {
+        sockets.delete(socket.id);
+        const max = getMaxDimensions(ctRoom);
+        if (max) {
+          manager.companionTerminals.resize(sessionId, max.cols, max.rows);
+        }
+      }
+    });
+
+    socket.on('ct:input', ({ sessionId, data }) => {
+      manager.companionTerminals.write(sessionId, data);
+    });
+
+    socket.on('ct:resize', ({ sessionId, cols, rows }) => {
+      const ctRoom = `ct:${sessionId}`;
+      const sockets = clientDimensions.get(ctRoom);
+      if (sockets) {
+        sockets.set(socket.id, { cols, rows });
+      }
+      const max = getMaxDimensions(ctRoom) ?? { cols, rows };
+      manager.companionTerminals.resize(sessionId, max.cols, max.rows);
+    });
+
     socket.on('session:clear-buffer', (sessionId: string) => {
       if (!manager.getSession(sessionId)) return;
       manager.clearBuffer(sessionId);
@@ -138,13 +201,21 @@ export function setupSocketHandler(
 
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
-      // Clean up dimensions for all sessions this socket was part of
-      for (const [sessionId, sockets] of clientDimensions) {
+      // Clean up dimensions for all sessions and companion terminals this socket was part of
+      for (const [roomKey, sockets] of clientDimensions) {
         if (sockets.has(socket.id)) {
           sockets.delete(socket.id);
-          const max = getMaxDimensions(sessionId);
-          if (max) {
-            try { manager.resizeSession(sessionId, max.cols, max.rows); } catch { /* session may be gone */ }
+          if (roomKey.startsWith('ct:')) {
+            const sessionId = roomKey.slice(3);
+            const max = getMaxDimensions(roomKey);
+            if (max) {
+              manager.companionTerminals.resize(sessionId, max.cols, max.rows);
+            }
+          } else {
+            const max = getMaxDimensions(roomKey);
+            if (max) {
+              try { manager.resizeSession(roomKey, max.cols, max.rows); } catch { /* session may be gone */ }
+            }
           }
         }
       }

@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, FileCrudResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -53,6 +53,45 @@ export const api = {
     await authFetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
   },
 
+  checkWorktree: async (params: {
+    repoPath: string;
+    branch?: string;
+    worktreePath?: string;
+    worktreeBranch?: string;
+  }): Promise<{
+    isGitRepo: boolean;
+    branchExists?: boolean;
+    headCommit?: string | null;
+    isDirty?: boolean;
+    isUnmerged?: boolean;
+  }> => {
+    const q = new URLSearchParams({ repoPath: params.repoPath });
+    if (params.branch) q.set('branch', params.branch);
+    if (params.worktreePath) q.set('worktreePath', params.worktreePath);
+    if (params.worktreeBranch) q.set('worktreeBranch', params.worktreeBranch);
+    const res = await authFetch(`${API_BASE}/worktrees/check?${q}`);
+    return res.json();
+  },
+
+  listBranchesForRepo: async (repoPath: string): Promise<{ branches: string[]; currentBranch: string; behindCount?: number }> => {
+    const q = new URLSearchParams({ repoPath });
+    const res = await authFetch(`${API_BASE}/worktrees/branches?${q}`);
+    if (!res.ok) return { branches: [], currentBranch: '' };
+    return res.json();
+  },
+
+  deleteWorktree: async (worktreePath: string, repoPath: string, force = false): Promise<void> => {
+    const res = await authFetch(`${API_BASE}/worktrees`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ worktreePath, repoPath, force }),
+    });
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to delete worktree');
+    }
+  },
+
   restartSession: async (id: string): Promise<SessionInfo> => {
     const res = await authFetch(`${API_BASE}/sessions/${id}/restart`, { method: 'PATCH' });
     if (!res.ok) {
@@ -68,11 +107,11 @@ export const api = {
     return data.completions;
   },
 
-  openPath: async (sessionId: string, filePath: string): Promise<void> => {
+  openPath: async (sessionId: string, filePath: string, reveal = false): Promise<void> => {
     const res = await authFetch(`${API_BASE}/fs/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, path: filePath }),
+      body: JSON.stringify({ sessionId, path: filePath, reveal }),
     });
     if (!res.ok) {
       const err = await res.json() as { error?: string };
@@ -129,6 +168,20 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
+    });
+  },
+
+  getGroups: async (): Promise<SessionGroup[]> => {
+    const res = await authFetch(`${API_BASE}/sessions/groups`);
+    const data = await res.json();
+    return data.groups;
+  },
+
+  saveGroups: async (groups: SessionGroup[]): Promise<void> => {
+    await authFetch(`${API_BASE}/sessions/groups`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups }),
     });
   },
 
@@ -414,6 +467,22 @@ export const api = {
     });
   },
 
+  getCommitSelection: async (sessionId: string): Promise<CommitSelectionState> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/commit-selection`);
+    return res.json();
+  },
+
+  saveCommitSelection: async (
+    sessionId: string,
+    state: CommitSelectionState
+  ): Promise<void> => {
+    await authFetch(`${API_BASE}/sessions/${sessionId}/commit-selection`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    });
+  },
+
   createFile: async (
     sessionId: string,
     filePath: string,
@@ -463,5 +532,35 @@ export const api = {
       body: JSON.stringify({ sessionId, fromPath, toPath }),
     });
     return res.json();
+  },
+
+  getWorktreeParentInfo: async (sessionId: string): Promise<{ parentRepoPath: string; defaultBranch: string }> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-worktree-parent-info`);
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to get worktree info');
+    }
+    return res.json();
+  },
+
+  mergeWorktree: async (sessionId: string, targetBranch?: string): Promise<{ success: boolean; targetBranch?: string; mergedBranch?: string; parentRepoPath?: string; error?: string }> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-merge-worktree`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetBranch }),
+    });
+    return res.json();
+  },
+
+  gitInit: async (folderPath: string): Promise<void> => {
+    const res = await authFetch(`${API_BASE}/worktrees/init`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderPath }),
+    });
+    if (!res.ok) {
+      const err = await res.json() as { error?: string };
+      throw new Error(err.error || 'Failed to initialize git repository');
+    }
   },
 };

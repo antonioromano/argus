@@ -14,7 +14,7 @@ export function useNotifications({
   onFocusSession,
   onSwitchToSessionsTab,
 }: UseNotificationsOptions) {
-  const activeNotifs = useRef<Map<string, Notification>>(new Map());
+  const activeIds = useRef<Set<string>>(new Set());
   const prevStatuses = useRef<Map<string, string>>(new Map());
   const onFocusRef = useRef(onFocusSession);
   const onSwitchRef = useRef(onSwitchToSessionsTab);
@@ -24,29 +24,21 @@ export function useNotifications({
     onSwitchRef.current = onSwitchToSessionsTab;
   }, [onFocusSession, onSwitchToSessionsTab]);
 
-  const fireNotification = (session: SessionInfo) => {
-    if (activeNotifs.current.has(session.id)) return;
-
-    const folderName = session.folderPath.split('/').pop() || session.folderPath;
-    const notif = new Notification(session.name, {
-      body: folderName,
-      tag: `session-${session.id}`,
-    });
-
-    notif.onclick = () => {
-      window.focus();
+  // Wire click-handler once: main process forwards notification clicks here.
+  useEffect(() => {
+    const bridge = window.electronNotifications;
+    if (!bridge) return;
+    return bridge.onClick((id) => {
       onSwitchRef.current();
-      onFocusRef.current(session.id);
-      notif.close();
-      activeNotifs.current.delete(session.id);
-    };
-
-    activeNotifs.current.set(session.id, notif);
-  };
+      onFocusRef.current(id);
+      activeIds.current.delete(id);
+    });
+  }, []);
 
   // Fire notifications on status transitions
   useEffect(() => {
-    if (!enabled || !('Notification' in window) || Notification.permission !== 'granted') {
+    const bridge = window.electronNotifications;
+    if (!enabled || !bridge) {
       for (const session of sessions) {
         prevStatuses.current.set(session.id, session.status);
       }
@@ -57,19 +49,21 @@ export function useNotifications({
       const prev = prevStatuses.current.get(session.id);
       const curr = session.status;
 
-      // Transition TO waiting — only notify if tab is not focused
       if (curr === 'waiting' && prev !== 'waiting' && prev !== undefined) {
-        if (!document.hasFocus()) {
-          fireNotification(session);
+        if (!document.hasFocus() && !activeIds.current.has(session.id)) {
+          const folderName = session.folderPath.split('/').pop() || session.folderPath;
+          const body = session.lastPrompt
+            ? `${folderName} — ${session.lastPrompt}`
+            : folderName;
+          bridge.show({ id: session.id, title: session.name, body });
+          activeIds.current.add(session.id);
         }
       }
 
-      // Transition AWAY from waiting — clean up
       if (curr !== 'waiting' && prev === 'waiting') {
-        const existing = activeNotifs.current.get(session.id);
-        if (existing) {
-          existing.close();
-          activeNotifs.current.delete(session.id);
+        if (activeIds.current.has(session.id)) {
+          bridge.close(session.id);
+          activeIds.current.delete(session.id);
         }
       }
 
@@ -78,10 +72,10 @@ export function useNotifications({
 
     // Close notifications for deleted sessions
     const currentIds = new Set(sessions.map((s) => s.id));
-    for (const [id, notif] of activeNotifs.current) {
+    for (const id of activeIds.current) {
       if (!currentIds.has(id)) {
-        notif.close();
-        activeNotifs.current.delete(id);
+        bridge.close(id);
+        activeIds.current.delete(id);
         prevStatuses.current.delete(id);
       }
     }
@@ -89,10 +83,13 @@ export function useNotifications({
 
   // Cleanup on unmount
   useEffect(() => {
-    const notifs = activeNotifs.current;
+    const ids = activeIds.current;
     return () => {
-      notifs.forEach((n) => n.close());
-      notifs.clear();
+      const bridge = window.electronNotifications;
+      if (bridge) {
+        ids.forEach((id) => bridge.close(id));
+      }
+      ids.clear();
     };
   }, []);
 }

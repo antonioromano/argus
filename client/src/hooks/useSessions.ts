@@ -22,9 +22,9 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status }: { sessionId: string; status: SessionStatus }) => {
+    const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status } : s)),
+        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt } : s)),
       );
     };
 
@@ -72,8 +72,8 @@ export function useSessions(socket: TypedSocket) {
     };
   }, [socket]);
 
-  const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[]) => {
-    const session = await api.createSession({ folderPath, name, agentType, flags });
+  const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[], worktreeBranch?: string, worktreeBase?: string) => {
+    const session = await api.createSession({ folderPath, name, agentType, flags, worktreeBranch, worktreeBase });
     setSessions((prev) => {
       if (prev.some((s) => s.id === session.id)) return prev;
       return [...prev, session];

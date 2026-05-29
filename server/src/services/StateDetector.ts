@@ -30,6 +30,10 @@ const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
     /manually approve edits/i,
     /shift\+tab to approve/i,
     /Esc to cancel/i,
+    /Enter to select/i,           // AskUserQuestion footer
+    /↑.+to navigate/i,           // AskUserQuestion navigation hint
+    /^\s*❯\s+\d+\./,             // selected item in AskUserQuestion list (❯ 1. Label)
+    /☐\s/,                       // AskUserQuestion checkbox header label
     /Tell Claude what to change/i,
     /Press Enter to continue/i,
   ],
@@ -55,12 +59,38 @@ const DEFAULT_PROMPT_PATTERNS: RegExp[] = [
   /\[y\/n\]/i,
 ];
 
+/**
+ * Rows we should NOT use as notification body — UI chrome / footer hints, not the
+ * actual question. Matched after stripping box-drawing chars and trimming.
+ */
+const PROMPT_FOOTER_NOISE: RegExp[] = [
+  /^esc to (cancel|interrupt|clear)/i,
+  /^enter to (select|submit|send|continue)/i,
+  /^press enter to/i,
+  /^shift\+tab/i,
+  /^tab to/i,
+  /^↑.*to navigate/i,
+  /^ctrl\+[a-z]/i,
+  /^\?\s*for shortcuts/i,
+  /^auto-accept edits/i,
+  /^manually approve edits/i,
+  /^don.?t ask again/i,
+  /^allow once/i,
+  /^always allow access/i,
+  /^>\s*$/,
+  /^❯\s*$/,
+];
+
+const BOX_DRAWING_CHARS = /[│┃|╭╮╰╯─━┌┐└┘├┤┬┴┼·•▌▎▏]/g;
+const MAX_PROMPT_LEN = 140;
+
 const IDLE_SETTLE_MS = 500;
 const DEBOUNCE_MS = 300;
 const ACTIVITY_WINDOW_MS = 150;
 const ACTIVITY_MIN_FEEDS = 3;
-const SCAN_ROWS = 10;                 // rows from the bottom of the visible window to scan
+const SCAN_ROWS = 15;                 // rows from the bottom of the visible window to scan
 const CURSOR_ESC_WINDOW_MS = 1500;    // how long a recent cursor-style change counts as a hint
+const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIGWINCH redraw window
 
 /**
  * State detector built on top of a headless xterm.js terminal emulator.
@@ -81,6 +111,8 @@ export class StateDetector {
   private runningTimer: ReturnType<typeof setTimeout> | null = null;
   private feedCount = 0;
   private lastCursorStyleAt = 0;
+  private lastResizeAt = 0;
+  private destroyed = false;
   /** Serialises `term.write()` calls so buffer reads happen after the parser has caught up. */
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -116,12 +148,29 @@ export class StateDetector {
     } catch {
       // xterm throws on invalid sizes — ignore and keep current grid
     }
+    // Stamp so the activity heuristic suppresses 'running' during the SIGWINCH redraw burst.
+    this.lastResizeAt = Date.now();
+  }
+
+  /**
+   * Suppress the activity heuristic during the full-screen repaint tmux sends
+   * right after we re-attach to a surviving session — otherwise the redraw burst
+   * looks like agent activity and flips status to 'running'. Reuses the resize
+   * grace window.
+   */
+  markAttachRedraw(): void {
+    this.lastResizeAt = Date.now();
   }
 
   feed(data: string): void {
+    // pty flushes buffered output on kill, so onData can fire after destroy().
+    // Ignore it — the emulator is disposed and the timers are gone.
+    if (this.destroyed) return;
+
     // Feed raw bytes (ANSI and all) to the emulator so the grid updates correctly.
     this.writeQueue = this.writeQueue.then(
       () => new Promise<void>((resolve) => {
+        if (this.destroyed) { resolve(); return; }
         this.term.write(data, () => resolve());
       }),
     );
@@ -137,8 +186,12 @@ export class StateDetector {
       if (count >= ACTIVITY_MIN_FEEDS) {
         // Gate on actual screen state — don't flicker to 'running' if the
         // input box is already visible (Claude re-renders its prompt frequently).
+        // Also suppress during resize grace window: SIGWINCH causes a full redraw
+        // burst that looks like activity but isn't real agent work.
+        const resizeAge = Date.now() - this.lastResizeAt;
         this.writeQueue.then(() => {
-          if (!this.screenShowsPrompt()) this.scheduleStatus('running');
+          if (this.destroyed) return;
+          if (!this.screenShowsPrompt() && resizeAge >= RESIZE_GRACE_MS) this.scheduleStatus('running');
         });
       }
     }, ACTIVITY_WINDOW_MS);
@@ -151,6 +204,7 @@ export class StateDetector {
   }
 
   private settle(): void {
+    if (this.destroyed) return;
     const hasPrompt = this.screenShowsPrompt();
     const recentCursorStyle = Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
 
@@ -216,7 +270,48 @@ export class StateDetector {
     return this.currentStatus;
   }
 
+  /**
+   * Best-effort extraction of the agent's pending question/prompt from the
+   * rendered screen. Walks up from the input-box row, skips box-drawing-only
+   * and footer-hint rows, returns the last remaining prose line.
+   * Used by notification bodies; returns undefined if nothing meaningful found.
+   */
+  getLastPromptText(): string | undefined {
+    if (this.destroyed) return undefined;
+    const rows = this.visibleRows();
+
+    // Find the bottom-most row that matches a prompt pattern — that's the input box.
+    let promptIdx = -1;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      for (const p of this.promptPatterns) {
+        if (p.test(rows[i] ?? '')) {
+          promptIdx = i;
+          break;
+        }
+      }
+      if (promptIdx !== -1) break;
+    }
+    if (promptIdx === -1) return undefined;
+
+    // Walk upward, collect non-noise, non-empty lines (stripped).
+    const candidates: string[] = [];
+    for (let i = promptIdx - 1; i >= 0; i--) {
+      const cleaned = (rows[i] ?? '').replace(BOX_DRAWING_CHARS, ' ').trim();
+      if (!cleaned) continue;
+      if (PROMPT_FOOTER_NOISE.some((p) => p.test(cleaned))) continue;
+      // Skip lines that are themselves prompt patterns (alt input boxes, etc.)
+      if (this.promptPatterns.some((p) => p.test(rows[i] ?? ''))) continue;
+      candidates.push(cleaned);
+    }
+
+    // Closest meaningful line above the input box wins.
+    const picked = candidates[0];
+    if (!picked) return undefined;
+    return picked.length > MAX_PROMPT_LEN ? `${picked.slice(0, MAX_PROMPT_LEN - 1)}…` : picked;
+  }
+
   setExited(): void {
+    if (this.destroyed) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.runningTimer) clearTimeout(this.runningTimer);
@@ -228,6 +323,7 @@ export class StateDetector {
   }
 
   destroy(): void {
+    this.destroyed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.runningTimer) clearTimeout(this.runningTimer);

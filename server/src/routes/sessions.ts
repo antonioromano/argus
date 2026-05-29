@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
+import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { CreateSessionRequest } from '@argus/shared';
+import type { CreateSessionRequest, SessionGroup } from '@argus/shared';
 
 // Only allow safe flag characters — blocks shell metacharacters like ; | & ` $() etc.
-const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
+const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/]*$/;
 
 function validateFlags(flags: string[]): string | null {
   for (const flag of flags) {
@@ -16,7 +17,16 @@ function validateFlags(flags: string[]): string | null {
   return null;
 }
 
-export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, configStore: ConfigStore): Router {
+// Enforce single-membership: a session id may appear in at most one group (first wins).
+function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
+  const seen = new Set<string>();
+  return groups.map((g) => ({
+    ...g,
+    sessionIds: g.sessionIds.filter((id) => (seen.has(id) ? false : (seen.add(id), true))),
+  }));
+}
+
+export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, groupStore: GroupStore, configStore: ConfigStore): Router {
   const router = Router();
 
   router.get('/', (_req, res) => {
@@ -38,6 +48,22 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     res.json({ order });
   });
 
+  router.get('/groups', async (_req, res) => {
+    const groups = await groupStore.load();
+    res.json({ groups });
+  });
+
+  router.put('/groups', async (req, res) => {
+    const { groups } = req.body;
+    if (!Array.isArray(groups)) {
+      res.status(400).json({ error: 'groups must be an array of SessionGroup' });
+      return;
+    }
+    const deduped = dedupeGroupMembership(groups as SessionGroup[]);
+    await groupStore.save(deduped);
+    res.json({ groups: deduped });
+  });
+
   router.get('/:id', (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
@@ -48,7 +74,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
   });
 
   router.post('/', async (req, res) => {
-    const { folderPath, name, agentType, flags } = req.body as CreateSessionRequest;
+    const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase } = req.body as CreateSessionRequest;
 
     if (!folderPath) {
       res.status(400).json({ error: 'folderPath is required' });
@@ -64,7 +90,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
 
     try {
-      const session = await manager.createSession(folderPath, name, agentType, flags);
+      const session = await manager.createSession(folderPath, name, agentType, flags, undefined, undefined, worktreeBranch, worktreeBase);
 
       // Update sticky defaults: record which flags were enabled for this agent
       const config = await configStore.load();
