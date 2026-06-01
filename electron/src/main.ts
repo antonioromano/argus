@@ -206,8 +206,14 @@ async function main() {
   // server reads process.env at module evaluation time.
   process.env.NODE_ENV = 'production';
   process.env.ARGUS_DATA_DIR = app.getPath('userData');
-  // Use ARGUS_PORT if set (e.g. electron:dev sets 5403 to avoid conflicts), else 5400.
-  if (!process.env.ARGUS_PORT) process.env.ARGUS_PORT = '5400';
+  // Use ARGUS_PORT if set (e.g. electron:dev sets 5403 to avoid conflicts), else 5757.
+  // 5757 (not 5400) keeps the packaged app off the port a sibling fork like
+  // remote-orchestrator may already hold.
+  if (!process.env.ARGUS_PORT) process.env.ARGUS_PORT = '5757';
+  // Namespace the tmux socket per app identity so sibling forks never share a
+  // tmux server. app.getName() is 'Argus' for the packaged app, 'Electron' in
+  // unpackaged dev — automatic isolation.
+  if (!process.env.ARGUS_TMUX_SOCKET) process.env.ARGUS_TMUX_SOCKET = app.getName().toLowerCase();
 
   // Dynamic import after env vars are set so the server picks them up correctly.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

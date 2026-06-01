@@ -55,7 +55,9 @@ const httpServer = createServer(app);
 
 const staticCorsOrigins = [
   'http://localhost:5402',
+  'http://127.0.0.1:5402',
   `http://localhost:${PORT}`,
+  `http://127.0.0.1:${PORT}`,
   ...(process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []),
 ];
 

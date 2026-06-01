@@ -41,8 +41,12 @@ export function createWindow(): BrowserWindow {
     },
   });
 
-  const port = process.env.ARGUS_PORT || '5400';
-  win.loadURL(`http://localhost:${port}`);
+  // 127.0.0.1 (not "localhost"): the server binds IPv4 loopback, but macOS
+  // resolves "localhost" to ::1 (IPv6) first — which can land on a *different*
+  // server (e.g. a sibling Argus fork) that happens to hold the same port on
+  // IPv6. Pinning 127.0.0.1 guarantees we reach our own server.
+  const port = process.env.ARGUS_PORT || '5757';
+  win.loadURL(`http://127.0.0.1:${port}`);
 
   win.once('ready-to-show', () => {
     win?.show();

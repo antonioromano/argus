@@ -6,8 +6,10 @@ import path from 'path';
 import os from 'os';
 
 // Dedicated tmux socket so Argus's tmux server is isolated from the user's own
-// tmux server. Every tmux invocation passes `-L argus`.
-const TMUX_SOCKET = 'argus';
+// tmux server. Every tmux invocation passes `-L <socket>`. The label is
+// configurable (ARGUS_TMUX_SOCKET) so sibling forks / multiple installs each get
+// their own tmux server instead of sharing sessions; defaults to 'argus'.
+const TMUX_SOCKET = process.env.ARGUS_TMUX_SOCKET || 'argus';
 const TMUX_NAME_PREFIX = 'argus-';
 
 /** Single-quote a string for safe use inside a POSIX `sh -c` command. */
