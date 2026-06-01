@@ -133,7 +133,6 @@ export class PtyManager {
     if (this.tmuxConfigPath) return this.tmuxConfigPath;
     const conf = [
       'set-option -g status off',                              // no status bar — keeps StateDetector's bottom rows == agent's
-      'set-option -g mouse on',
       'set-option -g history-limit 50000',
       'set-option -g escape-time 0',                           // no Esc delay — preserves claude Esc-to-cancel
       'set-option -g destroy-unattached off',                  // linchpin: keep session alive when our client detaches

@@ -10,7 +10,8 @@ import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
 import { isPrimaryModifier } from '../utils/platform.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup } from '@argus/shared';
+import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
+import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
 import { AlertSheet, Button, ToastProvider, pushToast } from '../components/primitives/index.js';
@@ -232,6 +233,27 @@ function DesktopInner() {
     app.openSession(created.id);
   };
 
+  const handleSpawnFromFavorite = async (
+    session: SessionInfo | null,
+    meta?: FavoriteEntryMeta,
+    ghostId?: string,
+  ) => {
+    const src = meta ?? (session ? { folderPath: session.folderPath, name: session.name, agentType: session.agentType, flags: session.flags } : null);
+    if (!src) return;
+    try {
+      const created = await createSession(src.folderPath, src.name, src.agentType, src.flags);
+      groups.toggleFavorite(created);
+      if (ghostId) {
+        groups.removeFromFavorites(ghostId);
+      } else if (session) {
+        groups.removeFromFavorites(session.id);
+      }
+      app.openSession(created.id);
+    } catch {
+      // createSession error is surfaced by useSessions; no extra handling needed here
+    }
+  };
+
   const handleMerge = async (session: SessionInfo) => {
     try {
       const info = await api.getWorktreeParentInfo(session.id);
@@ -397,6 +419,10 @@ function DesktopInner() {
                 sessionIds: grouped.others.map((s) => s.id),
               })}
               onOpenSession={app.openSession}
+              onToggleFavorite={groups.toggleFavorite}
+              onSpawnFromFavorite={handleSpawnFromFavorite}
+              isFavorite={groups.isFavorite}
+              onToggleFavoritesCollapsed={() => groups.toggleCollapsed(FAVORITES_GROUP_ID)}
             />
           }
         />

@@ -1,13 +1,18 @@
 import { useState, useRef } from 'react';
-import type { SessionInfo, SessionGroup } from '@argus/shared';
-import { ChevronRight, Plus, Trash2, PowerOff, Check, X, Eye, EyeOff } from 'lucide-react';
+import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
+import { FAVORITES_GROUP_ID } from '@argus/shared';
+import { ChevronRight, Plus, Trash2, PowerOff, Check, X, Eye, EyeOff, Star, RotateCcw } from 'lucide-react';
 import { StatusDot, Tooltip } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
-import type { GroupedSessions } from '../../hooks/useGroups.js';
+import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 
 const OTHERS = '__others__';
+
+// Amber star color (matches the 'amber' group color key)
+const STAR_COLOR_DARK = '#FFB454';
+const STAR_COLOR_LIGHT = '#B26A00';
 
 interface SessionTreeProps {
   grouped: GroupedSessions;
@@ -24,12 +29,17 @@ interface SessionTreeProps {
   onKillGroup: (group: SessionGroup) => void;
   onKillOthers: () => void;
   onOpenSession: (id: string) => void;
+  onToggleFavorite: (session: SessionInfo) => void;
+  onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
+  isFavorite: (sessionId: string) => boolean;
+  onToggleFavoritesCollapsed: () => void;
 }
 
 export function SessionTree({
   grouped, activeGroupId, isDark,
   onAssign, onToggleCollapsed, onFilterGroup, onCreateGroup,
-  onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers, onOpenSession,
+  onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers,
+  onOpenSession, onToggleFavorite, onSpawnFromFavorite, isFavorite, onToggleFavoritesCollapsed,
 }: SessionTreeProps) {
   const dragId = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -42,8 +52,29 @@ export function SessionTree({
     setDropTarget(null);
   };
 
+  const starColor = isDark ? STAR_COLOR_DARK : STAR_COLOR_LIGHT;
+
   return (
     <div style={{ margin: '2px 0 var(--s-2)' }}>
+      {/* Favourites section — pinned at top, shown only when non-empty */}
+      {grouped.favorites && (
+        <FavoritesNode
+          favorites={grouped.favorites}
+          isDark={isDark}
+          dropping={dropTarget === FAVORITES_GROUP_ID}
+          starColor={starColor}
+          onDragOverGroup={() => setDropTarget(FAVORITES_GROUP_ID)}
+          onDragLeaveGroup={() => setDropTarget((t) => (t === FAVORITES_GROUP_ID ? null : t))}
+          onDrop={() => handleDrop(FAVORITES_GROUP_ID)}
+          onDragStartLeaf={(id) => { dragId.current = id; }}
+          onChevron={onToggleFavoritesCollapsed}
+          onOpenSession={onOpenSession}
+          onSpawnFromFavorite={onSpawnFromFavorite}
+          onToggleFavorite={onToggleFavorite}
+          isFavorite={isFavorite}
+        />
+      )}
+
       {grouped.groups.map(({ group, sessions }) => (
         <GroupNode
           key={group.id}
@@ -52,6 +83,7 @@ export function SessionTree({
           active={activeGroupId === group.id}
           dropping={dropTarget === group.id}
           isDark={isDark}
+          starColor={starColor}
           onDragOverGroup={() => setDropTarget(group.id)}
           onDragLeaveGroup={() => setDropTarget((t) => (t === group.id ? null : t))}
           onDrop={() => handleDrop(group.id)}
@@ -63,6 +95,8 @@ export function SessionTree({
           onDelete={() => onDeleteGroup(group.id)}
           onKill={() => onKillGroup(group)}
           onOpenSession={onOpenSession}
+          onToggleFavorite={onToggleFavorite}
+          isFavorite={isFavorite}
         />
       ))}
 
@@ -71,6 +105,7 @@ export function SessionTree({
         sessions={grouped.others}
         color={grouped.othersColor}
         isDark={isDark}
+        starColor={starColor}
         collapsed={othersCollapsed}
         dropping={dropTarget === OTHERS}
         active={activeGroupId === OTHERS}
@@ -83,6 +118,8 @@ export function SessionTree({
         onDrop={() => handleDrop(null)}
         onDragStartLeaf={(id) => { dragId.current = id; }}
         onOpenSession={onOpenSession}
+        onToggleFavorite={onToggleFavorite}
+        isFavorite={isFavorite}
       />
 
       {creating ? (
@@ -101,17 +138,107 @@ export function SessionTree({
   );
 }
 
+/* ---------- favourites node ---------- */
+function FavoritesNode({
+  favorites, isDark, dropping, starColor,
+  onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
+  onChevron, onOpenSession, onSpawnFromFavorite, onToggleFavorite, isFavorite,
+}: {
+  favorites: GroupedSessions['favorites'] & object;
+  isDark: boolean;
+  dropping: boolean;
+  starColor: string;
+  onDragOverGroup: () => void;
+  onDragLeaveGroup: () => void;
+  onDrop: () => void;
+  onDragStartLeaf: (id: string) => void;
+  onChevron: () => void;
+  onOpenSession: (id: string) => void;
+  onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
+  onToggleFavorite: (session: SessionInfo) => void;
+  isFavorite: (sessionId: string) => boolean;
+}) {
+  const [hover, setHover] = useState(false);
+  const liveCount = favorites.items.filter((item): item is SessionInfo => !('ghost' in item)).length;
+  const ghostCount = favorites.items.length - liveCount;
+  const totalCount = liveCount + ghostCount;
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); onDragOverGroup(); }}
+      onDragLeave={onDragLeaveGroup}
+      onDrop={(e) => { e.preventDefault(); onDrop(); }}
+    >
+      <div
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          ...headStyle,
+          background: dropping ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
+          borderLeft: `2px solid ${dropping ? 'var(--accent-edge)' : 'transparent'}`,
+        }}
+      >
+        <Tooltip content="Collapse / expand">
+          <button type="button" onClick={onChevron} style={chevBtnStyle}>
+            <ChevronRight
+              size={12}
+              strokeWidth={2}
+              style={{ transform: favorites.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
+            />
+          </button>
+        </Tooltip>
+
+        <Star size={10} strokeWidth={2} fill={starColor} style={{ color: starColor, flexShrink: 0 }} />
+
+        <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-1)' }}>Favourites</span>
+
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
+          {totalCount}
+        </span>
+      </div>
+
+      {!favorites.collapsed && favorites.items.map((item) => {
+        if ('ghost' in item) {
+          return (
+            <GhostLeaf
+              key={item.id}
+              ghost={item}
+              onSpawn={() => onSpawnFromFavorite(null, item.meta, item.id)}
+            />
+          );
+        }
+        const isExited = item.status === 'exited';
+        return (
+          <Leaf
+            key={item.id}
+            session={item}
+            isDark={isDark}
+            starColor={starColor}
+            dimmed={isExited}
+            isFavorite={isFavorite(item.id)}
+            onDragStart={() => onDragStartLeaf(item.id)}
+            onOpen={() => isExited ? onSpawnFromFavorite(item) : onOpenSession(item.id)}
+            onToggleFavorite={() => onToggleFavorite(item)}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 /* ---------- group node ---------- */
 function GroupNode({
-  group, sessions, active, dropping, isDark,
+  group, sessions, active, dropping, isDark, starColor,
   onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
   onChevron, onFilter, onRename, onSetColor, onDelete, onKill, onOpenSession,
+  onToggleFavorite, isFavorite,
 }: {
   group: SessionGroup;
   sessions: SessionInfo[];
   active: boolean;
   dropping: boolean;
   isDark: boolean;
+  starColor: string;
   onDragOverGroup: () => void;
   onDragLeaveGroup: () => void;
   onDrop: () => void;
@@ -123,6 +250,8 @@ function GroupNode({
   onDelete: () => void;
   onKill: () => void;
   onOpenSession: (id: string) => void;
+  onToggleFavorite: (session: SessionInfo) => void;
+  isFavorite: (sessionId: string) => boolean;
 }) {
   const [hover, setHover] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -214,7 +343,16 @@ function GroupNode({
       )}
 
       {!group.collapsed && sessions.map((s) => (
-        <Leaf key={s.id} session={s} isDark={isDark} onDragStart={() => onDragStartLeaf(s.id)} onOpen={() => onOpenSession(s.id)} />
+        <Leaf
+          key={s.id}
+          session={s}
+          isDark={isDark}
+          starColor={starColor}
+          isFavorite={isFavorite(s.id)}
+          onDragStart={() => onDragStartLeaf(s.id)}
+          onOpen={() => onOpenSession(s.id)}
+          onToggleFavorite={() => onToggleFavorite(s)}
+        />
       ))}
     </div>
   );
@@ -222,13 +360,14 @@ function GroupNode({
 
 /* ---------- others node ---------- */
 function OthersNode({
-  sessions, color, isDark, collapsed, dropping, active,
+  sessions, color, isDark, starColor, collapsed, dropping, active,
   onChevron, onSetColor, onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf, onOpenSession,
-  onFilter, onKill,
+  onFilter, onKill, onToggleFavorite, isFavorite,
 }: {
   sessions: SessionInfo[];
   color: string | null;
   isDark: boolean;
+  starColor: string;
   collapsed: boolean;
   dropping: boolean;
   active: boolean;
@@ -241,6 +380,8 @@ function OthersNode({
   onOpenSession: (id: string) => void;
   onFilter: () => void;
   onKill: () => void;
+  onToggleFavorite: (session: SessionInfo) => void;
+  isFavorite: (sessionId: string) => boolean;
 }) {
   const [hover, setHover] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -310,14 +451,34 @@ function OthersNode({
       )}
 
       {!collapsed && sessions.map((s) => (
-        <Leaf key={s.id} session={s} isDark={isDark} onDragStart={() => onDragStartLeaf(s.id)} onOpen={() => onOpenSession(s.id)} />
+        <Leaf
+          key={s.id}
+          session={s}
+          isDark={isDark}
+          starColor={starColor}
+          isFavorite={isFavorite(s.id)}
+          onDragStart={() => onDragStartLeaf(s.id)}
+          onOpen={() => onOpenSession(s.id)}
+          onToggleFavorite={() => onToggleFavorite(s)}
+        />
       ))}
     </div>
   );
 }
 
 /* ---------- leaf ---------- */
-function Leaf({ session, onDragStart, onOpen }: { session: SessionInfo; isDark: boolean; onDragStart: () => void; onOpen: () => void }) {
+function Leaf({
+  session, isDark: _isDark, starColor, isFavorite, dimmed = false, onDragStart, onOpen, onToggleFavorite,
+}: {
+  session: SessionInfo;
+  isDark: boolean;
+  starColor: string;
+  isFavorite: boolean;
+  dimmed?: boolean;
+  onDragStart: () => void;
+  onOpen: () => void;
+  onToggleFavorite: () => void;
+}) {
   const [hover, setHover] = useState(false);
   const label = shellLabel(session);
   return (
@@ -338,6 +499,7 @@ function Leaf({ session, onDragStart, onOpen }: { session: SessionInfo; isDark: 
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
           cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
+          opacity: dimmed ? 0.55 : 1,
         }}
       >
         <StatusDot status={session.status} size={6} decorative />
@@ -345,6 +507,68 @@ function Leaf({ session, onDragStart, onOpen }: { session: SessionInfo; isDark: 
         <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
           color: hover ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {label}
+        </span>
+        {/* Star toggle — fixed-width slot so label never shifts on hover */}
+        <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
+          <Tooltip content={isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
+              style={{
+                all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 2, borderRadius: 3,
+                opacity: isFavorite ? 1 : hover ? 0.7 : 0,
+                transition: 'opacity 120ms var(--ease-std)',
+                color: isFavorite ? starColor : 'var(--fg-3)',
+                pointerEvents: isFavorite || hover ? 'auto' : 'none',
+              }}
+            >
+              <Star
+                size={11}
+                strokeWidth={1.8}
+                fill={isFavorite ? starColor : 'none'}
+                style={{ color: isFavorite ? starColor : 'var(--fg-3)' }}
+              />
+            </button>
+          </Tooltip>
+        </span>
+      </div>
+    </Tooltip>
+  );
+}
+
+/* ---------- ghost leaf ---------- */
+function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => void }) {
+  const [hover, setHover] = useState(false);
+  const label = ghost.meta.name || ghost.meta.folderPath.split('/').pop() || ghost.meta.folderPath;
+  return (
+    <Tooltip content={`${ghost.meta.folderPath} — click to respawn`}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={`Respawn ${label}`}
+        onClick={onSpawn}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSpawn(); } }}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
+          padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
+          cursor: 'pointer', background: hover ? 'var(--bg-2)' : 'transparent',
+          opacity: 0.45,
+        }}
+      >
+        {/* Placeholder dot + glyph area to match Leaf layout */}
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fg-4)', flexShrink: 0 }} />
+        <span style={{ width: 12, flexShrink: 0 }} />
+        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
+          color: 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          fontStyle: 'italic' }}>
+          {label}
+        </span>
+        <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
+          <RotateCcw size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
       </div>
     </Tooltip>
