@@ -26,7 +26,7 @@ function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
   }));
 }
 
-export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, groupStore: GroupStore, configStore: ConfigStore): Router {
+export function createSessionRoutes(manager: SessionManager, orderStore: OrderStore, mosaicOrderStore: OrderStore, groupStore: GroupStore, configStore: ConfigStore): Router {
   const router = Router();
 
   router.get('/', (_req, res) => {
@@ -45,6 +45,21 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       return;
     }
     await orderStore.save(order);
+    res.json({ order });
+  });
+
+  router.get('/mosaic-order', async (_req, res) => {
+    const order = await mosaicOrderStore.load();
+    res.json({ order });
+  });
+
+  router.put('/mosaic-order', async (req, res) => {
+    const { order } = req.body;
+    if (!Array.isArray(order)) {
+      res.status(400).json({ error: 'order must be an array of session IDs' });
+      return;
+    }
+    await mosaicOrderStore.save(order);
     res.json({ order });
   });
 

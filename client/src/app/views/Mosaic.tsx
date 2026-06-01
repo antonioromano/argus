@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -15,6 +15,8 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 interface MosaicProps {
   onOpenDiff?: (id: string) => void;
   sessions: SessionInfo[];
+  /** Persist a new full ordering of session ids (mosaic-only order). */
+  onReorder: (newOrderedIds: string[]) => void;
   filter: string;
   socket: TypedSocket;
   theme: 'dark' | 'light';
@@ -39,11 +41,33 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
+
+  // Native HTML5 drag-to-reorder of tiles by their header. Operates on the full `sessions`
+  // list (by id) so reorders stay correct even while filtered/grouped/sliced.
+  const dragId = useRef<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const handleDragStart = (id: string) => { dragId.current = id; };
+  const handleDragEnd = () => { dragId.current = null; setDropTargetId(null); };
+  const handleDragOverTile = (id: string) => {
+    if (dragId.current && dragId.current !== id) setDropTargetId(id);
+  };
+  const handleDropTile = (targetId: string) => {
+    const src = dragId.current;
+    dragId.current = null;
+    setDropTargetId(null);
+    if (!src || src === targetId) return;
+    const ids = sessions.map((s) => s.id);
+    const from = ids.indexOf(src);
+    if (from === -1 || ids.indexOf(targetId) === -1) return;
+    ids.splice(from, 1);
+    ids.splice(ids.indexOf(targetId), 0, src);
+    onReorder(ids);
+  };
 
   useEffect(() => {
     const onFocus = () => setWindowFocused(true);
@@ -105,6 +129,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
               key={s.id}
               idx={i}
               session={s}
+              onDragStartTile={() => handleDragStart(s.id)}
+              onDragOverTile={() => handleDragOverTile(s.id)}
+              onDropTile={() => handleDropTile(s.id)}
+              onDragEndTile={handleDragEnd}
+              isDropTarget={dropTargetId === s.id}
               socket={socket}
               theme={theme}
               groupColor={groupColorOf?.(s.id) ?? null}
@@ -133,6 +162,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
               key={s.id}
               idx={i}
               session={s}
+              onDragStartTile={() => handleDragStart(s.id)}
+              onDragOverTile={() => handleDragOverTile(s.id)}
+              onDropTile={() => handleDropTile(s.id)}
+              onDragEndTile={handleDragEnd}
+              isDropTarget={dropTargetId === s.id}
               socket={socket}
               theme={theme}
               groupColor={groupColorOf?.(s.id) ?? null}
@@ -175,6 +209,11 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
 function MosaicTile({
   idx,
   session,
+  onDragStartTile,
+  onDragOverTile,
+  onDropTile,
+  onDragEndTile,
+  isDropTarget,
   socket,
   theme,
   groupColor,
@@ -195,6 +234,11 @@ function MosaicTile({
 }: {
   idx: number;
   session: SessionInfo;
+  onDragStartTile: () => void;
+  onDragOverTile: () => void;
+  onDropTile: () => void;
+  onDragEndTile: () => void;
+  isDropTarget: boolean;
   socket: TypedSocket;
   theme: 'dark' | 'light';
   groupColor?: string | null;
@@ -234,8 +278,14 @@ function MosaicTile({
         className="argus-tile-header"
         role="button"
         tabIndex={0}
+        draggable
+        data-drop-target={isDropTarget || undefined}
         onClick={minimized ? onToggleMinimize : onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); minimized ? onToggleMinimize() : onOpen(); } }}
+        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartTile(); }}
+        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOverTile(); }}
+        onDrop={(e) => { e.preventDefault(); onDropTile(); }}
+        onDragEnd={onDragEndTile}
       >
         <AgentGlyph agent={session.agentType} size={16} />
         {groupColor && (

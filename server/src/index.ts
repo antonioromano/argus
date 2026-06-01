@@ -94,6 +94,9 @@ sessionManager.setIo(io);
 // Order store
 const orderStore = new OrderStore(path.join(dataDir, 'order.json'));
 
+// Mosaic-only order store (independent of the global session order)
+const mosaicOrderStore = new OrderStore(path.join(dataDir, 'mosaic-order.json'));
+
 // Group store
 const groupStore = new GroupStore(path.join(dataDir, 'groups.json'));
 
@@ -134,7 +137,7 @@ export function setApplyUpdateFn(fn: import('./services/UpdateService.js').Apply
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', persistentSessions: sessionManager.isPersistent() });
 });
-app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, groupStore, configStore));
+app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicOrderStore, groupStore, configStore));
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).

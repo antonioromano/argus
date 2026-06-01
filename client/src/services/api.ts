@@ -171,6 +171,20 @@ export const api = {
     });
   },
 
+  getMosaicOrder: async (): Promise<string[]> => {
+    const res = await authFetch(`${API_BASE}/sessions/mosaic-order`);
+    const data = await res.json();
+    return data.order;
+  },
+
+  saveMosaicOrder: async (order: string[]): Promise<void> => {
+    await authFetch(`${API_BASE}/sessions/mosaic-order`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    });
+  },
+
   getGroups: async (): Promise<SessionGroup[]> => {
     const res = await authFetch(`${API_BASE}/sessions/groups`);
     const data = await res.json();

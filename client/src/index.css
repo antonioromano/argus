@@ -614,7 +614,14 @@ body {
   padding: var(--s-1) var(--s-3);
   background: var(--bg-1);
   flex-shrink: 0;
-  cursor: pointer;
+  cursor: grab;
+}
+.argus-tile-header:active {
+  cursor: grabbing;
+}
+/* Drop indicator — inset shadow only, no border/size change (no row reflow). */
+.argus-tile-header[data-drop-target] {
+  box-shadow: inset 3px 0 0 0 var(--accent);
 }
 .argus-tile:not([data-minimized="true"]) .argus-tile-header {
   border-bottom: 1px solid var(--line-2);

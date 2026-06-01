@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
+import { useMosaicOrder } from '../hooks/useMosaicOrder.js';
 import { useGroups } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
@@ -129,6 +130,7 @@ function DesktopInner() {
   const { status: updateStatus } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
   const { getOrderedSessions } = useSessionOrder();
+  const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
   const groups = useGroups();
 
   type MergeFlow =
@@ -147,6 +149,7 @@ function DesktopInner() {
   const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
+  const mosaicSessions = useMemo(() => getMosaicOrderedSessions(sessions), [sessions, getMosaicOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
   const grouped = groups.groupedSessions(orderedSessions);
 
@@ -432,7 +435,8 @@ function DesktopInner() {
         <main id="main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           {app.view === 'dashboard' && (
             <Mosaic
-              sessions={orderedSessions}
+              sessions={mosaicSessions}
+              onReorder={reorderMosaic}
               filter={filter}
               socket={socket}
               theme={theme}
