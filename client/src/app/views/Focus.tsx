@@ -39,6 +39,7 @@ interface FocusProps {
   sidePanel: SidePanel;
   filter?: string;
   onSelect: (id: string) => void;
+  onReorder: (newOrderedIds: string[]) => void;
   onBack: () => void;
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
@@ -57,6 +58,7 @@ export function Focus({
   sidePanel,
   filter,
   onSelect,
+  onReorder,
   onBack,
   onToggleDiff,
   onToggleExplorer,
@@ -119,7 +121,7 @@ export function Focus({
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} />
+      <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} onReorder={onReorder} />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>

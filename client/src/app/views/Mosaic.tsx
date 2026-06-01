@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, Plus, CircleX, Minus, Maximize2, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
+import { Square as SquareIcon, Plus, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { MinimizedChip } from '../ui/MinimizedChip.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
@@ -124,33 +125,16 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     <div className="grid-bg" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: overflow ? 'auto' : 'hidden' }}>
       {minTiles.length > 0 && (
         <div className="argus-mosaic-minrow">
-          {minTiles.map((s, i) => (
-            <MosaicTile
+          {minTiles.map((s) => (
+            <MinimizedChip
               key={s.id}
-              idx={i}
               session={s}
-              onDragStartTile={() => handleDragStart(s.id)}
-              onDragOverTile={() => handleDragOverTile(s.id)}
-              onDropTile={() => handleDropTile(s.id)}
-              onDragEndTile={handleDragEnd}
+              onClick={groupFilterIds ? () => restoreFromFilter(s.id, currentGroup) : () => toggleMinimize(s.id)}
+              onDragStart={() => handleDragStart(s.id)}
+              onDragOver={() => handleDragOverTile(s.id)}
+              onDrop={() => handleDropTile(s.id)}
+              onDragEnd={handleDragEnd}
               isDropTarget={dropTargetId === s.id}
-              socket={socket}
-              theme={theme}
-              groupColor={groupColorOf?.(s.id) ?? null}
-              minimized
-              isFocused={false}
-              windowFocused={windowFocused}
-              onXtermFocus={() => {}}
-              onXtermBlur={() => {}}
-              onToggleMinimize={groupFilterIds ? () => restoreFromFilter(s.id, currentGroup) : () => toggleMinimize(s.id)}
-              onOpen={() => onOpenSession(s.id)}
-              onKill={() => onKill(s)}
-              onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
-              onClone={onClone ? () => onClone(s) : undefined}
-              onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
-              onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
-              onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
-              onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
             />
           ))}
         </div>
@@ -170,7 +154,6 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
               socket={socket}
               theme={theme}
               groupColor={groupColorOf?.(s.id) ?? null}
-              minimized={false}
               isFocused={activeFocusedId === s.id}
               windowFocused={windowFocused}
               onXtermFocus={() => setFocusedId(s.id)}
@@ -217,7 +200,6 @@ function MosaicTile({
   socket,
   theme,
   groupColor,
-  minimized,
   isFocused,
   windowFocused,
   onXtermFocus,
@@ -242,7 +224,6 @@ function MosaicTile({
   socket: TypedSocket;
   theme: 'dark' | 'light';
   groupColor?: string | null;
-  minimized: boolean;
   isFocused: boolean;
   windowFocused: boolean;
   onXtermFocus: () => void;
@@ -268,10 +249,9 @@ function MosaicTile({
     <div
       className="argus-tile"
       data-status={session.status}
-      data-minimized={minimized || undefined}
       style={{ ['--i' as string]: idx } as CSSProperties}
     >
-      {!minimized && (!isFocused || !windowFocused) && (
+      {(!isFocused || !windowFocused) && (
         <div className="argus-tile-overlay" />
       )}
       <div
@@ -280,8 +260,8 @@ function MosaicTile({
         tabIndex={0}
         draggable
         data-drop-target={isDropTarget || undefined}
-        onClick={minimized ? onToggleMinimize : onOpen}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); minimized ? onToggleMinimize() : onOpen(); } }}
+        onClick={onOpen}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
         onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartTile(); }}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOverTile(); }}
         onDrop={(e) => { e.preventDefault(); onDropTile(); }}
@@ -349,8 +329,8 @@ function MosaicTile({
         )}
         <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
         <IconButton
-          icon={minimized ? Maximize2 : Minus}
-          label={minimized ? 'Restore shell' : 'Minimize shell'}
+          icon={Minus}
+          label="Minimize shell"
           size="sm"
           onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }}
         />
@@ -384,13 +364,11 @@ function MosaicTile({
         />
       </div>
 
-      {!minimized && (
-        <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-          <ErrorBoundary key={session.id} label={session.name}>
-            <TerminalShell session={session} socket={socket} theme={theme} status={session.status} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
-          </ErrorBoundary>
-        </div>
-      )}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <ErrorBoundary key={session.id} label={session.name}>
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
+        </ErrorBoundary>
+      </div>
     </div>
   );
 }

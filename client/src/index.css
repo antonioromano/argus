@@ -605,7 +605,6 @@ body {
   animation-delay: calc(var(--i, 0) * 40ms);
 }
 .argus-tile[data-status="waiting"] { border-color: var(--status-waiting); }
-.argus-tile[data-minimized="true"] { width: min(240px, 100%); flex-shrink: 0; }
 
 .argus-tile-header {
   display: flex;
@@ -615,6 +614,7 @@ body {
   background: var(--bg-1);
   flex-shrink: 0;
   cursor: grab;
+  border-bottom: 1px solid var(--line-2);
 }
 .argus-tile-header:active {
   cursor: grabbing;
@@ -623,9 +623,25 @@ body {
 .argus-tile-header[data-drop-target] {
   box-shadow: inset 3px 0 0 0 var(--accent);
 }
-.argus-tile:not([data-minimized="true"]) .argus-tile-header {
-  border-bottom: 1px solid var(--line-2);
+
+/* Minimized-shell pill — shared by the focus OTHERS strip and the mosaic minrow. */
+.argus-chip {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--s-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  flex-shrink: 0;
+  position: relative;
+  cursor: pointer;
 }
+.argus-chip:active { cursor: grabbing; }
+.argus-chip[data-drop-target] { box-shadow: inset 3px 0 0 0 var(--accent); }
+.argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
+.argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
 
 .argus-tile-overlay {
   position: absolute;

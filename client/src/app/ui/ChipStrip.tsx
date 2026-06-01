@@ -1,6 +1,6 @@
+import { useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import { StatusDot } from '../../components/primitives/index.js';
-import { AgentGlyph } from './AgentGlyph.js';
+import { MinimizedChip } from './MinimizedChip.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 
 interface ChipStripProps {
@@ -8,10 +8,35 @@ interface ChipStripProps {
   activeId: string;
   filter?: string;
   onSelect: (id: string) => void;
+  /** Persist a new full ordering of session ids (global session order). */
+  onReorder: (newOrderedIds: string[]) => void;
 }
 
-export function ChipStrip({ sessions, activeId, filter, onSelect }: ChipStripProps) {
+export function ChipStrip({ sessions, activeId, filter, onSelect, onReorder }: ChipStripProps) {
   const others = filterSessions(sessions, filter ?? '').filter((s) => s.id !== activeId);
+
+  // Native HTML5 drag-to-reorder. Splices over the full `sessions` id list so the
+  // reorder stays correct even while filtered/sliced.
+  const dragId = useRef<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const handleDragStart = (id: string) => { dragId.current = id; };
+  const handleDragEnd = () => { dragId.current = null; setDropTargetId(null); };
+  const handleDragOver = (id: string) => {
+    if (dragId.current && dragId.current !== id) setDropTargetId(id);
+  };
+  const handleDrop = (targetId: string) => {
+    const src = dragId.current;
+    dragId.current = null;
+    setDropTargetId(null);
+    if (!src || src === targetId) return;
+    const ids = sessions.map((s) => s.id);
+    const from = ids.indexOf(src);
+    if (from === -1 || ids.indexOf(targetId) === -1) return;
+    ids.splice(from, 1);
+    ids.splice(ids.indexOf(targetId), 0, src);
+    onReorder(ids);
+  };
+
   return (
     <div
       className="argus-scroll"
@@ -30,32 +55,16 @@ export function ChipStrip({ sessions, activeId, filter, onSelect }: ChipStripPro
         OTHERS · {others.length}
       </span>
       {others.map((s) => (
-        <button
+        <MinimizedChip
           key={s.id}
+          session={s}
           onClick={() => onSelect(s.id)}
-          style={{
-            all: 'unset',
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px var(--s-2)',
-            background: 'var(--bg-2)',
-            border: '1px solid var(--line-2)',
-            borderRadius: 'var(--r-2)',
-            flexShrink: 0,
-            position: 'relative',
-          }}
-        >
-          <StatusDot status={s.status} size={6} />
-          <AgentGlyph agent={s.agentType} size={14} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-1)' }}>
-            {s.name}
-          </span>
-          {s.hasGitChanges && (
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--dirty)' }} />
-          )}
-        </button>
+          onDragStart={() => handleDragStart(s.id)}
+          onDragOver={() => handleDragOver(s.id)}
+          onDrop={() => handleDrop(s.id)}
+          onDragEnd={handleDragEnd}
+          isDropTarget={dropTargetId === s.id}
+        />
       ))}
     </div>
   );

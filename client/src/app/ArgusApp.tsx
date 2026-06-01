@@ -129,7 +129,7 @@ function DesktopInner() {
   const ngrok = useNgrok(socket);
   const { status: updateStatus } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
-  const { getOrderedSessions } = useSessionOrder();
+  const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
   const groups = useGroups();
 
@@ -468,6 +468,7 @@ function DesktopInner() {
               sidePanel={app.sidePanel}
               filter={filter}
               onSelect={app.setActiveSession}
+              onReorder={reorderSession}
               onBack={app.exitFocus}
               onToggleDiff={() => app.toggleSidePanel('diff', activeSession.id)}
               onToggleExplorer={() => app.toggleSidePanel('explorer', activeSession.id)}
