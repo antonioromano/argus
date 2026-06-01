@@ -108,7 +108,10 @@ export function useCompanionTerminal(
 
     try {
       const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        terminal.refresh(0, terminal.rows - 1);
+      });
       terminal.loadAddon(webgl);
     } catch (err) {
       console.warn('[useCompanionTerminal] WebGL unavailable, falling back to canvas:', err);
@@ -175,10 +178,16 @@ export function useCompanionTerminal(
     };
     window.addEventListener('terminal:refit', handleRefit);
 
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') handleRefit();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
+      document.removeEventListener('visibilitychange', handleVisibility);
       onDataDisposable.dispose();
       socket.off('ct:output', handleOutput);
       socket.off('ct:exit', handleExit);

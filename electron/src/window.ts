@@ -38,6 +38,9 @@ export function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: join(__dirname, 'preload.js'),
+      // Keep the renderer painting while hidden in the tray — reduces how often
+      // the WebGL terminal surface loses its GPU context on hide/show.
+      backgroundThrottling: false,
     },
   });
 

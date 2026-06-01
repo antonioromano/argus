@@ -210,6 +210,16 @@ export class PtyManager {
     }
   }
 
+  /**
+   * Capture the current visible screen of a tmux pane as a clean, valid escape
+   * stream (colors preserved via -e). Used to replay a correct frame on
+   * (re)attach instead of the raw byte buffer, which can be sliced mid-escape
+   * and render garbled in a fresh xterm.
+   */
+  capturePane(tmuxName: string): string {
+    return this.runTmux(['capture-pane', '-p', '-e', '-t', tmuxName]);
+  }
+
   /** Names of all live argus-* tmux sessions (survivors from a previous run). */
   listArgusSessions(): Set<string> {
     const set = new Set<string>();

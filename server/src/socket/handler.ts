@@ -66,8 +66,10 @@ export function setupSocketHandler(
       if (!clientDimensions.has(sessionId)) {
         clientDimensions.set(sessionId, new Map());
       }
-      // Replay buffered output so terminal isn't blank after reconnect
-      const buffer = manager.getSessionBuffer(sessionId);
+      // Replay a clean frame so the terminal isn't blank — and isn't garbled —
+      // after reconnect/reload. For tmux sessions this is a fresh screen
+      // snapshot; otherwise the raw rolling buffer.
+      const buffer = manager.getReplaySnapshot(sessionId);
       if (buffer) {
         socket.emit('session:output', { sessionId, data: buffer });
       }

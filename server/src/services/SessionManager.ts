@@ -336,6 +336,31 @@ export class SessionManager {
     return this.sessions.get(id)?.outputBuffer;
   }
 
+  /**
+   * A clean frame to paint on (re)join. For a live tmux-backed session, snapshot
+   * the current screen — always a valid escape stream — instead of the raw
+   * rolling buffer, whose 100KB slice can start mid-escape and render garbled in
+   * a fresh xterm (the bug behind "__"/black-icon after Cmd+R or tray reopen).
+   * Falls back to the raw buffer for non-tmux sessions or if capture fails.
+   */
+  getReplaySnapshot(id: string): string | undefined {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+    if (session.persistent && session.tmuxName) {
+      try {
+        if (!this.ptyManager.isTmuxPaneDead(session.tmuxName)) {
+          const snap = this.ptyManager.capturePane(session.tmuxName).replace(/\n+$/, '');
+          // capture-pane separates rows with bare LF; xterm needs CRLF or it
+          // staircases. Clear+home first so the frame replaces prior content.
+          return '\x1b[2J\x1b[3J\x1b[H' + snap.replace(/\r?\n/g, '\r\n');
+        }
+      } catch {
+        /* tmux gone / pane dead — fall through to the raw buffer */
+      }
+    }
+    return session.outputBuffer;
+  }
+
   clearBuffer(id: string): void {
     const session = this.sessions.get(id);
     if (session) session.outputBuffer = '';

@@ -128,7 +128,13 @@ export function useTerminal(
     // WebGL renderer — graceful fallback to canvas if context creation fails.
     try {
       const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        // xterm falls back to the DOM renderer after the GL context dies, but it
+        // won't repaint an idle terminal on its own — force a clean redraw so the
+        // last (corrupted) WebGL frame doesn't linger.
+        terminal.refresh(0, terminal.rows - 1);
+      });
       terminal.loadAddon(webgl);
     } catch (err) {
       console.warn('[useTerminal] WebGL renderer unavailable, falling back to canvas:', err);
@@ -249,12 +255,20 @@ export function useTerminal(
     };
     window.addEventListener('terminal:refit', handleRefit);
 
+    // Returning from the tray / regaining visibility can leave the WebGL surface
+    // with a lost context (garbled frame on idle terminals). Refit+refresh on show.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') handleRefit();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       if (tailTimer) clearTimeout(tailTimer);
       if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
+      document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
       onDataDisposable?.dispose();
