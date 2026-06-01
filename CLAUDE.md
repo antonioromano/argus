@@ -46,7 +46,7 @@ Single file (`src/types.ts`) defining all shared TypeScript types: session model
 ### client/ (React + Vite + xterm.js)
 - **`App`** — Top-level layout with theme toggle (dark/light, persisted to localStorage) and focus mode (Escape to exit).
 - **`components/Dashboard`** — Grid of session cards with drag-and-drop reordering (@dnd-kit).
-- **`components/TerminalPanel`** — xterm.js terminal with WebGL renderer, wired to Socket.io for I/O.
+- **`components/TerminalPanel`** — xterm.js terminal with Canvas renderer (`@xterm/addon-canvas`; WebGL was dropped in 0.16.11 — its ~16-context cap garbled the multi-terminal mosaic), wired to Socket.io for I/O.
 - **`hooks/useSocket`** — Singleton Socket.io client (WebSocket transport preferred).
 - **`hooks/useSessions`** — Session list state synced via REST + Socket.io events.
 - **`hooks/useSessionOrder`** — Persisted drag-and-drop ordering.

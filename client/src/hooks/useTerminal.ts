@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
@@ -125,23 +125,18 @@ export function useTerminal(
     xtermTextarea?.addEventListener('focus', onXtermFocus);
     xtermTextarea?.addEventListener('blur', onXtermBlur);
 
-    // WebGL renderer — graceful fallback to canvas if context creation fails.
-    // Kept reachable so doFit can rebuild the glyph atlas on relayout (below).
-    let webglAddon: WebglAddon | null = null;
+    // Canvas renderer (GPU-composited 2D canvas). Chosen over WebGL because Argus
+    // shows many terminals at once (mosaic + companion) and WebGL caps simultaneous
+    // contexts (~16) — a grid exhausts them and renders garbled on relayout. Canvas
+    // has no such cap. Kept reachable so doFit can rebuild the glyph atlas on resize.
+    // On failure, xterm silently falls back to the built-in DOM renderer.
+    let canvasAddon: CanvasAddon | null = null;
     try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        webglAddon = null;
-        // xterm falls back to the DOM renderer after the GL context dies, but it
-        // won't repaint an idle terminal on its own — force a clean redraw so the
-        // last (corrupted) WebGL frame doesn't linger.
-        terminal.refresh(0, terminal.rows - 1);
-      });
-      terminal.loadAddon(webgl);
-      webglAddon = webgl;
+      const canvas = new CanvasAddon();
+      terminal.loadAddon(canvas);
+      canvasAddon = canvas;
     } catch (err) {
-      console.warn('[useTerminal] WebGL renderer unavailable, falling back to canvas:', err);
+      console.warn('[useTerminal] Canvas renderer unavailable, falling back to DOM:', err);
     }
 
     // Delay fit to allow container to settle, then report dimensions to server
@@ -235,10 +230,9 @@ export function useTerminal(
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
-        // A significant resize (focus↔mosaic, tray show, cold-start fit) corrupts
-        // the WebGL glyph atlas → garbled box-chars/icons. refresh() repaints from
-        // the stale atlas; clearTextureAtlas() rebuilds it at the new size.
-        webglAddon?.clearTextureAtlas();
+        // Rebuild the glyph atlas at the new size so a relayout (focus↔mosaic,
+        // sidebar collapse, tray show, DPR change) can't leave stale glyphs.
+        canvasAddon?.clearTextureAtlas();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('session:resize', {
           sessionId,
@@ -263,8 +257,8 @@ export function useTerminal(
     };
     window.addEventListener('terminal:refit', handleRefit);
 
-    // Returning from the tray / regaining visibility can leave the WebGL surface
-    // with a lost context (garbled frame on idle terminals). Refit+refresh on show.
+    // Returning from the tray / regaining visibility: refit+refresh so an idle
+    // terminal repaints cleanly at the current size (handles size/DPR drift).
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') handleRefit();
     };

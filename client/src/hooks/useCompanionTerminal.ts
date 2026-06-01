@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { WebglAddon } from '@xterm/addon-webgl';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
@@ -106,18 +106,13 @@ export function useCompanionTerminal(
     terminal.loadAddon(new WebLinksAddon());
     terminal.open(container);
 
-    let webglAddon: WebglAddon | null = null;
+    let canvasAddon: CanvasAddon | null = null;
     try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        webglAddon = null;
-        terminal.refresh(0, terminal.rows - 1);
-      });
-      terminal.loadAddon(webgl);
-      webglAddon = webgl;
+      const canvas = new CanvasAddon();
+      terminal.loadAddon(canvas);
+      canvasAddon = canvas;
     } catch (err) {
-      console.warn('[useCompanionTerminal] WebGL unavailable, falling back to canvas:', err);
+      console.warn('[useCompanionTerminal] Canvas renderer unavailable, falling back to DOM:', err);
     }
 
     requestAnimationFrame(() => {
@@ -163,9 +158,8 @@ export function useCompanionTerminal(
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
-        // Rebuild the WebGL glyph atlas on resize (focus↔mosaic / show) — refresh
-        // alone repaints from a stale atlas and leaves garbled glyphs.
-        webglAddon?.clearTextureAtlas();
+        // Rebuild the glyph atlas on resize so relayout can't leave stale glyphs.
+        canvasAddon?.clearTextureAtlas();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
       }
