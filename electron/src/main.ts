@@ -308,12 +308,16 @@ async function main() {
   Menu.setApplicationMenu(buildAppMenu());
 
   // Inject native folder-picker dialog so the server can open macOS directory sheets.
+  // Serialize concurrent calls: a double-click/held-shortcut in the renderer must not
+  // stack two native dialogs — reuse the in-flight promise instead.
+  let pickInFlight: Promise<string | null> | null = null;
   server.setPickFolderFn(async (): Promise<string | null> => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-      title: 'Select project folder',
-    });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
+    if (pickInFlight) return pickInFlight;
+    pickInFlight = dialog
+      .showOpenDialog({ properties: ['openDirectory'], title: 'Select project folder' })
+      .then((result) => (result.canceled ? null : (result.filePaths[0] ?? null)))
+      .finally(() => { pickInFlight = null; });
+    return pickInFlight;
   });
 
   // Inject brew-based self-update so the in-app "Update now" button works in the desktop app.
