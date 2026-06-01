@@ -65,6 +65,14 @@ jobs:
           X64: ${{ steps.sha.outputs.x64 }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/antonioromano/argus.git"
+          # Always base the cask commit on the latest main, not the detached tag HEAD.
+          # This prevents push rejection when main moves forward during the CI run.
+          git fetch origin main
+          git checkout -B cask-bump origin/main
+
           python3 - <<'PYEOF'
           import re, os
           version = os.environ['VERSION']
@@ -90,9 +98,6 @@ jobs:
               f.write(content)
           PYEOF
 
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config user.name "github-actions[bot]"
-          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/antonioromano/argus.git"
           git add Casks/argus.rb
           git commit -m "chore: bump cask to ${VERSION}"
-          git push origin HEAD:main
+          git push origin cask-bump:main
