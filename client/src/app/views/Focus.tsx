@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, PowerOff } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
@@ -198,7 +198,7 @@ export function Focus({
             <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
             <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
             <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
-            <IconButton icon={PowerOff} label="Close shell" size="sm" onClick={onKill} />
+            <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
           </div>
 
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>

@@ -1,6 +1,18 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+const STORAGE_KEY = 'mosaic-minimized';
+
+function loadMinimized(): Set<string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Set();
+    const ids = JSON.parse(raw);
+    return Array.isArray(ids) ? new Set(ids.filter((id): id is string => typeof id === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
 
 export interface MosaicVisibilityApi {
   toggleMinimize: (id: string) => void;
@@ -18,7 +30,16 @@ export interface MosaicVisibilityApi {
  * boundary so minimized shells survive a focus round-trip (Mosaic unmounts in focus view).
  */
 export function useMosaicVisibility(): MosaicVisibilityApi {
-  const [minimized, setMinimized] = useState<Set<string>>(new Set());
+  const [minimized, setMinimized] = useState<Set<string>>(loadMinimized);
+
+  // Persist hand-minimize state so minimized shells survive a Cmd+R reload.
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...minimized]));
+    } catch {
+      // ignore quota/private-mode failures — minimize state is non-critical
+    }
+  }, [minimized]);
   // Shells the user clicked to pop back out of the filtered chip row (bypass the group filter).
   // Tagged with the group they belong to so they auto-reset when the active filter changes.
   const [forced, setForced] = useState<{ group: string | null; ids: Set<string> }>({ group: null, ids: new Set() });

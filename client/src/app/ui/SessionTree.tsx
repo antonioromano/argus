@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
-import { ChevronRight, Plus, Trash2, PowerOff, Check, X, Eye, EyeOff, Star, RotateCcw } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, CircleX, Check, X, Eye, EyeOff, Star, RotateCcw } from 'lucide-react';
 import { StatusDot, Tooltip } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
@@ -321,7 +321,7 @@ function GroupNode({
 
         {/* hover actions — always rendered, opacity toggled so the row never reflows */}
         <span style={{ ...actionsStyle, opacity: hover && !editing ? 1 : 0, pointerEvents: hover && !editing ? 'auto' : 'none' }}>
-          <Act title="Kill all in group" onClick={onKill}><PowerOff size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in group" onClick={onKill}><CircleX size={11} strokeWidth={1.8} /></Act>
           <Act title="Delete group" onClick={onDelete}><Trash2 size={11} strokeWidth={1.8} /></Act>
         </span>
       </div>
@@ -430,7 +430,7 @@ function OthersNode({
 
         {/* hover-revealed kill */}
         <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
-          <Act title="Kill all in Others" onClick={onKill}><PowerOff size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in Others" onClick={onKill}><CircleX size={11} strokeWidth={1.8} /></Act>
         </span>
       </div>
 

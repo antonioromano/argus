@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, Plus, PowerOff, Minus, Maximize2, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
+import { Square as SquareIcon, Plus, CircleX, Minus, Maximize2, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
@@ -377,7 +377,7 @@ function MosaicTile({
           />
         )}
         <IconButton
-          icon={PowerOff}
+          icon={CircleX}
           label="Close shell"
           size="sm"
           onClick={(e) => { e.stopPropagation(); onKill(); }}

@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -18,6 +18,12 @@ interface FocusTrapOptions {
  * and the generic Overlay share one implementation.
  */
 export function useFocusTrap({ isOpen, panelRef, onEscape }: FocusTrapOptions) {
+  // Hold the latest onEscape in a ref so an unstable handler identity from the
+  // caller doesn't re-fire this effect (which would re-run focus-on-open and
+  // park focus on the first focusable element on every parent re-render).
+  const onEscapeRef = useRef(onEscape);
+  useEffect(() => { onEscapeRef.current = onEscape; }, [onEscape]);
+
   useEffect(() => {
     if (!isOpen) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -30,9 +36,9 @@ export function useFocusTrap({ isOpen, panelRef, onEscape }: FocusTrapOptions) {
     });
 
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onEscape) {
+      if (e.key === 'Escape' && onEscapeRef.current) {
         e.stopPropagation();
-        onEscape();
+        onEscapeRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -58,5 +64,5 @@ export function useFocusTrap({ isOpen, panelRef, onEscape }: FocusTrapOptions) {
       document.removeEventListener('keydown', handler);
       previouslyFocused?.focus?.();
     };
-  }, [isOpen, panelRef, onEscape]);
+  }, [isOpen, panelRef]);
 }

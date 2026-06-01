@@ -1,5 +1,5 @@
 import type { SessionInfo } from '@argus/shared';
-import { MoreHorizontal, PowerOff } from 'lucide-react';
+import { MoreHorizontal, CircleX } from 'lucide-react';
 import { AgentGlyph } from './AgentGlyph.js';
 import { StatusBar, DirtyBadge, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
@@ -211,7 +211,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         )}
         {onKill && (
           <IconButton
-            icon={PowerOff}
+            icon={CircleX}
             label="Close shell"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onKill(); }}
