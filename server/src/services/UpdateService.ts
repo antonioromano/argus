@@ -13,7 +13,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_PACKAGE_JSON = path.resolve(__dirname, '..', '..', '..', 'package.json');
 const REPO_OWNER = 'antonioromano';
 const REPO_NAME = 'argus';
-const REPO_BRANCH = 'master';
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const CHECK_COOLDOWN_MS = 60 * 1000; // 60 seconds between on-demand checks
 
@@ -26,8 +25,10 @@ function getCurrentVersion(): string {
   }
 }
 
-interface RemotePackageJson {
-  version?: string;
+interface GitHubRelease {
+  tag_name?: string;
+  body?: string;
+  html_url?: string;
 }
 
 export interface ApplyUpdateResult {
@@ -94,26 +95,35 @@ export class UpdateService {
     if (Date.now() - this.lastCheckAt < CHECK_COOLDOWN_MS) return;
     this.lastCheckAt = Date.now();
     try {
-      const url = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${REPO_BRANCH}/package.json`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'code-orchestrator-update-check' } });
+      const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'argus-update-check',
+          'Accept': 'application/vnd.github+json',
+        },
+      });
 
       if (!res.ok) {
-        console.warn(`[update] Could not fetch remote package.json (${res.status}), skipping check`);
+        console.warn(`[update] Could not fetch latest release (${res.status}), skipping check`);
         return;
       }
 
-      const pkg = await res.json() as RemotePackageJson;
-      const remoteVersion = semverClean(pkg.version ?? '') ?? semverValid(pkg.version ?? '');
+      const release = await res.json() as GitHubRelease;
+      const remoteVersion = semverClean(release.tag_name ?? '') ?? semverValid(release.tag_name ?? '');
 
       if (!remoteVersion) {
-        console.warn(`[update] Could not parse remote version: ${pkg.version}`);
+        console.warn(`[update] Could not parse remote version: ${release.tag_name}`);
         return;
       }
 
       this.latestVersion = remoteVersion;
-      this.releaseUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/commits/${REPO_BRANCH}`;
+      this.changelog = release.body ?? '';
+      this.releaseUrl = release.html_url ?? `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
-      this.io?.emit('update:available', this.getStatus());
+      const status = this.getStatus();
+      if (status.hasUpdate) {
+        this.io?.emit('update:available', status);
+      }
     } catch (err) {
       console.warn('[update] Version check failed (network error), will retry next interval:', (err as Error).message);
     }
