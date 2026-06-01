@@ -126,16 +126,20 @@ export function useTerminal(
     xtermTextarea?.addEventListener('blur', onXtermBlur);
 
     // WebGL renderer — graceful fallback to canvas if context creation fails.
+    // Kept reachable so doFit can rebuild the glyph atlas on relayout (below).
+    let webglAddon: WebglAddon | null = null;
     try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
         webgl.dispose();
+        webglAddon = null;
         // xterm falls back to the DOM renderer after the GL context dies, but it
         // won't repaint an idle terminal on its own — force a clean redraw so the
         // last (corrupted) WebGL frame doesn't linger.
         terminal.refresh(0, terminal.rows - 1);
       });
       terminal.loadAddon(webgl);
+      webglAddon = webgl;
     } catch (err) {
       console.warn('[useTerminal] WebGL renderer unavailable, falling back to canvas:', err);
     }
@@ -231,6 +235,10 @@ export function useTerminal(
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
+        // A significant resize (focus↔mosaic, tray show, cold-start fit) corrupts
+        // the WebGL glyph atlas → garbled box-chars/icons. refresh() repaints from
+        // the stale atlas; clearTextureAtlas() rebuilds it at the new size.
+        webglAddon?.clearTextureAtlas();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('session:resize', {
           sessionId,
