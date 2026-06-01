@@ -7,6 +7,16 @@ import { fileURLToPath } from 'url';
 import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit } from './window.js';
 import { createTray } from './tray.js';
 
+// Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
+// session, or after the shader cache is evicted) Chromium's GPU glyph
+// rasterization intermittently fails for special glyphs — box-drawing renders
+// as "__" and the Claude icon as a black block — and only a reload clears it.
+// This is renderer-agnostic (hit DOM/Canvas/WebGL alike) and reproduces only in
+// the packaged app's cold-GPU state (never in the warm `npm run dev` session).
+// Disabling hardware acceleration removes the GPU raster path entirely, so the
+// failure mode can't occur. Must be called before app 'ready'.
+app.disableHardwareAcceleration();
+
 interface ApplyUpdateResult {
   success: boolean;
   error?: string;
