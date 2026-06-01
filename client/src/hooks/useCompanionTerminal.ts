@@ -74,6 +74,18 @@ export function useCompanionTerminal(
   themeRef.current = theme;
   const [terminalAlive, setTerminalAlive] = useState(true);
 
+  // See useTerminal: re-init once web fonts are ready so cold-start char-cell
+  // measurement isn't baked with a not-yet-loaded font (garbled box-drawing).
+  const [fontsReady, setFontsReady] = useState(
+    () => typeof document === 'undefined' || document.fonts?.status === 'loaded',
+  );
+  useEffect(() => {
+    if (fontsReady || !document.fonts?.ready) return;
+    let cancelled = false;
+    document.fonts.ready.then(() => { if (!cancelled) setFontsReady(true); });
+    return () => { cancelled = true; };
+  }, [fontsReady]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -197,7 +209,7 @@ export function useCompanionTerminal(
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, socket, containerRef]);
+  }, [sessionId, socket, containerRef, fontsReady]);
 
   // Update theme without recreating the terminal
   useEffect(() => {

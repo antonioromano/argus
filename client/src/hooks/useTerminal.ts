@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -82,6 +82,23 @@ export function useTerminal(
   useEffect(() => { onTailRef.current = onTail; }, [onTail]);
   const onFocusChangeRef = useRef(onFocusChange);
   useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
+
+  // On a cold start the bundled web fonts may not be loaded when the terminal is
+  // first opened. xterm measures the character cell geometry at open() time using
+  // the (not-yet-ready) font, baking wrong cell dimensions that fit()/refresh()/
+  // clearTextureAtlas() can't repair — only a full re-init does (the manual Cmd+R
+  // people hit). Gate on document.fonts.ready: if fonts weren't ready at mount,
+  // flip this once they are so the terminal effect tears down and rebuilds with
+  // correct metrics. Already-loaded (warm) → starts true → no rebuild, no flicker.
+  const [fontsReady, setFontsReady] = useState(
+    () => typeof document === 'undefined' || document.fonts?.status === 'loaded',
+  );
+  useEffect(() => {
+    if (fontsReady || !document.fonts?.ready) return;
+    let cancelled = false;
+    document.fonts.ready.then(() => { if (!cancelled) setFontsReady(true); });
+    return () => { cancelled = true; };
+  }, [fontsReady]);
 
   // Create terminal and wire up socket
   useEffect(() => {
@@ -281,7 +298,7 @@ export function useTerminal(
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, socket, containerRef, readOnly]);
+  }, [sessionId, socket, containerRef, readOnly, fontsReady]);
 
   // Update theme without recreating the terminal
   useEffect(() => {
