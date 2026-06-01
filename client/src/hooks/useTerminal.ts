@@ -5,7 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
-import { disableMouseReporting } from './terminalMouse.js';
+import { installSelectableMouse } from './terminalMouse.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -132,10 +132,14 @@ export function useTerminal(
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
 
-    // Drop mouse reporting so plain click-drag does native text selection.
-    disableMouseReporting(terminal);
-
     terminal.open(container);
+
+    // Keep xterm out of mouse-reporting mode (plain drag selects text) while
+    // forwarding wheel + single clicks to the inner app (scroll / click claude).
+    const sendInput = readOnly
+      ? undefined
+      : (data: string) => socket.emit('session:input', { sessionId, data });
+    const disposeMouse = installSelectableMouse(terminal, container, sessionId, sendInput);
 
     const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');
     const onXtermFocus = () => onFocusChangeRef.current?.(true);
@@ -281,6 +285,7 @@ export function useTerminal(
       document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
+      disposeMouse();
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('connect', handleReconnect);

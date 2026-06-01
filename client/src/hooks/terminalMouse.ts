@@ -1,15 +1,25 @@
 import type { Terminal } from '@xterm/xterm';
 
 // DECSET/DECRST private modes for mouse tracking + extended encodings.
-// Argus drops mouse reporting entirely so plain click-drag does native text
-// selection instead of being captured as mouse events by the inner app (Claude
-// Code enables these). Scrollback is local to xterm and Claude is keyboard-
-// navigable, so nothing depends on these modes.
+//
+// Argus keeps xterm itself OUT of mouse-reporting mode so plain click-drag does
+// native text selection. But the inner app (Claude Code, vim, less) still *wants*
+// mouse — it sent the enable; our swallow is display-side only. So we record that
+// the app wants mouse and synthesize wheel/click reports to the pty ourselves:
+// wheel scrolls the app's history and a no-movement click reaches the app, while
+// drags stay local selections.
 //
 // Deliberately NOT included: 1004 (focus reporting — harmless, used by Claude),
 // 1049/47/1047 (alt-screen — needed by vim/less), 2004 (bracketed paste), 25
 // (cursor visibility).
 const MOUSE_MODES = new Set([1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
+const SGR_MODES = new Set([1006, 1015]);
+
+// px of wheel travel per synthesized wheel report
+const WHEEL_STEP = 24;
+const MAX_REPORTS_PER_WHEEL = 5;
+// movement (px) above which a press-release counts as a drag (local selection)
+const DRAG_THRESHOLD = 4;
 
 // Swallow the sequence only when every param is a mouse mode. Returning false
 // (the param set mixes in a non-mouse mode, or is empty) lets xterm's default
@@ -23,13 +33,140 @@ function isMouseModeSet(params: (number | number[])[]): boolean {
   return true;
 }
 
+function hasSgrMode(params: (number | number[])[]): boolean {
+  for (const p of params) {
+    const mode = Array.isArray(p) ? p[0] : p;
+    if (SGR_MODES.has(mode)) return true;
+  }
+  return false;
+}
+
+function clamp(min: number, n: number, max: number): number {
+  return n < min ? min : n > max ? max : n;
+}
+
+interface MouseState {
+  appMouse: boolean;
+  sgr: boolean;
+}
+
+function loadState(sessionId: string): MouseState {
+  try {
+    const raw = sessionStorage.getItem('argus:mouse:' + sessionId);
+    if (raw) return JSON.parse(raw) as MouseState;
+  } catch {
+    /* sessionStorage unavailable / malformed — fall through to default */
+  }
+  return { appMouse: false, sgr: true };
+}
+
+function saveState(sessionId: string, state: MouseState): void {
+  try {
+    sessionStorage.setItem('argus:mouse:' + sessionId, JSON.stringify(state));
+  } catch {
+    /* best-effort persistence across Cmd+R */
+  }
+}
+
 /**
- * Prevent the terminal from ever entering mouse-reporting mode by swallowing
- * the mouse-related DECSET (`CSI ? Pm h`) / DECRST (`CSI ? Pm l`) sequences at
- * the parser level. Parser-level handling is chunk-safe — xterm reassembles
- * split escape sequences internally before invoking the handler.
+ * Keep the terminal out of mouse-reporting mode (so plain drag selects text)
+ * while still letting the inner app receive wheel + single clicks. Tracks the
+ * app's mouse-mode request (persisted across Cmd+R via sessionStorage) and
+ * synthesizes mouse reports to the pty via `sendInput`.
+ *
+ * Parser-level swallowing is chunk-safe — xterm reassembles split escape
+ * sequences internally before invoking the handler.
+ *
+ * @param sendInput omit (readOnly) to disable wheel/click forwarding while still
+ *   keeping selection working.
+ * @returns cleanup that removes listeners and disposes the parser handlers.
  */
-export function disableMouseReporting(terminal: Terminal): void {
-  terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, isMouseModeSet);
-  terminal.parser.registerCsiHandler({ prefix: '?', final: 'l' }, isMouseModeSet);
+export function installSelectableMouse(
+  terminal: Terminal,
+  container: HTMLElement,
+  sessionId: string,
+  sendInput?: (data: string) => void,
+): () => void {
+  const state = loadState(sessionId);
+
+  const onSet = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+    if (!isMouseModeSet(params)) return false;
+    state.appMouse = true;
+    if (hasSgrMode(params)) state.sgr = true;
+    saveState(sessionId, state);
+    return true; // swallow — xterm must not enter mouse mode
+  });
+  const onReset = terminal.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+    if (!isMouseModeSet(params)) return false;
+    state.appMouse = false;
+    saveState(sessionId, state);
+    return true;
+  });
+
+  // ---- wheel → scroll the inner app ----
+  let wheelAcc = 0;
+  const onWheel = (e: WheelEvent) => {
+    if (!state.appMouse || !sendInput) return; // let xterm do its (frozen) native scroll
+    e.preventDefault();
+    wheelAcc += e.deltaY;
+    let reports = Math.trunc(wheelAcc / WHEEL_STEP);
+    if (reports === 0) return;
+    wheelAcc -= reports * WHEEL_STEP;
+    const down = reports > 0;
+    reports = clamp(1, Math.abs(reports), MAX_REPORTS_PER_WHEEL);
+    const seq = wheelSeq(state.sgr, down);
+    for (let i = 0; i < reports; i++) sendInput(seq);
+  };
+
+  // ---- press-release without movement → click into the inner app ----
+  let downX = 0;
+  let downY = 0;
+  let tracking = false;
+  const onMouseDown = (e: MouseEvent) => {
+    if (e.button !== 0) return;
+    downX = e.clientX;
+    downY = e.clientY;
+    tracking = true;
+  };
+  const onMouseUp = (e: MouseEvent) => {
+    if (!tracking) return;
+    tracking = false;
+    if (!state.appMouse || !sendInput || e.button !== 0) return;
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) >= DRAG_THRESHOLD) return; // a drag → local selection
+    const screenEl = container.querySelector<HTMLElement>('.xterm-screen') ?? container;
+    const rect = screenEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const col = clamp(1, Math.floor((e.clientX - rect.left) / (rect.width / terminal.cols)) + 1, terminal.cols);
+    const row = clamp(1, Math.floor((e.clientY - rect.top) / (rect.height / terminal.rows)) + 1, terminal.rows);
+    sendInput(clickSeq(state.sgr, col, row));
+  };
+
+  container.addEventListener('wheel', onWheel, { passive: false });
+  container.addEventListener('mousedown', onMouseDown);
+  container.addEventListener('mouseup', onMouseUp);
+
+  return () => {
+    onSet.dispose();
+    onReset.dispose();
+    container.removeEventListener('wheel', onWheel);
+    container.removeEventListener('mousedown', onMouseDown);
+    container.removeEventListener('mouseup', onMouseUp);
+  };
+}
+
+function wheelSeq(sgr: boolean, down: boolean): string {
+  // wheel buttons: up = 64, down = 65
+  const btn = down ? 65 : 64;
+  if (sgr) return `\x1b[<${btn};1;1M`;
+  // legacy X10/normal encoding, coords (1,1)
+  return '\x1b[M' + String.fromCharCode(32 + btn, 33, 33);
+}
+
+function clickSeq(sgr: boolean, col: number, row: number): string {
+  // left button = 0
+  if (sgr) return `\x1b[<0;${col};${row}M\x1b[<0;${col};${row}m`;
+  // legacy: press button 0, then release (button 3)
+  const press = '\x1b[M' + String.fromCharCode(32, 32 + col, 32 + row);
+  const release = '\x1b[M' + String.fromCharCode(32 + 3, 32 + col, 32 + row);
+  return press + release;
 }
