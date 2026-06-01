@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
+import { disableMouseReporting } from './terminalMouse.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -130,6 +131,9 @@ export function useTerminal(
 
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
+
+    // Drop mouse reporting so plain click-drag does native text selection.
+    disableMouseReporting(terminal);
 
     terminal.open(container);
 
