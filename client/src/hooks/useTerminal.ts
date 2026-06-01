@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { CanvasAddon } from '@xterm/addon-canvas';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isMac, isPrimaryModifier } from '../utils/platform.js';
@@ -83,13 +82,11 @@ export function useTerminal(
   const onFocusChangeRef = useRef(onFocusChange);
   useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
 
-  // On a cold start the bundled web fonts may not be loaded when the terminal is
-  // first opened. xterm measures the character cell geometry at open() time using
-  // the (not-yet-ready) font, baking wrong cell dimensions that fit()/refresh()/
-  // clearTextureAtlas() can't repair — only a full re-init does (the manual Cmd+R
-  // people hit). Gate on document.fonts.ready: if fonts weren't ready at mount,
-  // flip this once they are so the terminal effect tears down and rebuilds with
-  // correct metrics. Already-loaded (warm) → starts true → no rebuild, no flicker.
+  // Insurance for cold starts: if the bundled web fonts aren't loaded when the
+  // terminal is first opened, char-cell geometry can be measured against the
+  // fallback font. The DOM renderer reflows on font load on its own, but we also
+  // rebuild the terminal once fonts are ready so the measured metrics are correct.
+  // Already-loaded (warm) → starts true → no rebuild, no flicker.
   const [fontsReady, setFontsReady] = useState(
     () => typeof document === 'undefined' || document.fonts?.status === 'loaded',
   );
@@ -142,19 +139,12 @@ export function useTerminal(
     xtermTextarea?.addEventListener('focus', onXtermFocus);
     xtermTextarea?.addEventListener('blur', onXtermBlur);
 
-    // Canvas renderer (GPU-composited 2D canvas). Chosen over WebGL because Argus
-    // shows many terminals at once (mosaic + companion) and WebGL caps simultaneous
-    // contexts (~16) — a grid exhausts them and renders garbled on relayout. Canvas
-    // has no such cap. Kept reachable so doFit can rebuild the glyph atlas on resize.
-    // On failure, xterm silently falls back to the built-in DOM renderer.
-    let canvasAddon: CanvasAddon | null = null;
-    try {
-      const canvas = new CanvasAddon();
-      terminal.loadAddon(canvas);
-      canvasAddon = canvas;
-    } catch (err) {
-      console.warn('[useTerminal] Canvas renderer unavailable, falling back to DOM:', err);
-    }
+    // Renderer: xterm's built-in DOM renderer (no WebGL/Canvas addon). GPU-atlas
+    // renderers (WebGL, Canvas) bake a glyph atlas + char-cell metrics at init and,
+    // on a fresh Electron renderer (cold fonts / unsettled DPR), bake them wrong and
+    // garble until a full reload. The DOM renderer draws native text that reflows
+    // automatically when fonts load — immune to that whole class (the clean v0.15.1
+    // behavior, before WebGL was added in 0.16.0).
 
     // Delay fit to allow container to settle, then report dimensions to server
     requestAnimationFrame(() => {
@@ -247,9 +237,6 @@ export function useTerminal(
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
-        // Rebuild the glyph atlas at the new size so a relayout (focus↔mosaic,
-        // sidebar collapse, tray show, DPR change) can't leave stale glyphs.
-        canvasAddon?.clearTextureAtlas();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('session:resize', {
           sessionId,
