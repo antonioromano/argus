@@ -82,7 +82,12 @@ export function Focus({
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
   }, [sidePanelWidth]);
 
-  useEffect(() => { setTerminalFocused(false); }, [active.id]);
+  // Drop terminal-focus when the active session changes (adjust-during-render).
+  const [focusedSession, setFocusedSession] = useState(active.id);
+  if (focusedSession !== active.id) {
+    setFocusedSession(active.id);
+    setTerminalFocused(false);
+  }
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

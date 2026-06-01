@@ -71,7 +71,7 @@ export function useCompanionTerminal(
   const fitAddonRef = useRef<FitAddon | null>(null);
   const { sessionId, socket, theme } = options;
   const themeRef = useRef(theme);
-  themeRef.current = theme;
+  useEffect(() => { themeRef.current = theme; }, [theme]);
   const [terminalAlive, setTerminalAlive] = useState(true);
 
   // See useTerminal: re-init once web fonts are ready so cold-start char-cell

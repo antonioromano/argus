@@ -36,12 +36,20 @@ export function useDiffInlineEdit({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Reset load state when the target file (or enabled flag) changes
+  // (adjust-during-render); the effect below performs the async (re)load.
+  const loadKey = `${enabled}|${absolutePath}`;
+  const [loadedKey, setLoadedKey] = useState(loadKey);
+  if (loadedKey !== loadKey) {
+    setLoadedKey(loadKey);
+    setReady(false);
+    setError(null);
+  }
+
   // Load file when path changes.
   useEffect(() => {
     fileRef.current = null;
     pendingRef.current.clear();
-    setReady(false);
-    setError(null);
     if (!enabled || !absolutePath) return;
     let cancelled = false;
     (async () => {

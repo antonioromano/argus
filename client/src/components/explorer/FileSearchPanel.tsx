@@ -31,15 +31,23 @@ export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearc
     return () => clearTimeout(t);
   }, []);
 
-  // Debounced search.
-  useEffect(() => {
-    if (!query.trim()) {
+  // Clear results when the query is emptied (adjust-during-render); the effect
+  // below only runs the debounced search for a non-empty query.
+  const queryActive = !!query.trim();
+  const [searchActive, setSearchActive] = useState(false);
+  if (searchActive !== queryActive) {
+    setSearchActive(queryActive);
+    if (!queryActive) {
       setResults([]);
       setSearching(false);
-      return;
     }
-    setSearching(true);
+  }
+
+  // Debounced search.
+  useEffect(() => {
+    if (!query.trim()) return;
     const t = setTimeout(async () => {
+      setSearching(true);
       try {
         const resp = await api.searchFiles(folderPath, query.trim());
         const sorted = [...resp.results].sort((a, b) => {

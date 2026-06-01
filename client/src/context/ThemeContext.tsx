@@ -1,20 +1,7 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
-
-// The resolved (applied) theme — what actually gets written to the DOM
-type Theme = 'dark' | 'light';
-
-// The user's preference, including the "follow system" option
-export type ThemeMode = 'dark' | 'light' | 'system';
-
-export interface ThemeContextValue {
-  theme: Theme;         // resolved theme applied to DOM
-  isDark: boolean;
-  mode: ThemeMode;      // user's stored preference (system/dark/light)
-  setMode: (m: ThemeMode) => void;
-  toggle: () => void;   // backwards compat: cycles dark↔light (bypasses system mode)
-}
+import { ThemeContext, type Theme, type ThemeMode } from './theme-context.js';
 
 // --- Helpers ---
 
@@ -37,15 +24,7 @@ function resolveTheme(mode: ThemeMode, systemIsDark: boolean): Theme {
   return systemIsDark ? 'dark' : 'light';
 }
 
-// --- Context ---
-
-export const ThemeContext = createContext<ThemeContextValue>({
-  theme: 'dark',
-  isDark: true,
-  mode: 'system',
-  setMode: () => {},
-  toggle: () => {},
-});
+// --- Provider ---
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(getInitialMode);
@@ -94,8 +73,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme(): ThemeContextValue {
-  return useContext(ThemeContext);
 }

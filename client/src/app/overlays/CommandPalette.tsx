@@ -57,14 +57,22 @@ export function CommandPalette({
     setTimeout(() => inputRef.current?.focus(), 0);
   }, []);
 
-  useEffect(() => {
-    if (!query.trim() || !activeSession) {
+  // Clear results when the query is emptied (adjust-during-render); the effect
+  // below only runs the debounced search for an active query.
+  const queryActive = !!query.trim() && !!activeSession;
+  const [searchActive, setSearchActive] = useState(false);
+  if (searchActive !== queryActive) {
+    setSearchActive(queryActive);
+    if (!queryActive) {
       setResults([]);
       setSearching(false);
-      return;
     }
-    setSearching(true);
+  }
+
+  useEffect(() => {
+    if (!query.trim() || !activeSession) return;
     const t = setTimeout(async () => {
+      setSearching(true);
       try {
         const resp = await api.searchFiles(activeSession.folderPath, query.trim());
         const sorted = [...resp.results].sort((a, b) => {
@@ -86,10 +94,10 @@ export function CommandPalette({
   const total = sessionItems.length + results.length;
 
   // Keep selection in range as the list grows/shrinks (e.g. session-only
-  // filtering changes sessionItems.length without re-running the results effect).
-  useEffect(() => {
-    setSelectedIndex((i) => Math.min(i, Math.max(0, total - 1)));
-  }, [total]);
+  // filtering changes sessionItems.length). Adjust-during-render.
+  if (selectedIndex > Math.max(0, total - 1)) {
+    setSelectedIndex(Math.max(0, total - 1));
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -127,16 +135,26 @@ export function CommandPalette({
     item?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
-  useEffect(() => {
-    const fileIdx = selectedIndex - sessionItems.length;
-    if (fileIdx < 0 || fileIdx >= results.length) {
+  // Clear the preview when no file row is selected (adjust-during-render); the
+  // effect below only fetches a preview for a selected file row.
+  const previewFileSelected =
+    selectedIndex - sessionItems.length >= 0 &&
+    selectedIndex - sessionItems.length < results.length;
+  const [previewActive, setPreviewActive] = useState(false);
+  if (previewActive !== previewFileSelected) {
+    setPreviewActive(previewFileSelected);
+    if (!previewFileSelected) {
       setPreviewContent(null);
       setPreviewLoading(false);
-      return;
     }
+  }
+
+  useEffect(() => {
+    const fileIdx = selectedIndex - sessionItems.length;
+    if (fileIdx < 0 || fileIdx >= results.length) return;
     const r = results[fileIdx];
-    setPreviewLoading(true);
     const t = setTimeout(async () => {
+      setPreviewLoading(true);
       try {
         const resp = await api.getFileContent(r.path);
         setPreviewContent(resp.content);

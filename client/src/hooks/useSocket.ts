@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { getToken } from '../services/api.js';
@@ -51,16 +51,15 @@ export function reconnectSocket(): void {
 }
 
 export function useSocket(): TypedSocket {
-  const socketRef = useRef<TypedSocket>(getSocket());
+  const [socket] = useState<TypedSocket>(getSocket);
 
   useEffect(() => {
-    const socket = socketRef.current;
     if (!socket.connected) {
       socket.connect();
     }
-  }, []);
+  }, [socket]);
 
-  return socketRef.current;
+  return socket;
 }
 
 export function useSocketStatus(): boolean {

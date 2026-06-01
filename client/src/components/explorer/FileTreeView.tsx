@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { createElement, useEffect, useRef, type CSSProperties } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ChevronRight,
@@ -41,6 +41,7 @@ export function FileTreeView({
   onContextMenu,
 }: FileTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
   const virtualizer = useVirtualizer({
     count: nodes.length,
     getScrollElement: () => parentRef.current,
@@ -224,11 +225,10 @@ function ChevronCell({ node }: { node: VisibleNode }) {
 
 function IconCell({ node }: { node: VisibleNode }) {
   if (!node.entry.isFile) {
-    const Icon = node.expanded ? FolderOpen : Folder;
-    return <Icon size={12} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />;
+    const FolderIcon = node.expanded ? FolderOpen : Folder;
+    return createElement(FolderIcon, { size: 12, strokeWidth: 1.6, color: 'var(--accent)', style: { flexShrink: 0 } });
   }
-  const Icon = fileIcon(node.entry.ext);
-  return <Icon size={12} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
+  return createElement(fileIcon(node.entry.ext), { size: 12, strokeWidth: 1.6, color: 'var(--fg-3)', style: { flexShrink: 0 } });
 }
 
 function fileIcon(ext: string): LucideIcon {

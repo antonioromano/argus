@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useTheme } from '../context/ThemeContext.js';
+import { useTheme } from '../context/theme-context.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
@@ -165,13 +165,14 @@ function DesktopInner() {
   };
 
   // Auto-exit focus when active session disappears
+  const { view: appView, activeSessionId: appActiveSessionId, exitFocus: appExitFocus } = app;
   useEffect(() => {
-    if (app.view === 'focus' && app.activeSessionId) {
-      if (!sessions.find((s) => s.id === app.activeSessionId)) {
-        app.exitFocus();
+    if (appView === 'focus' && appActiveSessionId) {
+      if (!sessions.find((s) => s.id === appActiveSessionId)) {
+        appExitFocus();
       }
     }
-  }, [sessions, app.view, app.activeSessionId]);
+  }, [sessions, appView, appActiveSessionId, appExitFocus]);
 
   // Notifications
   useNotifications({

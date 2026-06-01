@@ -19,7 +19,7 @@ import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js'
 import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { MonacoPane } from '../../components/explorer/MonacoPane.js';
 import { MarkdownPreview } from '../../components/explorer/MarkdownPreview.js';
-import { useTheme } from '../../context/ThemeContext.js';
+import { useTheme } from '../../context/theme-context.js';
 import { isMarkdownPath, monacoLanguageFor } from '../../utils/langFromPath.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 

@@ -149,6 +149,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     }
   }, [visible, coords]);
 
+  // eslint-disable-next-line react-hooks/refs -- cloneElement handler wiring; no hook ref is read during render (tooltipRef is only touched in effects)
   const cloned = cloneElement(children, {
     onMouseEnter: (e: RMouseEvent) => {
       show(e.currentTarget as Element);

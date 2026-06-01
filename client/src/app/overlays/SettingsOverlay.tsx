@@ -4,8 +4,8 @@ import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, Chevro
 import { api } from '../../services/api.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { useTheme } from '../../context/ThemeContext.js';
-import type { ThemeMode } from '../../context/ThemeContext.js';
+import { useTheme } from '../../context/theme-context.js';
+import type { ThemeMode } from '../../context/theme-context.js';
 import {
   Sheet,
   Section,

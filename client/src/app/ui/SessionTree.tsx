@@ -60,7 +60,6 @@ export function SessionTree({
       {grouped.favorites && (
         <FavoritesNode
           favorites={grouped.favorites}
-          isDark={isDark}
           dropping={dropTarget === FAVORITES_GROUP_ID}
           starColor={starColor}
           onDragOverGroup={() => setDropTarget(FAVORITES_GROUP_ID)}
@@ -140,12 +139,11 @@ export function SessionTree({
 
 /* ---------- favourites node ---------- */
 function FavoritesNode({
-  favorites, isDark, dropping, starColor,
+  favorites, dropping, starColor,
   onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
   onChevron, onOpenSession, onSpawnFromFavorite, onToggleFavorite, isFavorite,
 }: {
   favorites: GroupedSessions['favorites'] & object;
-  isDark: boolean;
   dropping: boolean;
   starColor: string;
   onDragOverGroup: () => void;
@@ -212,7 +210,6 @@ function FavoritesNode({
           <Leaf
             key={item.id}
             session={item}
-            isDark={isDark}
             starColor={starColor}
             dimmed={isExited}
             isFavorite={isFavorite(item.id)}
@@ -346,7 +343,6 @@ function GroupNode({
         <Leaf
           key={s.id}
           session={s}
-          isDark={isDark}
           starColor={starColor}
           isFavorite={isFavorite(s.id)}
           onDragStart={() => onDragStartLeaf(s.id)}
@@ -454,7 +450,6 @@ function OthersNode({
         <Leaf
           key={s.id}
           session={s}
-          isDark={isDark}
           starColor={starColor}
           isFavorite={isFavorite(s.id)}
           onDragStart={() => onDragStartLeaf(s.id)}
@@ -468,10 +463,9 @@ function OthersNode({
 
 /* ---------- leaf ---------- */
 function Leaf({
-  session, isDark: _isDark, starColor, isFavorite, dimmed = false, onDragStart, onOpen, onToggleFavorite,
+  session, starColor, isFavorite, dimmed = false, onDragStart, onOpen, onToggleFavorite,
 }: {
   session: SessionInfo;
-  isDark: boolean;
   starColor: string;
   isFavorite: boolean;
   dimmed?: boolean;

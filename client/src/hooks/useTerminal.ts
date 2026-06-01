@@ -77,7 +77,7 @@ export function useTerminal(
   const fitAddonRef = useRef<FitAddon | null>(null);
   const { sessionId, socket, theme, readOnly = false, onTail, onFocusChange } = options;
   const themeRef = useRef(theme);
-  themeRef.current = theme;
+  useEffect(() => { themeRef.current = theme; }, [theme]);
   const onTailRef = useRef(onTail);
   useEffect(() => { onTailRef.current = onTail; }, [onTail]);
   const onFocusChangeRef = useRef(onFocusChange);

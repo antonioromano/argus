@@ -55,29 +55,33 @@ export function CloneSheet({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const initialAgentId = currentAgentType ?? config?.defaultAgent ?? 'claude';
-  const initialBranch = useRef(branchName);
+  const [initialBranch] = useState(branchName);
   const submitRef = useRef<() => void>(() => {});
 
   const agents = config ? [...BUILTIN, ...config.customAgents] : BUILTIN;
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
 
+  // Seed flag checkboxes from the selected agent's defaults whenever the agent
+  // changes (adjust-during-render — no effect, runs before paint).
+  const [seededAgent, setSeededAgent] = useState<string | null>(null);
+  if (seededAgent !== agentId) {
+    setSeededAgent(agentId);
+    const initial: Record<string, boolean> = {};
+    for (const f of currentFlags) initial[f.id] = f.enabled;
+    setFlagStates(initial);
+  }
+
   const isDirty =
     agentId !== initialAgentId ||
     newFlag.trim() !== '' ||
     useWorktree ||
-    branchName !== initialBranch.current;
+    branchName !== initialBranch;
 
   const handleClose = () => {
     if (isDirty) setConfirmDiscard(true);
     else onClose();
   };
-
-  useEffect(() => {
-    const initial: Record<string, boolean> = {};
-    for (const f of currentFlags) initial[f.id] = f.enabled;
-    setFlagStates(initial);
-  }, [agentId, currentFlags.length]);
 
   useEffect(() => {
     api.checkWorktree({ repoPath: folderPath })

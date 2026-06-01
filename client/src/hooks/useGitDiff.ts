@@ -33,7 +33,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   const [contextLevels, setContextLevels] = useState<Map<string, number>>(new Map());
   const [expandingFiles, setExpandingFiles] = useState<Set<string>>(new Set());
   const contextLevelsRef = useRef(contextLevels);
-  contextLevelsRef.current = contextLevels;
+  useEffect(() => { contextLevelsRef.current = contextLevels; }, [contextLevels]);
 
   useEffect(() => {
     const handler = () => setIsTabVisible(!document.hidden);
@@ -127,6 +127,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
       prevDiffRef.current = '';
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-open is a legitimate external sync; fetchDiff sets loading state internally
     fetchDiff();
   }, [isOpen, fetchDiff]);
 
