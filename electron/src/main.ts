@@ -42,14 +42,27 @@ function applyBrewUpdate(): Promise<ApplyUpdateResult> {
       }
 
       const logFile = join(app.getPath('userData'), 'update.log');
+      const lockFile = join(app.getPath('userData'), 'update.lock');
       // Helper runs after we exit: poll our PID until gone, upgrade, relaunch.
+      // Lock file prevents the relaunched app from re-triggering the update loop.
       const script = [
         `echo "[argus-update] $(date) starting" >> "${logFile}"`,
+        // Bail immediately if another upgrade helper is already running.
+        `if [ -f "${lockFile}" ]; then echo "[argus-update] already running, exiting" >> "${logFile}"; exit 0; fi`,
+        `echo $$ > "${lockFile}"`,
         `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
         `brew update >> "${logFile}" 2>&1`,
         `brew upgrade --cask argus >> "${logFile}" 2>&1`,
-        `echo "[argus-update] $(date) relaunching" >> "${logFile}"`,
-        `open -a Argus`,
+        `BREW_EXIT=$?`,
+        // Only relaunch if brew actually changed the installed version.
+        `INSTALLED=$(brew info --cask argus 2>/dev/null | grep -oE '/opt/homebrew/Caskroom/argus/[^ ]+' | head -1 | xargs basename 2>/dev/null)`,
+        `rm -f "${lockFile}"`,
+        `if [ $BREW_EXIT -eq 0 ]; then`,
+        `  echo "[argus-update] $(date) relaunching (installed: $INSTALLED)" >> "${logFile}"`,
+        `  open -a Argus`,
+        `else`,
+        `  echo "[argus-update] $(date) upgrade failed (exit $BREW_EXIT), not relaunching" >> "${logFile}"`,
+        `fi`,
       ].join('\n');
 
       const child = spawn(loginShell, ['-l', '-c', script], {
