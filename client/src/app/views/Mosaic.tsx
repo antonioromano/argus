@@ -134,9 +134,9 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
               groupColor={groupColorOf?.(s.id) ?? null}
               minimized
               isFocused={false}
-              hasFocusedSibling={false}
               windowFocused={windowFocused}
-              onFocus={() => {}}
+              onXtermFocus={() => {}}
+              onXtermBlur={() => {}}
               onToggleMinimize={groupFilterIds ? () => restoreFromFilter(s.id) : () => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
@@ -162,9 +162,9 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
               groupColor={groupColorOf?.(s.id) ?? null}
               minimized={false}
               isFocused={activeFocusedId === s.id}
-              hasFocusedSibling={activeFocusedId !== null && activeFocusedId !== s.id}
               windowFocused={windowFocused}
-              onFocus={() => setFocusedId(s.id)}
+              onXtermFocus={() => setFocusedId(s.id)}
+              onXtermBlur={() => setFocusedId(null)}
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
@@ -204,9 +204,9 @@ function MosaicTile({
   groupColor,
   minimized,
   isFocused,
-  hasFocusedSibling,
   windowFocused,
-  onFocus,
+  onXtermFocus,
+  onXtermBlur,
   onToggleMinimize,
   onOpen,
   onKill,
@@ -224,9 +224,9 @@ function MosaicTile({
   groupColor?: string | null;
   minimized: boolean;
   isFocused: boolean;
-  hasFocusedSibling: boolean;
   windowFocused: boolean;
-  onFocus: () => void;
+  onXtermFocus: () => void;
+  onXtermBlur: () => void;
   onToggleMinimize: () => void;
   onOpen: () => void;
   onKill: () => void;
@@ -249,10 +249,9 @@ function MosaicTile({
       className="argus-tile"
       data-status={session.status}
       data-minimized={minimized || undefined}
-      onPointerDown={onFocus}
       style={{ ['--i' as string]: idx } as CSSProperties}
     >
-      {((hasFocusedSibling && !isFocused) || !windowFocused) && (
+      {!minimized && (!isFocused || !windowFocused) && (
         <div className="argus-tile-overlay" />
       )}
       <div
@@ -362,7 +361,7 @@ function MosaicTile({
       {!minimized && (
         <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
           <ErrorBoundary key={session.id} label={session.name}>
-            <TerminalShell session={session} socket={socket} theme={theme} status={session.status} />
+            <TerminalShell session={session} socket={socket} theme={theme} status={session.status} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
           </ErrorBoundary>
         </div>
       )}
