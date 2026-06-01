@@ -34,6 +34,34 @@ export class PtyManager {
     this.dataDir = dataDir || path.join(os.homedir(), '.argus');
   }
 
+  /**
+   * Environment for spawned ptys. Guarantees a UTF-8 locale so tmux sends real
+   * Unicode to its client instead of "_".
+   *
+   * tmux downgrades UTF-8 cells it can't represent for a NON-UTF-8 client —
+   * block elements (the Claude welcome icon `▐▛███▜▌`) and dingbats (the `❯`
+   * prompt) become "_"; box-drawing (`─`) survives via terminal-independent ACS.
+   * The downgrade is per-CLIENT, decided from the client's LC_ALL/LC_CTYPE/LANG
+   * at attach. Our tmux client is `pty.spawn(tmux, …, { env })`, so it inherits
+   * the Electron process env — and a Finder/GUI-launched macOS app often has NO
+   * LANG (launchd doesn't always set one), so the client attaches non-UTF-8 and
+   * the whole agent renders garbled. (`capture-pane` is locale-independent, so
+   * it always looked clean — which masked this for many releases.)
+   *
+   * Forcing a UTF-8 locale here makes rendering correct regardless of how the
+   * app was launched. We only override when no UTF-8 locale is already present,
+   * so a user's real locale is preserved.
+   */
+  private spawnEnv(): Record<string, string> {
+    const env = { ...process.env, TERM: 'xterm-256color' } as Record<string, string>;
+    const hasUtf8 = /UTF-?8/i.test(env.LC_ALL || env.LC_CTYPE || env.LANG || '');
+    if (!hasUtf8) {
+      env.LANG = 'en_US.UTF-8';
+      env.LC_ALL = 'en_US.UTF-8';
+    }
+    return env;
+  }
+
   private resolveCommand(command: string): string {
     if (this.commandPathCache.has(command)) {
       return this.commandPathCache.get(command)!;
@@ -186,7 +214,7 @@ export class PtyManager {
       cols,
       rows,
       cwd: folderPath,
-      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      env: this.spawnEnv(),
     });
   }
 
@@ -264,7 +292,7 @@ export class PtyManager {
       cols,
       rows,
       cwd: folderPath,
-      env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+      env: this.spawnEnv(),
     });
   }
 
