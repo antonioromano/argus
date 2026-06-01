@@ -35,6 +35,7 @@ import { DiffOverlay } from './overlays/DiffOverlay.js';
 import { ExplorerOverlay } from './overlays/ExplorerOverlay.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
+import { useMosaicVisibility } from './state/useMosaicVisibility.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 
@@ -138,6 +139,7 @@ function DesktopInner() {
     | { phase: 'error'; session: SessionInfo; error: string };
 
   const app = useAppView();
+  const mosaicVis = useMosaicVisibility();
   const [filter, setFilter] = useState('');
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
   const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
@@ -437,6 +439,9 @@ function DesktopInner() {
               groupFilterIds={groupFilterIds}
               activeGroupId={activeGroupId}
               groupColorOf={groupColorOf}
+              toggleMinimize={mosaicVis.toggleMinimize}
+              restoreFromFilter={mosaicVis.restoreFromFilter}
+              isMinimized={mosaicVis.isMinimized}
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={setPendingKill}

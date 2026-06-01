@@ -23,6 +23,9 @@ interface MosaicProps {
   /** Active group id — resets the per-shell "force shown" override when the filter changes. */
   activeGroupId?: string | null;
   groupColorOf?: (sessionId: string) => string | null;
+  toggleMinimize: (id: string) => void;
+  restoreFromFilter: (id: string, currentGroup: string | null) => void;
+  isMinimized: (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => boolean;
   onOpenSession: (id: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
@@ -35,16 +38,10 @@ interface MosaicProps {
 }
 
 const MAX_TILES = 12;
-const EMPTY_SET: ReadonlySet<string> = new Set();
 
-export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
-  const [minimized, setMinimized] = useState<Set<string>>(new Set());
-  // Shells the user clicked to pop back out of the filtered chip row (bypass the group filter).
-  // Tagged with the group they belong to so they auto-reset when the active filter changes.
-  const [forced, setForced] = useState<{ group: string | null; ids: Set<string> }>({ group: null, ids: new Set() });
   const currentGroup = activeGroupId ?? null;
-  const forceShown = forced.group === currentGroup ? forced.ids : EMPTY_SET;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
 
@@ -58,27 +55,6 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
       window.removeEventListener('blur', onBlur);
     };
   }, []);
-
-  const toggleMinimize = (id: string) =>
-    setMinimized((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const restoreFromFilter = (id: string) =>
-    setForced((prev) => {
-      const ids = new Set(prev.group === currentGroup ? prev.ids : []);
-      ids.add(id);
-      return { group: currentGroup, ids };
-    });
-
-  // With a group filter active, the filter alone decides visibility: members stay active
-  // (even if hand-minimized), non-members collapse — unless force-shown by a chip click.
-  // No filter → plain hand-minimize state.
-  const isMinimized = (id: string) =>
-    groupFilterIds ? (!groupFilterIds.has(id) && !forceShown.has(id)) : minimized.has(id);
 
   if (sessions.length === 0) {
     return (
@@ -113,8 +89,8 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
 
   const tiles = filtered.slice(0, MAX_TILES);
   const overflow = filtered.length > MAX_TILES;
-  const minTiles = tiles.filter((s) => isMinimized(s.id));
-  const activeTiles = tiles.filter((s) => !isMinimized(s.id));
+  const minTiles = tiles.filter((s) => isMinimized(s.id, groupFilterIds, activeGroupId));
+  const activeTiles = tiles.filter((s) => !isMinimized(s.id, groupFilterIds, activeGroupId));
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
     ? focusedId
@@ -137,7 +113,7 @@ export function Mosaic({ sessions, filter, socket, theme, groupFilterIds, active
               windowFocused={windowFocused}
               onXtermFocus={() => {}}
               onXtermBlur={() => {}}
-              onToggleMinimize={groupFilterIds ? () => restoreFromFilter(s.id) : () => toggleMinimize(s.id)}
+              onToggleMinimize={groupFilterIds ? () => restoreFromFilter(s.id, currentGroup) : () => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
               onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
