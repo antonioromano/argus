@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.16.15",
+  "version": "0.16.17",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -53,13 +53,21 @@
       {
         "from": "electron/resources/tmux",
         "to": "tmux",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "icon": "electron/assets/icon.png",
       "identity": null
