@@ -60,12 +60,22 @@ export interface CreateSessionRequest {
 
 export interface CreateSessionResponse extends SessionInfo {}
 
+export const FAVORITES_GROUP_ID = '__favorites__';
+
+export interface FavoriteEntryMeta {
+  folderPath: string;
+  name: string;
+  agentType: AgentType;
+  flags: string[];
+}
+
 export interface SessionGroup {
   id: string;            // crypto.randomUUID()
   name: string;
   color: string;         // groupColors palette key
   collapsed: boolean;
   sessionIds: string[];  // membership + within-group display order
+  entryMeta?: Record<string, FavoriteEntryMeta>;  // Favourites group only: metadata for resurrection
 }
 
 export interface GetGroupsResponse {
