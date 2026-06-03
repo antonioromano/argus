@@ -6,7 +6,7 @@ interface FocusTerminalProps {
 }
 
 /** Presentational xterm viewport for mobile. The parent (`Focus`) owns the
- *  `useTerminal` lifecycle so it can share the terminal handle with the KeyStrip.
+ *  `useTerminal` lifecycle so it can share the terminal handle with the keyboard.
  *  `touchAction: none` lets terminalMouse forward vertical drags as scroll. */
 export function FocusTerminal({ containerRef }: FocusTerminalProps) {
   return (

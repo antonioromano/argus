@@ -1,70 +1,63 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
-import { Chips } from './Chips.js';
-import { KeyStrip } from './KeyStrip.js';
-import { ComposeBar } from './ComposeBar.js';
-import { detect } from './focusKeys.js';
+import { MobileKeyboard } from './keyboard/MobileKeyboard.js';
 
 interface FocusProps {
   session: SessionInfo;
   onBack: () => void;
 }
 
-/** Track the visual viewport height so the layout compresses (instead of being
- *  overlaid) when the iOS soft keyboard opens. Falls back to 100dvh via null. */
-function useViewportHeight(): number | null {
-  const [h, setH] = useState<number | null>(() => window.visualViewport?.height ?? null);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setH(vv.height);
-    update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, []);
-  return h;
-}
-
 export function Focus({ session, onBack }: FocusProps) {
   const socket = useSocket();
-  const [lastLine, setLastLine] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewportHeight = useViewportHeight();
 
+  // Focus owns the terminal lifecycle so the on-screen keyboard can share the
+  // handle (DECCKM-aware arrows, local viewport scrolling).
   const { terminalRef } = useTerminal(containerRef, {
     sessionId: session.id,
     socket,
     theme: 'dark',
     readOnly: true,
-    onTail: setLastLine,
   });
 
-  const send = (data: string) => socket.emit('session:input', { sessionId: session.id, data });
-  const chips = detect(lastLine);
+  // Keep the terminal visible above the native keyboard. With
+  // `interactive-widget=resizes-content` the layout viewport (and 100dvh)
+  // shrink on their own; iOS Safari doesn't support that, so we fall back to
+  // sizing the screen to the visualViewport when the keyboard occludes it.
+  const [vvHeight, setVvHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onChange = () => {
+      const inset = window.innerHeight - vv.height - vv.offsetTop;
+      setVvHeight(inset > 80 ? vv.height : null);
+      window.dispatchEvent(new Event('terminal:refit'));
+    };
+    vv.addEventListener('resize', onChange);
+    vv.addEventListener('scroll', onChange);
+    return () => {
+      vv.removeEventListener('resize', onChange);
+      vv.removeEventListener('scroll', onChange);
+    };
+  }, []);
 
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: viewportHeight != null ? `${viewportHeight}px` : '100dvh',
+        height: vvHeight != null ? `${vvHeight}px` : '100dvh',
         background: 'var(--bg-inset)',
         overflow: 'hidden',
       }}
     >
       <FocusHeader session={session} onBack={onBack} />
       <FocusTerminal containerRef={containerRef} />
-      <Chips chips={chips} send={send} />
-      <KeyStrip terminalRef={terminalRef} send={send} />
-      <ComposeBar send={send} />
+      <MobileKeyboard session={session} terminalRef={terminalRef} />
     </div>
   );
 }

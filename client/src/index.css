@@ -113,13 +113,10 @@ body {
   100% { background: transparent; }
 }
 
-/* Hide overflow scrollbar on mobile chip strip */
-.mobile-chips-row::-webkit-scrollbar { display: none; }
-
-/* Mobile terminal input bar — hidden on desktop */
-.mobile-terminal-input {
-  display: none;
-}
+/* Mobile on-screen keyboard: hide the horizontal toolbar scrollbar, press feedback */
+.mobile-keys-toolbar::-webkit-scrollbar { display: none; }
+.mobile-keycap:active { transform: scale(0.93); }
+.mobile-keycap { transition: transform 80ms ease, background 80ms ease; -webkit-user-select: none; user-select: none; }
 
 /* Pad body content on mobile to account for bottom nav */
 @media (max-width: 767px) {
