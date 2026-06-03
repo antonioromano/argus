@@ -230,13 +230,14 @@ function DesktopInner() {
   const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
     const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
     app.closeOverlay();
-    app.openSession(created.id);
+    // Stay in mosaic if creating from dashboard; only jump to focus when already focused.
+    if (app.view === 'focus') app.openSession(created.id);
   };
 
   const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
     const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
     app.closeOverlay();
-    app.openSession(created.id);
+    if (app.view === 'focus') app.openSession(created.id);
   };
 
   const handleSpawnFromFavorite = async (
@@ -254,7 +255,7 @@ function DesktopInner() {
       } else if (session) {
         groups.removeFromFavorites(session.id);
       }
-      app.openSession(created.id);
+      if (app.view === 'focus') app.openSession(created.id);
     } catch {
       // createSession error is surfaced by useSessions; no extra handling needed here
     }
