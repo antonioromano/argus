@@ -267,8 +267,21 @@ export class PtyManager {
    * (re)attach instead of the raw byte buffer, which can be sliced mid-escape
    * and render garbled in a fresh xterm.
    */
-  capturePane(tmuxName: string): string {
-    return this.runTmux(['capture-pane', '-p', '-e', '-t', tmuxName]);
+  capturePane(tmuxName: string, historyLines = 0): string {
+    // -S -<N> starts N lines back into scrollback history; tmux clamps to what
+    // exists if history is shorter. Omitted (default 0) → visible screen only.
+    const hist = historyLines > 0 ? ['-S', `-${historyLines}`] : [];
+    return this.runTmux(['capture-pane', '-p', '-e', ...hist, '-t', tmuxName]);
+  }
+
+  /** True when the pane is showing the alternate screen (vim/less) — which has
+   *  no meaningful scrollback to capture into history. */
+  isAlternateScreen(tmuxName: string): boolean {
+    try {
+      return this.runTmux(['display-message', '-p', '-t', tmuxName, '#{alternate_on}']).trim() === '1';
+    } catch {
+      return false;
+    }
   }
 
   /** Names of all live argus-* tmux sessions (survivors from a previous run). */

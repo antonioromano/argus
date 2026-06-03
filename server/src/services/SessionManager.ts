@@ -43,6 +43,11 @@ interface ManagedSession {
 
 const GIT_POLL_INTERVAL_MS = 10_000;
 
+// Lines of tmux scrollback to seed into a client's xterm on (re)join, so mobile
+// (and desktop after Cmd+R) can scroll up into history that predates the join.
+// Fits under xterm's 5000 scrollback cap; bounded by tmux history-limit 50000.
+const REPLAY_HISTORY_LINES = 2000;
+
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private ptyManager: PtyManager;
@@ -349,9 +354,15 @@ export class SessionManager {
     if (session.persistent && session.tmuxName) {
       try {
         if (!this.ptyManager.isTmuxPaneDead(session.tmuxName)) {
-          const snap = this.ptyManager.capturePane(session.tmuxName).replace(/\n+$/, '');
+          // Seed scrollback from history on the normal screen so the client can
+          // scroll up into pre-join output. Skip for alt-screen apps (vim/less):
+          // they have no meaningful scrollback and mobile routes their scroll to
+          // forwarded wheel reports, not local xterm scrollback.
+          const depth = this.ptyManager.isAlternateScreen(session.tmuxName) ? 0 : REPLAY_HISTORY_LINES;
+          const snap = this.ptyManager.capturePane(session.tmuxName, depth).replace(/\n+$/, '');
           // capture-pane separates rows with bare LF; xterm needs CRLF or it
-          // staircases. Clear+home first so the frame replaces prior content.
+          // staircases. Clear+home first so the frame replaces prior content
+          // (\x1b[3J erases stale scrollback, so reconnect replaces, not dupes).
           return '\x1b[2J\x1b[3J\x1b[H' + snap.replace(/\r?\n/g, '\r\n');
         }
       } catch {
