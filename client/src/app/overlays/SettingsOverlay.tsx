@@ -60,10 +60,6 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
   const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
 
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission | 'unsupported'>(
-    'Notification' in window ? Notification.permission : 'unsupported'
-  );
-
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [flagInput, setFlagInput] = useState('');
   const [flagError, setFlagError] = useState<string | null>(null);
@@ -119,11 +115,19 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
   };
 
   const handleNotifToggle = async (v: boolean) => {
-    if (v && 'Notification' in window && Notification.permission === 'default') {
-      const result = await Notification.requestPermission();
-      setNotifPermission(result);
-    }
     await onSave({ notificationsEnabled: v });
+  };
+
+  // Native delivery is owned by the main process (preload bridge), NOT the
+  // renderer Web Notification API. The button below round-trips through that
+  // real path so the user can verify delivery and trigger the macOS auth prompt.
+  const notifBridgeAvailable = typeof window !== 'undefined' && !!window.electronNotifications;
+  const handleTestNotif = () => {
+    window.electronNotifications?.show({
+      id: 'argus-test',
+      title: 'Argus',
+      body: 'Test notification — if you see this, delivery works.',
+    });
   };
 
   const toggleAgent = (agentId: string) => {
@@ -510,15 +514,36 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   onChange={handleNotifToggle}
                   label="Native desktop notifications when a shell enters waiting"
                 />
-                {config.notificationsEnabled && notifPermission === 'denied' && (
-                  <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--warn)' }}>
-                    Notifications blocked. Enable Argus under System Settings → Notifications.
-                  </p>
-                )}
-                {config.notificationsEnabled && notifPermission === 'unsupported' && (
-                  <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
-                    This surface can't show desktop notifications.
-                  </p>
+                {config.notificationsEnabled && (
+                  <>
+                    <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+                      Notifications only fire while Argus is in the background. Delivery is
+                      controlled by macOS — toggle Argus on under System Settings → Notifications.
+                    </p>
+                    {notifBridgeAvailable && (
+                      <button
+                        type="button"
+                        onClick={handleTestNotif}
+                        style={{
+                          marginTop: 'var(--s-3)',
+                          padding: 'var(--s-2) var(--s-3)',
+                          fontSize: 'var(--t-sm)',
+                          color: 'var(--fg-1)',
+                          background: 'var(--bg-2)',
+                          border: '1px solid var(--line-2)',
+                          borderRadius: 'var(--r-1)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Send test notification
+                      </button>
+                    )}
+                    {!notifBridgeAvailable && (
+                      <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+                        This surface can't show desktop notifications.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

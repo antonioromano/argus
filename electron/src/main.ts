@@ -264,6 +264,16 @@ async function main() {
   const activeNotifs = new Map<string, Notification>();
 
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
+    console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
+
+    // macOS only delivers main-process notifications for a bundle it trusts.
+    // An ad-hoc/unsigned build returns isSupported() true but usernoted drops
+    // the notification silently — log so the failure mode is observable.
+    if (!Notification.isSupported()) {
+      console.warn('[notif] Notification.isSupported() === false — OS will not deliver');
+      return;
+    }
+
     const existing = activeNotifs.get(payload.id);
     if (existing) existing.close();
 
@@ -282,7 +292,15 @@ async function main() {
     notif.on('close', () => {
       if (activeNotifs.get(payload.id) === notif) activeNotifs.delete(payload.id);
     });
-    notif.show();
+    notif.on('failed', (_e, error) => {
+      console.error(`[notif] delivery failed id=${payload.id}: ${error}`);
+    });
+    try {
+      notif.show();
+      console.log(`[notif] show() called id=${payload.id}`);
+    } catch (err) {
+      console.error(`[notif] show() threw id=${payload.id}:`, err);
+    }
     activeNotifs.set(payload.id, notif);
   });
 

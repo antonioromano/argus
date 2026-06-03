@@ -40,7 +40,16 @@ jobs:
       - name: Build and package DMGs
         run: npm run package:mac
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Developer ID signing + notarization. When these secrets are unset
+          # they resolve to empty strings, so electron-builder.config.cjs takes
+          # the ad-hoc fallback path and the build still succeeds. Set all five
+          # (cert + Apple ID) to produce a signed, notarized DMG that macOS
+          # trusts — required for native notification delivery.
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Compute SHA256
         id: sha

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Hardened runtime entitlements required for notarization of an Electron app
+    that bundles a native module (node-pty / spawn-helper) and ships its own
+    tmux binary under extraResources. Without allow-jit / unsigned-executable
+    memory the V8 engine is killed; without disable-library-validation the
+    bundled tmux and the node-pty spawn-helper fail to load under a Developer
+    ID signature.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>

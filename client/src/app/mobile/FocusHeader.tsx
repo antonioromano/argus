@@ -1,14 +1,16 @@
 import type { SessionInfo } from '@argus/shared';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, MoreVertical, GitBranch } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusPill, DirtyBadge } from '../../components/primitives/index.js';
 
 interface FocusHeaderProps {
   session: SessionInfo;
   onBack: () => void;
+  onActions: () => void;
+  onShowChanges: () => void;
 }
 
-export function FocusHeader({ session, onBack }: FocusHeaderProps) {
+export function FocusHeader({ session, onBack, onActions, onShowChanges }: FocusHeaderProps) {
   return (
     <div
       style={{
@@ -65,6 +67,44 @@ export function FocusHeader({ session, onBack }: FocusHeaderProps) {
       <div style={{ flexShrink: 0 }}>
         <StatusPill status={session.status} size="sm" />
       </div>
+      <button
+        onClick={onShowChanges}
+        aria-label="View changes"
+        style={{
+          background: 'transparent',
+          border: '1px solid var(--line-2)',
+          cursor: 'pointer',
+          color: session.hasGitChanges ? 'var(--accent)' : 'var(--fg-2)',
+          borderRadius: 'var(--r-2)',
+          width: 44,
+          minHeight: 44,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <GitBranch size={16} strokeWidth={1.6} />
+      </button>
+      <button
+        onClick={onActions}
+        aria-label="Session actions"
+        style={{
+          background: 'transparent',
+          border: '1px solid var(--line-2)',
+          cursor: 'pointer',
+          color: 'var(--fg-2)',
+          borderRadius: 'var(--r-2)',
+          width: 44,
+          minHeight: 44,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <MoreVertical size={16} strokeWidth={1.6} />
+      </button>
     </div>
   );
 }

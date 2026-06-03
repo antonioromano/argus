@@ -148,10 +148,13 @@ body {
     display: none !important;
   }
 
-  .xterm-viewport {
-    -webkit-overflow-scrolling: touch;
+  /* Native touch scrolling is OFF here — JS (terminalMouse.ts) drives the scroll
+     via terminal.scrollLines + rAF inertia. `pan-y` let the browser start a native
+     pan that fought xterm's row-snap and blocked/janked successive flicks. */
+  .xterm-viewport,
+  .xterm-screen {
+    touch-action: none;
     overscroll-behavior: contain;
-    touch-action: pan-y;
   }
 
   .mobile-terminal-input {

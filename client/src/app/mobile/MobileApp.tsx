@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
+import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { useGroups } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
+import { useNotificationPref } from '../../hooks/useNotificationPref.js';
+import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
 import { api, setToken } from '../../services/api.js';
 import { reconnectSocket } from '../../hooks/useSocket.js';
+import { AlertSheet } from '../../components/primitives/index.js';
 import { PasswordGate } from '../PasswordGate.js';
 import { Sessions } from './Sessions.js';
 import { Focus } from './Focus.js';
-import { Remote } from './Remote.js';
-import { Diff } from './Diff.js';
 import { MobileSettings } from './MobileSettings.js';
+import { ActionSheet } from './ActionSheet.js';
+import { CreateSheet } from './CreateSheet.js';
 import { BottomNav } from './BottomNav.js';
 import type { MobileTab } from './BottomNav.js';
 
@@ -59,42 +63,118 @@ export function MobileApp() {
 
 function Inner() {
   const socket = useSocket();
-  const { sessions } = useSessions(socket);
+  const { sessions, createSession, deleteSession } = useSessions(socket);
   const groups = useGroups();
   const grouped = groups.groupedSessions(sessions);
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [actionTarget, setActionTarget] = useState<SessionInfo | null>(null);
+  const [killTarget, setKillTarget] = useState<SessionInfo | null>(null);
+  const [killBusy, setKillBusy] = useState(false);
+  const [notify, setNotifyPref] = useNotificationPref();
+
+  useWaitingNotifications(sessions, notify);
 
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
   const publicUrl = ngrokStatus?.tunnelStatus === 'connected' ? ngrokStatus.publicUrl ?? null : null;
 
-  // Each is rendered exclusively (no bottom nav), like a pushed screen.
-  if (focused) {
-    return <Focus session={focused} onBack={() => setFocusedId(null)} />;
-  }
-  if (showSettings) {
-    return <MobileSettings onBack={() => setShowSettings(false)} />;
-  }
+  // Enabling requires a permission grant (must run from the toggle's user gesture).
+  const setNotify = async (v: boolean) => {
+    if (v && typeof Notification !== 'undefined') {
+      const p = Notification.permission === 'granted'
+        ? 'granted'
+        : await Notification.requestPermission();
+      if (p !== 'granted') return;
+    }
+    setNotifyPref(v);
+  };
+
+  const handleRestart = (id: string) => { api.restartSession(id).catch(console.error); };
+
+  const confirmKill = async () => {
+    if (!killTarget) return;
+    setKillBusy(true);
+    try {
+      await deleteSession(killTarget.id);
+      if (focusedId === killTarget.id) setFocusedId(null);
+      setKillTarget(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setKillBusy(false);
+    }
+  };
+
+  const handleCreate = async (
+    folderPath: string, name: string | undefined, agentType: string | undefined,
+    flags: string[], worktreeBranch?: string, worktreeBase?: string,
+  ) => {
+    const session = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
+    setShowCreate(false);
+    setFocusedId(session.id);
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {tab === 'sessions' && (
-          <Sessions
-            sessions={sessions}
-            grouped={grouped}
-            publicUrl={publicUrl}
-            onSelect={setFocusedId}
-            onRemote={() => setTab('remote')}
-            onOpenSettings={() => setShowSettings(true)}
-          />
-        )}
-        {tab === 'diff' && <Diff sessions={sessions} />}
-        {tab === 'remote' && <Remote onBack={() => setTab('sessions')} />}
-      </div>
-      <BottomNav active={tab} onChange={setTab} />
-    </div>
+    <>
+      {focused ? (
+        <Focus
+          session={focused}
+          onBack={() => setFocusedId(null)}
+          onActions={() => setActionTarget(focused)}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {tab === 'sessions' && (
+              <Sessions
+                sessions={sessions}
+                grouped={grouped}
+                publicUrl={publicUrl}
+                onSelect={setFocusedId}
+                onAction={setActionTarget}
+                onCreate={() => setShowCreate(true)}
+              />
+            )}
+            {tab === 'settings' && <MobileSettings publicUrl={publicUrl} notify={notify} onSetNotify={setNotify} />}
+          </div>
+          <BottomNav active={tab} onChange={setTab} onCreate={() => setShowCreate(true)} />
+        </div>
+      )}
+
+      <ActionSheet
+        session={actionTarget}
+        isFavorite={actionTarget ? groups.isFavorite(actionTarget.id) : false}
+        onOpen={(id) => setFocusedId(id)}
+        onRestart={handleRestart}
+        onToggleFavorite={(s) => groups.toggleFavorite(s)}
+        onKill={(s) => setKillTarget(s)}
+        onClose={() => setActionTarget(null)}
+      />
+
+      <AlertSheet
+        isOpen={!!killTarget}
+        title={killTarget ? `Kill ${killTarget.name}?` : ''}
+        message={
+          killTarget?.worktreePath
+            ? 'This stops the agent process. The worktree and any uncommitted changes are left on disk — remove it from Argus on your Mac.'
+            : 'This stops the agent process. Terminal scrollback is lost.'
+        }
+        confirmLabel="Kill shell"
+        confirmDestructive
+        confirmLoading={killBusy}
+        onConfirm={confirmKill}
+        onCancel={() => setKillTarget(null)}
+      />
+
+      {showCreate && (
+        <CreateSheet
+          sessions={sessions}
+          onCreate={handleCreate}
+          onClose={() => setShowCreate(false)}
+        />
+      )}
+    </>
   );
 }
