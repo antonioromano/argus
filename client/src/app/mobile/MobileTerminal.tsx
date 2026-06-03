@@ -8,15 +8,14 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 interface MobileTerminalProps {
   sessionId: string;
   socket: TypedSocket;
-  onTail?: (line: string) => void;
 }
 
 /** Read-only xterm view for mobile. Reuses the desktop terminal pipeline so the
  *  agent's full-screen TUI renders as one coherent, width-fitted screen. Input
- *  is handled separately by the compose bar (ActionBar). */
-export function MobileTerminal({ sessionId, socket, onTail }: MobileTerminalProps) {
+ *  is handled separately by the on-screen keyboard (MobileKeyboard). */
+export function MobileTerminal({ sessionId, socket }: MobileTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  useTerminal(containerRef, { sessionId, socket, theme: 'dark', readOnly: true, onTail });
+  useTerminal(containerRef, { sessionId, socket, theme: 'dark', readOnly: true });
 
   return (
     <div

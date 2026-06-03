@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import { Wifi, Share2, ChevronRight } from 'lucide-react';
+import { Wifi, Share2, ChevronRight, Settings } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusDot, StatusPill, DirtyBadge } from '../../components/primitives/index.js';
+import { StatusDot, StatusPill, DirtyBadge, IconButton } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions } from '../../hooks/useGroups.js';
 
@@ -12,6 +12,7 @@ interface SessionsProps {
   publicUrl: string | null;
   onSelect: (id: string) => void;
   onRemote: () => void;
+  onOpenSettings: () => void;
 }
 
 function byStatus(a: SessionInfo, b: SessionInfo): number {
@@ -111,7 +112,7 @@ function Row({ session, onSelect }: { session: SessionInfo; onSelect: () => void
   );
 }
 
-export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote }: SessionsProps) {
+export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote, onOpenSettings }: SessionsProps) {
   const truncatedUrl = publicUrl
     ? publicUrl.replace(/^https?:\/\//, '').slice(0, 28) + (publicUrl.length > 32 ? '…' : '')
     : null;
@@ -132,12 +133,12 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote }: S
         }}
       >
         <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>ARGUS</span>
-        <span
-          className="eyebrow"
-          style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}
-        >
-          {sessions.length} · {sessions.length === 1 ? 'shell' : 'shells'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
+          <span className="eyebrow" style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
+            {sessions.length} · {sessions.length === 1 ? 'shell' : 'shells'}
+          </span>
+          <IconButton icon={Settings} label="Settings" onClick={onOpenSettings} />
+        </div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>

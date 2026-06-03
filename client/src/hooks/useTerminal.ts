@@ -15,10 +15,8 @@ interface UseTerminalOptions {
   sessionId: string;
   socket: TypedSocket;
   theme: 'dark' | 'light';
-  /** Display-only: no stdin, no keyboard capture (mobile feeds input via a separate compose bar). */
+  /** Display-only: no stdin, no keyboard capture (mobile feeds input via the on-screen keyboard). */
   readOnly?: boolean;
-  /** Called (debounced) with the bottom non-empty terminal row — used for mobile chip detection. */
-  onTail?: (line: string) => void;
   /** Called when xterm gains or loses keyboard focus. */
   onFocusChange?: (focused: boolean) => void;
 }
@@ -75,11 +73,9 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onTail, onFocusChange } = options;
+  const { sessionId, socket, theme, readOnly = false, onFocusChange } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
-  const onTailRef = useRef(onTail);
-  useEffect(() => { onTailRef.current = onTail; }, [onTail]);
   const onFocusChangeRef = useRef(onFocusChange);
   useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
 
@@ -185,26 +181,10 @@ export function useTerminal(
     };
     socket.on('connect', handleReconnect);
 
-    // Debounced read of the bottom non-empty buffer row (read-only / mobile chip detection)
-    let tailTimer: ReturnType<typeof setTimeout> | null = null;
-    const emitTail = () => {
-      if (!onTailRef.current) return;
-      const buf = terminal.buffer.active;
-      for (let y = buf.baseY + terminal.rows - 1; y >= 0; y--) {
-        const text = buf.getLine(y)?.translateToString(true) ?? '';
-        if (text.trim() !== '') { onTailRef.current(text); return; }
-      }
-      onTailRef.current('');
-    };
-
     // Socket -> Terminal
     const handleOutput = ({ sessionId: sid, data }: { sessionId: string; data: string }) => {
       if (sid === sessionId) {
         terminal.write(data);
-        if (onTailRef.current) {
-          if (tailTimer) clearTimeout(tailTimer);
-          tailTimer = setTimeout(emitTail, 150);
-        }
       }
     };
     socket.on('session:output', handleOutput);
@@ -271,6 +251,15 @@ export function useTerminal(
     };
     window.addEventListener('terminal:refit', handleRefit);
 
+    // Local viewport scroll for the mobile keyboard's top/bottom keys (no PTY bytes).
+    const handleScroll = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionId?: string; dir?: 'top' | 'bottom' } | undefined;
+      if (!detail || detail.sessionId !== sessionId) return;
+      if (detail.dir === 'top') terminal.scrollToTop();
+      else terminal.scrollToBottom();
+    };
+    window.addEventListener('terminal:scroll', handleScroll);
+
     // Returning from the tray / regaining visibility: refit+refresh so an idle
     // terminal repaints cleanly at the current size (handles size/DPR drift).
     const handleVisibility = () => {
@@ -280,10 +269,10 @@ export function useTerminal(
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
-      if (tailTimer) clearTimeout(tailTimer);
       if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
+      window.removeEventListener('terminal:scroll', handleScroll);
       document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);

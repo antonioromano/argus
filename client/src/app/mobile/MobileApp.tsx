@@ -10,6 +10,7 @@ import { Sessions } from './Sessions.js';
 import { Focus } from './Focus.js';
 import { Remote } from './Remote.js';
 import { Diff } from './Diff.js';
+import { MobileSettings } from './MobileSettings.js';
 import { BottomNav } from './BottomNav.js';
 import type { MobileTab } from './BottomNav.js';
 
@@ -64,13 +65,17 @@ function Inner() {
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
   const publicUrl = ngrokStatus?.tunnelStatus === 'connected' ? ngrokStatus.publicUrl ?? null : null;
 
-  // If focused on a session, render Focus screen exclusively (no bottom nav)
+  // Each is rendered exclusively (no bottom nav), like a pushed screen.
   if (focused) {
     return <Focus session={focused} onBack={() => setFocusedId(null)} />;
+  }
+  if (showSettings) {
+    return <MobileSettings onBack={() => setShowSettings(false)} />;
   }
 
   return (
@@ -83,6 +88,7 @@ function Inner() {
             publicUrl={publicUrl}
             onSelect={setFocusedId}
             onRemote={() => setTab('remote')}
+            onOpenSettings={() => setShowSettings(true)}
           />
         )}
         {tab === 'diff' && <Diff sessions={sessions} />}

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { ChevronLeft } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusPill, DirtyBadge } from '../../components/primitives/index.js';
 import { useSocket } from '../../hooks/useSocket.js';
 import { MobileTerminal } from './MobileTerminal.js';
-import { ActionBar } from './ActionBar.js';
+import { MobileKeyboard } from './keyboard/MobileKeyboard.js';
 
 interface FocusProps {
   session: SessionInfo;
@@ -14,9 +14,30 @@ interface FocusProps {
 
 export function Focus({ session, onBack }: FocusProps) {
   const socket = useSocket();
-  const [lastLine, setLastLine] = useState('');
+
+  // Keep the terminal visible above the native keyboard. With
+  // `interactive-widget=resizes-content` the layout viewport (and 100dvh)
+  // shrink on their own; iOS Safari doesn't support that, so we fall back to
+  // sizing the screen to the visualViewport when the keyboard occludes it.
+  const [vvHeight, setVvHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onChange = () => {
+      const inset = window.innerHeight - vv.height - vv.offsetTop;
+      setVvHeight(inset > 80 ? vv.height : null);
+      window.dispatchEvent(new Event('terminal:refit'));
+    };
+    vv.addEventListener('resize', onChange);
+    vv.addEventListener('scroll', onChange);
+    return () => {
+      vv.removeEventListener('resize', onChange);
+      vv.removeEventListener('scroll', onChange);
+    };
+  }, []);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-inset)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: vvHeight != null ? `${vvHeight}px` : '100dvh', background: 'var(--bg-inset)', overflow: 'hidden' }}>
       <div
         style={{
           display: 'flex',
@@ -74,9 +95,9 @@ export function Focus({ session, onBack }: FocusProps) {
         </div>
       </div>
 
-      <MobileTerminal sessionId={session.id} socket={socket} onTail={setLastLine} />
+      <MobileTerminal sessionId={session.id} socket={socket} />
 
-      <ActionBar session={session} lastRawLine={lastLine} />
+      <MobileKeyboard session={session} />
     </div>
   );
 }
