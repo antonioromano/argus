@@ -1,82 +1,70 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import { ChevronLeft } from 'lucide-react';
-import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusPill, DirtyBadge } from '../../components/primitives/index.js';
 import { useSocket } from '../../hooks/useSocket.js';
-import { MobileTerminal } from './MobileTerminal.js';
-import { ActionBar } from './ActionBar.js';
+import { useTerminal } from '../../hooks/useTerminal.js';
+import { FocusHeader } from './FocusHeader.js';
+import { FocusTerminal } from './FocusTerminal.js';
+import { Chips } from './Chips.js';
+import { KeyStrip } from './KeyStrip.js';
+import { ComposeBar } from './ComposeBar.js';
+import { detect } from './focusKeys.js';
 
 interface FocusProps {
   session: SessionInfo;
   onBack: () => void;
 }
 
+/** Track the visual viewport height so the layout compresses (instead of being
+ *  overlaid) when the iOS soft keyboard opens. Falls back to 100dvh via null. */
+function useViewportHeight(): number | null {
+  const [h, setH] = useState<number | null>(() => window.visualViewport?.height ?? null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setH(vv.height);
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+  return h;
+}
+
 export function Focus({ session, onBack }: FocusProps) {
   const socket = useSocket();
   const [lastLine, setLastLine] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewportHeight = useViewportHeight();
+
+  const { terminalRef } = useTerminal(containerRef, {
+    sessionId: session.id,
+    socket,
+    theme: 'dark',
+    readOnly: true,
+    onTail: setLastLine,
+  });
+
+  const send = (data: string) => socket.emit('session:input', { sessionId: session.id, data });
+  const chips = detect(lastLine);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-inset)' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 var(--s-3)',
-          paddingTop: 'env(safe-area-inset-top, 0px)',
-          minHeight: 52,
-          background: 'var(--bg-1)',
-          borderBottom: '1px solid var(--line-2)',
-          flexShrink: 0,
-          gap: 'var(--s-2)',
-        }}
-      >
-        <button
-          onClick={onBack}
-          aria-label="Back to shells"
-          className="eyebrow"
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--line-2)',
-            cursor: 'pointer',
-            color: 'var(--accent)',
-            borderRadius: 'var(--r-2)',
-            padding: '0 12px',
-            minHeight: 44,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            flexShrink: 0,
-            fontSize: 'var(--t-tiny)',
-          }}
-        >
-          <ChevronLeft size={14} strokeWidth={1.6} />
-          BACK
-        </button>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, justifyContent: 'center' }}>
-          <AgentGlyph agent={session.agentType} size={16} />
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-sm)',
-              fontWeight: 500,
-              color: 'var(--fg-0)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {session.name}
-          </span>
-          {session.hasGitChanges && <DirtyBadge size="sm" />}
-        </div>
-        <div style={{ flexShrink: 0 }}>
-          <StatusPill status={session.status} size="sm" />
-        </div>
-      </div>
-
-      <MobileTerminal sessionId={session.id} socket={socket} onTail={setLastLine} />
-
-      <ActionBar session={session} lastRawLine={lastLine} />
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: viewportHeight != null ? `${viewportHeight}px` : '100dvh',
+        background: 'var(--bg-inset)',
+        overflow: 'hidden',
+      }}
+    >
+      <FocusHeader session={session} onBack={onBack} />
+      <FocusTerminal containerRef={containerRef} />
+      <Chips chips={chips} send={send} />
+      <KeyStrip terminalRef={terminalRef} send={send} />
+      <ComposeBar send={send} />
     </div>
   );
 }

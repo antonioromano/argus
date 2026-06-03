@@ -136,6 +136,20 @@ export function useTerminal(
 
     terminal.open(container);
 
+    // Read-only (mobile): xterm still creates a hidden .xterm-helper-textarea for
+    // focus/a11y. Tapping it would raise the iOS soft keyboard even though stdin is
+    // disabled (dead keyboard). Neuter it so taps fall through to scroll/click
+    // forwarding (those listen on the container, not the textarea).
+    if (readOnly) {
+      const helper = container.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea');
+      if (helper) {
+        helper.readOnly = true;
+        helper.inputMode = 'none';
+        helper.tabIndex = -1;
+        helper.setAttribute('aria-hidden', 'true');
+      }
+    }
+
     // Keep xterm out of mouse-reporting mode (plain drag selects text) while
     // forwarding wheel/touch + single clicks/taps to the inner app (scroll / click
     // claude). Always defined — even readOnly (mobile) forwards touch scroll + taps;
