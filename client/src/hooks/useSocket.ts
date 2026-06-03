@@ -10,8 +10,10 @@ let sharedSocket: TypedSocket | null = null;
 function getSocket(): TypedSocket {
   if (!sharedSocket) {
     const token = getToken();
+    const client = window.location.pathname.startsWith('/mobile') ? 'mobile' : 'desktop';
     sharedSocket = io({
       transports: ['websocket', 'polling'],
+      query: { client },
       auth: token ? { token } : undefined,
       reconnection: true,
       reconnectionAttempts: Infinity,

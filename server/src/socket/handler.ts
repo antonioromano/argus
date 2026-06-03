@@ -12,6 +12,13 @@ type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 // the largest client rather than the most-recently-resized one.
 const clientDimensions = new Map<string, Map<string, { cols: number; rows: number }>>();
 
+// Socket ids connected from the mobile (/mobile) client. A phone shares the one
+// pty/tmux client per session with any desktop viewers; sizing to the max would
+// make claude's TUI wider than the phone and wrap/garble it. So when a mobile
+// client is viewing a session we size the pty to the *smallest* mobile client
+// (it fits the phone) — desktop-only sessions keep the max behavior.
+const mobileSocketIds = new Set<string>();
+
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
 }
@@ -26,6 +33,31 @@ function getMaxDimensions(sessionId: string): { cols: number; rows: number } | n
     if (rows > maxRows) maxRows = rows;
   }
   return maxCols > 0 && maxRows > 0 ? { cols: maxCols, rows: maxRows } : null;
+}
+
+/**
+ * PTY size for a session. If any mobile client is viewing it, fit the smallest
+ * mobile client (a too-wide pty is unreadable on a phone; a desktop showing a
+ * narrower pty merely letterboxes — the standard shared-terminal tradeoff).
+ * Otherwise size to the largest client (unchanged desktop/mosaic behavior).
+ */
+function getSessionDimensions(sessionId: string): { cols: number; rows: number } | null {
+  const sockets = clientDimensions.get(sessionId);
+  if (!sockets || sockets.size === 0) return null;
+
+  let minCols = Infinity;
+  let minRows = Infinity;
+  let hasMobile = false;
+  for (const [socketId, { cols, rows }] of sockets) {
+    if (!mobileSocketIds.has(socketId)) continue;
+    hasMobile = true;
+    if (cols < minCols) minCols = cols;
+    if (rows < minRows) minRows = rows;
+  }
+  if (hasMobile && minCols > 0 && minRows > 0 && minCols !== Infinity && minRows !== Infinity) {
+    return { cols: minCols, rows: minRows };
+  }
+  return getMaxDimensions(sessionId);
 }
 
 const ephemeralManager = new EphemeralTerminalManager();
@@ -51,6 +83,9 @@ export function setupSocketHandler(
 
   io.on('connection', (socket: TypedSocket) => {
     console.log(`Client connected: ${socket.id}`);
+    if (socket.handshake.query?.client === 'mobile') {
+      mobileSocketIds.add(socket.id);
+    }
     // Re-emit cached update status so late-joining clients see the button,
     // then trigger a fresh check (cooldown-guarded to avoid hammering GitHub)
     updateService.broadcastToSocket(socket);
@@ -81,9 +116,9 @@ export function setupSocketHandler(
       const sockets = clientDimensions.get(sessionId);
       if (sockets) {
         sockets.delete(socket.id);
-        const max = getMaxDimensions(sessionId);
-        if (max) {
-          try { manager.resizeSession(sessionId, max.cols, max.rows); } catch { /* session may be gone */ }
+        const dims = getSessionDimensions(sessionId);
+        if (dims) {
+          try { manager.resizeSession(sessionId, dims.cols, dims.rows); } catch { /* session may be gone */ }
         }
       }
       console.log(`Client ${socket.id} left session ${sessionId}`);
@@ -101,10 +136,10 @@ export function setupSocketHandler(
       if (sockets) {
         sockets.set(socket.id, { cols, rows });
       }
-      // Resize PTY to the maximum dimensions across all connected clients
-      const max = getMaxDimensions(sessionId) ?? { cols, rows };
+      // Size the PTY: smallest mobile viewer if any, else largest client.
+      const dims = getSessionDimensions(sessionId) ?? { cols, rows };
       try {
-        manager.resizeSession(sessionId, max.cols, max.rows);
+        manager.resizeSession(sessionId, dims.cols, dims.rows);
       } catch { /* session may have exited between guard check and resize */ }
     });
 
@@ -214,13 +249,16 @@ export function setupSocketHandler(
               manager.companionTerminals.resize(sessionId, max.cols, max.rows);
             }
           } else {
-            const max = getMaxDimensions(roomKey);
-            if (max) {
-              try { manager.resizeSession(roomKey, max.cols, max.rows); } catch { /* session may be gone */ }
+            // Recompute AFTER removing this socket so a departing phone reverts
+            // the session to the desktop's size.
+            const dims = getSessionDimensions(roomKey);
+            if (dims) {
+              try { manager.resizeSession(roomKey, dims.cols, dims.rows); } catch { /* session may be gone */ }
             }
           }
         }
       }
+      mobileSocketIds.delete(socket.id);
       // Kill all ephemeral terminals for this socket
       ephemeralManager.killAllForSocket(socket.id);
     });
