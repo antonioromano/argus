@@ -1,13 +1,13 @@
 cask "argus" do
-  version "0.16.41"
+  version "0.16.42"
 
   on_arm do
-    sha256 "2c803dcb30a81b1b8351b121f7f06c7ade41fc82bed3238de90dc343e03d5e07"
+    sha256 "ecfe70dbe80f0a8130cf473ee9df402cc733353305dfae42154d3ab6bea083be"
     url "https://github.com/antonioromano/argus/releases/download/v#{version}/Argus-#{version}-arm64.dmg"
   end
 
   on_intel do
-    sha256 "b9abce94fd43b046a2fb0aa11969abdaba140da6678971f101acf0cd5cce192a"
+    sha256 "6b1d8d67101c7eb2b8514242ecd16fb9cba407891c820cea6df10bce2558af13"
     url "https://github.com/antonioromano/argus/releases/download/v#{version}/Argus-#{version}.dmg"
   end
 
