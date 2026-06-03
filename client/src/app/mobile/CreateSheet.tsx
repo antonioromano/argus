@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDefinition, SessionInfo } from '@argus/shared';
-import { X, CornerDownLeft } from 'lucide-react';
+import { X, CornerDownLeft, FolderSearch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { useConfig } from '../../hooks/useConfig.js';
+import { FolderBrowser } from './FolderBrowser.js';
 
 interface CreateSheetProps {
   sessions: SessionInfo[];
@@ -31,6 +32,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
   const [completions, setCompletions] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [browsing, setBrowsing] = useState(false);
 
   // Worktree
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
@@ -154,16 +156,24 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
         <div className="argus-scroll" style={{ overflowY: 'auto', padding: 'var(--s-4)' }}>
           {/* Folder */}
           <Label>Folder</Label>
-          <input
-            value={folderPath}
-            onChange={(e) => setFolderPath(e.target.value)}
-            placeholder="~/dev/projects/…"
-            autoFocus
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            style={inputStyle}
-          />
+          <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+            <input
+              value={folderPath}
+              onChange={(e) => setFolderPath(e.target.value)}
+              placeholder="~/dev/projects/…"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+            />
+            <button
+              onClick={() => setBrowsing(true)}
+              aria-label="Browse folders"
+              style={{ flexShrink: 0, width: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', color: 'var(--accent)', cursor: 'pointer' }}
+            >
+              <FolderSearch size={18} strokeWidth={1.6} />
+            </button>
+          </div>
           {completions.length > 0 && folderTrimmed && completions[0] !== folderTrimmed && (
             <div style={{ marginTop: 4, border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-2)' }}>
               {completions.slice(0, 4).map((c) => (
@@ -292,6 +302,14 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             {creating ? 'Creating…' : 'Create shell'}
           </button>
         </div>
+
+        {browsing && (
+          <FolderBrowser
+            initialPath={folderTrimmed || undefined}
+            onSelect={(p) => { setFolderPath(p); setBrowsing(false); }}
+            onClose={() => setBrowsing(false)}
+          />
+        )}
       </div>
     </div>
   );
