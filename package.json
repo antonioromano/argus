@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.16.37",
+  "version": "0.16.38",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -20,7 +20,7 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac -p never"
+    "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@xterm/headless": "^6.0.0",
@@ -37,48 +37,5 @@
     "typescript": "^5.7.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
-  },
-  "build": {
-    "appId": "com.antonio.argus",
-    "productName": "Argus",
-    "files": [
-      "electron/dist/**",
-      "server/dist/**",
-      "client/dist/**",
-      "shared/dist/**",
-      "node_modules/**",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "electron/resources/tmux",
-        "to": "tmux",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ],
-      "icon": "electron/assets/icon.png",
-      "identity": null
-    },
-    "dmg": {
-      "title": "Argus ${arch}",
-      "background": null,
-      "icon": null,
-      "writeUpdateInfo": false
-    },
-    "afterSign": null,
-    "afterPack": "electron/afterPack.cjs"
   }
 }

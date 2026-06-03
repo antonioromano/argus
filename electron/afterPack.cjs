@@ -8,6 +8,10 @@ const path = require('node:path');
 // runs before DMG packaging) so resources are sealed and the bundle loads.
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return;
+  // When a Developer ID cert is present, electron-builder runs its own signing
+  // (+ notarization) pass. Skip the ad-hoc re-sign so it can't clobber that
+  // real signature. Ad-hoc is the fallback only when CSC_LINK is absent.
+  if (process.env.CSC_LINK) return;
   const appPath = path.join(
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.app`,
