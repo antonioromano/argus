@@ -141,6 +141,11 @@ export class PtyManager {
       'set-option -g window-size latest',                      // pane tracks the (single) attached client size
       'set-window-option -g aggressive-resize on',
       'set-window-option -g remain-on-exit on',                // keep dead pane so we can detect exited-while-detached
+      'set-option -g mouse on',                                // route forwarded wheel reports into tmux
+      // Unconditional: wheel-up enters copy-mode + scrolls the 50k history even
+      // though claude holds mouse mode (the #{mouse_any_flag} recipe would forward
+      // the wheel to claude and only scroll its tiny on-screen transcript).
+      'bind-key -n WheelUpPane copy-mode -e',
       '',
     ].join('\n');
     try {
@@ -157,6 +162,21 @@ export class PtyManager {
   /** Prefix args common to every tmux invocation (socket + config). */
   private tmuxArgs(...args: string[]): string[] {
     return ['-L', TMUX_SOCKET, '-f', this.ensureTmuxConfig(), ...args];
+  }
+
+  /**
+   * Best-effort: push the mouse/copy-mode options onto an ALREADY-RUNNING tmux
+   * server. The `-f` config file is only read when the server first starts, so a
+   * survivor server (sessions that outlived a prior app run) wouldn't otherwise
+   * pick up these settings. Idempotent — safe to call on every spawn.
+   */
+  private applyMouseConfig(): void {
+    try {
+      this.runTmux(['set-option', '-g', 'mouse', 'on']);
+      this.runTmux(['bind-key', '-n', 'WheelUpPane', 'copy-mode', '-e']);
+    } catch {
+      /* server not up yet → the -f config covers the fresh-server case */
+    }
   }
 
   /** Run a tmux control command synchronously, returning stdout. Throws on failure. */
@@ -208,13 +228,17 @@ export class PtyManager {
       '-c', folderPath,
       agentCmd,
     );
-    return pty.spawn(tmux, args, {
+    const client = pty.spawn(tmux, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: folderPath,
       env: this.spawnEnv(),
     });
+    // The server is up now (new-session created/attached it); ensure a survivor
+    // server also has mouse + wheel-scroll bindings (fresh servers get it via -f).
+    this.applyMouseConfig();
+    return client;
   }
 
   /** True if a tmux session with this name currently exists. */
