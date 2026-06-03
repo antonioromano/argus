@@ -282,11 +282,12 @@ export function installSelectableMouse(
   const onTouchMove = (e: TouchEvent) => {
     if (!touchTracking || e.touches.length !== 1) return;
     const t = e.touches[0];
+    // We own every single-finger gesture: preventDefault immediately (before the drag
+    // threshold) so no native pan can engage and fight xterm's row-snap. Pinch/multitouch
+    // returned above, so this never blocks zoom.
+    e.preventDefault();
     if (Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) >= DRAG_THRESHOLD) touchMoved = true;
     if (!touchMoved) { touchY = t.clientY; return; }
-    // We own the gesture on both surfaces: stop native momentum (which xterm's row-snap
-    // fights) and drive the scroll ourselves.
-    e.preventDefault();
     sampleVelocity(performance.now(), t.clientY);
     applyTravel(touchY - t.clientY, MAX_REPORTS_PER_WHEEL); // drag up → positive → scroll down
     touchY = t.clientY;
