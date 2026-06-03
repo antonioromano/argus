@@ -769,9 +769,10 @@ body {
 }
 
 /* === MOBILE: keep inputs ≥16px so iOS Safari doesn't auto-zoom on focus
-   (and, with no maximum-scale in the viewport, never zoom back out). === */
+   (and, with no maximum-scale in the viewport, never zoom back out).
+   !important beats the inline font-size on TextInput's <input> (Form.tsx). === */
 @media (max-width: 768px) {
-  input, textarea, select { font-size: 16px; }
+  input, textarea, select { font-size: 16px !important; }
 }
 
 /* Touch-momentum scroll for the terminal's own viewport (normal buffer). */
