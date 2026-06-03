@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import type { SessionInfo } from '@argus/shared';
-import { Wifi, Share2, ChevronRight, Settings } from 'lucide-react';
+import type { SessionInfo, SessionStatus } from '@argus/shared';
+import { ChevronRight, MoreVertical, Plus } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusDot, StatusPill, DirtyBadge, IconButton } from '../../components/primitives/index.js';
+import { StatusDot, StatusPill, DirtyBadge } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions } from '../../hooks/useGroups.js';
 
@@ -11,9 +11,18 @@ interface SessionsProps {
   grouped: GroupedSessions;
   publicUrl: string | null;
   onSelect: (id: string) => void;
-  onRemote: () => void;
-  onOpenSettings: () => void;
+  onAction: (session: SessionInfo) => void;
+  onCreate: () => void;
 }
+
+type StatusFilter = 'all' | SessionStatus;
+
+const FILTERS: { id: StatusFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'waiting', label: 'Waiting' },
+  { id: 'running', label: 'Running' },
+  { id: 'idle', label: 'Idle' },
+];
 
 function byStatus(a: SessionInfo, b: SessionInfo): number {
   if (a.status === 'waiting' && b.status !== 'waiting') return -1;
@@ -21,10 +30,11 @@ function byStatus(a: SessionInfo, b: SessionInfo): number {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
-function Section({ title, color, sessions, onSelect }: { title: string; color: string | null; sessions: SessionInfo[]; onSelect: (id: string) => void }) {
+function Section({ title, color, sessions, filter, onSelect, onAction }: { title: string; color: string | null; sessions: SessionInfo[]; filter: StatusFilter; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void }) {
   const [collapsed, setCollapsed] = useState(false);
-  if (sessions.length === 0) return null;
-  const sorted = [...sessions].sort(byStatus);
+  const visible = filter === 'all' ? sessions : sessions.filter((s) => s.status === filter);
+  if (visible.length === 0) return null;
+  const sorted = [...visible].sort(byStatus);
   return (
     <div>
       <button
@@ -39,9 +49,9 @@ function Section({ title, color, sessions, onSelect }: { title: string; color: s
           style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms ease', color: 'var(--fg-3)' }} />
         {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />}
         <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
-        <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{sessions.length}</span>
+        <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{visible.length}</span>
       </button>
-      {!collapsed && sorted.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} />)}
+      {!collapsed && sorted.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} onAction={() => onAction(s)} />)}
     </div>
   );
 }
@@ -57,65 +67,114 @@ function timeAgo(d: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function Row({ session, onSelect }: { session: SessionInfo; onSelect: () => void }) {
+function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: () => void; onAction: () => void }) {
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
   return (
-    <button
-      onClick={onSelect}
+    <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 'var(--s-3)',
-        padding: 'var(--s-3) var(--s-4)',
-        background: 'transparent',
-        border: 'none',
         borderBottom: '1px solid var(--line-1)',
-        cursor: 'pointer',
-        width: '100%',
-        textAlign: 'left',
-        minHeight: 64,
       }}
     >
-      <AgentGlyph agent={session.agentType} size={32} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-base)',
-            fontWeight: 500,
-            color: 'var(--fg-0)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {session.name}
-          {session.hasGitChanges && <DirtyBadge size="sm" />}
+      <button
+        onClick={onSelect}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--s-3)',
+          padding: 'var(--s-3) 0 var(--s-3) var(--s-4)',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          flex: 1,
+          minWidth: 0,
+          textAlign: 'left',
+          minHeight: 64,
+        }}
+      >
+        <AgentGlyph agent={session.agentType} size={32} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-base)',
+              fontWeight: 500,
+              color: 'var(--fg-0)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {session.name}
+            {session.hasGitChanges && <DirtyBadge size="sm" />}
+          </div>
+          <div
+            className="eyebrow"
+            style={{
+              marginTop: 2,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {folder} · {timeAgo(session.createdAt)}
+          </div>
+          {session.status === 'waiting' && session.lastPrompt && (
+            <div
+              style={{
+                marginTop: 3,
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--t-tiny)',
+                color: 'var(--accent)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {session.lastPrompt}
+            </div>
+          )}
         </div>
-        <div
-          className="eyebrow"
-          style={{
-            marginTop: 2,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {folder} · {timeAgo(session.createdAt)}
-        </div>
-      </div>
-      <StatusPill status={session.status} size="sm" />
-    </button>
+        <StatusPill status={session.status} size="sm" />
+      </button>
+      <button
+        onClick={onAction}
+        aria-label={`Actions for ${session.name}`}
+        style={{
+          width: 44,
+          minHeight: 64,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'var(--fg-3)',
+          flexShrink: 0,
+        }}
+      >
+        <MoreVertical size={18} strokeWidth={1.6} />
+      </button>
+    </div>
   );
 }
 
-export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote, onOpenSettings }: SessionsProps) {
+export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onCreate }: SessionsProps) {
+  const [filter, setFilter] = useState<StatusFilter>('all');
   const truncatedUrl = publicUrl
     ? publicUrl.replace(/^https?:\/\//, '').slice(0, 28) + (publicUrl.length > 32 ? '…' : '')
     : null;
+
+  const counts: Record<StatusFilter, number> = {
+    all: sessions.length,
+    waiting: 0, running: 0, idle: 0, exited: 0,
+  };
+  for (const s of sessions) counts[s.status] += 1;
+  const waiting = sessions.filter((s) => s.status === 'waiting');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
@@ -134,29 +193,105 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote, onO
       >
         <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>ARGUS</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
+          {publicUrl && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Remote tunnel connected">
+              <StatusDot status="running" size={6} />
+              <span className="eyebrow" style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>tunnel</span>
+            </span>
+          )}
           <span className="eyebrow" style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
             {sessions.length} · {sessions.length === 1 ? 'shell' : 'shells'}
           </span>
-          <IconButton icon={Settings} label="Settings" onClick={onOpenSettings} />
         </div>
       </div>
+
+      {sessions.length > 0 && waiting.length > 0 && (
+        <button
+          onClick={() => onSelect(waiting[0].id)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--s-3)', textAlign: 'left',
+            margin: 'var(--s-3) var(--s-3) var(--s-1)', padding: '10px var(--s-3)', cursor: 'pointer',
+            borderRadius: 'var(--r-3)', background: 'var(--status-waiting-bg)', border: '1px solid var(--accent-edge)',
+            width: 'calc(100% - var(--s-3) * 2)',
+          }}
+        >
+          <StatusDot status="waiting" size={8} pulse />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
+              {waiting.length} {waiting.length === 1 ? 'shell needs' : 'shells need'} you
+            </div>
+            <div className="eyebrow" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {waiting.map((s) => s.name).join(' · ')}
+            </div>
+          </div>
+          <span className="eyebrow" style={{ fontWeight: 700, color: 'var(--fg-on-accent)', background: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '5px 9px' }}>
+            Jump →
+          </span>
+        </button>
+      )}
+
+      {sessions.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, padding: 'var(--s-2) var(--s-3)', overflowX: 'auto', borderBottom: '1px solid var(--line-1)', flexShrink: 0 }}>
+          {FILTERS.map((f) => {
+            const on = filter === f.id;
+            return (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                aria-pressed={on}
+                className="eyebrow"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+                  padding: '5px 11px', borderRadius: 'var(--r-pill)', cursor: 'pointer',
+                  border: `1px solid ${on ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                  background: on ? 'var(--accent-bg)' : 'var(--bg-1)',
+                  color: on ? 'var(--accent)' : 'var(--fg-2)',
+                  fontSize: 'var(--t-tiny)',
+                }}
+              >
+                {f.label}<span style={{ color: 'var(--fg-3)', fontSize: 9 }}>{counts[f.id]}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
         {sessions.length === 0 ? (
           <div
             style={{
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              height: '60%',
+              height: '70%',
+              gap: 'var(--s-4)',
               padding: '0 var(--s-7)',
               textAlign: 'center',
-              color: 'var(--fg-3)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-sm)',
             }}
           >
-            No sessions. Open Argus on your Mac to create sessions.
+            <div style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', lineHeight: 1.5 }}>
+              No shells yet.
+            </div>
+            <button
+              onClick={onCreate}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'var(--accent)',
+                color: 'var(--fg-on-accent)',
+                border: 'none',
+                borderRadius: 'var(--r-2)',
+                padding: '10px var(--s-4)',
+                fontSize: 'var(--t-base)',
+                fontFamily: 'var(--font-sans)',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={16} strokeWidth={2} /> Create your first shell
+            </button>
           </div>
         ) : (
           <>
@@ -165,7 +300,9 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote, onO
                 title="Favourites"
                 color={resolveGroupColor('amber', true)}
                 sessions={grouped.favorites.items.filter((i): i is SessionInfo => !('ghost' in i))}
+                filter={filter}
                 onSelect={onSelect}
+                onAction={onAction}
               />
             )}
             {grouped.groups.map(({ group, sessions: gs }) => (
@@ -174,83 +311,47 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote, onO
                 title={group.name}
                 color={resolveGroupColor(group.color, true)}
                 sessions={gs}
+                filter={filter}
                 onSelect={onSelect}
+                onAction={onAction}
               />
             ))}
-            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} onSelect={onSelect} />
+            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} filter={filter} onSelect={onSelect} onAction={onAction} />
           </>
         )}
       </div>
 
-      <div
-        style={{
-          padding: 'var(--s-3) var(--s-4)',
-          paddingBottom: 'calc(var(--s-3) + env(safe-area-inset-bottom, 0px))',
-          background: 'var(--bg-1)',
-          borderTop: '1px solid var(--line-2)',
-          flexShrink: 0,
-        }}
-      >
-        {publicUrl ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-            <StatusDot status="running" size={6} />
-            <div
-              style={{
-                flex: 1,
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-tiny)',
-                color: 'var(--accent)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                letterSpacing: 'var(--tracking-eye)',
-              }}
-            >
-              {truncatedUrl}
-            </div>
-            <button
-              onClick={onRemote}
-              style={{
-                background: 'var(--accent)',
-                color: 'var(--fg-on-accent)',
-                border: 'none',
-                borderRadius: 'var(--r-2)',
-                padding: '6px var(--s-3)',
-                fontSize: 'var(--t-sm)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              <Share2 size={12} strokeWidth={1.6} /> Share
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={onRemote}
+      {publicUrl && (
+        <div
+          style={{
+            padding: 'var(--s-3) var(--s-4)',
+            paddingBottom: 'calc(var(--s-3) + env(safe-area-inset-bottom, 0px))',
+            background: 'var(--bg-1)',
+            borderTop: '1px solid var(--line-2)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--s-2)',
+          }}
+        >
+          <StatusDot status="running" size={6} />
+          <div
             style={{
-              width: '100%',
-              background: 'var(--accent-bg)',
+              flex: 1,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-tiny)',
               color: 'var(--accent)',
-              border: '1px solid var(--accent-edge)',
-              borderRadius: 'var(--r-2)',
-              padding: '10px var(--s-4)',
-              fontSize: 'var(--t-base)',
-              fontFamily: 'var(--font-sans)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              letterSpacing: 'var(--tracking-eye)',
             }}
           >
-            <Wifi size={14} strokeWidth={1.6} /> Enable Remote Access
-          </button>
-        )}
-      </div>
+            {truncatedUrl}
+          </div>
+          <span className="eyebrow" style={{ color: 'var(--fg-3)', fontSize: 'var(--t-micro)' }}>connected</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,16 +4,19 @@ import { useSocket } from '../../hooks/useSocket.js';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
+import { Diff } from './Diff.js';
 import { MobileKeyboard } from './keyboard/MobileKeyboard.js';
 
 interface FocusProps {
   session: SessionInfo;
   onBack: () => void;
+  onActions: () => void;
 }
 
-export function Focus({ session, onBack }: FocusProps) {
+export function Focus({ session, onBack, onActions }: FocusProps) {
   const socket = useSocket();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showChanges, setShowChanges] = useState(false);
 
   // Focus owns the terminal lifecycle so the on-screen keyboard can share the
   // handle (DECCKM-aware arrows, local viewport scrolling).
@@ -55,9 +58,14 @@ export function Focus({ session, onBack }: FocusProps) {
         overflow: 'hidden',
       }}
     >
-      <FocusHeader session={session} onBack={onBack} />
+      <FocusHeader session={session} onBack={onBack} onActions={onActions} onShowChanges={() => setShowChanges(true)} />
       <FocusTerminal containerRef={containerRef} />
       <MobileKeyboard session={session} terminalRef={terminalRef} />
+      {showChanges && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)' }}>
+          <Diff session={session} onBack={() => setShowChanges(false)} />
+        </div>
+      )}
     </div>
   );
 }

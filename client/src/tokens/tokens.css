@@ -296,6 +296,12 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Mobile bottom-sheet slide-up */
+@keyframes argus-sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* Shimmer (used by Skeleton primitive) */
 @keyframes argus-shimmer {
   0%   { background-position: 200% 0; }
