@@ -16,18 +16,24 @@ const MOUSE_MODES = new Set([1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
 const SGR_MODES = new Set([1006, 1015]);
 
 // px of wheel travel per synthesized wheel report
-const WHEEL_STEP = 16;
-const MAX_REPORTS_PER_WHEEL = 8;
+const WHEEL_STEP = 12;
+const MAX_REPORTS_PER_WHEEL = 6;
 // movement (px) above which a press-release counts as a drag (local selection)
 const DRAG_THRESHOLD = 4;
 
 // Touch fling/inertia (alternate screen only — no native scrollback to ride).
 // On lift we keep emitting wheel reports with exponential decay so the app coasts.
-const INERTIA_FRICTION = 0.95; // per-frame velocity multiplier @60fps
-const INERTIA_MIN_VELOCITY = 0.02; // px/ms — below this, stop the coast
-const FLING_MIN_VELOCITY = 0.3; // px/ms — below this lift-off speed, no fling
-const MAX_INERTIA_REPORTS_PER_FRAME = 4; // bound the per-frame socket burst
-const VELOCITY_SAMPLE_WINDOW_MS = 100; // only recent samples shape the fling
+// Lift speed is measured over a short *trailing* window so a flick's peak velocity
+// (not its slow start) drives the coast; a launch multiplier makes a flick "throw".
+const INERTIA_FRICTION = 0.965; // per-16.67ms velocity multiplier (~0.9–1.1s coast)
+const INERTIA_MIN_VELOCITY = 0.04; // px/ms — below this, stop the coast
+const FLING_MIN_VELOCITY = 0.15; // px/ms — below this lift-off speed, no fling
+const FLING_LAUNCH_MULTIPLIER = 1.6; // coast starts faster than the finger ("launch")
+const FLING_MAX_VELOCITY = 4.0; // px/ms — clamp after the multiplier
+const INERTIA_TICK_MS = 24; // ~42Hz even cadence — steadier than per-rAF bursts
+const MAX_INERTIA_REPORTS_PER_TICK = 3; // bound the per-tick socket burst
+const VELOCITY_SAMPLE_WINDOW_MS = 60; // trailing window for the lift-speed estimate
+const DEBUG_SCROLL = false; // gated console logging for on-device tuning
 
 // Swallow the sequence only when every param is a mouse mode. Returning false
 // (the param set mixes in a non-mouse mode, or is empty) lets xterm's default
@@ -163,18 +169,20 @@ export function installSelectableMouse(
   let touchY = 0;
   let touchStartX = 0;
   let touchStartY = 0;
+  let touchStartT = 0;
   let touchAcc = 0;
   let touchMoved = false;
   let touchTracking = false;
   // Fling/inertia state. `velocitySamples` is a rolling buffer of recent finger
-  // positions; on lift we derive a velocity and coast via requestAnimationFrame.
-  let inertiaRaf = 0;
+  // positions; on lift we derive a trailing-window velocity and coast on an even
+  // cadence via a re-arming setTimeout.
+  let inertiaTimer = 0;
   let velocitySamples: { t: number; y: number }[] = [];
 
   const cancelInertia = () => {
-    if (inertiaRaf) {
-      cancelAnimationFrame(inertiaRaf);
-      inertiaRaf = 0;
+    if (inertiaTimer) {
+      clearTimeout(inertiaTimer);
+      inertiaTimer = 0;
     }
   };
 
@@ -194,17 +202,37 @@ export function installSelectableMouse(
     for (let i = 0; i < reports; i++) sendInput(seq);
   };
 
+  // Coast after a flick: stream wheel notches on an even cadence with exponential
+  // decay until the velocity falls below the stop floor. Decay uses the measured
+  // tick delta so it stays correct if a tick fires late (or the tab throttles).
+  const startCoast = (v0: number) => {
+    let velocity = v0;
+    let lastT = performance.now();
+    const tick = () => {
+      if (!sendInput || terminal.buffer.active.type !== 'alternate') { inertiaTimer = 0; return; }
+      const now = performance.now();
+      const dt = now - lastT;
+      lastT = now;
+      emitWheelReports(velocity * dt, MAX_INERTIA_REPORTS_PER_TICK);
+      velocity *= Math.pow(INERTIA_FRICTION, dt / 16.67);
+      if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaTimer = 0; return; }
+      inertiaTimer = window.setTimeout(tick, INERTIA_TICK_MS);
+    };
+    inertiaTimer = window.setTimeout(tick, INERTIA_TICK_MS);
+  };
+
   const onTouchStart = (e: TouchEvent) => {
     cancelInertia(); // a new touch kills any running coast
     if (e.touches.length !== 1) { touchTracking = false; return; }
     const t = e.touches[0];
     touchStartX = t.clientX;
     touchStartY = t.clientY;
+    touchStartT = performance.now();
     touchY = t.clientY;
     touchAcc = 0;
     touchMoved = false;
     touchTracking = true;
-    velocitySamples = [{ t: performance.now(), y: t.clientY }];
+    velocitySamples = [{ t: touchStartT, y: t.clientY }];
   };
   const onTouchMove = (e: TouchEvent) => {
     if (!touchTracking || e.touches.length !== 1) return;
@@ -242,25 +270,36 @@ export function installSelectableMouse(
     }
     // Drag on the alternate screen → fling with inertia.
     if (terminal.buffer.active.type !== 'alternate') return;
+    const now = performance.now();
+    const lift = e.changedTouches[0];
+    // Record the actual lift point — the last touchmove can be stale on a fast flick.
+    if (lift) velocitySamples.push({ t: now, y: lift.clientY });
+
     const newest = velocitySamples[velocitySamples.length - 1];
-    const oldest = velocitySamples[0];
-    if (!newest || !oldest || velocitySamples.length < 2) return;
-    const dt = newest.t - oldest.t;
-    if (dt <= 0) return;
-    let velocity = (oldest.y - newest.y) / dt; // px/ms, drag up → positive → scroll down
+    // Trailing window: walk back from newest until we cross VELOCITY_SAMPLE_WINDOW_MS,
+    // so the flick's peak speed (not its slow start) drives the coast.
+    let ref = velocitySamples[0];
+    for (let i = velocitySamples.length - 2; i >= 0; i--) {
+      ref = velocitySamples[i];
+      if (newest.t - velocitySamples[i].t >= VELOCITY_SAMPLE_WINDOW_MS) break;
+    }
+
+    let velocity = 0; // px/ms, drag up → positive → scroll down
+    if (newest && ref && newest !== ref && newest.t - ref.t > 0) {
+      velocity = (ref.y - newest.y) / (newest.t - ref.t);
+    } else if (lift) {
+      // Single usable sample (very fast flick): fall back to start→lift.
+      const dt = now - touchStartT;
+      if (dt > 0) velocity = (touchStartY - lift.clientY) / dt;
+    }
+
+    if (DEBUG_SCROLL) {
+      console.log('[scroll] rawV=%s samples=%s', velocity.toFixed(3), velocitySamples.length);
+    }
     if (Math.abs(velocity) < FLING_MIN_VELOCITY) return;
-    let lastT = performance.now();
-    const step = () => {
-      if (!sendInput || terminal.buffer.active.type !== 'alternate') { inertiaRaf = 0; return; }
-      const now = performance.now();
-      const frameDt = now - lastT;
-      lastT = now;
-      emitWheelReports(velocity * frameDt, MAX_INERTIA_REPORTS_PER_FRAME);
-      velocity *= Math.pow(INERTIA_FRICTION, frameDt / 16.67); // frame-rate-independent decay
-      if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaRaf = 0; return; }
-      inertiaRaf = requestAnimationFrame(step);
-    };
-    inertiaRaf = requestAnimationFrame(step);
+    velocity = clamp(-FLING_MAX_VELOCITY, velocity * FLING_LAUNCH_MULTIPLIER, FLING_MAX_VELOCITY);
+    // Do NOT reset touchAcc — fractional px flows into the coast (no seam).
+    startCoast(velocity);
   };
 
   container.addEventListener('wheel', onWheel, { passive: false });
