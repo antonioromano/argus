@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useTerminal } from '../../hooks/useTerminal.js';
+import { useTheme } from '../../context/theme-context.js';
 import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
 import { Diff } from './Diff.js';
@@ -15,6 +16,7 @@ interface FocusProps {
 
 export function Focus({ session, onBack, onActions }: FocusProps) {
   const socket = useSocket();
+  const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [showChanges, setShowChanges] = useState(false);
 
@@ -23,7 +25,7 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
   const { terminalRef } = useTerminal(containerRef, {
     sessionId: session.id,
     socket,
-    theme: 'dark',
+    theme,
     readOnly: true,
   });
 
