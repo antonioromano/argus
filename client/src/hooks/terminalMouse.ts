@@ -16,10 +16,18 @@ const MOUSE_MODES = new Set([1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
 const SGR_MODES = new Set([1006, 1015]);
 
 // px of wheel travel per synthesized wheel report
-const WHEEL_STEP = 24;
-const MAX_REPORTS_PER_WHEEL = 5;
+const WHEEL_STEP = 16;
+const MAX_REPORTS_PER_WHEEL = 8;
 // movement (px) above which a press-release counts as a drag (local selection)
 const DRAG_THRESHOLD = 4;
+
+// Touch fling/inertia (alternate screen only — no native scrollback to ride).
+// On lift we keep emitting wheel reports with exponential decay so the app coasts.
+const INERTIA_FRICTION = 0.95; // per-frame velocity multiplier @60fps
+const INERTIA_MIN_VELOCITY = 0.02; // px/ms — below this, stop the coast
+const FLING_MIN_VELOCITY = 0.3; // px/ms — below this lift-off speed, no fling
+const MAX_INERTIA_REPORTS_PER_FRAME = 4; // bound the per-frame socket burst
+const VELOCITY_SAMPLE_WINDOW_MS = 100; // only recent samples shape the fling
 
 // Swallow the sequence only when every param is a mouse mode. Returning false
 // (the param set mixes in a non-mouse mode, or is empty) lets xterm's default
@@ -158,7 +166,36 @@ export function installSelectableMouse(
   let touchAcc = 0;
   let touchMoved = false;
   let touchTracking = false;
+  // Fling/inertia state. `velocitySamples` is a rolling buffer of recent finger
+  // positions; on lift we derive a velocity and coast via requestAnimationFrame.
+  let inertiaRaf = 0;
+  let velocitySamples: { t: number; y: number }[] = [];
+
+  const cancelInertia = () => {
+    if (inertiaRaf) {
+      cancelAnimationFrame(inertiaRaf);
+      inertiaRaf = 0;
+    }
+  };
+
+  // Convert px of (virtual) finger travel into synthesized wheel reports, reused
+  // by the live drag and the inertia loop so the direction convention is shared:
+  // positive travel → down → scroll content up. `touchAcc` carries fractional px
+  // across calls so slow travel still accumulates to a notch.
+  const emitWheelReports = (travel: number, cap: number) => {
+    if (!sendInput) return;
+    touchAcc += travel;
+    let reports = Math.trunc(touchAcc / WHEEL_STEP);
+    if (reports === 0) return;
+    touchAcc -= reports * WHEEL_STEP;
+    const down = reports > 0;
+    reports = clamp(1, Math.abs(reports), cap);
+    const seq = wheelSeq(state.sgr, down);
+    for (let i = 0; i < reports; i++) sendInput(seq);
+  };
+
   const onTouchStart = (e: TouchEvent) => {
+    cancelInertia(); // a new touch kills any running coast
     if (e.touches.length !== 1) { touchTracking = false; return; }
     const t = e.touches[0];
     touchStartX = t.clientX;
@@ -167,6 +204,7 @@ export function installSelectableMouse(
     touchAcc = 0;
     touchMoved = false;
     touchTracking = true;
+    velocitySamples = [{ t: performance.now(), y: t.clientY }];
   };
   const onTouchMove = (e: TouchEvent) => {
     if (!touchTracking || e.touches.length !== 1) return;
@@ -178,28 +216,51 @@ export function installSelectableMouse(
       return;
     }
     e.preventDefault();
-    touchAcc += touchY - t.clientY; // drag up → positive → scroll down (content up)
+    const now = performance.now();
+    velocitySamples.push({ t: now, y: t.clientY });
+    while (velocitySamples.length > 2 && now - velocitySamples[0].t > VELOCITY_SAMPLE_WINDOW_MS) {
+      velocitySamples.shift();
+    }
+    emitWheelReports(touchY - t.clientY, MAX_REPORTS_PER_WHEEL); // drag up → positive → scroll down
     touchY = t.clientY;
-    let reports = Math.trunc(touchAcc / WHEEL_STEP);
-    if (reports === 0) return;
-    touchAcc -= reports * WHEEL_STEP;
-    const down = reports > 0;
-    reports = clamp(1, Math.abs(reports), MAX_REPORTS_PER_WHEEL);
-    const seq = wheelSeq(state.sgr, down);
-    for (let i = 0; i < reports; i++) sendInput(seq);
   };
   const onTouchEnd = (e: TouchEvent) => {
     if (!touchTracking) return;
     touchTracking = false;
-    if (touchMoved || !state.appMouse || !sendInput) return;
-    const t = e.changedTouches[0];
-    if (!t) return;
-    const screenEl = container.querySelector<HTMLElement>('.xterm-screen') ?? container;
-    const rect = screenEl.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const col = clamp(1, Math.floor((t.clientX - rect.left) / (rect.width / terminal.cols)) + 1, terminal.cols);
-    const row = clamp(1, Math.floor((t.clientY - rect.top) / (rect.height / terminal.rows)) + 1, terminal.rows);
-    sendInput(clickSeq(state.sgr, col, row));
+    if (!state.appMouse || !sendInput) return;
+    // Tap (no movement) → click into the app.
+    if (!touchMoved) {
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const screenEl = container.querySelector<HTMLElement>('.xterm-screen') ?? container;
+      const rect = screenEl.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const col = clamp(1, Math.floor((t.clientX - rect.left) / (rect.width / terminal.cols)) + 1, terminal.cols);
+      const row = clamp(1, Math.floor((t.clientY - rect.top) / (rect.height / terminal.rows)) + 1, terminal.rows);
+      sendInput(clickSeq(state.sgr, col, row));
+      return;
+    }
+    // Drag on the alternate screen → fling with inertia.
+    if (terminal.buffer.active.type !== 'alternate') return;
+    const newest = velocitySamples[velocitySamples.length - 1];
+    const oldest = velocitySamples[0];
+    if (!newest || !oldest || velocitySamples.length < 2) return;
+    const dt = newest.t - oldest.t;
+    if (dt <= 0) return;
+    let velocity = (oldest.y - newest.y) / dt; // px/ms, drag up → positive → scroll down
+    if (Math.abs(velocity) < FLING_MIN_VELOCITY) return;
+    let lastT = performance.now();
+    const step = () => {
+      if (!sendInput || terminal.buffer.active.type !== 'alternate') { inertiaRaf = 0; return; }
+      const now = performance.now();
+      const frameDt = now - lastT;
+      lastT = now;
+      emitWheelReports(velocity * frameDt, MAX_INERTIA_REPORTS_PER_FRAME);
+      velocity *= Math.pow(INERTIA_FRICTION, frameDt / 16.67); // frame-rate-independent decay
+      if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaRaf = 0; return; }
+      inertiaRaf = requestAnimationFrame(step);
+    };
+    inertiaRaf = requestAnimationFrame(step);
   };
 
   container.addEventListener('wheel', onWheel, { passive: false });
@@ -210,6 +271,7 @@ export function installSelectableMouse(
   container.addEventListener('touchend', onTouchEnd);
 
   return () => {
+    cancelInertia(); // a fling started just before unmount must not emit after teardown
     onSet.dispose();
     onReset.dispose();
     container.removeEventListener('wheel', onWheel);
