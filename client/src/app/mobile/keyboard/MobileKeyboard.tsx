@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
+import type { RefObject } from 'react';
+import type { Terminal } from '@xterm/xterm';
 import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../../hooks/useSocket.js';
 import { useKeyboardMode } from '../../../hooks/useKeyboardMode.js';
-import { dispatchKey, composeSubmit, type KeyId } from './keys.js';
+import { KEY, arrow, isArrow, isScroll, composeSubmit, type KeyId } from './keys.js';
 import { SpecialPad } from './SpecialPad.js';
 import { SpecialToolbar } from './SpecialToolbar.js';
 import { ComposeBar } from './ComposeBar.js';
@@ -10,6 +12,9 @@ import { CustomQwerty } from './CustomQwerty.js';
 
 interface MobileKeyboardProps {
   session: SessionInfo;
+  /** Shared xterm handle (owned by Focus) — used for DECCKM-aware arrows and
+   *  local viewport scrolling. */
+  terminalRef: RefObject<Terminal | null>;
 }
 
 /** Notify the terminal to refit when the surface height changes. */
@@ -26,10 +31,10 @@ const surfaceStyle: React.CSSProperties = {
 /**
  * The mobile input surface below the terminal. Branches on the persisted
  * keyboard mode: Hybrid (special pad + native keyboard on demand) or Dual
- * (two-view fully custom keyboard). Owns the compose buffer and routes every
- * key through the central encoder.
+ * (two-view fully custom keyboard). Routes every key through the central
+ * encoder; arrows are DECCKM-aware and scroll keys move the viewport locally.
  */
-export function MobileKeyboard({ session }: MobileKeyboardProps) {
+export function MobileKeyboard({ session, terminalRef }: MobileKeyboardProps) {
   const socket = useSocket();
   const [mode] = useKeyboardMode();
   const [view, setView] = useState<'keys' | 'text'>('keys');
@@ -39,11 +44,28 @@ export function MobileKeyboard({ session }: MobileKeyboardProps) {
   // The surface changes height on view/mode swap — refit the terminal above it.
   useEffect(() => { refit(); }, [view, mode]);
 
-  const onKey = (id: KeyId) => dispatchKey(id, { sessionId: session.id, socket });
+  const send = (data: string) => socket.emit('session:input', { sessionId: session.id, data });
+
+  const onKey = (id: KeyId) => {
+    navigator.vibrate?.(8);
+    if (isScroll(id)) {
+      const t = terminalRef.current;
+      if (id === 'top') t?.scrollToTop();
+      else t?.scrollToBottom();
+      return;
+    }
+    if (isArrow(id)) {
+      const appCursor = terminalRef.current?.modes.applicationCursorKeysMode ?? false;
+      send(arrow(id, appCursor));
+      return;
+    }
+    send(KEY[id]);
+  };
 
   const submit = () => {
     if (!text.trim()) return;
-    socket.emit('session:input', { sessionId: session.id, data: composeSubmit(text) });
+    navigator.vibrate?.(8);
+    send(composeSubmit(text));
     setText('');
     if (taRef.current) taRef.current.style.height = 'auto';
   };
