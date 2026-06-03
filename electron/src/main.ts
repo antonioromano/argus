@@ -266,9 +266,35 @@ async function main() {
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
-    // macOS only delivers main-process notifications for a bundle it trusts.
-    // An ad-hoc/unsigned build returns isSupported() true but usernoted drops
-    // the notification silently — log so the failure mode is observable.
+    // Packaged builds are ad-hoc signed (no Developer ID cert). macOS's usernoted
+    // daemon silently drops native Notification posts from an untrusted bundle —
+    // isSupported() still returns true, so the guard below can't catch it. Route
+    // packaged delivery through `osascript display notification` instead: the
+    // banner is posted by macOS's own trusted scripting bundle, bypassing the
+    // signature block entirely. Tradeoff: no custom icon, no click-to-focus, no
+    // programmatic dismissal. Dev runs under Electron's signed binary, so it
+    // keeps the richer native path. (A future Developer ID build could too.)
+    if (app.isPackaged) {
+      // Pass title/body as argv (not interpolated into the script) so arbitrary
+      // prompt text can't break or inject AppleScript.
+      execFile(
+        'osascript',
+        [
+          '-e', 'on run argv',
+          '-e', 'display notification (item 1 of argv) with title (item 2 of argv)',
+          '-e', 'end run',
+          '--', payload.body, payload.title,
+        ],
+        (err) => {
+          if (err) console.error(`[notif] osascript failed id=${payload.id}:`, err);
+          else console.log(`[notif] osascript delivered id=${payload.id}`);
+        },
+      );
+      return;
+    }
+
+    // Dev (native) path. isSupported() is meaningful here since the host bundle
+    // is Apple-signed.
     if (!Notification.isSupported()) {
       console.warn('[notif] Notification.isSupported() === false — OS will not deliver');
       return;
