@@ -137,10 +137,10 @@ export function useTerminal(
     terminal.open(container);
 
     // Keep xterm out of mouse-reporting mode (plain drag selects text) while
-    // forwarding wheel + single clicks to the inner app (scroll / click claude).
-    const sendInput = readOnly
-      ? undefined
-      : (data: string) => socket.emit('session:input', { sessionId, data });
+    // forwarding wheel/touch + single clicks/taps to the inner app (scroll / click
+    // claude). Always defined — even readOnly (mobile) forwards touch scroll + taps;
+    // keyboard stdin stays disabled via the readOnly-gated onData below.
+    const sendInput = (data: string) => socket.emit('session:input', { sessionId, data });
     const disposeMouse = installSelectableMouse(terminal, container, sessionId, sendInput);
 
     const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');

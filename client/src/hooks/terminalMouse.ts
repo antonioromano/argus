@@ -149,9 +149,65 @@ export function installSelectableMouse(
     sendInput(clickSeq(state.sgr, col, row));
   };
 
+  // ---- touch (mobile): drag → scroll the inner app, tap → click ----
+  // claude runs on the alternate screen (no native scrollback), so a finger drag
+  // is forwarded as wheel reports; a tap with no movement clicks into the app.
+  let touchY = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchAcc = 0;
+  let touchMoved = false;
+  let touchTracking = false;
+  const onTouchStart = (e: TouchEvent) => {
+    if (e.touches.length !== 1) { touchTracking = false; return; }
+    const t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    touchY = t.clientY;
+    touchAcc = 0;
+    touchMoved = false;
+    touchTracking = true;
+  };
+  const onTouchMove = (e: TouchEvent) => {
+    if (!touchTracking || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    if (Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) >= DRAG_THRESHOLD) touchMoved = true;
+    // Normal buffer (shell/streaming): let the native viewport scroll.
+    if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') {
+      touchY = t.clientY;
+      return;
+    }
+    e.preventDefault();
+    touchAcc += touchY - t.clientY; // drag up → positive → scroll down (content up)
+    touchY = t.clientY;
+    let reports = Math.trunc(touchAcc / WHEEL_STEP);
+    if (reports === 0) return;
+    touchAcc -= reports * WHEEL_STEP;
+    const down = reports > 0;
+    reports = clamp(1, Math.abs(reports), MAX_REPORTS_PER_WHEEL);
+    const seq = wheelSeq(state.sgr, down);
+    for (let i = 0; i < reports; i++) sendInput(seq);
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    if (!touchTracking) return;
+    touchTracking = false;
+    if (touchMoved || !state.appMouse || !sendInput) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const screenEl = container.querySelector<HTMLElement>('.xterm-screen') ?? container;
+    const rect = screenEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const col = clamp(1, Math.floor((t.clientX - rect.left) / (rect.width / terminal.cols)) + 1, terminal.cols);
+    const row = clamp(1, Math.floor((t.clientY - rect.top) / (rect.height / terminal.rows)) + 1, terminal.rows);
+    sendInput(clickSeq(state.sgr, col, row));
+  };
+
   container.addEventListener('wheel', onWheel, { passive: false });
   container.addEventListener('mousedown', onMouseDown);
   container.addEventListener('mouseup', onMouseUp);
+  container.addEventListener('touchstart', onTouchStart, { passive: true });
+  container.addEventListener('touchmove', onTouchMove, { passive: false });
+  container.addEventListener('touchend', onTouchEnd);
 
   return () => {
     onSet.dispose();
@@ -159,6 +215,9 @@ export function installSelectableMouse(
     container.removeEventListener('wheel', onWheel);
     container.removeEventListener('mousedown', onMouseDown);
     container.removeEventListener('mouseup', onMouseUp);
+    container.removeEventListener('touchstart', onTouchStart);
+    container.removeEventListener('touchmove', onTouchMove);
+    container.removeEventListener('touchend', onTouchEnd);
   };
 }
 

@@ -27,6 +27,8 @@ export function MobileTerminal({ sessionId, socket, onTail }: MobileTerminalProp
         overflow: 'hidden',
         padding: '6px 8px',
         background: 'var(--bg-inset)',
+        // Forward vertical drags to claude as scroll instead of bouncing the page.
+        touchAction: 'none',
       }}
     />
   );

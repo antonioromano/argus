@@ -159,6 +159,14 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onRemote }: S
           </div>
         ) : (
           <>
+            {grouped.favorites && (
+              <Section
+                title="Favourites"
+                color={resolveGroupColor('amber', true)}
+                sessions={grouped.favorites.items.filter((i): i is SessionInfo => !('ghost' in i))}
+                onSelect={onSelect}
+              />
+            )}
             {grouped.groups.map(({ group, sessions: gs }) => (
               <Section
                 key={group.id}

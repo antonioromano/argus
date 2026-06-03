@@ -53,7 +53,9 @@ export function ActionBar({ session, lastRawLine }: ActionBarProps) {
   const send = (d: string) => socket.emit('session:input', { sessionId: session.id, data: d });
   const submit = () => {
     if (!text.trim()) return;
-    send(text + '\n');
+    // Claude submits on CR. Composed newlines become ESC+CR (insert line, like
+    // desktop Shift+Enter), then a trailing CR submits the whole message.
+    send(text.replace(/\n/g, '\x1b\r') + '\r');
     setText('');
     const el = inputRef.current;
     if (el) el.style.height = 'auto';
