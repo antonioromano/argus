@@ -28,11 +28,11 @@ const DRAG_THRESHOLD = 4;
 const INERTIA_FRICTION = 0.965; // per-16.67ms velocity multiplier (~0.9–1.1s coast)
 const INERTIA_MIN_VELOCITY = 0.04; // px/ms — below this, stop the coast
 const FLING_MIN_VELOCITY = 0.15; // px/ms — below this lift-off speed, no fling
-const FLING_LAUNCH_MULTIPLIER = 1.6; // coast starts faster than the finger ("launch")
+const FLING_LAUNCH_MULTIPLIER = 1.3; // coast starts a bit faster than the finger ("launch")
 const FLING_MAX_VELOCITY = 4.0; // px/ms — clamp after the multiplier
-const INERTIA_TICK_MS = 24; // ~42Hz even cadence — steadier than per-rAF bursts
-const MAX_INERTIA_REPORTS_PER_TICK = 3; // bound the per-tick socket burst
+const MAX_INERTIA_REPORTS_PER_FRAME = 4; // bound the per-frame socket burst (alt path only)
 const VELOCITY_SAMPLE_WINDOW_MS = 60; // trailing window for the lift-speed estimate
+const DEFAULT_ROW_HEIGHT = 17; // px fallback if the viewport can't be measured
 const DEBUG_SCROLL = false; // gated console logging for on-device tuning
 
 // Swallow the sequence only when every param is a mouse mode. Returning false
@@ -163,33 +163,44 @@ export function installSelectableMouse(
     sendInput(clickSeq(state.sgr, col, row));
   };
 
-  // ---- touch (mobile): drag → scroll the inner app, tap → click ----
-  // claude runs on the alternate screen (no native scrollback), so a finger drag
-  // is forwarded as wheel reports; a tap with no movement clicks into the app.
+  // ---- touch (mobile): drag → scroll, tap → click ----
+  // Two scroll surfaces:
+  //  • Normal buffer (Claude, shell prompt) — the conversation lives in xterm's own
+  //    scrollback. We drive `terminal.scrollLines` locally (no network) and KILL the
+  //    native iOS momentum (e.preventDefault), because xterm re-snaps scrollTop to whole
+  //    rows on every render (Viewport _innerRefresh) and that fights native pixel momentum
+  //    into the stutter/halt the user saw.
+  //  • Alternate screen (vim/less) — no native scrollback, so a drag is forwarded to the
+  //    pty as synthesized wheel reports, exactly as before.
+  // A no-movement tap clicks into the app (when it requested mouse).
   let touchY = 0;
   let touchStartX = 0;
   let touchStartY = 0;
   let touchStartT = 0;
-  let touchAcc = 0;
+  let touchAcc = 0; // fractional px → wheel notches (alt path)
+  let rowAcc = 0; // fractional px → whole rows (normal path)
+  let rowHeight = DEFAULT_ROW_HEIGHT;
+  let viewportEl: HTMLElement | null = null;
   let touchMoved = false;
   let touchTracking = false;
-  // Fling/inertia state. `velocitySamples` is a rolling buffer of recent finger
-  // positions; on lift we derive a trailing-window velocity and coast on an even
-  // cadence via a re-arming setTimeout.
-  let inertiaTimer = 0;
+  // Fling/inertia state. `velocitySamples` is a rolling buffer of recent finger positions;
+  // on lift we derive a trailing-window velocity and coast via requestAnimationFrame.
+  let inertiaRaf = 0;
   let velocitySamples: { t: number; y: number }[] = [];
 
   const cancelInertia = () => {
-    if (inertiaTimer) {
-      clearTimeout(inertiaTimer);
-      inertiaTimer = 0;
+    if (inertiaRaf) {
+      cancelAnimationFrame(inertiaRaf);
+      inertiaRaf = 0;
     }
   };
 
-  // Convert px of (virtual) finger travel into synthesized wheel reports, reused
-  // by the live drag and the inertia loop so the direction convention is shared:
-  // positive travel → down → scroll content up. `touchAcc` carries fractional px
-  // across calls so slow travel still accumulates to a notch.
+  // True when the inner app owns the screen (vim/less) — drag is forwarded as wheel.
+  const isAltScroll = () =>
+    state.appMouse && !!sendInput && terminal.buffer.active.type === 'alternate';
+
+  // Convert px of (virtual) finger travel into wheel reports for the inner app. `touchAcc`
+  // carries fractional px so slow travel still accumulates to a notch.
   const emitWheelReports = (travel: number, cap: number) => {
     if (!sendInput) return;
     touchAcc += travel;
@@ -202,23 +213,49 @@ export function installSelectableMouse(
     for (let i = 0; i < reports; i++) sendInput(seq);
   };
 
-  // Coast after a flick: stream wheel notches on an even cadence with exponential
-  // decay until the velocity falls below the stop floor. Decay uses the measured
-  // tick delta so it stays correct if a tick fires late (or the tab throttles).
+  // Apply px of finger travel to whichever scroll surface is active. Positive travel →
+  // scroll down (toward newer). Returns false on the normal path when nothing moved
+  // (hit top/bottom) so the coast can stop at the edge. Shared by drag + inertia.
+  const applyTravel = (travel: number, wheelCap: number): boolean => {
+    if (isAltScroll()) {
+      emitWheelReports(travel, wheelCap);
+      return true;
+    }
+    rowAcc += travel;
+    const rows = Math.trunc(rowAcc / rowHeight);
+    if (rows === 0) return true; // sub-row accumulation — still "progressing"
+    rowAcc -= rows * rowHeight;
+    const before = terminal.buffer.active.viewportY;
+    terminal.scrollLines(rows);
+    return terminal.buffer.active.viewportY !== before;
+  };
+
+  // Coast after a flick: emit travel each frame with exponential decay until the velocity
+  // falls below the stop floor (or, on the local path, we hit the top/bottom edge). Decay
+  // uses the measured frame delta so it stays correct if a frame runs long.
   const startCoast = (v0: number) => {
     let velocity = v0;
     let lastT = performance.now();
-    const tick = () => {
-      if (!sendInput || terminal.buffer.active.type !== 'alternate') { inertiaTimer = 0; return; }
+    const step = () => {
       const now = performance.now();
       const dt = now - lastT;
       lastT = now;
-      emitWheelReports(velocity * dt, MAX_INERTIA_REPORTS_PER_TICK);
+      const travel = velocity * dt;
+      const moved = applyTravel(travel, MAX_INERTIA_REPORTS_PER_FRAME);
+      // Local path: a full-row attempt that didn't move means we're pinned at an edge.
+      if (!moved && Math.abs(travel) >= rowHeight) { inertiaRaf = 0; return; }
       velocity *= Math.pow(INERTIA_FRICTION, dt / 16.67);
-      if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaTimer = 0; return; }
-      inertiaTimer = window.setTimeout(tick, INERTIA_TICK_MS);
+      if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaRaf = 0; return; }
+      inertiaRaf = requestAnimationFrame(step);
     };
-    inertiaTimer = window.setTimeout(tick, INERTIA_TICK_MS);
+    inertiaRaf = requestAnimationFrame(step);
+  };
+
+  const sampleVelocity = (now: number, y: number) => {
+    velocitySamples.push({ t: now, y });
+    while (velocitySamples.length > 2 && now - velocitySamples[0].t > VELOCITY_SAMPLE_WINDOW_MS) {
+      velocitySamples.shift();
+    }
   };
 
   const onTouchStart = (e: TouchEvent) => {
@@ -230,34 +267,34 @@ export function installSelectableMouse(
     touchStartT = performance.now();
     touchY = t.clientY;
     touchAcc = 0;
+    rowAcc = 0;
     touchMoved = false;
     touchTracking = true;
     velocitySamples = [{ t: touchStartT, y: t.clientY }];
+    // Measure the live row height for 1:1 finger→row mapping on the local scroll path.
+    viewportEl = container.querySelector<HTMLElement>('.xterm-viewport');
+    const lines = terminal.buffer.active.length;
+    rowHeight = viewportEl && lines > 0 ? viewportEl.scrollHeight / lines : DEFAULT_ROW_HEIGHT;
+    if (!(rowHeight > 0)) rowHeight = DEFAULT_ROW_HEIGHT;
   };
   const onTouchMove = (e: TouchEvent) => {
     if (!touchTracking || e.touches.length !== 1) return;
     const t = e.touches[0];
     if (Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) >= DRAG_THRESHOLD) touchMoved = true;
-    // Normal buffer (shell/streaming): let the native viewport scroll.
-    if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') {
-      touchY = t.clientY;
-      return;
-    }
+    if (!touchMoved) { touchY = t.clientY; return; }
+    // We own the gesture on both surfaces: stop native momentum (which xterm's row-snap
+    // fights) and drive the scroll ourselves.
     e.preventDefault();
-    const now = performance.now();
-    velocitySamples.push({ t: now, y: t.clientY });
-    while (velocitySamples.length > 2 && now - velocitySamples[0].t > VELOCITY_SAMPLE_WINDOW_MS) {
-      velocitySamples.shift();
-    }
-    emitWheelReports(touchY - t.clientY, MAX_REPORTS_PER_WHEEL); // drag up → positive → scroll down
+    sampleVelocity(performance.now(), t.clientY);
+    applyTravel(touchY - t.clientY, MAX_REPORTS_PER_WHEEL); // drag up → positive → scroll down
     touchY = t.clientY;
   };
   const onTouchEnd = (e: TouchEvent) => {
     if (!touchTracking) return;
     touchTracking = false;
-    if (!state.appMouse || !sendInput) return;
-    // Tap (no movement) → click into the app.
+    // Tap (no movement) → click into the app (only when it requested mouse).
     if (!touchMoved) {
+      if (!state.appMouse || !sendInput) return;
       const t = e.changedTouches[0];
       if (!t) return;
       const screenEl = container.querySelector<HTMLElement>('.xterm-screen') ?? container;
@@ -268,12 +305,11 @@ export function installSelectableMouse(
       sendInput(clickSeq(state.sgr, col, row));
       return;
     }
-    // Drag on the alternate screen → fling with inertia.
-    if (terminal.buffer.active.type !== 'alternate') return;
+    // Drag → fling with inertia (both scroll surfaces).
     const now = performance.now();
     const lift = e.changedTouches[0];
     // Record the actual lift point — the last touchmove can be stale on a fast flick.
-    if (lift) velocitySamples.push({ t: now, y: lift.clientY });
+    if (lift) sampleVelocity(now, lift.clientY);
 
     const newest = velocitySamples[velocitySamples.length - 1];
     // Trailing window: walk back from newest until we cross VELOCITY_SAMPLE_WINDOW_MS,
@@ -294,11 +330,12 @@ export function installSelectableMouse(
     }
 
     if (DEBUG_SCROLL) {
-      console.log('[scroll] rawV=%s samples=%s', velocity.toFixed(3), velocitySamples.length);
+      console.log('[scroll] type=%s rawV=%s samples=%s rowH=%s',
+        terminal.buffer.active.type, velocity.toFixed(3), velocitySamples.length, rowHeight.toFixed(1));
     }
     if (Math.abs(velocity) < FLING_MIN_VELOCITY) return;
     velocity = clamp(-FLING_MAX_VELOCITY, velocity * FLING_LAUNCH_MULTIPLIER, FLING_MAX_VELOCITY);
-    // Do NOT reset touchAcc — fractional px flows into the coast (no seam).
+    // Do NOT reset touchAcc/rowAcc — fractional px flows into the coast (no seam).
     startCoast(velocity);
   };
 
