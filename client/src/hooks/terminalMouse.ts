@@ -50,9 +50,9 @@ interface MouseState {
   sgr: boolean;
 }
 
-function loadState(sessionId: string): MouseState {
+function loadState(key: string): MouseState {
   try {
-    const raw = sessionStorage.getItem('argus:mouse:' + sessionId);
+    const raw = sessionStorage.getItem(key);
     if (raw) return JSON.parse(raw) as MouseState;
   } catch {
     /* sessionStorage unavailable / malformed — fall through to default */
@@ -60,9 +60,9 @@ function loadState(sessionId: string): MouseState {
   return { appMouse: false, sgr: true };
 }
 
-function saveState(sessionId: string, state: MouseState): void {
+function saveState(key: string, state: MouseState): void {
   try {
-    sessionStorage.setItem('argus:mouse:' + sessionId, JSON.stringify(state));
+    sessionStorage.setItem(key, JSON.stringify(state));
   } catch {
     /* best-effort persistence across Cmd+R */
   }
@@ -79,6 +79,9 @@ function saveState(sessionId: string, state: MouseState): void {
  *
  * @param sendInput omit (readOnly) to disable wheel/click forwarding while still
  *   keeping selection working.
+ * @param kind namespaces the persisted mouse state so panes that share a sessionId
+ *   (e.g. the Claude terminal and its companion shell) don't inherit each other's
+ *   app-mouse intent. Omit for the primary terminal (back-compat key).
  * @returns cleanup that removes listeners and disposes the parser handlers.
  */
 export function installSelectableMouse(
@@ -86,27 +89,32 @@ export function installSelectableMouse(
   container: HTMLElement,
   sessionId: string,
   sendInput?: (data: string) => void,
+  kind?: string,
 ): () => void {
-  const state = loadState(sessionId);
+  const storageKey = kind ? 'argus:mouse:' + kind + ':' + sessionId : 'argus:mouse:' + sessionId;
+  const state = loadState(storageKey);
 
   const onSet = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
     if (!isMouseModeSet(params)) return false;
     state.appMouse = true;
     if (hasSgrMode(params)) state.sgr = true;
-    saveState(sessionId, state);
+    saveState(storageKey, state);
     return true; // swallow — xterm must not enter mouse mode
   });
   const onReset = terminal.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
     if (!isMouseModeSet(params)) return false;
     state.appMouse = false;
-    saveState(sessionId, state);
+    saveState(storageKey, state);
     return true;
   });
 
   // ---- wheel → scroll the inner app ----
   let wheelAcc = 0;
   const onWheel = (e: WheelEvent) => {
-    if (!state.appMouse || !sendInput) return; // let xterm do its (frozen) native scroll
+    // Forward wheel only on the alternate screen (vim/less). On the normal screen
+    // (Claude streaming, shell prompt) let xterm scroll its own buffer — otherwise
+    // wheel drives the app's internal mouse-scroll UI instead of native scrollback.
+    if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') return;
     e.preventDefault();
     wheelAcc += e.deltaY;
     let reports = Math.trunc(wheelAcc / WHEEL_STEP);

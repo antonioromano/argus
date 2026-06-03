@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { isMac, isPrimaryModifier } from '../utils/platform.js';
+import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
 
 import '@xterm/xterm/css/xterm.css';
@@ -114,7 +114,9 @@ export function useTerminal(
       scrollback: 5000,
       scrollSensitivity: 3,
       fastScrollSensitivity: 10,
-      macOptionIsMeta: isMac,
+      // Option composes special chars (@ [ ] { } on non-US Mac layouts) instead of
+      // sending Meta. Esc still works; rarely-used Alt+ shortcuts are the tradeoff.
+      macOptionIsMeta: false,
     });
 
     // Visual bell — xterm v5 removed bellStyle, so wire it manually via onBell.
