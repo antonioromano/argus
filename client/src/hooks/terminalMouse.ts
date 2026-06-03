@@ -180,7 +180,6 @@ export function installSelectableMouse(
   let touchAcc = 0; // fractional px → wheel notches (alt path)
   let rowAcc = 0; // fractional px → whole rows (normal path)
   let rowHeight = DEFAULT_ROW_HEIGHT;
-  let viewportEl: HTMLElement | null = null;
   let touchMoved = false;
   let touchTracking = false;
   // Fling/inertia state. `velocitySamples` is a rolling buffer of recent finger positions;
@@ -271,10 +270,13 @@ export function installSelectableMouse(
     touchMoved = false;
     touchTracking = true;
     velocitySamples = [{ t: touchStartT, y: t.clientY }];
-    // Measure the live row height for 1:1 finger→row mapping on the local scroll path.
-    viewportEl = container.querySelector<HTMLElement>('.xterm-viewport');
-    const lines = terminal.buffer.active.length;
-    rowHeight = viewportEl && lines > 0 ? viewportEl.scrollHeight / lines : DEFAULT_ROW_HEIGHT;
+    // Cell height for 1:1 finger→row mapping. Measure from the VISIBLE screen
+    // (height / visible rows), not scrollHeight/buffer.length — the latter races
+    // with xterm's relayout and intermittently balloons, stalling a whole drag at
+    // one row. Same pattern the tap-to-click mapping uses below.
+    const screenEl = container.querySelector<HTMLElement>('.xterm-screen');
+    const screenH = screenEl ? screenEl.getBoundingClientRect().height : 0;
+    rowHeight = screenH > 0 && terminal.rows > 0 ? screenH / terminal.rows : DEFAULT_ROW_HEIGHT;
     if (!(rowHeight > 0)) rowHeight = DEFAULT_ROW_HEIGHT;
   };
   const onTouchMove = (e: TouchEvent) => {
