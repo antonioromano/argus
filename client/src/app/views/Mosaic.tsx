@@ -62,6 +62,14 @@ const MAX_TILES = 12;
 
 export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
+  const activeTileCount = useMemo(() => {
+    const ts = filtered.slice(0, MAX_TILES);
+    return ts.filter(s => !isMinimized(s.id, groupFilterIds, activeGroupId)).length;
+  }, [filtered, isMinimized, groupFilterIds, activeGroupId]);
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 150);
+    return () => clearTimeout(t);
+  }, [activeTileCount]);
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
@@ -311,7 +319,7 @@ function SortableMosaicTile(props: MosaicTileSharedProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={{ ...style, minWidth: 0, height: '100%' }}>
       <MosaicTile
         {...props}
         dragHandleListeners={listeners}

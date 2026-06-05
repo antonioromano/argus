@@ -580,8 +580,12 @@ body {
 .argus-mosaic {
   flex: 1;
   min-height: 0;
+  /* overflow:hidden makes Chrome resolve 1fr row tracks against the
+     flex-allocated height instead of the xterm intrinsic min (~405px).
+     Without it, rows overflow and the parent overflow:hidden clips them. */
+  overflow: hidden;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(max(33.333%, 420px), 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   grid-auto-rows: 1fr;
   gap: var(--s-3);
   padding: var(--s-3);
