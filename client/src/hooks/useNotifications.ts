@@ -8,6 +8,8 @@ interface UseNotificationsOptions {
   notifyOnWaiting?: boolean;
   /** Notify when a session finishes a run (status → done). */
   notifyOnDone?: boolean;
+  /** Play the macOS default system sound with each notification. */
+  notificationSound?: boolean;
   onFocusSession: (id: string) => void;
   onSwitchToSessionsTab: () => void;
 }
@@ -17,6 +19,7 @@ export function useNotifications({
   enabled,
   notifyOnWaiting = true,
   notifyOnDone = false,
+  notificationSound = false,
   onFocusSession,
   onSwitchToSessionsTab,
 }: UseNotificationsOptions) {
@@ -64,7 +67,7 @@ export function useNotifications({
           // Never a bare session name — when no prompt was extracted, say
           // what the notification means and self-heal below if text arrives.
           const body = session.lastPrompt ?? `Waiting for your input — ${session.name}`;
-          bridge.show({ id: session.id, title: 'Argus', body });
+          bridge.show({ id: session.id, title: 'Argus', body, sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: session.lastPrompt == null });
         }
       }
@@ -74,14 +77,14 @@ export function useNotifications({
       if (curr === 'waiting' && session.lastPrompt != null) {
         const active = activeIds.current.get(session.id);
         if (active?.usedFallback) {
-          bridge.show({ id: session.id, title: 'Argus', body: session.lastPrompt });
+          bridge.show({ id: session.id, title: 'Argus', body: session.lastPrompt, sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }
 
       if (curr === 'done' && prev !== 'done' && prev !== undefined && notifyOnDone) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
-          bridge.show({ id: session.id, title: 'Argus', body: `${session.name} finished` });
+          bridge.show({ id: session.id, title: 'Argus', body: `${session.name} finished`, sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }
@@ -105,7 +108,7 @@ export function useNotifications({
         prevStatuses.current.delete(id);
       }
     }
-  }, [sessions, enabled, notifyOnWaiting, notifyOnDone]);
+  }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notificationSound]);
 
   // Cleanup on unmount
   useEffect(() => {
