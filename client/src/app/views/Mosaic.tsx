@@ -48,6 +48,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
+  // Tile just restored from the minimized row — its terminal should grab
+  // keyboard focus on mount. Cleared once the xterm reports focus.
+  const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
 
   // Native HTML5 drag-to-reorder of tiles by their header. Operates on the full `sessions`
   // list (by id) so reorders stay correct even while filtered/grouped/sliced.
@@ -130,7 +133,11 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
             <MinimizedChip
               key={s.id}
               session={s}
-              onClick={groupFilterIds ? () => restoreFromFilter(s.id, currentGroup) : () => toggleMinimize(s.id)}
+              onClick={() => {
+                if (groupFilterIds) restoreFromFilter(s.id, currentGroup);
+                else toggleMinimize(s.id);
+                setRestoreFocusId(s.id);
+              }}
               onDragStart={() => handleDragStart(s.id)}
               onDragOver={() => handleDragOverTile(s.id)}
               onDrop={() => handleDropTile(s.id)}
@@ -157,8 +164,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
               groupColor={groupColorOf?.(s.id) ?? null}
               isFocused={activeFocusedId === s.id}
               windowFocused={windowFocused}
-              onXtermFocus={() => setFocusedId(s.id)}
+              onXtermFocus={() => { setFocusedId(s.id); setRestoreFocusId(null); }}
               onXtermBlur={() => setFocusedId(null)}
+              autoFocus={restoreFocusId === s.id}
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
@@ -206,6 +214,7 @@ function MosaicTile({
   windowFocused,
   onXtermFocus,
   onXtermBlur,
+  autoFocus,
   onToggleMinimize,
   onOpen,
   onKill,
@@ -231,6 +240,7 @@ function MosaicTile({
   windowFocused: boolean;
   onXtermFocus: () => void;
   onXtermBlur: () => void;
+  autoFocus?: boolean;
   onToggleMinimize: () => void;
   onOpen: () => void;
   onKill: () => void;
@@ -376,7 +386,7 @@ function MosaicTile({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
         </ErrorBoundary>
       </div>
     </div>

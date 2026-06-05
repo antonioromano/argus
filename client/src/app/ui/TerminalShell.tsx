@@ -17,16 +17,18 @@ interface TerminalShellProps {
   onFocusChange?: (focused: boolean) => void;
   /** Draw status-colored border + radius + waiting glow. Default true (mosaic). Focus view sets false. */
   framed?: boolean;
+  /** Focus the terminal once it mounts (tile restored from the minimized row). */
+  autoFocus?: boolean;
 }
 
 /**
  * xterm.js container. Interior is fully owned by useTerminal — this wrapper
  * supplies the status-colored frame only. Refit via 'terminal:refit' window event.
  */
-export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true }: TerminalShellProps) {
+export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange });
+  useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus });
 
   // Refit on focus enter so xterm cols/rows match
   useEffect(() => {

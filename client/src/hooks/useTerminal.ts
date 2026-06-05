@@ -19,6 +19,8 @@ interface UseTerminalOptions {
   readOnly?: boolean;
   /** Called when xterm gains or loses keyboard focus. */
   onFocusChange?: (focused: boolean) => void;
+  /** Focus the terminal once it mounts (e.g. a tile restored from the minimized row). */
+  autoFocus?: boolean;
 }
 
 const DARK_THEME = {
@@ -73,9 +75,11 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onFocusChange } = options;
+  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
+  const autoFocusRef = useRef(autoFocus);
+  useEffect(() => { autoFocusRef.current = autoFocus; }, [autoFocus]);
   const onFocusChangeRef = useRef(onFocusChange);
   useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
 
@@ -176,6 +180,7 @@ export function useTerminal(
           rows: terminal.rows,
         });
       }
+      if (autoFocusRef.current && !readOnly) terminal.focus();
     });
 
     terminalRef.current = terminal;

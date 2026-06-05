@@ -121,7 +121,7 @@ export function AlertSheet({
             margin: '0 0 var(--s-5)',
             fontSize: 'var(--t-sm)',
             fontFamily: 'var(--font-sans)',
-            color: 'var(--fg-2)',
+            color: 'var(--fg-1)',
             lineHeight: 1.5,
           }}
         >

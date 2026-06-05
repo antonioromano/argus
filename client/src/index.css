@@ -604,8 +604,6 @@ body {
   animation: argus-fade-in var(--dur-base) var(--ease-out) backwards;
   animation-delay: calc(var(--i, 0) * 40ms);
 }
-.argus-tile[data-status="waiting"] { border-color: var(--status-waiting); }
-
 .argus-tile-header {
   display: flex;
   align-items: center;
