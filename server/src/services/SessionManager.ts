@@ -325,9 +325,7 @@ export class SessionManager {
 
     let status = detected;
     if (detected === 'idle' || detected === 'waiting') {
-      if (session.suppressDonePromotion) {
-        session.suppressDonePromotion = false; // first settle after attach consumed
-      } else if (detected === 'idle' && session.status === 'running') {
+      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running') {
         status = 'done';
       }
     }
@@ -420,6 +418,7 @@ export class SessionManager {
   writeToSession(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
+    session.suppressDonePromotion = false;
     this.ptyManager.write(session.pty, data);
   }
 
