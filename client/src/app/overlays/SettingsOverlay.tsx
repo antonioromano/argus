@@ -331,6 +331,11 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 <Field label="Show clock in toolbar" hint="Displays current time (HH:MM) before the remote access icon">
                   <Toggle checked={config.showClock ?? false} onChange={(v) => onSave({ showClock: v })} />
                 </Field>
+                {(config.showClock ?? false) && (
+                  <Field label="Show seconds" hint="Extends the clock to HH:MM:SS">
+                    <Toggle checked={config.clockShowSeconds ?? false} onChange={(v) => onSave({ clockShowSeconds: v })} />
+                  </Field>
+                )}
               </Section>
               <Section title="Groups">
                 <Field label='"Others" folder name' hint="Display name for the ungrouped shells bucket">

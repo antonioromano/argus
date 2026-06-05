@@ -27,6 +27,7 @@ export interface AppConfig {
   notifyOnDone: boolean;     // notify when a session finishes a run
   notificationSound: boolean; // play the default system sound with each notification
   showClock?: boolean;        // show HH:MM clock in the toolbar
+  clockShowSeconds?: boolean; // extend clock to HH:MM:SS
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
 }
 

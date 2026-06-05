@@ -11,6 +11,7 @@ const DEFAULT_CONFIG: AppConfig = {
   notifyOnDone: false,
   notificationSound: false,
   showClock: false,
+  clockShowSeconds: false,
   othersFolderName: 'Others',
 };
 

@@ -385,6 +385,7 @@ function DesktopInner() {
         updateVersion={updateStatus?.latestVersion ?? undefined}
         onOpenUpdate={() => app.openOverlay({ kind: 'update' })}
         showClock={config?.showClock ?? false}
+        clockShowSeconds={config?.clockShowSeconds ?? false}
       />
       <Tooltip content="⌘N">
         <Button variant="primary" icon={Plus} size="md" onClick={() => app.openOverlay({ kind: 'create' })}>

@@ -2,18 +2,20 @@ import { Globe, Sun, Moon, Settings, ArrowUp } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Tooltip } from '../../components/primitives/index.js';
 
-function ClockDisplay() {
-  const [time, setTime] = useState(() => {
-    const now = new Date();
-    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-  });
+function formatTime(date: Date, showSeconds: boolean): string {
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  if (!showSeconds) return `${h}:${m}`;
+  return `${h}:${m}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+
+function ClockDisplay({ showSeconds = false }: { showSeconds?: boolean }) {
+  const [time, setTime] = useState(() => formatTime(new Date(), showSeconds));
   useEffect(() => {
-    const id = setInterval(() => {
-      const now = new Date();
-      setTime(String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
-    }, 1000);
+    setTime(formatTime(new Date(), showSeconds));
+    const id = setInterval(() => setTime(formatTime(new Date(), showSeconds)), 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [showSeconds]);
   return (
     <span style={{
       fontFamily: 'var(--font-mono)',
@@ -39,6 +41,7 @@ interface ElectronToolbarProps {
   updateVersion?: string;
   onOpenUpdate?: () => void;
   showClock?: boolean;
+  clockShowSeconds?: boolean;
 }
 
 const iconBtn = (active = false): React.CSSProperties => ({
@@ -67,6 +70,7 @@ export function ElectronToolbar({
   updateVersion,
   onOpenUpdate,
   showClock,
+  clockShowSeconds,
 }: ElectronToolbarProps) {
   return (
     <div
@@ -78,7 +82,7 @@ export function ElectronToolbar({
         WebkitAppRegion: 'no-drag',
       }}
     >
-        {showClock && <ClockDisplay />}
+        {showClock && <ClockDisplay showSeconds={clockShowSeconds} />}
         {updateAvailable && (
           <button
             onClick={onOpenUpdate}
