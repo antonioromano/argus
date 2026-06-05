@@ -51,11 +51,8 @@ export function useNotifications({
 
       if (curr === 'waiting' && prev !== 'waiting' && prev !== undefined) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
-          const folderName = session.folderPath.split('/').pop() || session.folderPath;
-          const body = session.lastPrompt
-            ? `${folderName} — ${session.lastPrompt}`
-            : folderName;
-          bridge.show({ id: session.id, title: session.name, body });
+          const body = session.lastPrompt ?? session.name;
+          bridge.show({ id: session.id, title: 'Argus', body });
           activeIds.current.add(session.id);
         }
       }

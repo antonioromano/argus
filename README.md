@@ -1,6 +1,6 @@
 # Argus
 
-![Version](https://img.shields.io/badge/version-0.16.43-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
+![Version](https://img.shields.io/badge/version-0.16.44-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 
 A web-based dashboard for managing multiple AI coding agent sessions simultaneously. Spawn [Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [OpenAI Codex](https://github.com/openai/codex) processes via pseudo-terminals, stream their I/O to browser-based terminals, and monitor session state in real time.
 

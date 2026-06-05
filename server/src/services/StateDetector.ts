@@ -81,6 +81,22 @@ const PROMPT_FOOTER_NOISE: RegExp[] = [
   /^❯\s*$/,
 ];
 
+/**
+ * Candidate lines that are clearly NOT the agent's question — echoes of the
+ * user's own message in the transcript ("> …") and bare filesystem paths
+ * (e.g. a screenshot dragged into the prompt leaves its /var/folders/… path
+ * on screen). Matched after box-drawing strip + trim.
+ */
+const USER_ECHO = /^>\s/;
+const BARE_FILE_PATH = /^[~/]\S*\/.*\.[A-Za-z0-9]{1,6}$/;
+
+/** Lines that look like the agent asking something — preferred as notification body. */
+const QUESTION_SHAPED: RegExp[] = [
+  /\?$/,
+  /\bdo you want\b/i,
+  /^(should|would|which|what|how|where|when|who|can|could|may|shall)\b/i,
+];
+
 const BOX_DRAWING_CHARS = /[│┃|╭╮╰╯─━┌┐└┘├┤┬┴┼·•▌▎▏]/g;
 const MAX_PROMPT_LEN = 140;
 
@@ -299,13 +315,18 @@ export class StateDetector {
       const cleaned = (rows[i] ?? '').replace(BOX_DRAWING_CHARS, ' ').trim();
       if (!cleaned) continue;
       if (PROMPT_FOOTER_NOISE.some((p) => p.test(cleaned))) continue;
+      // Skip echoes of the user's own message and bare file paths (e.g. a
+      // dragged-in screenshot's /var/folders/… path) — never the agent's question.
+      if (USER_ECHO.test(cleaned) || BARE_FILE_PATH.test(cleaned)) continue;
       // Skip lines that are themselves prompt patterns (alt input boxes, etc.)
       if (this.promptPatterns.some((p) => p.test(rows[i] ?? ''))) continue;
       candidates.push(cleaned);
     }
 
-    // Closest meaningful line above the input box wins.
-    const picked = candidates[0];
+    // Prefer the nearest question-shaped line; otherwise the closest
+    // meaningful line above the input box wins.
+    const picked =
+      candidates.find((c) => QUESTION_SHAPED.some((p) => p.test(c))) ?? candidates[0];
     if (!picked) return undefined;
     return picked.length > MAX_PROMPT_LEN ? `${picked.slice(0, MAX_PROMPT_LEN - 1)}…` : picked;
   }

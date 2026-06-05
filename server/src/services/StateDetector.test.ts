@@ -59,3 +59,39 @@ test('getLastPromptText extracts the question above the input box', async () => 
   assert.equal(det.getLastPromptText(), 'Which file should I edit?');
   det.destroy();
 });
+
+test('getLastPromptText skips a bare file path and returns the question above it', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom(
+    'Which file should I edit?\r\n' +
+    '/var/folders/s7/T/TemporaryItems/NSIRD_screencaptureui_GQo8sF/Screenshot 2026-06-05 at 10.11.33.png\r\n' +
+    '│ > ',
+  ));
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Which file should I edit?');
+  det.destroy();
+});
+
+test('getLastPromptText skips user-message echoes', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom('I will update the config file.\r\n> fix the bug\r\n│ > '));
+  await settle();
+  assert.equal(det.getLastPromptText(), 'I will update the config file.');
+  det.destroy();
+});
+
+test('getLastPromptText prefers a question-shaped line over nearer prose', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom('Do you want me to continue?\r\nSome status line here\r\n│ > '));
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Do you want me to continue?');
+  det.destroy();
+});
+
+test('getLastPromptText returns undefined when only a path sits above the box', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom('/tmp/foo/Screenshot 2026-06-05 at 10.11.33.png\r\n│ > '));
+  await settle();
+  assert.equal(det.getLastPromptText(), undefined);
+  det.destroy();
+});
