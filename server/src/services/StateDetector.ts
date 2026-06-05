@@ -23,6 +23,7 @@ const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
     /\[Y\/n\]/,
     /\[y\/N\]/,
     /Do you want to proceed/i,
+    /Would you like to proceed/i,
     /don.?t ask again for/i,
     /Allow once/i,
     /always allow access/i,
@@ -89,6 +90,8 @@ const PROMPT_FOOTER_NOISE: RegExp[] = [
  */
 const USER_ECHO = /^>\s/;
 const BARE_FILE_PATH = /^[~/]\S*\/.*\.[A-Za-z0-9]{1,6}$/;
+// Menu option rows ("❯ 1. Yes", "  2. No") — never the question itself.
+const MENU_OPTION = /^❯?\s*\d+\.\s/;
 
 /** Lines that look like the agent asking something — preferred as notification body. */
 const QUESTION_SHAPED: RegExp[] = [
@@ -239,13 +242,23 @@ export class StateDetector {
     }
   }
 
-  /** Collect the last SCAN_ROWS visible rows as text. */
+  /** Collect the last SCAN_ROWS content rows as text. */
   private visibleRows(): string[] {
     const buf = this.term.buffer.active;
     const rows = this.term.rows;
-    const start = Math.max(0, rows - SCAN_ROWS);
+    // Anchor the window to the last non-empty row, not the viewport bottom —
+    // after a clear+home redraw (e.g. Claude's plan-approval UI) the prompt
+    // block sits at the TOP of the screen and a bottom-anchored window would
+    // scan only blank rows.
+    let end = rows - 1;
+    while (end > 0) {
+      const line = buf.getLine(buf.viewportY + end)?.translateToString(true);
+      if (line && line.trim()) break;
+      end--;
+    }
+    const start = Math.max(0, end + 1 - SCAN_ROWS);
     const lines: string[] = [];
-    for (let y = start; y < rows; y++) {
+    for (let y = start; y <= end; y++) {
       const line = buf.getLine(buf.viewportY + y)?.translateToString(true);
       if (line) lines.push(line);
     }
@@ -315,11 +328,17 @@ export class StateDetector {
       const cleaned = (rows[i] ?? '').replace(BOX_DRAWING_CHARS, ' ').trim();
       if (!cleaned) continue;
       if (PROMPT_FOOTER_NOISE.some((p) => p.test(cleaned))) continue;
-      // Skip echoes of the user's own message and bare file paths (e.g. a
-      // dragged-in screenshot's /var/folders/… path) — never the agent's question.
-      if (USER_ECHO.test(cleaned) || BARE_FILE_PATH.test(cleaned)) continue;
+      // Skip echoes of the user's own message, bare file paths (e.g. a
+      // dragged-in screenshot's /var/folders/… path) and menu option rows
+      // ("❯ 1. Yes" / "  2. No") — never the agent's question.
+      if (USER_ECHO.test(cleaned) || BARE_FILE_PATH.test(cleaned) || MENU_OPTION.test(cleaned)) continue;
       // Skip lines that are themselves prompt patterns (alt input boxes, etc.)
-      if (this.promptPatterns.some((p) => p.test(rows[i] ?? ''))) continue;
+      // — unless they read like the question itself (e.g. "Would you like to
+      // proceed?" is both a prompt pattern and the notification body we want).
+      if (
+        this.promptPatterns.some((p) => p.test(rows[i] ?? '')) &&
+        !QUESTION_SHAPED.some((p) => p.test(cleaned))
+      ) continue;
       candidates.push(cleaned);
     }
 

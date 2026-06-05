@@ -88,6 +88,73 @@ test('getLastPromptText prefers a question-shaped line over nearer prose', async
   det.destroy();
 });
 
+test('a plan-approval menu rendered at the top of the screen settles to waiting', async () => {
+  // Claude Code clears + homes before drawing the plan-approval UI, so the
+  // prompt block sits at the TOP of the grid with blank rows below it. A
+  // bottom-anchored scan window sees only blanks and misclassifies as idle.
+  let status: string | null = null;
+  const det = new StateDetector((s) => { status = s; }, 'claude');
+  det.feed(
+    [
+      'Claude has written up a plan and is ready to execute. Would you like to proceed?',
+      '',
+      '❯ 1. Yes, and use auto mode',
+      '  2. Yes, manually approve edits',
+      '  3. No, refine with Ultraplan on Claude Code on the web',
+      '  4. Tell Claude what to change',
+      '     shift+tab to approve with this feedback',
+      '',
+      'ctrl-g to edit Vim · ~/.claude/plans/look-at-the-logs-synchronous-in-valley.md',
+    ].join('\r\n'),
+  );
+  await settle();
+  assert.equal(status, 'waiting');
+  det.destroy();
+});
+
+test('getLastPromptText finds the question when the prompt block is at the top of the screen', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(
+    'Claude has written up a plan. Would you like to proceed?\r\n' +
+    '❯ 1. Yes, and use auto mode\r\n' +
+    '  2. No, tell Claude what to change\r\n',
+  );
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Claude has written up a plan. Would you like to proceed?');
+  det.destroy();
+});
+
+test('getLastPromptText returns the question of a Bash permission dialog, not a menu option', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom(
+    [
+      'Bash command',
+      '  kill $(cat /tmp/claude-ui-preview/.server.pid) 2>/dev/null; rm',
+      '  -rf /tmp/claude-ui-preview; echo cleaned',
+      '  Kill preview server and clean up',
+      '',
+      'Contains command_substitution',
+      '',
+      'Do you want to proceed?',
+      '❯ 1. Yes',
+      '  2. No',
+      '',
+      'Esc to cancel · Tab to amend · ctrl+e to explain',
+    ].join('\r\n'),
+  ));
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Do you want to proceed?');
+  det.destroy();
+});
+
+test('getLastPromptText never returns a bare menu option row', async () => {
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(atBottom('  2. No\r\nEsc to cancel · Tab to amend · ctrl+e to explain'));
+  await settle();
+  assert.equal(det.getLastPromptText(), undefined);
+  det.destroy();
+});
+
 test('getLastPromptText returns undefined when only a path sits above the box', async () => {
   const det = new StateDetector(() => {}, 'claude');
   det.feed(atBottom('/tmp/foo/Screenshot 2026-06-05 at 10.11.33.png\r\n│ > '));
