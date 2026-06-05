@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -417,6 +417,10 @@ function MosaicTile({
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
 }) {
   const [copied, setCopied] = useState(false);
+  // Capture autoFocus at mount: true means this tile is being restored from the
+  // minimized row and should skip the staggered entrance animation (which would
+  // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
+  const skipAnimation = useRef(autoFocus).current;
   const doCopy = () => {
     void navigator.clipboard.writeText(session.folderPath);
     setCopied(true);
@@ -427,7 +431,7 @@ function MosaicTile({
     <div
       className="argus-tile"
       data-status={session.status}
-      style={{ ['--i' as string]: idx } as CSSProperties}
+      style={{ ['--i' as string]: idx, ...(skipAnimation ? { animation: 'none' } : {}) } as CSSProperties}
     >
       {(!isFocused || !windowFocused) && (
         <div className="argus-tile-overlay" />

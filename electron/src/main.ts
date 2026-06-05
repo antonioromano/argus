@@ -274,44 +274,46 @@ async function main() {
   const resolveTerminalNotifier = (): string | null => {
     const override = process.env.ARGUS_TERMINAL_NOTIFIER_PATH;
     if (override) return existsSync(override) ? override : null;
-    if (!app.isPackaged) return null;
-    const bundled = join(
-      process.resourcesPath,
-      'terminal-notifier',
-      'terminal-notifier.app',
-      'Contents',
-      'MacOS',
-      'terminal-notifier',
-    );
-    return existsSync(bundled) ? bundled : null;
+    const bin = join('terminal-notifier', 'terminal-notifier.app', 'Contents', 'MacOS', 'terminal-notifier');
+    if (app.isPackaged) {
+      const bundled = join(process.resourcesPath, bin);
+      return existsSync(bundled) ? bundled : null;
+    }
+    // Dev: compiled main.js is in electron/dist/ — resources are one level up
+    const devPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'resources', bin);
+    return existsSync(devPath) ? devPath : null;
   };
   const terminalNotifierPath = resolveTerminalNotifier();
 
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string; sound?: boolean }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
+    // Use terminal-notifier when available — works in dev and packaged alike
+    // because it spawns as its own .app bundle and gets its own usernoted attribution
+    // (unlike Electron native Notification or osascript, which are attributed to Argus
+    // itself and silently dropped for ad-hoc builds).
+    if (terminalNotifierPath) {
+      const args = [
+        '-title', payload.title,
+        '-message', payload.body,
+        // Same-group notifications replace each other.
+        '-group', payload.id,
+        // Click focuses Argus. (No per-session deep-link; terminal-notifier
+        // can't round-trip the notif:click IPC.)
+        '-activate', 'com.antonio.argus',
+      ];
+      if (payload.sound) args.push('-sound', 'default');
+      execFile(terminalNotifierPath, args, (err) => {
+        if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
+        else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
+      });
+      return;
+    }
+
     if (app.isPackaged) {
-      if (terminalNotifierPath) {
-        const args = [
-          '-title', payload.title,
-          '-message', payload.body,
-          // Same-group notifications replace each other — mirrors the dev
-          // path's existing.close() behavior for repeated session alerts.
-          '-group', payload.id,
-          // Click focuses Argus. (No per-session deep-link in packaged mode;
-          // terminal-notifier can't round-trip the notif:click IPC.)
-          '-activate', 'com.antonio.argus',
-        ];
-        if (payload.sound) args.push('-sound', 'default');
-        execFile(terminalNotifierPath, args, (err) => {
-          if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
-          else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
-        });
-        return;
-      }
-      // Fallback when the bundled notifier is missing. Known to be dropped by
-      // usernoted for ad-hoc builds (attributed to Argus), but harmless — keeps
-      // the code path alive for a future Developer-ID-signed build.
+      // Packaged build but bundled notifier missing — osascript fallback.
+      // Known to be dropped by usernoted for ad-hoc builds, but harmless;
+      // keeps the path alive for a future Developer-ID-signed build.
       execFile(
         'osascript',
         [
@@ -330,8 +332,9 @@ async function main() {
       return;
     }
 
-    // Dev (native) path. isSupported() is meaningful here since the host bundle
-    // is Apple-signed.
+    // Dev without terminal-notifier — native Electron Notification.
+    // May not deliver for ad-hoc builds (usernoted attribution). Kept as
+    // last-resort fallback if the source notifier binary is absent.
     if (!Notification.isSupported()) {
       console.warn('[notif] Notification.isSupported() === false — OS will not deliver');
       return;
