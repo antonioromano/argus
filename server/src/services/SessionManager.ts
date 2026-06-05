@@ -45,6 +45,8 @@ interface ManagedSession {
    * the first settle after attach, then clears.
    */
   suppressDonePromotion?: boolean;
+  /** Pending timer that will promote this session to 'done' after a 2 s grace period. */
+  doneTimer?: ReturnType<typeof setTimeout>;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
@@ -243,6 +245,7 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
 
     session.stateDetector.destroy();
+    if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);                       // detaches the tmux client
     if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName); // actually stop the agent
     this.companionTerminals.kill(id);
@@ -262,6 +265,7 @@ export class SessionManager {
     // surviving conversation is discarded — otherwise new-session -A would just
     // reattach to the old process and "restart" would be a no-op.
     session.stateDetector.destroy();
+    if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);
     if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
     this.companionTerminals.kill(id);
@@ -328,6 +332,26 @@ export class SessionManager {
       if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running') {
         status = 'done';
       }
+    }
+
+    // New activity arrived — cancel any pending done promotion.
+    if (session.doneTimer && status !== 'done') {
+      clearTimeout(session.doneTimer);
+      session.doneTimer = undefined;
+    }
+
+    if (status === 'done') {
+      if (session.doneTimer) return; // timer already running, don't restart
+      // Hold 'done' promotion for 2 s: Claude pauses between tool calls and the
+      // screen can look idle mid-run, causing a false done + premature notification.
+      session.doneTimer = setTimeout(() => {
+        session.doneTimer = undefined;
+        if (!this.sessions.has(id)) return;
+        session.status = 'done';
+        session.lastPrompt = undefined;
+        this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
+      }, 2_000);
+      return;
     }
 
     session.status = status;
