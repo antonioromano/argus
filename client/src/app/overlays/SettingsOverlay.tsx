@@ -1,6 +1,6 @@
 import { useState, Fragment } from 'react';
 import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
-import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch } from 'lucide-react';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch, Volume2, Timer } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -126,7 +126,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
     window.electronNotifications?.show({
       id: 'argus-test',
       title: 'Argus',
-      body: 'Test notification — if you see this, delivery works.',
+      body: '[Test] Notification delivery works.',
+      sound: config.notificationSound,
     });
   };
 
@@ -503,65 +504,89 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
           )}
 
           {tab === 'notif' && (
-            <div style={{ maxWidth: 720 }}>
+            <div style={{ maxWidth: 580 }}>
               <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Notifications</div>
               <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
                 Notifications
               </h2>
-              <div style={{ padding: 'var(--s-4)', background: 'var(--bg-1)', borderRadius: 'var(--r-2)', border: '1px solid var(--line-2)' }}>
-                <Toggle
-                  checked={config.notificationsEnabled}
-                  onChange={handleNotifToggle}
-                  label="Native desktop notifications"
-                />
-                {config.notificationsEnabled && (
-                  <>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)', margin: 'var(--s-3) 0 0', paddingLeft: 'var(--s-4)', borderLeft: '2px solid var(--line-2)' }}>
-                      <Toggle
-                        checked={config.notifyOnWaiting ?? true}
-                        onChange={(v) => { void onSave({ notifyOnWaiting: v }); }}
-                        label="When a shell needs your input"
-                      />
-                      <Toggle
-                        checked={config.notifyOnDone ?? false}
-                        onChange={(v) => { void onSave({ notifyOnDone: v }); }}
-                        label="When a shell finishes a run"
-                      />
-                      <Toggle
-                        checked={config.notificationSound ?? false}
-                        onChange={(v) => { void onSave({ notificationSound: v }); }}
-                        label="Play a sound"
-                      />
+              <div style={{ background: 'var(--bg-1)', borderRadius: 'var(--r-2)', border: '1px solid var(--line-2)', overflow: 'hidden' }}>
+
+                {/* Master toggle */}
+                <div style={{ padding: 'var(--s-3) var(--s-4)' }}>
+                  <Toggle
+                    checked={config.notificationsEnabled}
+                    onChange={handleNotifToggle}
+                    label="Native desktop notifications"
+                  />
+                </div>
+                <div style={{ height: 1, background: 'var(--line-2)' }} />
+
+                {/* Body — always rendered, dimmed when master is off */}
+                <div style={{ opacity: config.notificationsEnabled ? 1 : 0.35, pointerEvents: config.notificationsEnabled ? 'auto' : 'none', transition: 'opacity var(--dur-base)' }}>
+
+                  {/* WHEN TO NOTIFY */}
+                  <div style={{ fontSize: 'var(--t-micro)', fontWeight: 600, letterSpacing: 'var(--tracking-eye)', textTransform: 'uppercase' as const, color: 'var(--fg-3)', padding: 'var(--s-3) var(--s-4) var(--s-1)' }}>
+                    When to notify
+                  </div>
+                  {([
+                    { icon: <Timer size={13} strokeWidth={1.6} />, label: 'Shell needs your input', checked: config.notifyOnWaiting ?? true, onChange: (v: boolean) => { void onSave({ notifyOnWaiting: v }); } },
+                    { icon: <Check size={13} strokeWidth={1.6} />, label: 'Shell finishes a run',   checked: config.notifyOnDone   ?? false, onChange: (v: boolean) => { void onSave({ notifyOnDone: v }); } },
+                  ] as const).map(({ icon, label, checked, onChange }) => (
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', padding: '9px var(--s-4)' }}>
+                      <span style={{ color: 'var(--fg-3)', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{icon}</span>
+                      <span style={{ flex: 1, fontSize: 'var(--t-base)', color: 'var(--fg-1)' }}>{label}</span>
+                      <Toggle checked={checked} onChange={onChange} />
                     </div>
-                    <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
-                      Notifications only fire while Argus is in the background. Delivery is
-                      controlled by macOS — toggle Argus on under System Settings → Notifications.
+                  ))}
+
+                  <div style={{ height: 1, background: 'var(--line-2)' }} />
+
+                  {/* SOUND */}
+                  <div style={{ fontSize: 'var(--t-micro)', fontWeight: 600, letterSpacing: 'var(--tracking-eye)', textTransform: 'uppercase' as const, color: 'var(--fg-3)', padding: 'var(--s-3) var(--s-4) var(--s-1)' }}>
+                    Sound
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', padding: '9px var(--s-4)' }}>
+                    <span style={{ color: 'var(--fg-3)', display: 'flex', alignItems: 'center', flexShrink: 0 }}><Volume2 size={13} strokeWidth={1.6} /></span>
+                    <span style={{ flex: 1, fontSize: 'var(--t-base)', color: 'var(--fg-1)' }}>Play a sound</span>
+                    <Toggle checked={config.notificationSound ?? false} onChange={(v) => { void onSave({ notificationSound: v }); }} />
+                  </div>
+
+                  <div style={{ height: 1, background: 'var(--line-2)' }} />
+
+                  {/* Footer */}
+                  <div style={{ padding: 'var(--s-3) var(--s-4) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
+                      Notifications fire only while Argus is in the background. Managed in macOS System Settings → Notifications.
                     </p>
-                    {notifBridgeAvailable && (
+                    {notifBridgeAvailable ? (
                       <button
                         type="button"
                         onClick={handleTestNotif}
                         style={{
-                          marginTop: 'var(--s-3)',
-                          padding: 'var(--s-2) var(--s-3)',
-                          fontSize: 'var(--t-sm)',
-                          color: 'var(--fg-1)',
-                          background: 'var(--bg-2)',
-                          border: '1px solid var(--line-2)',
-                          borderRadius: 'var(--r-1)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 'var(--s-2)',
                           cursor: 'pointer',
+                          padding: '8px 14px',
+                          borderRadius: 'var(--r-2)',
+                          fontSize: 'var(--t-sm)',
+                          fontWeight: 500,
+                          fontFamily: 'inherit',
+                          background: 'var(--accent-bg)',
+                          border: '1px solid var(--accent-edge)',
+                          color: 'var(--accent)',
                         }}
                       >
+                        <Bell size={13} strokeWidth={1.6} />
                         Send test notification
                       </button>
-                    )}
-                    {!notifBridgeAvailable && (
-                      <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+                    ) : (
+                      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
                         This surface can't show desktop notifications.
                       </p>
                     )}
-                  </>
-                )}
+                  </div>
+                </div>
               </div>
             </div>
           )}
