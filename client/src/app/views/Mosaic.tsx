@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, Plus, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal } from 'lucide-react';
+import { Square as SquareIcon, Plus, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { MinimizedChip } from '../ui/MinimizedChip.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
@@ -32,6 +32,7 @@ interface MosaicProps {
   onOpenSession: (id: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
+  onRestart: (session: SessionInfo) => void;
   onMerge?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
@@ -42,7 +43,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -161,6 +162,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
               onToggleMinimize={() => toggleMinimize(s.id)}
               onOpen={() => onOpenSession(s.id)}
               onKill={() => onKill(s)}
+              onRestart={() => onRestart(s)}
               onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
               onClone={onClone ? () => onClone(s) : undefined}
               onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
@@ -207,6 +209,7 @@ function MosaicTile({
   onToggleMinimize,
   onOpen,
   onKill,
+  onRestart,
   onMerge,
   onClone,
   onFocusDiff,
@@ -231,6 +234,7 @@ function MosaicTile({
   onToggleMinimize: () => void;
   onOpen: () => void;
   onKill: () => void;
+  onRestart: () => void;
   onMerge?: () => void;
   onClone?: () => void;
   onFocusDiff?: () => void;
@@ -356,6 +360,12 @@ function MosaicTile({
             onClick={(e) => { e.stopPropagation(); onMerge(); }}
           />
         )}
+        <IconButton
+          icon={RotateCcw}
+          label="Restart shell"
+          size="sm"
+          onClick={(e) => { e.stopPropagation(); onRestart(); }}
+        />
         <IconButton
           icon={CircleX}
           label="Close shell"

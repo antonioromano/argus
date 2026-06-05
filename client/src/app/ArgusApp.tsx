@@ -145,6 +145,7 @@ function DesktopInner() {
   const [filter, setFilter] = useState('');
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
   const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
+  const [pendingRestart, setPendingRestart] = useState<SessionInfo | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
 
@@ -451,6 +452,7 @@ function DesktopInner() {
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={setPendingKill}
+              onRestart={setPendingRestart}
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
@@ -479,6 +481,7 @@ function DesktopInner() {
               onExpandExplorer={(filePath) => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath })}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => setPendingKill(activeSession)}
+              onRestart={() => setPendingRestart(activeSession)}
             />
           )}
         </main>
@@ -599,6 +602,18 @@ function DesktopInner() {
           setPendingKill(null);
         }}
         onCancel={() => setPendingKill(null)}
+      />
+
+      <AlertSheet
+        isOpen={!!pendingRestart}
+        title="Restart shell?"
+        message={`This relaunches the "${pendingRestart?.name}" agent process and clears the terminal. Files on disk and git history are not touched.`}
+        confirmLabel="Restart"
+        onConfirm={() => {
+          if (pendingRestart) api.restartSession(pendingRestart.id).catch(console.error);
+          setPendingRestart(null);
+        }}
+        onCancel={() => setPendingRestart(null)}
       />
 
       <AlertSheet
