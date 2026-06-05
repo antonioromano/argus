@@ -7,6 +7,8 @@ interface MobileSettingsProps {
   publicUrl: string | null;
   notify: boolean;
   onSetNotify: (v: boolean) => void;
+  notifyDone: boolean;
+  onSetNotifyDone: (v: boolean) => void;
 }
 
 const KEYBOARD_OPTIONS: { id: KeyboardMode; title: string; desc: string }[] = [
@@ -29,7 +31,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string }[] = [
 ];
 
 /** Full settings tab. Home for all mobile settings. */
-export function MobileSettings({ publicUrl, notify, onSetNotify }: MobileSettingsProps) {
+export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onSetNotifyDone }: MobileSettingsProps) {
   const [mode, setMode] = useKeyboardMode();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
   const notifySupported = typeof Notification !== 'undefined';
@@ -99,6 +101,19 @@ export function MobileSettings({ publicUrl, notify, onSetNotify }: MobileSetting
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → waiting transition while this tab is in the background.</span>
                 </span>
                 <Switch on={notify} />
+              </button>
+            </div>
+            <div style={{ padding: '0 var(--s-3) var(--s-2)' }}>
+              <button
+                onClick={() => onSetNotifyDone(!notifyDone)}
+                style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
+              >
+                <Bell size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
+                  <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → done transition while this tab is in the background.</span>
+                </span>
+                <Switch on={notifyDone} />
               </button>
             </div>
           </>

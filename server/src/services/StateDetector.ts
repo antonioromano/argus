@@ -108,6 +108,9 @@ const DEBOUNCE_MS = 300;
 const ACTIVITY_WINDOW_MS = 150;
 const ACTIVITY_MIN_FEEDS = 3;
 const SCAN_ROWS = 15;                 // rows from the bottom of the visible window to scan
+const EXTRACT_SCAN_ROWS = 25;         // deeper window for notification-body extraction only —
+                                      // tall AskUserQuestion menus push the question line above
+                                      // the 15-row state-detection window
 const CURSOR_ESC_WINDOW_MS = 1500;    // how long a recent cursor-style change counts as a hint
 const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIGWINCH redraw window
 
@@ -122,6 +125,9 @@ const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIG
 export class StateDetector {
   private term: XTerminal;
   private onStatusChange: (status: SessionStatus) => void;
+  private onPromptUpdate: ((text: string) => void) | null = null;
+  /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
+  private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
   private currentStatus: SessionStatus = 'running';
   private pendingStatus: SessionStatus | null = null;
@@ -158,6 +164,18 @@ export class StateDetector {
       this.lastCursorStyleAt = Date.now();
       return false; // fall through to default handling
     });
+  }
+
+  /**
+   * Called when the session is already 'waiting' and a later repaint reveals
+   * (or changes) the agent's question. Lets the owner refresh `lastPrompt`
+   * after the one-shot extraction at the waiting transition missed — e.g. a
+   * DECSCUSR cursor hint flips status to waiting before the menu is painted.
+   * Never fires with undefined: transient blank repaints must not blank a
+   * previously-extracted prompt.
+   */
+  setOnPromptUpdate(cb: (text: string) => void): void {
+    this.onPromptUpdate = cb;
   }
 
   resize(cols: number, rows: number): void {
@@ -229,6 +247,15 @@ export class StateDetector {
 
     if (hasPrompt || recentCursorStyle) {
       this.scheduleStatus('waiting');
+      // Already stably waiting (no transition pending → onStatusChange won't
+      // refire): re-extract so a late-painted menu still reaches notifications.
+      if (this.currentStatus === 'waiting' && this.pendingStatus === null) {
+        const text = this.getLastPromptText();
+        if (text !== undefined && text !== this.lastReportedPrompt) {
+          this.lastReportedPrompt = text;
+          this.onPromptUpdate?.(text);
+        }
+      }
     } else {
       this.scheduleStatus('idle');
     }
@@ -242,8 +269,8 @@ export class StateDetector {
     }
   }
 
-  /** Collect the last SCAN_ROWS content rows as text. */
-  private visibleRows(): string[] {
+  /** Collect the last `depth` content rows as text. */
+  private visibleRows(depth: number = SCAN_ROWS): string[] {
     const buf = this.term.buffer.active;
     const rows = this.term.rows;
     // Anchor the window to the last non-empty row, not the viewport bottom —
@@ -256,7 +283,7 @@ export class StateDetector {
       if (line && line.trim()) break;
       end--;
     }
-    const start = Math.max(0, end + 1 - SCAN_ROWS);
+    const start = Math.max(0, end + 1 - depth);
     const lines: string[] = [];
     for (let y = start; y <= end; y++) {
       const line = buf.getLine(buf.viewportY + y)?.translateToString(true);
@@ -289,6 +316,11 @@ export class StateDetector {
       this.debounceTimer = null;
       if (this.pendingStatus !== null && this.pendingStatus !== this.currentStatus) {
         this.currentStatus = this.pendingStatus;
+        // Keep the prompt-update baseline in sync with what the owner reads
+        // via getLastPromptText() in its transition handler — onPromptUpdate
+        // should only fire for text that appears AFTER the transition.
+        this.lastReportedPrompt =
+          this.currentStatus === 'waiting' ? this.getLastPromptText() : undefined;
         this.onStatusChange(this.currentStatus);
       }
       this.pendingStatus = null;
@@ -307,7 +339,10 @@ export class StateDetector {
    */
   getLastPromptText(): string | undefined {
     if (this.destroyed) return undefined;
-    const rows = this.visibleRows();
+    // Deeper window than state detection: tall AskUserQuestion menus (long
+    // option descriptions, multi-tab header) put the question >15 rows above
+    // the footer.
+    const rows = this.visibleRows(EXTRACT_SCAN_ROWS);
 
     // Find the bottom-most row that matches a prompt pattern — that's the input box.
     let promptIdx = -1;

@@ -4,7 +4,7 @@ import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { useGroups } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
-import { useNotificationPref } from '../../hooks/useNotificationPref.js';
+import { useNotificationPref, useDoneNotificationPref } from '../../hooks/useNotificationPref.js';
 import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
 import { api, setToken } from '../../services/api.js';
 import { reconnectSocket } from '../../hooks/useSocket.js';
@@ -74,21 +74,35 @@ function Inner() {
   const [killTarget, setKillTarget] = useState<SessionInfo | null>(null);
   const [killBusy, setKillBusy] = useState(false);
   const [notify, setNotifyPref] = useNotificationPref();
+  const [notifyDone, setNotifyDonePref] = useDoneNotificationPref();
 
-  useWaitingNotifications(sessions, notify);
+  useWaitingNotifications(sessions, notify, notifyDone);
 
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
+
+  // Acknowledge 'done' when the session is open on this phone.
+  useEffect(() => {
+    if (focused?.status === 'done') {
+      socket.emit('session:seen', focused.id);
+    }
+  }, [focused, socket]);
   const publicUrl = ngrokStatus?.tunnelStatus === 'connected' ? ngrokStatus.publicUrl ?? null : null;
 
   // Enabling requires a permission grant (must run from the toggle's user gesture).
+  const ensurePermission = async (): Promise<boolean> => {
+    if (typeof Notification === 'undefined') return true;
+    const p = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+    return p === 'granted';
+  };
   const setNotify = async (v: boolean) => {
-    if (v && typeof Notification !== 'undefined') {
-      const p = Notification.permission === 'granted'
-        ? 'granted'
-        : await Notification.requestPermission();
-      if (p !== 'granted') return;
-    }
+    if (v && !(await ensurePermission())) return;
     setNotifyPref(v);
+  };
+  const setNotifyDone = async (v: boolean) => {
+    if (v && !(await ensurePermission())) return;
+    setNotifyDonePref(v);
   };
 
   const handleRestart = (id: string) => { api.restartSession(id).catch(console.error); };
@@ -137,7 +151,7 @@ function Inner() {
                 onCreate={() => setShowCreate(true)}
               />
             )}
-            {tab === 'settings' && <MobileSettings publicUrl={publicUrl} notify={notify} onSetNotify={setNotify} />}
+            {tab === 'settings' && <MobileSettings publicUrl={publicUrl} notify={notify} onSetNotify={setNotify} notifyDone={notifyDone} onSetNotifyDone={setNotifyDone} />}
           </div>
           <BottomNav active={tab} onChange={setTab} onCreate={() => setShowCreate(true)} />
         </div>

@@ -29,6 +29,7 @@ export interface SessionCounts {
   waiting: number;
   running: number;
   idle: number;
+  done: number;
   exited: number;
   dirty: number;
 }
@@ -39,6 +40,7 @@ export function deriveCounts(sessions: SessionInfo[]): SessionCounts {
     waiting: sessions.filter((s) => s.status === 'waiting').length,
     running: sessions.filter((s) => s.status === 'running').length,
     idle: sessions.filter((s) => s.status === 'idle').length,
+    done: sessions.filter((s) => s.status === 'done').length,
     exited: sessions.filter((s) => s.status === 'exited').length,
     dirty: sessions.filter((s) => !!s.hasGitChanges).length,
   };

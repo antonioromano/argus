@@ -42,7 +42,7 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone } = req.body;
 
     if (agentFlags) {
       const validationError = validateAgentFlags(agentFlags);
@@ -65,6 +65,8 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
       customAgents: customAgents ?? current.customAgents,
       agentFlags: agentFlags ?? current.agentFlags,
       notificationsEnabled: notificationsEnabled ?? current.notificationsEnabled,
+      notifyOnWaiting: notifyOnWaiting ?? current.notifyOnWaiting,
+      notifyOnDone: notifyOnDone ?? current.notifyOnDone,
     };
     await configStore.save(updated);
     res.json(updated);

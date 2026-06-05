@@ -20,13 +20,17 @@ type StatusFilter = 'all' | SessionStatus;
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'waiting', label: 'Waiting' },
+  { id: 'done', label: 'Done' },
   { id: 'running', label: 'Running' },
   { id: 'idle', label: 'Idle' },
 ];
 
+const STATUS_RANK: Partial<Record<SessionStatus, number>> = { waiting: 0, done: 1 };
+
 function byStatus(a: SessionInfo, b: SessionInfo): number {
-  if (a.status === 'waiting' && b.status !== 'waiting') return -1;
-  if (b.status === 'waiting' && a.status !== 'waiting') return 1;
+  const ra = STATUS_RANK[a.status] ?? 2;
+  const rb = STATUS_RANK[b.status] ?? 2;
+  if (ra !== rb) return ra - rb;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
@@ -171,7 +175,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onC
 
   const counts: Record<StatusFilter, number> = {
     all: sessions.length,
-    waiting: 0, running: 0, idle: 0, exited: 0,
+    waiting: 0, running: 0, idle: 0, done: 0, exited: 0,
   };
   for (const s of sessions) counts[s.status] += 1;
   const waiting = sessions.filter((s) => s.status === 'waiting');

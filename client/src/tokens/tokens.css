@@ -43,6 +43,8 @@
   --status-running-bg: rgba(125, 211, 252, 0.10);
   --status-idle: #5b606b;             /* graphite, recedes */
   --status-idle-bg: rgba(91, 96, 107, 0.10);
+  --status-done: #7CFFB2;             /* mint green — finished, unseen */
+  --status-done-bg: rgba(124, 255, 178, 0.10);
   --status-exited: #6b4e3a;           /* burnt amber, dim */
   --status-exited-bg: rgba(107, 78, 58, 0.10);
 
@@ -113,6 +115,8 @@
   --status-running-bg: rgba(22, 104, 179, 0.10);
   --status-idle: #6a6258;
   --status-idle-bg: rgba(106, 98, 88, 0.10);
+  --status-done: #0E7F4D;
+  --status-done-bg: rgba(14, 127, 77, 0.10);
   --status-exited: #6a4928;
   --status-exited-bg: rgba(106, 73, 40, 0.10);
 

@@ -20,6 +20,7 @@ function defaultLastOut(s: SessionInfo): string {
   if (s.status === 'waiting') return 'Awaiting input…';
   if (s.status === 'running') return 'Agent thinking…';
   if (s.status === 'idle') return 'Idle';
+  if (s.status === 'done') return 'Run finished';
   return '[process exited]';
 }
 
@@ -166,7 +167,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         >
           {s.status === 'waiting' && <span style={{ color: 'var(--fg-3)' }}>› </span>}
           {preview}
-          {(s.status === 'waiting' || s.status === 'idle') && (
+          {(s.status === 'waiting' || s.status === 'idle' || s.status === 'done') && (
             <span style={{ animation: 'argus-blink 1s steps(1) infinite' }}>▌</span>
           )}
         </div>

@@ -39,6 +39,12 @@ interface ManagedSession {
   tmuxName?: string;
   /** True when the agent runs inside tmux and survives an app quit. */
   persistent: boolean;
+  /**
+   * Set on tmux reattach: the repaint burst can read as running→idle, which
+   * would falsely promote every restored session to 'done'. Swallows exactly
+   * the first settle after attach, then clears.
+   */
+  suppressDonePromotion?: boolean;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
@@ -169,18 +175,8 @@ export class SessionManager {
     const sessionName = name || path.basename(effectiveFolderPath);
     const createdAt = existingCreatedAt ?? new Date().toISOString();
 
-    const stateDetector = new StateDetector((status) => {
-      const session = this.sessions.get(id);
-      if (session) {
-        session.status = status;
-        if (status === 'waiting') {
-          session.lastPrompt = session.stateDetector.getLastPromptText();
-        } else {
-          session.lastPrompt = undefined;
-        }
-        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
-      }
-    }, resolvedAgentType);
+    const stateDetector = new StateDetector((status) => this.applyDetectedStatus(id, status), resolvedAgentType);
+    stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
 
     const resolvedFlags = flags || [];
 
@@ -211,6 +207,7 @@ export class SessionManager {
       worktreeBranch,
       tmuxName,
       persistent,
+      suppressDonePromotion: attachExisting,
     };
 
     ptyProcess.onData((data) => {
@@ -272,6 +269,7 @@ export class SessionManager {
     // Reset state
     session.outputBuffer = '';
     session.status = 'running';
+    session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
 
     // Resolve agent command
     const config = await this.configStore.load();
@@ -279,18 +277,8 @@ export class SessionManager {
     const command = agentDef?.command ?? session.agentType;
 
     // New state detector wired to same id
-    const stateDetector = new StateDetector((status) => {
-      const s = this.sessions.get(id);
-      if (s) {
-        s.status = status;
-        if (status === 'waiting') {
-          s.lastPrompt = s.stateDetector.getLastPromptText();
-        } else {
-          s.lastPrompt = undefined;
-        }
-        this.io?.to(id).emit('session:status', { sessionId: id, status, lastPrompt: s.lastPrompt });
-      }
-    }, session.agentType);
+    const stateDetector = new StateDetector((status) => this.applyDetectedStatus(id, status), session.agentType);
+    stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
 
     // Spawn fresh pty with the same flags as the original session
     const ptyProcess = session.persistent && session.tmuxName
@@ -320,8 +308,60 @@ export class SessionManager {
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
 
-    this.io?.to(id).emit('session:status', { sessionId: id, status: 'running' });
+    this.io?.emit('session:status', { sessionId: id, status: 'running' });
     return this.toSessionInfo(session);
+  }
+
+  /**
+   * Apply a status reported by a session's StateDetector. Promotes a settle to
+   * 'done' (finished run, unacknowledged) when the session was 'running' —
+   * never for reattached sessions' first settle (repaint burst, see
+   * suppressDonePromotion). Broadcast is global so dashboards on every client
+   * (desktop + mobile) stay in sync, not just sockets joined to the room.
+   */
+  private applyDetectedStatus(id: string, detected: SessionStatus): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+
+    let status = detected;
+    if (detected === 'idle' || detected === 'waiting') {
+      if (session.suppressDonePromotion) {
+        session.suppressDonePromotion = false; // first settle after attach consumed
+      } else if (detected === 'idle' && session.status === 'running') {
+        status = 'done';
+      }
+    }
+
+    session.status = status;
+    if (status === 'waiting') {
+      session.lastPrompt = session.stateDetector.getLastPromptText();
+    } else {
+      session.lastPrompt = undefined;
+    }
+    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
+  }
+
+  /**
+   * A repaint while already 'waiting' revealed (or changed) the agent's
+   * question — the one-shot extraction at the waiting transition can miss it
+   * when status flipped before the menu was painted (e.g. cursor-style hint).
+   * Re-emit the unchanged status with the fresher prompt so notifications can
+   * upgrade their fallback body.
+   */
+  private applyPromptUpdate(id: string, text: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status !== 'waiting') return;
+    if (session.lastPrompt === text) return;
+    session.lastPrompt = text;
+    this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
+  }
+
+  /** Client opened/focused the session: clear the unacknowledged-done flag. */
+  acknowledgeSession(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status !== 'done') return;
+    session.status = 'idle';
+    this.io?.emit('session:status', { sessionId: id, status: 'idle' });
   }
 
   getSession(id: string): ManagedSession | undefined {

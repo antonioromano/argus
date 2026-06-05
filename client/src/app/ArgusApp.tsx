@@ -179,9 +179,28 @@ function DesktopInner() {
   useNotifications({
     sessions,
     enabled: config?.notificationsEnabled ?? true,
+    notifyOnWaiting: config?.notifyOnWaiting ?? true,
+    notifyOnDone: config?.notifyOnDone ?? false,
     onFocusSession: app.openSession,
     onSwitchToSessionsTab: () => {},
   });
+
+  // Acknowledge 'done' when the session is open in focus view with the window
+  // focused: covers opening a green session, a focused session finishing while
+  // watched (skip green entirely), and refocusing the window onto a session
+  // that finished while the app was in the background.
+  useEffect(() => {
+    const ack = () => {
+      if (app.view !== 'focus' || !app.activeSessionId) return;
+      const active = sessions.find((s) => s.id === app.activeSessionId);
+      if (active?.status === 'done' && document.hasFocus()) {
+        socket.emit('session:seen', active.id);
+      }
+    };
+    ack();
+    window.addEventListener('focus', ack);
+    return () => window.removeEventListener('focus', ack);
+  }, [app.view, app.activeSessionId, sessions, socket]);
 
   // Tab title with waiting count
   useEffect(() => {
@@ -189,10 +208,10 @@ function DesktopInner() {
     document.title = waiting > 0 ? `(${waiting}) Argus` : 'Argus';
   }, [counts.waiting]);
 
-  // Favicon flip based on idle availability
+  // Favicon flip: green while a finished run awaits acknowledgement
   useEffect(() => {
-    const hasIdle = sessions.some((s) => s.status === 'idle');
-    const href = hasIdle ? '/favicon-green.svg' : '/favicon-orange.svg';
+    const hasDone = sessions.some((s) => s.status === 'done');
+    const href = hasDone ? '/favicon-green.svg' : '/favicon-orange.svg';
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (!link) {
       link = document.createElement('link');

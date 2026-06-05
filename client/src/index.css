@@ -387,6 +387,7 @@ body {
 .argus-status[data-status="waiting"] { --st-color: var(--status-waiting); --st-bg: var(--status-waiting-bg); }
 .argus-status[data-status="running"] { --st-color: var(--status-running); --st-bg: var(--status-running-bg); }
 .argus-status[data-status="idle"]    { --st-color: var(--status-idle);    --st-bg: var(--status-idle-bg); }
+.argus-status[data-status="done"]    { --st-color: var(--status-done);    --st-bg: var(--status-done-bg); }
 .argus-status[data-status="exited"]  { --st-color: var(--status-exited);  --st-bg: var(--status-exited-bg); }
 
 .argus-pill {

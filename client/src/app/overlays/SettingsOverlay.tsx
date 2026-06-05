@@ -512,10 +512,22 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 <Toggle
                   checked={config.notificationsEnabled}
                   onChange={handleNotifToggle}
-                  label="Native desktop notifications when a shell enters waiting"
+                  label="Native desktop notifications"
                 />
                 {config.notificationsEnabled && (
                   <>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)', margin: 'var(--s-3) 0 0', paddingLeft: 'var(--s-4)', borderLeft: '2px solid var(--line-2)' }}>
+                      <Toggle
+                        checked={config.notifyOnWaiting ?? true}
+                        onChange={(v) => { void onSave({ notifyOnWaiting: v }); }}
+                        label="When a shell needs your input"
+                      />
+                      <Toggle
+                        checked={config.notifyOnDone ?? false}
+                        onChange={(v) => { void onSave({ notifyOnDone: v }); }}
+                        label="When a shell finishes a run"
+                      />
+                    </div>
                     <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
                       Notifications only fire while Argus is in the background. Delivery is
                       controlled by macOS — toggle Argus on under System Settings → Notifications.

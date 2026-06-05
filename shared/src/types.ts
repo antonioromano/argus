@@ -1,4 +1,4 @@
-export type SessionStatus = 'waiting' | 'running' | 'idle' | 'exited';
+export type SessionStatus = 'waiting' | 'running' | 'idle' | 'done' | 'exited';
 
 export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
 export type AgentType = BuiltinAgentId | string;
@@ -23,6 +23,8 @@ export interface AppConfig {
   customAgents: AgentDefinition[];
   agentFlags: Record<string, AgentFlag[]>;  // keyed by agent ID
   notificationsEnabled: boolean;
+  notifyOnWaiting: boolean;  // notify when a session needs user input
+  notifyOnDone: boolean;     // notify when a session finishes a run
 }
 
 export interface AgentStatus {
@@ -97,6 +99,7 @@ export interface ClientToServerEvents {
   'session:input': (payload: { sessionId: string; data: string }) => void;
   'session:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;
   'session:clear-buffer': (sessionId: string) => void;
+  'session:seen': (sessionId: string) => void;
   // Ephemeral terminals (Explorer view only — not persisted, not in session list)
   'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
   'ephemeral:input': (payload: { id: string; data: string }) => void;

@@ -7,6 +7,8 @@ const DEFAULT_CONFIG: AppConfig = {
   customAgents: [],
   agentFlags: {},
   notificationsEnabled: false,
+  notifyOnWaiting: true,
+  notifyOnDone: false,
 };
 
 export class ConfigStore {

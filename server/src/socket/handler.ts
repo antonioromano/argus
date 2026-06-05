@@ -236,6 +236,12 @@ export function setupSocketHandler(
       manager.clearBuffer(sessionId);
     });
 
+    // Client opened/focused a session — clear an unacknowledged 'done' status.
+    socket.on('session:seen', (sessionId: string) => {
+      if (!manager.getSession(sessionId)) return;
+      manager.acknowledgeSession(sessionId);
+    });
+
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
       // Clean up dimensions for all sessions and companion terminals this socket was part of

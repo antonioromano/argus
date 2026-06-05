@@ -162,3 +162,91 @@ test('getLastPromptText returns undefined when only a path sits above the box', 
   assert.equal(det.getLastPromptText(), undefined);
   det.destroy();
 });
+
+test('getLastPromptText extracts the question from a multi-tab AskUserQuestion menu', async () => {
+  // Real screen from 2026-06-05: tabbed AskUserQuestion with long option
+  // descriptions — the question sits ~13 rows above the footer.
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(
+    [
+      'Planning: /Users/macbookpro10/.claude/plans/i-want-to-work-reactive-parnas.md',
+      '',
+      '←  ☐ Approach  ☐ Auto-ack  ✓ Submit  →',
+      '',
+      'Which shape for the done status?',
+      '',
+      "❯ 1. A: new 'done' status (Recommended)",
+      "     Add 'done' as 5th SessionStatus value. running → settled → done (green). Focus session → server",
+      '     flips to idle. One key added to existing status maps, all UI components pick it up.',
+      '  2. B: unseen flag beside status',
+      '     Keep 4 statuses, add unseenDone boolean to SessionInfo. More touch points in UI, but StateDetector',
+      '     stays purely screen-derived and flag extends to other statuses later.',
+      '  3. Type something.',
+      '',
+      '  4. Chat about this',
+      '',
+      'Enter to select · Tab/Arrow keys to navigate · Esc to cancel',
+    ].join('\r\n'),
+  );
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Which shape for the done status?');
+  det.destroy();
+});
+
+test('getLastPromptText reaches a question more than 15 rows above the footer', async () => {
+  // Extraction uses a deeper window (25 rows) than state detection (15) —
+  // tall menus with wrapped descriptions push the question out of the
+  // 15-row window.
+  const filler = (n: number) =>
+    Array.from({ length: n }, (_, i) => `     details about this option, line ${i + 1}`);
+  const det = new StateDetector(() => {}, 'claude');
+  det.feed(
+    [
+      'Which approach should we take?',
+      '',
+      '❯ 1. Option A',
+      ...filler(3),
+      '  2. Option B',
+      ...filler(3),
+      '  3. Option C',
+      ...filler(3),
+      '  4. Option D',
+      ...filler(3),
+      '',
+      'Enter to select · Esc to cancel',
+    ].join('\r\n'),
+  );
+  await settle();
+  assert.equal(det.getLastPromptText(), 'Which approach should we take?');
+  det.destroy();
+});
+
+test('onPromptUpdate fires when the menu paints after a cursor-hint waiting transition', async () => {
+  // DECSCUSR can flip status to waiting BEFORE the menu is painted; the
+  // one-shot extraction at the transition then returns undefined. A later
+  // repaint must surface the question via onPromptUpdate — and a transient
+  // blank repaint must never downgrade it back to undefined.
+  let status: string | null = null;
+  const updates: string[] = [];
+  const det = new StateDetector((s) => { status = s; }, 'claude');
+  det.setOnPromptUpdate((text) => updates.push(text));
+
+  // 1. Cursor-style hint only — waiting with nothing extractable on screen.
+  det.feed('\x1b[5 q');
+  await settle();
+  assert.equal(status, 'waiting');
+  assert.equal(det.getLastPromptText(), undefined);
+  assert.deepEqual(updates, []);
+
+  // 2. Menu paints while already waiting — update fires with the question.
+  det.feed('Which file should I edit?\r\n│ > ');
+  await settle();
+  assert.deepEqual(updates, ['Which file should I edit?']);
+
+  // 3. Transient blank repaint (clear + cursor hint keeps waiting) — no
+  //    undefined downgrade, no duplicate update.
+  det.feed('\x1b[2J\x1b[H\x1b[5 q');
+  await settle();
+  assert.deepEqual(updates, ['Which file should I edit?']);
+  det.destroy();
+});
