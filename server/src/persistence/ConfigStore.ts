@@ -9,6 +9,7 @@ const DEFAULT_CONFIG: AppConfig = {
   notificationsEnabled: false,
   notifyOnWaiting: true,
   notifyOnDone: false,
+  notificationSound: false,
 };
 
 export class ConfigStore {

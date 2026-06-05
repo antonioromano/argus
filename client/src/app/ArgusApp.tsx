@@ -181,6 +181,7 @@ function DesktopInner() {
     enabled: config?.notificationsEnabled ?? true,
     notifyOnWaiting: config?.notifyOnWaiting ?? true,
     notifyOnDone: config?.notifyOnDone ?? false,
+    notificationSound: config?.notificationSound ?? false,
     onFocusSession: app.openSession,
     onSwitchToSessionsTab: () => {},
   });

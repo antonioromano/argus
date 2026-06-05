@@ -527,6 +527,11 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                         onChange={(v) => { void onSave({ notifyOnDone: v }); }}
                         label="When a shell finishes a run"
                       />
+                      <Toggle
+                        checked={config.notificationSound ?? false}
+                        onChange={(v) => { void onSave({ notificationSound: v }); }}
+                        label="Play a sound"
+                      />
                     </div>
                     <p style={{ margin: 'var(--s-3) 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
                       Notifications only fire while Argus is in the background. Delivery is

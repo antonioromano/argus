@@ -25,6 +25,7 @@ export interface AppConfig {
   notificationsEnabled: boolean;
   notifyOnWaiting: boolean;  // notify when a session needs user input
   notifyOnDone: boolean;     // notify when a session finishes a run
+  notificationSound: boolean; // play the default system sound with each notification
 }
 
 export interface AgentStatus {

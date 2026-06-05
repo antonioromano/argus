@@ -8,7 +8,7 @@ import type { SessionInfo } from '@argus/shared';
  * phone browser). Best-effort: silently no-ops where the API or permission is
  * unavailable.
  */
-export function useWaitingNotifications(sessions: SessionInfo[], enabled: boolean, notifyDone = false) {
+export function useWaitingNotifications(sessions: SessionInfo[], enabled: boolean, notifyDone = false, notificationSound = false) {
   const prev = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -22,12 +22,12 @@ export function useWaitingNotifications(sessions: SessionInfo[], enabled: boolea
       if (canNotify && s.status === 'waiting' && was !== 'waiting' && was !== undefined && document.hidden) {
         const folder = s.folderPath.split('/').filter(Boolean).pop() || s.folderPath;
         try {
-          new Notification(s.name, { body: s.lastPrompt || folder, tag: s.id });
+          new Notification(s.name, { body: s.lastPrompt || folder, tag: s.id, silent: !notificationSound });
         } catch { /* ignore */ }
       }
       if (canNotifyDone && s.status === 'done' && was !== 'done' && was !== undefined && document.hidden) {
         try {
-          new Notification(s.name, { body: `${s.name} finished`, tag: s.id });
+          new Notification(s.name, { body: `${s.name} finished`, tag: s.id, silent: !notificationSound });
         } catch { /* ignore */ }
       }
       prev.current.set(s.id, s.status);
@@ -36,5 +36,5 @@ export function useWaitingNotifications(sessions: SessionInfo[], enabled: boolea
     // Forget removed sessions.
     const live = new Set(sessions.map((s) => s.id));
     for (const id of prev.current.keys()) if (!live.has(id)) prev.current.delete(id);
-  }, [sessions, enabled, notifyDone]);
+  }, [sessions, enabled, notifyDone, notificationSound]);
 }

@@ -287,7 +287,7 @@ async function main() {
   };
   const terminalNotifierPath = resolveTerminalNotifier();
 
-  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
+  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string; sound?: boolean }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
     if (app.isPackaged) {
@@ -302,6 +302,7 @@ async function main() {
           // terminal-notifier can't round-trip the notif:click IPC.)
           '-activate', 'com.antonio.argus',
         ];
+        if (payload.sound) args.push('-sound', 'default');
         execFile(terminalNotifierPath, args, (err) => {
           if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
           else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
@@ -315,7 +316,9 @@ async function main() {
         'osascript',
         [
           '-e', 'on run argv',
-          '-e', 'display notification (item 1 of argv) with title (item 2 of argv)',
+          '-e', payload.sound
+            ? 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Ping"'
+            : 'display notification (item 1 of argv) with title (item 2 of argv)',
           '-e', 'end run',
           '--', payload.body, payload.title,
         ],
@@ -341,7 +344,7 @@ async function main() {
       title: payload.title,
       body: payload.body,
       icon: notifIcon,
-      silent: false,
+      silent: !payload.sound,
     });
     notif.on('click', () => {
       showWindow();
