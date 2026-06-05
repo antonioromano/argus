@@ -551,41 +551,42 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                     <Toggle checked={config.notificationSound ?? false} onChange={(v) => { void onSave({ notificationSound: v }); }} />
                   </div>
 
-                  <div style={{ height: 1, background: 'var(--line-2)' }} />
+                </div>
 
-                  {/* Footer */}
-                  <div style={{ padding: 'var(--s-3) var(--s-4) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
-                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
-                      Notifications fire only while Argus is in the background. Managed in macOS System Settings → Notifications.
+                <div style={{ height: 1, background: 'var(--line-2)' }} />
+
+                {/* Footer — always interactive regardless of master toggle */}
+                <div style={{ padding: 'var(--s-3) var(--s-4) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
+                    Notifications fire only while Argus is in the background. Managed in macOS System Settings → Notifications.
+                  </p>
+                  {notifBridgeAvailable ? (
+                    <button
+                      type="button"
+                      onClick={handleTestNotif}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 'var(--s-2)',
+                        cursor: 'pointer',
+                        padding: '8px 14px',
+                        borderRadius: 'var(--r-2)',
+                        fontSize: 'var(--t-sm)',
+                        fontWeight: 500,
+                        fontFamily: 'inherit',
+                        background: 'var(--accent-bg)',
+                        border: '1px solid var(--accent-edge)',
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      <Bell size={13} strokeWidth={1.6} />
+                      Send test notification
+                    </button>
+                  ) : (
+                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+                      This surface can't show desktop notifications.
                     </p>
-                    {notifBridgeAvailable ? (
-                      <button
-                        type="button"
-                        onClick={handleTestNotif}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 'var(--s-2)',
-                          cursor: 'pointer',
-                          padding: '8px 14px',
-                          borderRadius: 'var(--r-2)',
-                          fontSize: 'var(--t-sm)',
-                          fontWeight: 500,
-                          fontFamily: 'inherit',
-                          background: 'var(--accent-bg)',
-                          border: '1px solid var(--accent-edge)',
-                          color: 'var(--accent)',
-                        }}
-                      >
-                        <Bell size={13} strokeWidth={1.6} />
-                        Send test notification
-                      </button>
-                    ) : (
-                      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
-                        This surface can't show desktop notifications.
-                      </p>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
