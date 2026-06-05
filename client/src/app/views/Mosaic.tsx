@@ -1,15 +1,32 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, Plus, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { MinimizedChip } from '../ui/MinimizedChip.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusPill, StatusDot, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from '@dnd-kit/core';
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  rectSortingStrategy,
+  arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -52,26 +69,52 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // keyboard focus on mount. Cleared once the xterm reports focus.
   const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
 
-  // Native HTML5 drag-to-reorder of tiles by their header. Operates on the full `sessions`
-  // list (by id) so reorders stay correct even while filtered/grouped/sliced.
-  const dragId = useRef<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const handleDragStart = (id: string) => { dragId.current = id; };
-  const handleDragEnd = () => { dragId.current = null; setDropTargetId(null); };
-  const handleDragOverTile = (id: string) => {
-    if (dragId.current && dragId.current !== id) setDropTargetId(id);
+  // @dnd-kit active ids — one per container
+  const [activeTileId, setActiveTileId] = useState<string | null>(null);
+  const [activeChipId, setActiveChipId] = useState<string | null>(null);
+
+  // @dnd-kit sensors for tiles
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleTileDragStart = (event: DragStartEvent) => {
+    setActiveTileId(event.active.id as string);
   };
-  const handleDropTile = (targetId: string) => {
-    const src = dragId.current;
-    dragId.current = null;
-    setDropTargetId(null);
-    if (!src || src === targetId) return;
+
+  const handleTileDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      setActiveTileId(null);
+      return;
+    }
     const ids = sessions.map((s) => s.id);
-    const from = ids.indexOf(src);
-    if (from === -1 || ids.indexOf(targetId) === -1) return;
-    ids.splice(from, 1);
-    ids.splice(ids.indexOf(targetId), 0, src);
-    onReorder(ids);
+    const oldIdx = ids.indexOf(active.id as string);
+    const newIdx = ids.indexOf(over.id as string);
+    onReorder(arrayMove(ids, oldIdx, newIdx));
+    setActiveTileId(null);
+  };
+
+  const handleChipDragStart = (event: DragStartEvent) => {
+    setActiveChipId(event.active.id as string);
+  };
+
+  const handleChipDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) { setActiveChipId(null); return; }
+    // Recompute minimized IDs at event time to avoid stale closure
+    const allTiles = filterSessions(sessions, filter).slice(0, MAX_TILES);
+    const minIds = allTiles.filter((s) => isMinimized(s.id, groupFilterIds, activeGroupId)).map((s) => s.id);
+    const oldIdx = minIds.indexOf(active.id as string);
+    const newIdx = minIds.indexOf(over.id as string);
+    if (oldIdx === -1 || newIdx === -1) { setActiveChipId(null); return; }
+    const newMinIds = arrayMove(minIds, oldIdx, newIdx);
+    // Rebuild full order: keep tile positions, reorder chips among themselves
+    let chipIdx = 0;
+    const newIds = sessions.map((s) => minIds.includes(s.id) ? newMinIds[chipIdx++] : s.id);
+    onReorder(newIds);
+    setActiveChipId(null);
   };
 
   useEffect(() => {
@@ -120,66 +163,87 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const overflow = filtered.length > MAX_TILES;
   const minTiles = tiles.filter((s) => isMinimized(s.id, groupFilterIds, activeGroupId));
   const activeTiles = tiles.filter((s) => !isMinimized(s.id, groupFilterIds, activeGroupId));
+  const activeTileIds = activeTiles.map((s) => s.id);
+  const minTileIds = minTiles.map((s) => s.id);
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
     ? focusedId
     : null;
 
+  const draggingSession = activeTileId ? sessions.find((s) => s.id === activeTileId) ?? null : null;
+  const draggingChip = activeChipId ? sessions.find((s) => s.id === activeChipId) ?? null : null;
+
   return (
     <div className="grid-bg" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: overflow ? 'auto' : 'hidden' }}>
       {minTiles.length > 0 && (
-        <div className="argus-mosaic-minrow">
-          {minTiles.map((s) => (
-            <MinimizedChip
-              key={s.id}
-              session={s}
-              onClick={() => {
-                if (groupFilterIds) restoreFromFilter(s.id, currentGroup);
-                else toggleMinimize(s.id);
-                setRestoreFocusId(s.id);
-              }}
-              onDragStart={() => handleDragStart(s.id)}
-              onDragOver={() => handleDragOverTile(s.id)}
-              onDrop={() => handleDropTile(s.id)}
-              onDragEnd={handleDragEnd}
-              isDropTarget={dropTargetId === s.id}
-            />
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleChipDragStart}
+          onDragEnd={handleChipDragEnd}
+        >
+          <SortableContext items={minTileIds} strategy={rectSortingStrategy}>
+            <div className="argus-mosaic-minrow">
+              {minTiles.map((s) => (
+                <SortableChip
+                  key={s.id}
+                  session={s}
+                  onClick={() => {
+                    if (groupFilterIds) restoreFromFilter(s.id, currentGroup);
+                    else toggleMinimize(s.id);
+                    setRestoreFocusId(s.id);
+                  }}
+                />
+              ))}
+            </div>
+          </SortableContext>
+          <DragOverlay>
+            {draggingChip ? <ChipDragPreview session={draggingChip} /> : null}
+          </DragOverlay>
+        </DndContext>
       )}
       {activeTiles.length > 0 && (
-        <div className="argus-mosaic">
-          {activeTiles.map((s, i) => (
-            <MosaicTile
-              key={s.id}
-              idx={i}
-              session={s}
-              onDragStartTile={() => handleDragStart(s.id)}
-              onDragOverTile={() => handleDragOverTile(s.id)}
-              onDropTile={() => handleDropTile(s.id)}
-              onDragEndTile={handleDragEnd}
-              isDropTarget={dropTargetId === s.id}
-              socket={socket}
-              theme={theme}
-              groupColor={groupColorOf?.(s.id) ?? null}
-              isFocused={activeFocusedId === s.id}
-              windowFocused={windowFocused}
-              onXtermFocus={() => { setFocusedId(s.id); setRestoreFocusId(null); }}
-              onXtermBlur={() => setFocusedId(null)}
-              autoFocus={restoreFocusId === s.id}
-              onToggleMinimize={() => toggleMinimize(s.id)}
-              onOpen={() => onOpenSession(s.id)}
-              onKill={() => onKill(s)}
-              onRestart={() => onRestart(s)}
-              onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
-              onClone={onClone ? () => onClone(s) : undefined}
-              onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
-              onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
-              onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
-              onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
-            />
-          ))}
-        </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleTileDragStart}
+          onDragEnd={handleTileDragEnd}
+        >
+          <SortableContext items={activeTileIds} strategy={rectSortingStrategy}>
+            <div className="argus-mosaic">
+              {activeTiles.map((s, i) => (
+                <SortableMosaicTile
+                  key={s.id}
+                  idx={i}
+                  session={s}
+                  socket={socket}
+                  theme={theme}
+                  groupColor={groupColorOf?.(s.id) ?? null}
+                  isFocused={activeFocusedId === s.id}
+                  windowFocused={windowFocused}
+                  onXtermFocus={() => { setFocusedId(s.id); setRestoreFocusId(null); }}
+                  onXtermBlur={() => setFocusedId(null)}
+                  autoFocus={restoreFocusId === s.id}
+                  onToggleMinimize={() => toggleMinimize(s.id)}
+                  onOpen={() => onOpenSession(s.id)}
+                  onKill={() => onKill(s)}
+                  onRestart={() => onRestart(s)}
+                  onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
+                  onClone={onClone ? () => onClone(s) : undefined}
+                  onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
+                  onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
+                  onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
+                  onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
+                />
+              ))}
+            </div>
+          </SortableContext>
+          <DragOverlay>
+            {draggingSession ? (
+              <TileDragPreview session={draggingSession} theme={theme} />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
       {overflow && (
         <div
@@ -199,40 +263,11 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   );
 }
 
-function MosaicTile({
-  idx,
-  session,
-  onDragStartTile,
-  onDragOverTile,
-  onDropTile,
-  onDragEndTile,
-  isDropTarget,
-  socket,
-  theme,
-  groupColor,
-  isFocused,
-  windowFocused,
-  onXtermFocus,
-  onXtermBlur,
-  autoFocus,
-  onToggleMinimize,
-  onOpen,
-  onKill,
-  onRestart,
-  onMerge,
-  onClone,
-  onFocusDiff,
-  onFocusExplorer,
-  onFocusTerminal,
-  onOpenDiff,
-}: {
+// ─── SortableMosaicTile ───────────────────────────────────────────────────────
+
+type MosaicTileSharedProps = {
   idx: number;
   session: SessionInfo;
-  onDragStartTile: () => void;
-  onDragOverTile: () => void;
-  onDropTile: () => void;
-  onDragEndTile: () => void;
-  isDropTarget: boolean;
   socket: TypedSocket;
   theme: 'dark' | 'light';
   groupColor?: string | null;
@@ -251,6 +286,129 @@ function MosaicTile({
   onFocusExplorer?: () => void;
   onFocusTerminal?: () => void;
   onOpenDiff?: () => void;
+};
+
+function SortableMosaicTile(props: MosaicTileSharedProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.session.id });
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <MosaicTile
+        {...props}
+        dragHandleListeners={listeners}
+        dragHandleAttributes={attributes}
+      />
+    </div>
+  );
+}
+
+// ─── TileDragPreview ──────────────────────────────────────────────────────────
+
+function TileDragPreview({ session, theme: _theme }: { session: SessionInfo; theme: 'dark' | 'light' }) {
+  return (
+    <div className="argus-tile argus-tile-drag-overlay" data-status={session.status}>
+      <div className="argus-tile-header">
+        <AgentGlyph agent={session.agentType} size={16} />
+        <StatusPill status={session.status} size="sm" />
+        <span
+          style={{
+            flex: '0 1 auto',
+            minWidth: 0,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--t-tiny)',
+            color: 'var(--fg-0)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {shellLabel(session)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── SortableChip ────────────────────────────────────────────────────────────
+
+function SortableChip({ session, onClick }: { session: SessionInfo; onClick: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id });
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  };
+  return (
+    <button
+      ref={setNodeRef}
+      className="argus-chip"
+      style={style}
+      onClick={onClick}
+      {...listeners}
+      {...attributes}
+    >
+      <StatusDot status={session.status} size={6} />
+      <AgentGlyph agent={session.agentType} size={14} />
+      <span className="argus-chip-label">{session.name}</span>
+      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+    </button>
+  );
+}
+
+// ─── ChipDragPreview ──────────────────────────────────────────────────────────
+
+function ChipDragPreview({ session }: { session: SessionInfo }) {
+  return (
+    <button type="button" className="argus-chip argus-chip-drag-overlay">
+      <StatusDot status={session.status} size={6} />
+      <AgentGlyph agent={session.agentType} size={14} />
+      <span className="argus-chip-label">{session.name}</span>
+      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+    </button>
+  );
+}
+
+// ─── MosaicTile ───────────────────────────────────────────────────────────────
+
+function MosaicTile({
+  idx,
+  session,
+  dragHandleListeners,
+  dragHandleAttributes,
+  socket,
+  theme,
+  groupColor,
+  isFocused,
+  windowFocused,
+  onXtermFocus,
+  onXtermBlur,
+  autoFocus,
+  onToggleMinimize,
+  onOpen,
+  onKill,
+  onRestart,
+  onMerge,
+  onClone,
+  onFocusDiff,
+  onFocusExplorer,
+  onFocusTerminal,
+  onOpenDiff,
+}: MosaicTileSharedProps & {
+  dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
+  dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
 }) {
   const [copied, setCopied] = useState(false);
   const doCopy = () => {
@@ -272,14 +430,10 @@ function MosaicTile({
         className="argus-tile-header"
         role="button"
         tabIndex={0}
-        draggable
-        data-drop-target={isDropTarget || undefined}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
-        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartTile(); }}
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOverTile(); }}
-        onDrop={(e) => { e.preventDefault(); onDropTile(); }}
-        onDragEnd={onDragEndTile}
+        {...dragHandleListeners}
+        {...dragHandleAttributes}
       >
         <AgentGlyph agent={session.agentType} size={16} />
         {groupColor && (
