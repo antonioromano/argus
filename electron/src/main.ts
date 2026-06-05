@@ -286,9 +286,6 @@ async function main() {
     return existsSync(bundled) ? bundled : null;
   };
   const terminalNotifierPath = resolveTerminalNotifier();
-  // Loose (non-asar) copy of the icon, shipped via extraResources, so the
-  // external terminal-notifier process can read it for -contentImage.
-  const notifContentImage = join(process.resourcesPath, 'notif-icon.png');
 
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
@@ -305,7 +302,6 @@ async function main() {
           // terminal-notifier can't round-trip the notif:click IPC.)
           '-activate', 'com.antonio.argus',
         ];
-        if (existsSync(notifContentImage)) args.push('-contentImage', notifContentImage);
         execFile(terminalNotifierPath, args, (err) => {
           if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
           else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);

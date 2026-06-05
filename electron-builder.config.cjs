@@ -44,12 +44,6 @@ module.exports = {
       to: 'terminal-notifier',
       filter: ['**/*'],
     },
-    // Loose copy of the notification icon: terminal-notifier is an external
-    // process, so it can't read assets packed inside app.asar.
-    {
-      from: 'electron/assets/icon_spartan_amber_v2_128.png',
-      to: 'notif-icon.png',
-    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',
