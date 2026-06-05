@@ -1,6 +1,6 @@
 # Argus
 
-![Version](https://img.shields.io/badge/version-0.16.42-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
+![Version](https://img.shields.io/badge/version-0.16.43-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 
 A web-based dashboard for managing multiple AI coding agent sessions simultaneously. Spawn [Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [OpenAI Codex](https://github.com/openai/codex) processes via pseudo-terminals, stream their I/O to browser-based terminals, and monitor session state in real time.
 
@@ -256,7 +256,7 @@ When running as a packaged desktop app, all session data is stored in:
 
 ### Notifications
 
-- **Browser notifications** — Native desktop notifications fire when a session transitions to `waiting` while the tab is not in focus; click to focus the browser and jump to that session
+- **Desktop notifications** — Fire when a session transitions to `waiting` while the app is not in focus; click to focus the app. The packaged (ad-hoc signed) build delivers via a bundled [terminal-notifier](https://github.com/julienXX/terminal-notifier): macOS asks once to allow notifications from "terminal-notifier" — accept it, and make sure that entry stays enabled in System Settings → Notifications
 - **Tab title badge** — Document title shows `(N) Argus` with the count of sessions awaiting input
 - **Waiting count badge** — Orange badge on the Sessions navigation tab shows how many sessions need attention
 - **Configurable** — Toggle on/off in Settings; browser permission requested on first enable; gracefully hidden on unsupported browsers

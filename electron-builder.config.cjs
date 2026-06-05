@@ -36,6 +36,20 @@ module.exports = {
       to: 'tmux',
       filter: ['**/*'],
     },
+    // Developer-ID-independent notification delivery for ad-hoc builds (see
+    // electron/resources/terminal-notifier/README.md). afterPack.cjs excludes
+    // this bundle from the ad-hoc deep re-sign to keep its signature stable.
+    {
+      from: 'electron/resources/terminal-notifier',
+      to: 'terminal-notifier',
+      filter: ['**/*'],
+    },
+    // Loose copy of the notification icon: terminal-notifier is an external
+    // process, so it can't read assets packed inside app.asar.
+    {
+      from: 'electron/assets/icon_spartan_amber_v2_128.png',
+      to: 'notif-icon.png',
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

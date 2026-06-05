@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, spawn } from 'child_process';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit } from './window.js';
@@ -263,20 +263,58 @@ async function main() {
   );
   const activeNotifs = new Map<string, Notification>();
 
+  // Packaged delivery goes through the vendored terminal-notifier.app (see
+  // electron/resources/terminal-notifier/README.md). Ad-hoc signed bundles are
+  // untrusted, so usernoted silently drops both Electron's native Notification
+  // posts AND `osascript display notification` (osascript is attributed to the
+  // responsible process — Argus itself — not to a trusted system bundle, which
+  // is why the 0.16.42 osascript route never delivered). terminal-notifier is
+  // its own .app, so its posts are attributed to it; macOS prompts the user
+  // once to allow "terminal-notifier" and then delivery works.
+  const resolveTerminalNotifier = (): string | null => {
+    const override = process.env.ARGUS_TERMINAL_NOTIFIER_PATH;
+    if (override) return existsSync(override) ? override : null;
+    if (!app.isPackaged) return null;
+    const bundled = join(
+      process.resourcesPath,
+      'terminal-notifier',
+      'terminal-notifier.app',
+      'Contents',
+      'MacOS',
+      'terminal-notifier',
+    );
+    return existsSync(bundled) ? bundled : null;
+  };
+  const terminalNotifierPath = resolveTerminalNotifier();
+  // Loose (non-asar) copy of the icon, shipped via extraResources, so the
+  // external terminal-notifier process can read it for -contentImage.
+  const notifContentImage = join(process.resourcesPath, 'notif-icon.png');
+
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
-    // Packaged builds are ad-hoc signed (no Developer ID cert). macOS's usernoted
-    // daemon silently drops native Notification posts from an untrusted bundle —
-    // isSupported() still returns true, so the guard below can't catch it. Route
-    // packaged delivery through `osascript display notification` instead: the
-    // banner is posted by macOS's own trusted scripting bundle, bypassing the
-    // signature block entirely. Tradeoff: no custom icon, no click-to-focus, no
-    // programmatic dismissal. Dev runs under Electron's signed binary, so it
-    // keeps the richer native path. (A future Developer ID build could too.)
     if (app.isPackaged) {
-      // Pass title/body as argv (not interpolated into the script) so arbitrary
-      // prompt text can't break or inject AppleScript.
+      if (terminalNotifierPath) {
+        const args = [
+          '-title', payload.title,
+          '-message', payload.body,
+          // Same-group notifications replace each other — mirrors the dev
+          // path's existing.close() behavior for repeated session alerts.
+          '-group', payload.id,
+          // Click focuses Argus. (No per-session deep-link in packaged mode;
+          // terminal-notifier can't round-trip the notif:click IPC.)
+          '-activate', 'com.antonio.argus',
+        ];
+        if (existsSync(notifContentImage)) args.push('-contentImage', notifContentImage);
+        execFile(terminalNotifierPath, args, (err) => {
+          if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
+          else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
+        });
+        return;
+      }
+      // Fallback when the bundled notifier is missing. Known to be dropped by
+      // usernoted for ad-hoc builds (attributed to Argus), but harmless — keeps
+      // the code path alive for a future Developer-ID-signed build.
       execFile(
         'osascript',
         [
@@ -287,7 +325,7 @@ async function main() {
         ],
         (err) => {
           if (err) console.error(`[notif] osascript failed id=${payload.id}:`, err);
-          else console.log(`[notif] osascript delivered id=${payload.id}`);
+          else console.log(`[notif] osascript exited 0 id=${payload.id} (delivery not guaranteed)`);
         },
       );
       return;
@@ -331,6 +369,12 @@ async function main() {
   });
 
   ipcMain.on('notif:close', (_event, id: string) => {
+    if (app.isPackaged && terminalNotifierPath) {
+      execFile(terminalNotifierPath, ['-remove', id], (err) => {
+        if (err) console.error(`[notif] terminal-notifier -remove failed id=${id}:`, err);
+      });
+      return;
+    }
     const notif = activeNotifs.get(id);
     if (notif) {
       notif.close();
