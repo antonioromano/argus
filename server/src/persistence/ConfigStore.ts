@@ -10,6 +10,8 @@ const DEFAULT_CONFIG: AppConfig = {
   notifyOnWaiting: true,
   notifyOnDone: false,
   notificationSound: false,
+  showClock: false,
+  othersFolderName: 'Others',
 };
 
 export class ConfigStore {

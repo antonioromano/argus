@@ -26,6 +26,8 @@ export interface AppConfig {
   notifyOnWaiting: boolean;  // notify when a session needs user input
   notifyOnDone: boolean;     // notify when a session finishes a run
   notificationSound: boolean; // play the default system sound with each notification
+  showClock?: boolean;        // show HH:MM clock in the toolbar
+  othersFolderName?: string;  // display name for the ungrouped-sessions bucket
 }
 
 export interface AgentStatus {

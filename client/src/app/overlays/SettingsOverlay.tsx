@@ -55,7 +55,7 @@ const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
 
 export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
-  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees'].includes(initialTab)) ? initialTab as Tab : 'agents';
+  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees'].includes(initialTab)) ? initialTab as Tab : 'general';
   const [tab, setTab] = useState<Tab>(validInitial);
   const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
@@ -63,6 +63,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [flagInput, setFlagInput] = useState('');
   const [flagError, setFlagError] = useState<string | null>(null);
+
+  const [othersNameDraft, setOthersNameDraft] = useState(config.othersFolderName ?? 'Others');
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -324,6 +326,27 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                     ))}
                   </div>
                 </div>
+              </Section>
+              <Section title="Clock">
+                <Field label="Show clock in toolbar" hint="Displays current time (HH:MM) before the remote access icon">
+                  <Toggle checked={config.showClock ?? false} onChange={(v) => onSave({ showClock: v })} />
+                </Field>
+              </Section>
+              <Section title="Groups">
+                <Field label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
+                  <TextInput
+                    value={othersNameDraft}
+                    onChange={(value) => setOthersNameDraft(value)}
+                    onBlur={() => {
+                      const trimmed = othersNameDraft.trim();
+                      if (trimmed.length >= 1) {
+                        onSave({ othersFolderName: trimmed });
+                      } else {
+                        setOthersNameDraft(config.othersFolderName ?? 'Others');
+                      }
+                    }}
+                  />
+                </Field>
               </Section>
             </div>
           )}

@@ -42,7 +42,7 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, othersFolderName } = req.body;
 
     if (agentFlags) {
       const validationError = validateAgentFlags(agentFlags);
@@ -60,6 +60,7 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
       }
     }
 
+    const rawOthersName = typeof othersFolderName === 'string' ? othersFolderName.trim() : undefined;
     const updated = {
       defaultAgent: defaultAgent ?? current.defaultAgent,
       customAgents: customAgents ?? current.customAgents,
@@ -68,6 +69,8 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
       notifyOnWaiting: notifyOnWaiting ?? current.notifyOnWaiting,
       notifyOnDone: notifyOnDone ?? current.notifyOnDone,
       notificationSound: notificationSound ?? current.notificationSound,
+      showClock: showClock !== undefined ? !!showClock : current.showClock,
+      othersFolderName: (rawOthersName && rawOthersName.length >= 1) ? rawOthersName : current.othersFolderName,
     };
     await configStore.save(updated);
     res.json(updated);

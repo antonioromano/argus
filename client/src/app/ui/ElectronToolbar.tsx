@@ -1,5 +1,33 @@
 import { Globe, Sun, Moon, Settings, ArrowUp } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { Tooltip } from '../../components/primitives/index.js';
+
+function ClockDisplay() {
+  const [time, setTime] = useState(() => {
+    const now = new Date();
+    return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  });
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = new Date();
+      setTime(String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--t-tiny)',
+      letterSpacing: 'var(--tracking-eye)',
+      color: 'var(--fg-3)',
+      padding: '3px 6px',
+      // @ts-expect-error Electron-only
+      WebkitAppRegion: 'no-drag',
+    }}>
+      {time}
+    </span>
+  );
+}
 
 interface ElectronToolbarProps {
   onOpenSettings: () => void;
@@ -10,6 +38,7 @@ interface ElectronToolbarProps {
   updateAvailable?: boolean;
   updateVersion?: string;
   onOpenUpdate?: () => void;
+  showClock?: boolean;
 }
 
 const iconBtn = (active = false): React.CSSProperties => ({
@@ -37,6 +66,7 @@ export function ElectronToolbar({
   updateAvailable,
   updateVersion,
   onOpenUpdate,
+  showClock,
 }: ElectronToolbarProps) {
   return (
     <div
@@ -48,6 +78,7 @@ export function ElectronToolbar({
         WebkitAppRegion: 'no-drag',
       }}
     >
+        {showClock && <ClockDisplay />}
         {updateAvailable && (
           <button
             onClick={onOpenUpdate}

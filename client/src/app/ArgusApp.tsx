@@ -15,7 +15,7 @@ import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
-import { AlertSheet, Button, ToastProvider, pushToast } from '../components/primitives/index.js';
+import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
@@ -234,6 +234,9 @@ function DesktopInner() {
       } else if (k === 'n') {
         e.preventDefault();
         app.openOverlay({ kind: 'create' });
+      } else if (k === ',') {
+        e.preventDefault();
+        app.openOverlay({ kind: 'settings' });
       } else if (k === 'k') {
         e.preventDefault();
         app.openOverlay({ kind: 'palette' });
@@ -381,10 +384,13 @@ function DesktopInner() {
         updateAvailable={updateStatus?.hasUpdate}
         updateVersion={updateStatus?.latestVersion ?? undefined}
         onOpenUpdate={() => app.openOverlay({ kind: 'update' })}
+        showClock={config?.showClock ?? false}
       />
-      <Button variant="primary" icon={Plus} size="md" onClick={() => app.openOverlay({ kind: 'create' })}>
-        New
-      </Button>
+      <Tooltip content="⌘N">
+        <Button variant="primary" icon={Plus} size="md" onClick={() => app.openOverlay({ kind: 'create' })}>
+          New
+        </Button>
+      </Tooltip>
     </>
   );
 
@@ -441,7 +447,7 @@ function DesktopInner() {
               onKillGroup={setPendingKillGroup}
               onKillOthers={() => setPendingKillGroup({
                 id: '__others__',
-                name: 'Others',
+                name: config?.othersFolderName ?? 'Others',
                 color: 'gray',
                 collapsed: false,
                 sessionIds: grouped.others.map((s) => s.id),
@@ -451,6 +457,7 @@ function DesktopInner() {
               onSpawnFromFavorite={handleSpawnFromFavorite}
               isFavorite={groups.isFavorite}
               onToggleFavoritesCollapsed={() => groups.toggleCollapsed(FAVORITES_GROUP_ID)}
+              othersFolderName={config?.othersFolderName ?? 'Others'}
             />
           }
         />

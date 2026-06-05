@@ -33,6 +33,7 @@ interface SessionTreeProps {
   onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
   isFavorite: (sessionId: string) => boolean;
   onToggleFavoritesCollapsed: () => void;
+  othersFolderName?: string;
 }
 
 export function SessionTree({
@@ -40,6 +41,7 @@ export function SessionTree({
   onAssign, onToggleCollapsed, onFilterGroup, onCreateGroup,
   onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers,
   onOpenSession, onToggleFavorite, onSpawnFromFavorite, isFavorite, onToggleFavoritesCollapsed,
+  othersFolderName = 'Others',
 }: SessionTreeProps) {
   const dragId = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -108,6 +110,7 @@ export function SessionTree({
         collapsed={othersCollapsed}
         dropping={dropTarget === OTHERS}
         active={activeGroupId === OTHERS}
+        name={othersFolderName}
         onChevron={() => setOthersCollapsed((v) => !v)}
         onSetColor={onSetOthersColor}
         onFilter={() => onFilterGroup(activeGroupId === OTHERS ? null : OTHERS)}
@@ -356,7 +359,7 @@ function GroupNode({
 
 /* ---------- others node ---------- */
 function OthersNode({
-  sessions, color, isDark, starColor, collapsed, dropping, active,
+  sessions, color, isDark, starColor, collapsed, dropping, active, name,
   onChevron, onSetColor, onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf, onOpenSession,
   onFilter, onKill, onToggleFavorite, isFavorite,
 }: {
@@ -367,6 +370,7 @@ function OthersNode({
   collapsed: boolean;
   dropping: boolean;
   active: boolean;
+  name: string;
   onChevron: () => void;
   onSetColor: (color: string) => void;
   onDragOverGroup: () => void;
@@ -409,7 +413,7 @@ function OthersNode({
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, display: 'block' }} />
           </button>
         </Tooltip>
-        <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-2)' }}>Others</span>
+        <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-2)' }}>{name}</span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{sessions.length}</span>
 
         {/* always-visible filter toggle */}
@@ -586,27 +590,26 @@ function NameInput({ initial = '', placeholder, onCommit, onCancel, inline }: {
           color: 'var(--fg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: '3px 6px' }}
       />
       <Act title="Save" onClick={() => onCommit(val)}><Check size={11} strokeWidth={2} /></Act>
-      <Act title="Cancel" onClick={onCancel}><X size={11} strokeWidth={2} /></Act>
+      <Act onClick={onCancel}><X size={11} strokeWidth={2} /></Act>
     </div>
   );
 }
 
-function Act({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function Act({ title, onClick, children }: { title?: string; onClick: () => void; children: React.ReactNode }) {
   const [h, setH] = useState(false);
-  return (
-    <Tooltip content={title}>
-      <button
-        type="button"
-        onMouseEnter={() => setH(true)}
-        onMouseLeave={() => setH(false)}
-        onClick={(e) => { e.stopPropagation(); onClick(); }}
-        style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
-          color: h ? 'var(--fg-0)' : 'var(--fg-3)', background: h ? 'var(--bg-3)' : 'transparent' }}
-      >
-        {children}
-      </button>
-    </Tooltip>
+  const btn = (
+    <button
+      type="button"
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+        color: h ? 'var(--fg-0)' : 'var(--fg-3)', background: h ? 'var(--bg-3)' : 'transparent' }}
+    >
+      {children}
+    </button>
   );
+  return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;
 }
 
 const headStyle: React.CSSProperties = {
