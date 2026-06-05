@@ -126,7 +126,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
     window.electronNotifications?.show({
       id: 'argus-test',
       title: 'Argus',
-      body: '[Test] Notification delivery works.',
+      subtitle: 'Test',
+      body: 'Notification delivery works.',
       sound: config.notificationSound,
     });
   };

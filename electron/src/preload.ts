@@ -49,7 +49,7 @@ contextBridge.exposeInMainWorld('electronApp', {
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {
-  show: (payload: { id: string; title: string; body: string; sound?: boolean }): void => {
+  show: (payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }): void => {
     ipcRenderer.send('notif:show', payload);
   },
   close: (id: string): void => {

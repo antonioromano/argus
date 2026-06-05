@@ -285,16 +285,19 @@ async function main() {
   };
   const terminalNotifierPath = resolveTerminalNotifier();
 
-  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; body: string; sound?: boolean }) => {
+  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
     // Use terminal-notifier when available — works in dev and packaged alike
     // because it spawns as its own .app bundle and gets its own usernoted attribution
     // (unlike Electron native Notification or osascript, which are attributed to Argus
     // itself and silently dropped for ad-hoc builds).
+    // NOTE: terminal-notifier 2.0.0 silently drops -message bodies that start with '['.
+    // Always pass session name via -subtitle so the body is bracket-free.
     if (terminalNotifierPath) {
       const args = [
         '-title', payload.title,
+        ...(payload.subtitle ? ['-subtitle', payload.subtitle] : []),
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
@@ -345,6 +348,7 @@ async function main() {
 
     const notif = new Notification({
       title: payload.title,
+      subtitle: payload.subtitle,
       body: payload.body,
       icon: notifIcon,
       silent: !payload.sound,

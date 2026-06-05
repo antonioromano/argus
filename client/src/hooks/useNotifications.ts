@@ -64,12 +64,10 @@ export function useNotifications({
 
       if (curr === 'waiting' && prev !== 'waiting' && prev !== undefined && notifyOnWaiting) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
-          // Never a bare session name — when no prompt was extracted, say
-          // what the notification means and self-heal below if text arrives.
-          const body = session.lastPrompt
-            ? `[${session.name}] ${session.lastPrompt}`
-            : `[${session.name}] Waiting for your input`;
-          bridge.show({ id: session.id, title: 'Argus', body, sound: notificationSound });
+          // terminal-notifier 2.0.0 drops -message bodies starting with '[',
+          // so session name goes in subtitle, body is the message text only.
+          const body = session.lastPrompt ?? 'Waiting for your input';
+          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body, sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: session.lastPrompt == null });
         }
       }
@@ -79,14 +77,14 @@ export function useNotifications({
       if (curr === 'waiting' && session.lastPrompt != null) {
         const active = activeIds.current.get(session.id);
         if (active?.usedFallback) {
-          bridge.show({ id: session.id, title: 'Argus', body: `[${session.name}] ${session.lastPrompt}`, sound: notificationSound });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body: session.lastPrompt, sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }
 
       if (curr === 'done' && prev !== 'done' && prev !== undefined && notifyOnDone) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
-          bridge.show({ id: session.id, title: 'Argus', body: `[${session.name}] Finished`, sound: notificationSound });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body: 'Finished', sound: notificationSound });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }

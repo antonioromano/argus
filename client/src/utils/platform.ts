@@ -20,7 +20,7 @@ export interface ElectronAppBridge {
 }
 
 export interface ElectronNotificationsBridge {
-  show(payload: { id: string; title: string; body: string; sound?: boolean }): void;
+  show(payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }): void;
   close(id: string): void;
   onClick(cb: (id: string) => void): () => void;
 }
