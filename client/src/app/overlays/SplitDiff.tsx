@@ -75,7 +75,7 @@ const codeStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
   whiteSpace: 'pre',
-  overflow: 'hidden',
+  overflow: 'visible',
   paddingRight: 8,
 };
 
@@ -276,6 +276,7 @@ function ChunkSplit({
   return (
     <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden' }}>
       <div style={{ color: 'var(--fg-3)', padding: '3px 10px', background: 'var(--bg-1)' }}>{chunk.content}</div>
+      <div style={{ overflowX: 'auto' }}>
       <div
         ref={gridRef}
         style={{
@@ -285,6 +286,7 @@ function ChunkSplit({
             ? `${BLOCK_GUTTER_W}px 1fr ${GUTTER}px 1fr`
             : `1fr ${GUTTER}px 1fr`,
           background: 'var(--bg-0)',
+          minWidth: 'max-content',
         }}
       >
         {selection && <div style={{ minWidth: 0 }}>{gutterRows}</div>}
@@ -306,6 +308,7 @@ function ChunkSplit({
             <path key={p.id} d={p.d} fill={`url(#${p.id})`} />
           ))}
         </svg>
+      </div>
       </div>
     </div>
   );

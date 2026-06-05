@@ -400,7 +400,8 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                           display: 'flex',
                           alignItems: 'center',
                           gap: 'var(--s-2)',
-                          padding: '6px var(--s-4)',
+                          padding: '0 var(--s-4)',
+                          height: 28,
                           width: '100%',
                           boxSizing: 'border-box',
                           background: isConfirming ? 'color-mix(in srgb, var(--danger) 8%, transparent)' : sel ? 'var(--bg-2)' : 'transparent',
@@ -460,7 +461,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                             }}
                           />
                         )}
-                        {f.source === 'untracked' && (
+                        {f.source === 'untracked' && isHovered && (
                           <>
                             <SidebarChipButton
                               label={stagingPath === f.path ? 'STAGING…' : 'STAGE'}
