@@ -619,8 +619,15 @@ body {
   cursor: grabbing;
 }
 /* Drop indicator — inset shadow only, no border/size change (no row reflow). */
+/* Kept for the chips section (minrow) which still uses native HTML5 drag. */
 .argus-tile-header[data-drop-target] {
   box-shadow: inset 3px 0 0 0 var(--accent);
+}
+
+/* @dnd-kit DragOverlay card for active tile drag */
+.argus-tile-drag-overlay {
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
+  cursor: grabbing;
 }
 
 /* Minimized-shell pill — shared by the focus OTHERS strip and the mosaic minrow. */
@@ -638,7 +645,10 @@ body {
   cursor: pointer;
 }
 .argus-chip:active { cursor: grabbing; }
-.argus-chip[data-drop-target] { box-shadow: inset 3px 0 0 0 var(--accent); }
+.argus-chip-drag-overlay {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  cursor: grabbing;
+}
 .argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
 .argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
 
