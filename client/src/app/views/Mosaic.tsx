@@ -128,6 +128,12 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     };
   }, []);
 
+  useEffect(() => {
+    if (!focusedId) return;
+    const s = sessions.find((s) => s.id === focusedId);
+    if (s?.status === 'done') socket.emit('session:seen', focusedId);
+  }, [focusedId, sessions, socket]);
+
   if (sessions.length === 0) {
     return (
       <div className="grid-bg argus-mosaic-empty">
