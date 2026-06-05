@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionInfo, FileSearchResult } from '@argus/shared';
 import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen } from 'lucide-react';
-import { isMac } from '../../utils/platform.js';
+import { isMac, isPrimaryModifier } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
 import { Kbd, Tooltip } from '../../components/primitives/index.js';
 
@@ -9,11 +9,12 @@ const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
 interface CommandPaletteProps {
   sessions: SessionInfo[];
-  activeSessionId: string | null;
+  /** Session the palette is scoped to on open (focused session), or null to open unscoped. */
+  initialScopeSessionId: string | null;
   onClose: () => void;
   onJumpSession: (id: string) => void;
-  onOpenInExplorer: (filePath: string, lineNumber?: number) => void;
-  onOpenInDiff: (fileName: string) => void;
+  onOpenInExplorer: (sessionId: string, filePath: string, lineNumber?: number) => void;
+  onOpenInDiff: (sessionId: string, fileName: string) => void;
 }
 
 function ResultIcon({ ext }: { ext: string }) {
@@ -25,13 +26,14 @@ function ResultIcon({ ext }: { ext: string }) {
 
 export function CommandPalette({
   sessions,
-  activeSessionId,
+  initialScopeSessionId,
   onClose,
   onJumpSession,
   onOpenInExplorer,
   onOpenInDiff,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
+  const [scopedSessionId, setScopedSessionId] = useState<string | null>(initialScopeSessionId);
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -42,7 +44,21 @@ export function CommandPalette({
   const listboxId = 'cmd-palette-listbox';
   const optionId = (i: number) => `cmd-palette-opt-${i}`;
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+  // Explicit scope — no sessions[0] fallback. Unscoped = session-pick stage.
+  const scopedSession = sessions.find((s) => s.id === scopedSessionId) ?? null;
+
+  // Scoped session vanished (deleted while open) — drop back to session-pick
+  // stage. Adjust-during-render.
+  if (scopedSessionId && !scopedSession) {
+    setScopedSessionId(null);
+  }
+
+  const scopeTo = (id: string) => {
+    setScopedSessionId(id);
+    setQuery('');
+    setSelectedIndex(0);
+    inputRef.current?.focus();
+  };
 
   // Build session-jump items prefixed when query is short or starts with '>'
   const sessionItems = sessions
@@ -59,7 +75,7 @@ export function CommandPalette({
 
   // Clear results when the query is emptied (adjust-during-render); the effect
   // below only runs the debounced search for an active query.
-  const queryActive = !!query.trim() && !!activeSession;
+  const queryActive = !!query.trim() && !!scopedSession;
   const [searchActive, setSearchActive] = useState(false);
   if (searchActive !== queryActive) {
     setSearchActive(queryActive);
@@ -70,11 +86,11 @@ export function CommandPalette({
   }
 
   useEffect(() => {
-    if (!query.trim() || !activeSession) return;
+    if (!query.trim() || !scopedSession) return;
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const resp = await api.searchFiles(activeSession.folderPath, query.trim());
+        const resp = await api.searchFiles(scopedSession.folderPath, query.trim());
         const sorted = [...resp.results].sort((a, b) => {
           if (a.matchType === 'filename' && b.matchType !== 'filename') return -1;
           if (b.matchType === 'filename' && a.matchType !== 'filename') return 1;
@@ -89,7 +105,7 @@ export function CommandPalette({
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [query, activeSession]);
+  }, [query, scopedSession]);
 
   const total = sessionItems.length + results.length;
 
@@ -106,6 +122,13 @@ export function CommandPalette({
         onClose();
         return;
       }
+      // Backspace on an empty query clears the scope (back to session-pick).
+      if (e.key === 'Backspace' && query === '' && scopedSession) {
+        e.preventDefault();
+        setScopedSessionId(null);
+        setSelectedIndex(0);
+        return;
+      }
       if (total === 0) return; // nothing to navigate/select — avoid index -1
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -116,11 +139,17 @@ export function CommandPalette({
       } else if (e.key === 'Enter') {
         e.preventDefault();
         if (selectedIndex < sessionItems.length) {
-          onJumpSession(sessionItems[selectedIndex].id);
+          const id = sessionItems[selectedIndex].id;
+          // ⌘Enter jumps to focus view; plain Enter scopes the palette.
+          if (isPrimaryModifier(e)) {
+            onJumpSession(id);
+          } else {
+            scopeTo(id);
+          }
         } else {
           const r = results[selectedIndex - sessionItems.length];
-          if (r) {
-            onOpenInExplorer(r.path, r.lineNumber);
+          if (r && scopedSession) {
+            onOpenInExplorer(scopedSession.id, r.path, r.lineNumber);
             onClose();
           }
         }
@@ -128,7 +157,7 @@ export function CommandPalette({
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [selectedIndex, total, sessionItems, results, onClose, onJumpSession, onOpenInExplorer]);
+  }, [selectedIndex, total, sessionItems, results, query, scopedSession, onClose, onJumpSession, onOpenInExplorer]);
 
   useEffect(() => {
     const item = document.getElementById(optionId(selectedIndex));
@@ -169,7 +198,7 @@ export function CommandPalette({
     };
   }, [selectedIndex, sessionItems.length, results]);
 
-  const rootPath = activeSession?.folderPath ?? '';
+  const rootPath = scopedSession?.folderPath ?? '';
   const selectedFileResult = selectedIndex >= sessionItems.length
     ? (results[selectedIndex - sessionItems.length] ?? null)
     : null;
@@ -198,6 +227,44 @@ export function CommandPalette({
         }}
       >
         <Search size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        {scopedSession && (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              flexShrink: 0,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--t-tiny)',
+              color: 'var(--accent)',
+              background: 'var(--accent-bg)',
+              border: '1px solid var(--accent-edge)',
+              borderRadius: 'var(--r-1)',
+              padding: '2px 7px',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <FolderOpen size={11} strokeWidth={1.6} />
+            {scopedSession.name}
+            <button
+              aria-label="Clear scope"
+              onClick={() => { setScopedSessionId(null); setSelectedIndex(0); inputRef.current?.focus(); }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                marginLeft: 2,
+                color: 'var(--accent)',
+                opacity: 0.55,
+                fontSize: 11,
+                lineHeight: 1,
+              }}
+            >
+              ×
+            </button>
+          </span>
+        )}
         <input
           ref={inputRef}
           type="text"
@@ -208,7 +275,7 @@ export function CommandPalette({
           aria-activedescendant={total > 0 ? optionId(selectedIndex) : undefined}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={activeSession ? `Search in ${activeSession.name}…` : 'Jump to shell…'}
+          placeholder={scopedSession ? `Search in ${scopedSession.name}…` : 'Jump to a session…'}
           style={{
             flex: 1,
             background: 'none',
@@ -235,7 +302,7 @@ export function CommandPalette({
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSelected}
-                    onClick={() => onJumpSession(s.id)}
+                    onClick={(e) => (e.metaKey || e.ctrlKey ? onJumpSession(s.id) : scopeTo(s.id))}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
                       display: 'flex',
@@ -290,7 +357,7 @@ export function CommandPalette({
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSelected}
-                    onClick={() => { onOpenInExplorer(r.path, r.lineNumber); onClose(); }}
+                    onClick={() => { if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber); onClose(); } }}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
                       display: 'flex',
@@ -336,7 +403,7 @@ export function CommandPalette({
                     </span>
                     <Tooltip content="View in Diff">
                       <button
-                        onClick={(e) => { e.stopPropagation(); onOpenInDiff(r.name); onClose(); }}
+                        onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInDiff(scopedSession.id, r.name); onClose(); } }}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -352,7 +419,7 @@ export function CommandPalette({
                     </Tooltip>
                     <Tooltip content="Open in Explorer">
                     <button
-                      onClick={(e) => { e.stopPropagation(); onOpenInExplorer(r.path, r.lineNumber); onClose(); }}
+                      onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber); onClose(); } }}
                       style={{
                         background: 'none',
                         border: 'none',
@@ -411,7 +478,13 @@ export function CommandPalette({
       >
         {[
           { key: '↑↓', label: 'NAVIGATE' },
-          { key: '↵', label: 'OPEN' },
+          ...(total > 0 && selectedIndex < sessionItems.length
+            ? [
+                { key: '↵', label: 'SCOPE' },
+                { key: isMac ? '⌘↵' : 'Ctrl+↵', label: 'FOCUS' },
+              ]
+            : [{ key: '↵', label: 'OPEN' }]),
+          ...(scopedSession && query === '' ? [{ key: '⌫', label: 'CLEAR SCOPE' }] : []),
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
           <span key={key} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

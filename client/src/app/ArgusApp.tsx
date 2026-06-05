@@ -514,16 +514,14 @@ function DesktopInner() {
         <Overlay onClose={app.closeOverlay} align="top" label="Command palette">
           <CommandPalette
             sessions={sessions}
-            activeSessionId={app.activeSessionId}
+            initialScopeSessionId={app.view === 'focus' ? app.activeSessionId : null}
             onClose={app.closeOverlay}
             onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
-            onOpenInExplorer={(filePath, lineNumber) => {
-              if (activeSession) {
-                app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber });
-              }
+            onOpenInExplorer={(sessionId, filePath, lineNumber) => {
+              app.openOverlay({ kind: 'explorer', sessionId, filePath, lineNumber });
             }}
-            onOpenInDiff={() => {
-              if (activeSession) app.openOverlay({ kind: 'diff', sessionId: activeSession.id });
+            onOpenInDiff={(sessionId) => {
+              app.openOverlay({ kind: 'diff', sessionId });
             }}
           />
         </Overlay>
