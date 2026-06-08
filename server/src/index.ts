@@ -145,7 +145,7 @@ app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/auth', createAuthRoutes(authService));
-app.use('/api/config', createConfigRoutes(configStore));
+app.use('/api/config', createConfigRoutes(configStore, (cfg) => sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning)));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
 app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
@@ -182,6 +182,8 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 
 export async function startServer(): Promise<void> {
   await sessionManager.restoreSessions();
+  const cfg = await configStore.load();
+  sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
   updateService.start();
   return new Promise((resolve) => {
     httpServer.listen(PORT, HOST, () => {

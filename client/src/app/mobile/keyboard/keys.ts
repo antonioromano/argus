@@ -16,6 +16,8 @@ export const KEY = {
   backspace: '\x7f',
   // Insert a line in claude's composer without submitting — desktop Shift+Enter.
   newline: '\x1b\r',
+  // Submit the current command line.
+  enter: '\r',
 } as const;
 
 export type SimpleKeyId = keyof typeof KEY;

@@ -34,6 +34,9 @@ export function SpecialToolbar({ onKey, onBackToKeys }: SpecialToolbarProps) {
       <KeyCap label={<ChevronLeft size={16} />} ariaLabel="Left" onPress={() => onKey('left')} />
       <KeyCap label={<ChevronRight size={16} />} ariaLabel="Right" onPress={() => onKey('right')} />
       <KeyCap label="^R" ariaLabel="Ctrl R" onPress={() => onKey('ctrlr')} />
+      <KeyCap label="↵" tone="accent" ariaLabel="Enter" onPress={() => onKey('enter')} />
+      <KeyCap label="⤒" ariaLabel="Scroll to top" onPress={() => onKey('top')} />
+      <KeyCap label="⤓" ariaLabel="Scroll to bottom" onPress={() => onKey('bottom')} />
     </div>
   );
 }

@@ -337,6 +337,11 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   </Field>
                 )}
               </Section>
+              <Section title="Power">
+                <Field label="Keep Mac awake while running" hint="Prevents macOS from sleeping while at least one shell is running">
+                  <Toggle checked={config.preventSleepWhileRunning ?? false} onChange={(v) => onSave({ preventSleepWhileRunning: v })} />
+                </Field>
+              </Section>
               <Section title="Groups">
                 <Field label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
                   <TextInput

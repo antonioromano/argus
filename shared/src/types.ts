@@ -29,6 +29,7 @@ export interface AppConfig {
   showClock?: boolean;        // show HH:MM clock in the toolbar
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
+  preventSleepWhileRunning?: boolean; // keep macOS awake while ≥1 shell is running
 }
 
 export interface AgentStatus {

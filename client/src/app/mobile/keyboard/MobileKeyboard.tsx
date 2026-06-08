@@ -15,6 +15,8 @@ interface MobileKeyboardProps {
   /** Shared xterm handle (owned by Focus) — used for DECCKM-aware arrows and
    *  local viewport scrolling. */
   terminalRef: RefObject<Terminal | null>;
+  /** Dismiss the whole input surface (Focus shows a restore strip in its place). */
+  onClose: () => void;
 }
 
 /** Notify the terminal to refit when the surface height changes. */
@@ -34,7 +36,7 @@ const surfaceStyle: React.CSSProperties = {
  * (two-view fully custom keyboard). Routes every key through the central
  * encoder; arrows are DECCKM-aware and scroll keys move the viewport locally.
  */
-export function MobileKeyboard({ session, terminalRef }: MobileKeyboardProps) {
+export function MobileKeyboard({ session, terminalRef, onClose }: MobileKeyboardProps) {
   const socket = useSocket();
   const [mode] = useKeyboardMode();
   const [view, setView] = useState<'keys' | 'text'>('keys');
@@ -85,7 +87,7 @@ export function MobileKeyboard({ session, terminalRef }: MobileKeyboardProps) {
     return (
       <div style={surfaceStyle}>
         {view === 'keys' ? (
-          <SpecialPad onKey={onKey} onAbc={summonNative} />
+          <SpecialPad onKey={onKey} onAbc={summonNative} onClose={onClose} />
         ) : (
           <>
             <SpecialToolbar onKey={onKey} onBackToKeys={dismissNative} />
@@ -125,7 +127,7 @@ export function MobileKeyboard({ session, terminalRef }: MobileKeyboardProps) {
       </div>
 
       {view === 'keys' ? (
-        <SpecialPad onKey={onKey} />
+        <SpecialPad onKey={onKey} onClose={onClose} />
       ) : (
         <>
           <ComposeBar ref={taRef} value={text} onChange={setText} onSubmit={submit} nativeInput={false} />

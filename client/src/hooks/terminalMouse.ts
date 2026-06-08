@@ -33,7 +33,7 @@ const FLING_MAX_VELOCITY = 4.0; // px/ms — clamp after the multiplier
 const MAX_INERTIA_REPORTS_PER_FRAME = 4; // bound the per-frame socket burst (alt path only)
 const VELOCITY_SAMPLE_WINDOW_MS = 60; // trailing window for the lift-speed estimate
 const DEFAULT_ROW_HEIGHT = 17; // px fallback if the viewport can't be measured
-const DEBUG_SCROLL = false; // gated console logging for on-device tuning
+const DEBUG_SCROLL = typeof window !== 'undefined' && window.location.search.includes('scroll-debug');
 
 // Swallow the sequence only when every param is a mouse mode. Returning false
 // (the param set mixes in a non-mouse mode, or is empty) lets xterm's default
@@ -187,6 +187,36 @@ export function installSelectableMouse(
   let inertiaRaf = 0;
   let velocitySamples: { t: number; y: number }[] = [];
 
+  // Normal-buffer DRAG is handled NATIVELY by xterm itself: it binds its own touch
+  // listeners on `.xterm` (gated on !areMouseEventsActive, which is always false here
+  // because Argus swallows the mouse-mode enable). Its handleTouchMove does
+  // `viewport.scrollTop += delta` — a cheap scrollTop write whose row re-render is
+  // debounced into a requestAnimationFrame, OFF the touch path. That is why it never
+  // triggers iOS touchcancel. We must NOT also scroll it (double-scroll + the heavy
+  // synchronous `scrollLines` re-render were the jumpy/stuck cause). So on the normal
+  // buffer we stay out of the way entirely during the drag.
+  //
+  // The only things we still own:
+  //  • Alt screen (vim/less): xterm's native scroll moves an empty alt buffer (nothing),
+  //    so we forward wheel reports to the pty.
+  //  • Tap-to-click: xterm won't (we swallowed mouse mode), so we synthesize the click.
+  //  • Fling: xterm has no inertia. After lift we coast by writing viewport.scrollTop
+  //    ourselves — also off the touch path (finger is up), so no touchcancel. Reading
+  //    scrollTop fresh each frame absorbs xterm's per-render row-snap.
+  let viewportEl: HTMLElement | null = null;
+  const getViewport = () => {
+    if (!viewportEl) viewportEl = container.querySelector<HTMLElement>('.xterm-viewport');
+    return viewportEl;
+  };
+  // Scroll the normal buffer by px (positive → toward newer/bottom). False at an edge.
+  const normalScrollBy = (px: number): boolean => {
+    const vp = getViewport();
+    if (!vp) return false;
+    const before = vp.scrollTop;
+    vp.scrollTop = before + px;
+    return vp.scrollTop !== before;
+  };
+
   const cancelInertia = () => {
     if (inertiaRaf) {
       cancelAnimationFrame(inertiaRaf);
@@ -212,43 +242,29 @@ export function installSelectableMouse(
     for (let i = 0; i < reports; i++) sendInput(seq);
   };
 
-  // Apply px of finger travel to whichever scroll surface is active. Positive travel →
-  // scroll down (toward newer). Returns false on the normal path when nothing moved
-  // (hit top/bottom) so the coast can stop at the edge. Shared by drag + inertia.
-  const applyTravel = (travel: number, wheelCap: number): boolean => {
-    if (isAltScroll()) {
-      emitWheelReports(travel, wheelCap);
-      return true;
-    }
-    rowAcc += travel;
-    const rows = Math.trunc(rowAcc / rowHeight);
-    if (rows === 0) return true; // sub-row accumulation — still "progressing"
-    rowAcc -= rows * rowHeight;
-    const before = terminal.buffer.active.viewportY;
-    terminal.scrollLines(rows);
-    return terminal.buffer.active.viewportY !== before;
-  };
-
-  // Coast after a flick: emit travel each frame with exponential decay until the velocity
-  // falls below the stop floor (or, on the local path, we hit the top/bottom edge). Decay
+  // Coast after a flick. `scrollFn(px)` advances the active surface and returns false at an
+  // edge (so the coast can stop). Runs entirely in requestAnimationFrame — no touch active —
+  // so writing scrollTop / emitting wheel reports here never trips iOS touchcancel. Decay
   // uses the measured frame delta so it stays correct if a frame runs long.
-  const startCoast = (v0: number) => {
+  const startCoast = (v0: number, scrollFn: (px: number) => boolean) => {
     let velocity = v0;
     let lastT = performance.now();
     const step = () => {
       const now = performance.now();
       const dt = now - lastT;
       lastT = now;
-      const travel = velocity * dt;
-      const moved = applyTravel(travel, MAX_INERTIA_REPORTS_PER_FRAME);
-      // Local path: a full-row attempt that didn't move means we're pinned at an edge.
-      if (!moved && Math.abs(travel) >= rowHeight) { inertiaRaf = 0; return; }
+      if (!scrollFn(velocity * dt)) { inertiaRaf = 0; return; } // hit an edge
       velocity *= Math.pow(INERTIA_FRICTION, dt / 16.67);
       if (Math.abs(velocity) < INERTIA_MIN_VELOCITY) { inertiaRaf = 0; return; }
       inertiaRaf = requestAnimationFrame(step);
     };
     inertiaRaf = requestAnimationFrame(step);
   };
+
+  // Coast scroll functions, one per surface. Alt forwards wheel reports (always "moves");
+  // normal writes viewport.scrollTop and reports edge via normalScrollBy.
+  const coastAlt = (px: number): boolean => { emitWheelReports(px, MAX_INERTIA_REPORTS_PER_FRAME); return true; };
+  const coastNormal = (px: number): boolean => normalScrollBy(px);
 
   const sampleVelocity = (now: number, y: number) => {
     velocitySamples.push({ t: now, y });
@@ -257,8 +273,15 @@ export function installSelectableMouse(
     }
   };
 
+  type DbgRef = Window & { __argusScrollDebug?: string };
+  let gestureRows = 0; // rows scrolled this gesture (for debug overlay)
+
   const onTouchStart = (e: TouchEvent) => {
     cancelInertia(); // a new touch kills any running coast
+    // Flush any pending deferred scroll from a previous gesture.
+    flushPendingScroll();
+    lockViewport();
+    gestureRows = 0;
     if (e.touches.length !== 1) { touchTracking = false; return; }
     const t = e.touches[0];
     touchStartX = t.clientX;
@@ -278,6 +301,7 @@ export function installSelectableMouse(
     const screenH = screenEl ? screenEl.getBoundingClientRect().height : 0;
     rowHeight = screenH > 0 && terminal.rows > 0 ? screenH / terminal.rows : DEFAULT_ROW_HEIGHT;
     if (!(rowHeight > 0)) rowHeight = DEFAULT_ROW_HEIGHT;
+    (window as DbgRef).__argusScrollDebug = `DRAG start rH:${rowHeight.toFixed(1)}`;
   };
   const onTouchMove = (e: TouchEvent) => {
     if (!touchTracking || e.touches.length !== 1) return;
@@ -289,14 +313,19 @@ export function installSelectableMouse(
     if (Math.hypot(t.clientX - touchStartX, t.clientY - touchStartY) >= DRAG_THRESHOLD) touchMoved = true;
     if (!touchMoved) { touchY = t.clientY; return; }
     sampleVelocity(performance.now(), t.clientY);
-    applyTravel(touchY - t.clientY, MAX_REPORTS_PER_WHEEL); // drag up → positive → scroll down
+    const prevVp = terminal.buffer.active.viewportY;
+    applyTravel(touchY - t.clientY, MAX_REPORTS_PER_WHEEL, true); // deferred — no DOM mutation in handler
+    gestureRows += Math.abs(terminal.buffer.active.viewportY - prevVp);
     touchY = t.clientY;
+    (window as DbgRef).__argusScrollDebug =
+      `DRAG moved:Y acc:${rowAcc.toFixed(1)} rows:${gestureRows} vp:${terminal.buffer.active.viewportY}`;
   };
   const onTouchEnd = (e: TouchEvent) => {
     if (!touchTracking) return;
     touchTracking = false;
     // Tap (no movement) → click into the app (only when it requested mouse).
     if (!touchMoved) {
+      (window as DbgRef).__argusScrollDebug = `TAP (no drag) appMouse:${state.appMouse}`;
       if (!state.appMouse || !sendInput) return;
       const t = e.changedTouches[0];
       if (!t) return;
@@ -336,10 +365,26 @@ export function installSelectableMouse(
       console.log('[scroll] type=%s rawV=%s samples=%s rowH=%s',
         terminal.buffer.active.type, velocity.toFixed(3), velocitySamples.length, rowHeight.toFixed(1));
     }
-    if (Math.abs(velocity) < FLING_MIN_VELOCITY) return;
+    unlockViewport();
+    // Flush any deferred scroll before starting coast so viewportY is up-to-date.
+    flushPendingScroll();
+
+    const flingEngages = Math.abs(velocity) >= FLING_MIN_VELOCITY;
+    (window as DbgRef).__argusScrollDebug =
+      `LIFT dragRows:${gestureRows} v:${velocity.toFixed(2)} fling:${flingEngages ? 'Y' : `N(<${FLING_MIN_VELOCITY})`}`;
+    if (!flingEngages) return;
     velocity = clamp(-FLING_MAX_VELOCITY, velocity * FLING_LAUNCH_MULTIPLIER, FLING_MAX_VELOCITY);
     // Do NOT reset touchAcc/rowAcc — fractional px flows into the coast (no seam).
     startCoast(velocity);
+  };
+
+  const onTouchCancel = () => {
+    if (!touchTracking) return;
+    touchTracking = false;
+    unlockViewport();
+    flushPendingScroll();
+    (window as DbgRef).__argusScrollDebug =
+      `CANCEL dragRows:${gestureRows} acc:${rowAcc.toFixed(1)} — iOS took gesture`;
   };
 
   container.addEventListener('wheel', onWheel, { passive: false });
@@ -348,6 +393,7 @@ export function installSelectableMouse(
   container.addEventListener('touchstart', onTouchStart, { passive: true });
   container.addEventListener('touchmove', onTouchMove, { passive: false });
   container.addEventListener('touchend', onTouchEnd);
+  container.addEventListener('touchcancel', onTouchCancel);
 
   return () => {
     cancelInertia(); // a fling started just before unmount must not emit after teardown
@@ -359,6 +405,7 @@ export function installSelectableMouse(
     container.removeEventListener('touchstart', onTouchStart);
     container.removeEventListener('touchmove', onTouchMove);
     container.removeEventListener('touchend', onTouchEnd);
+    container.removeEventListener('touchcancel', onTouchCancel);
   };
 }
 

@@ -17,6 +17,7 @@ import { SessionStore, type PersistedSession } from '../persistence/SessionStore
 import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
 import { CompanionTerminalManager } from './CompanionTerminalManager.js';
+import { SleepPreventionService } from './SleepPreventionService.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
@@ -67,6 +68,8 @@ export class SessionManager {
   private gitService: GitService | null = null;
   private gitDirtyMap = new Map<string, boolean>();
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
+  private sleepPrevention = new SleepPreventionService();
+  private preventSleepWhileRunning = false;
 
   constructor(dataDir: string, configStore: ConfigStore) {
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
@@ -88,6 +91,24 @@ export class SessionManager {
     // Clear any prior timer so a second call doesn't orphan the first interval.
     if (this.gitPollTimer) clearInterval(this.gitPollTimer);
     this.gitPollTimer = setInterval(() => this.pollGitStatus(), GIT_POLL_INTERVAL_MS);
+  }
+
+  /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
+  setPreventSleepWhileRunning(enabled: boolean): void {
+    this.preventSleepWhileRunning = enabled;
+    this.refreshSleepPrevention();
+  }
+
+  /**
+   * Start/stop the sleep blocker to match desired state: blocked iff the feature
+   * is enabled AND ≥1 session is 'running'. start()/stop() are idempotent (guarded
+   * by `active`), so this is safe to call after any status mutation.
+   */
+  private refreshSleepPrevention(): void {
+    let running = 0;
+    for (const s of this.sessions.values()) if (s.status === 'running') running++;
+    const want = this.preventSleepWhileRunning && running > 0;
+    void (want ? this.sleepPrevention.start() : this.sleepPrevention.stop());
   }
 
   /**
@@ -237,6 +258,7 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+    this.refreshSleepPrevention();
     await this.persistSessions();
 
     const info = this.toSessionInfo(session);
@@ -256,6 +278,7 @@ export class SessionManager {
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     cleanupSessionDimensions(id);
+    this.refreshSleepPrevention();
     await this.persistSessions();
 
     this.io?.emit('session:deleted', { sessionId: id });
@@ -277,6 +300,7 @@ export class SessionManager {
     // Reset state
     session.outputBuffer = '';
     session.status = 'running';
+    this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
 
     // Resolve agent command
@@ -351,14 +375,20 @@ export class SessionManager {
       session.doneTimer = setTimeout(() => {
         session.doneTimer = undefined;
         if (!this.sessions.has(id)) return;
+        if (session.status !== 'running') return; // discard: status changed before timer fired
         session.status = 'done';
         session.lastPrompt = undefined;
+        this.refreshSleepPrevention();
         this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
       }, 2_000);
       return;
     }
 
+    // 'done' is sticky until acknowledgeSession; don't let StateDetector silently clear it.
+    if (session.status === 'done' && (status === 'idle' || status === 'waiting')) return;
+
     session.status = status;
+    this.refreshSleepPrevention();
     if (status === 'waiting') {
       session.lastPrompt = session.stateDetector.getLastPromptText();
     } else {
@@ -385,7 +415,13 @@ export class SessionManager {
   /** Client opened/focused the session: clear the unacknowledged-done flag. */
   acknowledgeSession(id: string): void {
     const session = this.sessions.get(id);
-    if (!session || session.status !== 'done') return;
+    if (!session) return;
+    // Cancel any pending promotion even if not yet 'done' (timer may still be running).
+    if (session.doneTimer) {
+      clearTimeout(session.doneTimer);
+      session.doneTimer = undefined;
+    }
+    if (session.status !== 'done') return;
     session.status = 'idle';
     this.io?.emit('session:status', { sessionId: id, status: 'idle' });
   }
@@ -544,6 +580,7 @@ export class SessionManager {
         // pty may already be dead — continue to next session
       }
     }
+    await this.sleepPrevention.stop();
     await this.persistSessions();
   }
 

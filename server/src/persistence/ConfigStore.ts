@@ -13,6 +13,7 @@ const DEFAULT_CONFIG: AppConfig = {
   showClock: false,
   clockShowSeconds: false,
   othersFolderName: 'Others',
+  preventSleepWhileRunning: false,
 };
 
 export class ConfigStore {

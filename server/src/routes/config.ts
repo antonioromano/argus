@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { AgentRegistry } from '../services/AgentRegistry.js';
-import type { AgentDefinition, AgentFlag } from '@argus/shared';
+import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
 
 // Validate flag values stored in agentFlags config to prevent shell injection
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
@@ -32,7 +32,7 @@ function validateCustomAgents(customAgents: AgentDefinition[]): string | null {
   return null;
 }
 
-export function createConfigRoutes(configStore: ConfigStore): Router {
+export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (config: AppConfig) => void): Router {
   const router = Router();
 
   router.get('/', async (_req, res) => {
@@ -42,7 +42,7 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning } = req.body;
 
     if (agentFlags) {
       const validationError = validateAgentFlags(agentFlags);
@@ -72,8 +72,10 @@ export function createConfigRoutes(configStore: ConfigStore): Router {
       showClock: showClock !== undefined ? !!showClock : current.showClock,
       clockShowSeconds: clockShowSeconds !== undefined ? !!clockShowSeconds : current.clockShowSeconds,
       othersFolderName: (rawOthersName && rawOthersName.length >= 1) ? rawOthersName : current.othersFolderName,
+      preventSleepWhileRunning: preventSleepWhileRunning !== undefined ? !!preventSleepWhileRunning : current.preventSleepWhileRunning,
     };
     await configStore.save(updated);
+    onConfigChange?.(updated);
     res.json(updated);
   });
 
