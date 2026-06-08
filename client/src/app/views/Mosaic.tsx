@@ -224,7 +224,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
           onDragEnd={handleTileDragEnd}
         >
           <SortableContext items={activeTileIds} strategy={rectSortingStrategy}>
-            <div className="argus-mosaic">
+            <div
+              className="argus-mosaic"
+              style={{ gridTemplateColumns: `repeat(${Math.min(activeTiles.length, 3)}, minmax(0, 1fr))` }}
+            >
               {activeTiles.map((s, i) => (
                 <SortableMosaicTile
                   key={s.id}

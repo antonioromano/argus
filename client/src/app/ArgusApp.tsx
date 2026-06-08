@@ -635,6 +635,7 @@ function DesktopInner() {
         title="Restart shell?"
         message={`This relaunches the "${pendingRestart?.name}" agent process and clears the terminal. Files on disk and git history are not touched.`}
         confirmLabel="Restart"
+        confirmDestructive
         onConfirm={() => {
           if (pendingRestart) api.restartSession(pendingRestart.id).catch(console.error);
           setPendingRestart(null);

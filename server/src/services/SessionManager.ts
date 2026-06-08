@@ -192,7 +192,11 @@ export class SessionManager {
     // Re-attaching to a live survivor: start neutral and let the detector
     // reclassify from the repaint, and suppress the redraw activity burst.
     if (attachExisting) stateDetector.markAttachRedraw();
-    const initialStatus: SessionStatus = attachExisting ? 'idle' : 'running';
+    // Restored sessions (existingId set) start neutral, never synthetic 'running':
+    // a 'running' baseline makes the first settle look like running→idle and get
+    // promoted to a false 'done' on every app/Mac restart. Genuinely new sessions
+    // (no existingId) still start 'running' so they notify 'done' when a run ends.
+    const initialStatus: SessionStatus = (attachExisting || existingId != null) ? 'idle' : 'running';
 
     const session: ManagedSession = {
       id,
