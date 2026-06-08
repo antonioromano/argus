@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -50,6 +50,22 @@ export function createWindow(): BrowserWindow {
   // IPv6. Pinning 127.0.0.1 guarantees we reach our own server.
   const port = process.env.ARGUS_PORT || '5757';
   win.loadURL(`http://127.0.0.1:${port}`);
+
+  // Route external links to the system default browser instead of opening an
+  // in-app Electron frame. Covers target="_blank"/window.open and xterm.js
+  // WebLinksAddon clicks (both go through setWindowOpenHandler), plus bare
+  // <a href> navigations that would otherwise replace the app (will-navigate).
+  // Scheme allowlist is deliberate — never hand file:/custom schemes to the OS.
+  const appOrigin = `http://127.0.0.1:${port}`;
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^(https?:|mailto:)/.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url.startsWith(appOrigin)) return; // in-app nav (reload, routing) OK
+    e.preventDefault();
+    if (/^(https?:|mailto:)/.test(url)) shell.openExternal(url);
+  });
 
   win.once('ready-to-show', () => {
     win?.show();
