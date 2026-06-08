@@ -77,6 +77,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     background: on ? 'var(--accent)' : 'transparent',
                     color: on ? 'var(--fg-on-accent)' : 'var(--fg-2)',
                     fontWeight: on ? 700 : 400,
+                    transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
                   }}
                 >
                   {opt.label}
@@ -138,6 +139,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   cursor: 'pointer',
                   background: selected ? 'var(--accent-bg)' : 'var(--bg-1)',
                   border: `1px solid ${selected ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                  transition: 'background var(--dur-fast) var(--ease-std), border-color var(--dur-fast)',
                 }}
               >
                 <div

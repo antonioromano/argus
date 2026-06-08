@@ -118,6 +118,14 @@ body {
 .mobile-keycap:active { transform: scale(0.93); }
 .mobile-keycap { transition: transform 80ms ease, background 80ms ease; -webkit-user-select: none; user-select: none; }
 
+/* Mobile session list row: tap press feedback */
+.mobile-list-row:active { background: var(--bg-3) !important; }
+
+/* Narrow phones: hide "BACK" text in focus header, keep chevron only */
+@media (max-width: 375px) {
+  .mobile-back-label { display: none; }
+}
+
 /* Pad body content on mobile to account for bottom nav */
 @media (max-width: 767px) {
   #root {
@@ -664,6 +672,9 @@ body {
   pointer-events: none;
   z-index: 2;
   transition: opacity var(--dur-fast);
+}
+[data-theme="light"] .argus-tile-overlay {
+  background: rgba(20, 15, 8, 0.06);
 }
 
 /* === File drop overlay (TerminalShell drag-over) === */

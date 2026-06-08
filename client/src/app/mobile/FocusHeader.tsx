@@ -45,7 +45,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
         }}
       >
         <ChevronLeft size={14} strokeWidth={1.6} />
-        BACK
+        <span className="mobile-back-label">BACK</span>
       </button>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, justifyContent: 'center' }}>
         <AgentGlyph agent={session.agentType} size={16} />

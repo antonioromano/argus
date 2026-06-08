@@ -103,7 +103,7 @@ export function MobileKeyboard({ session, terminalRef, onClose }: MobileKeyboard
   // Dual: fully custom, never raises the native keyboard.
   return (
     <div style={surfaceStyle}>
-      <div style={{ display: 'flex', gap: 'var(--s-1)', padding: 'var(--s-2)', background: 'var(--bg-2)', borderBottom: '1px solid var(--line-1)' }}>
+      <div style={{ display: 'flex', gap: 'var(--s-1)', padding: 'var(--s-2)', background: 'var(--bg-0)', borderBottom: '1px solid var(--line-2)' }}>
         {(['keys', 'text'] as const).map((v) => (
           <button
             key={v}

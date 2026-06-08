@@ -44,9 +44,9 @@ function Section({ title, color, sessions, filter, onSelect, onAction }: { title
       <button
         onClick={() => setCollapsed((v) => !v)}
         style={{
-          display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+          display: 'flex', alignItems: 'center', gap: 'var(--s-2)', width: '100%', textAlign: 'left',
           padding: 'var(--s-3) var(--s-4) var(--s-1)', background: 'var(--bg-1)',
-          borderBottom: '1px solid var(--line-1)', border: 'none', cursor: 'pointer',
+          border: 'none', borderBottom: '1px solid var(--line-1)', cursor: 'pointer',
         }}
       >
         <ChevronRight size={12} strokeWidth={2}
@@ -83,6 +83,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
     >
       <button
         onClick={onSelect}
+        className="mobile-list-row"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -103,7 +104,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 'var(--s-1-5)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-base)',
               fontWeight: 500,
@@ -119,7 +120,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
           <div
             className="eyebrow"
             style={{
-              marginTop: 2,
+              marginTop: 'var(--s-px)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -130,7 +131,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
           {session.status === 'waiting' && session.lastPrompt && (
             <div
               style={{
-                marginTop: 3,
+                marginTop: 'var(--s-1)',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--t-tiny)',
                 color: 'var(--accent)',
@@ -253,7 +254,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onC
                   fontSize: 'var(--t-tiny)',
                 }}
               >
-                {f.label}<span style={{ color: 'var(--fg-3)', fontSize: 9 }}>{counts[f.id]}</span>
+                {f.label}<span style={{ color: 'var(--fg-3)', fontSize: 'var(--t-micro)' }}>{counts[f.id]}</span>
               </button>
             );
           })}
@@ -321,6 +322,11 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onC
               />
             ))}
             <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} filter={filter} onSelect={onSelect} onAction={onAction} />
+            {filter !== 'all' && counts[filter] === 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--s-8) var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
+                No {filter} shells
+              </div>
+            )}
           </>
         )}
       </div>

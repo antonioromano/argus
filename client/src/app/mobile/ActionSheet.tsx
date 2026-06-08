@@ -87,7 +87,7 @@ export function ActionSheet({
           iconFill={isFavorite}
           onClick={close(() => onToggleFavorite(session))}
         />
-        <div style={{ height: 1, background: 'var(--line-1)', margin: '4px 0' }} />
+        <div style={{ height: '1px', background: 'var(--line-1)', margin: 'var(--s-1) 0' }} />
         <Row icon={Trash2} label="Kill shell" danger onClick={close(() => onKill(session))} />
       </div>
     </div>
@@ -104,7 +104,7 @@ function Row({
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%',
-        padding: '13px var(--s-4)', background: 'none', border: 'none', cursor: 'pointer',
+        padding: 'var(--s-3) var(--s-4)', background: 'none', border: 'none', cursor: 'pointer',
         textAlign: 'left', color, minHeight: 48,
       }}
     >
