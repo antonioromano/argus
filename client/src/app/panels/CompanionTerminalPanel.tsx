@@ -22,7 +22,7 @@ export function CompanionTerminalPanel({
 }: CompanionTerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { terminalAlive } = useCompanionTerminal(containerRef, { sessionId: session.id, socket, theme });
-  const termBg = 'var(--bg-inset)';
+  const termBg = theme === 'dark' ? '#1a1b26' : '#f5f5f5';
 
   return (
     <aside

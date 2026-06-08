@@ -226,7 +226,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
           <SortableContext items={activeTileIds} strategy={rectSortingStrategy}>
             <div
               className="argus-mosaic"
-              style={{ gridTemplateColumns: `repeat(${Math.min(activeTiles.length, 3)}, minmax(0, 1fr))` }}
+              style={{
+                gridTemplateColumns: `repeat(${Math.min(activeTiles.length, 3)}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${Math.ceil(activeTiles.length / Math.min(activeTiles.length, 3))}, minmax(0, 1fr))`,
+              }}
             >
               {activeTiles.map((s, i) => (
                 <SortableMosaicTile
@@ -322,7 +325,7 @@ function SortableMosaicTile(props: MosaicTileSharedProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={{ ...style, minWidth: 0, height: '100%' }}>
+    <div ref={setNodeRef} style={{ ...style, minWidth: 0 }}>
       <MosaicTile
         {...props}
         dragHandleListeners={listeners}
