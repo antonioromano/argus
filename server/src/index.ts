@@ -79,6 +79,20 @@ const corsOriginFn = (
 app.use(cors({ origin: corsOriginFn }));
 app.use(express.json({ limit: '10mb' }));
 
+// Dev scroll-trace sink: the mobile client (with ?debug=1) POSTs per-gesture touch/scroll
+// traces here so on-device scroll behavior can be diagnosed without a Safari cable. Mounted
+// BEFORE auth so it works regardless of session state. Appends text to scroll-debug.log.
+app.use('/api/debug/scroll', express.text({ type: '*/*', limit: '1mb' }));
+app.post('/api/debug/scroll', (req, res) => {
+  try {
+    fs.appendFileSync(
+      path.join(dataDir, 'scroll-debug.log'),
+      `\n===== ${new Date().toISOString()} =====\n${typeof req.body === 'string' ? req.body : ''}\n`,
+    );
+  } catch { /* best-effort */ }
+  res.status(204).end();
+});
+
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },
 });

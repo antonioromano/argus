@@ -89,8 +89,11 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
       const rowH = screenH > 0 && t.rows > 0 ? (screenH / t.rows).toFixed(1) : '?';
       const above = buf.viewportY;
       const below = Math.max(0, buf.length - t.rows - buf.viewportY);
+      const vp = containerRef.current?.querySelector<HTMLElement>('.xterm-viewport');
+      const sTop = vp ? Math.round(vp.scrollTop) : -1;
+      const fit = (window as Window & { __argusFit?: number }).__argusFit ?? 0;
       const scrollDbg = (window as Window & { __argusScrollDebug?: string }).__argusScrollDebug ?? '-';
-      setDebugStats(`buf:${buf.type} ↑${above} ↓${below} rows:${t.rows} rowH:${rowH}px | ${scrollDbg}`);
+      setDebugStats(`↑${above} ↓${below} sTop:${sTop} fit:${fit} rowH:${rowH} | ${scrollDbg}`);
     };
     const id = setInterval(tick, 500);
     return () => clearInterval(id);

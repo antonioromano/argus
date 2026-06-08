@@ -245,6 +245,8 @@ export function useTerminal(
     // Resize handling
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+        (window as Window & { __argusFit?: number }).__argusFit =
+          ((window as Window & { __argusFit?: number }).__argusFit ?? 0) + 1;
         fitAddon.fit();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('session:resize', {
