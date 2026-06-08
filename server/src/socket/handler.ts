@@ -242,6 +242,12 @@ export function setupSocketHandler(
       manager.acknowledgeSession(sessionId);
     });
 
+    // Client manually promotes an idle session to done.
+    socket.on('session:mark-done', (sessionId: string) => {
+      if (!manager.getSession(sessionId)) return;
+      manager.markSessionDone(sessionId);
+    });
+
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
       // Clean up dimensions for all sessions and companion terminals this socket was part of

@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { SquareTerminal, RotateCcw, Star, Trash2 } from 'lucide-react';
+import { SquareTerminal, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
@@ -8,6 +8,7 @@ interface ActionSheetProps {
   session: SessionInfo | null;
   isFavorite: boolean;
   onOpen: (id: string) => void;
+  onMarkDone?: (id: string) => void;
   onRestart: (id: string) => void;
   onToggleFavorite: (session: SessionInfo) => void;
   onKill: (session: SessionInfo) => void;
@@ -23,6 +24,7 @@ export function ActionSheet({
   session,
   isFavorite,
   onOpen,
+  onMarkDone,
   onRestart,
   onToggleFavorite,
   onKill,
@@ -80,6 +82,9 @@ export function ActionSheet({
         </div>
 
         <Row icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
+        {session.status === 'idle' && onMarkDone && (
+          <Row icon={CheckCircle2} label="Mark as done" sub="Move this shell to done" done onClick={close(() => onMarkDone(session.id))} />
+        )}
         <Row icon={RotateCcw} label="Restart shell" sub="Relaunch the agent process" onClick={close(() => onRestart(session.id))} />
         <Row
           icon={Star}
@@ -95,9 +100,10 @@ export function ActionSheet({
 }
 
 function Row({
-  icon: Icon, label, sub, danger, iconFill, onClick,
-}: { icon: LucideIcon; label: string; sub?: string; danger?: boolean; iconFill?: boolean; onClick: () => void }) {
-  const color = danger ? 'var(--danger)' : 'var(--fg-0)';
+  icon: Icon, label, sub, danger, done, iconFill, onClick,
+}: { icon: LucideIcon; label: string; sub?: string; danger?: boolean; done?: boolean; iconFill?: boolean; onClick: () => void }) {
+  const color = danger ? 'var(--danger)' : done ? 'var(--status-done)' : 'var(--fg-0)';
+  const iconColor = danger ? 'var(--danger)' : done ? 'var(--status-done)' : 'var(--fg-2)';
   return (
     <button
       role="menuitem"
@@ -108,7 +114,7 @@ function Row({
         textAlign: 'left', color, minHeight: 48,
       }}
     >
-      <Icon size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: danger ? 'var(--danger)' : 'var(--fg-2)', flexShrink: 0 }} />
+      <Icon size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
       <span style={{ fontSize: 'var(--t-md)', fontFamily: 'var(--font-sans)' }}>
         {label}
         {sub && <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>{sub}</span>}

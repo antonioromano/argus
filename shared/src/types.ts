@@ -107,6 +107,7 @@ export interface ClientToServerEvents {
   'session:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;
   'session:clear-buffer': (sessionId: string) => void;
   'session:seen': (sessionId: string) => void;
+  'session:mark-done': (sessionId: string) => void;
   // Ephemeral terminals (Explorer view only — not persisted, not in session list)
   'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
   'ephemeral:input': (payload: { id: string; data: string }) => void;

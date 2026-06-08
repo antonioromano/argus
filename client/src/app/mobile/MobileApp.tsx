@@ -106,6 +106,7 @@ function Inner() {
   };
 
   const handleRestart = (id: string) => { api.restartSession(id).catch(console.error); };
+  const handleMarkDone = (id: string) => { socket.emit('session:mark-done', id); };
 
   const confirmKill = async () => {
     if (!killTarget) return;
@@ -153,7 +154,13 @@ function Inner() {
             )}
             {tab === 'settings' && <MobileSettings publicUrl={publicUrl} notify={notify} onSetNotify={setNotify} notifyDone={notifyDone} onSetNotifyDone={setNotifyDone} />}
           </div>
-          <BottomNav active={tab} onChange={setTab} onCreate={() => setShowCreate(true)} />
+          <BottomNav
+            active={tab}
+            onChange={setTab}
+            onCreate={() => setShowCreate(true)}
+            doneCount={sessions.filter((s) => s.status === 'done').length}
+            waitingCount={sessions.filter((s) => s.status === 'waiting').length}
+          />
         </div>
       )}
 
@@ -161,6 +168,7 @@ function Inner() {
         session={actionTarget}
         isFavorite={actionTarget ? groups.isFavorite(actionTarget.id) : false}
         onOpen={(id) => setFocusedId(id)}
+        onMarkDone={handleMarkDone}
         onRestart={handleRestart}
         onToggleFavorite={(s) => groups.toggleFavorite(s)}
         onKill={(s) => setKillTarget(s)}

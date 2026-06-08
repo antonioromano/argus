@@ -545,6 +545,7 @@ function DesktopInner() {
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
+              onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}

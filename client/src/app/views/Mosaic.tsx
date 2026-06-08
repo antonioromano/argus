@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw, CheckCircle2 } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, StatusDot, DirtyBadge, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
@@ -53,6 +53,7 @@ interface MosaicProps {
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  onMarkDone?: (session: SessionInfo) => void;
   onMerge?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
@@ -72,7 +73,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -255,6 +256,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onOpen={() => onOpenSession(s.id)}
                   onKill={() => onKill(s)}
                   onRestart={() => onRestart(s)}
+                  onMarkDone={onMarkDone && s.status === 'idle' ? () => onMarkDone(s) : undefined}
                   onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
                   onClone={onClone ? () => onClone(s) : undefined}
                   onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
@@ -319,6 +321,7 @@ type MosaicTileSharedProps = {
   onOpen: () => void;
   onKill: () => void;
   onRestart: () => void;
+  onMarkDone?: () => void;
   onMerge?: () => void;
   onClone?: () => void;
   onFocusDiff?: () => void;
@@ -443,6 +446,7 @@ function MosaicTile({
   onOpen,
   onKill,
   onRestart,
+  onMarkDone,
   onMerge,
   onClone,
   onFocusDiff,
@@ -544,6 +548,15 @@ function MosaicTile({
             label="Open shell in focus"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onFocusTerminal(); }}
+          />
+        )}
+        {onMarkDone && (
+          <IconButton
+            icon={CheckCircle2}
+            label="Mark as done"
+            size="sm"
+            style={{ color: 'var(--status-done)' }}
+            onClick={(e) => { e.stopPropagation(); onMarkDone(); }}
           />
         )}
         <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />

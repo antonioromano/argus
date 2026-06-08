@@ -412,6 +412,15 @@ export class SessionManager {
     this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
   }
 
+  /** Client manually promotes an idle session to done. */
+  markSessionDone(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status !== 'idle') return;
+    session.status = 'done';
+    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
+    this.persistSessions();
+  }
+
   /** Client opened/focused the session: clear the unacknowledged-done flag. */
   acknowledgeSession(id: string): void {
     const session = this.sessions.get(id);
