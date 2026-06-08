@@ -9,6 +9,11 @@ const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 // (binary name + simple args), rejecting shell metacharacters.
 const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
 
+function isStringRecord(v: unknown): v is Record<string, string> {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  return Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string');
+}
+
 function validateAgentFlags(agentFlags: Record<string, AgentFlag[]>): string | null {
   for (const [, flags] of Object.entries(agentFlags)) {
     for (const flag of flags) {
@@ -42,7 +47,12 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, keyboardShortcuts } = req.body;
+
+    if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
+      res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
+      return;
+    }
 
     if (agentFlags) {
       const validationError = validateAgentFlags(agentFlags);
@@ -73,6 +83,8 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       clockShowSeconds: clockShowSeconds !== undefined ? !!clockShowSeconds : current.clockShowSeconds,
       othersFolderName: (rawOthersName && rawOthersName.length >= 1) ? rawOthersName : current.othersFolderName,
       preventSleepWhileRunning: preventSleepWhileRunning !== undefined ? !!preventSleepWhileRunning : current.preventSleepWhileRunning,
+      confirmCloseShell: confirmCloseShell !== undefined ? !!confirmCloseShell : current.confirmCloseShell,
+      keyboardShortcuts: keyboardShortcuts ?? current.keyboardShortcuts,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

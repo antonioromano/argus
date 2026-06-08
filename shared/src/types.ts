@@ -30,6 +30,8 @@ export interface AppConfig {
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
   preventSleepWhileRunning?: boolean; // keep macOS awake while ≥1 shell is running
+  confirmCloseShell?: boolean; // show the confirm modal before closing a shell (Cmd+W / card button)
+  keyboardShortcuts?: Record<string, string>; // action id -> combo override (e.g. "command-palette": "mod+shift+k")
 }
 
 export interface AgentStatus {

@@ -28,6 +28,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -58,11 +59,20 @@ interface MosaicProps {
   onFocusExplorer?: (id: string) => void;
   onFocusTerminal?: (id: string) => void;
   mergingSessionId?: string | null;
+  shortcuts?: ResolvedShortcuts;
+  /** Session id whose terminal search bar is open (null = none). */
+  searchSessionId?: string | null;
+  /** Open the search bar for a given session's terminal. */
+  onRequestSearch?: (id: string) => void;
+  /** Close the open search bar. */
+  onCloseSearch?: () => void;
+  /** Report which tile's terminal currently holds keyboard focus (null when none). */
+  onActiveTerminalChange?: (id: string | null) => void;
 }
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -143,6 +153,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     const s = sessions.find((s) => s.id === focusedId);
     if (s?.status === 'done') socket.emit('session:seen', focusedId);
   }, [focusedId, sessions, socket]);
+
+  // Report the focused tile up so Cmd+W / Cmd+F can target the active terminal.
+  // A minimized tile renders no terminal, so a focused tile is always an active one.
+  useEffect(() => { onActiveTerminalChange?.(focusedId); }, [focusedId, onActiveTerminalChange]);
 
   if (sessions.length === 0) {
     return (
@@ -247,6 +261,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
                   onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
                   onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
+                  shortcuts={shortcuts}
+                  searchOpen={searchSessionId === s.id}
+                  onOpenSearch={onRequestSearch ? () => onRequestSearch(s.id) : undefined}
+                  onCloseSearch={onCloseSearch}
                 />
               ))}
             </div>
@@ -307,6 +325,10 @@ type MosaicTileSharedProps = {
   onFocusExplorer?: () => void;
   onFocusTerminal?: () => void;
   onOpenDiff?: () => void;
+  shortcuts?: ResolvedShortcuts;
+  searchOpen?: boolean;
+  onOpenSearch?: () => void;
+  onCloseSearch?: () => void;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -427,6 +449,10 @@ function MosaicTile({
   onFocusExplorer,
   onFocusTerminal,
   onOpenDiff,
+  shortcuts,
+  searchOpen,
+  onOpenSearch,
+  onCloseSearch,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
@@ -565,7 +591,7 @@ function MosaicTile({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} />
         </ErrorBoundary>
       </div>
     </div>

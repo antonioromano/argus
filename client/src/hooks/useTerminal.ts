@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { isPrimaryModifier } from '../utils/platform.js';
+import { comboMatches } from '../keyboard/combo.js';
+import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
 
 import '@xterm/xterm/css/xterm.css';
@@ -21,6 +23,10 @@ interface UseTerminalOptions {
   onFocusChange?: (focused: boolean) => void;
   /** Focus the terminal once it mounts (e.g. a tile restored from the minimized row). */
   autoFocus?: boolean;
+  /** Resolved keyboard shortcuts. Falls back to registry defaults when omitted. */
+  shortcuts?: ResolvedShortcuts;
+  /** Open the in-terminal search bar for this terminal (Cmd+F). */
+  onRequestSearch?: () => void;
 }
 
 const DARK_THEME = {
@@ -75,13 +81,20 @@ export function useTerminal(
 ) {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false } = options;
+  const searchAddonRef = useRef<SearchAddon | null>(null);
+  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
   const autoFocusRef = useRef(autoFocus);
   useEffect(() => { autoFocusRef.current = autoFocus; }, [autoFocus]);
   const onFocusChangeRef = useRef(onFocusChange);
   useEffect(() => { onFocusChangeRef.current = onFocusChange; }, [onFocusChange]);
+  // Key handling reads these through refs so the once-attached handler always sees
+  // current bindings without re-running the terminal-creation effect.
+  const shortcutsRef = useRef<ResolvedShortcuts>(shortcuts ?? resolveShortcuts());
+  useEffect(() => { shortcutsRef.current = shortcuts ?? resolveShortcuts(); }, [shortcuts]);
+  const onRequestSearchRef = useRef(onRequestSearch);
+  useEffect(() => { onRequestSearchRef.current = onRequestSearch; }, [onRequestSearch]);
 
   // Insurance for cold starts: if the bundled web fonts aren't loaded when the
   // terminal is first opened, char-cell geometry can be measured against the
@@ -133,6 +146,9 @@ export function useTerminal(
 
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
+    const searchAddon = new SearchAddon();
+    terminal.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
 
     terminal.open(container);
 
@@ -209,29 +225,31 @@ export function useTerminal(
     socket.on('session:output', handleOutput);
 
     if (!readOnly) terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      // Shift+Enter: send ESC+CR so Claude Code inserts a newline
-      if (
-        event.key === 'Enter' &&
-        event.shiftKey &&
-        !event.ctrlKey &&
-        !event.metaKey &&
-        !event.altKey
-      ) {
+      const binds = shortcutsRef.current;
+
+      // Insert newline (default Shift+Enter): send ESC+CR so Claude Code inserts a newline.
+      if (comboMatches(event, binds['terminal-newline'])) {
         if (event.type === 'keydown') {
           socket.emit('session:input', { sessionId, data: '\x1b\r' });
         }
         return false;
       }
 
-      // Cmd+L (Mac) or Ctrl+L (others) clears the terminal — matches Terminal.app convention.
-      // Cmd+K is reserved for the global Command Palette (see App.tsx).
-      if (isPrimaryModifier(event) && (event.key === 'l' || event.key === 'L')) {
+      // Clear terminal (default Cmd/Ctrl+L) — matches Terminal.app convention.
+      if (comboMatches(event, binds['clear-terminal'])) {
         if (event.type === 'keydown') {
           terminal.clear();
           socket.emit('session:clear-buffer', sessionId);
         }
         return false;
       }
+
+      // Search in terminal (default Cmd/Ctrl+F): swallow the default and open the bar.
+      if (comboMatches(event, binds['terminal-search'])) {
+        if (event.type === 'keydown') onRequestSearchRef.current?.();
+        return false;
+      }
+
       return true;
     });
 
@@ -295,6 +313,7 @@ export function useTerminal(
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      searchAddonRef.current = null;
     };
   }, [sessionId, socket, containerRef, readOnly, fontsReady]);
 
@@ -307,5 +326,5 @@ export function useTerminal(
     }
   }, [theme]);
 
-  return { terminalRef, fitAddonRef };
+  return { terminalRef, fitAddonRef, searchAddonRef };
 }

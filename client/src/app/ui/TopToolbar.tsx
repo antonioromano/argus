@@ -24,11 +24,10 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-      <div style={{ width: 260 }} data-shortcut-host="filter" onKeyDown={onKeyDown}>
+      <div style={{ width: 260 }} onKeyDown={onKeyDown}>
         <TextInput
           icon={Search}
           placeholder="Filter shells"
-          suffix="⌘F"
           value={filter}
           onChange={onFilter}
         />

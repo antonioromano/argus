@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Overlay, SidePanel, View } from '../types.js';
-import { isPrimaryModifier } from '../../utils/platform.js';
 
 export interface AppViewState {
   view: View;
@@ -27,9 +26,9 @@ export interface AppViewApi extends AppViewState {
  * - sidePanel: right rail in focus
  *
  * Keyboard:
- *   ⌘K / Ctrl+K → toggle palette
- *   ⌘N / Ctrl+N → open create
- *   Escape      → close overlay → close side panel → exit focus (priority)
+ *   Escape → close overlay → close side panel → exit focus (priority).
+ *   All rebindable shortcuts (palette, new session, settings, …) are owned by the
+ *   registry-driven handler in ArgusApp. Escape stays here as a fixed behavior.
  */
 export function useAppView(): AppViewApi {
   const [state, setState] = useState<AppViewState>({
@@ -77,27 +76,9 @@ export function useAppView(): AppViewApi {
     });
   }, []);
 
-  // Global keyboard
+  // Global keyboard — Escape only (fixed). Rebindable shortcuts live in ArgusApp.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // ignore when typing in an input/textarea/contenteditable (xterm uses its own helper textarea)
-      const target = e.target as HTMLElement | null;
-      const isTyping = !!target && (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      );
-
-      if (isPrimaryModifier(e) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setState((s) => ({ ...s, overlay: s.overlay?.kind === 'palette' ? null : { kind: 'palette' } }));
-        return;
-      }
-      if (isPrimaryModifier(e) && e.key.toLowerCase() === 'n' && !isTyping) {
-        e.preventDefault();
-        setState((s) => ({ ...s, overlay: { kind: 'create' } }));
-        return;
-      }
       if (e.key === 'Escape') {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };

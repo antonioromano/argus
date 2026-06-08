@@ -14,6 +14,8 @@ const DEFAULT_CONFIG: AppConfig = {
   clockShowSeconds: false,
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
+  confirmCloseShell: true,
+  keyboardShortcuts: {},
 };
 
 export class ConfigStore {

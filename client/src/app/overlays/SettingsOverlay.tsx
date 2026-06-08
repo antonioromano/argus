@@ -1,6 +1,6 @@
 import { useState, Fragment } from 'react';
 import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
-import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch, Volume2, Timer } from 'lucide-react';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch, Volume2, Timer, Keyboard } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -18,6 +18,7 @@ import {
   StatusDot,
   AlertSheet,
 } from '../../components/primitives/index.js';
+import { KeyboardSettings } from './settings/KeyboardSettings.js';
 
 interface SettingsOverlayProps {
   config: AppConfig;
@@ -34,12 +35,13 @@ interface SettingsOverlayProps {
   initialTab?: string;
 }
 
-type Tab = 'general' | 'agents' | 'notif' | 'remote' | 'worktrees';
+type Tab = 'general' | 'agents' | 'notif' | 'remote' | 'worktrees' | 'keyboard';
 
 const TABS: { id: Tab; icon: typeof Cpu; label: string }[] = [
   { id: 'general', icon: SlidersHorizontal, label: 'General' },
   { id: 'agents', icon: Cpu, label: 'Agents' },
   { id: 'notif', icon: Bell, label: 'Notifications' },
+  { id: 'keyboard', icon: Keyboard, label: 'Keyboard' },
   { id: 'remote', icon: Wifi, label: 'Remote' },
   { id: 'worktrees', icon: GitBranch, label: 'Agent Isolation' },
 ];
@@ -55,7 +57,7 @@ const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
 
 export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSaveFlag, onDeleteFlag, ngrokStatus, ngrokLoading, ngrokError, onNgrokStart, onNgrokStop, initialTab }: SettingsOverlayProps) {
-  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees'].includes(initialTab)) ? initialTab as Tab : 'general';
+  const validInitial = (initialTab && ['general', 'agents', 'notif', 'remote', 'worktrees', 'keyboard'].includes(initialTab)) ? initialTab as Tab : 'general';
   const [tab, setTab] = useState<Tab>(validInitial);
   const { mode, setMode } = useTheme();
   const agents = [...BUILTIN, ...config.customAgents];
@@ -359,6 +361,10 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 </Field>
               </Section>
             </div>
+          )}
+
+          {tab === 'keyboard' && (
+            <KeyboardSettings config={config} onSave={onSave} />
           )}
 
           {tab === 'agents' && (

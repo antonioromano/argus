@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Check } from 'lucide-react';
 
 interface AlertSheetProps {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface AlertSheetProps {
   onConfirm: () => void;
   onCancel: () => void;
   altAction?: { label: string; onClick: () => void };
+  /** Optional "don't ask again" checkbox shown above the action row. */
+  rememberChoice?: { label: string; checked: boolean; onChange: (checked: boolean) => void };
 }
 
 export function AlertSheet({
@@ -23,6 +26,7 @@ export function AlertSheet({
   onConfirm,
   onCancel,
   altAction,
+  rememberChoice,
 }: AlertSheetProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -127,6 +131,46 @@ export function AlertSheet({
         >
           {message}
         </p>
+        {rememberChoice && (
+          <button
+            type="button"
+            onClick={() => rememberChoice.onChange(!rememberChoice.checked)}
+            disabled={confirmLoading}
+            aria-checked={rememberChoice.checked}
+            role="checkbox"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--s-2)',
+              margin: '0 0 var(--s-4)',
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--fg-1)',
+              fontSize: 'var(--t-sm)',
+              fontFamily: 'var(--font-sans)',
+              cursor: confirmLoading ? 'default' : 'pointer',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: 16,
+                height: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 'var(--r-1)',
+                border: `1px solid ${rememberChoice.checked ? 'var(--accent)' : 'var(--line-3)'}`,
+                background: rememberChoice.checked ? 'var(--accent)' : 'var(--bg-2)',
+                color: rememberChoice.checked ? 'var(--bg-0)' : 'transparent',
+              }}
+            >
+              {rememberChoice.checked && <Check size={11} strokeWidth={2.5} />}
+            </span>
+            {rememberChoice.label}
+          </button>
+        )}
         <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>
           <button onClick={onCancel} disabled={confirmLoading} style={{ ...ghostBtn, opacity: confirmLoading ? 0.5 : 1 }}>Cancel</button>
           {altAction && (

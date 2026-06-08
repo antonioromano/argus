@@ -15,6 +15,7 @@ import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import type { SidePanel } from '../types.js';
+import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
 const SIDE_PANEL_MIN = 240;
@@ -49,6 +50,10 @@ interface FocusProps {
   onClone: () => void;
   onKill: () => void;
   onRestart: () => void;
+  shortcuts?: ResolvedShortcuts;
+  searchOpen?: boolean;
+  onOpenSearch?: () => void;
+  onCloseSearch?: () => void;
 }
 
 export function Focus({
@@ -69,6 +74,10 @@ export function Focus({
   onClone,
   onKill,
   onRestart,
+  shortcuts,
+  searchOpen,
+  onOpenSearch,
+  onCloseSearch,
 }: FocusProps) {
   const [copied, setCopied] = useState(false);
   const [terminalFocused, setTerminalFocused] = useState(false);
@@ -213,7 +222,7 @@ export function Focus({
 
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
             <ErrorBoundary key={active.id} label={active.name}>
-              <TerminalShell session={active} socket={socket} theme={theme} status={active.status} focused={terminalFocused} onFocusChange={setTerminalFocused} framed={false} />
+              <TerminalShell session={active} socket={socket} theme={theme} status={active.status} focused={terminalFocused} onFocusChange={setTerminalFocused} framed={false} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} />
             </ErrorBoundary>
           </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/theme-context.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
@@ -10,7 +10,7 @@ import { useNgrok } from '../hooks/useNgrok.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
-import { isPrimaryModifier } from '../utils/platform.js';
+import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
@@ -149,6 +149,52 @@ function DesktopInner() {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
 
+  // Resolved keyboard shortcuts (registry defaults + user overrides from config).
+  const shortcuts = useShortcuts(config?.keyboardShortcuts);
+
+  // Which terminal is "active" for Cmd+W / Cmd+F: the focused mosaic tile on the
+  // dashboard, or the open session in focus view. Mosaic reports its focused tile up.
+  const [mosaicFocusedId, setMosaicFocusedId] = useState<string | null>(null);
+  const activeTerminalId = app.view === 'focus' ? app.activeSessionId : mosaicFocusedId;
+
+  // Session whose in-terminal search bar is open (null = none).
+  const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
+  const openTerminalSearch = useCallback(() => {
+    setSearchSessionId((cur) => activeTerminalId ?? cur);
+  }, [activeTerminalId]);
+  const openTerminalSearchFor = useCallback((id: string) => setSearchSessionId(id), []);
+  const closeTerminalSearch = useCallback(() => setSearchSessionId(null), []);
+
+  // Whether closing a shell shows the confirm modal (off → close immediately).
+  const confirmCloseShell = config?.confirmCloseShell !== false;
+  const [killRemember, setKillRemember] = useState(false);
+
+  // Close a shell, honoring the saved "don't ask again" choice. Shared by the card
+  // close button and Cmd+W (menu:close-session).
+  const requestKill = useCallback((s: SessionInfo) => {
+    if (!confirmCloseShell) {
+      void deleteSession(s.id);
+      if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
+      return;
+    }
+    setKillRemember(false);
+    setPendingKill(s);
+  }, [confirmCloseShell, deleteSession, app]);
+
+  // Cmd+W → close the active terminal's shell. Registered once; reads latest state via ref.
+  const closeActiveShell = useCallback(() => {
+    if (!activeTerminalId) return;
+    const s = sessions.find((x) => x.id === activeTerminalId);
+    if (s) requestKill(s);
+  }, [activeTerminalId, sessions, requestKill]);
+  const closeActiveShellRef = useRef(closeActiveShell);
+  useEffect(() => { closeActiveShellRef.current = closeActiveShell; }, [closeActiveShell]);
+  useEffect(() => {
+    const bridge = window.electronApp;
+    if (!bridge) return;
+    return bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
+  }, []);
+
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
   const mosaicSessions = useMemo(() => getMosaicOrderedSessions(sessions), [sessions, getMosaicOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
@@ -222,29 +268,46 @@ function DesktopInner() {
     link.href = href;
   }, [sessions]);
 
-  // Global keyboard shortcuts (⌘F filter, ⌘N new session, ⌘K palette)
+  // Global keyboard shortcuts — resolved from the registry (overridable in settings).
+  // Terminal-scoped actions (clear, newline, search-when-focused) are owned by useTerminal;
+  // close-shell is owned by the Electron menu accelerator (see the menu:close-session listener).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isPrimaryModifier(e)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'f') {
-        e.preventDefault();
-        const host = document.querySelector<HTMLElement>('[data-shortcut-host="filter"]');
-        host?.querySelector<HTMLInputElement>('input')?.focus();
-      } else if (k === 'n') {
-        e.preventDefault();
-        app.openOverlay({ kind: 'create' });
-      } else if (k === ',') {
-        e.preventDefault();
-        app.openOverlay({ kind: 'settings' });
-      } else if (k === 'k') {
-        e.preventDefault();
-        app.openOverlay({ kind: 'palette' });
+      const target = e.target as HTMLElement | null;
+      const isTyping = !!target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
+      switch (shortcuts.match(e)) {
+        case 'new-session':
+          if (isTyping) return;
+          e.preventDefault();
+          app.openOverlay({ kind: 'create' });
+          break;
+        case 'open-settings':
+          e.preventDefault();
+          app.openOverlay({ kind: 'settings' });
+          break;
+        case 'command-palette':
+          e.preventDefault();
+          if (app.overlay?.kind === 'palette') app.closeOverlay();
+          else app.openOverlay({ kind: 'palette' });
+          break;
+        case 'terminal-search':
+          // Fallback when no terminal owns the keystroke (e.g. focus is on the shell
+          // chrome). Open search for the active terminal; useTerminal handles the
+          // focused-terminal case and swallows the default.
+          e.preventDefault();
+          openTerminalSearch();
+          break;
+        default:
+          break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app]);
+  }, [app, shortcuts, openTerminalSearch]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -480,7 +543,7 @@ function DesktopInner() {
               isMinimized={mosaicVis.isMinimized}
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}
-              onKill={setPendingKill}
+              onKill={requestKill}
               onRestart={setPendingRestart}
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
@@ -489,6 +552,11 @@ function DesktopInner() {
               onFocusExplorer={(id) => { app.openSession(id); app.openSidePanel({ kind: 'explorer', sessionId: id }); }}
               onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
               onOpenDiff={(id) => app.openOverlay({ kind: 'diff', sessionId: id })}
+              shortcuts={shortcuts.resolved}
+              searchSessionId={searchSessionId}
+              onRequestSearch={openTerminalSearchFor}
+              onCloseSearch={closeTerminalSearch}
+              onActiveTerminalChange={setMosaicFocusedId}
             />
           )}
 
@@ -509,8 +577,12 @@ function DesktopInner() {
               onExpandDiff={(file) => app.openOverlay({ kind: 'diff', sessionId: activeSession.id, file })}
               onExpandExplorer={(filePath) => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath })}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
-              onKill={() => setPendingKill(activeSession)}
+              onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
+              shortcuts={shortcuts.resolved}
+              searchOpen={searchSessionId === activeSession.id}
+              onOpenSearch={() => openTerminalSearchFor(activeSession.id)}
+              onCloseSearch={closeTerminalSearch}
             />
           )}
         </main>
@@ -620,12 +692,14 @@ function DesktopInner() {
         }
         confirmLabel="Close"
         confirmDestructive
+        rememberChoice={{ label: "Don't ask again", checked: killRemember, onChange: setKillRemember }}
         onConfirm={() => {
           if (pendingKill) {
             const id = pendingKill.id;
             void deleteSession(id);
             if (app.view === 'focus' && app.activeSessionId === id) app.exitFocus();
           }
+          if (killRemember) void updateConfig({ confirmCloseShell: false });
           setPendingKill(null);
         }}
         onCancel={() => setPendingKill(null)}

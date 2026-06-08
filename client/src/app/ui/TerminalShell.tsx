@@ -5,6 +5,8 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
+import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
+import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -19,16 +21,24 @@ interface TerminalShellProps {
   framed?: boolean;
   /** Focus the terminal once it mounts (tile restored from the minimized row). */
   autoFocus?: boolean;
+  /** Resolved keyboard shortcuts (for Cmd+F / Cmd+L / Shift+Enter in the terminal). */
+  shortcuts?: ResolvedShortcuts;
+  /** Whether the in-terminal search bar is open for this shell. */
+  searchOpen?: boolean;
+  /** Open this shell's search bar (Cmd+F when this terminal is focused). */
+  onOpenSearch?: () => void;
+  /** Close this shell's search bar. */
+  onCloseSearch?: () => void;
 }
 
 /**
  * xterm.js container. Interior is fully owned by useTerminal — this wrapper
  * supplies the status-colored frame only. Refit via 'terminal:refit' window event.
  */
-export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false }: TerminalShellProps) {
+export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus });
+  const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch });
 
   // Refit on focus enter so xterm cols/rows match
   useEffect(() => {
@@ -109,6 +119,9 @@ export function TerminalShell({ session, socket, theme, status, focused, onFocus
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
       }}
     >
+      {searchOpen && onCloseSearch && (
+        <TerminalSearchBar searchAddonRef={searchAddonRef} terminalRef={terminalRef} onClose={onCloseSearch} />
+      )}
       {focused === false && <div className="argus-tile-overlay" style={{ borderRadius: framed ? 'var(--r-2)' : 0 }} />}
       {isDragOver && (
         <div
