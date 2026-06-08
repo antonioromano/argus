@@ -476,6 +476,7 @@ function DesktopInner() {
               groupColorOf={groupColorOf}
               toggleMinimize={mosaicVis.toggleMinimize}
               restoreFromFilter={mosaicVis.restoreFromFilter}
+              restoreAll={mosaicVis.restoreAll}
               isMinimized={mosaicVis.isMinimized}
               onOpenSession={app.openSession}
               onCreate={() => app.openOverlay({ kind: 'create' })}

@@ -782,6 +782,102 @@ body {
   pointer-events: none;
 }
 
+/* === Landing (ambient mission-control) — shown when nothing is on the grid === */
+.argus-landing {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-align: center;
+}
+.argus-landing-glow {
+  position: absolute;
+  width: 620px;
+  height: 620px;
+  max-width: 90%;
+  max-height: 90%;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-glow) 0%, transparent 62%);
+  filter: blur(8px);
+  pointer-events: none;
+  animation: argus-landing-breathe 6s var(--ease-std) infinite;
+}
+.argus-landing-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-6);
+  animation: argus-fade-in var(--dur-slow) var(--ease-out) backwards;
+}
+.argus-landing-ring {
+  position: relative;
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-edge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.argus-landing-ring::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  animation: argus-landing-pulse var(--dur-ambient) var(--ease-out) infinite;
+}
+.argus-landing-core {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--fg-on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 40px var(--accent-glow);
+}
+.argus-landing-title {
+  margin: 0;
+  font-size: var(--t-3xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--fg-0);
+}
+.argus-landing-hint {
+  margin: 0;
+  max-width: 360px;
+  font-size: var(--t-md);
+  color: var(--fg-2);
+  line-height: var(--lh-body);
+}
+.argus-landing-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  justify-content: center;
+  margin-top: var(--s-1);
+}
+@keyframes argus-landing-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%      { transform: scale(1.12); opacity: 1; }
+}
+@keyframes argus-landing-pulse {
+  0%   { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .argus-landing-glow,
+  .argus-landing-ring::after,
+  .argus-landing-inner { animation: none; }
+}
+
 /* === MOBILE: keep inputs ≥16px so iOS Safari doesn't auto-zoom on focus
    (and, with no maximum-scale in the viewport, never zoom back out).
    !important beats the inline font-size on TextInput's <input> (Form.tsx). === */

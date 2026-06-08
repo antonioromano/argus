@@ -17,6 +17,9 @@ function loadMinimized(): Set<string> {
 export interface MosaicVisibilityApi {
   toggleMinimize: (id: string) => void;
   restoreFromFilter: (id: string, currentGroup: string | null) => void;
+  /** Un-minimize every given shell at once (Landing "Restore all"). Clears them from the
+   *  hand-minimize set and force-shows them, so it works with or without a group filter. */
+  restoreAll: (ids: string[], currentGroup: string | null) => void;
   /**
    * With a group filter active, the filter alone decides visibility: members stay active
    * (even if hand-minimized), non-members collapse — unless force-shown by a chip click.
@@ -61,6 +64,23 @@ export function useMosaicVisibility(): MosaicVisibilityApi {
     });
   }, []);
 
+  const restoreAll = useCallback((ids: string[], currentGroup: string | null) => {
+    if (ids.length === 0) return;
+    // No-filter path: drop them from the hand-minimize set.
+    setMinimized((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    // Group-filter path: force-show them (harmless when no filter is active).
+    setForced((prev) => {
+      const next = new Set(prev.group === currentGroup ? prev.ids : []);
+      ids.forEach((id) => next.add(id));
+      return { group: currentGroup, ids: next };
+    });
+  }, []);
+
   const isMinimized = useCallback(
     (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => {
       const currentGroup = activeGroupId ?? null;
@@ -70,5 +90,5 @@ export function useMosaicVisibility(): MosaicVisibilityApi {
     [minimized, forced],
   );
 
-  return { toggleMinimize, restoreFromFilter, isMinimized };
+  return { toggleMinimize, restoreFromFilter, restoreAll, isMinimized };
 }

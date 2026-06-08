@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, Plus, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, StatusDot, DirtyBadge, EmptyState, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusPill, StatusDot, DirtyBadge, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { Landing } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
@@ -45,6 +46,7 @@ interface MosaicProps {
   groupColorOf?: (sessionId: string) => string | null;
   toggleMinimize: (id: string) => void;
   restoreFromFilter: (id: string, currentGroup: string | null) => void;
+  restoreAll: (ids: string[], currentGroup: string | null) => void;
   isMinimized: (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => boolean;
   onOpenSession: (id: string) => void;
   onCreate: () => void;
@@ -60,7 +62,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -145,16 +147,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   if (sessions.length === 0) {
     return (
       <div className="grid-bg argus-mosaic-empty">
-        <EmptyState
-          icon={SquareIcon}
-          title="No shells yet"
-          hint="Spin up your first agent. Pick a folder, pick an agent, you're off."
-          action={
-            <Button variant="primary" icon={Plus} onClick={onCreate}>
-              New shell
-            </Button>
-          }
-        />
+        <Landing mode="empty" minimizedCount={0} onCreate={onCreate} onRestoreAll={() => {}} />
       </div>
     );
   }
@@ -264,6 +257,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
             ) : null}
           </DragOverlay>
         </DndContext>
+      )}
+      {activeTiles.length === 0 && (
+        <Landing
+          mode="all-minimized"
+          minimizedCount={minTiles.length}
+          onCreate={onCreate}
+          onRestoreAll={() => restoreAll(minTileIds, currentGroup)}
+        />
       )}
       {overflow && (
         <div
