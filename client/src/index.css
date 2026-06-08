@@ -309,10 +309,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: var(--z-fab);
+  box-shadow: var(--shadow-pop);
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 
 .commit-fab:active {
@@ -341,8 +341,8 @@ body {
   position: fixed;
   inset: 0;
   background: var(--bg-overlay);
-  z-index: 100;
-  animation: commitFadeIn 0.2s ease;
+  z-index: var(--z-sheet);
+  animation: commitFadeIn var(--dur-base) ease;
 }
 
 @keyframes commitFadeIn {
@@ -355,13 +355,13 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 101;
+  z-index: calc(var(--z-sheet) + 1);
   border-radius: 16px 16px 0 0;
   background: var(--bg-2);
   border-top: 1px solid var(--line-2);
   max-height: 85vh;
   overflow-y: auto;
-  animation: commitSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  animation: commitSlideUp var(--dur-slow) cubic-bezier(0.32, 0.72, 0, 1);
   overscroll-behavior: contain;
 }
 

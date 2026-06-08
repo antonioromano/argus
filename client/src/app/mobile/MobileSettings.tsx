@@ -1,7 +1,7 @@
 import { Check, Wifi, Bell } from 'lucide-react';
 import { useKeyboardMode, type KeyboardMode } from '../../hooks/useKeyboardMode.js';
 import { useTheme, type ThemeMode } from '../../context/theme-context.js';
-import { StatusDot } from '../../components/primitives/index.js';
+import { StatusDot, Switch } from '../../components/primitives/index.js';
 
 interface MobileSettingsProps {
   publicUrl: string | null;
@@ -197,10 +197,3 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Switch({ on }: { on: boolean }) {
-  return (
-    <span style={{ width: 42, height: 24, borderRadius: 'var(--r-pill)', background: on ? 'var(--accent)' : 'var(--line-3)', position: 'relative', flexShrink: 0, transition: 'background var(--dur-fast)' }}>
-      <span style={{ position: 'absolute', width: 18, height: 18, borderRadius: '50%', background: '#fff', top: 3, left: on ? 21 : 3, transition: 'left var(--dur-fast) var(--ease-out)' }} />
-    </span>
-  );
-}

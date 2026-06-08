@@ -4,6 +4,7 @@ import { X, CornerDownLeft, FolderSearch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { useConfig } from '../../hooks/useConfig.js';
 import { FolderBrowser } from './FolderBrowser.js';
+import { Switch } from '../../components/primitives/index.js';
 
 interface CreateSheetProps {
   sessions: SessionInfo[];
@@ -323,16 +324,9 @@ const inputStyle: React.CSSProperties = {
 
 function Label({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div className="eyebrow" style={{ display: 'block', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginBottom: 6, ...style }}>
+    <div className="eyebrow" style={{ display: 'block', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginBottom: 'var(--s-1-5)', ...style }}>
       {children}
     </div>
   );
 }
 
-function Switch({ on }: { on: boolean }) {
-  return (
-    <span style={{ width: 42, height: 24, borderRadius: 'var(--r-pill)', background: on ? 'var(--accent)' : 'var(--line-3)', position: 'relative', flexShrink: 0, transition: 'background var(--dur-fast)' }}>
-      <span style={{ position: 'absolute', width: 18, height: 18, borderRadius: '50%', background: '#fff', top: 3, left: on ? 21 : 3, transition: 'left var(--dur-fast) var(--ease-out)' }} />
-    </span>
-  );
-}

@@ -72,7 +72,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         {groupColor && (
           <span
             aria-hidden
-            style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0, marginTop: 6 }}
+            style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0, marginTop: 'var(--s-1-5)' }}
           />
         )}
         <span
@@ -82,7 +82,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             color: statusColor,
             letterSpacing: 'var(--tracking-eye)',
             flexShrink: 0,
-            marginTop: 4,
+            marginTop: 'var(--s-1)',
           }}
         >
           {statusLabel}
@@ -92,10 +92,10 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 'var(--s-1-5)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-sm)',
-              fontWeight: 500,
+              fontWeight: 'var(--fw-medium)',
               color: 'var(--fg-0)',
               overflow: 'hidden',
             }}
@@ -115,7 +115,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
                     color: 'var(--accent)',
                     border: '1px solid var(--accent-edge)',
                     borderRadius: 'var(--r-1)',
-                    padding: '1px 5px',
+                    padding: '1px var(--s-1)',
                     maxWidth: 120,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -130,7 +130,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           <div
             className="eyebrow"
             style={{
-              marginTop: 2,
+              marginTop: 'var(--s-px)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -152,7 +152,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--t-tiny)',
           color: 'var(--fg-2)',
-          lineHeight: 1.6,
+          lineHeight: 'var(--lh-relaxed)',
           minHeight: 120,
           position: 'relative',
           overflow: 'hidden',
@@ -161,7 +161,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         <div style={{ color: 'var(--fg-3)' }}>$ {s.agentType}</div>
         <div
           style={{
-            marginTop: 4,
+            marginTop: 'var(--s-1)',
             color: s.status === 'waiting' ? 'var(--accent)' : 'var(--fg-1)',
           }}
         >

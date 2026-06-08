@@ -66,6 +66,11 @@
   --diff-add-fg: #b6f0c9;
   --diff-del-fg: #ffb8be;
 
+  /* Agent brand colors */
+  --agent-claude: #D97757;   /* terracotta */
+  --agent-gemini: #7DD3FC;   /* electric blue */
+  --agent-codex:  #C5B4FC;   /* purple */
+
   /* Syntax (chrome-only — terminals/xterm own their own) */
   --syn-kw: #C5B4FC;
   --syn-str: #7CFFB2;
@@ -136,6 +141,11 @@
   --diff-add-fg: #0a4a25;
   --diff-del-fg: #6e1b1f;
 
+  /* Agent brand colors */
+  --agent-claude: #C85C42;
+  --agent-gemini: #1668B3;
+  --agent-codex:  #6E40B8;
+
   --syn-kw: #6E40B8;
   --syn-str: #0E7F4D;
   --syn-num: #B8821A;
@@ -170,9 +180,10 @@
   --t-4xl:   44px;
   --t-5xl:   64px;
 
-  --lh-tight: 1.15;
-  --lh-snug:  1.35;
-  --lh-body:  1.5;
+  --lh-tight:   1.15;
+  --lh-snug:    1.35;
+  --lh-body:    1.5;
+  --lh-relaxed: 1.6;
 
   --tracking-mega: -0.04em;
   --tracking-tight: -0.015em;
@@ -182,10 +193,17 @@
   /* Icon stroke — locked default for lucide icons */
   --icon-stroke: 1.6;
 
+  /* Font weights */
+  --fw-normal:   400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+
   /* Spacing — 4px base */
   --s-0: 0;
   --s-px: 1px;
   --s-1: 4px;
+  --s-1-5: 6px;
   --s-2: 8px;
   --s-3: 12px;
   --s-4: 16px;
@@ -218,6 +236,7 @@
   --z-grid: 0;
   --z-card: 1;
   --z-sticky: 10;
+  --z-fab: 50;         /* floating action buttons — above sticky, below sheets */
   --z-pop: 100;
   --z-sheet: 1000;
   --z-tooltip: 1100;   /* above sheets/overlays so tips show over them */
