@@ -535,34 +535,39 @@ function MosaicTile({
             style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
           />
         )}
-        <StatusPill status={session.status} size="sm" />
+        {/* dot stays pinned; pill + path slide out together on hover */}
+        <StatusDot status={session.status} size={6} />
 
         {/* swap zone: path slides out left, icons enter from right */}
         <div className="argus-tile-swap-zone">
-          <Tooltip content="Click to copy path">
-            <span
-              ref={pathRef}
-              className="argus-tile-path"
-              role="button"
-              tabIndex={0}
-              aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
-              onClick={copyPath}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-tiny)',
-                color: copied ? 'var(--accent)' : 'var(--fg-0)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {copied && <Check size={11} strokeWidth={2} />}
-              {copied ? 'Copied path' : shellLabel(session)}
-            </span>
-          </Tooltip>
+          <span
+            ref={pathRef}
+            className="argus-tile-path"
+          >
+            <StatusPill status={session.status} size="sm" />
+            <Tooltip content="Click to copy path">
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
+                onClick={copyPath}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--t-tiny)',
+                  color: copied ? 'var(--accent)' : 'var(--fg-0)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {copied && <Check size={11} strokeWidth={2} />}
+                {copied ? 'Copied path' : shellLabel(session)}
+              </span>
+            </Tooltip>
+          </span>
 
           {/* icon strip — all start off-screen right via CSS; JS animates */}
           <div ref={stripRef} className="argus-tile-icon-strip">
