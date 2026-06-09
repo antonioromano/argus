@@ -6,6 +6,8 @@ import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd, StatusDot, Tooltip } from '../../components/primitives/index.js';
 
 const COLLAPSE_KEY = 'argus-sidebar-collapsed';
+const EASE_IN  = 'cubic-bezier(.4,0,1,1)';   // expand: slow start so icons visibly travel
+const EASE_IO  = 'cubic-bezier(.4,0,.6,1)';   // collapse: symmetric, not too snappy
 
 interface SidebarProps {
   active?: SidebarKey;
@@ -24,29 +26,154 @@ interface Item {
   count?: number;
   kbd?: string;
   highlight?: boolean;
-  stagger?: number;
 }
 
 export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
   });
-  const [animating, setAnimating] = useState<'collapsing' | 'expanding' | null>(null);
-  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
+
+  const treeRef  = useRef<HTMLDivElement>(null);
+  const vboxRef  = useRef<HTMLDivElement>(null);
+  const timers   = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  // Clear only the animation-owned inline styles; leaves React-set styles (padding, background…) intact.
+  const clearVboxAnim = () => {
+    const vbox = vboxRef.current;
+    if (!vbox) return;
+    vbox.style.maxHeight = '';
+    vbox.style.marginTop = '';
+    vbox.style.paddingTop = '';
+    vbox.style.paddingBottom = '';
+    vbox.style.borderTopWidth = '';
+    vbox.style.borderBottomWidth = '';
+    vbox.style.transition = '';
+  };
+
+  const doCollapse = () => {
+    clearTimers();
+    setAnimating('collapsing');
+    // Phase 1 (0–420ms): CSS fades tree, version-box, labels, eyebrows.
+
+    // Phase 2 (420ms): pin heights BEFORE adding class, then transition to 0.
+    // Pinning prevents content-height growth from sidebar width-shrink causing cmd palette to jump.
+    timers.current.push(setTimeout(() => {
+      setAnimating('collapsing-2');
+      const tree = treeRef.current;
+      const vbox = vboxRef.current;
+
+      if (tree) {
+        tree.style.transition = 'none';
+        tree.style.maxHeight = tree.getBoundingClientRect().height + 'px';
+        tree.style.marginBottom = getComputedStyle(tree).marginBottom;
+      }
+      if (vbox) {
+        const cs = getComputedStyle(vbox);
+        vbox.style.transition = 'none';
+        vbox.style.maxHeight = vbox.getBoundingClientRect().height + 'px';
+        vbox.style.marginTop = cs.marginTop;
+        vbox.style.paddingTop = cs.paddingTop;
+        vbox.style.paddingBottom = cs.paddingBottom;
+        vbox.style.borderTopWidth = '0px';
+        vbox.style.borderBottomWidth = '0px';
+      }
+
+      void tree?.offsetHeight; // flush
+
+      if (tree) {
+        tree.style.transition = `max-height 520ms ${EASE_IO}, margin-bottom 520ms ${EASE_IO}`;
+        tree.style.maxHeight = '0px';
+        tree.style.marginBottom = '0px';
+      }
+      if (vbox) {
+        vbox.style.transition = `max-height 520ms ${EASE_IO}, margin-top 520ms ${EASE_IO}, padding-top 520ms ${EASE_IO}, padding-bottom 520ms ${EASE_IO}`;
+        vbox.style.maxHeight = '0px';
+        vbox.style.marginTop = '0px';
+        vbox.style.paddingTop = '0px';
+        vbox.style.paddingBottom = '0px';
+      }
+    }, 420));
+
+    // Finalise (940ms): flip collapsed state, clean up.
+    timers.current.push(setTimeout(() => {
+      if (treeRef.current) treeRef.current.style.cssText = '';
+      clearVboxAnim();
+      setCollapsed(true);
+      try { localStorage.setItem(COLLAPSE_KEY, '1'); } catch { /* ignore */ }
+      setAnimating(null);
+    }, 940));
+  };
+
+  const doExpand = () => {
+    clearTimers();
+    const tree = treeRef.current;
+    const vbox = vboxRef.current;
+
+    // Pin both at 0 BEFORE state change so browser never renders the CSS-default heights.
+    if (tree) {
+      tree.style.transition = 'none';
+      tree.style.maxHeight = '0px';
+      tree.style.marginBottom = '0px';
+    }
+    if (vbox) {
+      vbox.style.transition = 'none';
+      vbox.style.maxHeight = '0px';
+      vbox.style.marginTop = '0px';
+      vbox.style.paddingTop = '0px';
+      vbox.style.paddingBottom = '0px';
+      vbox.style.borderTopWidth = '0px';
+      vbox.style.borderBottomWidth = '0px';
+    }
+
+    setCollapsed(false);
+    try { localStorage.setItem(COLLAPSE_KEY, '0'); } catch { /* ignore */ }
+    setAnimating('expanding');
+
+    // setTimeout(0): let browser paint the pinned-at-0 state, then start transitions.
+    timers.current.push(setTimeout(() => {
+      if (tree) {
+        tree.style.transition = `max-height 450ms ${EASE_IN}, margin-bottom 450ms ${EASE_IN}`;
+        tree.style.maxHeight = tree.scrollHeight + 'px';
+        tree.style.marginBottom = '8px'; // var(--s-2)
+      }
+      if (vbox) {
+        vbox.style.borderTopWidth = '1px';
+        vbox.style.borderBottomWidth = '1px';
+        vbox.style.transition = `max-height 450ms ${EASE_IN}, margin-top 450ms ${EASE_IN}, padding-top 450ms ${EASE_IN}, padding-bottom 450ms ${EASE_IN}`;
+        vbox.style.maxHeight = vbox.scrollHeight + 'px';
+        vbox.style.marginTop = '12px';  // var(--s-3)
+        vbox.style.paddingTop = '8px';  // var(--s-2)
+        vbox.style.paddingBottom = '8px';
+      }
+
+      // Phase 2 (470ms): content fades in.
+      timers.current.push(setTimeout(() => {
+        setAnimating('expanding-2');
+        if (treeRef.current) treeRef.current.style.cssText = '';
+        clearVboxAnim();
+      }, 470));
+
+      // Finalise (890ms).
+      timers.current.push(setTimeout(() => {
+        setAnimating(null);
+      }, 890));
+    }, 0));
+  };
+
   const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try { localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-      setAnimating(next ? 'collapsing' : 'expanding');
-      if (animTimerRef.current) clearTimeout(animTimerRef.current);
-      animTimerRef.current = setTimeout(() => setAnimating(null), 420);
-      return next;
-    });
+    if (animating !== null) return;
+    collapsed ? doExpand() : doCollapse();
   };
 
   const pilot: Item[] = [
     { id: 'sessions', icon: SquareTerminal, label: 'Shells', count: counts.total, highlight: !!counts.waiting },
-    { id: 'palette',  icon: Search,    label: 'Command palette', kbd: '⌘K', stagger: 0 },
+    { id: 'palette',  icon: Search,         label: 'Command palette', kbd: '⌘K' },
   ];
 
   const tools: Item[] = [
@@ -58,7 +185,10 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       className="argus-sidebar"
       data-collapsed={collapsed || undefined}
       data-animating={animating ?? undefined}
-      onClick={(e) => { if (e.target === e.currentTarget) toggleCollapsed(); }}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest('button, a, input, [role="button"]')) return;
+        toggleCollapsed();
+      }}
     >
       <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         <button
@@ -76,7 +206,10 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         <Fragment key={it.id}>
           <Row item={it} active={active === it.id} collapsed={collapsed} onClick={() => onSelect(it.id)} />
           {it.id === 'sessions' && sessionTree && (
-            <div className={`argus-sidebar-tree${collapsed ? ' argus-sidebar-tree--collapsed' : ''}`}>
+            <div
+              ref={treeRef}
+              className={`argus-sidebar-tree${(collapsed && !animating) ? ' argus-sidebar-tree--collapsed' : ''}`}
+            >
               {sessionTree}
             </div>
           )}
@@ -91,27 +224,29 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       ))}
 
       {version && (
-        (() => {
-          const versionBox = (
-            <div
-              style={{
-                marginTop: 'var(--s-3)',
-                padding: 'var(--s-2)',
-                background: 'var(--bg-2)',
-                border: '1px solid var(--line-2)',
-                borderRadius: 'var(--r-2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                gap: 'var(--s-2)',
-              }}
-            >
-              <StatusDot status={ngrokConnected ? 'running' : 'idle'} size={8} />
-              <span className="eyebrow num argus-sidebar-version-txt" style={{ flex: 1 }}>v{version}</span>
-            </div>
-          );
-          return collapsed ? <Tooltip content={`v${version}`}>{versionBox}</Tooltip> : versionBox;
-        })()
+        // Outer div is always stable so vboxRef never goes null during animation.
+        // Tooltip is placed inside (on the dot) so hover-hint still works when collapsed.
+        <div
+          ref={vboxRef}
+          className="argus-sidebar-version-box"
+          style={{
+            marginTop: 'var(--s-3)',
+            padding: 'var(--s-2)',
+            background: 'var(--bg-2)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: 'var(--s-2)',
+            overflow: 'hidden',
+          }}
+        >
+          <Tooltip content={`v${version}`}>
+            <StatusDot status={ngrokConnected ? 'running' : 'idle'} size={8} />
+          </Tooltip>
+          <span className="eyebrow num argus-sidebar-version-txt" style={{ flex: 1 }}>v{version}</span>
+        </div>
       )}
     </aside>
   );
@@ -125,7 +260,6 @@ function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean
       className="argus-sidebar-row"
       data-active={active || undefined}
       data-highlight={item.highlight || undefined}
-      data-stagger={item.stagger !== undefined ? item.stagger : undefined}
       onClick={onClick}
     >
       <Icon size={20} strokeWidth={1.6} color={item.highlight ? 'var(--accent)' : 'currentColor'} />

@@ -456,7 +456,30 @@ body {
   transition: width 180ms var(--ease-std);
   width: 220px;
 }
-.argus-sidebar[data-collapsed="true"] { width: 56px; }
+/* ── Stable collapsed ── */
+.argus-sidebar[data-collapsed="true"] {
+  width: 56px;
+  padding-bottom: 9px; /* 3px less than default 12px lets settings land at exact vbox position */
+}
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { justify-content: center; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-label,
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-count,
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-kbd {
+  opacity: 0;
+  pointer-events: none;
+  width: 0; max-width: 0; min-width: 0; flex: 0 0 0; margin: 0; overflow: hidden;
+}
+.argus-sidebar[data-collapsed="true"] .eyebrow { opacity: 0; pointer-events: none; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-version-box {
+  max-height: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-width: 0;
+  border-bottom-width: 0;
+  opacity: 0;
+}
 
 .argus-sidebar-row {
   all: unset;
@@ -482,56 +505,72 @@ body {
 .argus-sidebar-row[data-highlight="true"] { color: var(--accent); }
 .argus-sidebar-row[data-highlight="true"]:hover { color: var(--accent); }
 
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-label,
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-count,
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-kbd {
-  opacity: 0;
-  pointer-events: none;
-  width: 0;
-  max-width: 0;
-  min-width: 0;
-  flex: 0 0 0;
-  margin: 0;
-  overflow: hidden;
-  transition: opacity 100ms var(--ease-std);
-}
-.argus-sidebar-row > .argus-sidebar-label { flex: 1; white-space: nowrap; overflow: hidden; transition: opacity 120ms var(--ease-std); }
-
-/* Keep eyebrows + version text mounted on collapse — fade only, preserve box/space (no layout jump) */
+.argus-sidebar-row > .argus-sidebar-label { flex: 1; white-space: nowrap; overflow: hidden; }
 .argus-sidebar .eyebrow { transition: opacity 120ms var(--ease-std); }
-.argus-sidebar[data-collapsed="true"] .eyebrow { opacity: 0; pointer-events: none; }
-.argus-sidebar-version-txt { transition: opacity 120ms var(--ease-std); }
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-version-txt {
+
+/* Version box — overflow:hidden enables the height collapse animation */
+.argus-sidebar-version-box { overflow: hidden; }
+
+/* Session tree — height managed entirely via inline JS; CSS only handles opacity */
+.argus-sidebar-tree { overflow: hidden; opacity: 1; margin-bottom: var(--s-2); }
+.argus-sidebar-tree--collapsed { max-height: 0; opacity: 0; margin-bottom: 0; }
+
+/* ── Collapse phase 1: content fades, structure holds ── */
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-tree,
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-version-box {
   opacity: 0;
-  width: 0;
-  min-width: 0;
-  flex: 0 0 0;
-  overflow: hidden;
+  transition: opacity 420ms var(--ease-std);
+}
+.argus-sidebar[data-animating="collapsing"] .eyebrow,
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-label,
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-count,
+.argus-sidebar[data-animating="collapsing"] .argus-sidebar-kbd {
+  opacity: 0;
+  transition: opacity 120ms var(--ease-std);
 }
 
-/* Session tree collapse animation */
-.argus-sidebar-tree {
-  overflow: hidden;
-  max-height: 600px;
+/* ── Collapse phase 2: sidebar shrinks; tree + vbox heights via inline JS ── */
+.argus-sidebar[data-animating="collapsing-2"] {
+  width: 56px;
+  transition: width 520ms cubic-bezier(.4,0,.6,1);
+}
+.argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-label,
+.argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-count,
+.argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-kbd {
+  opacity: 0;
+  flex: 0 0 0; width: 0; min-width: 0; overflow: hidden; margin: 0;
+}
+.argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-tree,
+.argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-version-box,
+.argus-sidebar[data-animating="collapsing-2"] .eyebrow { opacity: 0; }
+
+/* ── Expand phase 1: sidebar widens; tree + vbox heights via inline JS ── */
+.argus-sidebar[data-animating="expanding"] {
+  width: 220px;
+  transition: width 450ms var(--ease-out);
+}
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-row > .argus-sidebar-label,
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-row > .argus-sidebar-count,
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-row > .argus-sidebar-kbd {
+  opacity: 0;
+  flex: 0 0 0; width: 0; min-width: 0; overflow: hidden; margin: 0;
+}
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-tree,
+.argus-sidebar[data-animating="expanding"] .argus-sidebar-version-box,
+.argus-sidebar[data-animating="expanding"] .eyebrow { opacity: 0; }
+
+/* ── Expand phase 2: content fades in ── */
+.argus-sidebar[data-animating="expanding-2"] .argus-sidebar-tree,
+.argus-sidebar[data-animating="expanding-2"] .argus-sidebar-version-box {
   opacity: 1;
-  margin-bottom: var(--s-2);
-  transition: max-height 320ms var(--ease-out), opacity 260ms var(--ease-out);
+  transition: opacity 420ms var(--ease-out);
 }
-.argus-sidebar-tree--collapsed {
-  max-height: 0;
-  opacity: 0;
-  margin-bottom: 0;
-}
-
-/* Stagger — command palette eases as the tree opens/closes, both directions, no flash */
-@keyframes argus-stagger-in  { from { opacity: .45; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-@keyframes argus-stagger-out { from { opacity: .45; transform: translateY(3px);  } to { opacity: 1; transform: none; } }
-.argus-sidebar[data-animating="expanding"] .argus-sidebar-row[data-stagger="0"] {
-  animation: argus-stagger-in 360ms var(--ease-out) both;
-}
-.argus-sidebar[data-animating="collapsing"] .argus-sidebar-row[data-stagger="0"] {
-  animation: argus-stagger-out 360ms var(--ease-out) both;
+.argus-sidebar[data-animating="expanding-2"] .eyebrow,
+.argus-sidebar[data-animating="expanding-2"] .argus-sidebar-label,
+.argus-sidebar[data-animating="expanding-2"] .argus-sidebar-count,
+.argus-sidebar[data-animating="expanding-2"] .argus-sidebar-kbd {
+  opacity: 1;
+  transition: opacity 150ms var(--ease-out);
 }
 
 .argus-sidebar-count {
@@ -554,7 +593,6 @@ body {
   margin-bottom: var(--s-2);
   justify-content: flex-end;
 }
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { justify-content: center; }
 
 /* === TITLEBAR === */
 .argus-titlebar {
