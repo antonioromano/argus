@@ -535,8 +535,8 @@ function MosaicTile({
             style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
           />
         )}
-        {/* dot stays pinned; pill + path slide out together on hover */}
-        <StatusDot status={session.status} size={6} />
+        {/* pill stays outside swap zone; label collapses to dot on hover via CSS */}
+        <StatusPill status={session.status} size="sm" />
 
         {/* swap zone: path slides out left, icons enter from right */}
         <div className="argus-tile-swap-zone">
@@ -544,7 +544,6 @@ function MosaicTile({
             ref={pathRef}
             className="argus-tile-path"
           >
-            <StatusPill status={session.status} size="sm" />
             <Tooltip content="Click to copy path">
               <span
                 role="button"
