@@ -117,7 +117,12 @@ export function useCompanionTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    terminal.loadAddon(new WebLinksAddon(
+      (_event, uri) => {
+        (window as Window & { electronShell?: { openExternal: (u: string) => void } })
+          .electronShell?.openExternal(uri);
+      },
+    ));
 
     terminal.open(container);
     // Built-in DOM renderer (no WebGL/Canvas addon) — see useTerminal for why.

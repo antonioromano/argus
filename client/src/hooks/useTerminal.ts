@@ -145,7 +145,12 @@ export function useTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    terminal.loadAddon(new WebLinksAddon(
+      (_event, uri) => {
+        (window as Window & { electronShell?: { openExternal: (u: string) => void } })
+          .electronShell?.openExternal(uri);
+      },
+    ));
     const searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;

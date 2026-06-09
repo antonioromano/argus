@@ -248,6 +248,11 @@ async function main() {
     return dialog.showMessageBox(win!, opts);
   });
 
+  // Open URLs in the system default browser (called from WebLinksAddon click handler).
+  ipcMain.handle('shell:openExternal', (_event, url: string) => {
+    if (/^(https?:|mailto:)/.test(url)) shell.openExternal(url);
+  });
+
   // Dock badge sync — renderer mirrors waiting-session count
   ipcMain.on('dock:setBadge', (_event, count: number) => {
     if (process.platform !== 'darwin') return;

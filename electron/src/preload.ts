@@ -48,6 +48,10 @@ contextBridge.exposeInMainWorld('electronApp', {
   },
 });
 
+contextBridge.exposeInMainWorld('electronShell', {
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+});
+
 contextBridge.exposeInMainWorld('electronNotifications', {
   show: (payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }): void => {
     ipcRenderer.send('notif:show', payload);
