@@ -270,7 +270,13 @@ export function useTerminal(
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         (window as Window & { __argusFit?: number }).__argusFit =
           ((window as Window & { __argusFit?: number }).__argusFit ?? 0) + 1;
+        const prevCols = terminal.cols;
         fitAddon.fit();
+        // Column change means lines were rewrapped, which can leave the DOM
+        // renderer's scrollback row elements in a stale state at the old scroll
+        // position. Reset to the active buffer so the user sees correct content;
+        // they can scroll up again from a clean state.
+        if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('session:resize', {
           sessionId,

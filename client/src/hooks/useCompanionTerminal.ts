@@ -179,7 +179,9 @@ export function useCompanionTerminal(
 
     const doFit = () => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+        const prevCols = terminal.cols;
         fitAddon.fit();
+        if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
         socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
       }
