@@ -733,15 +733,6 @@ body {
   color: var(--fg-4);
   flex-shrink: 0;
 }
-/* status text exits with path — no pill chrome, inherits --st-color from .argus-status */
-.argus-tile-status-label {
-  font-size: var(--t-micro);
-  font-family: var(--font-mono);
-  letter-spacing: 0.05em;
-  color: var(--st-color, var(--fg-3));
-  flex-shrink: 0;
-  white-space: nowrap;
-}
 
 /* Minimized-shell pill — shared by the focus OTHERS strip and the mosaic minrow. */
 .argus-chip {
