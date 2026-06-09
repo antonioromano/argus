@@ -681,6 +681,59 @@ body {
   cursor: grabbing;
 }
 
+/* ── Tile header hover-reveal CTA swap ───────────────────────────────────── */
+.argus-tile-swap-zone {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  height: 24px;
+  overflow: hidden;
+}
+.argus-tile-path {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  transform: translateX(0);
+  transition: transform 433ms cubic-bezier(.42,0,.58,1);
+  pointer-events: all;
+}
+.argus-tile-header--hovered .argus-tile-path {
+  transform: translateX(-110%);
+}
+.argus-tile-icon-strip {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* all strip children start off-screen right; JS overrides via inline style */
+.argus-tile-icon-strip > * {
+  transform: translateX(300px);
+}
+.argus-tile-group-triggers {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  max-width: 48px;
+  overflow: hidden;
+  transition: max-width 433ms cubic-bezier(.42,0,.58,1), opacity 200ms;
+}
+.argus-tile-header--hovered .argus-tile-group-triggers {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.argus-tile-gt {
+  width: 20px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-2);
+  color: var(--fg-4);
+  flex-shrink: 0;
+}
+
 /* Minimized-shell pill — shared by the focus OTHERS strip and the mosaic minrow. */
 .argus-chip {
   all: unset;
