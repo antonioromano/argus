@@ -428,8 +428,8 @@ function ChipDragPreview({ session }: { session: SessionInfo }) {
 }
 
 // ─── MosaicTile animation constants ──────────────────────────────────────────
-const CTA_DUR = 433;
-const CTA_STAGGER = 43;
+const CTA_DUR = 200;
+const CTA_STAGGER = 20;
 const CTA_EASE = 'cubic-bezier(.42,0,.58,1)';
 const CTA_TEXT_DELAY = Math.round(CTA_DUR * 0.65 + CTA_STAGGER * 3);
 
@@ -475,6 +475,7 @@ function MosaicTile({
   // minimized row and should skip the staggered entrance animation (which would
   // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
   const skipAnimation = useRef(autoFocus).current;
+  const animTimeoutRef = useRef<number | null>(null);
   const doCopy = () => {
     void navigator.clipboard.writeText(session.folderPath);
     setCopied(true);
@@ -486,12 +487,22 @@ function MosaicTile({
     const path = pathRef.current;
     const strip = stripRef.current;
     if (!path || !strip) return;
+    if (animTimeoutRef.current !== null) {
+      clearTimeout(animTimeoutRef.current);
+      animTimeoutRef.current = null;
+    }
     const icons = [...strip.children] as HTMLElement[];
     path.style.transitionDelay = '0ms';
     icons.forEach((el, i) => {
+      el.style.pointerEvents = 'none';
       el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${i * CTA_STAGGER}ms`;
       el.style.transform = 'translateX(0)';
     });
+    const lastDone = CTA_DUR + (icons.length - 1) * CTA_STAGGER;
+    animTimeoutRef.current = window.setTimeout(() => {
+      icons.forEach(el => { el.style.pointerEvents = ''; });
+      animTimeoutRef.current = null;
+    }, lastDone);
     setCtaHovered(true);
   };
 
@@ -499,8 +510,13 @@ function MosaicTile({
     const path = pathRef.current;
     const strip = stripRef.current;
     if (!path || !strip) return;
+    if (animTimeoutRef.current !== null) {
+      clearTimeout(animTimeoutRef.current);
+      animTimeoutRef.current = null;
+    }
     const icons = [...strip.children] as HTMLElement[];
     icons.forEach((el, i) => {
+      el.style.pointerEvents = 'none';
       const delay = (icons.length - 1 - i) * CTA_STAGGER;
       el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${delay}ms`;
       el.style.transform = 'translateX(300px)';

@@ -705,7 +705,7 @@ body {
   display: flex;
   align-items: center;
   transform: translateX(0);
-  transition: transform 433ms cubic-bezier(.42,0,.58,1);
+  transition: transform 200ms cubic-bezier(.42,0,.58,1);
   pointer-events: all;
 }
 .argus-tile-header--hovered .argus-tile-path {
@@ -729,7 +729,7 @@ body {
   flex-shrink: 0;
   max-width: 48px;
   overflow: hidden;
-  transition: max-width 433ms cubic-bezier(.42,0,.58,1), opacity 200ms;
+  transition: max-width 200ms cubic-bezier(.42,0,.58,1), opacity 100ms;
 }
 .argus-tile-header--hovered .argus-tile-group-triggers {
   max-width: 0;
