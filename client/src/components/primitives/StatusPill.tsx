@@ -11,7 +11,7 @@ export function StatusPill({ status, size = 'md' }: StatusPillProps) {
   return (
     <span className="argus-status argus-pill" data-status={status} data-size={size}>
       <StatusDot status={status} size={6} decorative />
-      {STATUS_LABELS[status]}
+      <span className="argus-pill-label">{STATUS_LABELS[status]}</span>
     </span>
   );
 }

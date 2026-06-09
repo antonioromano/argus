@@ -415,6 +415,16 @@ body {
   white-space: nowrap;
 }
 .argus-pill[data-size="sm"] { padding: 2px var(--s-2); font-size: var(--t-micro); }
+.argus-pill-label {
+  overflow: hidden;
+  max-width: 60px;
+  white-space: nowrap;
+  transition: max-width 433ms cubic-bezier(.42,0,.58,1), margin-left 433ms cubic-bezier(.42,0,.58,1);
+}
+.argus-tile-header--hovered .argus-pill .argus-pill-label {
+  max-width: 0;
+  margin-left: -6px; /* absorb the flex gap so dot stays centered in pill */
+}
 
 .argus-dot {
   display: inline-block;
