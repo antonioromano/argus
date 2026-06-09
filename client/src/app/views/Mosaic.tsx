@@ -10,6 +10,7 @@ import { Landing } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { STATUS_LABELS } from '../../constants/status.js';
 import {
   DndContext,
   DragOverlay,
@@ -544,7 +545,10 @@ function MosaicTile({
             ref={pathRef}
             className="argus-tile-path"
           >
-            <StatusPill status={session.status} size="sm" />
+            {/* status text only — dot stays pinned outside, this just exits */}
+            <span className="argus-status argus-tile-status-label" data-status={session.status}>
+              {STATUS_LABELS[session.status]}
+            </span>
             <Tooltip content="Click to copy path">
               <span
                 role="button"
