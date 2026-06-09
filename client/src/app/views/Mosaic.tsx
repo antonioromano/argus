@@ -90,6 +90,12 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // keyboard focus on mount. Cleared once the xterm reports focus.
   const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
 
+  // Animation state for genie minimize/restore
+  const [minimizingIds, setMinimizingIds] = useState<Set<string>>(new Set());
+  const [restoringIds,  setRestoringIds]  = useState<Set<string>>(new Set());
+  const [newChipIds,    setNewChipIds]    = useState<Set<string>>(new Set());
+  const [reflowingIds,  setReflowingIds]  = useState<Set<string>>(new Set());
+
   // @dnd-kit active ids — one per container
   const [activeTileId, setActiveTileId] = useState<string | null>(null);
   const [activeChipId, setActiveChipId] = useState<string | null>(null);
@@ -99,6 +105,33 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  const handleMinimize = (id: string) => {
+    setMinimizingIds(prev => new Set([...prev, id]));
+    setTimeout(() => {
+      const remaining = filtered
+        .slice(0, MAX_TILES)
+        .filter(s => !isMinimized(s.id, groupFilterIds, activeGroupId) && s.id !== id && !minimizingIds.has(s.id))
+        .map(s => s.id);
+      toggleMinimize(id);
+      setMinimizingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setNewChipIds(prev => new Set([...prev, id]));
+      setReflowingIds(new Set(remaining));
+      setTimeout(() => {
+        setNewChipIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+        setReflowingIds(new Set());
+      }, 540);
+    }, 340);
+  };
+
+  const handleRestore = (id: string) => {
+    if (groupFilterIds) restoreFromFilter(id, currentGroup);
+    else toggleMinimize(id);
+    setRestoringIds(prev => new Set([...prev, id]));
+    setTimeout(() => {
+      setRestoringIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+    }, 400);
+  };
 
   const handleTileDragStart = (event: DragStartEvent) => {
     setActiveTileId(event.active.id as string);
@@ -210,9 +243,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                 <SortableChip
                   key={s.id}
                   session={s}
+                  isNew={newChipIds.has(s.id)}
                   onClick={() => {
-                    if (groupFilterIds) restoreFromFilter(s.id, currentGroup);
-                    else toggleMinimize(s.id);
+                    handleRestore(s.id);
                     setRestoreFocusId(s.id);
                   }}
                 />
@@ -252,7 +285,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onXtermFocus={() => { setFocusedId(s.id); setRestoreFocusId(null); }}
                   onXtermBlur={() => setFocusedId(null)}
                   autoFocus={restoreFocusId === s.id}
-                  onToggleMinimize={() => toggleMinimize(s.id)}
+                  onToggleMinimize={() => handleMinimize(s.id)}
+                  isMinimizing={minimizingIds.has(s.id)}
+                  isRestoring={restoringIds.has(s.id)}
+                  isReflowing={reflowingIds.has(s.id)}
                   onOpen={() => onOpenSession(s.id)}
                   onKill={() => onKill(s)}
                   onRestart={() => onRestart(s)}
@@ -318,6 +354,9 @@ type MosaicTileSharedProps = {
   onXtermBlur: () => void;
   autoFocus?: boolean;
   onToggleMinimize: () => void;
+  isMinimizing?: boolean;
+  isRestoring?: boolean;
+  isReflowing?: boolean;
   onOpen: () => void;
   onKill: () => void;
   onRestart: () => void;
@@ -390,7 +429,7 @@ function TileDragPreview({ session, theme: _theme }: { session: SessionInfo; the
 
 // ─── SortableChip ────────────────────────────────────────────────────────────
 
-function SortableChip({ session, onClick }: { session: SessionInfo; onClick: () => void }) {
+function SortableChip({ session, onClick, isNew }: { session: SessionInfo; onClick: () => void; isNew?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id });
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -400,7 +439,7 @@ function SortableChip({ session, onClick }: { session: SessionInfo; onClick: () 
   return (
     <button
       ref={setNodeRef}
-      className="argus-chip"
+      className={isNew ? 'argus-chip argus-chip--entering' : 'argus-chip'}
       style={style}
       onClick={onClick}
       {...listeners}
@@ -449,6 +488,9 @@ function MosaicTile({
   onXtermBlur,
   autoFocus,
   onToggleMinimize,
+  isMinimizing,
+  isRestoring,
+  isReflowing,
   onOpen,
   onKill,
   onRestart,
@@ -524,11 +566,18 @@ function MosaicTile({
     path.style.transitionDelay = `${CTA_TEXT_DELAY}ms`;
     setCtaHovered(false);
   };
+  const tileClass = [
+    'argus-tile',
+    isMinimizing && 'argus-tile--minimizing',
+    isRestoring  && 'argus-tile--restoring',
+    isReflowing  && 'argus-tile--reflowing',
+  ].filter(Boolean).join(' ');
+
   return (
     <div
-      className="argus-tile"
+      className={tileClass}
       data-status={session.status}
-      style={{ ['--i' as string]: idx, ...(skipAnimation ? { animation: 'none' } : {}) } as CSSProperties}
+      style={{ ['--i' as string]: idx, ...(skipAnimation && !isRestoring ? { animation: 'none' } : {}) } as CSSProperties}
     >
       {(!isFocused || !windowFocused) && (
         <div className="argus-tile-overlay" />
