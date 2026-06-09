@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitCompare, FolderOpen, Terminal, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, StatusDot, DirtyBadge, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusPill, StatusDot, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { Landing } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
@@ -427,6 +427,12 @@ function ChipDragPreview({ session }: { session: SessionInfo }) {
   );
 }
 
+// ─── MosaicTile animation constants ──────────────────────────────────────────
+const CTA_DUR = 433;
+const CTA_STAGGER = 43;
+const CTA_EASE = 'cubic-bezier(.42,0,.58,1)';
+const CTA_TEXT_DELAY = Math.round(CTA_DUR * 0.65 + CTA_STAGGER * 3);
+
 // ─── MosaicTile ───────────────────────────────────────────────────────────────
 
 function MosaicTile({
@@ -462,6 +468,9 @@ function MosaicTile({
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
 }) {
   const [copied, setCopied] = useState(false);
+  const [ctaHovered, setCtaHovered] = useState(false);
+  const pathRef = useRef<HTMLSpanElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
   // Capture autoFocus at mount: true means this tile is being restored from the
   // minimized row and should skip the staggered entrance animation (which would
   // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
@@ -472,6 +481,33 @@ function MosaicTile({
     setTimeout(() => setCopied(false), 1200);
   };
   const copyPath = (e: React.MouseEvent) => { e.stopPropagation(); doCopy(); };
+
+  const handleCtaEnter = () => {
+    const path = pathRef.current;
+    const strip = stripRef.current;
+    if (!path || !strip) return;
+    const icons = [...strip.children] as HTMLElement[];
+    path.style.transitionDelay = '0ms';
+    icons.forEach((el, i) => {
+      el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${i * CTA_STAGGER}ms`;
+      el.style.transform = 'translateX(0)';
+    });
+    setCtaHovered(true);
+  };
+
+  const handleCtaLeave = () => {
+    const path = pathRef.current;
+    const strip = stripRef.current;
+    if (!path || !strip) return;
+    const icons = [...strip.children] as HTMLElement[];
+    icons.forEach((el, i) => {
+      const delay = (icons.length - 1 - i) * CTA_STAGGER;
+      el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${delay}ms`;
+      el.style.transform = 'translateX(300px)';
+    });
+    path.style.transitionDelay = `${CTA_TEXT_DELAY}ms`;
+    setCtaHovered(false);
+  };
   return (
     <div
       className="argus-tile"
@@ -482,11 +518,13 @@ function MosaicTile({
         <div className="argus-tile-overlay" />
       )}
       <div
-        className="argus-tile-header"
+        className={`argus-tile-header${ctaHovered ? ' argus-tile-header--hovered' : ''}`}
         role="button"
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+        onMouseEnter={handleCtaEnter}
+        onMouseLeave={handleCtaLeave}
         {...dragHandleListeners}
         {...dragHandleAttributes}
       >
@@ -498,108 +536,83 @@ function MosaicTile({
           />
         )}
         <StatusPill status={session.status} size="sm" />
-        <Tooltip content="Click to copy path">
-          <span
-            role="button"
-            tabIndex={0}
-            aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
-            onClick={copyPath}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
-            style={{
-              flex: '0 1 auto',
-              minWidth: 0,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-tiny)',
-              color: copied ? 'var(--accent)' : 'var(--fg-0)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            {copied && <Check size={11} strokeWidth={2} />}
-            {copied ? 'Copied path' : shellLabel(session)}
-          </span>
-        </Tooltip>
-        <div style={{ flex: 1 }} />
-        {session.hasGitChanges && <DirtyBadge size="sm" onClick={onOpenDiff ? (e?: React.MouseEvent) => { e?.stopPropagation(); onOpenDiff(); } : undefined} />}
-        {onFocusDiff && (
-          <IconButton
-            icon={GitCompare}
-            label="Open diff in focus"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onFocusDiff(); }}
-          />
-        )}
-        {onFocusExplorer && (
-          <IconButton
-            icon={FolderOpen}
-            label="Open files in focus"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onFocusExplorer(); }}
-          />
-        )}
-        {onFocusTerminal && (
-          <IconButton
-            icon={Terminal}
-            label="Open shell in focus"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onFocusTerminal(); }}
-          />
-        )}
-        {onMarkDone && (
-          <IconButton
-            icon={CheckCircle2}
-            label="Mark as done"
-            size="sm"
-            style={{ color: 'var(--status-done)' }}
-            onClick={(e) => { e.stopPropagation(); onMarkDone(); }}
-          />
-        )}
-        <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
-        <IconButton
-          icon={Minus}
-          label="Minimize shell"
-          size="sm"
-          onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }}
-        />
-        <IconButton
-          icon={Focus}
-          label="Open in focus"
-          size="sm"
-          onClick={(e) => { e.stopPropagation(); onOpen(); }}
-        />
-        {onClone && (
-          <IconButton
-            icon={Copy}
-            label="Start a new shell from the same folder"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onClone(); }}
-          />
-        )}
-        {onMerge && (
-          <IconButton
-            icon={ArrowDownToLine}
-            label="Apply to project"
-            size="sm"
-            onClick={(e) => { e.stopPropagation(); onMerge(); }}
-          />
-        )}
-        <IconButton
-          icon={RotateCcw}
-          label="Restart shell"
-          size="sm"
-          onClick={(e) => { e.stopPropagation(); onRestart(); }}
-        />
-        <IconButton
-          icon={CircleX}
-          label="Close shell"
-          size="sm"
-          onClick={(e) => { e.stopPropagation(); onKill(); }}
-        />
+
+        {/* swap zone: path slides out left, icons enter from right */}
+        <div className="argus-tile-swap-zone">
+          <Tooltip content="Click to copy path">
+            <span
+              ref={pathRef}
+              className="argus-tile-path"
+              role="button"
+              tabIndex={0}
+              aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
+              onClick={copyPath}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--t-tiny)',
+                color: copied ? 'var(--accent)' : 'var(--fg-0)',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {copied && <Check size={11} strokeWidth={2} />}
+              {copied ? 'Copied path' : shellLabel(session)}
+            </span>
+          </Tooltip>
+
+          {/* icon strip — all start off-screen right via CSS; JS animates */}
+          <div ref={stripRef} className="argus-tile-icon-strip">
+            {/* unified git icon: amber when dirty, muted when clean */}
+            <IconButton
+              icon={GitBranch}
+              label={session.hasGitChanges ? 'Open diff (has changes)' : 'No git changes'}
+              size="sm"
+              style={{ color: session.hasGitChanges ? 'var(--dirty)' : 'var(--fg-4)' }}
+              onClick={(e) => { e.stopPropagation(); if (onFocusDiff) { onFocusDiff(); } else { onOpenDiff?.(); } }}
+              disabled={!onFocusDiff && !onOpenDiff}
+            />
+            {onFocusExplorer && (
+              <IconButton icon={FolderOpen} label="Open files in focus" size="sm"
+                onClick={(e) => { e.stopPropagation(); onFocusExplorer(); }} />
+            )}
+            {onFocusTerminal && (
+              <IconButton icon={Terminal} label="Open shell in focus" size="sm"
+                onClick={(e) => { e.stopPropagation(); onFocusTerminal(); }} />
+            )}
+            {onMarkDone && (
+              <IconButton icon={CheckCircle2} label="Mark as done" size="sm"
+                style={{ color: 'var(--status-done)' }}
+                onClick={(e) => { e.stopPropagation(); onMarkDone(); }} />
+            )}
+            <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
+            <IconButton icon={Minus} label="Minimize shell" size="sm"
+              onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }} />
+            <IconButton icon={Focus} label="Open in focus" size="sm"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }} />
+            {onClone && (
+              <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm"
+                onClick={(e) => { e.stopPropagation(); onClone(); }} />
+            )}
+            {onMerge && (
+              <IconButton icon={ArrowDownToLine} label="Apply to project" size="sm"
+                onClick={(e) => { e.stopPropagation(); onMerge(); }} />
+            )}
+            <IconButton icon={RotateCcw} label="Restart shell" size="sm"
+              onClick={(e) => { e.stopPropagation(); onRestart(); }} />
+            <IconButton icon={CircleX} label="Close shell" size="sm"
+              onClick={(e) => { e.stopPropagation(); onKill(); }} />
+          </div>
+        </div>
+
+        {/* group triggers — hint at hidden actions; collapse on hover */}
+        <div className="argus-tile-group-triggers" aria-hidden>
+          <span className="argus-tile-gt"><Layers size={12} strokeWidth={1.6} /></span>
+          <span className="argus-tile-gt"><MoreHorizontal size={12} strokeWidth={1.6} /></span>
+        </div>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
