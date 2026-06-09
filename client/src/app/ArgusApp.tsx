@@ -11,7 +11,7 @@ import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
+import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
@@ -33,6 +33,7 @@ import { CommandPalette } from './overlays/CommandPalette.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { DiffOverlay } from './overlays/DiffOverlay.js';
+import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
 import { ExplorerOverlay } from './overlays/ExplorerOverlay.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
@@ -135,10 +136,10 @@ function DesktopInner() {
 
   type MergeFlow =
     | null
-    | { phase: 'confirm'; session: SessionInfo; targetBranch: string; parentRepoPath: string }
+    | { phase: 'preview'; session: SessionInfo; targetBranch: string; parentRepoPath: string; preview: WorktreeMergePreviewResponse | null; availableBranches: string[] }
     | { phase: 'merging'; session: SessionInfo; targetBranch: string; parentRepoPath: string }
     | { phase: 'success'; session: SessionInfo; targetBranch: string; mergedBranch: string; parentRepoPath: string }
-    | { phase: 'error'; session: SessionInfo; error: string };
+    | { phase: 'error'; session: SessionInfo; error: string; targetBranch?: string; parentRepoPath?: string };
 
   const app = useAppView();
   const mosaicVis = useMosaicVisibility();
@@ -350,26 +351,46 @@ function DesktopInner() {
 
   const handleMerge = async (session: SessionInfo) => {
     try {
-      const info = await api.getWorktreeParentInfo(session.id);
-      setMergeFlow({ phase: 'confirm', session, targetBranch: info.defaultBranch, parentRepoPath: info.parentRepoPath });
+      const [info, branchesRes] = await Promise.all([
+        api.getWorktreeParentInfo(session.id),
+        api.listBranchesForRepo(session.folderPath).catch(() => ({ branches: [] as string[], currentBranch: '' })),
+      ]);
+      setMergeFlow({
+        phase: 'preview',
+        session,
+        targetBranch: info.defaultBranch,
+        parentRepoPath: info.parentRepoPath,
+        preview: null,
+        availableBranches: branchesRes.branches,
+      });
+      const preview = await api.getMergePreview(session.id, info.defaultBranch);
+      setMergeFlow((cur) =>
+        cur?.phase === 'preview' ? { ...cur, preview } : cur
+      );
     } catch (err) {
-      setMergeFlow({ phase: 'error', session, error: err instanceof Error ? err.message : 'Failed to detect target branch' });
+      setMergeFlow((cur) => ({
+        phase: 'error',
+        session: cur?.session ?? session,
+        error: err instanceof Error ? err.message : 'Failed to load merge preview',
+        targetBranch: cur?.phase === 'preview' ? cur.targetBranch : undefined,
+        parentRepoPath: cur?.phase === 'preview' ? cur.parentRepoPath : undefined,
+      }));
     }
   };
 
-  const executeMerge = async () => {
-    if (mergeFlow?.phase !== 'confirm') return;
-    const { session, targetBranch, parentRepoPath } = mergeFlow;
+  const executeMerge = async (targetBranch: string) => {
+    if (mergeFlow?.phase !== 'preview') return;
+    const { session, parentRepoPath } = mergeFlow;
     setMergeFlow({ phase: 'merging', session, targetBranch, parentRepoPath });
     try {
       const result = await api.mergeWorktree(session.id, targetBranch);
       if (result.success) {
         setMergeFlow({ phase: 'success', session, targetBranch, mergedBranch: result.mergedBranch ?? session.worktreeBranch ?? '', parentRepoPath: result.parentRepoPath ?? parentRepoPath });
       } else {
-        setMergeFlow({ phase: 'error', session, error: result.error ?? 'Merge failed' });
+        setMergeFlow({ phase: 'error', session, error: result.error ?? 'Merge failed', targetBranch, parentRepoPath });
       }
     } catch (err) {
-      setMergeFlow({ phase: 'error', session, error: err instanceof Error ? err.message : 'Merge failed' });
+      setMergeFlow({ phase: 'error', session, error: err instanceof Error ? err.message : 'Merge failed', targetBranch, parentRepoPath });
     }
   };
 
@@ -719,33 +740,14 @@ function DesktopInner() {
         onCancel={() => setPendingRestart(null)}
       />
 
-      <AlertSheet
-        isOpen={mergeFlow?.phase === 'confirm'}
-        title="Apply changes?"
-        message={mergeFlow?.phase === 'confirm' ? `Apply this session's work to ${mergeFlow.targetBranch}.` : ''}
-        confirmLabel="Apply"
-        onConfirm={() => { void executeMerge(); }}
-        onCancel={() => setMergeFlow(null)}
-      />
-
-      <AlertSheet
-        isOpen={mergeFlow?.phase === 'success'}
-        title="Changes applied"
-        message={mergeFlow?.phase === 'success' ? `Your work is now in ${mergeFlow.targetBranch}. Close this session?` : ''}
-        confirmLabel="Close session"
-        confirmDestructive
-        onConfirm={() => { void handleMergeDeleteWorktree(); }}
-        onCancel={() => setMergeFlow(null)}
-      />
-
-      <AlertSheet
-        isOpen={mergeFlow?.phase === 'error'}
-        title="Couldn't apply changes"
-        message={mergeFlow?.phase === 'error' ? mergeFlow.error : ''}
-        confirmLabel="Got it"
-        onConfirm={() => setMergeFlow(null)}
-        onCancel={() => setMergeFlow(null)}
-      />
+      {mergeFlow && (
+        <MergePreviewSheet
+          mergeFlow={mergeFlow}
+          onClose={() => setMergeFlow(null)}
+          onMerge={(branch) => { void executeMerge(branch); }}
+          onCleanUp={() => { void handleMergeDeleteWorktree(); }}
+        />
+      )}
 
       <AlertSheet
         isOpen={!!pendingKillGroup}

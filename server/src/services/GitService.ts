@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { appendFile } from 'fs/promises';
 import path from 'path';
-import type { GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry } from '@argus/shared';
+import type { GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
 
 function findGit(): string {
   try {
@@ -405,6 +405,82 @@ export class GitService {
       }
       return { success: false, error: e.stderr || e.message || 'Merge failed' };
     }
+  }
+
+  async getWorktreeMergePreview(
+    parentRepoPath: string,
+    sourceBranch: string,
+    targetBranch: string,
+  ): Promise<WorktreeMergePreviewResponse> {
+    if (/^-/.test(sourceBranch) || /^-/.test(targetBranch)) {
+      throw new Error('Invalid branch name');
+    }
+    const range = `${targetBranch}...${sourceBranch}`;
+
+    // Get per-file stats: "<adds>\t<dels>\t<path>" per line
+    const numstat = await execGit(['diff', '--numstat', range], parentRepoPath);
+    const statLines = numstat.trim().split('\n').filter(Boolean);
+
+    const statsMap = new Map<string, { additions: number; deletions: number }>();
+    for (const line of statLines) {
+      const [adds, dels, ...pathParts] = line.split('\t');
+      const filePath = pathParts.join('\t');
+      if (!filePath) continue;
+      statsMap.set(filePath, {
+        additions: parseInt(adds, 10) || 0,
+        deletions: parseInt(dels, 10) || 0,
+      });
+    }
+
+    // Detect new/deleted files
+    const nameStatus = await execGit(['diff', '--name-status', range], parentRepoPath);
+    const statusMap = new Map<string, { isNew: boolean; isDeleted: boolean }>();
+    for (const line of nameStatus.trim().split('\n').filter(Boolean)) {
+      const [status, ...rest] = line.split('\t');
+      const filePath = rest[rest.length - 1];
+      if (!filePath) continue;
+      statusMap.set(filePath, {
+        isNew: status.startsWith('A'),
+        isDeleted: status.startsWith('D'),
+      });
+    }
+
+    // Fetch per-file diffs in parallel (capped to avoid spawning too many processes)
+    const filePaths = [...statsMap.keys()];
+    const PREVIEW_TIMEOUT_MS = 30_000;
+
+    const fetchDiff = (filePath: string): Promise<string> =>
+      new Promise((resolve) => {
+        execFile(GIT_PATH, ['diff', range, '--', filePath], { cwd: parentRepoPath, timeout: PREVIEW_TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }, (_err, stdout) => {
+          resolve(stdout || '');
+        });
+      });
+
+    const BATCH = 8;
+    const diffs: string[] = [];
+    for (let i = 0; i < filePaths.length; i += BATCH) {
+      const batch = filePaths.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(fetchDiff));
+      diffs.push(...results);
+    }
+
+    const files: MergePreviewFile[] = filePaths.map((filePath, idx) => {
+      const stats = statsMap.get(filePath) ?? { additions: 0, deletions: 0 };
+      const st = statusMap.get(filePath) ?? { isNew: false, isDeleted: false };
+      return {
+        path: filePath,
+        additions: stats.additions,
+        deletions: stats.deletions,
+        diff: diffs[idx] ?? '',
+        isNew: st.isNew,
+        isDeleted: st.isDeleted,
+      };
+    });
+
+    const totalAdditions = files.reduce((s, f) => s + f.additions, 0);
+    const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
+
+    return { files, totalAdditions, totalDeletions, sourceBranch, targetBranch };
   }
 
   async init(folderPath: string): Promise<void> {

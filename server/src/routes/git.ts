@@ -446,6 +446,25 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
   });
 
+  router.get('/sessions/:id/git-merge-preview', async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+    if (!session.worktreePath || !session.worktreeBranch) {
+      res.status(400).json({ error: 'Not a worktree session' }); return;
+    }
+    const reqTarget = typeof req.query.targetBranch === 'string' ? req.query.targetBranch.trim() : '';
+    if (reqTarget && /^-/.test(reqTarget)) { res.status(400).json({ error: 'Invalid branch name' }); return; }
+    try {
+      const parentRepoPath = await gitService.getParentRepoPath(session.worktreePath);
+      const targetBranch = reqTarget || await gitService.getDefaultBranch(parentRepoPath);
+      const result = await gitService.getWorktreeMergePreview(parentRepoPath, session.worktreeBranch, targetBranch);
+      res.setHeader('Cache-Control', 'no-cache');
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post('/sessions/:id/git-merge-worktree', express.json(), async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }

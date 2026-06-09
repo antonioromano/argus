@@ -236,6 +236,23 @@ export interface GitLogResponse {
   isFirstCommit: boolean;
 }
 
+export interface MergePreviewFile {
+  path: string;
+  additions: number;
+  deletions: number;
+  diff: string;
+  isNew: boolean;
+  isDeleted: boolean;
+}
+
+export interface WorktreeMergePreviewResponse {
+  files: MergePreviewFile[];
+  totalAdditions: number;
+  totalDeletions: number;
+  sourceBranch: string;
+  targetBranch: string;
+}
+
 export interface GitBranchesResponse {
   branches: string[];
   currentBranch: string;
