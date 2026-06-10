@@ -493,12 +493,26 @@ export class SessionManager {
           // scroll up into pre-join output. Skip for alt-screen apps (vim/less):
           // they have no meaningful scrollback and mobile routes their scroll to
           // forwarded wheel reports, not local xterm scrollback.
-          const depth = this.ptyManager.isAlternateScreen(session.tmuxName) ? 0 : REPLAY_HISTORY_LINES;
-          const snap = this.ptyManager.capturePane(session.tmuxName, depth).replace(/\n+$/, '');
+          const { cursorX, cursorY, alternate } = this.ptyManager.captureState(session.tmuxName);
+          const depth = alternate ? 0 : REPLAY_HISTORY_LINES;
+          // Strip ONLY the single trailing line-terminator, not the blank rows
+          // below the cursor: those rows are part of the visible screen, and a
+          // seeded buffer (history + screen) is bottom-anchored in xterm, so the
+          // bottom `pane_height` rows must map 1:1 to tmux's live screen. A greedy
+          // strip (/\n+$/) deletes the trailing blanks, shifting the screen-top up
+          // off the viewport-top — then any in-place redraw (claude's input box via
+          // \x1b[H) lands on history rows and overwrites them (old text bleeds over
+          // the current screen). Keeping full height aligns redraws.
+          const snap = this.ptyManager.capturePane(session.tmuxName, depth).replace(/\n$/, '');
           // capture-pane separates rows with bare LF; xterm needs CRLF or it
           // staircases. Clear+home first so the frame replaces prior content
           // (\x1b[3J erases stale scrollback, so reconnect replaces, not dupes).
-          return '\x1b[2J\x1b[3J\x1b[H' + snap.replace(/\r?\n/g, '\r\n');
+          // Trailing cursor-position escape restores the real cursor cell (tmux's
+          // 0-based coords → xterm's 1-based; viewport-relative == screen coords
+          // once the screen sits at full height in the bottom rows).
+          return '\x1b[2J\x1b[3J\x1b[H'
+            + snap.replace(/\r?\n/g, '\r\n')
+            + `\x1b[${cursorY + 1};${cursorX + 1}H`;
         }
       } catch {
         /* tmux gone / pane dead — fall through to the raw buffer */

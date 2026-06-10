@@ -274,13 +274,26 @@ export class PtyManager {
     return this.runTmux(['capture-pane', '-p', '-e', ...hist, '-t', tmuxName]);
   }
 
-  /** True when the pane is showing the alternate screen (vim/less) — which has
-   *  no meaningful scrollback to capture into history. */
-  isAlternateScreen(tmuxName: string): boolean {
+  /**
+   * Pane state needed to build a correct replay frame, in one tmux round-trip:
+   * the cursor cell and whether the alternate screen (vim/less — no meaningful
+   * scrollback) is active. Coordinates are tmux's 0-based screen coordinates.
+   * Falls back to a safe default (no alt screen, cursor home) if the lookup fails.
+   */
+  captureState(tmuxName: string): { cursorX: number; cursorY: number; alternate: boolean } {
     try {
-      return this.runTmux(['display-message', '-p', '-t', tmuxName, '#{alternate_on}']).trim() === '1';
+      const out = this.runTmux([
+        'display-message', '-p', '-t', tmuxName,
+        '#{cursor_x},#{cursor_y},#{alternate_on}',
+      ]).trim();
+      const [cx, cy, alt] = out.split(',');
+      return {
+        cursorX: Number.parseInt(cx, 10) || 0,
+        cursorY: Number.parseInt(cy, 10) || 0,
+        alternate: alt === '1',
+      };
     } catch {
-      return false;
+      return { cursorX: 0, cursorY: 0, alternate: false };
     }
   }
 

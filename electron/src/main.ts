@@ -459,6 +459,16 @@ async function main() {
 
 // Single-instance lock: second launch focuses the existing window and quits.
 if (!app.requestSingleInstanceLock()) {
+  // The lock is keyed by the userData dir, which is appData/<app.getName()> —
+  // and app.getName() is 'argus' for BOTH the packaged app and unpackaged dev
+  // (`electron .`). So a dev launch while the installed app is running (or vice
+  // versa) fails the lock and exits here. This is by design (one window, no
+  // contention), but logged so the "instant quit" isn't mistaken for a crash.
+  console.log(
+    '[electron] another Argus instance already holds the single-instance lock ' +
+    `(userData "${app.getPath('userData')}", app "${app.getName()}"); quitting. ` +
+    'Quit the other instance first to launch this one.',
+  );
   app.quit();
 } else {
   app.on('second-instance', () => { showWindow(); });
