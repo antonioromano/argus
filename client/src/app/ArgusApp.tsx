@@ -204,10 +204,19 @@ function DesktopInner() {
   }, [activeTerminalId, sessions, requestKill]);
   const closeActiveShellRef = useRef(closeActiveShell);
   useEffect(() => { closeActiveShellRef.current = closeActiveShell; }, [closeActiveShell]);
+  // Cmd+N → open the create-session overlay. Owned by the Electron menu accelerator
+  // so it survives terminal focus (xterm swallows the keydown before it reaches the
+  // window listener). The window-keydown fallback below still handles non-terminal
+  // focus; openOverlay is idempotent so a redundant double-fire is harmless.
+  const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
+  const openCreateRef = useRef(openCreate);
+  useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
   useEffect(() => {
     const bridge = window.electronApp;
     if (!bridge) return;
-    return bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
+    const offClose = bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
+    const offNew = bridge.onMenu('menu:new-session', () => openCreateRef.current());
+    return () => { offClose(); offNew(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -651,7 +660,7 @@ function DesktopInner() {
         </Overlay>
       )}
       {app.overlay?.kind === 'palette' && (
-        <Overlay onClose={app.closeOverlay} align="top" label="Command palette">
+        <Overlay onClose={app.closeOverlay} align="top" label="Find & Jump">
           <CommandPalette
             sessions={sessions}
             initialScopeSessionId={app.view === 'focus' ? app.activeSessionId : null}

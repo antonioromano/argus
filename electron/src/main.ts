@@ -180,7 +180,7 @@ function buildAppMenu(): Menu {
     label: 'View',
     submenu: [
       {
-        label: 'Toggle Command Palette',
+        label: 'Toggle Find & Jump',
         accelerator: 'CmdOrCtrl+K',
         click: () => sendMenuEvent('menu:toggle-palette'),
       },

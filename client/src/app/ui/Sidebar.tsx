@@ -173,7 +173,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 
   const pilot: Item[] = [
     { id: 'sessions', icon: SquareTerminal, label: 'Shells', count: counts.total, highlight: !!counts.waiting },
-    { id: 'palette',  icon: Search,         label: 'Command palette', kbd: '⌘K' },
+    { id: 'palette',  icon: Search,         label: 'Find & Jump', kbd: '⌘K' },
   ];
 
   const tools: Item[] = [

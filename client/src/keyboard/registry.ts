@@ -32,7 +32,7 @@ export interface ShortcutAction {
 export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'new-session', label: 'New session', category: 'Sessions', defaultCombo: 'mod+n' },
   { id: 'close-shell', label: 'Close active shell', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
-  { id: 'command-palette', label: 'Toggle command palette', category: 'Navigation', defaultCombo: 'mod+k' },
+  { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear terminal', category: 'Terminal', defaultCombo: 'mod+l' },
