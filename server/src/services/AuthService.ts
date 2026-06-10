@@ -8,6 +8,7 @@ export class AuthService {
   private passwordHash: string | null = null; // "salt:key" (hex)
   private validTokens = new Map<string, number>(); // token -> createdAt ms
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
+  private _exposed = false;
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
     this.io = io;
@@ -15,6 +16,19 @@ export class AuthService {
 
   get enabled(): boolean {
     return this.passwordHash !== null;
+  }
+
+  get exposed(): boolean {
+    return this._exposed;
+  }
+
+  /** True when a bearer token is required for API access. */
+  get enforced(): boolean {
+    return this._exposed || this.enabled;
+  }
+
+  setExposed(value: boolean): void {
+    this._exposed = value;
   }
 
   setPassword(password: string): void {
