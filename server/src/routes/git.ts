@@ -4,6 +4,11 @@ import type { GitService } from '../services/GitService.js';
 import type { ChangelistStore } from '../persistence/ChangelistStore.js';
 import type { CommitSelectionStore } from '../persistence/CommitSelectionStore.js';
 import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
+import { resolveRelativeWithinBase } from '../utils/pathScope.js';
+
+function isSafeRef(ref: string): boolean {
+  return !ref.startsWith('-') && !ref.includes('..');
+}
 
 export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore, commitSelectionStore: CommitSelectionStore): Router {
   const router = Router();
@@ -47,8 +52,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    // Path traversal validation
-    if (filePath.startsWith('/') || filePath.includes('..')) {
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
       res.status(400).json({ diff: '', error: 'Invalid file path' });
       return;
     }
@@ -85,8 +89,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    // Path traversal validation
-    if (filePath.startsWith('/') || filePath.includes('..')) {
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
       res.status(400).json({ hunks: [], isBinary: false, error: 'Invalid file path' });
       return;
     }
@@ -114,6 +117,10 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ error: 'filePath required' });
       return;
     }
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+      res.status(400).json({ error: 'Invalid file path' });
+      return;
+    }
 
     const result = await gitService.stageFile(session.folderPath, filePath);
     if (!result.success) {
@@ -135,6 +142,14 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'Invalid selection descriptor' });
       return;
     }
+    if (!resolveRelativeWithinBase(session.folderPath, selection.filePath)) {
+      res.status(400).json({ success: false, error: 'Invalid file path' });
+      return;
+    }
+    if (selection.fromPath && !resolveRelativeWithinBase(session.folderPath, selection.fromPath)) {
+      res.status(400).json({ success: false, error: 'Invalid fromPath' });
+      return;
+    }
 
     const result = await gitService.stagePatch(session.folderPath, selection);
     res.status(result.success ? 200 : 400).json(result);
@@ -150,6 +165,14 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const selection = req.body as PatchSelectionRequest;
     if (!selection?.filePath || !Array.isArray(selection?.chunks)) {
       res.status(400).json({ success: false, error: 'Invalid selection descriptor' });
+      return;
+    }
+    if (!resolveRelativeWithinBase(session.folderPath, selection.filePath)) {
+      res.status(400).json({ success: false, error: 'Invalid file path' });
+      return;
+    }
+    if (selection.fromPath && !resolveRelativeWithinBase(session.folderPath, selection.fromPath)) {
+      res.status(400).json({ success: false, error: 'Invalid fromPath' });
       return;
     }
 
@@ -197,6 +220,10 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'filePath required' });
       return;
     }
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+      res.status(400).json({ success: false, error: 'Invalid file path' });
+      return;
+    }
 
     const result = await gitService.unstageFile(session.folderPath, filePath);
     res.status(result.success ? 200 : 400).json(result);
@@ -234,6 +261,10 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'filePath required' });
       return;
     }
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+      res.status(400).json({ success: false, error: 'Invalid file path' });
+      return;
+    }
 
     const result = await gitService.addToGitignore(session.folderPath, filePath);
     res.status(result.success ? 200 : 500).json(result);
@@ -262,6 +293,10 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'branch required' });
       return;
     }
+    if (!isSafeRef(branch)) {
+      res.status(400).json({ success: false, error: 'Invalid branch name' });
+      return;
+    }
 
     const result = await gitService.checkoutBranch(session.folderPath, branch);
     res.status(result.success ? 200 : 400).json(result);
@@ -277,6 +312,10 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const { name, from } = req.body as GitCreateBranchRequest;
     if (!name?.trim()) {
       res.status(400).json({ success: false, error: 'branch name required' });
+      return;
+    }
+    if (!isSafeRef(name) || (from !== undefined && !isSafeRef(from))) {
+      res.status(400).json({ success: false, error: 'Invalid branch name' });
       return;
     }
 
@@ -330,7 +369,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (filePath.startsWith('/') || filePath.includes('..')) {
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
       res.status(400).json({ lines: [], error: 'Invalid file path' });
       return;
     }
@@ -353,7 +392,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (filePath.startsWith('/') || filePath.includes('..')) {
+    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
