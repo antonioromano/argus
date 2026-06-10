@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import type { AuthService } from '../services/AuthService.js';
+import { LoginRateLimiter } from '../services/LoginRateLimiter.js';
+
+const limiter = new LoginRateLimiter();
 
 export function createAuthRoutes(authService: AuthService): Router {
   const router = Router();
@@ -27,6 +30,13 @@ export function createAuthRoutes(authService: AuthService): Router {
       return;
     }
 
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const blocked = limiter.check(ip);
+    if (blocked) {
+      res.status(429).json({ error: blocked });
+      return;
+    }
+
     const { password } = req.body ?? {};
     if (!password || typeof password !== 'string') {
       res.status(400).json({ error: 'Password is required' });
@@ -34,10 +44,12 @@ export function createAuthRoutes(authService: AuthService): Router {
     }
 
     if (!authService.verifyPassword(password)) {
+      limiter.recordFailure(ip);
       res.status(401).json({ error: 'Incorrect password' });
       return;
     }
 
+    limiter.reset(ip);
     const token = authService.generateToken();
     res.json({ token });
   });

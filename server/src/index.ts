@@ -117,6 +117,7 @@ ngrokService = new NgrokService();
 ngrokService.setIo(io);
 ngrokService.getAuthRequired = () => authService.enabled;
 ngrokService.onDisconnect = () => authService.clearAuth();
+ngrokService.onExposureChange = (exposed) => authService.setExposed(exposed);
 
 // Git service
 const gitService = new GitService();
@@ -183,6 +184,8 @@ app.use(errorHandler);
 // Start / shutdown — exported so the Electron host can control the lifecycle
 
 let listenRetries = 0;
+let _startReject: ((err: Error) => void) | null = null;
+
 httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE' && listenRetries < 5) {
     listenRetries++;
@@ -190,7 +193,12 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
     setTimeout(() => httpServer.listen(PORT, HOST), 500);
   } else {
     console.error('Server error:', err);
-    process.exit(1);
+    if (_startReject) {
+      _startReject(err instanceof Error ? err : new Error(String(err)));
+      _startReject = null;
+    } else {
+      process.exit(1);
+    }
   }
 });
 
@@ -199,9 +207,13 @@ export async function startServer(): Promise<void> {
   const cfg = await configStore.load();
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
   updateService.start();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    _startReject = reject;
     httpServer.listen(PORT, HOST, () => {
+      _startReject = null;
       console.log(`Server running on ${HOST}:${PORT}`);
+      const loopback = ['127.0.0.1', '::1', 'localhost'];
+      if (!loopback.includes(HOST)) authService.setExposed(true);
       resolve();
     });
   });
