@@ -228,15 +228,27 @@ async function main() {
   // Set environment variables before the dynamic server import because the
   // server reads process.env at module evaluation time.
   process.env.NODE_ENV = 'production';
-  process.env.ARGUS_DATA_DIR = app.getPath('userData');
+  // Dev (`electron .`) and the packaged app share the SAME identity: the root
+  // package.json name is 'argus', so app.getName() === 'argus' in BOTH — not
+  // 'Electron' as Electron's default would suggest. Without isolation they share
+  // one ARGUS_DATA_DIR (sessions.json) and one '-L argus' tmux server: dueling
+  // tmux clients trigger resize storms (garbled, dot-filled terminals), and the
+  // dev instance's "Quit & Stop All" runs kill-server on the shared socket,
+  // killing the INSTALLED app's agents. Gate isolation on app.isPackaged so dev
+  // always gets its own socket + data dir.
+  const devIsolation = !app.isPackaged;
+  process.env.ARGUS_DATA_DIR = devIsolation
+    ? join(app.getPath('userData'), '..', 'argus-dev')
+    : app.getPath('userData');
   // Use ARGUS_PORT if set (e.g. electron:dev sets 5403 to avoid conflicts), else 5757.
   // 5757 (not 5400) keeps the packaged app off the port a sibling fork like
   // remote-orchestrator may already hold.
   if (!process.env.ARGUS_PORT) process.env.ARGUS_PORT = '5757';
-  // Namespace the tmux socket per app identity so sibling forks never share a
-  // tmux server. app.getName() is 'Argus' for the packaged app, 'Electron' in
-  // unpackaged dev — automatic isolation.
-  if (!process.env.ARGUS_TMUX_SOCKET) process.env.ARGUS_TMUX_SOCKET = app.getName().toLowerCase();
+  // Namespace the tmux socket so dev and the packaged app never share a tmux
+  // server. 'argus-dev' for unpackaged dev, 'argus' (app name) for the packaged app.
+  if (!process.env.ARGUS_TMUX_SOCKET) {
+    process.env.ARGUS_TMUX_SOCKET = devIsolation ? 'argus-dev' : app.getName().toLowerCase();
+  }
 
   // Dynamic import after env vars are set so the server picks them up correctly.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -422,7 +434,17 @@ async function main() {
   // Inject brew-based self-update so the in-app "Update now" button works in the desktop app.
   server.setApplyUpdateFn(applyBrewUpdate);
 
-  await server.startServer();
+  await server.startServer().catch(async (err: Error) => {
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Argus — Port conflict',
+      message: `Could not start server: ${err.message}\n\nAnother process may already be using port ${process.env.ARGUS_PORT || '5757'}. Close it and try again.`,
+      buttons: ['Quit'],
+    });
+    setAppQuitting(true);
+    app.quit();
+    throw err;
+  });
   shutdownServer = server.shutdownServer as () => Promise<void>;
   shutdownServerStoppingAll = server.shutdownServerStoppingAll as () => Promise<void>;
 
@@ -435,12 +457,19 @@ async function main() {
   createTray();
 }
 
-app.whenReady().then(() => {
-  main().catch((err) => {
-    console.error('[electron] startup error:', err);
-    app.quit();
+// Single-instance lock: second launch focuses the existing window and quits.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => { showWindow(); });
+
+  app.whenReady().then(() => {
+    main().catch((err) => {
+      console.error('[electron] startup error:', err);
+      app.quit();
+    });
   });
-});
+}
 
 // Prevent Electron from quitting when the last window is closed.
 // The tray keeps the app alive; quitting is only via the tray menu or before-quit.

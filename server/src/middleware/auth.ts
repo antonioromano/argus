@@ -10,17 +10,19 @@ const PUBLIC_PATHS = [
 
 export function createAuthMiddleware(authService: AuthService) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!authService.enabled) {
+    if (!req.path.startsWith('/api/') || PUBLIC_PATHS.includes(req.path)) {
       next();
       return;
     }
 
-    if (PUBLIC_PATHS.includes(req.path)) {
-      next();
+    // Fail-closed: server is reachable off-loopback but no password set yet.
+    // Block all protected API calls until the operator sets a password.
+    if (authService.exposed && !authService.enabled) {
+      res.status(503).json({ error: 'Server is network-exposed but has no password set. Start a tunnel via /api/ngrok/start to set one.' });
       return;
     }
 
-    if (!req.path.startsWith('/api/')) {
+    if (!authService.enforced) {
       next();
       return;
     }

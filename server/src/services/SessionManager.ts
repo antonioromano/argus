@@ -38,6 +38,10 @@ interface ManagedSession {
   lastPrompt?: string;
   /** tmux session name backing this agent (undefined in non-persistent mode). */
   tmuxName?: string;
+  /** Last terminal dimensions reported by a client; used to size a restart's fresh
+   *  pty to the viewer's grid instead of the 120×30 spawn default (avoids garble). */
+  cols?: number;
+  rows?: number;
   /** True when the agent runs inside tmux and survives an app quit. */
   persistent: boolean;
   /**
@@ -190,6 +194,13 @@ export class SessionManager {
     const config = await this.configStore.load();
     const resolvedAgentType = agentType || config.defaultAgent || 'claude';
 
+    // Reject any agentType that doesn't resolve to a registered agent — otherwise
+    // `command = agentDef?.command ?? resolvedAgentType` turns an arbitrary string
+    // into a raw shell word (PtyManager interpolates it into `sh -l -c`).
+    if (!this.agentRegistry.isRegistered(resolvedAgentType, config.customAgents)) {
+      throw new Error(`Unknown agent type: "${resolvedAgentType}"`);
+    }
+
     // Resolve the CLI command for this agent
     const agentDef = this.agentRegistry.getById(resolvedAgentType, config.customAgents);
     const command = agentDef?.command ?? resolvedAgentType;
@@ -305,6 +316,9 @@ export class SessionManager {
 
     // Resolve agent command
     const config = await this.configStore.load();
+    if (!this.agentRegistry.isRegistered(session.agentType, config.customAgents)) {
+      throw new Error(`Unknown agent type: "${session.agentType}"`);
+    }
     const agentDef = this.agentRegistry.getById(session.agentType, config.customAgents);
     const command = agentDef?.command ?? session.agentType;
 
@@ -312,10 +326,20 @@ export class SessionManager {
     const stateDetector = new StateDetector((status) => this.applyDetectedStatus(id, status), session.agentType);
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
 
-    // Spawn fresh pty with the same flags as the original session
+    // Spawn fresh pty at the viewer's last-known grid (not the 120×30 default):
+    // the client xterm isn't remounted on restart, so it keeps its current width.
+    // Spawning at a mismatched size makes the fresh agent draw into the wrong grid
+    // (wrapped/overlapping text). Fall back to 120×30 if no client ever reported.
+    const cols = session.cols ?? 120;
+    const rows = session.rows ?? 30;
     const ptyProcess = session.persistent && session.tmuxName
-      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, 120, 30, session.flags)
-      : this.ptyManager.spawn(session.folderPath, command, 120, 30, session.flags);
+      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, cols, rows, session.flags)
+      : this.ptyManager.spawn(session.folderPath, command, cols, rows, session.flags);
+
+    // Wipe the client xterm before the fresh agent paints: the terminal still holds
+    // the pre-restart buffer (stale scrollback rows that the new agent's startup
+    // clear doesn't fully overwrite). \x1b[3J also drops scrollback so nothing lingers.
+    this.io?.to(id).emit('session:output', { sessionId: id, data: '\x1b[2J\x1b[3J\x1b[H' });
 
     // Swap in the new pty + detector BEFORE wiring handlers. The identity guard
     // below compares against session.pty, so this ordering both (a) admits the new
@@ -418,7 +442,7 @@ export class SessionManager {
     if (!session || session.status !== 'idle') return;
     session.status = 'done';
     this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
-    this.persistSessions();
+    this.persistSessions().catch(console.error);
   }
 
   /** Client opened/focused the session: clear the unacknowledged-done flag. */
@@ -501,6 +525,8 @@ export class SessionManager {
     if (session.status === 'exited') return;
     this.ptyManager.resize(session.pty, cols, rows);
     session.stateDetector.resize(cols, rows);
+    session.cols = cols;
+    session.rows = rows;
   }
 
   async restoreSessions(): Promise<void> {

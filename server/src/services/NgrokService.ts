@@ -40,6 +40,7 @@ export class NgrokService {
 
   public getAuthRequired: () => boolean = () => false;
   public onDisconnect: (() => void) | null = null;
+  public onExposureChange: ((exposed: boolean) => void) | null = null;
 
   constructor() {
     this.ngrokPath = findNgrok();
@@ -89,12 +90,13 @@ export class NgrokService {
     this.broadcastStatus();
 
     // Reuse an already-running ngrok instance if available
-    const existingUrl = await this.pollNgrokApi();
+    const existingUrl = await this.pollNgrokApi(port);
     if (existingUrl) {
       this.publicUrl = existingUrl;
       this.tunnelStatus = 'connected';
       this.error = null;
       this.sleepPrevention.start();
+      this.onExposureChange?.(true);
       this.broadcastStatus();
       return existingUrl;
     }
@@ -127,6 +129,7 @@ export class NgrokService {
         this.publicUrl = null;
         this.stopPolling();
         this.sleepPrevention.stop();
+        this.onExposureChange?.(false);
         this.broadcastStatus();
         this.onDisconnect?.();
       }
@@ -146,7 +149,7 @@ export class NgrokService {
           return;
         }
 
-        const url = await this.pollNgrokApi();
+        const url = await this.pollNgrokApi(port);
         if (url) {
           this.stopPolling();
           this.pendingStartReject = null;
@@ -154,6 +157,7 @@ export class NgrokService {
           this.tunnelStatus = 'connected';
           this.error = null;
           this.sleepPrevention.start();
+          this.onExposureChange?.(true);
           this.broadcastStatus();
           resolve(url);
           return;
@@ -185,6 +189,7 @@ export class NgrokService {
     this.tunnelStatus = 'disconnected';
     this.publicUrl = null;
     this.error = null;
+    this.onExposureChange?.(false);
     this.onDisconnect?.();
     this.broadcastStatus();
   }
@@ -196,17 +201,28 @@ export class NgrokService {
     }
   }
 
-  private pollNgrokApi(): Promise<string | null> {
+  private pollNgrokApi(port?: number): Promise<string | null> {
     return new Promise((resolve) => {
       const req = http.get('http://localhost:4040/api/tunnels', (res) => {
         let body = '';
         res.on('data', (chunk: Buffer) => { body += chunk; });
         res.on('end', () => {
           try {
-            const data = JSON.parse(body) as { tunnels: Array<{ public_url: string }> };
+            const data = JSON.parse(body) as {
+              tunnels: Array<{ public_url: string; config?: { addr?: string } }>;
+            };
             const tunnels = data.tunnels || [];
-            const httpsTunnel = tunnels.find((t) => t.public_url?.startsWith('https://'));
-            resolve(httpsTunnel?.public_url ?? null);
+            const match = tunnels.find((t) => {
+              if (!t.public_url?.startsWith('https://')) return false;
+              // Only adopt a tunnel that forwards to our port, preventing
+              // hijacking of an unrelated ngrok session running on the same host.
+              if (port !== undefined) {
+                const addr = t.config?.addr ?? '';
+                return addr.endsWith(`:${port}`) || addr === String(port);
+              }
+              return true;
+            });
+            resolve(match?.public_url ?? null);
           } catch {
             resolve(null);
           }

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { NgrokService } from '../services/NgrokService.js';
 import type { AuthService } from '../services/AuthService.js';
+import { validatePasswordStrength } from '../services/passwordStrength.js';
 
 export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthService): Router {
   const router = Router();
@@ -24,8 +25,13 @@ export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthS
     }
 
     const { password } = req.body ?? {};
-    if (!password || typeof password !== 'string' || password.trim().length < 4) {
-      res.status(400).json({ error: 'A password of at least 4 characters is required to start the tunnel' });
+    if (!password || typeof password !== 'string') {
+      res.status(400).json({ error: 'A password is required to start the tunnel' });
+      return;
+    }
+    const weak = validatePasswordStrength(password);
+    if (weak) {
+      res.status(400).json({ error: weak });
       return;
     }
 

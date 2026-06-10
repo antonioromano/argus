@@ -28,6 +28,11 @@ import { createUpdateRoutes } from './routes/update.js';
 import { createWorktreeRoutes } from './routes/worktrees.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { createDebugScrollRoute } from './routes/debugScroll.js';
+import { registerProcessHandlers } from './process/globalHandlers.js';
+
+registerProcessHandlers();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.ARGUS_PORT || process.env.PORT) || 5401;
@@ -79,20 +84,6 @@ const corsOriginFn = (
 app.use(cors({ origin: corsOriginFn }));
 app.use(express.json({ limit: '10mb' }));
 
-// Dev scroll-trace sink: the mobile client (with ?debug=1) POSTs per-gesture touch/scroll
-// traces here so on-device scroll behavior can be diagnosed without a Safari cable. Mounted
-// BEFORE auth so it works regardless of session state. Appends text to scroll-debug.log.
-app.use('/api/debug/scroll', express.text({ type: '*/*', limit: '1mb' }));
-app.post('/api/debug/scroll', (req, res) => {
-  try {
-    fs.appendFileSync(
-      path.join(dataDir, 'scroll-debug.log'),
-      `\n===== ${new Date().toISOString()} =====\n${typeof req.body === 'string' ? req.body : ''}\n`,
-    );
-  } catch { /* best-effort */ }
-  res.status(204).end();
-});
-
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },
 });
@@ -126,6 +117,7 @@ ngrokService = new NgrokService();
 ngrokService.setIo(io);
 ngrokService.getAuthRequired = () => authService.enabled;
 ngrokService.onDisconnect = () => authService.clearAuth();
+ngrokService.onExposureChange = (exposed) => authService.setExposed(exposed);
 
 // Git service
 const gitService = new GitService();
@@ -145,6 +137,12 @@ updateService.setIo(io);
 // self-update + relaunch. Forwarded to UpdateService so the apply route can use it.
 export function setApplyUpdateFn(fn: import('./services/UpdateService.js').ApplyUpdateFn): void {
   updateService.setApplyUpdateFn(fn);
+}
+
+// Dev-only scroll trace sink — gated so it never exists in production builds.
+// Moved behind auth so it requires a valid token when auth is active.
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/debug/scroll', createDebugScrollRoute(dataDir));
 }
 
 // Routes
@@ -180,9 +178,14 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
+// 4-arg error handler — must be last middleware, after all routes
+app.use(errorHandler);
+
 // Start / shutdown — exported so the Electron host can control the lifecycle
 
 let listenRetries = 0;
+let _startReject: ((err: Error) => void) | null = null;
+
 httpServer.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE' && listenRetries < 5) {
     listenRetries++;
@@ -190,7 +193,12 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
     setTimeout(() => httpServer.listen(PORT, HOST), 500);
   } else {
     console.error('Server error:', err);
-    process.exit(1);
+    if (_startReject) {
+      _startReject(err instanceof Error ? err : new Error(String(err)));
+      _startReject = null;
+    } else {
+      process.exit(1);
+    }
   }
 });
 
@@ -199,9 +207,13 @@ export async function startServer(): Promise<void> {
   const cfg = await configStore.load();
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
   updateService.start();
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    _startReject = reject;
     httpServer.listen(PORT, HOST, () => {
+      _startReject = null;
       console.log(`Server running on ${HOST}:${PORT}`);
+      const loopback = ['127.0.0.1', '::1', 'localhost'];
+      if (!loopback.includes(HOST)) authService.setExposed(true);
       resolve();
     });
   });

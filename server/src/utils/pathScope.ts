@@ -15,3 +15,15 @@ export function resolveWithinBase(base: string, rawPath: string): string | null 
   if (resolved === base || resolved.startsWith(base + path.sep)) return resolved;
   return null;
 }
+
+/**
+ * Like resolveWithinBase, but `rawPath` may be relative to `base` (git mutation
+ * routes pass repo-relative file paths). Resolves against `base`, then confirms
+ * containment. Returns the normalized absolute path, or null on escape/empty.
+ */
+export function resolveRelativeWithinBase(base: string, rawPath: string): string | null {
+  if (!rawPath) return null;
+  const resolved = path.resolve(base, rawPath);
+  if (resolved === base || resolved.startsWith(base + path.sep)) return resolved;
+  return null;
+}
