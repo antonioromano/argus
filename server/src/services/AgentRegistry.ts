@@ -41,6 +41,10 @@ export class AgentRegistry {
     return this.getAll(customAgents).find((a) => a.id === id);
   }
 
+  isRegistered(id: string, customAgents: AgentDefinition[]): boolean {
+    return this.getById(id, customAgents) !== undefined;
+  }
+
   detectInstalled(): AgentStatus[] {
     return BUILTIN_AGENTS.map((agent) => {
       try {
