@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveWithinBase } from './pathScope.js';
+import { resolveWithinBase, resolveRelativeWithinBase } from './pathScope.js';
 
 const BASE = '/home/u/project';
 
@@ -40,4 +40,25 @@ test('rejects empty input', () => {
 
 test('collapses traversal that stays within the base', () => {
   assert.equal(resolveWithinBase(BASE, '/home/u/project/src/../lib/a.ts'), '/home/u/project/lib/a.ts');
+});
+
+// resolveRelativeWithinBase — git mutation routes pass repo-relative filePaths
+test('relative: accepts a normal relative file', () => {
+  assert.equal(resolveRelativeWithinBase(BASE, 'src/index.ts'), `${BASE}/src/index.ts`);
+});
+
+test('relative: accepts an absolute path inside the base', () => {
+  assert.equal(resolveRelativeWithinBase(BASE, `${BASE}/a.ts`), `${BASE}/a.ts`);
+});
+
+test('relative: rejects ../ traversal escape', () => {
+  assert.equal(resolveRelativeWithinBase(BASE, '../../etc/passwd'), null);
+});
+
+test('relative: rejects an absolute path outside the base', () => {
+  assert.equal(resolveRelativeWithinBase(BASE, '/etc/passwd'), null);
+});
+
+test('relative: rejects empty input', () => {
+  assert.equal(resolveRelativeWithinBase(BASE, ''), null);
 });
