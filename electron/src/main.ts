@@ -17,6 +17,15 @@ import { createTray } from './tray.js';
 // failure mode can't occur. Must be called before app 'ready'.
 app.disableHardwareAcceleration();
 
+// Use Chromium's basic password store instead of the macOS keychain. Chromium's
+// OSCrypt otherwise creates an "Argus Safe Storage" keychain item to encrypt the
+// on-disk cookie/local-state store, and macOS re-prompts for the keychain password
+// on every update because ad-hoc signing gives each build a new code-signing
+// identity. Argus keeps no sensitive data in cookies (state lives in localStorage,
+// app loads 127.0.0.1), so the keychain dependency is pure friction. Must be set
+// before app 'ready'.
+app.commandLine.appendSwitch('password-store', 'basic');
+
 interface ApplyUpdateResult {
   success: boolean;
   error?: string;
