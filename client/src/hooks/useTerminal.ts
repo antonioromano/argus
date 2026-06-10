@@ -191,7 +191,17 @@ export function useTerminal(
     // automatically when fonts load — immune to that whole class (the clean v0.15.1
     // behavior, before WebGL was added in 0.16.0).
 
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+
     // Delay fit to allow container to settle, then report dimensions to server
+    // and only THEN join. Order matters: joining triggers the server's replay
+    // snapshot (capture-pane dumps the pane at its *current* width). If we joined
+    // before reporting this client's size, the pane would still be at the prior
+    // client's width — pre-wrapped lines would land in a mismatched grid and
+    // render garbled (focus view "cut in half", mosaic tile text misplaced).
+    // Resizing first lets the server size the pane to us, so the capture matches
+    // the grid we're about to render into.
     requestAnimationFrame(() => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
@@ -202,22 +212,18 @@ export function useTerminal(
         });
       }
       if (autoFocusRef.current && !readOnly) terminal.focus();
+      socket.emit('session:join', sessionId);
     });
 
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-
-    // Join socket room
-    socket.emit('session:join', sessionId);
-
-    // Re-join room on reconnect (server restart loses room membership)
+    // Re-join room on reconnect (server restart loses room membership).
+    // Resize before join for the same capture-width reason as the initial mount.
     const handleReconnect = () => {
-      socket.emit('session:join', sessionId);
       socket.emit('session:resize', {
         sessionId,
         cols: terminal.cols,
         rows: terminal.rows,
       });
+      socket.emit('session:join', sessionId);
     };
     socket.on('connect', handleReconnect);
 
