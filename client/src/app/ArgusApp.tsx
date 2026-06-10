@@ -48,6 +48,20 @@ export default function ArgusApp() {
   return <DesktopRoot />;
 }
 
+const RECENT_FOLDERS_KEY = 'argus.recent-folders';
+
+function addToRecentFolders(folderPath: string): void {
+  try {
+    const stored = localStorage.getItem(RECENT_FOLDERS_KEY);
+    const prev: Array<{ path: string; lastOpened: number }> = stored ? JSON.parse(stored) : [];
+    const next = [
+      { path: folderPath, lastOpened: Date.now() },
+      ...prev.filter((e) => e.path !== folderPath),
+    ].slice(0, 25);
+    localStorage.setItem(RECENT_FOLDERS_KEY, JSON.stringify(next));
+  } catch { /* non-critical */ }
+}
+
 function DesktopRoot() {
   const socket = useSocket();
   const [authRequired, setAuthRequired] = useState(false);
@@ -317,6 +331,7 @@ function DesktopInner() {
 
   const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
     const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
+    addToRecentFolders(folderPath);
     app.closeOverlay();
     // Stay in mosaic if creating from dashboard; only jump to focus when already focused.
     if (app.view === 'focus') app.openSession(created.id);
@@ -324,6 +339,7 @@ function DesktopInner() {
 
   const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
     const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
+    addToRecentFolders(folderPath);
     app.closeOverlay();
     if (app.view === 'focus') app.openSession(created.id);
   };
@@ -337,6 +353,7 @@ function DesktopInner() {
     if (!src) return;
     try {
       const created = await createSession(src.folderPath, src.name, src.agentType, src.flags);
+      addToRecentFolders(src.folderPath);
       groups.toggleFavorite(created);
       if (ghostId) {
         groups.removeFromFavorites(ghostId);
