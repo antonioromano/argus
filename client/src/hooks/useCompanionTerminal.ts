@@ -6,6 +6,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
+import { openExternal } from '../utils/openExternal.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -106,6 +107,9 @@ export function useCompanionTerminal(
       // Option composes special chars (@ [ ] { } on non-US Mac layouts) instead of
       // sending Meta. Esc still works; rarely-used Alt+ shortcuts are the tradeoff.
       macOptionIsMeta: false,
+      // Route OSC 8 hyperlinks to the system browser (see useTerminal for why core's
+      // default confirm is avoided).
+      linkHandler: { activate: (_event, uri) => openExternal(uri) },
     });
 
     terminal.onBell(() => {
@@ -117,12 +121,7 @@ export function useCompanionTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon(
-      (_event, uri) => {
-        (window as Window & { electronShell?: { openExternal: (u: string) => void } })
-          .electronShell?.openExternal(uri);
-      },
-    ));
+    terminal.loadAddon(new WebLinksAddon((_event, uri) => openExternal(uri)));
 
     terminal.open(container);
     // Built-in DOM renderer (no WebGL/Canvas addon) — see useTerminal for why.

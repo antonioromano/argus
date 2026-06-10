@@ -8,6 +8,7 @@ import type { ClientToServerEvents, ServerToClientEvents, SessionStatus } from '
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
+import { openExternal } from '../utils/openExternal.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -130,6 +131,11 @@ export function useTerminal(
       // Option composes special chars (@ [ ] { } on non-US Mac layouts) instead of
       // sending Meta. Esc still works; rarely-used Alt+ shortcuts are the tradeoff.
       macOptionIsMeta: false,
+      // OSC 8 escape-sequence hyperlinks (the PR link `gh`/Claude Code emit) are
+      // handled by xterm core, NOT WebLinksAddon. Without this, core shows a
+      // "could be dangerous" confirm whose OK doesn't reliably open under Electron.
+      // Route them to the system browser like plain-text links.
+      linkHandler: { activate: (_event, uri) => openExternal(uri) },
     });
 
     // Visual bell — xterm v5 removed bellStyle, so wire it manually via onBell.
@@ -145,12 +151,7 @@ export function useTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon(
-      (_event, uri) => {
-        (window as Window & { electronShell?: { openExternal: (u: string) => void } })
-          .electronShell?.openExternal(uri);
-      },
-    ));
+    terminal.loadAddon(new WebLinksAddon((_event, uri) => openExternal(uri)));
     const searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
