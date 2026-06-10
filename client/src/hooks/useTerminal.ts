@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import type { ClientToServerEvents, ServerToClientEvents, SessionStatus } from '@argus/shared';
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
@@ -227,6 +227,37 @@ export function useTerminal(
     };
     socket.on('connect', handleReconnect);
 
+    // Re-pull a fresh, grid-aligned replay frame (resize-then-join, same as a mount).
+    // The server's join handler returns a snapshot prefixed with \x1b[2J\x1b[3J\x1b[H,
+    // so this REPLACES the buffer rather than appending — the only way, short of a
+    // remount, to re-align a drifted terminal.
+    let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+    const resync = (delay: number) => {
+      if (resyncTimer) clearTimeout(resyncTimer);
+      resyncTimer = setTimeout(() => {
+        socket.emit('session:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+        socket.emit('session:join', sessionId);
+      }, delay);
+    };
+
+    // Re-align on output settle. The replay frame is bottom-anchored: its last
+    // pane_height rows must map 1:1 to tmux's live screen, so in-place redraws land on
+    // the screen, not on seeded scrollback. While a tile stays mounted that mapping
+    // drifts (the live redraw stops overwriting the seeded copy), leaving a duplicated
+    // block above the current screen — visible when scrolling a mosaic tile; entering
+    // focus fixes it only because the focus mount re-joins. When output stops
+    // (running -> waiting/done) the screen is stable and the user is about to read it,
+    // so reseed once: flicker-free since nothing is streaming. Never reseed while
+    // running (would flicker the live output).
+    let lastStatus: SessionStatus | null = null;
+    const handleStatus = ({ sessionId: sid, status }: { sessionId: string; status: SessionStatus }) => {
+      if (sid !== sessionId) return;
+      const prev = lastStatus;
+      lastStatus = status;
+      if (prev === 'running' && (status === 'waiting' || status === 'done')) resync(150);
+    };
+    socket.on('session:status', handleStatus);
+
     // Socket -> Terminal
     const handleOutput = ({ sessionId: sid, data }: { sessionId: string; data: string }) => {
       if (sid === sessionId) {
@@ -277,6 +308,7 @@ export function useTerminal(
         (window as Window & { __argusFit?: number }).__argusFit =
           ((window as Window & { __argusFit?: number }).__argusFit ?? 0) + 1;
         const prevCols = terminal.cols;
+        const prevRows = terminal.rows;
         fitAddon.fit();
         // Column change means lines were rewrapped, which can leave the DOM
         // renderer's scrollback row elements in a stale state at the old scroll
@@ -289,6 +321,11 @@ export function useTerminal(
           cols: terminal.cols,
           rows: terminal.rows,
         });
+        // A grid change re-sizes the tmux pane, so the seeded buffer is now wrapped
+        // for the wrong width/height. Reseed an aligned frame (rows matter too — the
+        // bottom-anchored replay needs xterm rows == pane_height). Debounced and
+        // gated on an actual change so steady-state refreshes don't reseed.
+        if (terminal.cols !== prevCols || terminal.rows !== prevRows) resync(120);
       }
     };
 
@@ -316,6 +353,7 @@ export function useTerminal(
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
+      if (resyncTimer) clearTimeout(resyncTimer);
       if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
@@ -325,6 +363,7 @@ export function useTerminal(
       disposeMouse();
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
+      socket.off('session:status', handleStatus);
       socket.off('connect', handleReconnect);
       socket.emit('session:leave', sessionId);
       terminal.dispose();
