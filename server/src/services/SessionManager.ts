@@ -190,6 +190,13 @@ export class SessionManager {
     const config = await this.configStore.load();
     const resolvedAgentType = agentType || config.defaultAgent || 'claude';
 
+    // Reject any agentType that doesn't resolve to a registered agent — otherwise
+    // `command = agentDef?.command ?? resolvedAgentType` turns an arbitrary string
+    // into a raw shell word (PtyManager interpolates it into `sh -l -c`).
+    if (!this.agentRegistry.isRegistered(resolvedAgentType, config.customAgents)) {
+      throw new Error(`Unknown agent type: "${resolvedAgentType}"`);
+    }
+
     // Resolve the CLI command for this agent
     const agentDef = this.agentRegistry.getById(resolvedAgentType, config.customAgents);
     const command = agentDef?.command ?? resolvedAgentType;
@@ -305,6 +312,9 @@ export class SessionManager {
 
     // Resolve agent command
     const config = await this.configStore.load();
+    if (!this.agentRegistry.isRegistered(session.agentType, config.customAgents)) {
+      throw new Error(`Unknown agent type: "${session.agentType}"`);
+    }
     const agentDef = this.agentRegistry.getById(session.agentType, config.customAgents);
     const command = agentDef?.command ?? session.agentType;
 
