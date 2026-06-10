@@ -428,7 +428,7 @@ export class SessionManager {
     if (!session || session.status !== 'idle') return;
     session.status = 'done';
     this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
-    this.persistSessions();
+    this.persistSessions().catch(console.error);
   }
 
   /** Client opened/focused the session: clear the unacknowledged-done flag. */
