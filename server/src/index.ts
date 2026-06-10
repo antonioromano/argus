@@ -28,6 +28,11 @@ import { createUpdateRoutes } from './routes/update.js';
 import { createWorktreeRoutes } from './routes/worktrees.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { createDebugScrollRoute } from './routes/debugScroll.js';
+import { registerProcessHandlers } from './process/globalHandlers.js';
+
+registerProcessHandlers();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.ARGUS_PORT || process.env.PORT) || 5401;
@@ -78,20 +83,6 @@ const corsOriginFn = (
 
 app.use(cors({ origin: corsOriginFn }));
 app.use(express.json({ limit: '10mb' }));
-
-// Dev scroll-trace sink: the mobile client (with ?debug=1) POSTs per-gesture touch/scroll
-// traces here so on-device scroll behavior can be diagnosed without a Safari cable. Mounted
-// BEFORE auth so it works regardless of session state. Appends text to scroll-debug.log.
-app.use('/api/debug/scroll', express.text({ type: '*/*', limit: '1mb' }));
-app.post('/api/debug/scroll', (req, res) => {
-  try {
-    fs.appendFileSync(
-      path.join(dataDir, 'scroll-debug.log'),
-      `\n===== ${new Date().toISOString()} =====\n${typeof req.body === 'string' ? req.body : ''}\n`,
-    );
-  } catch { /* best-effort */ }
-  res.status(204).end();
-});
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },
@@ -147,6 +138,12 @@ export function setApplyUpdateFn(fn: import('./services/UpdateService.js').Apply
   updateService.setApplyUpdateFn(fn);
 }
 
+// Dev-only scroll trace sink — gated so it never exists in production builds.
+// Moved behind auth so it requires a valid token when auth is active.
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api/debug/scroll', createDebugScrollRoute(dataDir));
+}
+
 // Routes
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', persistentSessions: sessionManager.isPersistent() });
@@ -179,6 +176,9 @@ if (process.env.NODE_ENV === 'production') {
     console.warn(`Warning: client/dist not found at ${clientDist} — running in API-only mode`);
   }
 }
+
+// 4-arg error handler — must be last middleware, after all routes
+app.use(errorHandler);
 
 // Start / shutdown — exported so the Electron host can control the lifecycle
 

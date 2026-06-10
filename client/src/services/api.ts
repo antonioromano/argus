@@ -15,6 +15,29 @@ export function setToken(token: string | null): void {
   }
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = 'ApiError';
+  }
+}
+
+async function parseError(res: Response): Promise<string> {
+  try {
+    const body = await res.json() as { error?: string };
+    return body.error || res.statusText || `HTTP ${res.status}`;
+  } catch {
+    return res.statusText || `HTTP ${res.status}`;
+  }
+}
+
+async function requireOk(res: Response): Promise<Response> {
+  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  return res;
+}
+
 async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init?.headers);
@@ -33,7 +56,7 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
 export const api = {
   getSessions: async (): Promise<SessionInfo[]> => {
     const res = await authFetch(`${API_BASE}/sessions`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   createSession: async (data: CreateSessionRequest): Promise<SessionInfo> => {
@@ -42,15 +65,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create session');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   deleteSession: async (id: string): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
+    await requireOk(await authFetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' }));
   },
 
   checkWorktree: async (params: {
@@ -70,14 +89,13 @@ export const api = {
     if (params.worktreePath) q.set('worktreePath', params.worktreePath);
     if (params.worktreeBranch) q.set('worktreeBranch', params.worktreeBranch);
     const res = await authFetch(`${API_BASE}/worktrees/check?${q}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   listBranchesForRepo: async (repoPath: string): Promise<{ branches: string[]; currentBranch: string; behindCount?: number }> => {
     const q = new URLSearchParams({ repoPath });
     const res = await authFetch(`${API_BASE}/worktrees/branches?${q}`);
-    if (!res.ok) return { branches: [], currentBranch: '' };
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   deleteWorktree: async (worktreePath: string, repoPath: string, force = false): Promise<void> => {
@@ -86,24 +104,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ worktreePath, repoPath, force }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to delete worktree');
-    }
+    await requireOk(res);
   },
 
   restartSession: async (id: string): Promise<SessionInfo> => {
     const res = await authFetch(`${API_BASE}/sessions/${id}/restart`, { method: 'PATCH' });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to restart session');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getPathCompletions: async (path: string): Promise<string[]> => {
     const res = await authFetch(`${API_BASE}/fs/autocomplete?path=${encodeURIComponent(path)}`);
-    const data: PathCompletionResponse = await res.json();
+    const data: PathCompletionResponse = await (await requireOk(res)).json();
     return data.completions;
   },
 
@@ -113,15 +124,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, path: filePath, reveal }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to open');
-    }
+    await requireOk(res);
   },
 
   pickFolder: async (): Promise<string | null> => {
     const res = await authFetch(`${API_BASE}/fs/pick-folder`, { method: 'POST' });
-    const data = await res.json();
+    const data = await (await requireOk(res)).json();
     return data.path;
   },
 
@@ -130,22 +138,18 @@ export const api = {
     if (dirPath) params.set('path', dirPath);
     if (includeFiles) params.set('includeFiles', 'true');
     const res = await authFetch(`${API_BASE}/fs/children?${params}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   searchFiles: async (rootPath: string, query: string): Promise<FileSearchResponse> => {
     const params = new URLSearchParams({ path: rootPath, q: query });
     const res = await authFetch(`${API_BASE}/fs/search?${params}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getFileContent: async (filePath: string): Promise<FileContentResponse> => {
     const res = await authFetch(`${API_BASE}/fs/file?path=${encodeURIComponent(filePath)}`);
-    if (!res.ok) {
-      const err = await res.json() as { error: string };
-      throw new Error(err.error);
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   writeFile: async (data: WriteFileRequest): Promise<WriteFileResponse> => {
@@ -154,65 +158,65 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getSessionOrder: async (): Promise<string[]> => {
     const res = await authFetch(`${API_BASE}/sessions/order`);
-    const data = await res.json();
+    const data = await (await requireOk(res)).json();
     return data.order;
   },
 
   saveSessionOrder: async (order: string[]): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/order`, {
+    await requireOk(await authFetch(`${API_BASE}/sessions/order`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
-    });
+    }));
   },
 
   getMosaicOrder: async (): Promise<string[]> => {
     const res = await authFetch(`${API_BASE}/sessions/mosaic-order`);
-    const data = await res.json();
+    const data = await (await requireOk(res)).json();
     return data.order;
   },
 
   saveMosaicOrder: async (order: string[]): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/mosaic-order`, {
+    await requireOk(await authFetch(`${API_BASE}/sessions/mosaic-order`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
-    });
+    }));
   },
 
   getGroups: async (): Promise<SessionGroup[]> => {
     const res = await authFetch(`${API_BASE}/sessions/groups`);
-    const data = await res.json();
+    const data = await (await requireOk(res)).json();
     return data.groups;
   },
 
   saveGroups: async (groups: SessionGroup[]): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/groups`, {
+    await requireOk(await authFetch(`${API_BASE}/sessions/groups`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groups }),
-    });
+    }));
   },
 
   getSessionDiff: async (sessionId: string): Promise<GitDiffResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/diff`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getFileDiff: async (sessionId: string, filePath: string, contextLines: number, source: 'unstaged' | 'staged' | 'branch'): Promise<DiffFileResponse> => {
     const params = new URLSearchParams({ filePath, contextLines: String(contextLines), source });
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/diff-file?${params}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getGitFileStatuses: async (sessionId: string): Promise<GitFileStatusResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-file-statuses`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   stagePatch: async (sessionId: string, selection: PatchSelectionRequest): Promise<PatchOperationResponse> => {
@@ -221,7 +225,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(selection),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   discardPatch: async (sessionId: string, selection: PatchSelectionRequest): Promise<PatchOperationResponse> => {
@@ -230,14 +234,14 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(selection),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   undoDiscard: async (sessionId: string, undoId: string): Promise<PatchOperationResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-undo-discard/${undoId}`, {
       method: 'POST',
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitCommit: async (sessionId: string, data: CommitRequest): Promise<CommitResponse> => {
@@ -246,21 +250,21 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitPush: async (sessionId: string): Promise<PatchOperationResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-push`, {
       method: 'POST',
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitPull: async (sessionId: string): Promise<PatchOperationResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-pull`, {
       method: 'POST',
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitAdd: async (sessionId: string, filePath: string): Promise<PatchOperationResponse> => {
@@ -269,7 +273,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitUnstage: async (sessionId: string, filePath: string): Promise<PatchOperationResponse> => {
@@ -278,7 +282,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitIgnore: async (sessionId: string, filePath: string): Promise<PatchOperationResponse> => {
@@ -287,17 +291,17 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getGitLog: async (sessionId: string): Promise<GitLogResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-log`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getGitBranches: async (sessionId: string): Promise<GitBranchesResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-branches`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitCheckout: async (sessionId: string, branch: string): Promise<PatchOperationResponse> => {
@@ -306,7 +310,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ branch }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitCreateBranch: async (sessionId: string, name: string, from?: string): Promise<PatchOperationResponse> => {
@@ -315,7 +319,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, from }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitPullAndBranch: async (sessionId: string, branchName: string, baseBranch?: string): Promise<GitPullAndBranchResponse> => {
@@ -324,7 +328,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ branchName, baseBranch }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getNgrokStatus: async (): Promise<NgrokStatus> => {
@@ -338,32 +342,24 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...(port != null && { port }), password }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to start ngrok');
-    }
-    const data: NgrokStartResponse = await res.json();
+    const data: NgrokStartResponse = await (await requireOk(res)).json();
     setToken(data.token);
     window.dispatchEvent(new CustomEvent('auth:authenticated'));
     return data;
   },
 
   stopNgrok: async (): Promise<void> => {
-    const res = await authFetch(`${API_BASE}/ngrok/stop`, { method: 'POST' });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to stop ngrok');
-    }
+    await requireOk(await authFetch(`${API_BASE}/ngrok/stop`, { method: 'POST' }));
   },
 
   recheckNgrok: async (): Promise<NgrokStatus> => {
     const res = await authFetch(`${API_BASE}/ngrok/recheck`, { method: 'POST' });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getConfig: async (): Promise<AppConfig> => {
     const res = await authFetch(`${API_BASE}/config`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   updateConfig: async (data: Partial<AppConfig>): Promise<AppConfig> => {
@@ -372,12 +368,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   detectAgents: async (): Promise<AgentDetectionResponse> => {
     const res = await authFetch(`${API_BASE}/agents/detect`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getAuthStatus: async (): Promise<AuthStatus> => {
@@ -393,16 +389,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Login failed');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   checkUpdate: async (): Promise<UpdateStatus> => {
     const res = await authFetch(`${API_BASE}/update/check`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   applyUpdate: async (force?: boolean): Promise<UpdateApplyResponse> => {
@@ -411,11 +403,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ force: force ?? false }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to apply update');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getDiffStructured: async (
@@ -430,13 +418,13 @@ export const api = {
       source,
     });
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/diff-file-structured?${params}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getBlame: async (sessionId: string, filePath: string): Promise<BlameResponse> => {
     const params = new URLSearchParams({ filePath });
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-blame?${params}`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   revertFileToHead: async (
@@ -448,7 +436,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   commitWithFiles: async (
@@ -462,39 +450,39 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, amend, files }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getChangelists: async (sessionId: string): Promise<ChangelistStateResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/changelists`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   saveChangelists: async (
     sessionId: string,
     state: ChangelistStateResponse
   ): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/${sessionId}/changelists`, {
+    await requireOk(await authFetch(`${API_BASE}/sessions/${sessionId}/changelists`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
-    });
+    }));
   },
 
   getCommitSelection: async (sessionId: string): Promise<CommitSelectionState> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/commit-selection`);
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   saveCommitSelection: async (
     sessionId: string,
     state: CommitSelectionState
   ): Promise<void> => {
-    await authFetch(`${API_BASE}/sessions/${sessionId}/commit-selection`, {
+    await requireOk(await authFetch(`${API_BASE}/sessions/${sessionId}/commit-selection`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
-    });
+    }));
   },
 
   createFile: async (
@@ -507,7 +495,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, path: filePath, isDir }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   renameFile: async (
@@ -520,7 +508,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, fromPath, toPath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   deleteFile: async (
@@ -532,7 +520,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, path: filePath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   moveFile: async (
@@ -545,16 +533,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId, fromPath, toPath }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getWorktreeParentInfo: async (sessionId: string): Promise<{ parentRepoPath: string; defaultBranch: string }> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-worktree-parent-info`);
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to get worktree info');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   mergeWorktree: async (sessionId: string, targetBranch?: string): Promise<{ success: boolean; targetBranch?: string; mergedBranch?: string; parentRepoPath?: string; error?: string }> => {
@@ -563,17 +547,13 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ targetBranch }),
     });
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   getMergePreview: async (sessionId: string, targetBranch?: string): Promise<WorktreeMergePreviewResponse> => {
     const q = targetBranch ? `?targetBranch=${encodeURIComponent(targetBranch)}` : '';
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-merge-preview${q}`);
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to get merge preview');
-    }
-    return res.json();
+    return (await requireOk(res)).json();
   },
 
   gitInit: async (folderPath: string): Promise<void> => {
@@ -582,9 +562,6 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ folderPath }),
     });
-    if (!res.ok) {
-      const err = await res.json() as { error?: string };
-      throw new Error(err.error || 'Failed to initialize git repository');
-    }
+    await requireOk(res);
   },
 };

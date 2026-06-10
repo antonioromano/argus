@@ -3,6 +3,7 @@ import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
+import { pushToast } from '../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -82,8 +83,12 @@ export function useSessions(socket: TypedSocket) {
   }, []);
 
   const deleteSession = useCallback(async (id: string) => {
-    await api.deleteSession(id);
-    setSessions((prev) => prev.filter((s) => s.id !== id));
+    try {
+      await api.deleteSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Failed to delete session', 'danger');
+    }
   }, []);
 
   return { sessions, createSession, deleteSession };
