@@ -65,6 +65,7 @@ function applyBrewUpdate(): Promise<ApplyUpdateResult> {
         `if [ -f "${lockFile}" ]; then echo "[argus-update] already running, exiting" >> "${logFile}"; exit 0; fi`,
         `echo $$ > "${lockFile}"`,
         `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
+        `brew trust antonioromano/argus >> "${logFile}" 2>&1 || true`,
         `brew update >> "${logFile}" 2>&1`,
         `brew upgrade --cask argus >> "${logFile}" 2>&1`,
         `BREW_EXIT=$?`,
@@ -75,7 +76,8 @@ function applyBrewUpdate(): Promise<ApplyUpdateResult> {
         `  echo "[argus-update] $(date) relaunching (installed: $INSTALLED)" >> "${logFile}"`,
         `  open -a Argus`,
         `else`,
-        `  echo "[argus-update] $(date) upgrade failed (exit $BREW_EXIT), not relaunching" >> "${logFile}"`,
+        `  echo "[argus-update] $(date) upgrade failed (exit $BREW_EXIT), relaunching previous version" >> "${logFile}"`,
+        `  open -a Argus`,
         `fi`,
       ].join('\n');
 
