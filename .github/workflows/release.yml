@@ -66,6 +66,7 @@ jobs:
         with:
           files: dist/*.dmg
           fail_on_unmatched_files: true
+          generate_release_notes: true
 
       - name: Update Cask
         env:

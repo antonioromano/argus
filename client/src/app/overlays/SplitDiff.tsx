@@ -178,6 +178,7 @@ function ChunkSplit({
   const gridRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<Array<{ d: string; id: string }>>([]);
 
   const { segs, blocks, changeBlocks } = useMemo(() => {
@@ -201,14 +202,16 @@ function ChunkSplit({
     const grid = gridRef.current;
     const left = leftRef.current;
     const right = rightRef.current;
-    if (!grid || !left || !right) return;
+    const gutter = gutterRef.current;
+    if (!grid || !left || !right || !gutter) return;
 
     const measure = () => {
       const base = grid.getBoundingClientRect();
       const lrows = left.children;
       const rrows = right.children;
-      const x1 = left.getBoundingClientRect().right - base.left;
-      const x2 = x1 + GUTTER;
+      const gutterRect = gutter.getBoundingClientRect();
+      const x1 = gutterRect.left - base.left;
+      const x2 = gutterRect.right - base.left;
       const cx = (x1 + x2) / 2;
       const next: Array<{ d: string; id: string }> = [];
       blocks.forEach((b, i) => {
@@ -276,23 +279,25 @@ function ChunkSplit({
   return (
     <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden' }}>
       <div style={{ color: 'var(--fg-3)', padding: '3px 10px', background: 'var(--bg-1)' }}>{chunk.content}</div>
-      <div style={{ overflowX: 'auto' }}>
       <div
         ref={gridRef}
         style={{
           position: 'relative',
-          display: 'grid',
-          gridTemplateColumns: selection
-            ? `${BLOCK_GUTTER_W}px 1fr ${GUTTER}px 1fr`
-            : `1fr ${GUTTER}px 1fr`,
+          display: 'flex',
           background: 'var(--bg-0)',
-          minWidth: 'max-content',
         }}
       >
-        {selection && <div style={{ minWidth: 0 }}>{gutterRows}</div>}
-        <div ref={leftRef} style={{ minWidth: 0 }}>{leftRows}</div>
-        <div style={{ background: 'var(--bg-1)', borderLeft: '1px solid var(--line-2)', borderRight: '1px solid var(--line-2)' }} />
-        <div ref={rightRef} style={{ minWidth: 0 }}>{rightRows}</div>
+        {selection && <div style={{ width: BLOCK_GUTTER_W, flexShrink: 0 }}>{gutterRows}</div>}
+        <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          <div ref={leftRef} style={{ minWidth: 'max-content' }}>{leftRows}</div>
+        </div>
+        <div
+          ref={gutterRef}
+          style={{ width: GUTTER, flexShrink: 0, background: 'var(--bg-1)', borderLeft: '1px solid var(--line-2)', borderRight: '1px solid var(--line-2)' }}
+        />
+        <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+          <div ref={rightRef} style={{ minWidth: 'max-content' }}>{rightRows}</div>
+        </div>
         <svg
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', overflow: 'visible' }}
         >
@@ -308,7 +313,6 @@ function ChunkSplit({
             <path key={p.id} d={p.d} fill={`url(#${p.id})`} />
           ))}
         </svg>
-      </div>
       </div>
     </div>
   );
