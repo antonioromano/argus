@@ -158,6 +158,8 @@ function DesktopInner() {
   const app = useAppView();
   const mosaicVis = useMosaicVisibility();
   const [filter, setFilter] = useState('');
+  const [notifiedTileId, setNotifiedTileId] = useState<string | null>(null);
+  const notifiedTileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
   const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
   const [pendingRestart, setPendingRestart] = useState<SessionInfo | null>(null);
@@ -245,6 +247,14 @@ function DesktopInner() {
     }
   }, [sessions, appView, appActiveSessionId, appExitFocus]);
 
+  // Notification click: highlight the tile in the mosaic (rather than jumping to focus mode).
+  const highlightSession = useCallback((id: string) => {
+    if (app.view === 'focus') app.exitFocus();
+    if (notifiedTileTimerRef.current) clearTimeout(notifiedTileTimerRef.current);
+    setNotifiedTileId(id);
+    notifiedTileTimerRef.current = setTimeout(() => setNotifiedTileId(null), 1200);
+  }, [app]);
+
   // Notifications
   useNotifications({
     sessions,
@@ -252,7 +262,7 @@ function DesktopInner() {
     notifyOnWaiting: config?.notifyOnWaiting ?? true,
     notifyOnDone: config?.notifyOnDone ?? false,
     notificationSound: config?.notificationSound ?? false,
-    onFocusSession: app.openSession,
+    onFocusSession: highlightSession,
     onSwitchToSessionsTab: () => {},
   });
 
@@ -605,6 +615,7 @@ function DesktopInner() {
               onRequestSearch={openTerminalSearchFor}
               onCloseSearch={closeTerminalSearch}
               onActiveTerminalChange={setMosaicFocusedId}
+              notifiedTileId={notifiedTileId}
             />
           )}
 

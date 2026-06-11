@@ -28,6 +28,8 @@ interface UseTerminalOptions {
   shortcuts?: ResolvedShortcuts;
   /** Open the in-terminal search bar for this terminal (Cmd+F). */
   onRequestSearch?: () => void;
+  /** Increment to imperatively focus the terminal (e.g. notification click). */
+  requestFocusToken?: number;
 }
 
 const DARK_THEME = {
@@ -83,7 +85,7 @@ export function useTerminal(
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch } = options;
+  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
   const autoFocusRef = useRef(autoFocus);
@@ -382,6 +384,12 @@ export function useTerminal(
       t.refresh(0, t.rows - 1);
     }
   }, [theme]);
+
+  // Imperatively focus when requestFocusToken increments (e.g. notification click).
+  useEffect(() => {
+    if (!requestFocusToken) return;
+    terminalRef.current?.focus();
+  }, [requestFocusToken]);
 
   return { terminalRef, fitAddonRef, searchAddonRef };
 }

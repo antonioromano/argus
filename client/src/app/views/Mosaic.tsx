@@ -69,11 +69,13 @@ interface MosaicProps {
   onCloseSearch?: () => void;
   /** Report which tile's terminal currently holds keyboard focus (null when none). */
   onActiveTerminalChange?: (id: string | null) => void;
+  /** Session id to highlight + focus via notification click (null = none). */
+  notifiedTileId?: string | null;
 }
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -303,6 +305,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   searchOpen={searchSessionId === s.id}
                   onOpenSearch={onRequestSearch ? () => onRequestSearch(s.id) : undefined}
                   onCloseSearch={onCloseSearch}
+                  isNotified={notifiedTileId === s.id}
                 />
               ))}
             </div>
@@ -371,6 +374,8 @@ type MosaicTileSharedProps = {
   searchOpen?: boolean;
   onOpenSearch?: () => void;
   onCloseSearch?: () => void;
+  /** True while this tile is the notification-click target; triggers glow + terminal focus. */
+  isNotified?: boolean;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -487,6 +492,7 @@ function MosaicTile({
   onXtermFocus,
   onXtermBlur,
   autoFocus,
+  isNotified,
   onToggleMinimize,
   isMinimizing,
   isRestoring,
@@ -513,11 +519,23 @@ function MosaicTile({
   const [ctaHovered, setCtaHovered] = useState(false);
   const pathRef = useRef<HTMLSpanElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
+  const tileRootRef = useRef<HTMLDivElement>(null);
   // Capture autoFocus at mount: true means this tile is being restored from the
   // minimized row and should skip the staggered entrance animation (which would
   // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
   const skipAnimation = useRef(autoFocus).current;
   const animTimeoutRef = useRef<number | null>(null);
+
+  // Notification-click: scroll into view and increment focusToken to request xterm focus.
+  const [focusToken, setFocusToken] = useState(0);
+  const prevNotified = useRef(false);
+  useEffect(() => {
+    if (isNotified && !prevNotified.current) {
+      tileRootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setFocusToken((t) => t + 1);
+    }
+    prevNotified.current = !!isNotified;
+  }, [isNotified]);
   const doCopy = () => {
     void navigator.clipboard.writeText(session.folderPath);
     setCopied(true);
@@ -571,10 +589,12 @@ function MosaicTile({
     isMinimizing && 'argus-tile--minimizing',
     isRestoring  && 'argus-tile--restoring',
     isReflowing  && 'argus-tile--reflowing',
+    isNotified   && 'argus-tile--notified',
   ].filter(Boolean).join(' ');
 
   return (
     <div
+      ref={tileRootRef}
       className={tileClass}
       data-status={session.status}
       style={{ ['--i' as string]: idx, ...(skipAnimation && !isRestoring ? { animation: 'none' } : {}) } as CSSProperties}
@@ -584,10 +604,6 @@ function MosaicTile({
       )}
       <div
         className={`argus-tile-header${ctaHovered ? ' argus-tile-header--hovered' : ''}`}
-        role="button"
-        tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
         onMouseEnter={handleCtaEnter}
         onMouseLeave={handleCtaLeave}
         {...dragHandleListeners}
@@ -686,7 +702,7 @@ function MosaicTile({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} />
         </ErrorBoundary>
       </div>
     </div>

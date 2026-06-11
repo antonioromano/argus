@@ -1,12 +1,45 @@
-import { BrowserWindow, app, shell } from 'electron';
+import { BrowserWindow, app, shell, screen } from 'electron';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync, writeFileSync } from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let win: BrowserWindow | null = null;
 let appIsQuitting = false;
 let stopAllOnQuit = false;
+
+interface WindowState {
+  fullscreen: boolean;
+  displayId: number;
+  bounds: { x: number; y: number; width: number; height: number };
+}
+
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json');
+}
+
+function loadWindowState(): WindowState | null {
+  try {
+    return JSON.parse(readFileSync(windowStatePath(), 'utf8')) as WindowState;
+  } catch {
+    return null;
+  }
+}
+
+export function saveWindowState(): void {
+  if (!win || win.isDestroyed()) return;
+  try {
+    const state: WindowState = {
+      fullscreen: win.isFullScreen(),
+      displayId: screen.getDisplayMatching(win.getBounds()).id,
+      bounds: win.getNormalBounds(),
+    };
+    writeFileSync(windowStatePath(), JSON.stringify(state));
+  } catch {
+    // non-critical
+  }
+}
 
 export function setAppQuitting(v: boolean): void {
   appIsQuitting = v;
@@ -24,9 +57,37 @@ export function getStopAllOnQuit(): boolean {
 }
 
 export function createWindow(): BrowserWindow {
+  const saved = loadWindowState();
+
+  // Resolve target display: use saved display if still connected, else primary.
+  let displayBounds = screen.getPrimaryDisplay().workArea;
+  if (saved) {
+    const match = screen.getAllDisplays().find((d) => d.id === saved.displayId);
+    if (match) displayBounds = match.workArea;
+  }
+
+  // Derive initial bounds: restore saved (clamped to display) or center on display.
+  let initX: number | undefined;
+  let initY: number | undefined;
+  let initW = 1400;
+  let initH = 900;
+  if (saved) {
+    initW = Math.max(800, Math.min(saved.bounds.width, displayBounds.width));
+    initH = Math.max(600, Math.min(saved.bounds.height, displayBounds.height));
+    // Only restore x/y if the window would land on the target display.
+    const inBounds =
+      saved.bounds.x >= displayBounds.x &&
+      saved.bounds.x + saved.bounds.width <= displayBounds.x + displayBounds.width;
+    if (inBounds) {
+      initX = saved.bounds.x;
+      initY = saved.bounds.y;
+    }
+  }
+
   win = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: initW,
+    height: initH,
+    ...(initX !== undefined ? { x: initX, y: initY } : {}),
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
@@ -69,6 +130,7 @@ export function createWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => {
     win?.show();
+    if (saved?.fullscreen) win?.setFullScreen(true);
     app.dock?.show();
   });
 

@@ -52,6 +52,12 @@ interface ManagedSession {
   suppressDonePromotion?: boolean;
   /** Pending timer that will promote this session to 'done' after a 2 s grace period. */
   doneTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * True when the user has sent input (or created/restarted the session) since it
+   * was last idle. Gates done-promotion: prevents internal terminal refreshes from
+   * producing a spurious idle→running→done cycle.
+   */
+  hasUserInputSinceIdle: boolean;
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
@@ -246,6 +252,9 @@ export class SessionManager {
       tmuxName,
       persistent,
       suppressDonePromotion: attachExisting,
+      // New sessions are user-initiated; allow done-promotion on their first finish.
+      // Restored/reattached sessions default to false until the user sends input.
+      hasUserInputSinceIdle: !attachExisting && existingId == null,
     };
 
     ptyProcess.onData((data) => {
@@ -313,6 +322,7 @@ export class SessionManager {
     session.status = 'running';
     this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
+    session.hasUserInputSinceIdle = true;  // restart IS a user action
 
     // Resolve agent command
     const config = await this.configStore.load();
@@ -381,7 +391,7 @@ export class SessionManager {
 
     let status = detected;
     if (detected === 'idle' || detected === 'waiting') {
-      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running') {
+      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle) {
         status = 'done';
       }
     }
@@ -408,8 +418,8 @@ export class SessionManager {
       return;
     }
 
-    // 'done' is sticky until acknowledgeSession; don't let StateDetector silently clear it.
-    if (session.status === 'done' && (status === 'idle' || status === 'waiting')) return;
+    // 'done' is sticky until acknowledgeSession or user input (writeToSession); StateDetector cannot clear it.
+    if (session.status === 'done') return;
 
     session.status = status;
     this.refreshSleepPrevention();
@@ -456,6 +466,7 @@ export class SessionManager {
     }
     if (session.status !== 'done') return;
     session.status = 'idle';
+    session.hasUserInputSinceIdle = false; // user must send input before next done-promotion
     this.io?.emit('session:status', { sessionId: id, status: 'idle' });
   }
 
@@ -530,6 +541,12 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
     session.suppressDonePromotion = false;
+    session.hasUserInputSinceIdle = true;
+    // User sent input — exit sticky-done so StateDetector can track the new run.
+    if (session.status === 'done') {
+      session.status = 'idle';
+      this.io?.emit('session:status', { sessionId: id, status: 'idle' });
+    }
     this.ptyManager.write(session.pty, data);
   }
 

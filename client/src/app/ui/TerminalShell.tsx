@@ -29,16 +29,18 @@ interface TerminalShellProps {
   onOpenSearch?: () => void;
   /** Close this shell's search bar. */
   onCloseSearch?: () => void;
+  /** Increment to imperatively focus the terminal (e.g. notification click). */
+  requestFocusToken?: number;
 }
 
 /**
  * xterm.js container. Interior is fully owned by useTerminal — this wrapper
  * supplies the status-colored frame only. Refit via 'terminal:refit' window event.
  */
-export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch }: TerminalShellProps) {
+export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch });
+  const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken });
 
   // Refit on focus enter so xterm cols/rows match
   useEffect(() => {

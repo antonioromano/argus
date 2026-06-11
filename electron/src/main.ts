@@ -4,7 +4,7 @@ import { execFile, spawn } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit } from './window.js';
+import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState } from './window.js';
 import { createTray } from './tray.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
@@ -507,6 +507,9 @@ app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
   quitting = true;
+
+  // Save window state before shutdown so position/fullscreen survives a restart.
+  saveWindowState();
 
   // Signal the window close-handler that this is a real quit, not a hide-to-tray.
   setAppQuitting(true);

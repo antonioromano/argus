@@ -100,7 +100,7 @@ export function UpdateSheet({ status, onClose }: UpdateSheetProps) {
                 maxHeight: 220,
                 overflowY: 'auto',
                 padding: 'var(--s-3)',
-                background: 'var(--bg-inset)',
+                background: 'var(--bg-2)',
                 borderRadius: 'var(--r-2)',
                 border: '1px solid var(--line-2)',
               }}

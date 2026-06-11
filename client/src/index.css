@@ -699,6 +699,14 @@ body {
 .argus-tile--reflowing {
   animation: argus-tile-reflow-spring 440ms cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
 }
+@keyframes argus-tile-notified {
+  0%   { box-shadow: 0 0 0 0px var(--accent-glow); }
+  35%  { box-shadow: 0 0 0 6px var(--accent-glow); }
+  100% { box-shadow: 0 0 0 0px transparent; }
+}
+.argus-tile--notified {
+  animation: argus-tile-notified 1.2s var(--ease-out) forwards;
+}
 .argus-tile-header {
   display: flex;
   align-items: center;
