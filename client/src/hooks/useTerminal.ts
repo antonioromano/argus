@@ -235,11 +235,13 @@ export function useTerminal(
     // so this REPLACES the buffer rather than appending — the only way, short of a
     // remount, to re-align a drifted terminal.
     let resyncTimer: ReturnType<typeof setTimeout> | null = null;
-    const resync = (delay: number) => {
+    const resync = (delay: number, joinDelay = 0) => {
       if (resyncTimer) clearTimeout(resyncTimer);
       resyncTimer = setTimeout(() => {
         socket.emit('session:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
-        socket.emit('session:join', sessionId);
+        const doJoin = () => socket.emit('session:join', sessionId);
+        if (joinDelay > 0) setTimeout(doJoin, joinDelay);
+        else doJoin();
       }, delay);
     };
 
@@ -257,7 +259,7 @@ export function useTerminal(
       if (sid !== sessionId) return;
       const prev = lastStatus;
       lastStatus = status;
-      if (prev === 'running' && (status === 'waiting' || status === 'done')) resync(150);
+      if (prev === 'running' && (status === 'waiting' || status === 'done')) resync(150, 300);
     };
     socket.on('session:status', handleStatus);
 
