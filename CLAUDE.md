@@ -74,11 +74,17 @@ git commit -m "bump version to X.Y.Z"
 git tag vX.Y.Z
 
 # 3. Push commit and tag
-git push origin master
+git push origin main
 git push origin vX.Y.Z
 ```
 
-Users update via `argus update`, which fetches the latest tag and checks it out. The version displayed in the UI comes from `package.json`, so it **must** match the tag.
+CI (`release.yml`) triggers on the tag push, builds the DMG, creates the GitHub release with **auto-generated release notes** (commits since the previous tag), and bumps the Homebrew cask. The "WHAT'S NEW" section in the Argus update dialog pulls those notes from the GitHub release body.
+
+**Write meaningful commit messages before tagging** — they become the changelog. Conventional commit prefixes (`feat:`, `fix:`, `chore:`) appear verbatim in the release notes. The CI-generated `chore: bump cask` commit is excluded automatically via `.github/release.yml`.
+
+To override auto-generation with a hand-written changelog, edit the GitHub release body after CI completes (or pass `body:` in the release workflow step — it takes precedence over `generate_release_notes`).
+
+Users update via the in-app update button (Homebrew) or `brew upgrade --cask argus`. The version displayed in the UI comes from `package.json`, so it **must** match the tag.
 
 ## Key Details
 
