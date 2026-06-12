@@ -22,6 +22,11 @@ const canNotarize =
 module.exports = {
   appId: 'com.antonio.argus',
   productName: 'Argus',
+  // Custom URL scheme so a clicked notification can deep-link the session id back
+  // into the app. terminal-notifier's click runs `open argus://notif/<id>`, which
+  // activates Argus and fires the main-process `open-url` handler. electron-builder
+  // writes the matching CFBundleURLTypes into Info.plist.
+  protocols: [{ name: 'Argus', schemes: ['argus'] }],
   files: [
     'electron/dist/**',
     'server/dist/**',

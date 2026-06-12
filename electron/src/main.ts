@@ -103,6 +103,37 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let shutdownServer: (() => Promise<void>) | null = null;
 let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 
+// Session ids are crypto.randomUUID() values. Validate any id that crosses the
+// IPC/URL boundary before it reaches terminal-notifier — its `-execute` runs via
+// /bin/sh, so an unvalidated id would be a shell-injection sink. UUID chars only.
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resolved terminal-notifier binary path, set in main(). Module-level so the
+// top-level `open-url` handler can clear a clicked notification from Notification
+// Center after deep-linking it.
+let terminalNotifierPath: string | null = null;
+
+// Bring Argus forward and deliver a clicked notification's session id to the
+// renderer, reusing the existing `notif:click` → highlightSession glow/focus
+// chain. Called from `open-url` (packaged terminal-notifier deep-link) — the dev
+// native-Notification path sends `notif:click` directly.
+function deliverNotifClick(id: string): void {
+  showWindow();
+  const win = getWindow();
+  if (win && !win.isDestroyed()) {
+    const send = () => win.webContents.send('notif:click', id);
+    // Cold-start: the click may launch the app before the renderer mounts its
+    // notif:click listener — defer until the page has loaded.
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send);
+    else send();
+  }
+  // The banner is consumed by the click, but an alert-style notification lingers
+  // in Notification Center — remove it by its group id.
+  if (terminalNotifierPath) {
+    execFile(terminalNotifierPath, ['-remove', id], () => {});
+  }
+}
+
 function readAppVersion(): string {
   try {
     const pkgPath = join(__dirname, '..', '..', 'package.json');
@@ -316,10 +347,17 @@ async function main() {
     const devPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'resources', bin);
     return existsSync(devPath) ? devPath : null;
   };
-  const terminalNotifierPath = resolveTerminalNotifier();
+  terminalNotifierPath = resolveTerminalNotifier();
 
   ipcMain.on('notif:show', (_event, payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
+
+    // Reject any id that isn't a UUID: it's interpolated into terminal-notifier's
+    // -execute shell command below (and used as -group/-remove key).
+    if (!SESSION_ID_RE.test(payload.id)) {
+      console.error(`[notif] rejected non-UUID id=${JSON.stringify(payload.id)}`);
+      return;
+    }
 
     // Use terminal-notifier when available — works in dev and packaged alike
     // because it spawns as its own .app bundle and gets its own usernoted attribution
@@ -334,9 +372,11 @@ async function main() {
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
-        // Click focuses Argus. (No per-session deep-link; terminal-notifier
-        // can't round-trip the notif:click IPC.)
-        '-activate', 'com.antonio.argus',
+        // Click opens the argus:// scheme, which activates Argus AND fires the
+        // main-process open-url handler with the session id — the only way to
+        // round-trip a per-session deep-link through terminal-notifier (it can't
+        // reach the notif:click IPC). The id is a UUID, so it's shell-safe.
+        '-execute', `open "argus://notif/${payload.id}"`,
       ];
       if (payload.sound) args.push('-sound', 'default');
       execFile(terminalNotifierPath, args, (err) => {
@@ -488,6 +528,18 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => { showWindow(); });
+
+  // Custom URL scheme for notification-click deep-linking (packaged: Info.plist
+  // CFBundleURLTypes via electron-builder `protocols`; this call covers dev).
+  app.setAsDefaultProtocolClient('argus');
+  // macOS routes `open argus://notif/<id>` here (the running instance, since we
+  // hold the single-instance lock). Registered before whenReady so a launch-on-
+  // click delivers once the renderer is ready.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    const id = url.replace(/^argus:\/\/notif\//, '').replace(/\/$/, '');
+    if (SESSION_ID_RE.test(id)) deliverNotifClick(id);
+  });
 
   app.whenReady().then(() => {
     main().catch((err) => {
