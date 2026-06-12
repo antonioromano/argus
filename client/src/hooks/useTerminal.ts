@@ -197,6 +197,17 @@ export function useTerminal(
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
+    // Hide the live cursor while scrolled up the scrollback. The DOM renderer
+    // paints the blinking cursor at its active buffer line; scrolling up makes
+    // that block ride along over old rows (the WebGL renderer hid it off-bottom;
+    // the DOM renderer does not). Toggle a class — CSS suppresses the block fill
+    // with no reflow. `viewportY < baseY` ⇒ scrolled up; equal ⇒ at bottom.
+    const syncCursorVisibility = () => {
+      const b = terminal.buffer.active;
+      container.classList.toggle('argus-scrolled-up', b.viewportY < b.baseY);
+    };
+    const scrollDisposable = terminal.onScroll(syncCursorVisibility);
+
     // Delay fit to allow container to settle, then report dimensions to server
     // and only THEN join. Order matters: joining triggers the server's replay
     // snapshot (capture-pane dumps the pane at its *current* width). If we joined
@@ -366,6 +377,7 @@ export function useTerminal(
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
       disposeMouse();
+      scrollDisposable.dispose();
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('session:status', handleStatus);

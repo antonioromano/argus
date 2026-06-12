@@ -146,6 +146,13 @@ export function useCompanionTerminal(
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
+    // Hide the live cursor while scrolled up the scrollback (see useTerminal).
+    const syncCursorVisibility = () => {
+      const b = terminal.buffer.active;
+      container.classList.toggle('argus-scrolled-up', b.viewportY < b.baseY);
+    };
+    const scrollDisposable = terminal.onScroll(syncCursorVisibility);
+
     socket.emit('ct:join', sessionId);
 
     const handleReconnect = () => {
@@ -210,6 +217,7 @@ export function useCompanionTerminal(
       window.removeEventListener('terminal:refit', handleRefit);
       document.removeEventListener('visibilitychange', handleVisibility);
       disposeMouse();
+      scrollDisposable.dispose();
       onDataDisposable.dispose();
       socket.off('ct:output', handleOutput);
       socket.off('ct:exit', handleExit);

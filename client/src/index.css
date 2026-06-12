@@ -99,6 +99,19 @@ body {
   background: var(--fg-3);
 }
 
+/* While scrolled up the scrollback, suppress the live cursor block so it does
+   not ride along over old rows (DOM renderer has no native off-bottom hide).
+   !important beats xterm's injected non-important cursor styling; the cell keeps
+   its size so there is no reflow. `color: inherit` restores the glyph color the
+   block cursor had inverted. Toggled via the `argus-scrolled-up` class on the
+   terminal container (useTerminal / useCompanionTerminal onScroll). */
+.argus-scrolled-up .xterm-cursor {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+
 .terminal-panel {
   position: relative;
   contain: layout style paint;
