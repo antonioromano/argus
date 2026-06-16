@@ -102,6 +102,7 @@ export function installSelectableMouse(
   sessionId: string,
   sendInput?: (data: string) => void,
   kind?: string,
+  onExitPeek?: () => void,
 ): () => void {
   const storageKey = kind ? 'argus:mouse:' + kind + ':' + sessionId : 'argus:mouse:' + sessionId;
   const state = loadState(storageKey);
@@ -120,13 +121,63 @@ export function installSelectableMouse(
     return true;
   });
 
+  // ---- alternate-screen peek: let the user scroll into normal-buffer history ----
+  // Claude Code's plan mode keeps the terminal in alternate screen throughout the
+  // review loop (plan → cogitation → new plan). The normal buffer's scrollback has
+  // the full conversation history, but onWheel would normally just forward wheel
+  // events to the PTY (which ignores them during cogitation). Instead, scroll up
+  // in alternate = temporarily switch xterm to normal buffer so the user can read
+  // history. Scroll back to bottom = restore alternate + request a fresh snapshot.
+  let peeking = false;
+  let peekScrollDisposable: { dispose: () => void } | null = null;
+
+  function exitPeek() {
+    if (!peeking) return;
+    peeking = false;
+    peekScrollDisposable?.dispose();
+    peekScrollDisposable = null;
+    // Restore alternate buffer in xterm. \x1b[?1049h clears the alt buffer — the
+    // plan UI is gone momentarily. onExitPeek() triggers a fresh snapshot (resync)
+    // which redraws it from the current tmux state within ~200ms.
+    terminal.write('\x1b[?1049h');
+    onExitPeek?.();
+  }
+
+  function enterPeek() {
+    if (peeking) return;
+    peeking = true;
+    // Switch xterm to normal buffer without touching the PTY. The alternate buffer
+    // content is preserved for when we restore it via exitPeek().
+    terminal.write('\x1b[?1049l');
+    // Auto-exit when the user scrolls back to the live bottom.
+    peekScrollDisposable = terminal.onScroll(() => {
+      const b = terminal.buffer.active;
+      if (b.viewportY >= b.baseY) exitPeek();
+    });
+  }
+
   // ---- wheel → scroll the inner app ----
   let wheelAcc = 0;
   const onWheel = (e: WheelEvent) => {
+    // While peeking (xterm temporarily in normal mode), let xterm handle scroll
+    // naturally. exitPeek() fires automatically via peekScrollDisposable.
+    if (peeking) return;
+
     // Forward wheel only on the alternate screen (vim/less). On the normal screen
     // (Claude streaming, shell prompt) let xterm scroll its own buffer — otherwise
     // wheel drives the app's internal mouse-scroll UI instead of native scrollback.
     if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') return;
+
+    // Scrolling UP in alternate mode (appMouse active): if the normal buffer has
+    // scrollback, peek at it instead of forwarding to PTY. This lets the user read
+    // plan history while Claude Code is in its plan-review loop.
+    if (e.deltaY < 0 && terminal.buffer.normal.baseY > 0) {
+      e.preventDefault();
+      enterPeek();
+      terminal.scrollLines(-Math.max(1, Math.round(Math.abs(e.deltaY) / 15)));
+      return;
+    }
+
     e.preventDefault();
     wheelAcc += e.deltaY;
     let reports = Math.trunc(wheelAcc / WHEEL_STEP);
@@ -467,6 +518,7 @@ export function installSelectableMouse(
   if (TRACE) getViewport()?.addEventListener('scroll', onVpScroll, { passive: true });
 
   return () => {
+    exitPeek(); // never leave xterm stranded in peek (normal-buffer) mode on unmount
     cancelInertia(); // a fling started just before unmount must not emit after teardown
     clearWatchdog();
     if (flushRaf) { cancelAnimationFrame(flushRaf); flushRaf = 0; }

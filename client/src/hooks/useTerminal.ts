@@ -179,7 +179,18 @@ export function useTerminal(
     // claude). Always defined — even readOnly (mobile) forwards touch scroll + taps;
     // keyboard stdin stays disabled via the readOnly-gated onData below.
     const sendInput = (data: string) => socket.emit('session:input', { sessionId, data });
-    const disposeMouse = installSelectableMouse(terminal, container, sessionId, sendInput);
+    const disposeMouse = installSelectableMouse(
+      terminal, container, sessionId,
+      sendInput, // always defined — even readOnly (mobile) forwards touch scroll
+      undefined, // kind — default storage key
+      readOnly ? undefined : () => {
+        // Peek mode exited: user scrolled back to bottom while temporarily viewing
+        // normal-buffer history during alternate-screen (plan mode). Restore the
+        // alternate screen by requesting a fresh tmux snapshot.
+        socket.emit('session:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+        setTimeout(() => socket.emit('session:join', sessionId), 150);
+      },
+    );
 
     const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');
     const onXtermFocus = () => onFocusChangeRef.current?.(true);
@@ -271,14 +282,6 @@ export function useTerminal(
     // scrolled up reading history, that would destroy their position. Skip the resync
     // whenever the user has scrolled up — the content alignment it provides only
     // matters for the live bottom-of-buffer view.
-    //
-    // Cooldown (at-bottom only): during plan-mode cogitation the StateDetector
-    // oscillates running/waiting every ~1 s because Claude Code's input box (│ > │) is
-    // always visible in the viewport. The user may be watching live output at the
-    // bottom, so we can't skip on scroll position alone — but we can throttle to one
-    // resync per 4 s to avoid unnecessary tmux capture-pane + buffer rewrites.
-    let lastStatusResyncAt = 0;
-    const STATUS_RESYNC_COOLDOWN_MS = 4000;
     let lastStatus: SessionStatus | null = null;
     const handleStatus = ({ sessionId: sid, status }: { sessionId: string; status: SessionStatus }) => {
       if (sid !== sessionId) return;
@@ -286,13 +289,8 @@ export function useTerminal(
       lastStatus = status;
       if (prev === 'running' && (status === 'waiting' || status === 'done')) {
         const b = terminal.buffer.active;
-        const scrolledUp = b.viewportY < b.baseY;
-        if (scrolledUp) return; // resync would clear scrollback and jump to bottom
-        const now = Date.now();
-        if (now - lastStatusResyncAt >= STATUS_RESYNC_COOLDOWN_MS) {
-          lastStatusResyncAt = now;
-          resync(150, 300);
-        }
+        if (b.viewportY < b.baseY) return; // scrolled up — resync would clear scrollback
+        resync(150, 300);
       }
     };
     socket.on('session:status', handleStatus);

@@ -65,7 +65,7 @@ const GIT_POLL_INTERVAL_MS = 10_000;
 // Lines of tmux scrollback to seed into a client's xterm on (re)join, so mobile
 // (and desktop after Cmd+R) can scroll up into history that predates the join.
 // Fits under xterm's 5000 scrollback cap; bounded by tmux history-limit 50000.
-const REPLAY_HISTORY_LINES = 2000;
+const REPLAY_HISTORY_LINES = 5000;
 
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
