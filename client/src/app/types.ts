@@ -9,7 +9,7 @@ export type Overlay =
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }
   | { kind: 'diff'; sessionId: string; file?: string }
-  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number }
+  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | null;
 

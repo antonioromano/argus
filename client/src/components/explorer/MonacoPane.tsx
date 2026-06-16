@@ -17,6 +17,18 @@ interface MonacoPaneProps {
 
 export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, revealLine }: MonacoPaneProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const decoRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+
+  // Reveal + position the cursor on a line and flash-highlight the whole row
+  // (used when jumping in from a search result).
+  const revealAndHighlight = (editor: monaco.editor.IStandaloneCodeEditor, line: number) => {
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    decoRef.current?.clear();
+    decoRef.current = editor.createDecorationsCollection([
+      { range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: 'argus-line-flash' } },
+    ]);
+  };
 
   // Register the Argus editor theme once. Background matches --bg-inset (#0a0b0d)
   // so the editor well lines up with the inset terminals/code wells.
@@ -31,11 +43,10 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   }, []);
 
-  // Imperatively reveal line when revealLine prop changes (e.g. from search results).
+  // Imperatively reveal + highlight line when revealLine prop changes (e.g. from search results).
   useEffect(() => {
     if (!revealLine || !editorRef.current) return;
-    editorRef.current.revealLineInCenter(revealLine);
-    editorRef.current.setPosition({ lineNumber: revealLine, column: 1 });
+    revealAndHighlight(editorRef.current, revealLine);
   }, [revealLine]);
 
   return (
@@ -52,8 +63,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
           });
         }
         if (revealLine) {
-          editor.revealLineInCenter(revealLine);
-          editor.setPosition({ lineNumber: revealLine, column: 1 });
+          revealAndHighlight(editor, revealLine);
         }
       }}
       options={{

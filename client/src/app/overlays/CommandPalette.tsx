@@ -13,7 +13,7 @@ interface CommandPaletteProps {
   initialScopeSessionId: string | null;
   onClose: () => void;
   onJumpSession: (id: string) => void;
-  onOpenInExplorer: (sessionId: string, filePath: string, lineNumber?: number) => void;
+  onOpenInExplorer: (sessionId: string, filePath: string, lineNumber?: number, query?: string) => void;
   onOpenInDiff: (sessionId: string, fileName: string) => void;
 }
 
@@ -149,8 +149,7 @@ export function CommandPalette({
         } else {
           const r = results[selectedIndex - sessionItems.length];
           if (r && scopedSession) {
-            onOpenInExplorer(scopedSession.id, r.path, r.lineNumber);
-            onClose();
+            onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query);
           }
         }
       }
@@ -357,7 +356,7 @@ export function CommandPalette({
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSelected}
-                    onClick={() => { if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber); onClose(); } }}
+                    onClick={() => { if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query); } }}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
                       display: 'flex',
@@ -403,7 +402,7 @@ export function CommandPalette({
                     </span>
                     <Tooltip content="View in Diff">
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInDiff(scopedSession.id, r.name); onClose(); } }}
+                        onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInDiff(scopedSession.id, r.name); } }}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -419,7 +418,7 @@ export function CommandPalette({
                     </Tooltip>
                     <Tooltip content="Open in Explorer">
                     <button
-                      onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber); onClose(); } }}
+                      onClick={(e) => { e.stopPropagation(); if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query); } }}
                       style={{
                         background: 'none',
                         border: 'none',

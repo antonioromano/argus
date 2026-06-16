@@ -4,6 +4,16 @@
   box-sizing: border-box;
 }
 
+/* Whole-line highlight for a Monaco row jumped to from a search result:
+   an accent flash that settles into a faint persistent tint. */
+.argus-line-flash {
+  animation: argus-line-flash 1.4s var(--ease-out) forwards;
+}
+@keyframes argus-line-flash {
+  0% { background: color-mix(in srgb, var(--accent) 38%, transparent); }
+  100% { background: var(--accent-bg); }
+}
+
 /* Skip to main content link (screen-reader / keyboard accessibility) */
 .skip-link {
   position: absolute;

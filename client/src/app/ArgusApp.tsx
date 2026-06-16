@@ -677,8 +677,8 @@ function DesktopInner() {
             initialScopeSessionId={app.view === 'focus' ? app.activeSessionId : null}
             onClose={app.closeOverlay}
             onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
-            onOpenInExplorer={(sessionId, filePath, lineNumber) => {
-              app.openOverlay({ kind: 'explorer', sessionId, filePath, lineNumber });
+            onOpenInExplorer={(sessionId, filePath, lineNumber, query) => {
+              app.openOverlay({ kind: 'explorer', sessionId, filePath, lineNumber, query });
             }}
             onOpenInDiff={(sessionId) => {
               app.openOverlay({ kind: 'diff', sessionId });
@@ -719,11 +719,11 @@ function DesktopInner() {
         ) : null;
       })()}
       {app.overlay?.kind === 'explorer' && (() => {
-        const ov = app.overlay as { sessionId: string; filePath?: string; lineNumber?: number };
+        const ov = app.overlay as { sessionId: string; filePath?: string; lineNumber?: number; query?: string };
         const session = sessions.find((s) => s.id === ov.sessionId);
         return session ? (
           <Overlay onClose={app.closeOverlay} label="File explorer">
-            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} initialLine={ov.lineNumber} />
+            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} initialLine={ov.lineNumber} initialQuery={ov.query} />
           </Overlay>
         ) : null;
       })()}

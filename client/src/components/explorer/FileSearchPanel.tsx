@@ -6,6 +6,7 @@ import { api } from '../../services/api.js';
 
 interface FileSearchPanelProps {
   folderPath: string;
+  initialQuery?: string;
   onSelectFile: (path: string, lineNumber?: number) => void;
   onClose: () => void;
 }
@@ -17,8 +18,8 @@ function ResultIcon({ ext }: { ext: string }) {
   return <FileText style={style} />;
 }
 
-export function FileSearchPanel({ folderPath, onSelectFile, onClose }: FileSearchPanelProps) {
-  const [query, setQuery] = useState('');
+export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClose }: FileSearchPanelProps) {
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);

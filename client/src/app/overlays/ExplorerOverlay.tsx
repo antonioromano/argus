@@ -30,17 +30,19 @@ interface ExplorerOverlayProps {
   onClose: () => void;
   initialFilePath?: string;
   initialLine?: number;
+  initialQuery?: string;
 }
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine }: ExplorerOverlayProps) {
+export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine, initialQuery }: ExplorerOverlayProps) {
   const { theme } = useTheme();
   const [selectedPath, setSelectedPath] = useState<string | null>(initialFilePath ?? null);
   const [viewMode, setViewMode] = useState<ViewMode>(
     initialFilePath && isMarkdownPath(initialFilePath) ? 'split' : 'edit',
   );
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Opened from a palette search → carry the query in so the same result list shows.
+  const [searchOpen, setSearchOpen] = useState(!!initialQuery);
   const [revealLine, setRevealLine] = useState<number | undefined>(initialLine);
 
   const tree = useFileTree(session.folderPath, session.id);
@@ -159,6 +161,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine
           {searchOpen && (
             <FileSearchPanel
               folderPath={session.folderPath}
+              initialQuery={initialQuery}
               onSelectFile={(path, line) => onPickFile(path, line)}
               onClose={() => setSearchOpen(false)}
             />
