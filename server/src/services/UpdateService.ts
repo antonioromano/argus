@@ -117,7 +117,7 @@ export class UpdateService {
       }
 
       this.latestVersion = remoteVersion;
-      this.changelog = release.body ?? '';
+      this.changelog = (release.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
       this.releaseUrl = release.html_url ?? `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
       const status = this.getStatus();

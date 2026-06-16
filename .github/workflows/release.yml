@@ -61,12 +61,29 @@ jobs:
           echo "arm=${ARM_SHA}" >> "$GITHUB_OUTPUT"
           echo "x64=${X64_SHA}" >> "$GITHUB_OUTPUT"
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          if [ -z "$PREV_TAG" ]; then
+            RAW=$(git log --pretty=format:"- %s" --no-merges)
+          else
+            RAW=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges)
+          fi
+          NOTES=$(echo "$RAW" | grep -v "^- chore: bump")
+          {
+            echo "notes<<EOF"
+            echo "$NOTES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.dmg
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.notes }}
 
       - name: Update Cask
         env:
