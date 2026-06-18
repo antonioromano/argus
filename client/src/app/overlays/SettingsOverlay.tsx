@@ -344,6 +344,16 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   <Toggle checked={config.preventSleepWhileRunning ?? false} onChange={(v) => onSave({ preventSleepWhileRunning: v })} />
                 </Field>
               </Section>
+              <Section title="Sessions">
+                <Field label="Exit all sessions on Quit" hint="When off, Cmd+Q keeps sessions running in the background. When on, Cmd+Q terminates every Claude session.">
+                  <Toggle checked={config.exitSessionsOnQuit ?? false} onChange={(v) => onSave({ exitSessionsOnQuit: v })} />
+                </Field>
+                {(config.exitSessionsOnQuit ?? false) && (
+                  <Field label="Confirm before exiting" hint="Show a confirmation dialog listing running sessions before Cmd+Q terminates them">
+                    <Toggle checked={config.confirmExitOnQuit ?? true} onChange={(v) => onSave({ confirmExitOnQuit: v })} />
+                  </Field>
+                )}
+              </Section>
               <Section title="Groups">
                 <Field label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
                   <TextInput
