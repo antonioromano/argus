@@ -47,7 +47,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, keyboardShortcuts } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -84,6 +84,8 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       othersFolderName: (rawOthersName && rawOthersName.length >= 1) ? rawOthersName : current.othersFolderName,
       preventSleepWhileRunning: preventSleepWhileRunning !== undefined ? !!preventSleepWhileRunning : current.preventSleepWhileRunning,
       confirmCloseShell: confirmCloseShell !== undefined ? !!confirmCloseShell : current.confirmCloseShell,
+      exitSessionsOnQuit: exitSessionsOnQuit !== undefined ? !!exitSessionsOnQuit : current.exitSessionsOnQuit,
+      confirmExitOnQuit: confirmExitOnQuit !== undefined ? !!confirmExitOnQuit : current.confirmExitOnQuit,
       keyboardShortcuts: keyboardShortcuts ?? current.keyboardShortcuts,
     };
     await configStore.save(updated);

@@ -6,7 +6,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import type { AppConfig, ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
 import { OrderStore } from './persistence/OrderStore.js';
@@ -90,6 +90,37 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 
 // Config store & agent registry
 const configStore = new ConfigStore(path.join(dataDir, 'config.json'));
+
+// Live config snapshot, kept in sync so the Electron host (same process) can read
+// quit-related preferences synchronously inside its `before-quit` handler.
+let currentConfig: AppConfig | null = null;
+function applyConfig(cfg: AppConfig): void {
+  currentConfig = cfg;
+  sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
+}
+
+// Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
+export function getExitSessionsOnQuit(): boolean {
+  return !!currentConfig?.exitSessionsOnQuit;
+}
+export function getConfirmExitOnQuit(): boolean {
+  // Default true: confirm unless the user explicitly opted out.
+  return currentConfig?.confirmExitOnQuit !== false;
+}
+export async function setConfirmExitOnQuit(value: boolean): Promise<void> {
+  const cfg = currentConfig ?? (await configStore.load());
+  const updated = { ...cfg, confirmExitOnQuit: value };
+  applyConfig(updated);
+  await configStore.save(updated);
+}
+// Name + status for every live (non-exited) session — used to populate the
+// "exit all sessions" confirmation dialog.
+export function getActiveSessionSummaries(): { name: string; status: string }[] {
+  return sessionManager
+    .getAllSessions()
+    .filter((s) => s.status !== 'exited')
+    .map((s) => ({ name: s.name, status: s.status }));
+}
 const agentRegistry = new AgentRegistry();
 
 // Session manager
@@ -157,7 +188,7 @@ app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/auth', createAuthRoutes(authService));
-app.use('/api/config', createConfigRoutes(configStore, (cfg) => sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning)));
+app.use('/api/config', createConfigRoutes(configStore, applyConfig));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
 app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
@@ -204,8 +235,7 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 
 export async function startServer(): Promise<void> {
   await sessionManager.restoreSessions();
-  const cfg = await configStore.load();
-  sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
+  applyConfig(await configStore.load());
   updateService.start();
   return new Promise((resolve, reject) => {
     _startReject = reject;

@@ -31,6 +31,8 @@ export interface AppConfig {
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
   preventSleepWhileRunning?: boolean; // keep macOS awake while ≥1 shell is running
   confirmCloseShell?: boolean; // show the confirm modal before closing a shell (Cmd+W / card button)
+  exitSessionsOnQuit?: boolean; // when true, plain Cmd+Q kills all sessions instead of detaching (default: preserve)
+  confirmExitOnQuit?: boolean; // show the confirm dialog before exiting all sessions on Cmd+Q (default: true)
   keyboardShortcuts?: Record<string, string>; // action id -> combo override (e.g. "command-palette": "mod+shift+k")
 }
 

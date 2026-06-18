@@ -15,6 +15,8 @@ const DEFAULT_CONFIG: AppConfig = {
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
   confirmCloseShell: true,
+  exitSessionsOnQuit: false,
+  confirmExitOnQuit: true,
   keyboardShortcuts: {},
 };
 
