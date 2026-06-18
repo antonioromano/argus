@@ -167,14 +167,21 @@ export function CreateSheet({
   // ⌘O folder picker, ⌘↵ submit. Bind once; call the latest handlers via refs.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isPrimaryModifier(e)) return;
-      const k = e.key.toLowerCase();
-      if (k === 'o') {
+      if (isPrimaryModifier(e) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         pickFolderRef.current();
-      } else if (e.key === 'Enter') {
-        e.preventDefault();
-        submitRef.current();
+        return;
+      }
+      if (e.key === 'Enter') {
+        // ⌘↵ submits anywhere; plain Enter submits only when focus is NOT in an
+        // editable field — those are handled by the native form (name submits,
+        // flag input adds a flag), avoiding a double submit.
+        const t = document.activeElement as HTMLElement | null;
+        const editable = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+        if (isPrimaryModifier(e) || !editable) {
+          e.preventDefault();
+          submitRef.current();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
@@ -198,6 +205,7 @@ export function CreateSheet({
   };
 
   const handlePickFolder = async () => {
+    setRecentsOpen(false); // picking a folder dismisses the recents dropdown
     if (pickingRef.current) return; // a dialog is already open
     pickingRef.current = true;
     setPicking(true);

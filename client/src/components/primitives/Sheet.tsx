@@ -65,7 +65,9 @@ export function Sheet({
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
         aria-label={!title ? eyebrow : undefined}
+        tabIndex={-1}
         style={{
+          outline: 'none',
           width,
           maxWidth: '100%',
           maxHeight: '92%',

@@ -31,8 +31,10 @@ export function useFocusTrap({ isOpen, panelRef, onEscape }: FocusTrapOptions) {
     const raf = requestAnimationFrame(() => {
       const panel = panelRef.current;
       if (!panel) return;
-      const first = panel.querySelector<HTMLElement>(FOCUSABLE);
-      (first ?? panel).focus?.();
+      // Focus the panel itself (tabIndex=-1), NOT the first focusable element —
+      // otherwise the close X (first in DOM) gets highlighted and Space/Enter
+      // closes the modal. Tab still cycles into content from here.
+      panel.focus?.();
     });
 
     const handler = (e: KeyboardEvent) => {

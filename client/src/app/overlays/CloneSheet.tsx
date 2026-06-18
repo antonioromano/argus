@@ -131,10 +131,13 @@ export function CloneSheet({
   useEffect(() => { submitRef.current = () => void handleSubmit(); });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        e.preventDefault();
-        submitRef.current();
-      }
+      if (e.key !== 'Enter') return;
+      // Enter confirms (⌘↵ too). Skip TEXTAREA; the flag input stops propagation
+      // so its Enter adds a flag instead of submitting the clone.
+      const t = document.activeElement as HTMLElement | null;
+      if (t && t.tagName === 'TEXTAREA') return;
+      e.preventDefault();
+      submitRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -298,7 +301,7 @@ export function CloneSheet({
                     onChange={setNewFlag}
                     placeholder="--flag-name value"
                     mono
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddFlag(); } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); handleAddFlag(); } }}
                   />
                 </div>
                 <Button variant="outline" size="md" disabled={!newFlag.trim()} onClick={handleAddFlag}>+ Add</Button>
