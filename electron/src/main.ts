@@ -102,6 +102,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let shutdownServer: (() => Promise<void>) | null = null;
 let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
+// Quit-time preference getters, injected from the in-process server module.
+let getExitSessionsOnQuit: (() => boolean) | null = null;
+let getConfirmExitOnQuit: (() => boolean) | null = null;
+let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
+let getActiveSessionSummaries: (() => { name: string; status: string }[]) | null = null;
 
 // Session ids are crypto.randomUUID() values. Validate any id that crosses the
 // IPC/URL boundary before it reaches terminal-notifier — its `-execute` runs via
@@ -503,6 +508,10 @@ async function main() {
   });
   shutdownServer = server.shutdownServer as () => Promise<void>;
   shutdownServerStoppingAll = server.shutdownServerStoppingAll as () => Promise<void>;
+  getExitSessionsOnQuit = server.getExitSessionsOnQuit as () => boolean;
+  getConfirmExitOnQuit = server.getConfirmExitOnQuit as () => boolean;
+  setConfirmExitOnQuit = server.setConfirmExitOnQuit as (v: boolean) => Promise<void>;
+  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string }[];
 
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
@@ -560,22 +569,64 @@ let quitting = false;
 app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
-  quitting = true;
 
-  // Save window state before shutdown so position/fullscreen survives a restart.
-  saveWindowState();
+  // "Quit & Stop All" (explicit menu item) sets the flag; the General setting
+  // makes plain Cmd+Q terminate everything too. Either one means stop-all.
+  const explicitStopAll = getStopAllOnQuit();
+  const settingStopAll = getExitSessionsOnQuit?.() ?? false;
+  const wantStopAll = explicitStopAll || settingStopAll;
 
-  // Signal the window close-handler that this is a real quit, not a hide-to-tray.
-  setAppQuitting(true);
+  // Runs the actual shutdown + quit once any confirmation has cleared.
+  const proceed = () => {
+    quitting = true;
+    // Save window state before shutdown so position/fullscreen survives a restart.
+    saveWindowState();
+    // Signal the window close-handler that this is a real quit, not a hide-to-tray.
+    setAppQuitting(true);
 
-  // Default quit detaches (keep-alive); "Quit & Stop All" terminates every agent.
-  const chosen = getStopAllOnQuit() ? shutdownServerStoppingAll : shutdownServer;
-  const doShutdown = chosen ?? (() => Promise.resolve());
-  const timeout = new Promise<void>((resolve) => setTimeout(() => {
-    console.warn('[electron] shutdown timed out after 10s — forcing quit');
-    resolve();
-  }, 10_000));
-  Promise.race([doShutdown(), timeout])
-    .catch(console.error)
-    .finally(() => app.quit());
+    // Default quit detaches (keep-alive); stop-all terminates every agent.
+    const chosen = wantStopAll ? shutdownServerStoppingAll : shutdownServer;
+    const doShutdown = chosen ?? (() => Promise.resolve());
+    const timeout = new Promise<void>((resolve) => setTimeout(() => {
+      console.warn('[electron] shutdown timed out after 10s — forcing quit');
+      resolve();
+    }, 10_000));
+    Promise.race([doShutdown(), timeout])
+      .catch(console.error)
+      .finally(() => app.quit());
+  };
+
+  // Confirm only when the destructive quit was triggered by the setting (not the
+  // explicit menu item, which is already a deliberate choice) and isn't suppressed.
+  const needsConfirm = settingStopAll && !explicitStopAll && (getConfirmExitOnQuit?.() ?? true);
+  if (needsConfirm) {
+    const sessions = getActiveSessionSummaries?.() ?? [];
+    if (sessions.length === 0) { proceed(); return; }
+
+    const names = sessions.slice(0, 10).map((s) => `• ${s.name}`).join('\n');
+    const extra = sessions.length > 10 ? `\n…and ${sessions.length - 10} more` : '';
+    const opts = {
+      type: 'warning' as const,
+      title: 'Exit all sessions?',
+      message: `Quitting will stop ${sessions.length} Claude session${sessions.length === 1 ? '' : 's'}.`,
+      detail: `These sessions will be terminated and cannot be resumed:\n\n${names}${extra}`,
+      buttons: ['Cancel', 'Exit all sessions'],
+      defaultId: 1,
+      cancelId: 0,
+      checkboxLabel: "Don't ask again",
+      checkboxChecked: false,
+    };
+    const win = getWindow();
+    const dlg = win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
+    dlg
+      .then((r) => {
+        if (r.response === 0) return; // Cancel — stay open, sessions untouched.
+        if (r.checkboxChecked) setConfirmExitOnQuit?.(false).catch(console.error);
+        proceed();
+      })
+      .catch((err) => { console.error(err); proceed(); });
+    return;
+  }
+
+  proceed();
 });
