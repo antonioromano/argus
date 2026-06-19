@@ -1,6 +1,7 @@
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
+import { registerSymbolProviders, addSymbolEditorActions, symbolNavContext } from './registerSymbolProviders.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -12,10 +13,15 @@ interface MonacoPaneProps {
   theme: 'dark' | 'light';
   readOnly?: boolean;
   onSaveShortcut?: () => void;
+  /** Absolute path of the open file — sets the model URI (so same-file go-to-def
+   *  stays native) and the symbol-nav context the providers read. */
+  path: string;
   revealLine?: number;
+  /** Bump to force a re-reveal even when revealLine is unchanged (same-line jumps). */
+  revealNonce?: number;
 }
 
-export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, revealLine }: MonacoPaneProps) {
+export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, path, revealLine, revealNonce }: MonacoPaneProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const decoRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
 
@@ -43,20 +49,32 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   }, []);
 
-  // Imperatively reveal + highlight line when revealLine prop changes (e.g. from search results).
+  // Keep the symbol-nav context pointed at the file shown in this editor, so the
+  // (globally registered) definition/reference providers resolve against it.
+  useEffect(() => {
+    symbolNavContext.activePath = path;
+  }, [path]);
+
+  // Imperatively reveal + highlight line when revealLine OR revealNonce changes.
+  // revealNonce covers jumps to the same line (search re-hit, cross-file open to
+  // an identical line number) that a bare revealLine dependency would swallow.
   useEffect(() => {
     if (!revealLine || !editorRef.current) return;
     revealAndHighlight(editorRef.current, revealLine);
-  }, [revealLine]);
+  }, [revealLine, revealNonce]);
 
   return (
     <Editor
       value={value}
+      path={path}
       language={language}
       theme={theme === 'dark' ? 'argus-dark' : 'vs'}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monacoInstance) => {
         editorRef.current = editor;
+        registerSymbolProviders(monacoInstance);
+        addSymbolEditorActions(editor);
+        symbolNavContext.activePath = path;
         if (onSaveShortcut) {
           editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
             onSaveShortcut();

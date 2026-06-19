@@ -18,6 +18,7 @@ import { AgentRegistry } from './services/AgentRegistry.js';
 import { AuthService } from './services/AuthService.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
+import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
 import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
@@ -185,6 +186,7 @@ app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicO
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
+app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/auth', createAuthRoutes(authService));
