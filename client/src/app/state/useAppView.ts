@@ -19,8 +19,6 @@ export interface AppViewApi extends AppViewState {
   toggleSidePanel: (kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => void;
   /** Open (or switch to) a diff/explorer tool window in full-view over the shell. */
   maximizeSidePanel: (panel: MaximizablePanel) => void;
-  /** Collapse a maximized tool window back to the docked right rail. */
-  restoreSidePanel: () => void;
 }
 
 // ---- Pure state transitions (unit-tested in useAppView.test.ts) ----
@@ -43,13 +41,6 @@ export function maximizeSidePanelState(s: AppViewState, panel: MaximizablePanel)
   return { ...s, sidePanel: { ...panel, maximized: true } };
 }
 
-/** Drop the maximized flag, keeping the same docked panel. No-op for terminal/null. */
-export function restoreSidePanelState(s: AppViewState): AppViewState {
-  const p = s.sidePanel;
-  if (!p || p.kind === 'terminal' || !p.maximized) return s;
-  return { ...s, sidePanel: { ...p, maximized: false } };
-}
-
 /**
  * Single source of truth for shell navigation.
  * - view: dashboard ↔ focus
@@ -58,9 +49,9 @@ export function restoreSidePanelState(s: AppViewState): AppViewState {
  *   into a full-view tool window over the shell)
  *
  * Keyboard:
- *   Escape → close overlay → restore maximized panel → close side panel → exit
- *   focus (priority). All rebindable shortcuts (palette, new session, settings, …)
- *   are owned by the registry-driven handler in ArgusApp. Escape stays here.
+ *   Escape → close overlay → close side panel → exit focus (priority). All
+ *   rebindable shortcuts (palette, new session, settings, …) are owned by the
+ *   registry-driven handler in ArgusApp. Escape stays here.
  */
 export function useAppView(): AppViewApi {
   const [state, setState] = useState<AppViewState>({
@@ -106,20 +97,12 @@ export function useAppView(): AppViewApi {
     setState((s) => maximizeSidePanelState(s, panel));
   }, []);
 
-  const restoreSidePanel = useCallback(() => {
-    setState((s) => restoreSidePanelState(s));
-  }, []);
-
   // Global keyboard — Escape only (fixed). Rebindable shortcuts live in ArgusApp.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };
-          // A maximized tool window restores to the rail before closing.
-          if (s.sidePanel && s.sidePanel.kind !== 'terminal' && s.sidePanel.maximized) {
-            return restoreSidePanelState(s);
-          }
           if (s.sidePanel) return { ...s, sidePanel: null };
           if (s.view === 'focus') return { ...s, view: 'dashboard' };
           return s;
@@ -141,6 +124,5 @@ export function useAppView(): AppViewApi {
     closeSidePanel,
     toggleSidePanel,
     maximizeSidePanel,
-    restoreSidePanel,
   };
 }

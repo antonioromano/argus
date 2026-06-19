@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   maximizeSidePanelState,
-  restoreSidePanelState,
   toggleSidePanelState,
   type AppViewState,
 } from './useAppView.js';
@@ -26,22 +25,6 @@ describe('side panel transitions', () => {
     expect(next.sidePanel).toEqual({
       kind: 'explorer', sessionId: 's1', maximized: true, filePath: 'src/a.ts', lineNumber: 42, query: 'foo',
     });
-  });
-
-  it('restore drops the maximized flag, keeping kind + session + target', () => {
-    const maxed = maximizeSidePanelState(base, { kind: 'explorer', sessionId: 's1', filePath: 'src/a.ts' });
-    const next = restoreSidePanelState(maxed);
-    expect(next.sidePanel).toEqual({ kind: 'explorer', sessionId: 's1', maximized: false, filePath: 'src/a.ts' });
-  });
-
-  it('restore is a no-op when nothing is maximized', () => {
-    const docked: AppViewState = { ...base, sidePanel: { kind: 'diff', sessionId: 's1' } };
-    expect(restoreSidePanelState(docked)).toBe(docked);
-  });
-
-  it('restore is a no-op for the terminal panel', () => {
-    const term: AppViewState = { ...base, sidePanel: { kind: 'terminal', sessionId: 's1' } };
-    expect(restoreSidePanelState(term)).toBe(term);
   });
 
   it('switching kind while maximized resets maximized to false (undefined flag)', () => {

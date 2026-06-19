@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
-import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw, Shrink } from 'lucide-react';
+import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
@@ -29,13 +29,12 @@ interface DiffWorkbenchProps {
   session: SessionInfo;
   /** Close the tool window entirely (return to plain terminal focus). */
   onClose: () => void;
-  /** Collapse the maximized tool window back to the docked right rail (⤡). */
-  onRestore?: () => void;
   initialFile?: string;
 }
 
 type Source = 'unstaged' | 'staged';
-// 'branch' is produced only by DiffSidePanel, which reuses this type + DiffViewer.
+// 'branch' is no longer produced (the docked DiffSidePanel was removed); kept in
+// the union so DiffViewer's source handling stays exhaustive.
 type SidebarSource = Source | 'untracked' | 'branch';
 
 export interface FileSummary {
@@ -66,7 +65,7 @@ function summarize(rawDiff: string, source: SidebarSource): FileSummary[] {
   }
 }
 
-export function DiffWorkbench({ session, onClose, onRestore, initialFile }: DiffWorkbenchProps) {
+export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
@@ -366,7 +365,6 @@ export function DiffWorkbench({ session, onClose, onRestore, initialFile }: Diff
         >
           Commit
         </Button>
-        {onRestore && <IconButton icon={Shrink} label="Restore to side panel" size="sm" onClick={onRestore} />}
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
 

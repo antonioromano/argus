@@ -615,8 +615,8 @@ function DesktopInner() {
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
-              onFocusDiff={(id) => { app.openSession(id); app.openSidePanel({ kind: 'diff', sessionId: id }); }}
-              onFocusExplorer={(id) => { app.openSession(id); app.openSidePanel({ kind: 'explorer', sessionId: id }); }}
+              onFocusDiff={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'diff', sessionId: id }); }}
+              onFocusExplorer={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'explorer', sessionId: id }); }}
               onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
               onOpenDiff={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'diff', sessionId: id }); }}
               shortcuts={shortcuts.resolved}
@@ -639,13 +639,15 @@ function DesktopInner() {
               onSelect={app.setActiveSession}
               onReorder={reorderSession}
               onBack={app.exitFocus}
-              onToggleDiff={() => app.toggleSidePanel('diff', activeSession.id)}
-              onToggleExplorer={() => app.toggleSidePanel('explorer', activeSession.id)}
+              onToggleDiff={() => app.sidePanel?.kind === 'diff'
+                ? app.closeSidePanel()
+                : app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id })}
+              onToggleExplorer={() => app.sidePanel?.kind === 'explorer'
+                ? app.closeSidePanel()
+                : app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id })}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
               onExpandDiff={(file) => app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id, file })}
-              onExpandExplorer={(filePath) => app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id, filePath })}
-              onRestore={app.restoreSidePanel}
-              onCloseSidePanel={app.closeSidePanel}
+              onRestore={app.closeSidePanel}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}

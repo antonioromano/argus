@@ -10,7 +10,6 @@ import {
   SplitSquareHorizontal,
   AlertTriangle,
   Search,
-  Shrink,
 } from 'lucide-react';
 import { Button, IconButton, Chip, LoadingState, ErrorState } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
@@ -31,8 +30,6 @@ interface ExplorerWorkbenchProps {
   session: SessionInfo;
   /** Close the tool window entirely (return to plain terminal focus). */
   onClose: () => void;
-  /** Collapse the maximized tool window back to the docked right rail (⤡). */
-  onRestore?: () => void;
   initialFilePath?: string;
   initialLine?: number;
   initialQuery?: string;
@@ -40,7 +37,7 @@ interface ExplorerWorkbenchProps {
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath, initialLine, initialQuery }: ExplorerWorkbenchProps) {
+export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLine, initialQuery }: ExplorerWorkbenchProps) {
   const { theme } = useTheme();
   const [selectedPath, setSelectedPath] = useState<string | null>(initialFilePath ?? null);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -149,7 +146,6 @@ export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath
         >
           Save
         </Button>
-        {onRestore && <IconButton icon={Shrink} label="Restore to side panel" size="sm" onClick={onRestore} />}
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
 

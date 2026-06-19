@@ -9,8 +9,6 @@ import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
-import { DiffSidePanel } from '../panels/DiffSidePanel.js';
-import { ExplorerSidePanel } from '../panels/ExplorerSidePanel.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 import { DiffWorkbench } from '../panels/DiffWorkbench.js';
 import { ExplorerWorkbench } from '../panels/ExplorerWorkbench.js';
@@ -50,12 +48,8 @@ interface FocusProps {
   onToggleTerminal: () => void;
   /** Maximize the diff tool window over the shell (optionally focused on a file). */
   onExpandDiff: (file?: string) => void;
-  /** Maximize the explorer tool window over the shell (optionally focused on a path). */
-  onExpandExplorer: (filePath?: string) => void;
-  /** Collapse a maximized tool window back to the docked rail. */
+  /** Close the maximized tool window, returning to the shell. */
   onRestore: () => void;
-  /** Close the side panel entirely. */
-  onCloseSidePanel: () => void;
   onClone: () => void;
   onKill: () => void;
   onRestart: () => void;
@@ -79,9 +73,7 @@ export function Focus({
   onToggleExplorer,
   onToggleTerminal,
   onExpandDiff,
-  onExpandExplorer,
   onRestore,
-  onCloseSidePanel,
   onClone,
   onKill,
   onRestart,
@@ -291,15 +283,13 @@ export function Focus({
                   {maximized.kind === 'diff' ? (
                     <DiffWorkbench
                       session={active}
-                      onClose={onCloseSidePanel}
-                      onRestore={restoreToShell}
+                      onClose={restoreToShell}
                       initialFile={maximized.file}
                     />
                   ) : (
                     <ExplorerWorkbench
                       session={active}
-                      onClose={onCloseSidePanel}
-                      onRestore={restoreToShell}
+                      onClose={restoreToShell}
                       initialFilePath={maximized.filePath}
                       initialLine={maximized.lineNumber}
                       initialQuery={maximized.query}
@@ -341,17 +331,6 @@ export function Focus({
         </div>
 
         {dockedOpen && <ResizeDivider isDragging={isResizing} onMouseDown={onResizeStart} />}
-        {dockedOpen && panelForActive?.kind === 'diff' && (
-          <DiffSidePanel
-            session={active}
-            onExpand={onExpandDiff}
-            onCommit={onExpandDiff}
-            width={sidePanelWidth}
-          />
-        )}
-        {dockedOpen && panelForActive?.kind === 'explorer' && (
-          <ExplorerSidePanel session={active} onExpand={onExpandExplorer} width={sidePanelWidth} />
-        )}
         {dockedOpen && panelForActive?.kind === 'terminal' && (
           <CompanionTerminalPanel
             session={active}
