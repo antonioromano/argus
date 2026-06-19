@@ -221,6 +221,11 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
       if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 5) return;
       d.started = true;
       setDraggingPath(d.path);
+      // Suppress native text selection for the duration of the drag, and clear
+      // any selection made in the first few px before this engaged.
+      document.body.style.setProperty('user-select', 'none');
+      document.body.style.setProperty('-webkit-user-select', 'none');
+      window.getSelection()?.removeAllRanges();
     }
     setGhost({ x: e.clientX, y: e.clientY, label: baseName(d.path) });
 
@@ -277,6 +282,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
     setGhost(null);
     setZone(null);
     setDraggingPath(null);
+    document.body.style.removeProperty('user-select');
+    document.body.style.removeProperty('-webkit-user-select');
   }, [groups, onDragMove]);
 
   const onTabPointerDown = useCallback(

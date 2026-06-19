@@ -116,6 +116,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
         fontSize: 'var(--t-xs)',
         whiteSpace: 'nowrap',
         cursor: 'pointer',
+        userSelect: 'none',
         position: 'relative',
         flexShrink: 0,
         borderRight: '1px solid var(--line-2)',
