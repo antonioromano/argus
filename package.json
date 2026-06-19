@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,

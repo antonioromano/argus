@@ -24,6 +24,8 @@ interface FileTreeViewProps {
   selectedPath: string | null;
   gitStatuses: Map<string, GitFileStatusCode>;
   onSelect: (node: VisibleNode) => void;
+  /** Double-click on a file row (single-click is a preview open via onSelect). */
+  onActivate?: (node: VisibleNode) => void;
   edit?: TreeEdit | null;
   onSubmitEdit?: (name: string) => void;
   onCancelEdit?: () => void;
@@ -35,6 +37,7 @@ export function FileTreeView({
   selectedPath,
   gitStatuses,
   onSelect,
+  onActivate,
   edit = null,
   onSubmitEdit,
   onCancelEdit,
@@ -166,6 +169,9 @@ export function FileTreeView({
               role="row"
               tabIndex={-1}
               onClick={() => { setActiveIndex(vRow.index); onSelect(node); }}
+              onDoubleClick={() => {
+                if (node.entry.isFile && !node.draft) onActivate?.(node);
+              }}
               onContextMenu={(e) => {
                 if (!onContextMenu) return;
                 e.preventDefault();

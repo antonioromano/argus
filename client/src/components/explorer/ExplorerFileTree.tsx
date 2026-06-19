@@ -12,7 +12,10 @@ interface ExplorerFileTreeProps {
   sessionId: string;
   gitStatuses: Map<string, GitFileStatusCode>;
   selectedPath: string | null;
+  /** Single-click a file → open as a preview (reused, italic) tab. */
   onOpenFile: (path: string) => void;
+  /** Double-click a file → pin it as a permanent tab. */
+  onActivateFile?: (path: string) => void;
 }
 
 interface MenuState {
@@ -26,7 +29,7 @@ function dirOf(p: string): string {
   return i <= 0 ? p : p.slice(0, i);
 }
 
-export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, onOpenFile }: ExplorerFileTreeProps) {
+export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, onOpenFile, onActivateFile }: ExplorerFileTreeProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [pendingDelete, setPendingDelete] = useState<VisibleNode | null>(null);
 
@@ -69,6 +72,9 @@ export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, o
           if (node.draft) return;
           if (node.entry.isFile) onOpenFile(node.path);
           else tree.toggle(node.path);
+        }}
+        onActivate={(node) => {
+          if (node.entry.isFile) onActivateFile?.(node.path);
         }}
         edit={tree.edit}
         onSubmitEdit={(name) => void tree.submitEdit(name)}
