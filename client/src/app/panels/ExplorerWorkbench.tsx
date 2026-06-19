@@ -433,7 +433,16 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                     onTabPointerDown={onTabPointerDown}
                     onAddClick={onAddClick}
                   />
-                  <div style={{ flex: 1, minHeight: 0, display: 'flex', background: 'var(--bg-inset)' }}>
+                  {/* Match the editor surface so there's no flash before Monaco paints:
+                      dark editor (argus-dark) == --bg-inset; light editor (vs) is white. */}
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: 'flex',
+                      background: theme === 'dark' ? 'var(--bg-inset)' : 'var(--bg-2)',
+                    }}
+                  >
                     {g.tabs.length === 0 ? (
                       <EmptyHint />
                     ) : (
