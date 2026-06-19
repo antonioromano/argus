@@ -6,6 +6,9 @@ export interface AppViewState {
   activeSessionId: string | null;
   overlay: Overlay;
   sidePanel: SidePanel;
+  /** Where the currently-maximized tool window was launched from, so closing it
+   *  returns there (dashboard → mosaic, focus → shell). Null when none is open. */
+  maximizedOrigin: View | null;
 }
 
 export interface AppViewApi extends AppViewState {
@@ -19,6 +22,11 @@ export interface AppViewApi extends AppViewState {
   toggleSidePanel: (kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => void;
   /** Open (or switch to) a diff/explorer tool window in full-view over the shell. */
   maximizeSidePanel: (panel: MaximizablePanel) => void;
+  /** Open a maximized tool window AND remember the current view as its origin, so
+   *  dismissing it returns there (dashboard → mosaic, focus → shell). */
+  openMaximized: (panel: MaximizablePanel) => void;
+  /** Close the maximized tool window, returning to its launch origin. */
+  dismissMaximized: () => void;
 }
 
 // ---- Pure state transitions (unit-tested in useAppView.test.ts) ----
@@ -36,9 +44,32 @@ export function toggleSidePanelState(
   return { ...s, sidePanel: { kind, sessionId } };
 }
 
-/** Open/switch a diff|explorer panel and maximize it. */
+/** Open/switch a diff|explorer panel and maximize it (origin = current view if not already set). */
 export function maximizeSidePanelState(s: AppViewState, panel: MaximizablePanel): AppViewState {
-  return { ...s, sidePanel: { ...panel, maximized: true } };
+  return { ...s, sidePanel: { ...panel, maximized: true }, maximizedOrigin: s.maximizedOrigin ?? s.view };
+}
+
+/**
+ * Open a maximized tool window over a session and record where it was launched
+ * from. Captures the *prior* view as origin, so launching from the dashboard
+ * (mosaic) returns there on close, while launching from focus returns to the shell.
+ */
+export function openMaximizedState(s: AppViewState, panel: MaximizablePanel): AppViewState {
+  return {
+    ...s,
+    view: 'focus',
+    activeSessionId: panel.sessionId,
+    sidePanel: { ...panel, maximized: true },
+    maximizedOrigin: s.maximizedOrigin ?? s.view,
+  };
+}
+
+/** Close the maximized tool window, returning to its launch origin. */
+export function dismissMaximizedState(s: AppViewState): AppViewState {
+  if (s.maximizedOrigin === 'dashboard') {
+    return { ...s, view: 'dashboard', sidePanel: null, maximizedOrigin: null };
+  }
+  return { ...s, sidePanel: null, maximizedOrigin: null };
 }
 
 /**
@@ -59,6 +90,7 @@ export function useAppView(): AppViewApi {
     activeSessionId: null,
     overlay: null,
     sidePanel: null,
+    maximizedOrigin: null,
   });
 
   const openSession = useCallback((id: string) => {
@@ -66,7 +98,7 @@ export function useAppView(): AppViewApi {
   }, []);
 
   const exitFocus = useCallback(() => {
-    setState((s) => ({ ...s, view: 'dashboard', sidePanel: null }));
+    setState((s) => ({ ...s, view: 'dashboard', sidePanel: null, maximizedOrigin: null }));
   }, []);
 
   const setActiveSession = useCallback((id: string) => {
@@ -97,12 +129,24 @@ export function useAppView(): AppViewApi {
     setState((s) => maximizeSidePanelState(s, panel));
   }, []);
 
+  const openMaximized = useCallback((panel: MaximizablePanel) => {
+    setState((s) => openMaximizedState(s, panel));
+  }, []);
+
+  const dismissMaximized = useCallback(() => {
+    setState((s) => dismissMaximizedState(s));
+  }, []);
+
   // Global keyboard — Escape only (fixed). Rebindable shortcuts live in ArgusApp.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };
+          // A maximized tool window closes back to its launch origin (mosaic/shell).
+          if (s.sidePanel && s.sidePanel.kind !== 'terminal' && s.sidePanel.maximized) {
+            return dismissMaximizedState(s);
+          }
           if (s.sidePanel) return { ...s, sidePanel: null };
           if (s.view === 'focus') return { ...s, view: 'dashboard' };
           return s;
@@ -124,5 +168,7 @@ export function useAppView(): AppViewApi {
     closeSidePanel,
     toggleSidePanel,
     maximizeSidePanel,
+    openMaximized,
+    dismissMaximized,
   };
 }

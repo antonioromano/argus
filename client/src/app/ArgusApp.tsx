@@ -615,10 +615,10 @@ function DesktopInner() {
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
-              onFocusDiff={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'diff', sessionId: id }); }}
-              onFocusExplorer={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'explorer', sessionId: id }); }}
+              onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
+              onFocusExplorer={(id) => app.openMaximized({ kind: 'explorer', sessionId: id })}
               onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
-              onOpenDiff={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'diff', sessionId: id }); }}
+              onOpenDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
               shortcuts={shortcuts.resolved}
               searchSessionId={searchSessionId}
               onRequestSearch={openTerminalSearchFor}
@@ -640,14 +640,14 @@ function DesktopInner() {
               onReorder={reorderSession}
               onBack={app.exitFocus}
               onToggleDiff={() => app.sidePanel?.kind === 'diff'
-                ? app.closeSidePanel()
+                ? app.dismissMaximized()
                 : app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id })}
               onToggleExplorer={() => app.sidePanel?.kind === 'explorer'
-                ? app.closeSidePanel()
+                ? app.dismissMaximized()
                 : app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id })}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
               onExpandDiff={(file) => app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id, file })}
-              onRestore={app.closeSidePanel}
+              onRestore={app.dismissMaximized}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
@@ -692,13 +692,11 @@ function DesktopInner() {
             onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
             onOpenInExplorer={(sessionId, filePath, lineNumber, query) => {
               app.closeOverlay();
-              app.openSession(sessionId);
-              app.maximizeSidePanel({ kind: 'explorer', sessionId, filePath, lineNumber, query });
+              app.openMaximized({ kind: 'explorer', sessionId, filePath, lineNumber, query });
             }}
             onOpenInDiff={(sessionId) => {
               app.closeOverlay();
-              app.openSession(sessionId);
-              app.maximizeSidePanel({ kind: 'diff', sessionId });
+              app.openMaximized({ kind: 'diff', sessionId });
             }}
           />
         </Overlay>
@@ -734,7 +732,7 @@ function DesktopInner() {
               sessions={orderedSessions}
               target={target}
               onClose={app.closeOverlay}
-              onPick={(id) => { app.closeOverlay(); app.openSession(id); app.maximizeSidePanel({ kind: target, sessionId: id }); }}
+              onPick={(id) => { app.closeOverlay(); app.openMaximized({ kind: target, sessionId: id }); }}
             />
           </Overlay>
         );
