@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
@@ -12,6 +12,8 @@ import { shellLabel } from '../../utils/sessionLabel.js';
 import { DiffSidePanel } from '../panels/DiffSidePanel.js';
 import { ExplorerSidePanel } from '../panels/ExplorerSidePanel.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
+import { DiffWorkbench } from '../panels/DiffWorkbench.js';
+import { ExplorerWorkbench } from '../panels/ExplorerWorkbench.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import type { SidePanel } from '../types.js';
@@ -21,6 +23,7 @@ const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
 const SIDE_PANEL_MIN = 240;
 const SIDE_PANEL_MAX = 720;
 const SIDE_PANEL_DEFAULT = 320;
+const PEEK_HEIGHT = 34;
 
 function readStoredWidth(): number {
   if (typeof window === 'undefined') return SIDE_PANEL_DEFAULT;
@@ -45,8 +48,14 @@ interface FocusProps {
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
   onToggleTerminal: () => void;
+  /** Maximize the diff tool window over the shell (optionally focused on a file). */
   onExpandDiff: (file?: string) => void;
+  /** Maximize the explorer tool window over the shell (optionally focused on a path). */
   onExpandExplorer: (filePath?: string) => void;
+  /** Collapse a maximized tool window back to the docked rail. */
+  onRestore: () => void;
+  /** Close the side panel entirely. */
+  onCloseSidePanel: () => void;
   onClone: () => void;
   onKill: () => void;
   onRestart: () => void;
@@ -71,6 +80,8 @@ export function Focus({
   onToggleTerminal,
   onExpandDiff,
   onExpandExplorer,
+  onRestore,
+  onCloseSidePanel,
   onClone,
   onKill,
   onRestart,
@@ -83,6 +94,7 @@ export function Focus({
   const [terminalFocused, setTerminalFocused] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState<number>(readStoredWidth);
   const [isResizing, setIsResizing] = useState(false);
+  const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const sendInput = (data: string) => {
@@ -130,10 +142,27 @@ export function Focus({
     };
   }, [isResizing]);
 
-  const sidePanelOpen =
-    (sidePanel?.kind === 'diff' && sidePanel.sessionId === active.id) ||
-    (sidePanel?.kind === 'explorer' && sidePanel.sessionId === active.id) ||
-    (sidePanel?.kind === 'terminal' && sidePanel.sessionId === active.id);
+  const panelForActive =
+    sidePanel && sidePanel.sessionId === active.id ? sidePanel : null;
+  const maximized =
+    panelForActive && panelForActive.kind !== 'terminal' && panelForActive.maximized
+      ? panelForActive
+      : null;
+  const dockedOpen = !!panelForActive && !maximized;
+
+  // Restore the split and re-focus / re-fit the terminal (keeps xterm mounted while
+  // maximized; the cold-remount garble is avoided — see argus-terminal-replay).
+  const restoreToShell = useCallback(() => {
+    onRestore();
+    setFocusToken((t) => t + 1);
+    // Let layout settle, then make xterm re-measure its now-visible container.
+    setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 60);
+  }, [onRestore]);
+
+  const onShellClick = useCallback(() => {
+    if (maximized) restoreToShell();
+    else onToggleTerminal();
+  }, [maximized, restoreToShell, onToggleTerminal]);
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -206,10 +235,10 @@ export function Focus({
               Files
             </Button>
             <Button
-              variant={sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
+              variant={!maximized && sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
               size="sm"
               icon={Terminal}
-              onClick={onToggleTerminal}
+              onClick={onShellClick}
             >
               Shell
             </Button>
@@ -220,19 +249,99 @@ export function Focus({
             <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-            <ErrorBoundary key={active.id} label={active.name}>
-              <TerminalShell session={active} socket={socket} theme={theme} status={active.status} focused={terminalFocused} onFocusChange={setTerminalFocused} framed={false} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} />
-            </ErrorBoundary>
-          </div>
+          {/* Terminal/reply region. The terminal stays mounted at all times; when a
+              tool window is maximized it collapses to 0 height and the workbench
+              overlays the region, with a clickable peek strip to return. */}
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+              <ErrorBoundary key={active.id} label={active.name}>
+                <TerminalShell
+                  session={active}
+                  socket={socket}
+                  theme={theme}
+                  status={active.status}
+                  focused={terminalFocused}
+                  onFocusChange={setTerminalFocused}
+                  framed={false}
+                  shortcuts={shortcuts}
+                  searchOpen={searchOpen}
+                  onOpenSearch={onOpenSearch}
+                  onCloseSearch={onCloseSearch}
+                  requestFocusToken={focusToken}
+                />
+              </ErrorBoundary>
+            </div>
 
-          <ReplyBar session={active} onSend={sendInput} />
+            {!maximized && <ReplyBar session={active} onSend={sendInput} />}
+
+            {maximized && (
+              <>
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: PEEK_HEIGHT,
+                    display: 'flex',
+                    background: 'var(--bg-0)',
+                    animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+                  }}
+                >
+                  {maximized.kind === 'diff' ? (
+                    <DiffWorkbench
+                      session={active}
+                      onClose={onCloseSidePanel}
+                      onRestore={restoreToShell}
+                      initialFile={maximized.file}
+                    />
+                  ) : (
+                    <ExplorerWorkbench
+                      session={active}
+                      onClose={onCloseSidePanel}
+                      onRestore={restoreToShell}
+                      initialFilePath={maximized.filePath}
+                      initialLine={maximized.lineNumber}
+                      initialQuery={maximized.query}
+                    />
+                  )}
+                </div>
+                <button
+                  onClick={restoreToShell}
+                  title="Return to shell"
+                  style={{
+                    all: 'unset',
+                    cursor: 'pointer',
+                    position: 'absolute',
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: PEEK_HEIGHT,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--s-2)',
+                    padding: '0 var(--s-4)',
+                    background: 'var(--bg-1)',
+                    borderTop: '1px solid var(--line-2)',
+                    color: 'var(--fg-3)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--t-tiny)',
+                  }}
+                >
+                  <Terminal size={12} strokeWidth={1.6} />
+                  <span>Shell · collapsed</span>
+                  <div style={{ flex: 1 }} />
+                  <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <ChevronUp size={12} strokeWidth={1.8} /> RETURN
+                  </span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {sidePanelOpen && (
-          <ResizeDivider isDragging={isResizing} onMouseDown={onResizeStart} />
-        )}
-        {sidePanel?.kind === 'diff' && sidePanel.sessionId === active.id && (
+        {dockedOpen && <ResizeDivider isDragging={isResizing} onMouseDown={onResizeStart} />}
+        {dockedOpen && panelForActive?.kind === 'diff' && (
           <DiffSidePanel
             session={active}
             onExpand={onExpandDiff}
@@ -240,10 +349,10 @@ export function Focus({
             width={sidePanelWidth}
           />
         )}
-        {sidePanel?.kind === 'explorer' && sidePanel.sessionId === active.id && (
+        {dockedOpen && panelForActive?.kind === 'explorer' && (
           <ExplorerSidePanel session={active} onExpand={onExpandExplorer} width={sidePanelWidth} />
         )}
-        {sidePanel?.kind === 'terminal' && sidePanel.sessionId === active.id && (
+        {dockedOpen && panelForActive?.kind === 'terminal' && (
           <CompanionTerminalPanel
             session={active}
             socket={socket}

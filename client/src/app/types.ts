@@ -8,16 +8,29 @@ export type Overlay =
   | { kind: 'palette' }
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }
-  | { kind: 'diff'; sessionId: string; file?: string }
-  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | null;
 
+/**
+ * Diff/Explorer side panels carry a `maximized` flag: false → docked right rail,
+ * true → full-view tool window over the shell (see Focus.tsx). The terminal
+ * companion panel has no full-view, so it omits the flag. Diff/explorer also carry
+ * the optional entry target (file/line/query) so the maximized workbench can open
+ * focused on a specific file — e.g. when launched from the command palette.
+ */
 export type SidePanel =
-  | { kind: 'diff'; sessionId: string }
-  | { kind: 'explorer'; sessionId: string }
+  | { kind: 'diff'; sessionId: string; maximized?: boolean; file?: string }
+  | { kind: 'explorer'; sessionId: string; maximized?: boolean; filePath?: string; lineNumber?: number; query?: string }
   | { kind: 'terminal'; sessionId: string }
   | null;
+
+/** Tool-window kinds that support the full-view maximize. */
+export type MaximizableKind = 'diff' | 'explorer';
+
+/** Payload for opening a diff/explorer tool window directly in full-view. */
+export type MaximizablePanel =
+  | { kind: 'diff'; sessionId: string; file?: string }
+  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string };
 
 export type SidebarKey =
   | 'sessions'

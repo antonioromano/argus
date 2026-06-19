@@ -4,7 +4,7 @@ import { GitBranch, GitCommit, Maximize2, RefreshCw, File } from 'lucide-react';
 import parseDiff from 'parse-diff';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { Chip, IconButton, LoadingState, EmptyState, ErrorState, Button } from '../../components/primitives/index.js';
-import { DiffViewer, UntrackedPlaceholder, type FileSummary } from '../overlays/DiffOverlay.js';
+import { DiffViewer, UntrackedPlaceholder, type FileSummary } from './DiffWorkbench.js';
 
 interface DiffSidePanelProps {
   session: SessionInfo;
