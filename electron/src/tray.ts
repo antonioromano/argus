@@ -13,7 +13,8 @@ export function createTray(): Tray {
   const icon = nativeImage.createFromPath(iconPath);
 
   tray = new Tray(icon);
-  tray.setToolTip('Argus');
+  // '(dev)' suffix distinguishes the unpackaged dev instance from the installed app.
+  tray.setToolTip(app.isPackaged ? 'Argus' : 'Argus (dev)');
 
   const menu = Menu.buildFromTemplate([
     {

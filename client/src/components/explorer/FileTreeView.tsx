@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, type CSSProperties } from 'react';
+import { createElement, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ChevronRight,
@@ -49,10 +49,64 @@ export function FileTreeView({
     overscan: 8,
   });
 
+  // Keyboard cursor over the flat visible-node list. Distinct from `selectedPath`
+  // (the file currently open in the editor) — arrows move this cursor; Enter acts.
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const i = nodes.findIndex((n) => n.path === selectedPath);
+    return i >= 0 ? i : 0;
+  });
+
+  // Move the cursor and keep the row in view. preventDefault is the caller's job.
+  const moveCursor = (delta: number) => {
+    setActiveIndex((i) => {
+      const from = i < 0 || i >= nodes.length ? 0 : i;
+      const next = Math.min(Math.max(from + delta, 0), nodes.length - 1);
+      virtualizer.scrollToIndex(next);
+      return next;
+    });
+  };
+
+  // Arrow/Enter navigation. Lives on the scroll container so keydowns from a
+  // focused row (tabIndex -1) bubble here; preventDefault stops the native list
+  // scroll that would otherwise fire instead of moving the selection.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (edit) return; // a rename/create input owns the keys
+    if (nodes.length === 0) return;
+    const node = nodes[Math.min(activeIndex, nodes.length - 1)] ?? null;
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        moveCursor(1);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        moveCursor(-1);
+        break;
+      case 'ArrowRight':
+        e.preventDefault();
+        // Expand a collapsed folder, otherwise step down into the list.
+        if (node && !node.entry.isFile && !node.expanded) onSelect(node);
+        else moveCursor(1);
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        // Collapse an expanded folder, otherwise step up.
+        if (node && !node.entry.isFile && node.expanded) onSelect(node);
+        else moveCursor(-1);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (node) onSelect(node); // file → open, folder → toggle
+        break;
+    }
+  };
+
   return (
     <div
       ref={parentRef}
       className="argus-scroll"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
       onContextMenu={(e) => {
         // Empty-area right-click (rows stop propagation) → target the root.
         if (!onContextMenu) return;
@@ -64,12 +118,14 @@ export function FileTreeView({
         minHeight: 0,
         overflow: 'auto',
         background: 'var(--bg-1)',
+        outline: 'none',
       }}
     >
       <div style={{ position: 'relative', height: virtualizer.getTotalSize(), width: '100%' }}>
         {virtualizer.getVirtualItems().map((vRow) => {
           const node = nodes[vRow.index];
           const selected = selectedPath === node.path;
+          const active = activeIndex === vRow.index;
           const isRenaming = edit?.kind === 'rename' && edit.path === node.path;
           const rowStyle: CSSProperties = {
             position: 'absolute',
@@ -106,18 +162,19 @@ export function FileTreeView({
               key={node.path}
               role="row"
               tabIndex={-1}
-              onClick={() => onSelect(node)}
+              onClick={() => { setActiveIndex(vRow.index); onSelect(node); }}
               onContextMenu={(e) => {
                 if (!onContextMenu) return;
                 e.preventDefault();
                 e.stopPropagation();
+                setActiveIndex(vRow.index);
                 onContextMenu(node, e.clientX, e.clientY);
               }}
               style={{
                 ...rowStyle,
                 color: selected ? 'var(--accent)' : 'var(--fg-1)',
-                background: selected ? 'var(--bg-3)' : 'transparent',
-                borderLeft: `2px solid ${selected ? 'var(--accent)' : 'transparent'}`,
+                background: selected ? 'var(--bg-3)' : active ? 'var(--bg-2)' : 'transparent',
+                borderLeft: `2px solid ${selected ? 'var(--accent)' : active ? 'var(--line-3)' : 'transparent'}`,
                 cursor: 'pointer',
                 userSelect: 'none',
               }}

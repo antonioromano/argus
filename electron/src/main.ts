@@ -31,6 +31,24 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('use-mock-keychain');
 app.commandLine.appendSwitch('password-store', 'basic');
 
+// Give unpackaged dev (`electron .`) its OWN Electron profile so it can run
+// alongside the installed app. The single-instance lock (below) keys off
+// app.getPath('userData'), and app.getName() === 'argus' for BOTH dev and the
+// packaged app — so without this they share one userData dir + one lock, and a
+// dev launch dies instantly when the installed app holds the lock. Pointing dev
+// at a sibling 'argus-dev' userData gives it a distinct lock key (and its own
+// Chromium cache, window state, and Safe-Storage entry). Must run before
+// requestSingleInstanceLock() and before app 'ready'.
+if (!app.isPackaged) {
+  app.setPath('userData', join(app.getPath('userData'), '..', 'argus-dev'));
+}
+
+// Notification deep-link scheme. Dev uses 'argus-dev://' so a notification raised
+// by the dev instance routes back to the dev window instead of the installed app
+// (which owns 'argus://'). Drives setAsDefaultProtocolClient, the terminal-notifier
+// -execute URL, and the open-url strip below.
+const SCHEME = app.isPackaged ? 'argus' : 'argus-dev';
+
 interface ApplyUpdateResult {
   success: boolean;
   error?: string;
@@ -289,17 +307,26 @@ async function main() {
   // killing the INSTALLED app's agents. Gate isolation on app.isPackaged so dev
   // always gets its own socket + data dir.
   const devIsolation = !app.isPackaged;
-  process.env.ARGUS_DATA_DIR = devIsolation
-    ? join(app.getPath('userData'), '..', 'argus-dev')
-    : app.getPath('userData');
-  // Use ARGUS_PORT if set (e.g. electron:dev sets 5403 to avoid conflicts), else 5757.
-  // 5757 (not 5400) keeps the packaged app off the port a sibling fork like
-  // remote-orchestrator may already hold.
-  if (!process.env.ARGUS_PORT) process.env.ARGUS_PORT = '5757';
-  // Namespace the tmux socket so dev and the packaged app never share a tmux
-  // server. 'argus-dev' for unpackaged dev, 'argus' (app name) for the packaged app.
-  if (!process.env.ARGUS_TMUX_SOCKET) {
-    process.env.ARGUS_TMUX_SOCKET = devIsolation ? 'argus-dev' : app.getName().toLowerCase();
+  // userData already carries the dev/packaged split (set at module load before the
+  // single-instance lock): '…/argus-dev' for dev, '…/argus' for packaged. Co-locate
+  // server data (sessions.json, order.json) with the Electron profile.
+  process.env.ARGUS_DATA_DIR = app.getPath('userData');
+  if (devIsolation) {
+    // CRITICAL: dev is often launched from a terminal INSIDE a packaged Argus
+    // session, which exports the installed app's ARGUS_PORT=5757 and
+    // ARGUS_TMUX_SOCKET=argus into the child env. Inheriting those makes dev
+    // collide with the installed app — shared port AND a shared '-L argus' tmux
+    // server (the exact dueling-tmux / killed-agents failure noted above). So for
+    // dev we FORCE isolated values, ignoring whatever was inherited. 5403 also
+    // matches the electron:dev script override, so there's nothing to configure.
+    process.env.ARGUS_PORT = '5403';
+    process.env.ARGUS_TMUX_SOCKET = 'argus-dev';
+  } else {
+    // Packaged launches from Finder/Dock with a clean env; honor explicit overrides.
+    // 5757 (not 5400) keeps the packaged app off the port a sibling fork like
+    // remote-orchestrator may already hold.
+    if (!process.env.ARGUS_PORT) process.env.ARGUS_PORT = '5757';
+    if (!process.env.ARGUS_TMUX_SOCKET) process.env.ARGUS_TMUX_SOCKET = app.getName().toLowerCase();
   }
 
   // Dynamic import after env vars are set so the server picks them up correctly.
@@ -377,11 +404,11 @@ async function main() {
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
-        // Click opens the argus:// scheme, which activates Argus AND fires the
+        // Click opens the SCHEME:// url, which activates this instance AND fires the
         // main-process open-url handler with the session id — the only way to
         // round-trip a per-session deep-link through terminal-notifier (it can't
         // reach the notif:click IPC). The id is a UUID, so it's shell-safe.
-        '-execute', `open "argus://notif/${payload.id}"`,
+        '-execute', `open "${SCHEME}://notif/${payload.id}"`,
       ];
       if (payload.sound) args.push('-sound', 'default');
       execFile(terminalNotifierPath, args, (err) => {
@@ -516,37 +543,41 @@ async function main() {
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
     app.dock?.setIcon(dockIcon);
+    // Mark the dev instance so it's distinguishable from the installed app when
+    // both run at once.
+    if (!app.isPackaged) app.dock?.setBadge('dev');
   }
 
   createWindow();
   createTray();
 }
 
-// Single-instance lock: second launch focuses the existing window and quits.
+// Single-instance lock: a second launch of the SAME profile focuses the existing
+// window and quits. The lock keys off the userData dir, which now differs by mode
+// ('…/argus-dev' for dev, '…/argus' for packaged — see module-load setup), so dev
+// and the installed app each hold their own lock and run side by side. This branch
+// only fires for a second launch of the same mode; logged so the "instant quit"
+// isn't mistaken for a crash.
 if (!app.requestSingleInstanceLock()) {
-  // The lock is keyed by the userData dir, which is appData/<app.getName()> —
-  // and app.getName() is 'argus' for BOTH the packaged app and unpackaged dev
-  // (`electron .`). So a dev launch while the installed app is running (or vice
-  // versa) fails the lock and exits here. This is by design (one window, no
-  // contention), but logged so the "instant quit" isn't mistaken for a crash.
   console.log(
     '[electron] another Argus instance already holds the single-instance lock ' +
     `(userData "${app.getPath('userData')}", app "${app.getName()}"); quitting. ` +
-    'Quit the other instance first to launch this one.',
+    'Focusing the existing window instead.',
   );
   app.quit();
 } else {
   app.on('second-instance', () => { showWindow(); });
 
   // Custom URL scheme for notification-click deep-linking (packaged: Info.plist
-  // CFBundleURLTypes via electron-builder `protocols`; this call covers dev).
-  app.setAsDefaultProtocolClient('argus');
-  // macOS routes `open argus://notif/<id>` here (the running instance, since we
+  // CFBundleURLTypes via electron-builder `protocols` registers 'argus'; this call
+  // covers dev, which uses 'argus-dev' so deep-links route to the dev instance).
+  app.setAsDefaultProtocolClient(SCHEME);
+  // macOS routes `open <SCHEME>://notif/<id>` here (the running instance, since we
   // hold the single-instance lock). Registered before whenReady so a launch-on-
   // click delivers once the renderer is ready.
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    const id = url.replace(/^argus:\/\/notif\//, '').replace(/\/$/, '');
+    const id = url.replace(new RegExp(`^${SCHEME}://notif/`), '').replace(/\/$/, '');
     if (SESSION_ID_RE.test(id)) deliverNotifClick(id);
   });
 
