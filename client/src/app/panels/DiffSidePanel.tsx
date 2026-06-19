@@ -4,7 +4,7 @@ import { GitBranch, GitCommit, Maximize2, RefreshCw, File } from 'lucide-react';
 import parseDiff from 'parse-diff';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { Chip, IconButton, LoadingState, EmptyState, ErrorState, Button } from '../../components/primitives/index.js';
-import { DiffViewer, UntrackedPlaceholder, type FileSummary } from './DiffWorkbench.js';
+import { DiffViewer, type FileSummary } from './DiffWorkbench.js';
 
 interface DiffSidePanelProps {
   session: SessionInfo;
@@ -21,7 +21,7 @@ interface Item extends FileSummary {
   source: ItemSource;
 }
 
-function summarize(rawDiff: string, source: 'unstaged' | 'staged' | 'branch'): Item[] {
+function summarize(rawDiff: string, source: ItemSource): Item[] {
   if (!rawDiff || !rawDiff.trim()) return [];
   try {
     const files = parseDiff(rawDiff);
@@ -60,16 +60,7 @@ export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: Diff
       ...summarize(diff.staged, 'staged'),
       ...summarize(diff.branch, 'branch'),
     ].filter((f) => (seen.has(f.path) ? false : (seen.add(f.path), true)));
-    const untracked: Item[] = (diff.untracked ?? []).map((p) => ({
-      id: `untracked::${p}`,
-      path: p,
-      add: 0,
-      del: 0,
-      source: 'untracked',
-      isNew: true,
-      isDeleted: false,
-      raw: '',
-    }));
+    const untracked = summarize(diff.untrackedDiff ?? '', 'untracked');
     return [...tracked, ...untracked];
   }, [diff]);
 
@@ -219,20 +210,12 @@ export function DiffSidePanel({ session, onExpand, onCommit, width = 320 }: Diff
       {/* Inline preview of the selected file */}
       {selectedItem && (
         <div style={{ flex: 1, minHeight: 0, borderTop: '1px solid var(--line-2)', display: 'flex', flexDirection: 'column' }}>
-          {selectedItem.source === 'untracked' ? (
-            <UntrackedPlaceholder
-              path={selectedItem.path}
-              staging={false}
-              onStage={() => onExpand(selectedItem.id)}
-            />
-          ) : (
-            <div className="argus-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--bg-0)' }}>
-              {/* max-content lets long lines scroll horizontally instead of wrapping/clipping */}
-              <div style={{ minWidth: 'max-content' }}>
-                <DiffViewer file={selectedItem} mode="unified" />
-              </div>
+          <div className="argus-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--bg-0)' }}>
+            {/* max-content lets long lines scroll horizontally instead of wrapping/clipping */}
+            <div style={{ minWidth: 'max-content' }}>
+              <DiffViewer file={selectedItem} mode="unified" />
             </div>
-          )}
+          </div>
         </div>
       )}
 

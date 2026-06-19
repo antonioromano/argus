@@ -57,13 +57,16 @@ export function FileTreeView({
   });
 
   // Move the cursor and keep the row in view. preventDefault is the caller's job.
+  // Select-follows-focus: when the cursor lands on a file, open it immediately so
+  // arrowing changes the open file without pressing Enter. Folders are left alone —
+  // only ArrowRight/Left/Enter expand/collapse them.
   const moveCursor = (delta: number) => {
-    setActiveIndex((i) => {
-      const from = i < 0 || i >= nodes.length ? 0 : i;
-      const next = Math.min(Math.max(from + delta, 0), nodes.length - 1);
-      virtualizer.scrollToIndex(next);
-      return next;
-    });
+    const from = activeIndex < 0 || activeIndex >= nodes.length ? 0 : activeIndex;
+    const next = Math.min(Math.max(from + delta, 0), nodes.length - 1);
+    setActiveIndex(next);
+    virtualizer.scrollToIndex(next);
+    const node = nodes[next];
+    if (node && node.entry.isFile && !node.draft) onSelect(node);
   };
 
   // Arrow/Enter navigation. Lives on the scroll container so keydowns from a
@@ -172,9 +175,12 @@ export function FileTreeView({
               }}
               style={{
                 ...rowStyle,
+                // Cursor (active) is the single selection highlight — only it gets a
+                // border/fill. The open file is cued by accent text alone, so arrowing
+                // never leaves a second "selected" border on a previously clicked row.
                 color: selected ? 'var(--accent)' : 'var(--fg-1)',
-                background: selected ? 'var(--bg-3)' : active ? 'var(--bg-2)' : 'transparent',
-                borderLeft: `2px solid ${selected ? 'var(--accent)' : active ? 'var(--line-3)' : 'transparent'}`,
+                background: active ? 'var(--bg-3)' : 'transparent',
+                borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
                 cursor: 'pointer',
                 userSelect: 'none',
               }}

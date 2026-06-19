@@ -187,6 +187,8 @@ export interface GitDiffResponse {
   staged: string;
   branch: string;
   untracked: string[];
+  /** All-added diff (`git diff --no-index`) for the untracked files, so they preview like tracked changes. */
+  untrackedDiff: string;
   error?: string;
 }
 

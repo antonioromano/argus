@@ -35,6 +35,21 @@ function execGit(args: string[], cwd: string): Promise<string> {
   });
 }
 
+// Like execGit but tolerant of the exit-1 that `git diff --no-index` returns when
+// the two paths differ (which is always, comparing a file against /dev/null). Only
+// a non-1 failure (real error, maxBuffer overflow) rejects.
+function execGitDiffNoIndex(args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(GIT_PATH, args, { cwd, timeout: TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+      if (err && (err as { code?: number }).code !== 1) {
+        reject(err);
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
 // Like execGit but captures stderr for surfacing git hook/apply errors
 function execGitWithStderr(args: string[], cwd: string, stdinData?: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -517,10 +532,30 @@ export class GitService {
     }
   }
 
+  // All-added diff for the untracked files so they preview like tracked changes.
+  // Each file is diffed against /dev/null; a per-file failure (binary, oversize)
+  // is dropped rather than failing the whole diff.
+  private async getUntrackedDiff(folderPath: string, paths: string[]): Promise<string> {
+    if (paths.length === 0) return '';
+    const diffs = await Promise.all(
+      paths.map(async (p) => {
+        // `--` stops git treating a path as an option; also skip any leading-dash
+        // path defensively so a file named e.g. `-foo` can't inject git flags.
+        if (p.startsWith('-')) return '';
+        try {
+          return await execGitDiffNoIndex(['diff', '--no-index', '--no-color', '--', '/dev/null', p], folderPath);
+        } catch {
+          return '';
+        }
+      }),
+    );
+    return diffs.filter(Boolean).join('\n');
+  }
+
   async getDiff(folderPath: string): Promise<GitDiffResponse> {
     const isRepo = await this.isGitRepo(folderPath);
     if (!isRepo) {
-      return { unstaged: '', staged: '', branch: '', untracked: [], error: 'Not a git repository' };
+      return { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '', error: 'Not a git repository' };
     }
 
     try {
@@ -530,10 +565,11 @@ export class GitService {
         this.getBranchDiff(folderPath),
         this.getUntrackedFiles(folderPath),
       ]);
-      return { unstaged, staged, branch, untracked };
+      const untrackedDiff = await this.getUntrackedDiff(folderPath, untracked);
+      return { unstaged, staged, branch, untracked, untrackedDiff };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get diff';
-      return { unstaged: '', staged: '', branch: '', untracked: [], error: message };
+      return { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '', error: message };
     }
   }
 

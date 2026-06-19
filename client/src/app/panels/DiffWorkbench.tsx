@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
-import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff, RotateCcw, Shrink } from 'lucide-react';
+import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw, Shrink } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
@@ -48,7 +48,7 @@ export interface FileSummary {
   raw: string; // empty string for untracked
 }
 
-function summarize(rawDiff: string, source: Source): FileSummary[] {
+function summarize(rawDiff: string, source: SidebarSource): FileSummary[] {
   if (!rawDiff || !rawDiff.trim()) return [];
   try {
     const files = parseDiff(rawDiff);
@@ -90,19 +90,10 @@ export function DiffWorkbench({ session, onClose, onRestore, initialFile }: Diff
 
   const files = useMemo((): FileSummary[] => {
     if (!diff) return [];
-    const untracked: FileSummary[] = (diff.untracked ?? []).map((p) => ({
-      path: p,
-      add: 0,
-      del: 0,
-      source: 'untracked' as const,
-      isNew: true,
-      isDeleted: false,
-      raw: '',
-    }));
     return [
       ...summarize(diff.unstaged, 'unstaged'),
       ...summarize(diff.staged, 'staged'),
-      ...untracked,
+      ...summarize(diff.untrackedDiff ?? '', 'untracked'),
     ];
   }, [diff]);
 
@@ -601,15 +592,6 @@ export function DiffWorkbench({ session, onClose, onRestore, initialFile }: Diff
                 </div>
               );
             }
-            if (selected.source === 'untracked') {
-              return (
-                <UntrackedPlaceholder
-                  path={selected.path}
-                  staging={stagingPath === selected.path}
-                  onStage={() => stageUntracked(selected.path)}
-                />
-              );
-            }
             return (
               <DiffViewer
                 file={selected}
@@ -762,40 +744,6 @@ function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }:
         {label}
       </span>
     </Tooltip>
-  );
-}
-
-export function UntrackedPlaceholder({
-  path,
-  staging,
-  onStage,
-}: {
-  path: string;
-  staging: boolean;
-  onStage: () => void;
-}) {
-  return (
-    <div
-      style={{
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 'var(--s-3)',
-        color: 'var(--fg-2)',
-        padding: 'var(--s-7)',
-      }}
-    >
-      <FileText size={28} strokeWidth={1.3} color="var(--fg-3)" />
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>{path}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-        Untracked file — no diff to display.
-      </div>
-      <Button variant="primary" icon={Plus} size="sm" onClick={onStage} disabled={staging}>
-        {staging ? 'Staging…' : 'Stage to start tracking'}
-      </Button>
-    </div>
   );
 }
 
