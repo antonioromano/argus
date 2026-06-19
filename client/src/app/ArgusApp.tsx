@@ -32,9 +32,7 @@ import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
-import { DiffOverlay } from './overlays/DiffOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
-import { ExplorerOverlay } from './overlays/ExplorerOverlay.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
@@ -609,7 +607,7 @@ function DesktopInner() {
               onFocusDiff={(id) => { app.openSession(id); app.openSidePanel({ kind: 'diff', sessionId: id }); }}
               onFocusExplorer={(id) => { app.openSession(id); app.openSidePanel({ kind: 'explorer', sessionId: id }); }}
               onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
-              onOpenDiff={(id) => app.openOverlay({ kind: 'diff', sessionId: id })}
+              onOpenDiff={(id) => { app.openSession(id); app.maximizeSidePanel({ kind: 'diff', sessionId: id }); }}
               shortcuts={shortcuts.resolved}
               searchSessionId={searchSessionId}
               onRequestSearch={openTerminalSearchFor}
@@ -633,8 +631,10 @@ function DesktopInner() {
               onToggleDiff={() => app.toggleSidePanel('diff', activeSession.id)}
               onToggleExplorer={() => app.toggleSidePanel('explorer', activeSession.id)}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
-              onExpandDiff={(file) => app.openOverlay({ kind: 'diff', sessionId: activeSession.id, file })}
-              onExpandExplorer={(filePath) => app.openOverlay({ kind: 'explorer', sessionId: activeSession.id, filePath })}
+              onExpandDiff={(file) => app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id, file })}
+              onExpandExplorer={(filePath) => app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id, filePath })}
+              onRestore={app.restoreSidePanel}
+              onCloseSidePanel={app.closeSidePanel}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
@@ -678,10 +678,14 @@ function DesktopInner() {
             onClose={app.closeOverlay}
             onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
             onOpenInExplorer={(sessionId, filePath, lineNumber, query) => {
-              app.openOverlay({ kind: 'explorer', sessionId, filePath, lineNumber, query });
+              app.closeOverlay();
+              app.openSession(sessionId);
+              app.maximizeSidePanel({ kind: 'explorer', sessionId, filePath, lineNumber, query });
             }}
             onOpenInDiff={(sessionId) => {
-              app.openOverlay({ kind: 'diff', sessionId });
+              app.closeOverlay();
+              app.openSession(sessionId);
+              app.maximizeSidePanel({ kind: 'diff', sessionId });
             }}
           />
         </Overlay>
@@ -709,24 +713,6 @@ function DesktopInner() {
           />
         </Overlay>
       )}
-      {app.overlay?.kind === 'diff' && (() => {
-        const ov = app.overlay as { sessionId: string; file?: string };
-        const session = sessions.find((s) => s.id === ov.sessionId);
-        return session ? (
-          <Overlay onClose={app.closeOverlay} label="Diff viewer">
-            <DiffOverlay session={session} onClose={app.closeOverlay} initialFile={ov.file} />
-          </Overlay>
-        ) : null;
-      })()}
-      {app.overlay?.kind === 'explorer' && (() => {
-        const ov = app.overlay as { sessionId: string; filePath?: string; lineNumber?: number; query?: string };
-        const session = sessions.find((s) => s.id === ov.sessionId);
-        return session ? (
-          <Overlay onClose={app.closeOverlay} label="File explorer">
-            <ExplorerOverlay session={session} onClose={app.closeOverlay} initialFilePath={ov.filePath} initialLine={ov.lineNumber} initialQuery={ov.query} />
-          </Overlay>
-        ) : null;
-      })()}
       {app.overlay?.kind === 'sessionPicker' && (() => {
         const target = app.overlay.target;
         return (
@@ -735,7 +721,7 @@ function DesktopInner() {
               sessions={orderedSessions}
               target={target}
               onClose={app.closeOverlay}
-              onPick={(id) => app.openOverlay({ kind: target, sessionId: id })}
+              onPick={(id) => { app.closeOverlay(); app.openSession(id); app.maximizeSidePanel({ kind: target, sessionId: id }); }}
             />
           </Overlay>
         );

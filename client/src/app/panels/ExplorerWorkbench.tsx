@@ -10,6 +10,7 @@ import {
   SplitSquareHorizontal,
   AlertTriangle,
   Search,
+  Shrink,
 } from 'lucide-react';
 import { Button, IconButton, Chip, LoadingState, ErrorState } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
@@ -25,9 +26,12 @@ import { ResizeDivider } from '../../components/ResizeDivider.js';
 
 const SPLIT_RATIO_KEY = 'argus.explorer.splitRatio';
 
-interface ExplorerOverlayProps {
+interface ExplorerWorkbenchProps {
   session: SessionInfo;
+  /** Close the tool window entirely (return to plain terminal focus). */
   onClose: () => void;
+  /** Collapse the maximized tool window back to the docked right rail (⤡). */
+  onRestore?: () => void;
   initialFilePath?: string;
   initialLine?: number;
   initialQuery?: string;
@@ -35,7 +39,7 @@ interface ExplorerOverlayProps {
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
-export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine, initialQuery }: ExplorerOverlayProps) {
+export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath, initialLine, initialQuery }: ExplorerWorkbenchProps) {
   const { theme } = useTheme();
   const [selectedPath, setSelectedPath] = useState<string | null>(initialFilePath ?? null);
   const [viewMode, setViewMode] = useState<ViewMode>(
@@ -73,16 +77,15 @@ export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine
   return (
     <div
       style={{
-        width: '92vw',
-        height: '88vh',
-        maxWidth: 1400,
+        flex: 1,
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
         background: 'var(--bg-0)',
-        border: '1px solid var(--line-3)',
-        borderRadius: 'var(--r-4)',
-        boxShadow: 'var(--shadow-sheet)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        position: 'relative',
       }}
     >
       <div
@@ -131,6 +134,7 @@ export function ExplorerOverlay({ session, onClose, initialFilePath, initialLine
         >
           Save
         </Button>
+        {onRestore && <IconButton icon={Shrink} label="Restore to side panel" size="sm" onClick={onRestore} />}
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
 

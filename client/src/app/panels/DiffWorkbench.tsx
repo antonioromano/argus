@@ -1,19 +1,19 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
-import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
+import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff, RotateCcw, Shrink } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
 import { useDiffInlineEdit } from '../../hooks/useDiffInlineEdit.js';
-import { SplitDiff } from './SplitDiff.js';
-import { BlockGutterCell } from './diff/BlockGutterCell.js';
+import { SplitDiff } from '../overlays/SplitDiff.js';
+import { BlockGutterCell } from '../overlays/diff/BlockGutterCell.js';
 import {
   type ChangeBlock,
   collectAllBlockHashes,
   resolveSelectionToChunkIndices,
   segmentChangeBlocks,
-} from './diff/changeBlocks.js';
+} from '../overlays/diff/changeBlocks.js';
 import { api } from '../../services/api.js';
 import {
   IconButton,
@@ -25,9 +25,12 @@ import {
   Tooltip,
 } from '../../components/primitives/index.js';
 
-interface DiffOverlayProps {
+interface DiffWorkbenchProps {
   session: SessionInfo;
+  /** Close the tool window entirely (return to plain terminal focus). */
   onClose: () => void;
+  /** Collapse the maximized tool window back to the docked right rail (⤡). */
+  onRestore?: () => void;
   initialFile?: string;
 }
 
@@ -63,7 +66,7 @@ function summarize(rawDiff: string, source: Source): FileSummary[] {
   }
 }
 
-export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps) {
+export function DiffWorkbench({ session, onClose, onRestore, initialFile }: DiffWorkbenchProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
@@ -316,16 +319,15 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
   return (
     <div
       style={{
-        width: '92vw',
-        height: '88vh',
-        maxWidth: 1400,
+        flex: 1,
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
         background: 'var(--bg-0)',
-        border: '1px solid var(--line-3)',
-        borderRadius: 'var(--r-4)',
-        boxShadow: 'var(--shadow-sheet)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        position: 'relative',
       }}
     >
       <div
@@ -373,6 +375,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
         >
           Commit
         </Button>
+        {onRestore && <IconButton icon={Shrink} label="Restore to side panel" size="sm" onClick={onRestore} />}
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
 
