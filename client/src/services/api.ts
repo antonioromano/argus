@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -149,6 +149,18 @@ export const api = {
 
   getFileContent: async (filePath: string): Promise<FileContentResponse> => {
     const res = await authFetch(`${API_BASE}/fs/file?path=${encodeURIComponent(filePath)}`);
+    return (await requireOk(res)).json();
+  },
+
+  findDefinition: async (filePath: string, symbol: string, line: number): Promise<DefinitionResponse> => {
+    const params = new URLSearchParams({ path: filePath, symbol, line: String(line) });
+    const res = await authFetch(`${API_BASE}/symbols/definition?${params}`);
+    return (await requireOk(res)).json();
+  },
+
+  findReferences: async (filePath: string, symbol: string): Promise<ReferencesResponse> => {
+    const params = new URLSearchParams({ path: filePath, symbol });
+    const res = await authFetch(`${API_BASE}/symbols/references?${params}`);
     return (await requireOk(res)).json();
   },
 

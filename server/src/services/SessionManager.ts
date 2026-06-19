@@ -135,6 +135,19 @@ export class SessionManager {
     return null;
   }
 
+  /**
+   * Like resolveWithinAnySession, but also returns the owning session — symbol
+   * search needs the session's folderPath as the scope root to scan the whole
+   * workspace, not just the file's directory.
+   */
+  sessionForPath(rawPath: string): { session: ManagedSession; resolved: string } | null {
+    for (const session of this.sessions.values()) {
+      const resolved = resolveWithinBase(session.folderPath, rawPath);
+      if (resolved) return { session, resolved };
+    }
+    return null;
+  }
+
   private async pollGitStatus(): Promise<void> {
     if (!this.gitService) return;
     for (const session of this.sessions.values()) {

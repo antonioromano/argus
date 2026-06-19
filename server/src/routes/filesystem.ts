@@ -6,19 +6,11 @@ import { getPathCompletions } from '../utils/fsAutocomplete.js';
 import { getDirectoryChildren } from '../utils/fsChildren.js';
 import { atomicWrite } from '../utils/atomicWrite.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
+import { BINARY_EXTENSIONS, EXCLUDED_SEARCH_DIRS, EXCLUDED_SEARCH_EXTS } from '../utils/searchExclusions.js';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
-
-const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.bmp', '.tiff', '.avif',
-  '.svg', '.woff', '.woff2', '.ttf', '.eot', '.otf',
-  '.pdf', '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar',
-  '.exe', '.bin', '.dylib', '.so', '.o', '.a', '.dll',
-  '.pyc', '.db', '.sqlite', '.sqlite3',
-  '.mp3', '.mp4', '.wav', '.avi', '.mov', '.webm',
-]);
 
 // Validates that sessionId and path are present, the session exists, and the
 // resolved path falls within the session's working directory.
@@ -197,12 +189,6 @@ export function createFilesystemRoutes(
     }
 
     const queryLower = query.toLowerCase();
-    const EXCLUDED_SEARCH_DIRS = new Set([
-      'node_modules', '.git', '__pycache__', 'dist', 'build',
-      '.next', '.nuxt', '.cache', 'coverage', '.terraform',
-    ]);
-    const EXCLUDED_SEARCH_EXTS = new Set(['.map', '.lock', '.log']);
-
     const filenameSeen = new Set<string>();
     const filenameResults: { path: string; name: string; ext: string }[] = [];
 

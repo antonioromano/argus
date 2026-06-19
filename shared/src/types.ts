@@ -342,6 +342,36 @@ export interface FileSearchResponse {
   query: string;
 }
 
+// Symbol navigation (heuristic go-to-definition / find-usages). Text-based, no
+// LSP — same-named symbols may collide; the client surfaces multiple candidates.
+
+export type SymbolKind = 'function' | 'class' | 'type' | 'variable' | 'method' | 'unknown';
+
+export interface SymbolLocation {
+  path: string;
+  /** 1-based line, matching Monaco. */
+  line: number;
+  /** 1-based column of the symbol on that line, matching Monaco. */
+  column: number;
+  /** Trimmed source line for preview. */
+  preview: string;
+  kind?: SymbolKind;
+  /** 'strong' = matched a definition heuristic; 'weak' = reference-derived fallback. */
+  confidence?: 'strong' | 'weak';
+}
+
+export interface DefinitionResponse {
+  symbol: string;
+  locations: SymbolLocation[];
+  truncated: boolean;
+}
+
+export interface ReferencesResponse {
+  symbol: string;
+  locations: SymbolLocation[];
+  truncated: boolean;
+}
+
 // Structured diff types (server-parsed --word-diff=porcelain output)
 
 export interface DiffToken {

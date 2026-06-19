@@ -35,6 +35,11 @@ module.exports = {
     'node_modules/**',
     'package.json',
   ],
+  // The ripgrep binary (server symbol search) ships inside @vscode/ripgrep's
+  // per-platform package. Unpack it from the asar so it stays executable; the
+  // server rewrites rgPath app.asar → app.asar.unpacked at runtime (see
+  // server/src/utils/ripgrep.ts). grep is the fallback when it can't run.
+  asarUnpack: ['**/node_modules/@vscode/ripgrep*/**'],
   extraResources: [
     {
       from: 'electron/resources/tmux',

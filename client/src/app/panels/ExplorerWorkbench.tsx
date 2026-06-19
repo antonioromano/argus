@@ -23,6 +23,7 @@ import { MarkdownPreview } from '../../components/explorer/MarkdownPreview.js';
 import { useTheme } from '../../context/theme-context.js';
 import { isMarkdownPath, monacoLanguageFor } from '../../utils/langFromPath.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
+import { symbolNavContext } from '../../components/explorer/registerSymbolProviders.js';
 
 const SPLIT_RATIO_KEY = 'argus.explorer.splitRatio';
 
@@ -47,7 +48,10 @@ export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath
   );
   // Opened from a palette search → carry the query in so the same result list shows.
   const [searchOpen, setSearchOpen] = useState(!!initialQuery);
+  const [searchQuery, setSearchQuery] = useState<string | undefined>(initialQuery);
   const [revealLine, setRevealLine] = useState<number | undefined>(initialLine);
+  // Bumped on every navigation so MonacoPane re-reveals even on a same-line jump.
+  const [revealNonce, setRevealNonce] = useState(0);
 
   const tree = useFileTree(session.folderPath, session.id);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
@@ -56,8 +60,19 @@ export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath
   const onPickFile = useCallback((path: string, line?: number) => {
     setSelectedPath(path);
     setRevealLine(line);
+    setRevealNonce((n) => n + 1);
     setViewMode(isMarkdownPath(path) ? 'split' : 'edit');
   }, []);
+
+  // Wire the symbol-nav context so cross-file go-to-definition and the
+  // "Search Workspace" action route through this workbench's state.
+  useEffect(() => {
+    symbolNavContext.onOpen = (path, line) => onPickFile(path, line);
+    symbolNavContext.searchFor = (q) => {
+      setSearchQuery(q);
+      setSearchOpen(true);
+    };
+  }, [onPickFile]);
 
   // ⌘S / ⌘K — capture phase so ⌘K beats the global CommandPalette handler.
   useEffect(() => {
@@ -164,8 +179,9 @@ export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath
           )}
           {searchOpen && (
             <FileSearchPanel
+              key={searchQuery ?? ''}
               folderPath={session.folderPath}
-              initialQuery={initialQuery}
+              initialQuery={searchQuery}
               onSelectFile={(path, line) => onPickFile(path, line)}
               onClose={() => setSearchOpen(false)}
             />
@@ -195,6 +211,7 @@ export function ExplorerWorkbench({ session, onClose, onRestore, initialFilePath
               isMd={isMd}
               viewMode={viewMode}
               revealLine={revealLine}
+              revealNonce={revealNonce}
             />
           )}
         </main>
@@ -212,9 +229,10 @@ interface EditorAreaProps {
   isMd: boolean;
   viewMode: ViewMode;
   revealLine?: number;
+  revealNonce?: number;
 }
 
-function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, revealLine }: EditorAreaProps) {
+function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, revealLine, revealNonce }: EditorAreaProps) {
   const language = monacoLanguageFor(path);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStoredRatio());
   const [isDragging, setIsDragging] = useState(false);
@@ -255,7 +273,9 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, reve
           language={language}
           theme={theme}
           onSaveShortcut={onSave}
+          path={path}
           revealLine={revealLine}
+          revealNonce={revealNonce}
         />
       </div>
     );
@@ -275,7 +295,9 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, reve
           language={language}
           theme={theme}
           onSaveShortcut={onSave}
+          path={path}
           revealLine={revealLine}
+          revealNonce={revealNonce}
         />
       </div>
       <ResizeDivider
