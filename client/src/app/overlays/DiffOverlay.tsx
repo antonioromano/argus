@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import parseDiff from 'parse-diff';
 import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, FileText, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
@@ -32,9 +32,10 @@ interface DiffOverlayProps {
 }
 
 type Source = 'unstaged' | 'staged';
-type SidebarSource = Source | 'untracked';
+// 'branch' is produced only by DiffSidePanel, which reuses this type + DiffViewer.
+type SidebarSource = Source | 'untracked' | 'branch';
 
-interface FileSummary {
+export interface FileSummary {
   path: string;
   add: number;
   del: number;
@@ -78,6 +79,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
   const [revertingFilePath, setRevertingFilePath] = useState<string | null>(null);
   const [skipConfirmFile, setSkipConfirmFile] = useState(() => localStorage.getItem('argus.revert.skipConfirm') === '1');
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
+  const selectedRowRef = useRef<HTMLButtonElement>(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
@@ -270,6 +272,34 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
     return files.find((f) => `${f.source}::${f.path}` === effectiveSelected);
   }, [files, effectiveSelected]);
 
+  // Up/Down arrows move the selected file through the flat (unstaged → staged →
+  // untracked) list. Ignored while the commit popover is open or focus is in an
+  // editable field so the inline-edit caret and commit textarea keep the keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      if (commitOpen) return;
+      const t = document.activeElement as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (files.length === 0) return;
+      const ids = files.map((f) => `${f.source}::${f.path}`);
+      const cur = effectiveSelected ? ids.indexOf(effectiveSelected) : -1;
+      const start = cur >= 0 ? cur : 0;
+      const next = e.key === 'ArrowDown'
+        ? Math.min(start + 1, ids.length - 1)
+        : Math.max(start - 1, 0);
+      e.preventDefault();
+      setSelectedFile(ids[next]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [files, effectiveSelected, commitOpen]);
+
+  // Keep the selected file row visible in the sidebar as arrows move it.
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [effectiveSelected]);
+
   const editTargetPath: string | null = useMemo(() => {
     if (!selectedFileSummary || selectedFileSummary.source !== 'unstaged') return null;
     if (selectedFileSummary.isDeleted) return null;
@@ -391,6 +421,7 @@ export function DiffOverlay({ session, onClose, initialFile }: DiffOverlayProps)
                   return (
                     <Fragment key={id}>
                       <button
+                        ref={sel ? selectedRowRef : undefined}
                         onClick={() => setSelectedFile(id)}
                         onMouseEnter={() => setHoveredFile(f.path)}
                         onMouseLeave={() => setHoveredFile(null)}
@@ -731,7 +762,7 @@ function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }:
   );
 }
 
-function UntrackedPlaceholder({
+export function UntrackedPlaceholder({
   path,
   staging,
   onStage,
@@ -866,7 +897,7 @@ interface DiffViewerEditStatus {
   error: string | null;
 }
 
-function DiffViewer({
+export function DiffViewer({
   file,
   mode,
   selection,

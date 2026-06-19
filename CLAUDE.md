@@ -88,7 +88,7 @@ Users update via the in-app update button (Homebrew) or `brew upgrade --cask arg
 
 ## Key Details
 
-- Server port: **5400**, Client dev port: **5402** (Vite dev server proxies API/WS to server on 5401)
+- Ports by mode — packaged app: **5757**; `npm run dev` (Electron): **5403**; `dev:web`: server **5401** + Vite client **5402** (proxies API/WS to 5401). Each mode also gets its own Electron `userData` profile (`argus` vs `argus-dev`), tmux socket (`argus` vs `argus-dev`), and `argus://` vs `argus-dev://` deep-link scheme — so the installed app and `npm run dev` can run **at the same time**.
 - TypeScript strict mode, ES2022 target, ESM (`"type": "module"`) throughout
 - Server uses `.js` extensions in imports (required for ESM resolution with TypeScript)
 - Session data files (`server/data/sessions.json`, `server/data/order.json`) are gitignored
