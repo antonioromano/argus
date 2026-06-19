@@ -168,12 +168,14 @@ export function Toggle({ checked, onChange, label, size = 'md', disabled }: Togg
         <span style={{
           position: 'absolute',
           top: 1,
-          left: checked ? w - k - 3 : 1,
+          left: 1,
           width: k,
           height: k,
           borderRadius: '50%',
           background: checked ? 'var(--fg-on-accent)' : 'var(--fg-2)',
-          transition: 'left var(--dur-base) var(--ease-std), background var(--dur-base)',
+          // translateX, not animated `left` — `left` reflows each frame; transform composites cheaper
+          transform: checked ? `translateX(${w - k - 4}px)` : 'translateX(0)',
+          transition: 'transform var(--dur-base) var(--ease-std), background var(--dur-base)',
         }} />
       </span>
       {label && <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>}

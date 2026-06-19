@@ -19,8 +19,9 @@ export function Switch({ on }: { on: boolean }) {
           borderRadius: '50%',
           background: 'var(--bg-0)',
           top: 3,
-          left: on ? 21 : 3,
-          transition: 'left var(--dur-fast) var(--ease-out)',
+          left: 3,
+          transform: on ? 'translateX(18px)' : 'translateX(0)',
+          transition: 'transform var(--dur-fast) var(--ease-out)',
         }}
       />
     </span>

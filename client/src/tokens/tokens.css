@@ -292,8 +292,10 @@ body {
 
 /* Ambient pulse — for "waiting" status, gentle, never aggressive */
 @keyframes argus-pulse-bar {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--accent-glow); }
-  50%      { opacity: 0.85; box-shadow: 0 0 16px 0 var(--accent-glow); }
+  /* opacity-only — animating box-shadow forces a full CPU repaint each frame
+     (GPU compositing is disabled app-wide; see electron/src/main.ts) */
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.85; }
 }
 @keyframes argus-pulse-dot {
   0%, 100% { transform: scale(1); opacity: 1; }
@@ -308,8 +310,11 @@ body {
   100% { transform: translateX(100%); }
 }
 @keyframes argus-marquee {
-  0% { background-position: 0 0; }
-  100% { background-position: 12px 0; }
+  /* transform-only — animating background-position repaints the whole layer
+     each frame; translateX composites cheaper on the CPU. 12px = one stripe
+     period, so the loop stays seamless (the overlay is widened to hide overhang). */
+  0% { transform: translateX(0); }
+  100% { transform: translateX(12px); }
 }
 @keyframes argus-spin {
   to { transform: rotate(360deg); }
@@ -347,6 +352,14 @@ body {
 @keyframes argus-theme-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+/* Window hidden in tray — freeze all looping animations so they stop repainting
+   on the CPU while no one is watching. Toggled by ArgusApp on visibilitychange. */
+body.argus-bg-idle *,
+body.argus-bg-idle *::before,
+body.argus-bg-idle *::after {
+  animation-play-state: paused !important;
 }
 
 /* C2 — Reduced motion: respect user preference globally */

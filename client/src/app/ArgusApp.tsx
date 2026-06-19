@@ -40,6 +40,17 @@ import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 
 export default function ArgusApp() {
+  // Pause infinite background animations (waiting pulses, sweeps, marquee, landing
+  // glow) while the window is hidden in the tray. They otherwise repaint forever on
+  // the CPU (GPU compositing is disabled app-wide); pausing frees the CPU and stops
+  // wasted work no one can see. Drives `body.argus-bg-idle` (see index.css).
+  useEffect(() => {
+    const sync = () => document.body.classList.toggle('argus-bg-idle', document.hidden);
+    sync();
+    document.addEventListener('visibilitychange', sync);
+    return () => document.removeEventListener('visibilitychange', sync);
+  }, []);
+
   if (typeof window !== 'undefined' && window.location.pathname.startsWith('/mobile')) {
     return <MobileApp />;
   }
