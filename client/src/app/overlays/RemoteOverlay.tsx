@@ -5,9 +5,11 @@ import { Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink } from 'lucide-
 import {
   Sheet,
   Field,
-  TextInput,
   Button,
   StatusDot,
+  PasswordFields,
+  NGROK_PW_MIN,
+  isNgrokPasswordValid,
 } from '../../components/primitives/index.js';
 
 interface RemoteOverlayProps {
@@ -29,8 +31,8 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
   const publicUrl = connected ? status?.publicUrl ?? null : null;
 
   const handleStart = () => {
-    if (password.length < 4) {
-      setPwErr('Min 4 characters');
+    if (!isNgrokPasswordValid(password)) {
+      setPwErr(`Min ${NGROK_PW_MIN} characters`);
       return;
     }
     if (password !== confirmPassword) {
@@ -70,7 +72,7 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
               variant="primary"
               onClick={handleStart}
               loading={loading}
-              disabled={loading || password.length < 4 || password !== confirmPassword}
+              disabled={loading || !isNgrokPasswordValid(password) || password !== confirmPassword}
             >
               Start tunnel
             </Button>
@@ -186,27 +188,14 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
         )}
 
         {!connected && (
-          <>
-            <Field label="Password" required hint="Min 4 characters" error={pwErr ?? undefined}>
-              <TextInput
-                value={password}
-                onChange={setPassword}
-                type="password"
-                placeholder="Set password"
-                mono
-              />
-            </Field>
-            <Field label="Confirm password" required>
-              <TextInput
-                value={confirmPassword}
-                onChange={setConfirmPassword}
-                type="password"
-                placeholder="Re-enter password"
-                mono
-                onKeyDown={(e) => { if (e.key === 'Enter') handleStart(); }}
-              />
-            </Field>
-          </>
+          <PasswordFields
+            password={password}
+            confirmPassword={confirmPassword}
+            onPassword={setPassword}
+            onConfirm={setConfirmPassword}
+            onSubmit={handleStart}
+            error={pwErr ?? undefined}
+          />
         )}
       </div>
     </Sheet>

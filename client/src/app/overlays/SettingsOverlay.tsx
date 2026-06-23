@@ -18,6 +18,9 @@ import {
   TextInput,
   StatusDot,
   AlertSheet,
+  PasswordFields,
+  NGROK_PW_MIN,
+  isNgrokPasswordValid,
 } from '../../components/primitives/index.js';
 import { KeyboardSettings } from './settings/KeyboardSettings.js';
 
@@ -264,8 +267,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
   };
 
   const handleNgrokStart = () => {
-    if (password.length < 4) {
-      setPwErr('Min 4 characters');
+    if (!isNgrokPasswordValid(password)) {
+      setPwErr(`Min ${NGROK_PW_MIN} characters`);
       return;
     }
     if (password !== confirmPassword) {
@@ -843,31 +846,20 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
 
                 {!connected && (
                   <>
-                    <Field label="Password" required hint="Min 4 characters" error={pwErr ?? undefined}>
-                      <TextInput
-                        value={password}
-                        onChange={setPassword}
-                        type="password"
-                        placeholder="Set password"
-                        mono
-                      />
-                    </Field>
-                    <Field label="Confirm password" required>
-                      <TextInput
-                        value={confirmPassword}
-                        onChange={setConfirmPassword}
-                        type="password"
-                        placeholder="Re-enter password"
-                        mono
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleNgrokStart(); }}
-                      />
-                    </Field>
+                    <PasswordFields
+                      password={password}
+                      confirmPassword={confirmPassword}
+                      onPassword={setPassword}
+                      onConfirm={setConfirmPassword}
+                      onSubmit={handleNgrokStart}
+                      error={pwErr ?? undefined}
+                    />
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <Button
                         variant="primary"
                         onClick={handleNgrokStart}
                         loading={ngrokLoading}
-                        disabled={ngrokLoading || password.length < 4 || password !== confirmPassword}
+                        disabled={ngrokLoading || !isNgrokPasswordValid(password) || password !== confirmPassword}
                       >
                         Start tunnel
                       </Button>

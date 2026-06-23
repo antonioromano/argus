@@ -14,6 +14,8 @@ export { Skeleton } from './Skeleton.js';
 export { TriStateCheckbox } from './TriStateCheckbox.js';
 export { InlineIconLink } from './InlineIconLink.js';
 export { Field, SettingRow, TextInput, Toggle, Checkbox } from './Form.js';
+export { PasswordFields } from './PasswordFields.js';
+export { NGROK_PW_MIN, isNgrokPasswordValid } from './passwordRules.js';
 export { HRule, VRule, Section, Kbd, Chip } from './Layout.js';
 export { Sheet } from './Sheet.js';
 export { Spinner } from './Spinner.js';

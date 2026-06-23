@@ -72,6 +72,8 @@ interface TextInputProps {
   autoFocus?: boolean;
   style?: CSSProperties;
   error?: boolean;
+  /** Green border to signal the value passes validation. `error` takes precedence. */
+  valid?: boolean;
   type?: 'text' | 'password' | 'email' | 'search';
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
@@ -94,6 +96,7 @@ export function TextInput({
   autoFocus,
   style,
   error,
+  valid,
   type = 'text',
   onKeyDown,
   onFocus,
@@ -111,8 +114,8 @@ export function TextInput({
       gap: 'var(--s-2)',
       padding: '0 var(--s-2)',
       height: 32,
-      background: 'var(--bg-1)',
-      border: `1px solid ${error ? 'var(--danger)' : 'var(--line-2)'}`,
+      background: 'var(--bg-3)',
+      border: `1px solid ${error ? 'var(--danger)' : valid ? 'var(--ok)' : 'var(--line-3)'}`,
       borderRadius: 'var(--r-2)',
       transition: 'border-color var(--dur-fast)',
       opacity: disabled ? 0.5 : 1,
