@@ -38,6 +38,29 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
   );
 }
 
+/* ===== SettingRow — horizontal setting row (label/hint left, control right) ===== */
+interface SettingRowProps {
+  label?: string;
+  hint?: string;
+  /** Align the control to the right with no meta column (e.g. a trailing action button). */
+  trailing?: boolean;
+  children: ReactNode;
+}
+
+export function SettingRow({ label, hint, trailing, children }: SettingRowProps) {
+  return (
+    <div className="setting-row" style={trailing ? { justifyContent: 'flex-end' } : undefined}>
+      {!trailing && (label || hint) && (
+        <div className="setting-row-meta">
+          {label && <div className="setting-row-label">{label}</div>}
+          {hint && <div className="setting-row-hint">{hint}</div>}
+        </div>
+      )}
+      <div style={{ flexShrink: 0 }}>{children}</div>
+    </div>
+  );
+}
+
 /* ===== TextInput ===== */
 interface TextInputProps {
   value?: string;

@@ -13,7 +13,7 @@ export type { ContextMenuItem, ContextMenuEntry } from './ContextMenu.js';
 export { Skeleton } from './Skeleton.js';
 export { TriStateCheckbox } from './TriStateCheckbox.js';
 export { InlineIconLink } from './InlineIconLink.js';
-export { Field, TextInput, Toggle, Checkbox } from './Form.js';
+export { Field, SettingRow, TextInput, Toggle, Checkbox } from './Form.js';
 export { HRule, VRule, Section, Kbd, Chip } from './Layout.js';
 export { Sheet } from './Sheet.js';
 export { Spinner } from './Spinner.js';

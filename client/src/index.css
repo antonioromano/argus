@@ -4,6 +4,36 @@
   box-sizing: border-box;
 }
 
+/* ===== Settings — grouped-card topics (Section / SettingRow primitives) =====
+   A quiet title sits above a single rounded card; rows inside are split only by
+   the faintest hairline. Replaces the old per-topic eyebrow-header + border. */
+.settings-group { margin-bottom: var(--s-6); }
+.settings-group:last-child { margin-bottom: 0; }
+.settings-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 var(--s-2) 4px;
+}
+.settings-group-title { font-size: var(--t-xs); font-weight: 600; color: var(--fg-2); }
+.settings-card {
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-4);
+  overflow: hidden;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
+  padding: 13px var(--s-4);
+}
+.setting-row + .setting-row { border-top: 1px solid var(--line-1); }
+.setting-row-meta { flex: 1; min-width: 0; }
+.setting-row-label { font-size: var(--t-sm); color: var(--fg-0); }
+.setting-row-hint { font-size: var(--t-tiny); color: var(--fg-3); margin-top: 2px; }
+.settings-card-pad { padding: var(--s-4); }
+
 /* Whole-line highlight for a Monaco row jumped to (search result or cross-file
    go-to-definition): an accent flash that fades back out. The decoration is
    cleared in JS once the animation settles, so no tint lingers. */

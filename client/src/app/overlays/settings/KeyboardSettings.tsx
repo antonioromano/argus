@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AppConfig } from '@argus/shared';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, Field, Toggle } from '../../../components/primitives/index.js';
+import { Section, SettingRow, Toggle } from '../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../keyboard/combo.js';
@@ -73,12 +73,12 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
       </h2>
 
       <Section title="Closing shells">
-        <Field label="Confirm before closing a shell" hint="Show a confirmation when closing a shell with ⌘W or the close button">
+        <SettingRow label="Confirm before closing a shell" hint="Show a confirmation when closing a shell with ⌘W or the close button">
           <Toggle
             checked={config.confirmCloseShell !== false}
             onChange={(v) => onSave({ confirmCloseShell: v })}
           />
-        </Field>
+        </SettingRow>
       </Section>
 
       {CATEGORY_ORDER.map((category) => {
@@ -91,7 +91,7 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
               const conflict = conflicts.has(a.id);
               const overridden = !a.fixed && a.id in overrides;
               return (
-                <Field key={a.id} label={a.label} hint={a.note}>
+                <SettingRow key={a.id} label={a.label} hint={a.note}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
                     {conflict && (
                       <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>
@@ -122,7 +122,7 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
                       </>
                     )}
                   </div>
-                </Field>
+                </SettingRow>
               );
             })}
           </Section>

@@ -13,26 +13,26 @@ export function VRule() {
 interface SectionProps {
   title?: string;
   action?: ReactNode;
-  dense?: boolean;
+  /** When true, children are rendered directly without the card chrome (advanced layouts). */
+  bare?: boolean;
   children?: ReactNode;
 }
 
-export function Section({ title, action, dense, children }: SectionProps) {
+/**
+ * Grouped-card section (macOS System Settings pattern): a small, quiet title sits
+ * above a single rounded card that contains the rows. Replaces the old per-section
+ * eyebrow-header + bottom-hairline treatment that read as noise when stacked.
+ */
+export function Section({ title, action, bare, children }: SectionProps) {
   return (
-    <section style={{ display: 'flex', flexDirection: 'column' }}>
-      {title && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          justifyContent: 'space-between',
-          padding: `${dense ? 'var(--s-2)' : 'var(--s-3)'} var(--s-4)`,
-          borderBottom: '1px solid var(--line-1)',
-        }}>
-          <span className="eyebrow">{title}</span>
+    <section className="settings-group">
+      {(title || action) && (
+        <div className="settings-group-head">
+          {title && <span className="settings-group-title">{title}</span>}
           {action}
         </div>
       )}
-      {children}
+      {bare ? children : <div className="settings-card">{children}</div>}
     </section>
   );
 }

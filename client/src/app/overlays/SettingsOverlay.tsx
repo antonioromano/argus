@@ -10,6 +10,7 @@ import {
   Sheet,
   Section,
   Field,
+  SettingRow,
   Chip,
   Toggle,
   IconButton,
@@ -356,8 +357,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                 General
               </h2>
               <Section title="Appearance">
-                <div style={{ padding: 'var(--s-4)' }}>
-                  <div style={{ marginBottom: 'var(--s-2)', fontSize: 'var(--t-sm)', color: 'var(--fg-2)' }}>Theme</div>
+                <SettingRow label="Theme" hint="Match the system or pick a fixed appearance">
                   <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
                     {(['system', 'dark', 'light'] as ThemeMode[]).map((m) => (
                       <button
@@ -367,7 +367,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                           all: 'unset',
                           cursor: 'pointer',
                           padding: '6px var(--s-3)',
-                          background: mode === m ? 'var(--accent-bg)' : 'var(--bg-2)',
+                          background: mode === m ? 'var(--accent-bg)' : 'var(--bg-1)',
                           border: `1px solid ${mode === m ? 'var(--accent-edge)' : 'var(--line-2)'}`,
                           borderRadius: 'var(--r-2)',
                           fontSize: 'var(--t-sm)',
@@ -381,26 +381,26 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       </button>
                     ))}
                   </div>
-                </div>
+                </SettingRow>
               </Section>
               <Section title="Typography">
-                <Field label="Code font size" hint="Shell terminals, file viewer, and diffs">
+                <SettingRow label="Code font size" hint="Shell terminals, file viewer, and diffs">
                   <FontSizeSelect
                     presets={CODE_FONT_PRESETS}
                     value={config.codeFontSize}
                     defaultPx={DEFAULT_CODE_FONT_PX}
                     onChange={(px) => onSave({ codeFontSize: px })}
                   />
-                </Field>
-                <Field label="Interface font size" hint="Menus, panels, labels, and the rest of the app">
+                </SettingRow>
+                <SettingRow label="Interface font size" hint="Menus, panels, labels, and the rest of the app">
                   <FontSizeSelect
                     presets={UI_FONT_PRESETS}
                     value={config.uiFontSize}
                     defaultPx={DEFAULT_UI_FONT_PX}
                     onChange={(px) => onSave({ uiFontSize: px })}
                   />
-                </Field>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--s-2)' }}>
+                </SettingRow>
+                <SettingRow trailing>
                   <Button
                     variant="ghost"
                     onClick={() => onSave({ codeFontSize: DEFAULT_CODE_FONT_PX, uiFontSize: DEFAULT_UI_FONT_PX })}
@@ -408,35 +408,35 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   >
                     Reset to defaults
                   </Button>
-                </div>
+                </SettingRow>
               </Section>
               <Section title="Clock">
-                <Field label="Show clock in toolbar" hint="Displays current time (HH:MM) before the remote access icon">
+                <SettingRow label="Show clock in toolbar" hint="Displays current time (HH:MM) before the remote access icon">
                   <Toggle checked={config.showClock ?? false} onChange={(v) => onSave({ showClock: v })} />
-                </Field>
+                </SettingRow>
                 {(config.showClock ?? false) && (
-                  <Field label="Show seconds" hint="Extends the clock to HH:MM:SS">
+                  <SettingRow label="Show seconds" hint="Extends the clock to HH:MM:SS">
                     <Toggle checked={config.clockShowSeconds ?? false} onChange={(v) => onSave({ clockShowSeconds: v })} />
-                  </Field>
+                  </SettingRow>
                 )}
               </Section>
               <Section title="Power">
-                <Field label="Keep Mac awake while running" hint="Prevents macOS from sleeping while at least one shell is running">
+                <SettingRow label="Keep Mac awake while running" hint="Prevents macOS from sleeping while at least one shell is running">
                   <Toggle checked={config.preventSleepWhileRunning ?? false} onChange={(v) => onSave({ preventSleepWhileRunning: v })} />
-                </Field>
+                </SettingRow>
               </Section>
               <Section title="Sessions">
-                <Field label="Exit all sessions on Quit" hint="When off, Cmd+Q keeps sessions running in the background. When on, Cmd+Q terminates every Claude session.">
+                <SettingRow label="Exit all sessions on Quit" hint="When off, Cmd+Q keeps sessions running in the background. When on, Cmd+Q terminates every Claude session.">
                   <Toggle checked={config.exitSessionsOnQuit ?? false} onChange={(v) => onSave({ exitSessionsOnQuit: v })} />
-                </Field>
+                </SettingRow>
                 {(config.exitSessionsOnQuit ?? false) && (
-                  <Field label="Confirm before exiting" hint="Show a confirmation dialog listing running sessions before Cmd+Q terminates them">
+                  <SettingRow label="Confirm before exiting" hint="Show a confirmation dialog listing running sessions before Cmd+Q terminates them">
                     <Toggle checked={config.confirmExitOnQuit ?? true} onChange={(v) => onSave({ confirmExitOnQuit: v })} />
-                  </Field>
+                  </SettingRow>
                 )}
               </Section>
               <Section title="Groups">
-                <Field label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
+                <SettingRow label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
                   <TextInput
                     value={othersNameDraft}
                     onChange={(value) => setOthersNameDraft(value)}
@@ -449,7 +449,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       }
                     }}
                   />
-                </Field>
+                </SettingRow>
               </Section>
             </div>
           )}
@@ -466,7 +466,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
               </h2>
 
               <Section title="Default agent">
-                <div style={{ padding: 'var(--s-3) var(--s-4)' }}>
+                <div className="settings-card-pad">
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--s-2)' }}>
                     {agents.map((a) => {
                       const sel = config.defaultAgent === a.id;
@@ -501,10 +501,8 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   <div style={{
                     display: 'flex', flexDirection: 'column', gap: 'var(--s-3)',
                     padding: 'var(--s-4)',
-                    background: 'var(--bg-2)',
-                    border: '1px solid var(--accent-edge)',
-                    borderRadius: 'var(--r-2)',
-                    marginBottom: 'var(--s-3)',
+                    background: 'var(--bg-1)',
+                    borderBottom: '1px solid var(--accent-edge)',
                   }}>
                     <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
                       {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
@@ -543,7 +541,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                           padding: 'var(--s-3) var(--s-4)',
                           borderBottom: expanded ? 'none' : '1px solid var(--line-1)',
                           cursor: 'pointer',
-                          background: expanded ? 'var(--bg-2)' : 'transparent',
+                          background: expanded ? 'var(--bg-1)' : 'transparent',
                         }}
                       >
                         <AgentGlyph agent={a.id} size={28} />
@@ -568,7 +566,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       {expanded && (
                         <div style={{
                           padding: 'var(--s-3) var(--s-4)',
-                          background: 'var(--bg-2)',
+                          background: 'var(--bg-1)',
                           borderBottom: '1px solid var(--line-1)',
                           borderTop: '1px solid var(--line-1)',
                         }}>
@@ -640,7 +638,7 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
               <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
                 Notifications
               </h2>
-              <div style={{ background: 'var(--bg-1)', borderRadius: 'var(--r-2)', border: '1px solid var(--line-2)', overflow: 'hidden' }}>
+              <div style={{ background: 'var(--bg-2)', borderRadius: 'var(--r-4)', border: '1px solid var(--line-2)', overflow: 'hidden' }}>
 
                 {/* Master toggle */}
                 <div style={{ padding: 'var(--s-3) var(--s-4)' }}>
