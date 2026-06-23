@@ -18,6 +18,8 @@ const DEFAULT_CONFIG: AppConfig = {
   exitSessionsOnQuit: false,
   confirmExitOnQuit: true,
   keyboardShortcuts: {},
+  uiFontSize: 14,
+  codeFontSize: 13,
 };
 
 export class ConfigStore {

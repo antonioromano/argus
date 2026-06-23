@@ -2,6 +2,7 @@ import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
 import { registerSymbolProviders, addSymbolEditorActions, symbolNavContext } from './registerSymbolProviders.js';
+import { useFontSettings } from '../../context/font-settings-context.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -30,6 +31,7 @@ const MIN_REVEAL_HEIGHT = 80;
 
 export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, path, revealLine, revealNonce }: MonacoPaneProps) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const { codeFontSize } = useFontSettings();
   const decoRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   // Latest reveal request + the last one we actually applied, so a request that
   // arrives before the editor is mounted/laid out still lands (and never twice).
@@ -119,6 +121,11 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealLine, revealNonce]);
 
+  // Live-apply the code font size to the mounted editor.
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontSize: codeFontSize });
+  }, [codeFontSize]);
+
   // Dispose the pending layout listener + flash timer + decoration on unmount so
   // no callback fires against a disposed editor.
   useEffect(() => {
@@ -154,7 +161,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
       options={{
         readOnly,
         fontFamily: 'var(--font-mono), Menlo, monospace',
-        fontSize: 13,
+        fontSize: codeFontSize,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         automaticLayout: true,

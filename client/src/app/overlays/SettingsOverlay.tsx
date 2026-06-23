@@ -52,6 +52,60 @@ const BUILTIN: AgentDefinition[] = [
   { id: 'codex', name: 'Codex', command: 'codex', builtin: true },
 ];
 
+// Font-size presets (px). Defaults (Medium) match ConfigStore: code 13 / ui 14.
+const DEFAULT_CODE_FONT_PX = 13;
+const DEFAULT_UI_FONT_PX = 14;
+const CODE_FONT_PRESETS = [
+  { label: 'Small', px: 11 },
+  { label: 'Medium', px: 13 },
+  { label: 'Large', px: 15 },
+  { label: 'X-Large', px: 17 },
+];
+const UI_FONT_PRESETS = [
+  { label: 'Small', px: 12 },
+  { label: 'Medium', px: 14 },
+  { label: 'Large', px: 16 },
+  { label: 'X-Large', px: 18 },
+];
+
+function FontSizeSelect({
+  presets,
+  value,
+  defaultPx,
+  onChange,
+}: {
+  presets: { label: string; px: number }[];
+  value: number | undefined;
+  defaultPx: number;
+  onChange: (px: number) => void;
+}) {
+  // Snap an unknown stored value to the default preset so the control always reflects state.
+  const current = presets.some((p) => p.px === value) ? (value as number) : defaultPx;
+  return (
+    <select
+      value={current}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{
+        appearance: 'none',
+        width: '100%',
+        height: 32,
+        padding: '0 var(--s-2)',
+        background: 'var(--bg-1)',
+        border: '1px solid var(--line-2)',
+        borderRadius: 'var(--r-2)',
+        color: 'var(--fg-0)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 'var(--t-sm)',
+        cursor: 'pointer',
+      }}
+    >
+      {presets.map((p) => (
+        <option key={p.px} value={p.px}>{p.px === defaultPx ? `${p.label} (Default)` : p.label}</option>
+      ))}
+    </select>
+  );
+}
+
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 // Mirrors the server guard (config.ts) — custom agent commands are shell-spawned.
 const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
@@ -327,6 +381,33 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       </button>
                     ))}
                   </div>
+                </div>
+              </Section>
+              <Section title="Typography">
+                <Field label="Code font size" hint="Shell terminals, file viewer, and diffs">
+                  <FontSizeSelect
+                    presets={CODE_FONT_PRESETS}
+                    value={config.codeFontSize}
+                    defaultPx={DEFAULT_CODE_FONT_PX}
+                    onChange={(px) => onSave({ codeFontSize: px })}
+                  />
+                </Field>
+                <Field label="Interface font size" hint="Menus, panels, labels, and the rest of the app">
+                  <FontSizeSelect
+                    presets={UI_FONT_PRESETS}
+                    value={config.uiFontSize}
+                    defaultPx={DEFAULT_UI_FONT_PX}
+                    onChange={(px) => onSave({ uiFontSize: px })}
+                  />
+                </Field>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--s-2)' }}>
+                  <Button
+                    variant="ghost"
+                    onClick={() => onSave({ codeFontSize: DEFAULT_CODE_FONT_PX, uiFontSize: DEFAULT_UI_FONT_PX })}
+                    disabled={(config.codeFontSize ?? DEFAULT_CODE_FONT_PX) === DEFAULT_CODE_FONT_PX && (config.uiFontSize ?? DEFAULT_UI_FONT_PX) === DEFAULT_UI_FONT_PX}
+                  >
+                    Reset to defaults
+                  </Button>
                 </div>
               </Section>
               <Section title="Clock">

@@ -13,6 +13,7 @@ interface WindowState {
   fullscreen: boolean;
   displayId: number;
   bounds: { x: number; y: number; width: number; height: number };
+  zoomLevel?: number; // whole-app zoom (Cmd +/-/0); persists across relaunch
 }
 
 function windowStatePath(): string {
@@ -34,6 +35,7 @@ export function saveWindowState(): void {
       fullscreen: win.isFullScreen(),
       displayId: screen.getDisplayMatching(win.getBounds()).id,
       bounds: win.getNormalBounds(),
+      zoomLevel: win.webContents.getZoomLevel(),
     };
     writeFileSync(windowStatePath(), JSON.stringify(state));
   } catch {
@@ -111,6 +113,14 @@ export function createWindow(): BrowserWindow {
   // IPv6. Pinning 127.0.0.1 guarantees we reach our own server.
   const port = process.env.ARGUS_PORT || '5757';
   win.loadURL(`http://127.0.0.1:${port}`);
+
+  // Restore persisted whole-app zoom once the page is ready. Re-applied on every
+  // load (reload/route change reset zoom to 0 otherwise).
+  if (saved?.zoomLevel) {
+    win.webContents.on('did-finish-load', () => {
+      win?.webContents.setZoomLevel(saved.zoomLevel ?? 0);
+    });
+  }
 
   // Route external links to the system default browser instead of opening an
   // in-app Electron frame. Covers target="_blank"/window.open and xterm.js

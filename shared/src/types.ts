@@ -34,6 +34,8 @@ export interface AppConfig {
   exitSessionsOnQuit?: boolean; // when true, plain Cmd+Q kills all sessions instead of detaching (default: preserve)
   confirmExitOnQuit?: boolean; // show the confirm dialog before exiting all sessions on Cmd+Q (default: true)
   keyboardShortcuts?: Record<string, string>; // action id -> combo override (e.g. "command-palette": "mod+shift+k")
+  uiFontSize?: number;   // base font size (px) for the interface chrome (default: 14)
+  codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
 }
 
 export interface AgentStatus {

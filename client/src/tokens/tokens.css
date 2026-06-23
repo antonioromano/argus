@@ -166,19 +166,25 @@
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --font-display: 'IBM Plex Sans', system-ui, sans-serif;
 
-  /* Type scale */
-  --t-micro: 10px;     /* uppercase eyebrows */
-  --t-tiny:  11px;
-  --t-xs:    12px;
-  --t-sm:    13px;
-  --t-base:  14px;     /* power-comfortable default */
-  --t-md:    15px;
-  --t-lg:    17px;
-  --t-xl:    20px;
-  --t-2xl:   24px;
-  --t-3xl:   32px;
-  --t-4xl:   44px;
-  --t-5xl:   64px;
+  /* Type scale — multiplied by --ui-scale (set from the Interface font-size
+     setting; defaults to 1 so absence is a no-op). */
+  --ui-scale: 1;
+  /* Code-surface font size (px) — terminals/Monaco read the numeric value via
+     useFontSettings(); diff & markdown code blocks read this var. Set from the
+     Code font-size setting; defaults to 13. */
+  --code-font-size: 13px;
+  --t-micro: calc(10px * var(--ui-scale));     /* uppercase eyebrows */
+  --t-tiny:  calc(11px * var(--ui-scale));
+  --t-xs:    calc(12px * var(--ui-scale));
+  --t-sm:    calc(13px * var(--ui-scale));
+  --t-base:  calc(14px * var(--ui-scale));     /* power-comfortable default */
+  --t-md:    calc(15px * var(--ui-scale));
+  --t-lg:    calc(17px * var(--ui-scale));
+  --t-xl:    calc(20px * var(--ui-scale));
+  --t-2xl:   calc(24px * var(--ui-scale));
+  --t-3xl:   calc(32px * var(--ui-scale));
+  --t-4xl:   calc(44px * var(--ui-scale));
+  --t-5xl:   calc(64px * var(--ui-scale));
 
   --lh-tight:   1.15;
   --lh-snug:    1.35;

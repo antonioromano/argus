@@ -254,6 +254,11 @@ function buildAppMenu(): Menu {
       { role: 'reload' },
       { role: 'forceReload' },
       { type: 'separator' },
+      // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
+      { role: 'resetZoom' },   // CmdOrCtrl+0
+      { role: 'zoomIn' },      // CmdOrCtrl+Plus (also accepts Cmd+=)
+      { role: 'zoomOut' },     // CmdOrCtrl+-
+      { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
   };

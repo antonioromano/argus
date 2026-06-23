@@ -863,7 +863,7 @@ export function DiffViewer({
   const target = files.find((f) => (f.to ?? f.from) === file.path);
   if (!target) return null;
   return (
-    <div style={{ padding: 'var(--s-4)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)' }}>
+    <div style={{ padding: 'var(--s-4)', fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
       <div
         className="eyebrow"
         style={{ color: 'var(--accent)', marginBottom: 'var(--s-3)', display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}

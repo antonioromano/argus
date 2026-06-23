@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/theme-context.js';
+import { FontSettingsProvider } from '../context/FontSettingsContext.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
@@ -525,6 +526,7 @@ function DesktopInner() {
   );
 
   return (
+    <FontSettingsProvider uiFontSize={config?.uiFontSize} codeFontSize={config?.codeFontSize}>
     <ToastProvider>
     <WindowChrome
       title="ARGUS"
@@ -802,5 +804,6 @@ function DesktopInner() {
       />
     </WindowChrome>
     </ToastProvider>
+    </FontSettingsProvider>
   );
 }

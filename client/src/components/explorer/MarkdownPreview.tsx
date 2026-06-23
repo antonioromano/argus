@@ -58,7 +58,7 @@ export function MarkdownPreview({ source }: MarkdownPreviewProps) {
                 PreTag="div"
                 customStyle={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-xs)',
+                  fontSize: 'var(--code-font-size, 13px)',
                   borderRadius: 'var(--r-2)',
                   margin: 'var(--s-3) 0',
                 }}

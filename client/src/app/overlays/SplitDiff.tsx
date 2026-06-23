@@ -277,7 +277,7 @@ function ChunkSplit({
   }
 
   return (
-    <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden' }}>
+    <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden', fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
       <div style={{ color: 'var(--fg-3)', padding: '3px 10px', background: 'var(--bg-1)' }}>{chunk.content}</div>
       <div
         ref={gridRef}

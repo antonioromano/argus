@@ -47,7 +47,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -87,6 +87,8 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       exitSessionsOnQuit: exitSessionsOnQuit !== undefined ? !!exitSessionsOnQuit : current.exitSessionsOnQuit,
       confirmExitOnQuit: confirmExitOnQuit !== undefined ? !!confirmExitOnQuit : current.confirmExitOnQuit,
       keyboardShortcuts: keyboardShortcuts ?? current.keyboardShortcuts,
+      uiFontSize: typeof uiFontSize === 'number' ? uiFontSize : current.uiFontSize,
+      codeFontSize: typeof codeFontSize === 'number' ? codeFontSize : current.codeFontSize,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

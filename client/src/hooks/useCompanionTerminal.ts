@@ -7,6 +7,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
 import { openExternal } from '../utils/openExternal.js';
+import { useFontSettings } from '../context/font-settings-context.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -73,6 +74,9 @@ export function useCompanionTerminal(
   const { sessionId, socket, theme } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
+  const { codeFontSize } = useFontSettings();
+  const codeFontSizeRef = useRef(codeFontSize);
+  useEffect(() => { codeFontSizeRef.current = codeFontSize; }, [codeFontSize]);
   const [terminalAlive, setTerminalAlive] = useState(true);
 
   // See useTerminal: re-init once web fonts are ready so cold-start char-cell
@@ -97,7 +101,7 @@ export function useCompanionTerminal(
     const terminal = new Terminal({
       cursorBlink: true,
       disableStdin: false,
-      fontSize: 13,
+      fontSize: codeFontSizeRef.current,
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
@@ -237,6 +241,14 @@ export function useCompanionTerminal(
       t.refresh(0, t.rows - 1);
     }
   }, [theme]);
+
+  // Update font size without recreating the terminal; refit so cols/rows recompute.
+  useEffect(() => {
+    const t = terminalRef.current;
+    if (!t || t.options.fontSize === codeFontSize) return;
+    t.options.fontSize = codeFontSize;
+    fitAddonRef.current?.fit();
+  }, [codeFontSize]);
 
   return { terminalRef, fitAddonRef, terminalAlive };
 }

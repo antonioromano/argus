@@ -9,6 +9,7 @@ import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
 import { openExternal } from '../utils/openExternal.js';
+import { useFontSettings } from '../context/font-settings-context.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -88,6 +89,10 @@ export function useTerminal(
   const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
+  const { codeFontSize } = useFontSettings();
+  // Read at create time via ref so a size change live-updates instead of rebuilding.
+  const codeFontSizeRef = useRef(codeFontSize);
+  useEffect(() => { codeFontSizeRef.current = codeFontSize; }, [codeFontSize]);
   const autoFocusRef = useRef(autoFocus);
   useEffect(() => { autoFocusRef.current = autoFocus; }, [autoFocus]);
   const onFocusChangeRef = useRef(onFocusChange);
@@ -123,7 +128,7 @@ export function useTerminal(
     const terminal = new Terminal({
       cursorBlink: !readOnly,
       disableStdin: readOnly,
-      fontSize: 13,
+      fontSize: codeFontSizeRef.current,
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
@@ -419,6 +424,14 @@ export function useTerminal(
       t.refresh(0, t.rows - 1);
     }
   }, [theme]);
+
+  // Update font size without recreating the terminal; refit so cols/rows recompute.
+  useEffect(() => {
+    const t = terminalRef.current;
+    if (!t || t.options.fontSize === codeFontSize) return;
+    t.options.fontSize = codeFontSize;
+    fitAddonRef.current?.fit();
+  }, [codeFontSize]);
 
   // Imperatively focus when requestFocusToken increments (e.g. notification click).
   useEffect(() => {
