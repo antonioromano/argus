@@ -10,6 +10,8 @@
 export const KEY = {
   esc: '\x1b',
   tab: '\t',
+  // Back-tab (CSI Z) — claude cycles permission/plan mode backwards with it.
+  shifttab: '\x1b[Z',
   ctrlc: '\x03',
   ctrlr: '\x12',
   // DEL — delete the char before the cursor on the agent's input line.

@@ -23,7 +23,7 @@ export function SpecialPad({ onKey, onAbc, onClose }: SpecialPadProps) {
     <div style={{ padding: 'var(--s-2)', display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
       {/* Directional cluster */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s-2)' }}>
-        <span />
+        <KeyCap label="⇧⇥" sub="mode" ariaLabel="Shift Tab" onPress={() => onKey('shifttab')} />
         <KeyCap label={<ChevronUp size={ARROW_ICON} />} ariaLabel="Up" onPress={() => onKey('up')} />
         <span />
         <KeyCap label={<ChevronLeft size={ARROW_ICON} />} ariaLabel="Left" onPress={() => onKey('left')} />

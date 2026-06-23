@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Focus, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, StatusDot, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
@@ -676,7 +676,7 @@ function MosaicTile({
             <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
             <IconButton icon={Minus} label="Minimize shell" size="sm"
               onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }} />
-            <IconButton icon={Focus} label="Open in focus" size="sm"
+            <IconButton icon={Maximize2} label="Open in focus" size="sm"
               onClick={(e) => { e.stopPropagation(); onOpen(); }} />
             {onClone && (
               <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm"

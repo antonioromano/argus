@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
-import { useGroups } from '../../hooks/useGroups.js';
+import { useGroups, type GhostFavorite } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
 import { useNotificationPref, useDoneNotificationPref } from '../../hooks/useNotificationPref.js';
 import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
@@ -108,6 +108,20 @@ function Inner() {
   const handleRestart = (id: string) => { api.restartSession(id).catch(console.error); };
   const handleMarkDone = (id: string) => { socket.emit('session:mark-done', id); };
 
+  // Relaunch a spun-down favourite: spawn a fresh shell from its saved
+  // folder/agent/flags, re-favourite the live session, and drop the ghost.
+  const handleSpawnFromFavorite = async (ghost: GhostFavorite) => {
+    const { meta } = ghost;
+    try {
+      const created = await createSession(meta.folderPath, meta.name, meta.agentType, meta.flags);
+      groups.toggleFavorite(created);
+      groups.removeFromFavorites(ghost.id);
+      setFocusedId(created.id);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const confirmKill = async () => {
     if (!killTarget) return;
     setKillBusy(true);
@@ -149,6 +163,7 @@ function Inner() {
                 publicUrl={publicUrl}
                 onSelect={setFocusedId}
                 onAction={setActionTarget}
+                onSpawnFavorite={handleSpawnFromFavorite}
                 onCreate={() => setShowCreate(true)}
               />
             )}

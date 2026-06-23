@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
-import { ChevronRight, MoreVertical, Plus } from 'lucide-react';
+import { ChevronRight, MoreVertical, Plus, Play } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusDot, StatusPill, DirtyBadge } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
-import type { GroupedSessions } from '../../hooks/useGroups.js';
+import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 
 interface SessionsProps {
   sessions: SessionInfo[];
@@ -12,6 +12,7 @@ interface SessionsProps {
   publicUrl: string | null;
   onSelect: (id: string) => void;
   onAction: (session: SessionInfo) => void;
+  onSpawnFavorite: (ghost: GhostFavorite) => void;
   onCreate: () => void;
 }
 
@@ -34,10 +35,12 @@ function byStatus(a: SessionInfo, b: SessionInfo): number {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
-function Section({ title, color, sessions, filter, onSelect, onAction }: { title: string; color: string | null; sessions: SessionInfo[]; filter: StatusFilter; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void }) {
+function Section({ title, color, sessions, ghosts, filter, onSelect, onAction, onSpawnFavorite }: { title: string; color: string | null; sessions: SessionInfo[]; ghosts?: GhostFavorite[]; filter: StatusFilter; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void; onSpawnFavorite?: (ghost: GhostFavorite) => void }) {
   const [collapsed, setCollapsed] = useState(false);
   const visible = filter === 'all' ? sessions : sessions.filter((s) => s.status === filter);
-  if (visible.length === 0) return null;
+  // Ghost (saved, spun-down) favourites have no status, so only surface them in the unfiltered view.
+  const visibleGhosts = filter === 'all' ? (ghosts ?? []) : [];
+  if (visible.length === 0 && visibleGhosts.length === 0) return null;
   const sorted = [...visible].sort(byStatus);
   return (
     <div>
@@ -53,9 +56,49 @@ function Section({ title, color, sessions, filter, onSelect, onAction }: { title
           style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms ease', color: 'var(--fg-3)' }} />
         {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />}
         <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
-        <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{visible.length}</span>
+        <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{visible.length + visibleGhosts.length}</span>
       </button>
       {!collapsed && sorted.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} onAction={() => onAction(s)} />)}
+      {!collapsed && visibleGhosts.map((g) => <GhostRow key={g.id} ghost={g} onSpawn={() => onSpawnFavorite?.(g)} />)}
+    </div>
+  );
+}
+
+/** A saved favourite with no live session — tap to relaunch a shell in its folder/agent/flags. */
+function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => void }) {
+  const { meta } = ghost;
+  const folder = meta.folderPath.split('/').filter(Boolean).pop() ?? meta.folderPath;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--line-1)' }}>
+      <button
+        onClick={onSpawn}
+        className="mobile-list-row"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 'var(--s-3)',
+          padding: 'var(--s-3) 0 var(--s-3) var(--s-4)', background: 'transparent', border: 'none',
+          cursor: 'pointer', flex: 1, minWidth: 0, textAlign: 'left', minHeight: 64, opacity: 0.72,
+        }}
+      >
+        <AgentGlyph agent={meta.agentType} size={32} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-base)', fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {meta.name || folder}
+          </div>
+          <div className="eyebrow" style={{ marginTop: 'var(--s-px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {folder} · saved
+          </div>
+        </div>
+      </button>
+      <button
+        onClick={onSpawn}
+        aria-label={`Launch ${meta.name || folder}`}
+        style={{
+          width: 44, minHeight: 64, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--accent)', flexShrink: 0,
+        }}
+      >
+        <Play size={18} strokeWidth={1.8} />
+      </button>
     </div>
   );
 }
@@ -168,7 +211,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
   );
 }
 
-export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onCreate }: SessionsProps) {
+export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onSpawnFavorite, onCreate }: SessionsProps) {
   const [filter, setFilter] = useState<StatusFilter>('all');
   const truncatedUrl = publicUrl
     ? publicUrl.replace(/^https?:\/\//, '').slice(0, 28) + (publicUrl.length > 32 ? '…' : '')
@@ -305,9 +348,11 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onC
                 title="Favourites"
                 color={resolveGroupColor('amber', true)}
                 sessions={grouped.favorites.items.filter((i): i is SessionInfo => !('ghost' in i))}
+                ghosts={grouped.favorites.items.filter((i): i is GhostFavorite => 'ghost' in i)}
                 filter={filter}
                 onSelect={onSelect}
                 onAction={onAction}
+                onSpawnFavorite={onSpawnFavorite}
               />
             )}
             {grouped.groups.map(({ group, sessions: gs }) => (

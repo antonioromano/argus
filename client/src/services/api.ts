@@ -44,6 +44,11 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
+  // Bypass ngrok's free-tier browser-warning interstitial, which otherwise
+  // returns an HTML page instead of our JSON for XHR/fetch requests (any value
+  // works). Harmless when not tunnelling. Without it, folder browsing over a
+  // tunnel fails because the response can't be parsed as JSON.
+  headers.set('ngrok-skip-browser-warning', 'true');
   const res = await fetch(url, { ...init, headers });
   if (res.status === 401) {
     setToken(null);

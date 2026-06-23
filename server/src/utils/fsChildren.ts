@@ -38,16 +38,13 @@ export async function getDirectoryChildren(dirPath?: string, includeFiles = fals
         if (EXCLUDED_DIRS.has(entry.name)) continue;
 
         const fullPath = path.join(resolved, entry.name);
-        let hasChildren = false;
-        try {
-          const children = await readdir(fullPath, { withFileTypes: true });
-          hasChildren = children.some(c =>
-            (c.isDirectory() && !EXCLUDED_DIRS.has(c.name)) ||
-            (includeFiles && !c.isDirectory())
-          );
-        } catch { /* permission denied */ }
-
-        dirs.push({ name: entry.name, path: fullPath, hasChildren, isFile: false, ext: '' });
+        // Mark every directory expandable without reading into it. Descending
+        // here just to draw a chevron triggered a macOS TCC permission prompt
+        // for each protected subfolder (~/Desktop, ~/Documents, ~/Downloads)
+        // the instant the picker opened. We now defer that read until the user
+        // actually navigates in, so prompts are lazy (one per opened folder)
+        // instead of an eager storm. An empty folder simply lists nothing.
+        dirs.push({ name: entry.name, path: fullPath, hasChildren: true, isFile: false, ext: '' });
       } else if (includeFiles && !entry.isDirectory()) {
         const ext = path.extname(entry.name).toLowerCase();
         if (EXCLUDED_FILE_EXTENSIONS.has(ext)) continue;

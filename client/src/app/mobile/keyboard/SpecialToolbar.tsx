@@ -27,6 +27,7 @@ export function SpecialToolbar({ onKey, onBackToKeys }: SpecialToolbarProps) {
     >
       <KeyCap label={<Keyboard size={16} />} tone="accent" ariaLabel="Back to keys" onPress={onBackToKeys} />
       <KeyCap label="tab" ariaLabel="Tab" onPress={() => onKey('tab')} />
+      <KeyCap label="⇧⇥" ariaLabel="Shift Tab" onPress={() => onKey('shifttab')} />
       <KeyCap label="esc" ariaLabel="Escape" onPress={() => onKey('esc')} />
       <KeyCap label="^C" tone="danger" ariaLabel="Ctrl C" onPress={() => onKey('ctrlc')} />
       <KeyCap label={<ChevronUp size={16} />} ariaLabel="Up" onPress={() => onKey('up')} />
