@@ -4,14 +4,16 @@
   box-sizing: border-box;
 }
 
-/* Whole-line highlight for a Monaco row jumped to from a search result:
-   an accent flash that settles into a faint persistent tint. */
+/* Whole-line highlight for a Monaco row jumped to (search result or cross-file
+   go-to-definition): an accent flash that fades back out. The decoration is
+   cleared in JS once the animation settles, so no tint lingers. */
 .argus-line-flash {
   animation: argus-line-flash 1.4s var(--ease-out) forwards;
 }
 @keyframes argus-line-flash {
   0% { background: color-mix(in srgb, var(--accent) 38%, transparent); }
-  100% { background: var(--accent-bg); }
+  60% { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+  100% { background: transparent; }
 }
 
 /* Skip to main content link (screen-reader / keyboard accessibility) */

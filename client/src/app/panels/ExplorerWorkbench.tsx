@@ -461,8 +461,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                           visible={path === g.active}
                           theme={theme}
                           viewMode={viewModeFor(path)}
-                          revealLine={reveal?.path === path ? reveal.line : undefined}
-                          revealNonce={reveal?.path === path ? reveal.nonce : undefined}
+                          revealLine={gi === gstate.focused && reveal?.path === path ? reveal.line : undefined}
+                          revealNonce={gi === gstate.focused && reveal?.path === path ? reveal.nonce : undefined}
                           onState={onTabState}
                           onUnmount={onTabUnmount}
                         />
