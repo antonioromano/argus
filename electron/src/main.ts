@@ -5,7 +5,7 @@ import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState } from './window.js';
+import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState, setZoomLevel, getZoomLevel } from './window.js';
 import { createTray } from './tray.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
@@ -373,9 +373,11 @@ function buildAppMenu(): Menu {
       { role: 'forceReload' },
       { type: 'separator' },
       // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
-      { role: 'resetZoom' },   // CmdOrCtrl+0
-      { role: 'zoomIn' },      // CmdOrCtrl+Plus (also accepts Cmd+=)
-      { role: 'zoomOut' },     // CmdOrCtrl+-
+      // Custom click handlers (not built-in roles) so every change routes through
+      // setZoomLevel and keeps the tracked level in sync — survives reload.
+      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevel(0) },
+      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevel(getZoomLevel() + 0.5) },
+      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevel(getZoomLevel() - 0.5) },
       { type: 'separator' },
       { role: 'togglefullscreen' },
     ],

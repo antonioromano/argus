@@ -8,6 +8,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 let win: BrowserWindow | null = null;
 let appIsQuitting = false;
 let stopAllOnQuit = false;
+// Whole-app zoom (Cmd +/-/0). Tracked here so it survives reload: webContents
+// resets zoom to 0 on every load, so we re-apply this value on did-finish-load.
+// Mutated only via setZoomLevel (menu items) — the single source of truth.
+let currentZoomLevel = 0;
 
 interface WindowState {
   fullscreen: boolean;
@@ -35,7 +39,7 @@ export function saveWindowState(): void {
       fullscreen: win.isFullScreen(),
       displayId: screen.getDisplayMatching(win.getBounds()).id,
       bounds: win.getNormalBounds(),
-      zoomLevel: win.webContents.getZoomLevel(),
+      zoomLevel: currentZoomLevel,
     };
     writeFileSync(windowStatePath(), JSON.stringify(state));
   } catch {
@@ -58,8 +62,18 @@ export function getStopAllOnQuit(): boolean {
   return stopAllOnQuit;
 }
 
+export function setZoomLevel(level: number): void {
+  currentZoomLevel = level;
+  win?.webContents.setZoomLevel(level);
+}
+
+export function getZoomLevel(): number {
+  return currentZoomLevel;
+}
+
 export function createWindow(): BrowserWindow {
   const saved = loadWindowState();
+  currentZoomLevel = saved?.zoomLevel ?? 0;
 
   // Resolve target display: use saved display if still connected, else primary.
   let displayBounds = screen.getPrimaryDisplay().workArea;
@@ -114,13 +128,12 @@ export function createWindow(): BrowserWindow {
   const port = process.env.ARGUS_PORT || '5757';
   win.loadURL(`http://127.0.0.1:${port}`);
 
-  // Restore persisted whole-app zoom once the page is ready. Re-applied on every
-  // load (reload/route change reset zoom to 0 otherwise).
-  if (saved?.zoomLevel) {
-    win.webContents.on('did-finish-load', () => {
-      win?.webContents.setZoomLevel(saved.zoomLevel ?? 0);
-    });
-  }
+  // Re-apply the tracked whole-app zoom on every load — webContents resets zoom
+  // to 0 on reload/route change otherwise. Unconditional so a 0 (100%) level is
+  // honoured too, and always the *current* tracked value, never a stale snapshot.
+  win.webContents.on('did-finish-load', () => {
+    win?.webContents.setZoomLevel(currentZoomLevel);
+  });
 
   // Route external links to the system default browser instead of opening an
   // in-app Electron frame. Covers target="_blank"/window.open and xterm.js
