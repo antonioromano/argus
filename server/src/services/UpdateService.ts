@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { gt as semverGt, clean as semverClean, valid as semverValid } from 'semver';
 import type { Server, Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents, UpdateStatus } from '@argus/shared';
+import type { ClientToServerEvents, ServerToClientEvents, UpdateStatus, UpdateProgress } from '@argus/shared';
 
 const execFile = promisify(execFileCb);
 
@@ -36,10 +36,24 @@ export interface ApplyUpdateResult {
   error?: string;
   warning?: string;
   requiresConfirmation?: boolean;
+  /** Phase-1 found no newer version — informational, not an error. */
+  upToDate?: boolean;
 }
 
-/** Injected by the Electron host to perform a brew-based self-update + relaunch. */
-export type ApplyUpdateFn = () => Promise<ApplyUpdateResult>;
+/**
+ * Injected by the Electron host to perform a brew-based self-update + relaunch.
+ *
+ * The returned promise resolves with the *fast* outcome (Homebrew missing, or
+ * "download started"). `onProgress` streams Phase-1 (trust → update → download)
+ * progress to the UI. `onResult` fires for a *background* terminal outcome —
+ * download failure or already-up-to-date — that happens after the download
+ * started and the app is still open. On a successful download the host quits +
+ * relaunches, so `onResult` is not called in that case.
+ */
+export type ApplyUpdateFn = (
+  onProgress: (progress: UpdateProgress) => void,
+  onResult: (result: ApplyUpdateResult) => void,
+) => Promise<ApplyUpdateResult>;
 
 export class UpdateService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
@@ -134,9 +148,42 @@ export class UpdateService {
     // brew-based apply fn injected by the host. If none is set, fall back to refusal.
     if (process.versions.electron) {
       if (this.applyUpdateFn) {
-        const result = await this.applyUpdateFn();
-        if (result.success) this.io?.emit('update:applying');
-        return result;
+        if (this.isApplying) {
+          return { success: false, error: 'Update already in progress' };
+        }
+        this.isApplying = true;
+        try {
+          // Stream Phase-1 (trust → update → download) progress to the UI. The
+          // promise resolves fast ("download started" or brew-missing); a slow
+          // background failure / up-to-date arrives via onResult while the app
+          // stays open. On a successful download the host quits + relaunches.
+          const started = await this.applyUpdateFn(
+            (progress) => { this.io?.emit('update:progress', progress); },
+            (result) => {
+              this.isApplying = false;
+              if (!result.success) {
+                this.io?.emit('update:failed', {
+                  error: result.error ?? 'Update failed',
+                  upToDate: result.upToDate,
+                });
+              }
+            },
+          );
+          if (started.success) {
+            this.io?.emit('update:applying');
+          } else {
+            this.isApplying = false;
+            if (started.error) {
+              this.io?.emit('update:failed', { error: started.error, upToDate: started.upToDate });
+            }
+          }
+          return started;
+        } catch (err) {
+          this.isApplying = false;
+          const message = (err as Error).message ?? 'Update failed';
+          this.io?.emit('update:failed', { error: message });
+          return { success: false, error: message };
+        }
       }
       return {
         success: false,

@@ -1,7 +1,8 @@
 import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, spawn } from 'child_process';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState } from './window.js';
@@ -52,14 +53,33 @@ const SCHEME = app.isPackaged ? 'argus' : 'argus-dev';
 interface ApplyUpdateResult {
   success: boolean;
   error?: string;
+  /** Phase-1 found no newer version — informational, not an error. */
+  upToDate?: boolean;
 }
 
+const UPDATE_TAP = 'antonioromano/argus';
+const UPDATE_CASK = 'argus';
+
 /**
- * Self-update via Homebrew. Pre-checks brew presence (returns an error the modal
- * can show without quitting), then spawns a detached helper that waits for this
- * process to exit, runs `brew upgrade --cask argus`, and relaunches Argus.
+ * Self-update via Homebrew, in two phases so the user gets honest feedback and
+ * never a silent old-version relaunch:
+ *
+ *   Phase 1 (app stays OPEN, this function): pre-check brew, then trust the tap,
+ *   refresh Homebrew, confirm a newer cask version exists, and download it into
+ *   the local cache. Progress streams to the UI via `onProgress`. The returned
+ *   promise resolves fast ("download started" or brew-missing). A background
+ *   terminal outcome — download failure or already-up-to-date — is reported via
+ *   `onResult` while the app stays open.
+ *
+ *   Phase 2 (after we quit): a detached helper waits for this process to exit,
+ *   installs from the warm cache (`brew upgrade --cask argus`, fast/offline),
+ *   and relaunches Argus ONLY on success. brew can't replace the running
+ *   Argus.app, which is why the install is deferred to after quit.
  */
-function applyBrewUpdate(): Promise<ApplyUpdateResult> {
+function applyBrewUpdate(
+  onProgress: (progress: UpdateProgress) => void,
+  onResult: (result: ApplyUpdateResult) => void,
+): Promise<ApplyUpdateResult> {
   const loginShell = process.env.SHELL || '/bin/zsh';
   return new Promise((resolve) => {
     // Pre-check: is brew on PATH? Login shell so we get the user's full PATH.
@@ -75,45 +95,143 @@ function applyBrewUpdate(): Promise<ApplyUpdateResult> {
 
       const logFile = join(app.getPath('userData'), 'update.log');
       const lockFile = join(app.getPath('userData'), 'update.lock');
-      // Helper runs after we exit: poll our PID until gone, upgrade, relaunch.
-      // Lock file prevents the relaunched app from re-triggering the update loop.
-      const script = [
-        `echo "[argus-update] $(date) starting" >> "${logFile}"`,
-        // Bail immediately if another upgrade helper is already running.
-        `if [ -f "${lockFile}" ]; then echo "[argus-update] already running, exiting" >> "${logFile}"; exit 0; fi`,
-        `echo $$ > "${lockFile}"`,
-        `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
-        `brew trust antonioromano/argus >> "${logFile}" 2>&1 || true`,
-        `brew update >> "${logFile}" 2>&1`,
-        `brew upgrade --cask argus >> "${logFile}" 2>&1`,
-        `BREW_EXIT=$?`,
-        // Only relaunch if brew actually changed the installed version.
-        `INSTALLED=$(brew info --cask argus 2>/dev/null | grep -oE '/opt/homebrew/Caskroom/argus/[^ ]+' | head -1 | xargs basename 2>/dev/null)`,
-        `rm -f "${lockFile}"`,
-        `if [ $BREW_EXIT -eq 0 ]; then`,
-        `  echo "[argus-update] $(date) relaunching (installed: $INSTALLED)" >> "${logFile}"`,
-        `  open -a Argus`,
-        `else`,
-        `  echo "[argus-update] $(date) upgrade failed (exit $BREW_EXIT), relaunching previous version" >> "${logFile}"`,
-        `  open -a Argus`,
-        `fi`,
+      const log = (line: string) => {
+        try { appendFileSync(logFile, line.endsWith('\n') ? line : line + '\n'); } catch { /* best-effort */ }
+      };
+
+      // Phase 1 emits @@-prefixed markers on stdout to drive the progress bar,
+      // interleaved with raw brew output (which we also tee to update.log). We
+      // run `brew trust` explicitly (the Homebrew 4.x untrusted-tap gate) and
+      // check `brew outdated` before downloading so an up-to-date install is
+      // reported honestly instead of a no-op masquerading as success.
+      const phase1 = [
+        `if [ -f "${lockFile}" ]; then echo "@@FAIL Another update is already running."; exit 0; fi`,
+        `echo "@@PHASE trust"`,
+        `brew trust ${UPDATE_TAP} 2>&1`,
+        `echo "@@PHASE update"`,
+        `brew update 2>&1`,
+        `echo "@@PHASE check"`,
+        `OUTDATED=$(brew outdated --cask ${UPDATE_CASK} 2>&1)`,
+        `if [ -z "$OUTDATED" ]; then echo "@@UPTODATE"; exit 0; fi`,
+        `echo "@@PHASE download"`,
+        `brew fetch --cask ${UPDATE_CASK} 2>&1`,
+        `FETCH_EXIT=$?`,
+        `if [ "$FETCH_EXIT" != "0" ]; then echo "@@FAIL_EXIT $FETCH_EXIT"; exit 0; fi`,
+        `echo "@@OK"`,
       ].join('\n');
 
-      const child = spawn(loginShell, ['-l', '-c', script], {
-        detached: true,
-        stdio: 'ignore',
+      log(`[argus-update] ${new Date().toISOString()} phase1 start`);
+      const proc = spawn(loginShell, ['-l', '-c', phase1], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      let buf = '';
+      const tail: string[] = []; // recent non-marker output, for error surfacing
+      let upToDate = false;
+      let failMsg: string | null = null;
+      let inDownload = false;
+
+      const handleLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if (trimmed.startsWith('@@')) {
+          if (trimmed === '@@PHASE trust') onProgress({ phase: 'trust', label: 'Trusting tap…' });
+          else if (trimmed === '@@PHASE update') onProgress({ phase: 'update', label: 'Updating Homebrew…' });
+          else if (trimmed === '@@PHASE check') onProgress({ phase: 'update', label: 'Checking version…' });
+          else if (trimmed === '@@PHASE download') { inDownload = true; onProgress({ phase: 'download', label: 'Downloading…' }); }
+          else if (trimmed === '@@UPTODATE') upToDate = true;
+          else if (trimmed === '@@OK') { /* success — handled on close */ }
+          else if (trimmed.startsWith('@@FAIL_EXIT')) failMsg = tail.slice(-12).join('\n') || 'Download failed.';
+          else if (trimmed.startsWith('@@FAIL')) failMsg = trimmed.replace('@@FAIL', '').trim() || 'Update failed.';
+          return;
+        }
+        log(trimmed);
+        tail.push(trimmed);
+        if (tail.length > 40) tail.shift();
+        // brew/curl download progress, e.g. "######           45.0%" or "45.0%".
+        // Only while downloading — a stray "%" in `brew update` output must not move the bar.
+        if (!inDownload) return;
+        const m = trimmed.match(/(\d{1,3}(?:\.\d+)?)%/);
+        if (m) {
+          const pct = Math.max(0, Math.min(100, parseFloat(m[1])));
+          onProgress({ phase: 'download', label: `Downloading ${Math.round(pct)}%`, percent: pct });
+        }
+      };
+
+      // Split on BOTH \n and \r: brew/curl render the download meter as a single
+      // line updated in place with carriage returns, so percent ticks only arrive
+      // as \r-delimited fragments. Splitting on \n alone would buffer the whole
+      // download into one chunk and the bar could never climb.
+      const pump = (chunk: Buffer) => {
+        buf += chunk.toString();
+        let i: number;
+        while ((i = buf.search(/[\r\n]/)) !== -1) {
+          handleLine(buf.slice(0, i));
+          buf = buf.slice(i + 1);
+        }
+      };
+      proc.stdout?.on('data', pump);
+      proc.stderr?.on('data', pump);
+
+      proc.on('error', (e) => {
+        log(`[argus-update] phase1 spawn error: ${e.message}`);
+        onResult({ success: false, error: 'Could not start Homebrew. Update via the GitHub release link below.' });
       });
-      child.unref();
 
-      // Quit after the HTTP response flushes. Real quit path (not hide-to-tray).
-      setTimeout(() => {
-        setAppQuitting(true);
-        app.quit();
-      }, 500);
+      proc.on('close', () => {
+        if (buf.trim()) handleLine(buf); // flush trailing partial line
+        if (upToDate) {
+          log('[argus-update] already up to date');
+          onResult({ success: false, upToDate: true, error: 'Argus is already up to date — no newer version to install.' });
+          return;
+        }
+        if (failMsg) {
+          log(`[argus-update] phase1 failed: ${failMsg}`);
+          onResult({ success: false, error: failMsg });
+          return;
+        }
+        // Download succeeded → Phase 2: install from cache after we quit.
+        onProgress({ phase: 'install', label: 'Installing… Argus will relaunch.' });
+        startPhase2(loginShell, logFile, lockFile);
+        setTimeout(() => {
+          setAppQuitting(true);
+          app.quit();
+        }, 500);
+      });
 
+      // Resolve fast: the download has started; the UI follows progress events.
       resolve({ success: true });
     });
   });
+}
+
+/**
+ * Phase 2 helper: spawned detached just before we quit. Waits for this process
+ * to exit, installs the already-downloaded cask from cache, and relaunches Argus
+ * only on success. A lock file prevents the relaunched app from re-triggering
+ * the loop; a `.failed` marker lets the next launch surface a failed install.
+ */
+function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
+  const failMarker = join(app.getPath('userData'), 'update.failed');
+  const script = [
+    `if [ -f "${lockFile}" ]; then echo "[argus-update] phase2 already running, exiting" >> "${logFile}"; exit 0; fi`,
+    `echo $$ > "${lockFile}"`,
+    `rm -f "${failMarker}"`,
+    `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
+    `echo "[argus-update] $(date) phase2 install" >> "${logFile}"`,
+    `brew upgrade --cask ${UPDATE_CASK} >> "${logFile}" 2>&1`,
+    `BREW_EXIT=$?`,
+    `rm -f "${lockFile}"`,
+    `if [ $BREW_EXIT -eq 0 ]; then`,
+    `  echo "[argus-update] $(date) install ok, relaunching" >> "${logFile}"`,
+    `  open -a Argus`,
+    `else`,
+    `  echo "[argus-update] $(date) install failed (exit $BREW_EXIT)" >> "${logFile}"`,
+    `  echo "$BREW_EXIT" > "${failMarker}"`,
+    `  open -a Argus`,
+    `fi`,
+  ].join('\n');
+
+  const child = spawn(loginShell, ['-l', '-c', script], { detached: true, stdio: 'ignore' });
+  child.unref();
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -555,6 +673,28 @@ async function main() {
 
   createWindow();
   createTray();
+
+  // Surface a failed Phase-2 install from the previous run: if the cache install
+  // errored after we quit, the helper relaunched the OLD version and left a
+  // marker. Tell the user honestly instead of pretending the update succeeded.
+  surfaceFailedInstall();
+}
+
+/** Show + clear the Phase-2 install-failure marker written by startPhase2. */
+function surfaceFailedInstall(): void {
+  const failMarker = join(app.getPath('userData'), 'update.failed');
+  if (!existsSync(failMarker)) return;
+  let exitCode = '';
+  try { exitCode = readFileSync(failMarker, 'utf8').trim(); } catch { /* ignore */ }
+  const logFile = join(app.getPath('userData'), 'update.log');
+  void dialog.showMessageBox({
+    type: 'warning',
+    title: 'Argus — Update did not install',
+    message: 'The latest version was downloaded but Homebrew could not install it.',
+    detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
+    buttons: ['OK'],
+  });
+  try { unlinkSync(failMarker); } catch { /* best-effort */ }
 }
 
 // Single-instance lock: a second launch of the SAME profile focuses the existing

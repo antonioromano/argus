@@ -134,6 +134,8 @@ export interface ServerToClientEvents {
   'auth:required': (payload: { required: boolean }) => void;
   'update:available': (status: UpdateStatus) => void;
   'update:applying': () => void;
+  'update:progress': (progress: UpdateProgress) => void;
+  'update:failed': (payload: { error: string; upToDate?: boolean }) => void;
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
   // Ephemeral terminal responses
@@ -142,6 +144,18 @@ export interface ServerToClientEvents {
   // Companion terminal responses
   'ct:output': (payload: { sessionId: string; data: string }) => void;
   'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;
+}
+
+/**
+ * Live progress of an in-app brew self-update. Streamed main → server → renderer
+ * over the `update:progress` socket event while the app stays open (Phase 1:
+ * trust → update → download). `percent` is present only when brew emits parseable
+ * download progress; otherwise the bar renders stepped/indeterminate per phase.
+ */
+export interface UpdateProgress {
+  phase: 'trust' | 'update' | 'download' | 'install';
+  label: string;
+  percent?: number;
 }
 
 export interface UpdateStatus {

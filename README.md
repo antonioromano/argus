@@ -33,11 +33,14 @@ A native macOS desktop app for managing multiple AI coding agent sessions at onc
 Install via [Homebrew](https://brew.sh):
 
 ```bash
-brew tap antonioromano/argus https://github.com/antonioromano/argus
-brew install --cask argus
+brew tap antonioromano/argus https://github.com/antonioromano/argus && \
+  brew trust antonioromano/argus && \
+  brew install --cask argus
 ```
 
 That's it — launch Argus from Spotlight or your Applications folder.
+
+> **Why `brew trust`?** Homebrew 4.x refuses to load casks from third-party (non-official) taps until you trust them once. Without it you'll see `Refusing to load cask … from untrusted tap`. Trust is one-time per machine — after this, installs and upgrades just work.
 
 > The app is ad-hoc signed (no Apple Developer certificate). The cask automatically strips the macOS quarantine flag on install, so the app opens normally — no right-click → Open dance required.
 
@@ -46,6 +49,8 @@ Update to the newest release the same way you update any cask:
 ```bash
 brew upgrade --cask argus
 ```
+
+If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `brew trust antonioromano/argus` once, then re-run the upgrade. **In-app updates** (the built-in "Update now" button) trust the tap automatically — no manual step needed.
 
 ## Features
 

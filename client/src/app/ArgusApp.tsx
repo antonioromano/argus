@@ -152,7 +152,7 @@ function DesktopInner() {
   const socketConnected = useSocketStatus();
   const { sessions, createSession, deleteSession } = useSessions(socket);
   const ngrok = useNgrok(socket);
-  const { status: updateStatus } = useUpdate(socket);
+  const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
@@ -705,7 +705,13 @@ function DesktopInner() {
       )}
       {app.overlay?.kind === 'update' && updateStatus && (
         <Overlay onClose={app.closeOverlay} label="Update Argus">
-          <UpdateSheet status={updateStatus} onClose={app.closeOverlay} />
+          <UpdateSheet
+            status={updateStatus}
+            progress={updateProgress}
+            failure={updateFailure}
+            onResetState={resetUpdateState}
+            onClose={app.closeOverlay}
+          />
         </Overlay>
       )}
       {app.overlay?.kind === 'settings' && config && (
