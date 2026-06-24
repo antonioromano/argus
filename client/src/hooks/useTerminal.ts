@@ -154,7 +154,7 @@ export function useTerminal(
       void el.offsetWidth;
       el.classList.add('terminal-bell-flash');
       if (bellTimer) clearTimeout(bellTimer);
-      bellTimer = window.setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
+      bellTimer = setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
     });
 
     terminal.loadAddon(fitAddon);

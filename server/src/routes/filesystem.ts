@@ -448,6 +448,7 @@ function getMimeType(ext: string): string {
     '.jsx': 'text/javascript',
     '.json': 'application/json',
     '.md': 'text/markdown',
+    '.csv': 'text/csv',
     '.css': 'text/css',
     '.html': 'text/html',
     '.xml': 'text/xml',

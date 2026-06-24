@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useFileBuffer } from '../../hooks/useFileBuffer.js';
 import { MonacoPane } from './MonacoPane.js';
 import { MarkdownPreview } from './MarkdownPreview.js';
+import { CsvPreview } from './CsvPreview.js';
 import { ResizeDivider } from '../ResizeDivider.js';
 import { LoadingState, ErrorState } from '../primitives/index.js';
-import { isMarkdownPath, monacoLanguageFor } from '../../utils/langFromPath.js';
+import { previewKind, monacoLanguageFor, type PreviewKind } from '../../utils/langFromPath.js';
 
 export type ViewMode = 'edit' | 'preview' | 'split';
 
@@ -49,7 +50,7 @@ export function EditorTab({
   onUnmount,
 }: EditorTabProps) {
   const buffer = useFileBuffer({ sessionId, filePath: path });
-  const isMd = isMarkdownPath(path);
+  const kind = previewKind(path);
 
   // Surface buffer state upward. save/reload are stable callbacks from the hook,
   // so this only re-fires when the primitive status fields actually change.
@@ -88,7 +89,7 @@ export function EditorTab({
           onChange={buffer.setContent}
           onSave={() => void buffer.save()}
           theme={theme}
-          isMd={isMd}
+          kind={kind}
           viewMode={viewMode}
           revealLine={revealLine}
           revealNonce={revealNonce}
@@ -104,13 +105,17 @@ interface EditorAreaProps {
   onChange: (next: string) => void;
   onSave: () => void;
   theme: 'dark' | 'light';
-  isMd: boolean;
+  kind: PreviewKind | null;
   viewMode: ViewMode;
   revealLine?: number;
   revealNonce?: number;
 }
 
-function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, revealLine, revealNonce }: EditorAreaProps) {
+function PreviewPane({ kind, source }: { kind: PreviewKind; source: string }) {
+  return kind === 'csv' ? <CsvPreview source={source} /> : <MarkdownPreview source={source} />;
+}
+
+function EditorArea({ path, value, onChange, onSave, theme, kind, viewMode, revealLine, revealNonce }: EditorAreaProps) {
   const language = monacoLanguageFor(path);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStoredRatio());
   const [isDragging, setIsDragging] = useState(false);
@@ -142,7 +147,7 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, reve
     };
   }, [isDragging]);
 
-  if (!isMd || viewMode === 'edit') {
+  if (!kind || viewMode === 'edit') {
     return (
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <MonacoPane
@@ -160,7 +165,7 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, reve
   }
 
   if (viewMode === 'preview') {
-    return <MarkdownPreview source={value} />;
+    return <PreviewPane kind={kind} source={value} />;
   }
 
   return (
@@ -185,7 +190,7 @@ function EditorArea({ path, value, onChange, onSave, theme, isMd, viewMode, reve
         }}
       />
       <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
-        <MarkdownPreview source={value} />
+        <PreviewPane kind={kind} source={value} />
       </div>
     </div>
   );

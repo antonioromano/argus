@@ -67,7 +67,7 @@ function addToRecentFolders(folderPath: string): void {
     const next = [
       { path: folderPath, lastOpened: Date.now() },
       ...prev.filter((e) => e.path !== folderPath),
-    ].slice(0, 25);
+    ].slice(0, 100);
     localStorage.setItem(RECENT_FOLDERS_KEY, JSON.stringify(next));
   } catch { /* non-critical */ }
 }

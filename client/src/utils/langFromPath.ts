@@ -81,3 +81,13 @@ export function isMarkdownPath(filePath: string): boolean {
   const ext = filePath.toLowerCase().split('.').pop();
   return ext === 'md' || ext === 'mdx' || ext === 'markdown';
 }
+
+export type PreviewKind = 'markdown' | 'csv';
+
+/** Which rendered-preview pane (if any) a file gets alongside the editor. */
+export function previewKind(filePath: string): PreviewKind | null {
+  const ext = filePath.toLowerCase().split('.').pop();
+  if (ext === 'md' || ext === 'mdx' || ext === 'markdown') return 'markdown';
+  if (ext === 'csv') return 'csv';
+  return null;
+}

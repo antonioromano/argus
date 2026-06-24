@@ -51,7 +51,7 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    let timer = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const onChange = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {

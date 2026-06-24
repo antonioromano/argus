@@ -20,7 +20,7 @@ import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { EditorTab, type ViewMode, type TabBufferSnapshot } from '../../components/explorer/EditorTab.js';
 import { EditorTabStrip } from '../../components/explorer/EditorTabStrip.js';
 import { useTheme } from '../../context/theme-context.js';
-import { isMarkdownPath } from '../../utils/langFromPath.js';
+import { previewKind } from '../../utils/langFromPath.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { symbolNavContext } from '../../components/explorer/registerSymbolProviders.js';
 
@@ -89,10 +89,10 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   const focusedGroup = gstate.groups[gstate.focused];
   const focusedPath = focusedGroup?.active ?? null;
   const focusedSnap = focusedPath ? tabStates[focusedPath] : undefined;
-  const isMd = !!focusedPath && isMarkdownPath(focusedPath);
+  const isPreviewable = !!focusedPath && previewKind(focusedPath) !== null;
 
   const viewModeFor = (path: string): ViewMode =>
-    viewModes[path] ?? (isMarkdownPath(path) ? 'split' : 'edit');
+    viewModes[path] ?? (previewKind(path) ? 'split' : 'edit');
 
   // Pinned open — deliberate jumps (double-click, search, symbol-nav, initial).
   const onPickFile = useCallback(
@@ -353,7 +353,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
         {focusedSnap?.dirty && <Chip dot="var(--dirty)">UNSAVED</Chip>}
         {focusedSnap?.saving && <Chip dot="var(--accent)">SAVING…</Chip>}
         <div style={{ flex: 1 }} />
-        {isMd && focusedPath && (
+        {isPreviewable && focusedPath && (
           <SegmentedControl
             value={viewModeFor(focusedPath)}
             onChange={(v) => setViewModes((m) => ({ ...m, [focusedPath]: v }))}

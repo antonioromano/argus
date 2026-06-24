@@ -601,7 +601,7 @@ export function CreateSheet({
                   textAlign: 'center' as const,
                   borderTop: '1px solid var(--line-2)',
                 }}>
-                  {localRecents.length} of 25 · ordered by last opened
+                  {localRecents.length} of 100 · ordered by last opened
                 </div>
               </div>
             )}

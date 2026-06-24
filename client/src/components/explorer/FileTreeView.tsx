@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  Table,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatusCode } from '@argus/shared';
@@ -306,6 +307,8 @@ function fileIcon(ext: string): LucideIcon {
     case '.mdx':
     case '.txt':
       return FileText;
+    case '.csv':
+      return Table;
     case '.json':
     case '.jsonc':
       return FileJson;
