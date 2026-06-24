@@ -627,6 +627,7 @@ function DesktopInner() {
               onCloseSearch={closeTerminalSearch}
               onActiveTerminalChange={setMosaicFocusedId}
               notifiedTileId={notifiedTileId}
+              waitingStyle={config?.mosaicWaitingStyle ?? 'breathing'}
             />
           )}
 

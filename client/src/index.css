@@ -947,9 +947,8 @@ body {
   border: 1.5px solid var(--accent);
 }
 
-/* === WAITING SWEEP — Track 2 signature moment === */
-.terminal-card[data-status="waiting"]::after,
-.argus-tile[data-status="waiting"]::after {
+/* === WAITING SWEEP — Track 2 signature moment (SessionCard only) === */
+.terminal-card[data-status="waiting"]::after {
   content: '';
   position: absolute;
   top: 0;
@@ -960,6 +959,56 @@ body {
   animation: argus-sweep 3.6s linear infinite;
   pointer-events: none;
   z-index: 3;
+}
+
+/* === MOSAIC WAITING ATTENTION — pickable in General → Appearance ===
+   Driven by data-waiting-style on .argus-mosaic. Both styles use only
+   theme-scoped tokens, so dark + light come for free. */
+
+/* Default: breathing halo around the whole waiting tile */
+.argus-mosaic[data-waiting-style="breathing"] .argus-tile[data-status="waiting"] {
+  animation: argus-tile-breathe var(--dur-ambient) ease-in-out infinite;
+}
+@keyframes argus-tile-breathe {
+  0%, 100% { box-shadow: 0 0 0 1px var(--accent-edge), 0 0 10px 0 var(--accent-glow); }
+  50%      { box-shadow: 0 0 0 2px var(--status-waiting),
+                         0 0 34px 6px color-mix(in srgb, var(--accent) 45%, transparent); }
+}
+
+/* Alt: pulsing top bar + filled, bobbing WAITING flag */
+.argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"]::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 6;
+  background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi), var(--accent-lo));
+  animation: argus-pulse-bar var(--dur-ambient) ease-in-out infinite;
+  pointer-events: none;
+}
+.argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-pill {
+  background: var(--accent);
+  color: var(--fg-on-accent);
+  border-color: var(--accent);
+  font-weight: 700;
+  animation: argus-flag-bob var(--dur-ambient) ease-in-out infinite;
+}
+@keyframes argus-flag-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1px); }
+}
+
+/* Accessibility: drop motion, keep a static strong ring */
+@media (prefers-reduced-motion: reduce) {
+  .argus-mosaic .argus-tile[data-status="waiting"] {
+    animation: none !important;
+    box-shadow: 0 0 0 2px var(--status-waiting), 0 0 24px 2px var(--accent-glow);
+  }
+  .argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-pill {
+    animation: none !important;
+  }
 }
 
 /* === INLINE ICON LINK === */

@@ -1,5 +1,8 @@
 export type SessionStatus = 'waiting' | 'running' | 'idle' | 'done' | 'exited';
 
+// How a waiting-for-input shell stands out in the mosaic grid.
+export type MosaicWaitingStyle = 'breathing' | 'flag';
+
 export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
 export type AgentType = BuiltinAgentId | string;
 
@@ -36,6 +39,7 @@ export interface AppConfig {
   keyboardShortcuts?: Record<string, string>; // action id -> combo override (e.g. "command-palette": "mod+shift+k")
   uiFontSize?: number;   // base font size (px) for the interface chrome (default: 14)
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
+  mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
 }
 
 export interface AgentStatus {

@@ -20,6 +20,7 @@ const DEFAULT_CONFIG: AppConfig = {
   keyboardShortcuts: {},
   uiFontSize: 14,
   codeFontSize: 13,
+  mosaicWaitingStyle: 'breathing',
 };
 
 export class ConfigStore {
