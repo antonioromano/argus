@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import type { ChangeBlock } from './changeBlocks.js';
 import { Tooltip } from '../../../components/primitives/index.js';
-
-const SKIP_CONFIRM_KEY = 'argus.revert.skipConfirm';
+import { RevertConfirmCard } from './ConfirmRevert.js';
+import { useSkipRevertConfirm } from '../../../hooks/useSkipRevertConfirm.js';
 
 interface BlockGutterCellProps {
   block: ChangeBlock | null;
@@ -41,7 +41,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
   const [pendingRevert, setPendingRevert] = useState(false);
   const [popupAnchor, setPopupAnchor] = useState<{ bottom: number; left: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [skipConfirm, setSkipConfirm] = useState(() => localStorage.getItem(SKIP_CONFIRM_KEY) === '1');
+  const { skip: skipConfirm, toggle: toggleSkipConfirm } = useSkipRevertConfirm();
   const revertBtnRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
 
@@ -84,13 +84,6 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
     const rect = revertBtnRef.current?.getBoundingClientRect();
     if (rect) setPopupAnchor({ bottom: window.innerHeight - rect.top + 6, left: rect.left });
     setPendingRevert(true);
-  };
-
-  const toggleSkipConfirm = () => {
-    const next = !skipConfirm;
-    setSkipConfirm(next);
-    if (next) localStorage.setItem(SKIP_CONFIRM_KEY, '1');
-    else localStorage.removeItem(SKIP_CONFIRM_KEY);
   };
 
   return (
@@ -139,61 +132,13 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
             width: 220,
           }}
         >
-          <div style={{ marginBottom: 8, fontSize: 'var(--t-xs)', color: 'var(--fg-0)', fontWeight: 500, lineHeight: 1.4 }}>
-            Revert this change?<br />
-            <span style={{ color: 'var(--fg-3)', fontWeight: 400 }}>Cannot be undone.</span>
-          </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, cursor: 'pointer', userSelect: 'none' }}>
-            <span
-              role="checkbox"
-              aria-checked={skipConfirm}
-              onClick={(e) => { e.preventDefault(); toggleSkipConfirm(); }}
-              style={{
-                width: 13, height: 13, flexShrink: 0,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: 2,
-                border: `1px solid ${skipConfirm ? 'var(--accent)' : 'var(--line-3)'}`,
-                background: skipConfirm ? 'var(--accent)' : 'var(--bg-2)',
-                color: skipConfirm ? 'var(--bg-0)' : 'transparent',
-              }}
-            >
-              {skipConfirm && <Check size={9} strokeWidth={2.5} />}
-            </span>
-            <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>Don't ask again</span>
-          </label>
-          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-            <button
-              onClick={dismiss}
-              style={{
-                all: 'unset',
-                cursor: 'pointer',
-                padding: '3px 10px',
-                borderRadius: 'var(--r-2)',
-                border: '1px solid var(--line-3)',
-                color: 'var(--fg-2)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-micro)',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void doRevert()}
-              disabled={busy}
-              style={{
-                all: 'unset',
-                cursor: busy ? 'wait' : 'pointer',
-                padding: '3px 10px',
-                borderRadius: 'var(--r-2)',
-                background: 'var(--danger)',
-                color: 'var(--bg-0)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-micro)',
-              }}
-            >
-              {busy ? 'Reverting…' : 'Revert'}
-            </button>
-          </div>
+          <RevertConfirmCard
+            busy={busy}
+            skip={skipConfirm}
+            onToggleSkip={toggleSkipConfirm}
+            onCancel={dismiss}
+            onConfirm={() => void doRevert()}
+          />
         </div>
       )}
     </div>

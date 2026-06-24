@@ -1,19 +1,18 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import parseDiff from 'parse-diff';
 import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
-import { useDiffInlineEdit } from '../../hooks/useDiffInlineEdit.js';
-import { SplitDiff } from '../overlays/SplitDiff.js';
-import { BlockGutterCell } from '../overlays/diff/BlockGutterCell.js';
 import {
   type ChangeBlock,
   collectAllBlockHashes,
   resolveSelectionToChunkIndices,
-  segmentChangeBlocks,
 } from '../overlays/diff/changeBlocks.js';
+import { type FileModel, modelsFromRaw, shouldAutoCollapse, estimateBodyHeight } from '../overlays/diff/diffModel.js';
+import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
+import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
+import { FileSection } from './FileSection.js';
 import { api } from '../../services/api.js';
 import {
   IconButton,
@@ -32,39 +31,6 @@ interface DiffWorkbenchProps {
   initialFile?: string;
 }
 
-type Source = 'unstaged' | 'staged';
-// 'branch' is no longer produced (the docked DiffSidePanel was removed); kept in
-// the union so DiffViewer's source handling stays exhaustive.
-type SidebarSource = Source | 'untracked' | 'branch';
-
-export interface FileSummary {
-  path: string;
-  add: number;
-  del: number;
-  source: SidebarSource;
-  isNew: boolean;
-  isDeleted: boolean;
-  raw: string; // empty string for untracked
-}
-
-function summarize(rawDiff: string, source: SidebarSource): FileSummary[] {
-  if (!rawDiff || !rawDiff.trim()) return [];
-  try {
-    const files = parseDiff(rawDiff);
-    return files.map((f) => ({
-      path: f.to && f.to !== '/dev/null' ? f.to : f.from ?? '?',
-      add: f.additions ?? 0,
-      del: f.deletions ?? 0,
-      source,
-      isNew: f.new ?? false,
-      isDeleted: f.deleted ?? false,
-      raw: rawDiff,
-    }));
-  } catch {
-    return [];
-  }
-}
-
 export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
@@ -73,39 +39,53 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
   });
   const selection = useCommitSelection({ sessionId: session.id, isOpen: true });
   const [viewMode, setViewMode] = useState<'split' | 'unified'>('split');
-  const [selectedFile, setSelectedFile] = useState<string | null>(initialFile ?? null);
+  // Which file is "focused" — driven by scroll-spy, sidebar clicks and arrow keys.
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  // Sections within the render band (≈600px of the viewport) mount their heavy
+  // diff body; the rest render a height-estimated placeholder.
+  const [nearIds, setNearIds] = useState<Set<string>>(() => new Set());
+  // Set during a click/arrow-driven smooth scroll so the IntersectionObserver
+  // doesn't fight it as intermediate sections cross the viewport middle.
+  const programmaticRef = useRef<{ id: string; until: number } | null>(null);
+  const appliedInitialRef = useRef(false);
   const [stagingPath, setStagingPath] = useState<string | null>(null);
   const [unstagingPath, setUnstagingPath] = useState<string | null>(null);
   const [ignoringPath, setIgnoringPath] = useState<string | null>(null);
   const [pendingRevertFile, setPendingRevertFile] = useState<string | null>(null);
   const [revertingFilePath, setRevertingFilePath] = useState<string | null>(null);
-  const [skipConfirmFile, setSkipConfirmFile] = useState(() => localStorage.getItem('argus.revert.skipConfirm') === '1');
+  const { skip: skipConfirmFile, toggle: toggleSkipConfirmFile } = useSkipRevertConfirm();
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const registerRef = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) sectionRefs.current.set(id, el);
+    else sectionRefs.current.delete(id);
+  }, []);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
 
-  const files = useMemo((): FileSummary[] => {
-    if (!diff) return [];
-    return [
-      ...summarize(diff.unstaged, 'unstaged'),
-      ...summarize(diff.staged, 'staged'),
-      ...summarize(diff.untrackedDiff ?? '', 'untracked'),
-    ];
-  }, [diff]);
+  // Parse each diff group exactly once. Memoizing per group keeps a poll that
+  // only touched one group from re-parsing (and changing the identity of) the
+  // others — important now that every file is mounted in the scroll view.
+  const unstagedModels = useMemo(() => modelsFromRaw(diff?.unstaged ?? '', 'unstaged'), [diff?.unstaged]);
+  const stagedModels = useMemo(() => modelsFromRaw(diff?.staged ?? '', 'staged'), [diff?.staged]);
+  const untrackedModels = useMemo(() => modelsFromRaw(diff?.untrackedDiff ?? '', 'untracked'), [diff?.untrackedDiff]);
+  const files = useMemo(
+    () => [...unstagedModels, ...stagedModels, ...untrackedModels],
+    [unstagedModels, stagedModels, untrackedModels],
+  );
 
   const total = files.length;
 
-  // Pre-compute hash sets per UNSTAGED file once per diff render.
+  // Pre-compute hash sets per UNSTAGED file from the already-parsed diff.
   const hashesByFile = useMemo(() => {
     const m = new Map<string, Set<string>>();
     for (const f of files) {
       if (f.source !== 'unstaged') continue;
-      const parsed = parseDiff(f.raw).find((p) => (p.to ?? p.from) === f.path);
-      if (!parsed) continue;
-      m.set(f.path, collectAllBlockHashes(f.path, parsed));
+      m.set(f.path, collectAllBlockHashes(f.path, f.parsed));
     }
     return m;
   }, [files]);
@@ -116,13 +96,11 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
     const validByFile = new Map<string, Set<string>>();
     for (const f of files) {
       if (f.source !== 'unstaged') continue;
-      const parsed = parseDiff(f.raw).find((p) => (p.to ?? p.from) === f.path);
-      if (!parsed) continue;
-      validByFile.set(f.path, collectAllBlockHashes(f.path, parsed));
+      validByFile.set(f.path, collectAllBlockHashes(f.path, f.parsed));
     }
     selection.gcStale(validByFile);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [diff]);
+  }, [files]);
 
   const stageUntracked = async (path: string) => {
     setStagingPath(path);
@@ -154,17 +132,15 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
     }
   };
 
-  const handleRevertFile = async (f: FileSummary) => {
-    const parsed = parseDiff(f.raw).find((p) => (p.to ?? p.from) === f.path);
-    if (!parsed) return;
+  const handleRevertFile = async (f: FileModel) => {
     const allHashes = hashesByFile.get(f.path) ?? new Set<string>();
-    const chunks = resolveSelectionToChunkIndices(f.path, parsed, allHashes);
+    const chunks = resolveSelectionToChunkIndices(f.path, f.parsed, allHashes);
     if (chunks.length === 0) return;
     setRevertingFilePath(f.path);
     try {
       const result = await api.discardPatch(session.id, {
         filePath: f.path,
-        fromPath: parsed.from && parsed.from !== f.path ? parsed.from : undefined,
+        fromPath: f.fromPath,
         source: 'unstaged',
         chunks,
       });
@@ -176,13 +152,6 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
       setRevertingFilePath(null);
       setPendingRevertFile(null);
     }
-  };
-
-  const toggleSkipConfirmFile = () => {
-    const next = !skipConfirmFile;
-    setSkipConfirmFile(next);
-    if (next) localStorage.setItem('argus.revert.skipConfirm', '1');
-    else localStorage.removeItem('argus.revert.skipConfirm');
   };
 
   const handleToggle = (filePath: string) => (block: ChangeBlock) => {
@@ -217,21 +186,19 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
     setCommitting(true);
     setCommitError(null);
     try {
-      const filesByPath = new Map<string, FileSummary>();
+      const filesByPath = new Map<string, FileModel>();
       for (const f of files) if (f.source === 'unstaged') filesByPath.set(f.path, f);
 
       const stagedPaths: string[] = [];
       for (const [filePath, hashes] of selection.checkedHashesByFile) {
         if (hashes.size === 0) continue;
-        const summary = filesByPath.get(filePath);
-        if (!summary) continue;
-        const parsed = parseDiff(summary.raw).find((p) => (p.to ?? p.from) === filePath);
-        if (!parsed) continue;
-        const chunks = resolveSelectionToChunkIndices(filePath, parsed, hashes);
+        const model = filesByPath.get(filePath);
+        if (!model) continue;
+        const chunks = resolveSelectionToChunkIndices(filePath, model.parsed, hashes);
         if (chunks.length === 0) continue;
         const stage = await api.stagePatch(session.id, {
           filePath,
-          fromPath: parsed.from && parsed.from !== filePath ? parsed.from : undefined,
+          fromPath: model.fromPath,
           source: 'unstaged',
           chunks,
         });
@@ -252,22 +219,105 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
     }
   };
 
-  const effectiveSelected: string | null = useMemo(() => {
-    if (selectedFile && files.some((f) => `${f.source}::${f.path}` === selectedFile)) {
-      return selectedFile;
+  // Resolve the highlighted file: the scroll-spy/arrow/click value when valid,
+  // else the first file so the sidebar always shows a selection.
+  const resolvedActiveId: string | null = useMemo(() => {
+    if (activeFileId && files.some((f) => f.id === activeFileId)) return activeFileId;
+    return files.length > 0 ? files[0].id : null;
+  }, [files, activeFileId]);
+
+  // Scroll a file's section into view and mark it active, suppressing the
+  // observer briefly so it doesn't re-pick intermediate sections mid-animation.
+  const scrollToFile = useCallback((id: string) => {
+    const el = sectionRefs.current.get(id);
+    setActiveFileId(id);
+    if (!el) return;
+    programmaticRef.current = { id, until: Date.now() + 700 };
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Scroll-spy: highlight whichever section crosses the viewport's vertical
+  // middle. One observer rooted on <main>, observing section roots.
+  useEffect(() => {
+    const root = mainRef.current;
+    if (!root || files.length === 0) return;
+    const visible = new Set<string>();
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const id = (e.target as HTMLElement).dataset.fileId;
+          if (!id) continue;
+          if (e.isIntersecting) visible.add(id);
+          else visible.delete(id);
+        }
+        const prog = programmaticRef.current;
+        if (prog) {
+          if (Date.now() < prog.until) return; // still animating to a clicked target
+          programmaticRef.current = null;
+        }
+        const next = files.find((f) => visible.has(f.id))?.id;
+        if (next) setActiveFileId((cur) => (cur === next ? cur : next));
+      },
+      { root, rootMargin: '-45% 0px -45% 0px', threshold: 0 },
+    );
+    for (const f of files) {
+      const el = sectionRefs.current.get(f.id);
+      if (el) io.observe(el);
     }
-    if (files.length > 0) return `${files[0].source}::${files[0].path}`;
-    return null;
-  }, [files, selectedFile]);
+    return () => io.disconnect();
+  }, [files]);
 
-  const selectedFileSummary: FileSummary | undefined = useMemo(() => {
-    if (!effectiveSelected) return undefined;
-    return files.find((f) => `${f.source}::${f.path}` === effectiveSelected);
-  }, [files, effectiveSelected]);
+  // Render-band observer: mount bodies for sections within ~600px of the
+  // viewport. Its initial callback populates the band on mount, so no separate
+  // seeding is needed; ids of removed files linger harmlessly (never rendered).
 
-  // Up/Down arrows move the selected file through the flat (unstaged → staged →
-  // untracked) list. Ignored while the commit popover is open or focus is in an
-  // editable field so the inline-edit caret and commit textarea keep the keys.
+  useEffect(() => {
+    const root = mainRef.current;
+    if (!root || files.length === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        setNearIds((prev) => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const e of entries) {
+            const id = (e.target as HTMLElement).dataset.fileId;
+            if (!id) continue;
+            if (e.isIntersecting && !next.has(id)) { next.add(id); changed = true; }
+            else if (!e.isIntersecting && next.has(id)) { next.delete(id); changed = true; }
+          }
+          return changed ? next : prev;
+        });
+      },
+      { root, rootMargin: '600px 0px 600px 0px', threshold: 0 },
+    );
+    for (const f of files) {
+      const el = sectionRefs.current.get(f.id);
+      if (el) io.observe(el);
+    }
+    return () => io.disconnect();
+  }, [files]);
+
+  // A real wheel gesture cancels the click/arrow suppression window early.
+  useEffect(() => {
+    const root = mainRef.current;
+    if (!root) return;
+    const clear = () => { programmaticRef.current = null; };
+    root.addEventListener('wheel', clear, { passive: true });
+    return () => root.removeEventListener('wheel', clear);
+  }, []);
+
+  // Honor an initialFile by scrolling to it once the sections have mounted.
+  useEffect(() => {
+    if (appliedInitialRef.current || !initialFile || files.length === 0) return;
+    const match = files.find((f) => f.path === initialFile);
+    if (!match) return;
+    appliedInitialRef.current = true;
+    requestAnimationFrame(() => scrollToFile(match.id));
+  }, [files, initialFile, scrollToFile]);
+
+  // Up/Down arrows step between file sections. Ignored while the commit popover
+  // is open or focus is in an editable field so the inline-edit caret and commit
+  // textarea keep the keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -275,36 +325,23 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
       const t = document.activeElement as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (files.length === 0) return;
-      const ids = files.map((f) => `${f.source}::${f.path}`);
-      const cur = effectiveSelected ? ids.indexOf(effectiveSelected) : -1;
+      const ids = files.map((f) => f.id);
+      const cur = resolvedActiveId ? ids.indexOf(resolvedActiveId) : -1;
       const start = cur >= 0 ? cur : 0;
       const next = e.key === 'ArrowDown'
         ? Math.min(start + 1, ids.length - 1)
         : Math.max(start - 1, 0);
       e.preventDefault();
-      setSelectedFile(ids[next]);
+      scrollToFile(ids[next]);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [files, effectiveSelected, commitOpen]);
+  }, [files, resolvedActiveId, commitOpen, scrollToFile]);
 
-  // Keep the selected file row visible in the sidebar as arrows move it.
+  // Keep the active file's sidebar row visible as it changes.
   useEffect(() => {
     selectedRowRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [effectiveSelected]);
-
-  const editTargetPath: string | null = useMemo(() => {
-    if (!selectedFileSummary || selectedFileSummary.source !== 'unstaged') return null;
-    if (selectedFileSummary.isDeleted) return null;
-    const base = session.folderPath.replace(/\/$/, '');
-    return `${base}/${selectedFileSummary.path}`;
-  }, [selectedFileSummary, session.folderPath]);
-
-  const inlineEdit = useDiffInlineEdit({
-    sessionId: session.id,
-    absolutePath: editTargetPath,
-    enabled: !!editTargetPath,
-  });
+  }, [resolvedActiveId]);
 
   return (
     <div
@@ -393,8 +430,8 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
                   {src.toUpperCase()} · {grp.length}
                 </div>
                 {grp.map((f) => {
-                  const id = `${f.source}::${f.path}`;
-                  const sel = effectiveSelected === id;
+                  const id = f.id;
+                  const sel = resolvedActiveId === id;
                   const allHashes = f.source === 'unstaged' ? hashesByFile.get(f.path) : undefined;
                   const checkedSet = selection.checkedHashesByFile.get(f.path);
                   const checkedCount = checkedSet?.size ?? 0;
@@ -414,7 +451,7 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
                     <Fragment key={id}>
                       <button
                         ref={sel ? selectedRowRef : undefined}
-                        onClick={() => setSelectedFile(id)}
+                        onClick={() => scrollToFile(id)}
                         onMouseEnter={() => setHoveredFile(f.path)}
                         onMouseLeave={() => setHoveredFile(null)}
                         style={{
@@ -516,58 +553,24 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
                         )}
                       </button>
                       {isConfirming && (
-                        <div style={{
-                          padding: '8px var(--s-4)',
-                          background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
-                          borderLeft: '2px solid var(--danger)',
-                          borderTop: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
-                        }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', marginBottom: 8 }}>
-                            Revert all changes? Cannot be undone.
-                          </div>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>
-                            <span
-                              role="checkbox"
-                              aria-checked={skipConfirmFile}
-                              onClick={(e) => { e.stopPropagation(); toggleSkipConfirmFile(); }}
-                              style={{
-                                width: 13, height: 13, flexShrink: 0,
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                borderRadius: 2,
-                                border: `1px solid ${skipConfirmFile ? 'var(--accent)' : 'var(--line-3)'}`,
-                                background: skipConfirmFile ? 'var(--accent)' : 'var(--bg-2)',
-                                color: skipConfirmFile ? 'var(--bg-0)' : 'transparent',
-                              }}
-                            >
-                              {skipConfirmFile && <Check size={9} strokeWidth={2.5} />}
-                            </span>
-                            <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>Don't ask again</span>
-                          </label>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => setPendingRevertFile(null)}
-                              style={{
-                                all: 'unset', cursor: 'pointer',
-                                padding: '3px 10px', borderRadius: 'var(--r-2)',
-                                border: '1px solid var(--line-3)', color: 'var(--fg-2)',
-                                fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
-                              }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => void handleRevertFile(f)}
-                              disabled={isReverting}
-                              style={{
-                                all: 'unset', cursor: isReverting ? 'wait' : 'pointer',
-                                padding: '3px 10px', borderRadius: 'var(--r-2)',
-                                background: 'var(--danger)', color: '#fff',
-                                fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)',
-                              }}
-                            >
-                              {isReverting ? 'Reverting…' : 'Revert file'}
-                            </button>
-                          </div>
+                        <div
+                          style={{
+                            padding: '8px var(--s-4)',
+                            background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+                            borderLeft: '2px solid var(--danger)',
+                            borderTop: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
+                          }}
+                        >
+                          <RevertConfirmCard
+                            title="Revert all changes?"
+                            subtitle="Cannot be undone."
+                            confirmLabel={isReverting ? 'Reverting' : 'Revert file'}
+                            busy={isReverting}
+                            skip={skipConfirmFile}
+                            onToggleSkip={toggleSkipConfirmFile}
+                            onCancel={() => setPendingRevertFile(null)}
+                            onConfirm={() => void handleRevertFile(f)}
+                          />
                         </div>
                       )}
                     </Fragment>
@@ -578,44 +581,60 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
           })}
         </aside>
 
-        <main style={{ flex: 1, minWidth: 0, background: 'var(--bg-0)', overflow: 'auto' }} className="argus-scroll">
-          {(() => {
-            const selected = effectiveSelected
-              ? files.find((f) => `${f.source}::${f.path}` === effectiveSelected)
-              : undefined;
-            if (!selected) {
+        <main ref={mainRef} style={{ flex: 1, minWidth: 0, background: 'var(--bg-0)', overflow: 'auto' }} className="argus-scroll">
+          {total === 0 ? (
+            <div style={{ padding: 'var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
+              {isLoading ? 'Loading diff…' : 'No files to view.'}
+            </div>
+          ) : (
+            files.map((f) => {
+              const allHashes = f.source === 'unstaged' ? hashesByFile.get(f.path) : undefined;
+              const checkedCount = selection.checkedHashesByFile.get(f.path)?.size ?? 0;
+              const totalBlocks = allHashes?.size ?? 0;
+              const acceptState: 'none' | 'partial' | 'all' =
+                !allHashes || totalBlocks === 0 || checkedCount === 0
+                  ? 'none'
+                  : checkedCount >= totalBlocks
+                    ? 'all'
+                    : 'partial';
               return (
-                <div style={{ padding: 'var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
-                  {isLoading ? 'Loading diff…' : 'No files to view.'}
-                </div>
+                <FileSection
+                  key={f.id}
+                  file={f}
+                  sessionId={session.id}
+                  folderPath={session.folderPath}
+                  mode={viewMode}
+                  active={resolvedActiveId === f.id}
+                  registerRef={registerRef}
+                  defaultCollapsed={shouldAutoCollapse(f.parsed)}
+                  renderBody={nearIds.has(f.id)}
+                  estimatedBodyHeight={estimateBodyHeight(f.parsed)}
+                  isChecked={selection.isChecked}
+                  onToggleBlock={handleToggle(f.path)}
+                  onRevertBlock={handleRevert(f.path, f.fromPath)}
+                  acceptState={acceptState}
+                  acceptDisabled={!allHashes || totalBlocks === 0}
+                  onAccept={
+                    f.source === 'unstaged'
+                      ? () => {
+                          if (!allHashes) return;
+                          if (acceptState === 'all') selection.setBlocksForFile(f.path, []);
+                          else selection.setBlocksForFile(f.path, [...allHashes]);
+                        }
+                      : undefined
+                  }
+                  onRollback={f.source === 'unstaged' ? () => handleRevertFile(f) : undefined}
+                  rollbackBusy={revertingFilePath === f.path}
+                  onStage={f.source === 'untracked' ? () => stageUntracked(f.path) : undefined}
+                  stageBusy={stagingPath === f.path}
+                  onIgnore={f.source === 'untracked' ? () => ignoreFile(f.path) : undefined}
+                  ignoreBusy={ignoringPath === f.path}
+                  onUnstage={f.source === 'staged' ? () => unstageFile(f.path) : undefined}
+                  unstageBusy={unstagingPath === f.path}
+                />
               );
-            }
-            return (
-              <DiffViewer
-                file={selected}
-                mode={viewMode}
-                selection={
-                  selected.source === 'unstaged'
-                    ? {
-                        isChecked: selection.isChecked,
-                        toggle: handleToggle(selected.path),
-                        revert: handleRevert(selected.path),
-                      }
-                    : undefined
-                }
-                editProps={
-                  selected.source === 'unstaged' && inlineEdit.ready
-                    ? { editLine: inlineEdit.editLine }
-                    : undefined
-                }
-                editStatus={
-                  selected.source === 'unstaged'
-                    ? { saving: inlineEdit.saving, error: inlineEdit.error }
-                    : undefined
-                }
-              />
-            );
-          })()}
+            })
+          )}
         </main>
       </div>
 
@@ -826,151 +845,3 @@ const modeBtn = (active: boolean): React.CSSProperties => ({
   fontSize: 'var(--t-tiny)',
   letterSpacing: 'var(--tracking-eye)',
 });
-
-function lineText(c: { content: string }): string {
-  return c.content.replace(/^[+\- ]/, '');
-}
-
-interface DiffViewerSelectionProps {
-  isChecked: (filePath: string, hash: string) => boolean;
-  toggle: (block: ChangeBlock) => void;
-  revert: (block: ChangeBlock) => Promise<void> | void;
-}
-
-interface DiffViewerEditProps {
-  editLine: (lineNo: number, text: string) => void;
-}
-
-interface DiffViewerEditStatus {
-  saving: boolean;
-  error: string | null;
-}
-
-export function DiffViewer({
-  file,
-  mode,
-  selection,
-  editProps,
-  editStatus,
-}: {
-  file: FileSummary;
-  mode: 'split' | 'unified';
-  selection?: DiffViewerSelectionProps;
-  editProps?: DiffViewerEditProps;
-  editStatus?: DiffViewerEditStatus;
-}) {
-  const files = useMemo(() => parseDiff(file.raw), [file.raw]);
-  const target = files.find((f) => (f.to ?? f.from) === file.path);
-  if (!target) return null;
-  return (
-    <div style={{ padding: 'var(--s-4)', fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
-      <div
-        className="eyebrow"
-        style={{ color: 'var(--accent)', marginBottom: 'var(--s-3)', display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}
-      >
-        <span>{file.path} · {mode.toUpperCase()}</span>
-        {editStatus?.saving && <span style={{ color: 'var(--dirty)' }}>· SAVING…</span>}
-        {editStatus?.error && <span style={{ color: 'var(--danger)' }}>· {editStatus.error}</span>}
-      </div>
-      {mode === 'split' ? (
-        <SplitDiff
-          target={target}
-          selection={
-            selection
-              ? {
-                  filePath: file.path,
-                  isChecked: selection.isChecked,
-                  onToggle: selection.toggle,
-                  onRevert: selection.revert,
-                }
-              : undefined
-          }
-          edit={editProps}
-        />
-      ) : (
-        target.chunks.map((chunk, i) => {
-          const blocks = selection ? segmentChangeBlocks(file.path, i, chunk) : [];
-          const blockByFirstChangeIdx = new Map<number, ChangeBlock>();
-          if (selection) {
-            // Map block.firstChangeIndex within chunk.changes (including ctx) to block.
-            // Compute by walking chunk.changes alongside blocks.
-            let nonCtx = 0;
-            let blockCursor = 0;
-            chunk.changes.forEach((c, idx) => {
-              if (c.type === 'normal') return;
-              const blk = blocks[blockCursor];
-              if (blk && nonCtx === blk.changeIndicesInChunk[0]) {
-                blockByFirstChangeIdx.set(idx, blk);
-                blockCursor += 1;
-              }
-              nonCtx += 1;
-            });
-          }
-          return (
-          <div key={i} style={{ marginBottom: 'var(--s-4)' }}>
-            <div style={{ color: 'var(--fg-3)', padding: '2px var(--s-2)', background: 'var(--bg-1)', borderRadius: 'var(--r-1)', marginBottom: 4 }}>
-              {chunk.content}
-            </div>
-            {chunk.changes.map((c, j) => {
-              const isAdd = c.type === 'add';
-              const isDel = c.type === 'del';
-              const block = selection ? blockByFirstChangeIdx.get(j) ?? null : null;
-              const lineNo = isAdd
-                ? (c as { ln?: number }).ln
-                : isDel
-                  ? undefined
-                  : (c as { ln2?: number }).ln2;
-              const canEdit = !!editProps && !isDel && lineNo != null;
-              return (
-                <div
-                  key={j}
-                  style={{
-                    display: 'flex',
-                    gap: 'var(--s-2)',
-                    padding: '0 var(--s-2)',
-                    background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
-                    color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-1)',
-                    whiteSpace: 'pre',
-                  }}
-                >
-                  {selection && (
-                    <div style={{ width: 50, flexShrink: 0 }}>
-                      <BlockGutterCell
-                        block={block}
-                        isChecked={block ? selection.isChecked(file.path, block.hash) : false}
-                        onToggle={selection.toggle}
-                        onRevert={selection.revert}
-                      />
-                    </div>
-                  )}
-                  <span style={{ width: 14, color: 'var(--fg-4)', flexShrink: 0 }}>
-                    {isAdd ? '+' : isDel ? '−' : ' '}
-                  </span>
-                  {canEdit ? (
-                    <span
-                      contentEditable
-                      suppressContentEditableWarning
-                      spellCheck={false}
-                      onInput={(e) => {
-                        editProps!.editLine(lineNo as number, (e.currentTarget.textContent ?? '').replace(/\n/g, ''));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') e.preventDefault();
-                      }}
-                      style={{ outline: 'none', flex: 1, minWidth: 0 }}
-                    >
-                      {lineText(c)}
-                    </span>
-                  ) : (
-                    <span>{lineText(c)}</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          );
-        })
-      )}
-    </div>
-  );
-}
