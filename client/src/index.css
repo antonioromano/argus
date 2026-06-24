@@ -965,14 +965,18 @@ body {
    Driven by data-waiting-style on .argus-mosaic. Both styles use only
    theme-scoped tokens, so dark + light come for free. */
 
-/* Default: breathing halo around the whole waiting tile */
+/* Default: breathing inset ring + tint wash. Lives INSIDE the tile so it
+   reads even when tiles pack flush (gap:0) under overflow:hidden — an
+   outward glow would be clipped by the tile/mosaic clip boxes. */
 .argus-mosaic[data-waiting-style="breathing"] .argus-tile[data-status="waiting"] {
   animation: argus-tile-breathe var(--dur-ambient) ease-in-out infinite;
 }
 @keyframes argus-tile-breathe {
-  0%, 100% { box-shadow: 0 0 0 1px var(--accent-edge), 0 0 10px 0 var(--accent-glow); }
-  50%      { box-shadow: 0 0 0 2px var(--status-waiting),
-                         0 0 34px 6px color-mix(in srgb, var(--accent) 45%, transparent); }
+  0%, 100% { box-shadow: inset 0 0 0 1px var(--accent-edge), inset 0 0 8px 0 var(--accent-glow);
+             background: var(--bg-2); }
+  50%      { box-shadow: inset 0 0 0 2px var(--status-waiting),
+                         inset 0 0 24px 2px color-mix(in srgb, var(--accent) 40%, transparent);
+             background: color-mix(in srgb, var(--status-waiting-bg) 100%, var(--bg-2)); }
 }
 
 /* Alt: pulsing top bar + filled, bobbing WAITING flag */
