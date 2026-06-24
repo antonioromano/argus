@@ -103,10 +103,12 @@ export function setupSocketHandler(
       }
       // Replay a clean frame so the terminal isn't blank — and isn't garbled —
       // after reconnect/reload. For tmux sessions this is a fresh screen
-      // snapshot; otherwise the raw rolling buffer.
-      const buffer = manager.getReplaySnapshot(sessionId);
-      if (buffer) {
-        socket.emit('session:output', { sessionId, data: buffer });
+      // snapshot; otherwise the raw rolling buffer. Sent as session:replay (not
+      // session:output) so the client reconciles its buffer/mouse state to tmux
+      // before painting — see SessionReplay.
+      const replay = manager.getReplaySnapshot(sessionId);
+      if (replay) {
+        socket.emit('session:replay', { sessionId, ...replay });
       }
     });
 

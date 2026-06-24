@@ -275,25 +275,56 @@ export class PtyManager {
   }
 
   /**
-   * Pane state needed to build a correct replay frame, in one tmux round-trip:
-   * the cursor cell and whether the alternate screen (vim/less — no meaningful
-   * scrollback) is active. Coordinates are tmux's 0-based screen coordinates.
-   * Falls back to a safe default (no alt screen, cursor home) if the lookup fails.
+   * Pane state needed to build a correct, self-reconciling replay frame, in one
+   * tmux round-trip:
+   *  - cursor cell (tmux's 0-based screen coordinates)
+   *  - `alternate`: whether the alternate screen (vim/less — no meaningful
+   *    scrollback) is active, so the client can force xterm onto the matching
+   *    buffer instead of painting into a stale one
+   *  - `appMouse`: whether the inner app has ANY mouse-tracking mode on
+   *    (`#{mouse_any_flag}`), so the client's wheel-forwarding gate matches the
+   *    app's truth rather than a value persisted across reload
+   *  - `sgr`: whether the app requested SGR mouse encoding (`#{mouse_sgr_flag}`)
+   * Falls back to a safe default (normal screen, no mouse, SGR, cursor home) if
+   * the lookup fails — a gate that stays OFF can't get stuck forwarding wheels.
    */
-  captureState(tmuxName: string): { cursorX: number; cursorY: number; alternate: boolean } {
+  captureState(tmuxName: string): {
+    cursorX: number;
+    cursorY: number;
+    alternate: boolean;
+    appMouse: boolean;
+    sgr: boolean;
+  } {
     try {
       const out = this.runTmux([
         'display-message', '-p', '-t', tmuxName,
-        '#{cursor_x},#{cursor_y},#{alternate_on}',
+        '#{cursor_x},#{cursor_y},#{alternate_on},#{mouse_any_flag},#{mouse_sgr_flag}',
       ]).trim();
-      const [cx, cy, alt] = out.split(',');
+      const [cx, cy, alt, mouseAny, mouseSgr] = out.split(',');
       return {
         cursorX: Number.parseInt(cx, 10) || 0,
         cursorY: Number.parseInt(cy, 10) || 0,
         alternate: alt === '1',
+        appMouse: mouseAny === '1',
+        // Default to SGR (modern apps use it) when the flag is absent/unknown.
+        sgr: mouseSgr === '1' || mouseSgr === undefined,
       };
     } catch {
-      return { cursorX: 0, cursorY: 0, alternate: false };
+      return { cursorX: 0, cursorY: 0, alternate: false, appMouse: false, sgr: true };
+    }
+  }
+
+  /**
+   * Cancel tmux copy-mode if the pane is parked in it. A resync/replay capture
+   * fired while the user has scrolled into copy-mode history would otherwise
+   * snapshot the scrolled view and pin the client there. `-X cancel` is a no-op
+   * (swallowed) when the pane isn't in copy-mode.
+   */
+  exitCopyMode(tmuxName: string): void {
+    try {
+      this.runTmux(['send-keys', '-t', tmuxName, '-X', 'cancel']);
+    } catch {
+      /* not in copy-mode / pane gone — nothing to cancel */
     }
   }
 

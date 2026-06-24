@@ -67,6 +67,15 @@ const GIT_POLL_INTERVAL_MS = 10_000;
 // Fits under xterm's 5000 scrollback cap; bounded by tmux history-limit 50000.
 const REPLAY_HISTORY_LINES = 5000;
 
+/** Authoritative replay frame + the buffer/mouse truth the client reconciles to.
+ *  Wire shape adds `sessionId` (see SessionReplay in @argus/shared). */
+export interface SessionReplayFrame {
+  data: string;
+  alternate: boolean;
+  appMouse: boolean;
+  sgr: boolean;
+}
+
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private ptyManager: PtyManager;
@@ -507,17 +516,21 @@ export class SessionManager {
    * a fresh xterm (the bug behind "__"/black-icon after Cmd+R or tray reopen).
    * Falls back to the raw buffer for non-tmux sessions or if capture fails.
    */
-  getReplaySnapshot(id: string): string | undefined {
+  getReplaySnapshot(id: string): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
     if (session.persistent && session.tmuxName) {
       try {
         if (!this.ptyManager.isTmuxPaneDead(session.tmuxName)) {
+          // A resync can fire while the user has scrolled into tmux copy-mode;
+          // capturing then would snapshot the scrolled view. Cancel first so the
+          // capture lands on the live bottom-of-screen frame.
+          this.ptyManager.exitCopyMode(session.tmuxName);
           // Seed scrollback from history on the normal screen so the client can
           // scroll up into pre-join output. Skip for alt-screen apps (vim/less):
-          // they have no meaningful scrollback and mobile routes their scroll to
-          // forwarded wheel reports, not local xterm scrollback.
-          const { cursorX, cursorY, alternate } = this.ptyManager.captureState(session.tmuxName);
+          // they have no meaningful scrollback and history scroll routes through
+          // tmux copy-mode, not local xterm scrollback.
+          const { cursorX, cursorY, alternate, appMouse, sgr } = this.ptyManager.captureState(session.tmuxName);
           const depth = alternate ? 0 : REPLAY_HISTORY_LINES;
           // Strip ONLY the single trailing line-terminator, not the blank rows
           // below the cursor: those rows are part of the visible screen, and a
@@ -528,21 +541,31 @@ export class SessionManager {
           // \x1b[H) lands on history rows and overwrites them (old text bleeds over
           // the current screen). Keeping full height aligns redraws.
           const snap = this.ptyManager.capturePane(session.tmuxName, depth).replace(/\n$/, '');
-          // capture-pane separates rows with bare LF; xterm needs CRLF or it
-          // staircases. Clear+home first so the frame replaces prior content
-          // (\x1b[3J erases stale scrollback, so reconnect replaces, not dupes).
+          // Reconcile xterm's active buffer to tmux's truth, THEN paint. capture-pane
+          // separates rows with bare LF; xterm needs CRLF or it staircases.
+          //  - normal: `?1049l` forces xterm onto the normal buffer regardless of
+          //    where it was; `\x1b[3J` erases stale scrollback so reconnect replaces
+          //    rather than duplicates.
+          //  - alt: `?1049l` then `?1049h` makes the buffer switch deterministic and
+          //    lands on a fresh alt buffer. DROP `3J` here — clearing scrollback on
+          //    the alt screen is pointless and would wipe normal-buffer history.
           // Trailing cursor-position escape restores the real cursor cell (tmux's
           // 0-based coords → xterm's 1-based; viewport-relative == screen coords
           // once the screen sits at full height in the bottom rows).
-          return '\x1b[2J\x1b[3J\x1b[H'
+          const prefix = alternate ? '\x1b[?1049l\x1b[?1049h\x1b[2J\x1b[H' : '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H';
+          const data = prefix
             + snap.replace(/\r?\n/g, '\r\n')
             + `\x1b[${cursorY + 1};${cursorX + 1}H`;
+          return { data, alternate, appMouse, sgr };
         }
       } catch {
         /* tmux gone / pane dead — fall through to the raw buffer */
       }
     }
-    return session.outputBuffer;
+    // Non-tmux / dead-pane fallback: raw rolling buffer, normal screen, gate off.
+    const data = session.outputBuffer;
+    if (data === undefined) return undefined;
+    return { data, alternate: false, appMouse: false, sgr: true };
   }
 
   clearBuffer(id: string): void {

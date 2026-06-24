@@ -150,7 +150,7 @@ function DesktopInner() {
   const { theme, isDark, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
-  const { sessions, createSession, deleteSession } = useSessions(socket);
+  const { sessions, loaded: sessionsLoaded, createSession, deleteSession } = useSessions(socket);
   const ngrok = useNgrok(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
@@ -247,15 +247,19 @@ function DesktopInner() {
     return grouped.othersColor ? resolveGroupColor(grouped.othersColor, isDark) : null;
   };
 
-  // Auto-exit focus when active session disappears
+  // Auto-exit focus when the active session disappears — and validate a focus
+  // view restored from sessionStorage across Cmd+R. Gated on sessionsLoaded so
+  // the restored focus isn't dropped before the initial list fetch resolves
+  // (the list is empty until then, which would otherwise read as "not found").
   const { view: appView, activeSessionId: appActiveSessionId, exitFocus: appExitFocus } = app;
   useEffect(() => {
+    if (!sessionsLoaded) return;
     if (appView === 'focus' && appActiveSessionId) {
       if (!sessions.find((s) => s.id === appActiveSessionId)) {
         appExitFocus();
       }
     }
-  }, [sessions, appView, appActiveSessionId, appExitFocus]);
+  }, [sessionsLoaded, sessions, appView, appActiveSessionId, appExitFocus]);
 
   // Notification click: highlight the tile in the mosaic (rather than jumping to focus mode).
   const highlightSession = useCallback((id: string) => {

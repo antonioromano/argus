@@ -128,8 +128,24 @@ export interface ClientToServerEvents {
   'ct:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;
 }
 
+/**
+ * Authoritative replay frame sent on (re)join. Distinct from streaming
+ * `session:output` so the client can reconcile its buffer/mouse state to tmux's
+ * truth BEFORE writing the frame — `alternate` forces xterm onto the matching
+ * buffer, `appMouse`/`sgr` reset the wheel-forwarding gate. Steady-state output
+ * keeps flowing over `session:output` and is never used for reconciliation.
+ */
+export interface SessionReplay {
+  sessionId: string;
+  data: string;
+  alternate: boolean;
+  appMouse: boolean;
+  sgr: boolean;
+}
+
 export interface ServerToClientEvents {
   'session:output': (payload: { sessionId: string; data: string }) => void;
+  'session:replay': (payload: SessionReplay) => void;
   'session:status': (payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => void;
   'session:exit': (payload: { sessionId: string; exitCode: number }) => void;
   'session:created': (session: SessionInfo) => void;

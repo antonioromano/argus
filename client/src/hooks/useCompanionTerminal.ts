@@ -132,7 +132,7 @@ export function useCompanionTerminal(
 
     // Keep xterm out of mouse-reporting mode (plain drag selects text) while
     // forwarding wheel + single clicks to the inner app (scroll / click claude).
-    const disposeMouse = installSelectableMouse(
+    const { dispose: disposeMouse } = installSelectableMouse(
       terminal,
       container,
       sessionId,

@@ -94,7 +94,9 @@ function saveState(key: string, state: MouseState): void {
  * @param kind namespaces the persisted mouse state so panes that share a sessionId
  *   (e.g. the Claude terminal and its companion shell) don't inherit each other's
  *   app-mouse intent. Omit for the primary terminal (back-compat key).
- * @returns cleanup that removes listeners and disposes the parser handlers.
+ * @returns `{ dispose, reconcileMouse }` — `dispose` removes listeners and the
+ *   parser handlers; `reconcileMouse(appMouse, sgr)` overwrites the gate state to
+ *   match tmux's truth (called on each authoritative replay).
  */
 export function installSelectableMouse(
   terminal: Terminal,
@@ -102,10 +104,18 @@ export function installSelectableMouse(
   sessionId: string,
   sendInput?: (data: string) => void,
   kind?: string,
-  onExitPeek?: () => void,
-): () => void {
+): { dispose: () => void; reconcileMouse: (appMouse: boolean, sgr: boolean) => void } {
   const storageKey = kind ? 'argus:mouse:' + kind + ':' + sessionId : 'argus:mouse:' + sessionId;
   const state = loadState(storageKey);
+
+  // Reconcile the wheel-forwarding gate to the server's tmux truth (shipped with
+  // each authoritative replay). Overwrites any value persisted across Cmd+R, so a
+  // stale `appMouse` can't keep forwarding wheels after the app dropped mouse mode.
+  const reconcileMouse = (appMouse: boolean, sgr: boolean) => {
+    state.appMouse = appMouse;
+    state.sgr = sgr;
+    saveState(storageKey, state);
+  };
 
   const onSet = terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
     if (!isMouseModeSet(params)) return false;
@@ -121,62 +131,16 @@ export function installSelectableMouse(
     return true;
   });
 
-  // ---- alternate-screen peek: let the user scroll into normal-buffer history ----
-  // Claude Code's plan mode keeps the terminal in alternate screen throughout the
-  // review loop (plan → cogitation → new plan). The normal buffer's scrollback has
-  // the full conversation history, but onWheel would normally just forward wheel
-  // events to the PTY (which ignores them during cogitation). Instead, scroll up
-  // in alternate = temporarily switch xterm to normal buffer so the user can read
-  // history. Scroll back to bottom = restore alternate + request a fresh snapshot.
-  let peeking = false;
-  let peekScrollDisposable: { dispose: () => void } | null = null;
-
-  function exitPeek() {
-    if (!peeking) return;
-    peeking = false;
-    peekScrollDisposable?.dispose();
-    peekScrollDisposable = null;
-    // Restore alternate buffer in xterm. \x1b[?1049h clears the alt buffer — the
-    // plan UI is gone momentarily. onExitPeek() triggers a fresh snapshot (resync)
-    // which redraws it from the current tmux state within ~200ms.
-    terminal.write('\x1b[?1049h');
-    onExitPeek?.();
-  }
-
-  function enterPeek() {
-    if (peeking) return;
-    peeking = true;
-    // Switch xterm to normal buffer without touching the PTY. The alternate buffer
-    // content is preserved for when we restore it via exitPeek().
-    terminal.write('\x1b[?1049l');
-    // Auto-exit when the user scrolls back to the live bottom.
-    peekScrollDisposable = terminal.onScroll(() => {
-      const b = terminal.buffer.active;
-      if (b.viewportY >= b.baseY) exitPeek();
-    });
-  }
-
   // ---- wheel → scroll the inner app ----
   let wheelAcc = 0;
   const onWheel = (e: WheelEvent) => {
-    // While peeking (xterm temporarily in normal mode), let xterm handle scroll
-    // naturally. exitPeek() fires automatically via peekScrollDisposable.
-    if (peeking) return;
-
-    // Forward wheel only on the alternate screen (vim/less). On the normal screen
-    // (Claude streaming, shell prompt) let xterm scroll its own buffer — otherwise
-    // wheel drives the app's internal mouse-scroll UI instead of native scrollback.
+    // Forward wheel only on the alternate screen (vim/less, Claude's plan TUI). On
+    // the normal screen (streaming output, shell prompt) let xterm scroll its own
+    // seeded scrollback. On the alternate screen the report goes to the pty, where
+    // tmux's `WheelUpPane copy-mode -e` scrolls the 50k history (and apps in mouse
+    // mode see the wheel) — a single, server-authoritative scroll path with no
+    // client-side buffer toggling that could desync from tmux.
     if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') return;
-
-    // Scrolling UP in alternate mode (appMouse active): if the normal buffer has
-    // scrollback, peek at it instead of forwarding to PTY. This lets the user read
-    // plan history while Claude Code is in its plan-review loop.
-    if (e.deltaY < 0 && terminal.buffer.normal.baseY > 0) {
-      e.preventDefault();
-      enterPeek();
-      terminal.scrollLines(-Math.max(1, Math.round(Math.abs(e.deltaY) / 15)));
-      return;
-    }
 
     e.preventDefault();
     wheelAcc += e.deltaY;
@@ -517,8 +481,7 @@ export function installSelectableMouse(
   window.addEventListener('touchcancel', onTouchCancel, { capture: true });
   if (TRACE) getViewport()?.addEventListener('scroll', onVpScroll, { passive: true });
 
-  return () => {
-    exitPeek(); // never leave xterm stranded in peek (normal-buffer) mode on unmount
+  const dispose = () => {
     cancelInertia(); // a fling started just before unmount must not emit after teardown
     clearWatchdog();
     if (flushRaf) { cancelAnimationFrame(flushRaf); flushRaf = 0; }
@@ -533,6 +496,8 @@ export function installSelectableMouse(
     window.removeEventListener('touchcancel', onTouchCancel, { capture: true });
     if (TRACE) getViewport()?.removeEventListener('scroll', onVpScroll);
   };
+
+  return { dispose, reconcileMouse };
 }
 
 function wheelSeq(sgr: boolean, down: boolean): string {

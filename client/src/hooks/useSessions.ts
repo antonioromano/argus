@@ -9,10 +9,14 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 export function useSessions(socket: TypedSocket) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  // True once the initial REST fetch resolves. Consumers gate "session not
+  // found" decisions on this so a restored focus view isn't dropped before the
+  // list has loaded (Cmd+R focus persistence).
+  const [loaded, setLoaded] = useState(false);
 
   // Load sessions on mount and after reconnect
   useEffect(() => {
-    api.getSessions().then(setSessions).catch(console.error);
+    api.getSessions().then(setSessions).catch(console.error).finally(() => setLoaded(true));
 
     const handleReconnect = () => {
       api.getSessions().then(setSessions).catch(console.error);
@@ -91,5 +95,5 @@ export function useSessions(socket: TypedSocket) {
     }
   }, []);
 
-  return { sessions, createSession, deleteSession };
+  return { sessions, loaded, createSession, deleteSession };
 }

@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents, SessionStatus } from '@argus/shared';
+import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, SessionReplay } from '@argus/shared';
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
@@ -184,17 +184,10 @@ export function useTerminal(
     // claude). Always defined — even readOnly (mobile) forwards touch scroll + taps;
     // keyboard stdin stays disabled via the readOnly-gated onData below.
     const sendInput = (data: string) => socket.emit('session:input', { sessionId, data });
-    const disposeMouse = installSelectableMouse(
+    const { dispose: disposeMouse, reconcileMouse } = installSelectableMouse(
       terminal, container, sessionId,
       sendInput, // always defined — even readOnly (mobile) forwards touch scroll
       undefined, // kind — default storage key
-      readOnly ? undefined : () => {
-        // Peek mode exited: user scrolled back to bottom while temporarily viewing
-        // normal-buffer history during alternate-screen (plan mode). Restore the
-        // alternate screen by requesting a fresh tmux snapshot.
-        socket.emit('session:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
-        setTimeout(() => socket.emit('session:join', sessionId), 150);
-      },
     );
 
     const xtermTextarea = container.querySelector<HTMLTextAreaElement>('textarea');
@@ -295,18 +288,32 @@ export function useTerminal(
       if (prev === 'running' && (status === 'waiting' || status === 'done')) {
         const b = terminal.buffer.active;
         if (b.viewportY < b.baseY) return; // scrolled up — resync would clear scrollback
+        // On the alternate screen, tmux copy-mode keeps the frame fresh and this
+        // output-settle resync's real target is normal-buffer scrollback (the
+        // mosaic-drift reseed). Reseeding the alt frame here would flicker.
+        if (b.type === 'alternate') return;
         resync(150, 300);
       }
     };
     socket.on('session:status', handleStatus);
 
-    // Socket -> Terminal
+    // Socket -> Terminal: steady-state streaming.
     const handleOutput = ({ sessionId: sid, data }: { sessionId: string; data: string }) => {
       if (sid === sessionId) {
         terminal.write(data);
       }
     };
     socket.on('session:output', handleOutput);
+
+    // Authoritative replay (join/reconnect/resync). Reconcile the wheel-forwarding
+    // gate to tmux's truth BEFORE painting, then refresh once the frame parses so
+    // the buffer-mode flip (?1049l/h in the frame) leaves no stale DOM rows.
+    const handleReplay = ({ sessionId: sid, data, appMouse, sgr }: SessionReplay) => {
+      if (sid !== sessionId) return;
+      reconcileMouse(appMouse, sgr);
+      terminal.write(data, () => terminal.refresh(0, terminal.rows - 1));
+    };
+    socket.on('session:replay', handleReplay);
 
     if (!readOnly) terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       const binds = shortcutsRef.current;
@@ -406,6 +413,7 @@ export function useTerminal(
       scrollDisposable.dispose();
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
+      socket.off('session:replay', handleReplay);
       socket.off('session:status', handleStatus);
       socket.off('connect', handleReconnect);
       socket.emit('session:leave', sessionId);

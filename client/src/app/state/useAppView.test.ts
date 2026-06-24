@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   maximizeSidePanelState,
   openMaximizedState,
   dismissMaximizedState,
   toggleSidePanelState,
+  loadPersistedView,
+  persistView,
   type AppViewState,
 } from './useAppView.js';
 
@@ -55,6 +57,40 @@ describe('dismissMaximizedState (close returns to origin)', () => {
     expect(closed.view).toBe('focus');
     expect(closed.sidePanel).toBeNull();
     expect(closed.maximizedOrigin).toBeNull();
+  });
+});
+
+describe('focus persistence across Cmd+R (loadPersistedView / persistView)', () => {
+  beforeEach(() => sessionStorage.clear());
+
+  it('round-trips a focused view', () => {
+    persistView('focus', 's42');
+    expect(loadPersistedView()).toEqual({ view: 'focus', activeSessionId: 's42' });
+  });
+
+  it('defaults to dashboard when nothing is stored', () => {
+    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+  });
+
+  it('clears the key when persisting a non-focus view', () => {
+    persistView('focus', 's1');
+    persistView('dashboard', null);
+    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+  });
+
+  it('does not persist a focus view without a session id', () => {
+    persistView('focus', null);
+    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+  });
+
+  it('ignores malformed stored JSON', () => {
+    sessionStorage.setItem('argus.appView', '{not json');
+    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+  });
+
+  it('ignores a stored focus view missing its session id', () => {
+    sessionStorage.setItem('argus.appView', JSON.stringify({ view: 'focus', activeSessionId: null }));
+    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
   });
 });
 

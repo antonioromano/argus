@@ -29,6 +29,47 @@ export interface AppViewApi extends AppViewState {
   dismissMaximized: () => void;
 }
 
+// ---- Cross-reload persistence (Cmd+R) ----
+// Focus is ephemeral, so it lives in sessionStorage (cleared when the app
+// closes) rather than localStorage. Only the focused view is restored — overlay
+// and side-panel state are transient and always start closed.
+const PERSIST_KEY = 'argus.appView';
+
+export interface PersistedView {
+  view: View;
+  activeSessionId: string | null;
+}
+
+/** Read the persisted view. Restores only a `focus` view that names a session;
+ *  anything else (or malformed/missing storage) → the dashboard default. */
+export function loadPersistedView(): PersistedView {
+  try {
+    const raw = sessionStorage.getItem(PERSIST_KEY);
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<PersistedView>;
+      if (p.view === 'focus' && typeof p.activeSessionId === 'string') {
+        return { view: 'focus', activeSessionId: p.activeSessionId };
+      }
+    }
+  } catch {
+    /* sessionStorage unavailable / malformed — fall through to default */
+  }
+  return { view: 'dashboard', activeSessionId: null };
+}
+
+/** Persist a focused view; clear the key for any non-focus view. */
+export function persistView(view: View, activeSessionId: string | null): void {
+  try {
+    if (view === 'focus' && activeSessionId) {
+      sessionStorage.setItem(PERSIST_KEY, JSON.stringify({ view, activeSessionId }));
+    } else {
+      sessionStorage.removeItem(PERSIST_KEY);
+    }
+  } catch {
+    /* best-effort persistence across Cmd+R */
+  }
+}
+
 // ---- Pure state transitions (unit-tested in useAppView.test.ts) ----
 
 /** Toggle a side panel; switching kind always drops any `maximized` flag. */
@@ -85,13 +126,23 @@ export function dismissMaximizedState(s: AppViewState): AppViewState {
  *   registry-driven handler in ArgusApp. Escape stays here.
  */
 export function useAppView(): AppViewApi {
-  const [state, setState] = useState<AppViewState>({
-    view: 'dashboard',
-    activeSessionId: null,
-    overlay: null,
-    sidePanel: null,
-    maximizedOrigin: null,
+  const [state, setState] = useState<AppViewState>(() => {
+    const persisted = loadPersistedView();
+    return {
+      view: persisted.view,
+      activeSessionId: persisted.activeSessionId,
+      overlay: null,
+      sidePanel: null,
+      maximizedOrigin: null,
+    };
   });
+
+  // Persist the focused view so Cmd+R (renderer reload) returns to the same
+  // session instead of dropping to the mosaic. ArgusApp validates the restored
+  // session id once the list loads and exits focus if it no longer exists.
+  useEffect(() => {
+    persistView(state.view, state.activeSessionId);
+  }, [state.view, state.activeSessionId]);
 
   const openSession = useCallback((id: string) => {
     setState((s) => ({ ...s, view: 'focus', activeSessionId: id }));
