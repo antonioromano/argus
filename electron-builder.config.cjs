@@ -78,19 +78,11 @@ module.exports = {
     icon: null,
     writeUpdateInfo: false,
   },
-  // Harden the packaged binary via Electron fuses. electron-builder flips these
-  // BEFORE its signing pass (and the afterPack ad-hoc re-seal preserves them), so
-  // this composes with the existing signing dance without an @electron/fuses
-  // afterPack step. Blocks relaunching the app as a raw Node process or with the
-  // V8 inspector — which would otherwise expose the user's shell/PATH and the
-  // in-memory tunnel password. Intentionally omits asar-integrity fuses, which
-  // can break the ad-hoc fallback build.
-  electronFuses: {
-    runAsNode: false,
-    enableNodeOptionsEnvironmentVariable: false,
-    enableNodeCliInspectArguments: false,
-    onlyLoadAppFromAsar: true,
-  },
+  // NOTE: Electron-fuse hardening (U3) is deferred — the `electronFuses` config
+  // key requires electron-builder 26.x; this repo is on 25.1.8 (it failed config
+  // validation and blocked the release). Re-do via @electron/fuses in an
+  // afterPack step ordered BEFORE signing, or after an eb 26 upgrade — both need
+  // a packaged-build verification.
   // afterPack ad-hoc re-signs ONLY in the unsigned fallback (it no-ops when a
   // real signing pass runs, so it can't clobber the Developer ID signature).
   afterPack: 'electron/afterPack.cjs',
