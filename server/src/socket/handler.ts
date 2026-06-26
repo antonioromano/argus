@@ -147,10 +147,19 @@ export function setupSocketHandler(
 
     // Ephemeral terminal events (Explorer view — not persisted, not in session list)
     socket.on('ephemeral:spawn', ({ id, cwd }) => {
+      // Containment: only spawn a shell inside a folder Argus actually manages a
+      // session for. Without this an (authenticated) client — including one on
+      // the mobile tunnel — could open a login shell at any path on the host,
+      // escaping the session sandbox every other fs/git route enforces.
+      const safeCwd = manager.resolveWithinAnySession(cwd);
+      if (!safeCwd) {
+        socket.emit('ephemeral:exit', { id, exitCode: -1 });
+        return;
+      }
       ephemeralManager.spawn(
         id,
         socket.id,
-        cwd,
+        safeCwd,
         120,
         30,
         (data) => socket.emit('ephemeral:output', { id, data }),

@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSP delivered via meta so it covers both the Electron renderer and the
+         ngrok-served mobile page (same built index.html). script-src 'self'
+         blocks injected scripts (token-exfil vector); 'unsafe-inline' is required
+         only for styles (React inline styles + xterm/Monaco injected <style>).
+         Tighten font-src/style-src once fonts are self-hosted (U7). -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' ws: wss:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <link rel="icon" type="image/svg+xml" href="/favicon-orange.svg" />
     <title>Argus</title>

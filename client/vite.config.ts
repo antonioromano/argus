@@ -14,6 +14,13 @@ export default defineConfig({
   define: {
     __ARGUS_VERSION__: JSON.stringify(pkg.version),
   },
+  build: {
+    // Don't emit Vite's inline modulepreload polyfill: it's an inline <script>
+    // that the strict `script-src 'self'` CSP (index.html) would block, and the
+    // app only runs in modern Chromium (Electron) / mobile browsers that support
+    // modulepreload natively.
+    modulePreload: { polyfill: false },
+  },
   server: {
     port: 5402,
     proxy: {

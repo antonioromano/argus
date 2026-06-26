@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import { execFile } from 'child_process';
 import { readFile, stat, readdir, mkdir, writeFile, rename, unlink, rm } from 'fs/promises';
 import path from 'path';
+import os from 'os';
 import { getPathCompletions } from '../utils/fsAutocomplete.js';
 import { getDirectoryChildren } from '../utils/fsChildren.js';
 import { atomicWrite } from '../utils/atomicWrite.js';
@@ -30,6 +31,20 @@ function validateSessionPath(
   return { session, resolved };
 }
 
+// The folder picker (autocomplete + children) must browse paths that are NOT
+// yet a managed session — so it can't be scoped via resolveWithinAnySession like
+// the file routes. Instead it is bounded to the home subtree (matching the
+// worktrees home-dir guard) OR an already-managed session folder. This keeps the
+// picker usable while preventing enumeration of the whole filesystem (e.g. /etc,
+// other users' homes) by an authenticated client over the tunnel.
+export function isBrowsablePath(sessionManager: SessionManager, rawPath: string): boolean {
+  const expanded = rawPath.startsWith('~') ? path.join(os.homedir(), rawPath.slice(1)) : rawPath;
+  const resolved = path.resolve(expanded);
+  const home = os.homedir();
+  if (resolved === home || resolved.startsWith(home + path.sep)) return true;
+  return sessionManager.resolveWithinAnySession(resolved) !== null;
+}
+
 export function createFilesystemRoutes(
   sessionManager: SessionManager,
   options?: { pickFolder?: () => Promise<string | null> },
@@ -44,7 +59,9 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const completions = await getPathCompletions(pathQuery);
+    const completions = (await getPathCompletions(pathQuery)).filter((p) =>
+      isBrowsablePath(sessionManager, p),
+    );
     res.json({ completions });
   });
 
@@ -52,6 +69,13 @@ export function createFilesystemRoutes(
     const dirPath = req.query.path as string | undefined;
     const includeFiles = req.query.includeFiles === 'true';
     const result = await getDirectoryChildren(dirPath, includeFiles);
+    // Refuse to enumerate a directory outside the browsable scope, and filter any
+    // out-of-scope entries (defends against the dirname-of-a-partial leak).
+    if (!isBrowsablePath(sessionManager, result.parentPath)) {
+      res.json({ entries: [], parentPath: result.parentPath });
+      return;
+    }
+    result.entries = result.entries.filter((e) => isBrowsablePath(sessionManager, e.path));
     res.json(result);
   });
 

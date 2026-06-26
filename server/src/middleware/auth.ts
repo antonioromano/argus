@@ -4,6 +4,9 @@ import type { AuthService } from '../services/AuthService.js';
 const PUBLIC_PATHS = [
   '/api/auth/status',
   '/api/auth/login',
+  // Loopback-only at the handler level; public here so a LAN-exposed instance
+  // with no password yet (503 fail-closed on everything else) can still set one.
+  '/api/auth/set-password',
   '/api/ngrok/status',
   '/api/health',
 ];

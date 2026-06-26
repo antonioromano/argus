@@ -114,6 +114,11 @@ export function createWindow(): BrowserWindow {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      // Sandbox the renderer. The preload only uses contextBridge/ipcRenderer/
+      // webUtils — all available in sandboxed preloads — so the drop-path bridge
+      // and IPC keep working while the renderer (which paints untrusted bytes:
+      // filenames, diffs, terminal output) loses direct OS access.
+      sandbox: true,
       preload: join(__dirname, 'preload.js'),
       // Keep the renderer painting while hidden in the tray — reduces how often
       // the WebGL terminal surface loses its GPU context on hide/show.
