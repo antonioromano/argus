@@ -142,10 +142,15 @@ export class PtyManager {
       'set-window-option -g aggressive-resize on',
       'set-window-option -g remain-on-exit on',                // keep dead pane so we can detect exited-while-detached
       'set-option -g mouse on',                                // route forwarded wheel reports into tmux
-      // Unconditional: wheel-up enters copy-mode + scrolls the 50k history even
-      // though claude holds mouse mode (the #{mouse_any_flag} recipe would forward
-      // the wheel to claude and only scroll its tiny on-screen transcript).
-      'bind-key -n WheelUpPane copy-mode -e',
+      // Wheel-up: forward to the app when it holds mouse mode (Claude scrolls its
+      // own conversation — its alt-screen content isn't in tmux history, so
+      // copy-mode there is a useless [0/0]). Fall back to copy-mode only for a
+      // no-mouse pane (a shell prompt, where the 50k backlog IS the real history).
+      'bind-key -n WheelUpPane if-shell -F "#{mouse_any_flag}" "send-keys -M" "copy-mode -e"',
+      // Wheel-down: forward to a mouse app so Claude scrolls down too. Bound
+      // explicitly (not left to tmux's default) so it also overwrites any stale
+      // WheelDownPane on a survivor tmux server from an older build.
+      'bind-key -n WheelDownPane if-shell -F "#{mouse_any_flag}" "send-keys -M"',
       '',
     ].join('\n');
     try {
@@ -173,7 +178,8 @@ export class PtyManager {
   private applyMouseConfig(): void {
     try {
       this.runTmux(['set-option', '-g', 'mouse', 'on']);
-      this.runTmux(['bind-key', '-n', 'WheelUpPane', 'copy-mode', '-e']);
+      this.runTmux(['bind-key', '-n', 'WheelUpPane', 'if-shell', '-F', '#{mouse_any_flag}', 'send-keys -M', 'copy-mode -e']);
+      this.runTmux(['bind-key', '-n', 'WheelDownPane', 'if-shell', '-F', '#{mouse_any_flag}', 'send-keys -M']);
     } catch {
       /* server not up yet → the -f config covers the fresh-server case */
     }

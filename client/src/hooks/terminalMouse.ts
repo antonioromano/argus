@@ -131,15 +131,30 @@ export function installSelectableMouse(
     return true;
   });
 
+  // Gate xterm's OWN built-in wheel handler. With mouse mode swallowed (so plain
+  // drag still selects text), xterm's always-on wheel listener takes its
+  // alt-buffer path on EVERY alt-screen wheel: it converts the wheel into
+  // arrow-key sequences, sends them to the pty, and `cancel`s the event with
+  // stopPropagation (browser/Terminal.ts) — both walking a mouse app's input
+  // history AND killing our `onWheel` below (xterm's listener is a child element
+  // and fires first). Suppress it (return false) ONLY for a mouse-holding app on
+  // the alternate screen (Claude): then no arrows fire, nothing is cancelled, and
+  // the event bubbles to `onWheel`, which forwards a real wheel report so Claude
+  // scrolls itself. Otherwise return true and let xterm do the right native thing
+  // — alt-scroll arrow keys for a no-mouse pager, scrollback on the normal screen.
+  terminal.attachCustomWheelEventHandler(
+    () => !(terminal.buffer.active.type === 'alternate' && state.appMouse),
+  );
+
   // ---- wheel → scroll the inner app ----
   let wheelAcc = 0;
   const onWheel = (e: WheelEvent) => {
-    // Forward wheel only on the alternate screen (vim/less, Claude's plan TUI). On
-    // the normal screen (streaming output, shell prompt) let xterm scroll its own
-    // seeded scrollback. On the alternate screen the report goes to the pty, where
-    // tmux's `WheelUpPane copy-mode -e` scrolls the 50k history (and apps in mouse
-    // mode see the wheel) — a single, server-authoritative scroll path with no
-    // client-side buffer toggling that could desync from tmux.
+    // Forward the wheel as a mouse report only when a mouse-holding app is on the
+    // alternate screen (Claude): tmux delivers it to the app (`send -M`) and the
+    // app scrolls its own view. The custom wheel handler above suppresses xterm's
+    // arrow-key path for exactly this case so this listener gets to run. Every
+    // other case is left to xterm (no-mouse pager → arrow keys; normal screen →
+    // seeded scrollback).
     if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') return;
 
     e.preventDefault();
