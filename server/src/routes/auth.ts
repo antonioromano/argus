@@ -6,7 +6,7 @@ import { validatePasswordStrength } from '../services/passwordStrength.js';
 const limiter = new LoginRateLimiter();
 
 /** True when the request originated from the local machine (loopback). */
-function isLoopbackRequest(remoteAddress: string | undefined): boolean {
+export function isLoopbackRequest(remoteAddress: string | undefined): boolean {
   if (!remoteAddress) return false;
   return (
     remoteAddress === '127.0.0.1' ||
@@ -15,17 +15,59 @@ function isLoopbackRequest(remoteAddress: string | undefined): boolean {
   );
 }
 
+/**
+ * Decide whether a /set-password request is allowed. Security-critical, so it is
+ * a pure function with its own tests.
+ *
+ * `req.socket.remoteAddress` ALONE is not a trustworthy "is local" signal: an
+ * ngrok tunnel (or any reverse proxy) forwards over a loopback connection, so a
+ * tunneled request also appears to come from 127.0.0.1. ngrok appends
+ * `X-Forwarded-*` headers it cannot suppress, so their presence proves the
+ * request was proxied — reject it. And an already-set password may only be
+ * changed by a caller proving knowledge of the current one (a valid token);
+ * first-time setup is the only unauthenticated path, reachable solely from a
+ * local, non-proxied request.
+ */
+export function canSetPassword(opts: {
+  remoteAddress: string | undefined;
+  proxied: boolean;
+  alreadyEnabled: boolean;
+  hasValidToken: boolean;
+}): { ok: true } | { ok: false; status: number; error: string } {
+  if (!isLoopbackRequest(opts.remoteAddress) || opts.proxied) {
+    return { ok: false, status: 403, error: 'Password can only be set from the local machine' };
+  }
+  if (opts.alreadyEnabled && !opts.hasValidToken) {
+    return { ok: false, status: 409, error: 'A password is already set; authenticate to change it' };
+  }
+  return { ok: true };
+}
+
 export function createAuthRoutes(authService: AuthService): Router {
   const router = Router();
 
-  // Loopback-only password setup. Lets a LAN-exposed instance (ARGUS_HOST=0.0.0.0)
-  // get a password without first starting an ngrok tunnel — otherwise the fail-
-  // closed gate 503s every protected route, including /api/ngrok/start, and the
-  // instance is bricked. Public (skips the token/503 gate) but the loopback check
-  // means only a local process can reach it; a remote attacker is rejected.
+  // Loopback-only, non-proxied password setup. Lets a LAN-exposed instance
+  // (ARGUS_HOST=0.0.0.0) get a FIRST password without an ngrok tunnel — otherwise
+  // the fail-closed gate 503s every protected route, including /api/ngrok/start,
+  // and the instance is bricked. Public (skips the token/503 gate) but guarded by
+  // canSetPassword(): a tunneled/proxied request is rejected even though it
+  // arrives from 127.0.0.1, and an existing password cannot be reset without a
+  // valid token.
   router.post('/set-password', (req, res) => {
-    if (!isLoopbackRequest(req.socket.remoteAddress)) {
-      res.status(403).json({ error: 'Password can only be set from the local machine' });
+    const proxied =
+      req.headers['x-forwarded-for'] !== undefined ||
+      req.headers['x-forwarded-host'] !== undefined ||
+      req.headers['forwarded'] !== undefined;
+    const auth = req.headers.authorization;
+    const presentedToken = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : null;
+    const decision = canSetPassword({
+      remoteAddress: req.socket.remoteAddress,
+      proxied,
+      alreadyEnabled: authService.enabled,
+      hasValidToken: presentedToken !== null && authService.validateToken(presentedToken),
+    });
+    if (!decision.ok) {
+      res.status(decision.status).json({ error: decision.error });
       return;
     }
     const { password } = req.body ?? {};
