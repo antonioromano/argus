@@ -23,7 +23,14 @@ npm run build:all
 
 # Lint (client only)
 npm run lint -w client
+
+# Test (server uses node:test, client uses Vitest)
+npm test            # runs server + client
+npm test -w server
+npm test -w client
 ```
+
+CI (`.github/workflows/ci.yml`) runs `lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
 
 The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) still exists for fast hot-reload iteration on UI changes, but Electron is the only supported client surface. The browser `<header>` and `window.confirm` fallback have been removed.
 
@@ -35,21 +42,22 @@ The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) 
 Single file (`src/types.ts`) defining all shared TypeScript types: session models, REST request/response shapes, Socket.io event maps (`ClientToServerEvents`, `ServerToClientEvents`), and filesystem types.
 
 ### server/ (Express + Socket.io + node-pty)
-- **`services/SessionManager`** — Central orchestrator. Creates/destroys sessions, manages pty lifecycle, buffers output (100KB rolling window for reconnect replay), persists sessions to disk, and broadcasts state changes via Socket.io rooms.
-- **`services/PtyManager`** — Spawns `claude` CLI via the user's login shell (`$SHELL -l -c "exec claude"`). Wraps node-pty for write/resize/kill.
-- **`services/StateDetector`** — Analyzes ANSI-stripped terminal output to detect session status. After output settles (500ms), checks tail against prompt patterns to distinguish `waiting` (prompt detected) from `idle` (output stopped, no prompt).
-- **`persistence/SessionStore`** + **`persistence/OrderStore`** — JSON file stores in `server/data/`. Sessions are restored on server restart.
-- **`socket/handler`** — Socket.io connection handler. Clients join/leave session rooms; input is forwarded to pty; buffered output is replayed on join.
-- **`routes/sessions`** — REST CRUD for sessions + ordering.
-- **`routes/filesystem`** — Path autocomplete and directory browsing for the session creation UI.
+- **`services/SessionManager`** — Central orchestrator. Creates/destroys sessions, manages pty lifecycle, buffers output (100KB rolling window for reconnect replay), persists sessions to disk, polls git-dirty status, prevents sleep while running, and broadcasts state changes via Socket.io rooms.
+- **`services/PtyManager`** — Spawns the agent CLI inside a tmux session (`tmux -L argus`) via the user's login shell. Sets a UTF-8 spawn locale (load-bearing — see memory `argus-terminal-replay`). Wraps node-pty for write/resize/kill + tmux capture-pane snapshots.
+- **`services/StateDetector`** — Analyzes ANSI-stripped terminal output (headless xterm) to detect session status. After output settles (500ms), checks the tail against per-agent prompt patterns to distinguish `waiting` from `idle`. Also extracts the last prompt text for notifications.
+- **`services/AgentRegistry`** — Built-in + custom agent definitions (claude/gemini/codex); validates `agentType` before spawn (command-injection guard). **`services/GitService`** — diff/stage/commit/branch/worktree/blame (~22 git routes). **`services/AuthService`** + **`LoginRateLimiter`** — scrypt password hash, 24h bearer tokens, rate-limited login (auth enforced when exposed or a password is set). **`services/NgrokService`** / **`UpdateService`** / **`CompanionTerminalManager`** / **`EphemeralTerminalManager`** / **`SleepPreventionService`**.
+- **`persistence/`** — atomic-write JSON stores in `server/data/`: `SessionStore`, `OrderStore`, `GroupStore`, `ConfigStore`, plus per-gitRoot `ChangelistStore` / `CommitSelectionStore`. Sessions are restored on server restart.
+- **`socket/handler`** — Socket.io connection handler (token-gated when enforced). Clients join/leave session rooms; input is forwarded to pty; a tmux capture-pane snapshot is replayed on join. Also drives companion + ephemeral terminals.
+- **`routes/`** — `sessions` (CRUD + ordering), `filesystem` (scoped file read/write/search + folder-picker autocomplete/children), `git`, `symbols` (ripgrep go-to-def / find-refs), `worktrees`, `config`, `auth`, `ngrok`, `update`.
+- **`middleware/auth`** + **`utils/pathScope`** — bearer-token gate (fail-closed when exposed) and session-scoped path containment. **Every** new fs/git route must funnel through `pathScope`; remote-reachable requests must use `authFetch`.
 
-### client/ (React + Vite + xterm.js)
-- **`App`** — Top-level layout with theme toggle (dark/light, persisted to localStorage) and focus mode (Escape to exit).
-- **`components/Dashboard`** — Grid of session cards with drag-and-drop reordering (@dnd-kit).
-- **`components/TerminalPanel`** — xterm.js terminal with the built-in **DOM renderer** (no WebGL/Canvas addon), wired to Socket.io for I/O. GPU-atlas renderers were dropped in 0.16.13: WebGL (0.16.0) hit the ~16-context cap in the mosaic, and both WebGL and Canvas baked glyph/cell metrics at init that garbled on a cold Electron start until reload. The DOM renderer reflows on font load and is immune — the clean v0.15.1 behavior.
-- **`hooks/useSocket`** — Singleton Socket.io client (WebSocket transport preferred).
-- **`hooks/useSessions`** — Session list state synced via REST + Socket.io events.
-- **`hooks/useSessionOrder`** — Persisted drag-and-drop ordering.
+### client/ (React + Vite + xterm.js + Monaco)
+- **`app/ArgusApp`** — Top-level shell (theme toggle, focus mode, command palette, overlays); routes `/mobile` → `app/mobile/MobileApp` (read-only terminals).
+- **`app/views/Mosaic`** — Grid of up to 12 terminal tiles with drag-and-drop reordering (@dnd-kit) + minimized chips. `app/views/Focus` — single shell + docked workbench panels. Leaf tiles + `TerminalShell` are `React.memo`-wrapped (handlers stabilized via a latest-ref pattern).
+- **`app/ui/TerminalShell`** + **`hooks/useTerminal`** — xterm.js with the built-in **DOM renderer** (no WebGL/Canvas). GPU-atlas renderers were dropped in 0.16.13 (WebGL hit the ~16-context cap; both baked glyph/cell metrics wrong on cold Electron start). The DOM renderer reflows on font load and is immune. `doFit()` is the single relayout funnel; wheel handling goes through `attachCustomWheelEventHandler` — both load-bearing.
+- **`components/explorer/`** (Monaco workbench) — `MonacoPane`, editor tabs, `registerSymbolProviders` (server-backed go-to-def/find-refs); `panels/{ExplorerWorkbench,DiffWorkbench}`.
+- **`hooks/`** — `useSocket` (singleton WS client), `useSessions`, `useOrder`/`useGroups` (persisted ordering + groups), `useGitDiff`/`useGitFileStatuses`, `useFileBuffer`/`useFileTree`/`useEditorGroups`, `useNotifications`, `useConfig`, `useUpdate`, `useNgrok`. **`services/api`** — REST client; use `authFetch` (never bare `fetch`) so the ngrok-auth header is sent.
+- A strict CSP ships in `index.html` (`script-src 'self'`); the renderer is sandboxed. Keep both intact when adding inline scripts or new connect origins.
 
 ### Communication Flow
 Client ←(REST)→ Server for CRUD. Client ←(Socket.io rooms)→ Server for real-time terminal I/O and status updates. Each session is a Socket.io room identified by session UUID. Vite proxies `/api` and `/socket.io` to the server in dev.
@@ -64,9 +72,9 @@ When bumping the version, update it in **both** `package.json` (root) and the ve
 ### How to release a new version
 
 ```bash
-# 1. Update version in both files:
-#    - package.json  →  "version": "X.Y.Z"
-#    - README.md     →  version-X.Y.Z-blue (in the badge URL)
+# 1. Bump the version in root package.json, then sync everything else:
+#    - edit package.json  →  "version": "X.Y.Z"  (root is the single source of truth)
+#    - run `npm run sync-versions`  →  stamps shared/server/client package.json + the README badge
 
 # 2. Commit and tag
 git add package.json README.md
