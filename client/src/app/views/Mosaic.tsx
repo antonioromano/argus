@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { SessionInfo, MosaicWaitingStyle } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -111,7 +111,17 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleMinimize = (id: string) => {
+  // Mirror the values the (stable) tile handlers close over into refs, so the
+  // handlers can be wrapped in useCallback([]) without going stale. This lets
+  // React.memo on the tile actually short-circuit — the handler identity no
+  // longer changes every parent render. Animation behavior is unchanged.
+  const handlerStateRef = useRef({ filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize, restoreFromFilter, currentGroup });
+  useEffect(() => {
+    handlerStateRef.current = { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize, restoreFromFilter, currentGroup };
+  });
+
+  const handleMinimize = useCallback((id: string) => {
+    const { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize } = handlerStateRef.current;
     setMinimizingIds(prev => new Set([...prev, id]));
     setTimeout(() => {
       const remaining = filtered
@@ -127,16 +137,40 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
         setReflowingIds(new Set());
       }, 540);
     }, 340);
-  };
+  }, []);
 
-  const handleRestore = (id: string) => {
+  const handleRestore = useCallback((id: string) => {
+    const { groupFilterIds, toggleMinimize, restoreFromFilter, currentGroup } = handlerStateRef.current;
     if (groupFilterIds) restoreFromFilter(id, currentGroup);
     else toggleMinimize(id);
     setRestoringIds(prev => new Set([...prev, id]));
     setTimeout(() => {
       setRestoringIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     }, 400);
-  };
+  }, []);
+
+  // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
+  // every parent render; mirror them through a ref so the wrappers below stay
+  // referentially stable and the memoized tile only re-renders on real changes.
+  const propCbRef = useRef({ onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  useEffect(() => {
+    propCbRef.current = { onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+  });
+
+  const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
+  const handleXtermBlur = useCallback(() => setFocusedId(null), []);
+  const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
+  const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
+  const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
+  const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
+  const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
+  const handleTileClone = useCallback((s: SessionInfo) => propCbRef.current.onClone?.(s), []);
+  const handleTileFocusDiff = useCallback((id: string) => propCbRef.current.onFocusDiff?.(id), []);
+  const handleTileFocusExplorer = useCallback((id: string) => propCbRef.current.onFocusExplorer?.(id), []);
+  const handleTileFocusTerminal = useCallback((id: string) => propCbRef.current.onFocusTerminal?.(id), []);
+  const handleTileOpenDiff = useCallback((id: string) => propCbRef.current.onOpenDiff?.(id), []);
+  const handleTileOpenSearch = useCallback((id: string) => propCbRef.current.onRequestSearch?.(id), []);
+  const handleTileCloseSearch = useCallback(() => propCbRef.current.onCloseSearch?.(), []);
 
   const handleTileDragStart = (event: DragStartEvent) => {
     setActiveTileId(event.active.id as string);
@@ -292,27 +326,29 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   groupColor={groupColorOf?.(s.id) ?? null}
                   isFocused={activeFocusedId === s.id}
                   windowFocused={windowFocused}
-                  onXtermFocus={() => { setFocusedId(s.id); setRestoreFocusId(null); }}
-                  onXtermBlur={() => setFocusedId(null)}
+                  onXtermFocus={handleXtermFocus}
+                  onXtermBlur={handleXtermBlur}
                   autoFocus={restoreFocusId === s.id}
-                  onToggleMinimize={() => handleMinimize(s.id)}
+                  onToggleMinimize={handleMinimize}
                   isMinimizing={minimizingIds.has(s.id)}
                   isRestoring={restoringIds.has(s.id)}
                   isReflowing={reflowingIds.has(s.id)}
-                  onOpen={() => onOpenSession(s.id)}
-                  onKill={() => onKill(s)}
-                  onRestart={() => onRestart(s)}
-                  onMarkDone={onMarkDone && s.status === 'idle' ? () => onMarkDone(s) : undefined}
-                  onMerge={onMerge && s.worktreePath && mergingSessionId !== s.id ? () => onMerge(s) : undefined}
-                  onClone={onClone ? () => onClone(s) : undefined}
-                  onFocusDiff={onFocusDiff ? () => onFocusDiff(s.id) : undefined}
-                  onFocusExplorer={onFocusExplorer ? () => onFocusExplorer(s.id) : undefined}
-                  onFocusTerminal={onFocusTerminal ? () => onFocusTerminal(s.id) : undefined}
-                  onOpenDiff={onOpenDiff ? () => onOpenDiff(s.id) : undefined}
+                  onOpen={handleTileOpen}
+                  onKill={handleTileKill}
+                  onRestart={handleTileRestart}
+                  onMarkDone={onMarkDone ? handleTileMarkDone : undefined}
+                  canMarkDone={!!onMarkDone && s.status === 'idle'}
+                  onMerge={onMerge ? handleTileMerge : undefined}
+                  canMerge={!!onMerge && !!s.worktreePath && mergingSessionId !== s.id}
+                  onClone={onClone ? handleTileClone : undefined}
+                  onFocusDiff={onFocusDiff ? handleTileFocusDiff : undefined}
+                  onFocusExplorer={onFocusExplorer ? handleTileFocusExplorer : undefined}
+                  onFocusTerminal={onFocusTerminal ? handleTileFocusTerminal : undefined}
+                  onOpenDiff={onOpenDiff ? handleTileOpenDiff : undefined}
                   shortcuts={shortcuts}
                   searchOpen={searchSessionId === s.id}
-                  onOpenSearch={onRequestSearch ? () => onRequestSearch(s.id) : undefined}
-                  onCloseSearch={onCloseSearch}
+                  onOpenSearch={onRequestSearch ? handleTileOpenSearch : undefined}
+                  onCloseSearch={onCloseSearch ? handleTileCloseSearch : undefined}
                   isNotified={notifiedTileId === s.id}
                 />
               ))}
@@ -363,26 +399,34 @@ type MosaicTileSharedProps = {
   groupColor?: string | null;
   isFocused: boolean;
   windowFocused: boolean;
-  onXtermFocus: () => void;
+  // Focus reporting takes the session id so the parent callback can stay stable.
+  onXtermFocus: (id: string) => void;
   onXtermBlur: () => void;
   autoFocus?: boolean;
-  onToggleMinimize: () => void;
+  // Session-taking handlers: the tile passes its own `session`/`id`, letting the
+  // parent supply stable (useCallback) references so React.memo can short-circuit.
+  onToggleMinimize: (id: string) => void;
   isMinimizing?: boolean;
   isRestoring?: boolean;
   isReflowing?: boolean;
-  onOpen: () => void;
-  onKill: () => void;
-  onRestart: () => void;
-  onMarkDone?: () => void;
-  onMerge?: () => void;
-  onClone?: () => void;
-  onFocusDiff?: () => void;
-  onFocusExplorer?: () => void;
-  onFocusTerminal?: () => void;
-  onOpenDiff?: () => void;
+  onOpen: (id: string) => void;
+  onKill: (session: SessionInfo) => void;
+  onRestart: (session: SessionInfo) => void;
+  /** Mark-as-done handler; gated by `canMarkDone` for whether the button shows. */
+  onMarkDone?: (session: SessionInfo) => void;
+  canMarkDone?: boolean;
+  /** Merge handler; gated by `canMerge` for whether the button shows. */
+  onMerge?: (session: SessionInfo) => void;
+  canMerge?: boolean;
+  onClone?: (session: SessionInfo) => void;
+  onFocusDiff?: (id: string) => void;
+  onFocusExplorer?: (id: string) => void;
+  onFocusTerminal?: (id: string) => void;
+  onOpenDiff?: (id: string) => void;
   shortcuts?: ResolvedShortcuts;
   searchOpen?: boolean;
-  onOpenSearch?: () => void;
+  /** Open this tile's terminal search bar; receives the session id so the parent can stay stable. */
+  onOpenSearch?: (id: string) => void;
   onCloseSearch?: () => void;
   /** True while this tile is the notification-click target; triggers glow + terminal focus. */
   isNotified?: boolean;
@@ -489,7 +533,7 @@ const CTA_TEXT_DELAY = Math.round(CTA_DUR * 0.65 + CTA_STAGGER * 3);
 
 // ─── MosaicTile ───────────────────────────────────────────────────────────────
 
-function MosaicTile({
+function MosaicTileInner({
   idx,
   session,
   dragHandleListeners,
@@ -511,7 +555,9 @@ function MosaicTile({
   onKill,
   onRestart,
   onMarkDone,
+  canMarkDone,
   onMerge,
+  canMerge,
   onClone,
   onFocusDiff,
   onFocusExplorer,
@@ -527,6 +573,17 @@ function MosaicTile({
 }) {
   const [copied, setCopied] = useState(false);
   const [ctaHovered, setCtaHovered] = useState(false);
+  // Stable wrapper so TerminalShell's memo isn't busted by a fresh closure here.
+  const sessionId = session.id;
+  const handleFocusChange = useCallback(
+    (f: boolean) => { if (f) onXtermFocus(sessionId); else onXtermBlur(); },
+    [onXtermFocus, onXtermBlur, sessionId],
+  );
+  // TerminalShell's onOpenSearch is no-arg; bind this tile's id here.
+  const handleOpenSearch = useCallback(
+    () => onOpenSearch?.(sessionId),
+    [onOpenSearch, sessionId],
+  );
   const pathRef = useRef<HTMLSpanElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const tileRootRef = useRef<HTMLDivElement>(null);
@@ -669,39 +726,39 @@ function MosaicTile({
               label={session.hasGitChanges ? 'Open diff (has changes)' : 'No git changes'}
               size="sm"
               style={{ color: session.hasGitChanges ? 'var(--dirty)' : 'var(--fg-4)' }}
-              onClick={(e) => { e.stopPropagation(); if (onFocusDiff) { onFocusDiff(); } else { onOpenDiff?.(); } }}
+              onClick={(e) => { e.stopPropagation(); if (onFocusDiff) { onFocusDiff(session.id); } else { onOpenDiff?.(session.id); } }}
               disabled={!onFocusDiff && !onOpenDiff}
             />
             {onFocusExplorer && (
               <IconButton icon={FolderOpen} label="Open files in focus" size="sm"
-                onClick={(e) => { e.stopPropagation(); onFocusExplorer(); }} />
+                onClick={(e) => { e.stopPropagation(); onFocusExplorer(session.id); }} />
             )}
             {onFocusTerminal && (
               <IconButton icon={Terminal} label="Open shell in focus" size="sm"
-                onClick={(e) => { e.stopPropagation(); onFocusTerminal(); }} />
+                onClick={(e) => { e.stopPropagation(); onFocusTerminal(session.id); }} />
             )}
-            {onMarkDone && (
+            {onMarkDone && canMarkDone && (
               <IconButton icon={CheckCircle2} label="Mark as done" size="sm"
                 style={{ color: 'var(--status-done)' }}
-                onClick={(e) => { e.stopPropagation(); onMarkDone(); }} />
+                onClick={(e) => { e.stopPropagation(); onMarkDone(session); }} />
             )}
             <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
             <IconButton icon={Minus} label="Minimize shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onToggleMinimize(); }} />
+              onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
             <IconButton icon={Maximize2} label="Open in focus" size="sm"
-              onClick={(e) => { e.stopPropagation(); onOpen(); }} />
+              onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
             {onClone && (
               <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm"
-                onClick={(e) => { e.stopPropagation(); onClone(); }} />
+                onClick={(e) => { e.stopPropagation(); onClone(session); }} />
             )}
-            {onMerge && (
+            {onMerge && canMerge && (
               <IconButton icon={ArrowDownToLine} label="Apply to project" size="sm"
-                onClick={(e) => { e.stopPropagation(); onMerge(); }} />
+                onClick={(e) => { e.stopPropagation(); onMerge(session); }} />
             )}
             <IconButton icon={RotateCcw} label="Restart shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onRestart(); }} />
+              onClick={(e) => { e.stopPropagation(); onRestart(session); }} />
             <IconButton icon={CircleX} label="Close shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onKill(); }} />
+              onClick={(e) => { e.stopPropagation(); onKill(session); }} />
           </div>
         </div>
 
@@ -714,9 +771,15 @@ function MosaicTile({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={(f) => f ? onXtermFocus() : onXtermBlur()} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} />
         </ErrorBoundary>
       </div>
     </div>
   );
 }
+
+// Memoized leaf: the Mosaic parent re-renders on every focus / window-focus /
+// animation-set change, but each tile should only re-render when its own props
+// actually change. All handler props are stabilized in the parent (useCallback
+// + ref mirroring), so a shallow prop compare short-circuits unrelated renders.
+const MosaicTile = memo(MosaicTileInner);

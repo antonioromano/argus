@@ -61,6 +61,9 @@ interface ManagedSession {
 }
 
 const GIT_POLL_INTERVAL_MS = 10_000;
+// Re-validate a folder's git-repo-ness this often, so a `git init` after startup
+// is eventually picked up without re-spawning `git rev-parse` every tick.
+const GIT_REPO_RECHECK_MS = 60_000;
 
 // Lines of tmux scrollback to seed into a client's xterm on (re)join, so mobile
 // (and desktop after Cmd+R) can scroll up into history that predates the join.
@@ -86,6 +89,8 @@ export class SessionManager {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private gitService: GitService | null = null;
   private gitDirtyMap = new Map<string, boolean>();
+  private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
+  private gitPollRunning = false;
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
   private sleepPrevention = new SleepPreventionService();
   private preventSleepWhileRunning = false;
@@ -158,19 +163,41 @@ export class SessionManager {
   }
 
   private async pollGitStatus(): Promise<void> {
-    if (!this.gitService) return;
-    for (const session of this.sessions.values()) {
-      if (session.status === 'exited') continue;
-      try {
-        const dirty = await this.gitService.hasChanges(session.folderPath);
-        const prev = this.gitDirtyMap.get(session.id);
-        if (dirty !== prev) {
-          this.gitDirtyMap.set(session.id, dirty);
-          this.io?.emit('session:gitStatus', { sessionId: session.id, hasGitChanges: dirty });
+    // Skip if a previous sweep is still running, so a slow tick can't overlap the
+    // next interval and pile up git subprocesses.
+    if (!this.gitService || this.gitPollRunning) return;
+    this.gitPollRunning = true;
+    try {
+      const now = Date.now();
+      for (const session of this.sessions.values()) {
+        if (session.status === 'exited') continue;
+
+        // Cache git-repo-ness per folder: known non-git folders are skipped
+        // entirely (no wasted `git status` spawn each tick), and the result is
+        // re-validated periodically so a later `git init` is still detected.
+        const cached = this.gitRepoCache.get(session.folderPath);
+        const stale = !cached || now - cached.checkedAt >= GIT_REPO_RECHECK_MS;
+        if (cached && !cached.isRepo && !stale) continue;
+        let isRepo = cached?.isRepo ?? true;
+        if (stale) {
+          isRepo = await this.gitService.isGitRepo(session.folderPath);
+          this.gitRepoCache.set(session.folderPath, { isRepo, checkedAt: now });
         }
-      } catch {
-        // non-git folder or git unavailable — ignore
+        if (!isRepo) continue;
+
+        try {
+          const dirty = await this.gitService.hasChanges(session.folderPath);
+          const prev = this.gitDirtyMap.get(session.id);
+          if (dirty !== prev) {
+            this.gitDirtyMap.set(session.id, dirty);
+            this.io?.emit('session:gitStatus', { sessionId: session.id, hasGitChanges: dirty });
+          }
+        } catch {
+          // transient git error — ignore this tick
+        }
       }
+    } finally {
+      this.gitPollRunning = false;
     }
   }
 

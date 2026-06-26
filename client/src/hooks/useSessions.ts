@@ -29,7 +29,7 @@ export function useSessions(socket: TypedSocket) {
   useEffect(() => {
     const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt } : s)),
+        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt } : s)),
       );
     };
 

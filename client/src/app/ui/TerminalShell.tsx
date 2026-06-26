@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -37,7 +37,7 @@ interface TerminalShellProps {
  * xterm.js container. Interior is fully owned by useTerminal — this wrapper
  * supplies the status-colored frame only. Refit via 'terminal:refit' window event.
  */
-export function TerminalShell({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken }: TerminalShellProps) {
+function TerminalShellInner({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken });
@@ -154,3 +154,8 @@ export function TerminalShell({ session, socket, theme, status, focused, onFocus
     </div>
   );
 }
+
+// Memoized: the mosaic parent re-renders on every focus/animation state change,
+// but TerminalShell only needs to re-render when its own props change. Props
+// passed in (onFocusChange, onOpenSearch, onCloseSearch) are stabilized upstream.
+export const TerminalShell = memo(TerminalShellInner);

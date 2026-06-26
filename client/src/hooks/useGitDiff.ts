@@ -29,6 +29,9 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   const [error, setError] = useState<string | null>(null);
   const prevDiffRef = useRef<string>('');
   const fetchingRef = useRef(false);
+  // Drives the loading spinner only on the first fetch (or on open); background
+  // polls refresh silently so isLoading doesn't flip twice every poll tick.
+  const initialLoadDoneRef = useRef(false);
   const [isTabVisible, setIsTabVisible] = useState(!document.hidden);
   const [contextLevels, setContextLevels] = useState<Map<string, number>>(new Map());
   const [expandingFiles, setExpandingFiles] = useState<Set<string>>(new Set());
@@ -45,8 +48,11 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
+    // Only show the spinner for the first load; background polls refresh silently.
+    const isInitial = !initialLoadDoneRef.current;
+
     try {
-      setIsLoading(true);
+      if (isInitial) setIsLoading(true);
       const result = await api.getSessionDiff(sessionId);
 
       if (result.error) {
@@ -116,7 +122,10 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch diff');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+        initialLoadDoneRef.current = true;
+      }
       fetchingRef.current = false;
     }
   }, [sessionId]);
@@ -125,6 +134,8 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   useEffect(() => {
     if (!isOpen) {
       prevDiffRef.current = '';
+      // Reset so the next open shows the spinner; subsequent polls stay silent.
+      initialLoadDoneRef.current = false;
       return;
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-open is a legitimate external sync; fetchDiff sets loading state internally
