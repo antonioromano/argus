@@ -89,7 +89,7 @@ export function CompanionTerminalPanel({
             background: termBg,
             borderRadius: 'var(--r-2)',
             overflow: 'hidden',
-            padding: '6px 2px 2px 6px',
+            padding: '8px 14px 0px 14px',
             position: 'relative',
           }}
         />

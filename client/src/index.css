@@ -159,6 +159,18 @@ body {
   contain: layout style paint;
 }
 
+/* FitAddon sizes the grid as rows = floor((containerH - .xterm padding) / cell).
+   Without slack the grid exactly fills the container, so DPR/zoom sub-pixel
+   rounding can let overflow:hidden shave the last row — Claude's input box with
+   the plan/auto/edit mode indicator. A bottom reserve on .xterm (which FitAddon
+   subtracts) forces the grid strictly inside .terminal-panel at every zoom. The
+   gutter is termBg, so it's invisible. .xterm-viewport/.xterm-screen are
+   absolute inset:0, so this padding only feeds the row math — it does not
+   visually inset content (left/right breathing room stays on the container). */
+.terminal-panel .xterm {
+  padding-bottom: 12px;
+}
+
 /* Bell flash — wired from useTerminal.ts onBell. */
 .terminal-bell-flash {
   animation: terminal-bell-flash 0.2s ease-out;

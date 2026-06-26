@@ -116,7 +116,7 @@ export function TerminalShell({ session, socket, theme, status, focused, onFocus
         boxShadow: isDragOver
           ? `0 0 0 1px var(--accent), 0 0 18px var(--accent-glow)`
           : (framed && st === 'waiting' ? `0 0 0 1px ${edge}, 0 0 18px var(--accent-glow)` : 'none'),
-        padding: '6px 2px 2px 6px',
+        padding: '8px 14px 0px 14px',
         position: 'relative',
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
       }}
