@@ -10,12 +10,14 @@ function formatTime(date: Date, showSeconds: boolean): string {
 }
 
 function ClockDisplay({ showSeconds = false }: { showSeconds?: boolean }) {
-  const [time, setTime] = useState(() => formatTime(new Date(), showSeconds));
+  // Store the raw Date in state and format during render: a `showSeconds` change
+  // reformats immediately via the prop without a synchronous setState in the effect.
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    setTime(formatTime(new Date(), showSeconds));
-    const id = setInterval(() => setTime(formatTime(new Date(), showSeconds)), 1000);
+    const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
-  }, [showSeconds]);
+  }, []);
+  const time = formatTime(now, showSeconds);
   return (
     <span style={{
       fontFamily: 'var(--font-mono)',

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    # macOS runner matches the release pipeline and the product's only target;
+    # node-pty ships a darwin prebuild and the tests assume a macOS shell.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # build:all compiles shared -> server -> client -> electron, which doubles
+      # as a full typecheck across every workspace.
+      - name: Build (typecheck)
+        run: npm run build:all
+
+      - name: Test
+        run: npm test

@@ -14,6 +14,9 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
+    "sync-versions": "node scripts/sync-versions.mjs",
+    "lint": "npm run lint -w client",
+    "test": "npm test -w server && npm test -w client",
     "dev": "npm run electron:dev",
     "dev:web": "PORT=5401 DATA_DIR=data-dev ARGUS_TMUX_SOCKET=argus-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",

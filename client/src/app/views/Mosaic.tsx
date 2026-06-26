@@ -417,7 +417,7 @@ function SortableMosaicTile(props: MosaicTileSharedProps) {
 
 // ─── TileDragPreview ──────────────────────────────────────────────────────────
 
-function TileDragPreview({ session, theme: _theme }: { session: SessionInfo; theme: 'dark' | 'light' }) {
+function TileDragPreview({ session }: { session: SessionInfo; theme: 'dark' | 'light' }) {
   return (
     <div className="argus-tile argus-tile-drag-overlay" data-status={session.status}>
       <div className="argus-tile-header">
@@ -533,7 +533,9 @@ function MosaicTile({
   // Capture autoFocus at mount: true means this tile is being restored from the
   // minimized row and should skip the staggered entrance animation (which would
   // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
-  const skipAnimation = useRef(autoFocus).current;
+  // Capture autoFocus once at mount via useState initializer (reading a ref's
+  // .current during render is disallowed); the value never updates afterward.
+  const [skipAnimation] = useState(autoFocus);
   const animTimeoutRef = useRef<number | null>(null);
 
   // Notification-click: scroll into view and increment focusToken to request xterm focus.

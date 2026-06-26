@@ -1,12 +1,12 @@
 {
   "name": "@argus/server",
-  "version": "0.15.1",
+  "version": "0.20.11",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "nodemon --watch src --ext ts --exec tsx src/index.ts",
     "build": "tsc",
-    "test": "node --import tsx --test 'src/**/*.test.ts'"
+    "test": "node --import tsx --test --test-timeout=30000 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@argus/shared": "*",

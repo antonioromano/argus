@@ -168,7 +168,8 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 
   const toggleCollapsed = () => {
     if (animating !== null) return;
-    collapsed ? doExpand() : doCollapse();
+    if (collapsed) doExpand();
+    else doCollapse();
   };
 
   const pilot: Item[] = [
