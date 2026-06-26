@@ -28,6 +28,11 @@ before(async () => {
   await mkdir(join(dir, 'node_modules', 'pkg'), { recursive: true });
   await writeFile(join(dir, 'node_modules', 'pkg', 'index.ts'), 'export function helper() {}\n');
 
+  // For resolve-import: a directory with an index, and a real .js with no .ts sibling.
+  await mkdir(join(dir, 'lib'), { recursive: true });
+  await writeFile(join(dir, 'lib', 'index.ts'), 'export const v = 1;\n');
+  await writeFile(join(dir, 'baz.js'), 'module.exports = {};\n');
+
   const fakeSm = {
     sessionForPath: (rawPath: string) => {
       if (!rawPath.startsWith(dir)) return null;
@@ -98,5 +103,46 @@ test('invalid symbol returns empty without scanning', async () => {
 
 test('path outside any session is rejected 403', async () => {
   const { status } = await get('definition', { path: '/etc/passwd', symbol: 'root', line: '1' });
+  assert.equal(status, 403);
+});
+
+test('resolve-import: relative specifier without extension', async () => {
+  const { status, body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: './foo' });
+  assert.equal(status, 200);
+  assert.equal(body.path, join(dir, 'foo.ts'));
+});
+
+test('resolve-import: TS-ESM .js specifier maps to the .ts source', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: './foo.js' });
+  assert.equal(body.path, join(dir, 'foo.ts'));
+});
+
+test('resolve-import: directory resolves to index file', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: './lib' });
+  assert.equal(body.path, join(dir, 'lib', 'index.ts'));
+});
+
+test('resolve-import: bare .js with no .ts sibling resolves to the .js', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: './baz' });
+  assert.equal(body.path, join(dir, 'baz.js'));
+});
+
+test('resolve-import: missing file resolves to null', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: './missing' });
+  assert.equal(body.path, null);
+});
+
+test('resolve-import: bare package specifier is out of scope (null)', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: 'react' });
+  assert.equal(body.path, null);
+});
+
+test('resolve-import: specifier escaping the repo resolves to null', async () => {
+  const { body } = await get('resolve-import', { path: join(dir, 'bar.ts'), specifier: '../../../../etc/passwd' });
+  assert.equal(body.path, null);
+});
+
+test('resolve-import: path outside any session is rejected 403', async () => {
+  const { status } = await get('resolve-import', { path: '/etc/passwd', specifier: './foo' });
   assert.equal(status, 403);
 });

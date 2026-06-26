@@ -1,6 +1,6 @@
 # Argus
 
-![Version](https://img.shields.io/badge/version-0.20.10-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
+![Version](https://img.shields.io/badge/version-0.20.11-blue) ![Node](https://img.shields.io/badge/node-18%2B-green) ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 
 A native macOS desktop app for managing multiple AI coding agent sessions at once. Spawn [Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [OpenAI Codex](https://github.com/openai/codex) processes in real pseudo-terminals, watch their output side by side, and track each session's state — running, waiting, idle, or exited — in real time.
 

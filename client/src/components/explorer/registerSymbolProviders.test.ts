@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../services/api.js', () => ({
-  api: { findDefinition: vi.fn(), findReferences: vi.fn() },
+  api: { findDefinition: vi.fn(), findReferences: vi.fn(), resolveImport: vi.fn() },
 }));
 
 import { api } from '../../services/api.js';
@@ -34,7 +34,10 @@ const fakeMonaco = {
 
 registerSymbolProviders(fakeMonaco as any);
 
-const modelWith = (word: string | null) => ({ getWordAtPosition: () => (word ? { word, startColumn: 1, endColumn: word.length + 1 } : null) });
+const modelWith = (word: string | null, line = 'const x = foo;') => ({
+  getWordAtPosition: () => (word ? { word, startColumn: 1, endColumn: word.length + 1 } : null),
+  getLineContent: () => line,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,6 +58,25 @@ describe('definition provider', () => {
     expect(res[0].range.startLineNumber).toBe(5);
     expect(res[0].range.startColumn).toBe(3);
     expect(res[0].range.endColumn).toBe(3 + 'foo'.length);
+  });
+
+  it('resolves an import specifier to its file instead of a word-symbol search', async () => {
+    (api.resolveImport as any).mockResolvedValue({ path: '/repo/foo.ts' });
+    // column 21 sits inside the './foo' specifier of the import below.
+    const model = modelWith('foo', "import { x } from './foo';");
+    const res = await captured.def.provideDefinition(model, { lineNumber: 3, column: 21 });
+    expect(api.resolveImport).toHaveBeenCalledWith('/repo/a.ts', './foo');
+    expect(api.findDefinition).not.toHaveBeenCalled();
+    expect(res.uri.path).toBe('/repo/foo.ts');
+    expect(res.range.startLineNumber).toBe(1);
+  });
+
+  it('returns null (no word fallback) when an import specifier does not resolve', async () => {
+    (api.resolveImport as any).mockResolvedValue({ path: null });
+    const model = modelWith('foo', "import { x } from './nope';");
+    const res = await captured.def.provideDefinition(model, { lineNumber: 1, column: 21 });
+    expect(res).toBeNull();
+    expect(api.findDefinition).not.toHaveBeenCalled();
   });
 
   it('returns null when the cursor is not on a word', async () => {

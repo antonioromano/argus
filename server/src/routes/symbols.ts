@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { execFile } from 'child_process';
+import { stat } from 'fs/promises';
 import path from 'path';
 import type { SessionManager } from '../services/SessionManager.js';
-import type { SymbolLocation, DefinitionResponse, ReferencesResponse } from '@argus/shared';
+import type { SymbolLocation, DefinitionResponse, ReferencesResponse, ResolveImportResponse } from '@argus/shared';
 import { getRipgrepPath } from '../utils/ripgrep.js';
+import { resolveWithinBase } from '../utils/pathScope.js';
 import { EXCLUDED_SEARCH_DIRS } from '../utils/searchExclusions.js';
 import { definitionPatterns, referencePattern, isValidSymbol, type DefinitionPattern } from '../utils/symbolPatterns.js';
 
@@ -72,6 +74,51 @@ function classify(text: string, compiled: { re: RegExp; pat: DefinitionPattern }
     if (compiled[i].re.test(text)) return { rank: i, kind: compiled[i].pat.kind };
   }
   return { rank: compiled.length, kind: 'unknown' };
+}
+
+// Extensions tried when an import specifier omits one (Node/TS resolution order).
+const IMPORT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.json'];
+
+/** True if `p` is an existing regular file. */
+async function isFile(p: string): Promise<boolean> {
+  try {
+    return (await stat(p)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve a relative import `specifier` (written in `fromFile`) to an existing file,
+ * staying inside `root`. Mirrors Node/TS resolution for the common cases: exact path,
+ * appended extensions, the TS-ESM `.js`→`.ts/.tsx` rewrite, and directory `index.*`.
+ * Bare specifiers (npm packages, tsconfig path aliases) are out of scope → null.
+ */
+async function resolveImportSpecifier(
+  fromFile: string,
+  specifier: string,
+  root: string,
+): Promise<string | null> {
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) return null;
+
+  const baseDir = specifier.startsWith('/') ? root : path.dirname(fromFile);
+  const target = path.resolve(baseDir, specifier.startsWith('/') ? specifier.slice(1) : specifier);
+
+  const candidates: string[] = [target];
+  // TS ESM writes `./foo.js` for a `foo.ts` source — try swapping the extension.
+  const jsExt = ['.js', '.jsx', '.mjs', '.cjs'].find((e) => target.endsWith(e));
+  if (jsExt) {
+    const stem = target.slice(0, -jsExt.length);
+    candidates.push(stem + '.ts', stem + '.tsx');
+  }
+  for (const ext of IMPORT_EXTENSIONS) candidates.push(target + ext);
+  for (const ext of IMPORT_EXTENSIONS) candidates.push(path.join(target, `index${ext}`));
+
+  for (const cand of candidates) {
+    const scoped = resolveWithinBase(root, cand);
+    if (scoped && (await isFile(scoped))) return scoped;
+  }
+  return null;
 }
 
 export function createSymbolRoutes(sessionManager: SessionManager): Router {
@@ -193,6 +240,28 @@ export function createSymbolRoutes(sessionManager: SessionManager): Router {
     const truncated = out.timedOut || locations.length > REFERENCE_CAP;
     const result: ReferencesResponse = { symbol, locations: locations.slice(0, REFERENCE_CAP), truncated };
     res.json(result);
+  });
+
+  // Resolve a relative import specifier to a real file so cmd+click on a module path
+  // in the editor jumps to the right file (the symbol search above is inaccurate for
+  // paths — it greps for a word fragment of the path).
+  router.get('/resolve-import', async (req, res) => {
+    const rawPath = req.query.path as string;
+    const specifier = req.query.specifier as string;
+
+    if (!rawPath || !specifier) {
+      res.json({ path: null } satisfies ResolveImportResponse);
+      return;
+    }
+
+    const owner = sessionManager.sessionForPath(rawPath);
+    if (!owner) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
+      return;
+    }
+
+    const resolved = await resolveImportSpecifier(owner.resolved, specifier, owner.session.folderPath);
+    res.json({ path: resolved } satisfies ResolveImportResponse);
   });
 
   return router;

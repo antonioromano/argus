@@ -27,6 +27,25 @@ const PROVIDER_LANGUAGES = [
 
 let registered = false;
 
+/**
+ * If `position` sits inside the quoted specifier of an import/require/from on its line,
+ * return that specifier (e.g. `./foo`), else null. Routes cmd+click on a module path to
+ * file resolution instead of the inaccurate word-symbol search.
+ */
+function importSpecifierAt(
+  model: Monaco.editor.ITextModel,
+  position: Monaco.Position,
+): string | null {
+  const line = model.getLineContent(position.lineNumber);
+  if (!/\b(?:from|import|require)\b/.test(line)) return null;
+  const re = /(['"])(.*?)\1/g;
+  const col0 = position.column - 1;
+  for (let m = re.exec(line); m; m = re.exec(line)) {
+    if (col0 >= m.index && col0 <= m.index + m[0].length) return m[2];
+  }
+  return null;
+}
+
 /** Register go-to-definition / find-references providers + the cross-file opener. Idempotent. */
 export function registerSymbolProviders(monaco: typeof Monaco): void {
   if (registered) return;
@@ -34,9 +53,27 @@ export function registerSymbolProviders(monaco: typeof Monaco): void {
 
   const definitionProvider: Monaco.languages.DefinitionProvider = {
     async provideDefinition(model, position) {
-      const word = model.getWordAtPosition(position);
       const activePath = symbolNavContext.activePath;
-      if (!word || !activePath) return null;
+      if (!activePath) return null;
+
+      // Module path under the cursor (e.g. `from './foo'`) → resolve to the real file
+      // and jump there. Handle this before the word search, which greps for a fragment
+      // of the path (e.g. `foo`) and lands on the wrong symbol.
+      const specifier = importSpecifierAt(model, position);
+      if (specifier) {
+        try {
+          const { path: resolved } = await api.resolveImport(activePath, specifier);
+          if (resolved) {
+            return { uri: monaco.Uri.parse(resolved), range: new monaco.Range(1, 1, 1, 1) };
+          }
+        } catch {
+          // ignore — an unresolved specifier isn't a symbol either
+        }
+        return null; // don't fall through to a misleading word-symbol search
+      }
+
+      const word = model.getWordAtPosition(position);
+      if (!word) return null;
       try {
         const res = await api.findDefinition(activePath, word.word, position.lineNumber);
         return res.locations.map((loc) => ({

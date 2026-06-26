@@ -410,6 +410,11 @@ export interface ReferencesResponse {
   truncated: boolean;
 }
 
+export interface ResolveImportResponse {
+  /** Absolute path of the resolved file, or null if the specifier didn't resolve to a file. */
+  path: string | null;
+}
+
 // Structured diff types (server-parsed --word-diff=porcelain output)
 
 export interface DiffToken {

@@ -476,9 +476,13 @@ export function CreateSheet({
               )}
             </div>
 
-            {/* Recents dropdown */}
+            {/* Recents dropdown. onClick preventDefault: this dropdown lives inside
+                Field's <label>, so clicking a non-interactive row would forward a
+                synthetic click to the label's control (the picker button) and pop the
+                OS folder dialog. preventDefault cancels that forwarding; React onClick
+                handlers still run, so selecting a recent folder works. */}
             {recentsOpen && localRecents.length > 0 && (
-              <div style={{
+              <div onClick={(e) => e.preventDefault()} style={{
                 position: 'absolute',
                 top: 'calc(100% + 4px)',
                 left: 0,
