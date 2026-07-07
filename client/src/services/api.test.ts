@@ -89,8 +89,8 @@ describe('tunnel-safe mobile-first calls', () => {
 
     it('attaches the bearer token when one is stored', async () => {
       setToken('tok-123');
-      const fetchMock = vi.fn(() =>
-        Promise.resolve(jsonResponse(200, { required: true, authenticated: true }))
+      const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+        Promise.resolve(ngrokAwareResponse(init, { required: true, authenticated: true }))
       );
       vi.stubGlobal('fetch', fetchMock);
 
