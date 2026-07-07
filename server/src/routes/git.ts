@@ -5,6 +5,7 @@ import type { ChangelistStore } from '../persistence/ChangelistStore.js';
 import type { CommitSelectionStore } from '../persistence/CommitSelectionStore.js';
 import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
 import { resolveRelativeWithinBase } from '../utils/pathScope.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 function isSafeRef(ref: string): boolean {
   return !ref.startsWith('-') && !ref.includes('..');
@@ -13,7 +14,7 @@ function isSafeRef(ref: string): boolean {
 export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore, commitSelectionStore: CommitSelectionStore): Router {
   const router = Router();
 
-  router.get('/sessions/:id/diff', async (req, res) => {
+  router.get('/sessions/:id/diff', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -34,9 +35,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     res.setHeader('Cache-Control', 'no-cache');
     res.json(diff);
-  });
+  }));
 
-  router.get('/sessions/:id/diff-file', async (req, res) => {
+  router.get('/sessions/:id/diff-file', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ diff: '', error: 'Session not found' });
@@ -71,9 +72,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     res.setHeader('Cache-Control', 'no-cache');
     res.json(result);
-  });
+  }));
 
-  router.get('/sessions/:id/diff-file-structured', async (req, res) => {
+  router.get('/sessions/:id/diff-file-structured', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ hunks: [], isBinary: false, error: 'Session not found' });
@@ -103,9 +104,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     res.setHeader('Cache-Control', 'no-cache');
     res.json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-add', async (req, res) => {
+  router.post('/sessions/:id/git-add', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -128,9 +129,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
     res.json({ ok: true });
-  });
+  }));
 
-  router.post('/sessions/:id/git-stage-patch', async (req, res) => {
+  router.post('/sessions/:id/git-stage-patch', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -153,9 +154,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.stagePatch(session.folderPath, selection);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-discard-patch', async (req, res) => {
+  router.post('/sessions/:id/git-discard-patch', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -178,9 +179,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.discardPatch(session.folderPath, selection);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-undo-discard/:undoId', async (req, res) => {
+  router.post('/sessions/:id/git-undo-discard/:undoId', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -189,9 +190,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.undoDiscard(req.params.undoId);
     res.status(result.success ? 200 : 404).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-commit', async (req, res) => {
+  router.post('/sessions/:id/git-commit', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -206,9 +207,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.commit(session.folderPath, message, !!amend, files);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-unstage', async (req, res) => {
+  router.post('/sessions/:id/git-unstage', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -227,9 +228,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.unstageFile(session.folderPath, filePath);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-push', async (req, res) => {
+  router.post('/sessions/:id/git-push', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -237,9 +238,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
     const result = await gitService.push(session.folderPath);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-pull', async (req, res) => {
+  router.post('/sessions/:id/git-pull', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -247,9 +248,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
     const result = await gitService.pull(session.folderPath);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-ignore', async (req, res) => {
+  router.post('/sessions/:id/git-ignore', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -268,9 +269,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.addToGitignore(session.folderPath, filePath);
     res.status(result.success ? 200 : 500).json(result);
-  });
+  }));
 
-  router.get('/sessions/:id/git-branches', async (req, res) => {
+  router.get('/sessions/:id/git-branches', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -279,9 +280,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.getBranches(session.folderPath);
     res.json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-checkout', async (req, res) => {
+  router.post('/sessions/:id/git-checkout', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -300,9 +301,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.checkoutBranch(session.folderPath, branch);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-create-branch', async (req, res) => {
+  router.post('/sessions/:id/git-create-branch', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -321,9 +322,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.createBranch(session.folderPath, name, from);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-pull-and-branch', async (req, res) => {
+  router.post('/sessions/:id/git-pull-and-branch', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -338,9 +339,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.pullAndBranch(session.folderPath, branchName, baseBranch);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.get('/sessions/:id/git-file-statuses', async (req, res) => {
+  router.get('/sessions/:id/git-file-statuses', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -354,9 +355,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     } catch {
       res.status(500).json({ statuses: {}, gitRoot: '' });
     }
-  });
+  }));
 
-  router.get('/sessions/:id/git-blame', async (req, res) => {
+  router.get('/sessions/:id/git-blame', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ lines: [], error: 'Session not found' });
@@ -377,9 +378,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const result = await gitService.getBlame(session.folderPath, filePath);
     res.setHeader('Cache-Control', 'no-cache');
     res.json(result);
-  });
+  }));
 
-  router.post('/sessions/:id/git-revert-file', async (req, res) => {
+  router.post('/sessions/:id/git-revert-file', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ success: false, error: 'Session not found' });
@@ -399,9 +400,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.revertFileToHead(session.folderPath, filePath);
     res.status(result.success ? 200 : 400).json(result);
-  });
+  }));
 
-  router.get('/sessions/:id/git-log', async (req, res) => {
+  router.get('/sessions/:id/git-log', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -410,9 +411,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.getLastCommit(session.folderPath);
     res.json(result);
-  });
+  }));
 
-  router.get('/sessions/:id/changelists', async (req, res) => {
+  router.get('/sessions/:id/changelists', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -422,9 +423,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const state = await changelistStore.load(session.folderPath);
     res.setHeader('Cache-Control', 'no-cache');
     res.json(state);
-  });
+  }));
 
-  router.put('/sessions/:id/changelists', express.json(), async (req, res) => {
+  router.put('/sessions/:id/changelists', express.json(), asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -440,9 +441,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     await changelistStore.save(session.folderPath, state);
     res.setHeader('Cache-Control', 'no-cache');
     res.json({ success: true });
-  });
+  }));
 
-  router.get('/sessions/:id/commit-selection', async (req, res) => {
+  router.get('/sessions/:id/commit-selection', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -451,9 +452,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const state = await commitSelectionStore.load(session.folderPath);
     res.setHeader('Cache-Control', 'no-cache');
     res.json(state);
-  });
+  }));
 
-  router.put('/sessions/:id/commit-selection', express.json(), async (req, res) => {
+  router.put('/sessions/:id/commit-selection', express.json(), asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -467,9 +468,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     await commitSelectionStore.save(session.folderPath, state);
     res.setHeader('Cache-Control', 'no-cache');
     res.json({ success: true });
-  });
+  }));
 
-  router.get('/sessions/:id/git-worktree-parent-info', async (req, res) => {
+  router.get('/sessions/:id/git-worktree-parent-info', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
     if (!session.worktreePath || !session.worktreeBranch) {
@@ -483,9 +484,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
-  });
+  }));
 
-  router.get('/sessions/:id/git-merge-preview', async (req, res) => {
+  router.get('/sessions/:id/git-merge-preview', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
     if (!session.worktreePath || !session.worktreeBranch) {
@@ -502,9 +503,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
-  });
+  }));
 
-  router.post('/sessions/:id/git-merge-worktree', express.json(), async (req, res) => {
+  router.post('/sessions/:id/git-merge-worktree', express.json(), asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
     if (!session.worktreePath || !session.worktreeBranch) {
@@ -525,7 +526,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     } catch (err) {
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
-  });
+  }));
 
   return router;
 }
