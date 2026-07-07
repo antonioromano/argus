@@ -438,11 +438,16 @@ export function useTerminal(
     const t = terminalRef.current;
     if (!t || t.options.fontSize === codeFontSize) return;
     t.options.fontSize = codeFontSize;
+    const container = containerRef.current;
+    // Skip fit()+resize while collapsed (e.g. a maximized workbench panel sets
+    // this tile to 0x0) — proposeDimensions() clamps degenerate sizes instead
+    // of bailing, so fitting here would resize the real pty to ~2x1 and garble it.
+    if (!container || container.offsetWidth === 0 || container.offsetHeight === 0) return;
     fitAddonRef.current?.fit();
     // fit() only resizes the local xterm buffer — without this the pty stays
     // at the old size until some other trigger happens to refit, garbling output.
     socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows });
-  }, [codeFontSize, sessionId, socket]);
+  }, [codeFontSize, sessionId, socket, containerRef]);
 
   // Imperatively focus when requestFocusToken increments (e.g. notification click).
   useEffect(() => {
