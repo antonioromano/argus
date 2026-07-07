@@ -1,6 +1,6 @@
 import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
-import { execFile, spawn } from 'child_process';
+import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
@@ -745,6 +745,48 @@ app.on('window-all-closed', () => {
   // Do nothing — let the tray keep the app alive
 });
 
+// Resolve the tmux binary the same way PtyManager does (server/src/services/
+// PtyManager.ts resolveTmux): ARGUS_TMUX_PATH override → binary bundled in the
+// packaged .app → system tmux on PATH. null means no tmux to kill.
+function resolveTmuxBinary(): string | null {
+  if (process.env.ARGUS_TMUX_PATH) return process.env.ARGUS_TMUX_PATH;
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath) {
+    const bundled = join(resourcesPath, 'tmux', `tmux-${process.arch}`);
+    try {
+      if (existsSync(bundled)) return bundled;
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const which = execFileSync('which', ['tmux'], { encoding: 'utf-8' }).trim();
+    if (which) return which;
+  } catch {
+    /* tmux not on PATH */
+  }
+  return null;
+}
+
+// Best-effort escalation when graceful stop-all times out: force-kill Argus's
+// isolated tmux server so a stuck shutdown can't leave orphaned tmux + pty
+// processes running after Argus itself quits. The socket name matches
+// PtyManager's `TMUX_SOCKET` (ARGUS_TMUX_SOCKET || 'argus') — set per-mode at
+// startup ('argus-dev' for dev, 'argus'/app name for packaged) so this only
+// ever kills THIS instance's server, never a sibling install's. Never throws:
+// tmux already dead / no server running / binary missing must not block quit.
+function killTmuxServerBestEffort(): void {
+  try {
+    const tmuxBin = resolveTmuxBinary();
+    if (!tmuxBin) return;
+    const socket = process.env.ARGUS_TMUX_SOCKET || 'argus';
+    execFileSync(tmuxBin, ['-L', socket, 'kill-server'], { timeout: 3000, stdio: 'ignore' });
+    console.warn(`[electron] force-killed tmux server (-L ${socket}) after shutdown timeout`);
+  } catch {
+    // Swallow — best-effort cleanup; the quit must proceed regardless.
+  }
+}
+
 let quitting = false;
 app.on('before-quit', (e) => {
   if (quitting) return;
@@ -769,6 +811,11 @@ app.on('before-quit', (e) => {
     const doShutdown = chosen ?? (() => Promise.resolve());
     const timeout = new Promise<void>((resolve) => setTimeout(() => {
       console.warn('[electron] shutdown timed out after 10s — forcing quit');
+      // Graceful stop-all didn't finish in time: only stop-all quits promise to
+      // terminate agents, so escalate by force-killing the tmux server rather
+      // than leaving orphaned tmux + pty processes behind. (Default detach-quit
+      // intentionally keeps the server alive, so don't kill it there.)
+      if (wantStopAll) killTmuxServerBestEffort();
       resolve();
     }, 10_000));
     Promise.race([doShutdown(), timeout])
