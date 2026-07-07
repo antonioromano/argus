@@ -69,7 +69,7 @@ export function setupSocketHandler(
   updateService: UpdateService,
 ): void {
   io.use((socket, next) => {
-    if (!authService.enabled) {
+    if (!authService.enforced) {
       next();
       return;
     }
