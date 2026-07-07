@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -7,11 +7,18 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, DirtyBadge, Button, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
-import { DiffWorkbench } from '../panels/DiffWorkbench.js';
-import { ExplorerWorkbench } from '../panels/ExplorerWorkbench.js';
+// Monaco-backed workbench panels are lazy-loaded so the heavy editor bundle is
+// only fetched when a user actually opens the code explorer / diff view
+// (e.g. /mobile never mounts these).
+const DiffWorkbench = lazy(() =>
+  import('../panels/DiffWorkbench.js').then((m) => ({ default: m.DiffWorkbench })),
+);
+const ExplorerWorkbench = lazy(() =>
+  import('../panels/ExplorerWorkbench.js').then((m) => ({ default: m.ExplorerWorkbench })),
+);
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import type { SidePanel } from '../types.js';
@@ -280,21 +287,37 @@ export function Focus({
                     animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
                   }}
                 >
-                  {maximized.kind === 'diff' ? (
-                    <DiffWorkbench
-                      session={active}
-                      onClose={restoreToShell}
-                      initialFile={maximized.file}
-                    />
-                  ) : (
-                    <ExplorerWorkbench
-                      session={active}
-                      onClose={restoreToShell}
-                      initialFilePath={maximized.filePath}
-                      initialLine={maximized.lineNumber}
-                      initialQuery={maximized.query}
-                    />
-                  )}
+                  <Suspense
+                    fallback={
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--fg-2)',
+                        }}
+                      >
+                        <Spinner size={20} />
+                      </div>
+                    }
+                  >
+                    {maximized.kind === 'diff' ? (
+                      <DiffWorkbench
+                        session={active}
+                        onClose={restoreToShell}
+                        initialFile={maximized.file}
+                      />
+                    ) : (
+                      <ExplorerWorkbench
+                        session={active}
+                        onClose={restoreToShell}
+                        initialFilePath={maximized.filePath}
+                        initialLine={maximized.lineNumber}
+                        initialQuery={maximized.query}
+                      />
+                    )}
+                  </Suspense>
                 </div>
                 <button
                   onClick={restoreToShell}
