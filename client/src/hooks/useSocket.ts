@@ -21,21 +21,24 @@ function getSocket(): TypedSocket {
       reconnectionDelayMax: 3000,
     });
 
-    // Debug logging for socket lifecycle
-    sharedSocket.on('connect', () => {
-      console.log('[socket] connected, id:', sharedSocket!.id);
-    });
-    sharedSocket.on('disconnect', (reason) => {
-      console.log('[socket] disconnected, reason:', reason);
-    });
+    // Debug logging for socket lifecycle — noisy, dev-only. Errors stay on in
+    // production since they matter for diagnosing tunnel/reconnect issues.
+    if (import.meta.env.DEV) {
+      sharedSocket.on('connect', () => {
+        console.log('[socket] connected, id:', sharedSocket!.id);
+      });
+      sharedSocket.on('disconnect', (reason) => {
+        console.log('[socket] disconnected, reason:', reason);
+      });
+      sharedSocket.io.on('reconnect_attempt', (attempt) => {
+        console.log('[socket] reconnect_attempt #', attempt);
+      });
+      sharedSocket.io.on('reconnect', (attempt) => {
+        console.log('[socket] reconnected after', attempt, 'attempts');
+      });
+    }
     sharedSocket.on('connect_error', (err) => {
       console.error('[socket] connect_error:', err.message);
-    });
-    sharedSocket.io.on('reconnect_attempt', (attempt) => {
-      console.log('[socket] reconnect_attempt #', attempt);
-    });
-    sharedSocket.io.on('reconnect', (attempt) => {
-      console.log('[socket] reconnected after', attempt, 'attempts');
     });
     sharedSocket.io.on('reconnect_failed', () => {
       console.error('[socket] reconnect_failed — all attempts exhausted');

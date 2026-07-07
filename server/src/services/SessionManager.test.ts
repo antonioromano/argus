@@ -75,3 +75,31 @@ test('getReplaySnapshot captures fresh once the cache entry is stale', () => {
   (sm as any).sessions.get('sess-3').outputBuffer = 'second-snapshot';
   assert.equal(sm.getReplaySnapshot('sess-3')?.data, 'second-snapshot');
 });
+
+test('persistSessions serializes concurrent writes and always persists the latest state (no stale overwrite)', async () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const calls: string[][] = [];
+  let inFlight = false;
+  let overlapped = false;
+  (sm as any).store.save = async (data: Array<{ id: string }>) => {
+    if (inFlight) overlapped = true;
+    inFlight = true;
+    calls.push(data.map((d) => d.id));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight = false;
+  };
+
+  withFakeNonTmuxSession(sm, 'a', '');
+  const p1 = (sm as any).persistSessions();
+  // Let p1's queued snapshot capture run (it's a microtask) before mutating,
+  // as a real create-then-destroy race would: the second write's snapshot
+  // must reflect 'b', not a stale copy of 'a' captured too early.
+  await new Promise((resolve) => setImmediate(resolve));
+  (sm as any).sessions.delete('a');
+  withFakeNonTmuxSession(sm, 'b', '');
+  const p2 = (sm as any).persistSessions();
+
+  await Promise.all([p1, p2]);
+  assert.equal(overlapped, false, 'writes must not run concurrently');
+  assert.deepEqual(calls, [['a'], ['b']]);
+});

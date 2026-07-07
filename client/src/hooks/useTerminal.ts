@@ -439,7 +439,10 @@ export function useTerminal(
     if (!t || t.options.fontSize === codeFontSize) return;
     t.options.fontSize = codeFontSize;
     fitAddonRef.current?.fit();
-  }, [codeFontSize]);
+    // fit() only resizes the local xterm buffer — without this the pty stays
+    // at the old size until some other trigger happens to refit, garbling output.
+    socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows });
+  }, [codeFontSize, sessionId, socket]);
 
   // Imperatively focus when requestFocusToken increments (e.g. notification click).
   useEffect(() => {

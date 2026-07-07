@@ -16,6 +16,10 @@ function findGit(): string {
 const GIT_PATH = findGit();
 const TIMEOUT_MS = 10_000;
 const UNDO_TTL_MS = 30_000;
+// blameCache keys on filePath+headSha, so every commit adds a fresh entry per
+// file touched instead of invalidating one — cap it so a long-lived session
+// with lots of commits doesn't grow the map unbounded.
+const BLAME_CACHE_MAX_ENTRIES = 500;
 
 interface UndoEntry {
   patchText: string;
@@ -1013,6 +1017,11 @@ export class GitService {
 
       const data: BlameResponse = { lines: result };
       this.blameCache.set(cacheKey, { data, headSha });
+      while (this.blameCache.size > BLAME_CACHE_MAX_ENTRIES) {
+        const oldestKey = this.blameCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        this.blameCache.delete(oldestKey);
+      }
       return data;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get blame';

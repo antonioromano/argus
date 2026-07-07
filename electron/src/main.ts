@@ -466,7 +466,9 @@ async function main() {
 
   // Open URLs in the system default browser (called from WebLinksAddon click handler).
   ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    if (/^(https?:|mailto:)/.test(url)) shell.openExternal(url);
+    // Anchor to `//` after http(s) — `https:` alone (no slashes) would also
+    // match a bare `/^https?:/`, letting a crafted `https:evil` string through.
+    if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
   });
 
   // Dock badge sync — renderer mirrors waiting-session count
