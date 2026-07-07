@@ -103,3 +103,24 @@ test('persistSessions serializes concurrent writes and always persists the lates
   assert.equal(overlapped, false, 'writes must not run concurrently');
   assert.deepEqual(calls, [['a'], ['b']]);
 });
+
+test('persistSessions recovers after a rejected save instead of wedging future writes', async () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const calls: string[][] = [];
+  let failNext = true;
+  (sm as any).store.save = async (data: Array<{ id: string }>) => {
+    calls.push(data.map((d) => d.id));
+    if (failNext) {
+      failNext = false;
+      throw new Error('disk full');
+    }
+  };
+
+  withFakeNonTmuxSession(sm, 'a', '');
+  await assert.rejects((sm as any).persistSessions(), /disk full/);
+
+  withFakeNonTmuxSession(sm, 'b', '');
+  await (sm as any).persistSessions();
+
+  assert.deepEqual(calls, [['a'], ['a', 'b']], 'second persist must still run and see the latest session snapshot');
+});
