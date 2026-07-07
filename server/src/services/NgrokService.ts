@@ -95,7 +95,9 @@ export class NgrokService {
       this.publicUrl = existingUrl;
       this.tunnelStatus = 'connected';
       this.error = null;
-      this.sleepPrevention.start();
+      this.sleepPrevention.start().catch((err) => {
+        console.error('[ngrok] sleepPrevention.start failed:', err);
+      });
       this.onExposureChange?.(true);
       this.broadcastStatus();
       return existingUrl;
@@ -116,7 +118,7 @@ export class NgrokService {
       stderrBuffer += data.toString();
     });
 
-    this.process.on('exit', () => {
+    this.process.on('exit', (code, signal) => {
       if (this.tunnelStatus !== 'disconnected') {
         const authErr =
           stderrBuffer.includes('authentication') ||
@@ -124,7 +126,8 @@ export class NgrokService {
           stderrBuffer.includes('ERR_NGROK_4018');
         this.error = authErr
           ? 'ngrok authentication required. Run: ngrok config add-authtoken <your-token>'
-          : stderrBuffer.trim() || 'ngrok process exited unexpectedly';
+          : stderrBuffer.trim() ||
+            `ngrok process exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'null'})`;
         this.tunnelStatus = 'error';
         this.publicUrl = null;
         this.stopPolling();
@@ -132,6 +135,16 @@ export class NgrokService {
         this.onExposureChange?.(false);
         this.broadcastStatus();
         this.onDisconnect?.();
+        // Settle any in-flight start(): if the process dies before the first
+        // poll succeeds (e.g. a bad authtoken on first run), the poll interval
+        // has already been cleared by stopPolling() above, so nothing else
+        // would ever reject the pending promise and start() would hang forever.
+        // Mirror stop()'s pattern, nulling the reject so a later unrelated exit
+        // can't double-settle it.
+        if (this.pendingStartReject) {
+          this.pendingStartReject(new Error(this.error));
+          this.pendingStartReject = null;
+        }
       }
       this.process = null;
     });
@@ -156,7 +169,9 @@ export class NgrokService {
           this.publicUrl = url;
           this.tunnelStatus = 'connected';
           this.error = null;
-          this.sleepPrevention.start();
+          this.sleepPrevention.start().catch((err) => {
+            console.error('[ngrok] sleepPrevention.start failed:', err);
+          });
           this.onExposureChange?.(true);
           this.broadcastStatus();
           resolve(url);
