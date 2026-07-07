@@ -38,7 +38,16 @@ async function requireOk(res: Response): Promise<Response> {
   return res;
 }
 
-async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+async function authFetch(
+  url: string,
+  init?: RequestInit,
+  // When `intercept401` is false, a 401 is passed through to the caller instead
+  // of being treated as a session-expiry (clear token + dispatch
+  // `auth:unauthorized` + throw). The login endpoint needs this: it returns 401
+  // on a wrong password, which must surface as an `ApiError('Incorrect
+  // password')` via requireOk — not silently reset auth state.
+  opts?: { intercept401?: boolean }
+): Promise<Response> {
   const token = getToken();
   const headers = new Headers(init?.headers);
   if (token) {
@@ -50,7 +59,7 @@ async function authFetch(url: string, init?: RequestInit): Promise<Response> {
   // tunnel fails because the response can't be parsed as JSON.
   headers.set('ngrok-skip-browser-warning', 'true');
   const res = await fetch(url, { ...init, headers });
-  if (res.status === 401) {
+  if (res.status === 401 && opts?.intercept401 !== false) {
     setToken(null);
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     throw new Error('Authentication required');
@@ -355,8 +364,8 @@ export const api = {
   },
 
   getNgrokStatus: async (): Promise<NgrokStatus> => {
-    const res = await fetch(`${API_BASE}/ngrok/status`);
-    return res.json();
+    const res = await authFetch(`${API_BASE}/ngrok/status`);
+    return (await requireOk(res)).json();
   },
 
   startNgrok: async (port?: number, password?: string): Promise<NgrokStartResponse> => {
@@ -400,18 +409,16 @@ export const api = {
   },
 
   getAuthStatus: async (): Promise<AuthStatus> => {
-    const res = await fetch(`${API_BASE}/auth/status`, {
-      headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
-    });
-    return res.json();
+    const res = await authFetch(`${API_BASE}/auth/status`);
+    return (await requireOk(res)).json();
   },
 
   login: async (password: string): Promise<AuthLoginResponse> => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await authFetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
-    });
+    }, { intercept401: false });
     return (await requireOk(res)).json();
   },
 
