@@ -603,6 +603,7 @@ export class SessionManager {
   writeToSession(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
+    if (session.status === 'exited') return;
     session.suppressDonePromotion = false;
     session.hasUserInputSinceIdle = true;
     // User sent input — exit sticky-done so StateDetector can track the new run.
