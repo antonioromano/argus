@@ -70,6 +70,12 @@ const GIT_REPO_RECHECK_MS = 60_000;
 // Fits under xterm's 5000 scrollback cap; bounded by tmux history-limit 50000.
 const REPLAY_HISTORY_LINES = 5000;
 
+// A reconnect storm (tray reopen + mobile + desktop all rejoining at once) can
+// trigger N tmux capture-panes for the same session within a few ms. Serve a
+// short-lived cached snapshot instead so only the first join in the burst pays
+// the blocking capture cost.
+const REPLAY_SNAPSHOT_TTL_MS = 250;
+
 /** Authoritative replay frame + the buffer/mouse truth the client reconciles to.
  *  Wire shape adds `sessionId` (see SessionReplay in @argus/shared). */
 export interface SessionReplayFrame {
@@ -81,6 +87,7 @@ export interface SessionReplayFrame {
 
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
+  private replaySnapshotCache = new Map<string, { frame: SessionReplayFrame; capturedAt: number }>();
   private ptyManager: PtyManager;
   private agentRegistry = new AgentRegistry();
   readonly companionTerminals = new CompanionTerminalManager();
@@ -346,6 +353,7 @@ export class SessionManager {
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
+    this.replaySnapshotCache.delete(id);
     cleanupSessionDimensions(id);
     this.refreshSleepPrevention();
     await this.persistSessions();
@@ -544,6 +552,17 @@ export class SessionManager {
    * Falls back to the raw buffer for non-tmux sessions or if capture fails.
    */
   getReplaySnapshot(id: string): SessionReplayFrame | undefined {
+    const cached = this.replaySnapshotCache.get(id);
+    if (cached && Date.now() - cached.capturedAt < REPLAY_SNAPSHOT_TTL_MS) {
+      return cached.frame;
+    }
+    const frame = this.captureReplaySnapshot(id);
+    if (frame) this.replaySnapshotCache.set(id, { frame, capturedAt: Date.now() });
+    else this.replaySnapshotCache.delete(id);
+    return frame;
+  }
+
+  private captureReplaySnapshot(id: string): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
     if (session.persistent && session.tmuxName) {
