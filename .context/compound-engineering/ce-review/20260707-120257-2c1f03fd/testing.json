@@ -1,0 +1,85 @@
+{
+  "reviewer": "testing",
+  "findings": [
+    {
+      "title": "session:input try/catch race guard has no test",
+      "severity": "P2",
+      "file": "server/src/socket/handler.ts",
+      "line": 129,
+      "why_it_matters": "This commit's stated purpose is guarding against a write racing the exit transition so it 'can't crash the socket handler.' The try/catch is the actual fix, but no test drives manager.writeToSession into throwing after the socket-level getSession() guard passes (e.g. session exits between the two calls). If this catch were removed or the exception type changed (e.g. an async rejection instead of a sync throw), nothing in the suite would catch the regression, and an uncaught exception inside a socket.io event handler can crash the whole server process, not just one connection.",
+      "autofix_class": "manual",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Add a handler.test.ts case that stubs manager.getSession to return a session but manager.writeToSession to throw, emits 'session:input', and asserts the socket/server does not crash (e.g. no unhandled exception, socket still usable afterward).",
+      "confidence": 0.68,
+      "evidence": [
+        "server/src/socket/handler.ts:129-135 wraps manager.writeToSession(sessionId, data) in try/catch, added by commit 6d66e9f ('guard pty writes after session exit, don't hang on bad input')",
+        "grep across server/src/socket/handler.test.ts shows no test referencing 'session:input' or 'writeToSession'"
+      ],
+      "pre_existing": false
+    },
+    {
+      "title": "persistSessions queue's failure-recovery path is untested",
+      "severity": "P3",
+      "file": "server/src/services/SessionManager.ts",
+      "line": 754,
+      "why_it_matters": "The new persistQueue is deliberately re-armed via `run.catch(() => {})` so that one store.save() rejection doesn't permanently wedge every subsequent queued persist behind a rejected promise (the same class of bug this PR just fixed in StateDetector's writeQueue). SessionManager.test.ts only covers the happy-path serialization (no overlap, correct order) — there is no test where an earlier queued save rejects and a later one is proven to still run and succeed. If the `.catch(() => {})` reset were dropped or misplaced, persistence would silently stop working after the first disk error and nothing would fail loudly.",
+      "autofix_class": "safe_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Extend the SessionManager.test.ts concurrent-persist test with a case where the first store.save() call rejects and assert the second queued persistSessions() call still resolves and calls store.save() with the latest session snapshot.",
+      "confidence": 0.63,
+      "evidence": [
+        "server/src/services/SessionManager.ts:754-769 — persistSessions() builds `run` off `this.persistQueue`, then sets `this.persistQueue = run.catch(() => {})` specifically to prevent a rejected chain from freezing future writes",
+        "server/src/services/SessionManager.test.ts's 'persistSessions serializes concurrent writes' test only exercises overlap prevention with a store.save that always succeeds after a delay; no rejecting store.save() case exists"
+      ],
+      "pre_existing": false
+    },
+    {
+      "title": "blameCache size-cap eviction has no test",
+      "severity": "P3",
+      "file": "server/src/services/GitService.ts",
+      "line": 1019,
+      "why_it_matters": "This diff adds bounded eviction to blameCache specifically to fix unbounded growth ('every commit adds a fresh entry per file... cap it'). GitService.ts has zero existing unit tests, and none were added here, so there is no assertion that the cache actually stays at or under BLAME_CACHE_MAX_ENTRIES after exceeding it, or that eviction removes the oldest entry (Map insertion order) rather than an arbitrary/wrong one. A subtly wrong eviction order (e.g. evicting the just-inserted entry) would silently reintroduce the memory-growth bug or cause needless cache thrashing without any test noticing.",
+      "autofix_class": "safe_auto",
+      "owner": "review-fixer",
+      "requires_verification": false,
+      "suggested_fix": "Add a focused unit test that calls the private blame path (or exposes blameCache for test injection) enough times to exceed BLAME_CACHE_MAX_ENTRIES and assert cache.size stays at the cap and the oldest key was evicted.",
+      "confidence": 0.6,
+      "evidence": [
+        "server/src/services/GitService.ts:22 defines BLAME_CACHE_MAX_ENTRIES = 500",
+        "server/src/services/GitService.ts:1019-1024 adds the while-loop eviction after blameCache.set(...)",
+        "No GitService.test.ts exists in the repo (find turned up zero matches) and this diff does not add one"
+      ],
+      "pre_existing": false
+    },
+    {
+      "title": "new tmux kill-server escalation logic is completely untested",
+      "severity": "P3",
+      "file": "electron/src/main.ts",
+      "line": 751,
+      "why_it_matters": "resolveTmuxBinary() and killTmuxServerBestEffort() are new, non-trivial functions (env-var override → bundled binary lookup → `which tmux` fallback → execFileSync kill-server) introduced specifically to stop orphaned tmux/pty processes after a stuck 'Quit & Stop All'. There is no Electron test infrastructure in this repo at all, and this diff adds none, so none of the three binary-resolution branches or the best-effort swallow-all-errors behavior is verified. A wrong socket name or binary path would silently no-op (matching the pre-fix behavior) rather than fail loudly, so a regression here would only surface as a field report of orphaned tmux processes.",
+      "autofix_class": "manual",
+      "owner": "human",
+      "requires_verification": true,
+      "suggested_fix": "Extract resolveTmuxBinary/killTmuxServerBestEffort's branching into a small pure-logic unit (or export them) and add node:test coverage for each resolution branch (env override, bundled path exists, PATH fallback, none found) using a fake execFileSync/existsSync.",
+      "confidence": 0.6,
+      "evidence": [
+        "electron/src/main.ts:751-796 adds resolveTmuxBinary() and killTmuxServerBestEffort(), new in commit 6a1992f ('escalate to tmux kill-server on quit-timeout')",
+        "find over electron/ for *.test.* / *.spec.* returns no results — no Electron test harness exists"
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "shell:openExternal's scheme-anchoring fix (electron/src/main.ts:471, requiring `//` after http(s) to close the `https:evil` bypass) has zero test coverage since no Electron IPC test harness exists in this repo; a future edit to that regex could silently reintroduce the scheme-bypass with nothing to catch it.",
+    "pathScope's realpathContained() intentionally fails OPEN when the base directory itself cannot be resolved (documented as 'don't regress the pre-existing lexical-only behavior') — this specific fail-open branch is not exercised by any test in pathScope.test.ts, all of which use real, existing temp base directories.",
+    "Focus.tsx's new Suspense/lazy-loading boundary for DiffWorkbench/ExplorerWorkbench has no test coverage, consistent with the project's existing convention of not unit-testing top-level view components — a broken dynamic import would only surface visually (stuck spinner) rather than via a failing test."
+  ],
+  "testing_gaps": [
+    "server/src/socket/handler.ts's session:input try/catch (the core of the 'don't hang on bad input' fix) is not exercised by handler.test.ts.",
+    "SessionManager.test.ts covers persistSessions() overlap-prevention but not the failure-recovery path (a rejected save not blocking subsequent queued persists).",
+    "GitService.ts has no unit test file at all; the new blameCache eviction cap added in this diff is unverified.",
+    "electron/ has no test infrastructure whatsoever; the new tmux kill-server escalation (resolveTmuxBinary/killTmuxServerBestEffort) and the openExternal scheme-regex fix are both untested as a result."
+  ]
+}

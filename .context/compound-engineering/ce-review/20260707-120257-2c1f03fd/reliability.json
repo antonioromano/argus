@@ -1,0 +1,13 @@
+{
+  "reviewer": "reliability",
+  "findings": [],
+  "residual_risks": [
+    "asyncHandler wrapping (Unit 5) is intentionally scoped to server/src/routes/{sessions,config,git}.ts per the remediation plan. Other route files with unwrapped async handlers (filesystem.ts, worktrees.ts, ngrok.ts, update.ts, symbols.ts, auth.ts) retain the same unhandled-rejection-hangs-the-request failure mode this PR fixes elsewhere — e.g. a rejected fs/git-worktree/update-check promise in those routes will still hang the client with no response, since Express 4 (this repo, per package.json) does not auto-forward rejected async handler promises to error middleware. Worth a follow-up sweep.",
+    "electron/src/main.ts's new killTmuxServerBestEffort()/resolveTmuxBinary() run execFileSync (including a synchronous `which` shell-out) on the Electron main thread during the before-quit timeout callback. This blocks the main/UI event loop for up to ~3s (the execFileSync timeout) if tmux is unresponsive, further delaying app.quit() beyond the existing 10s graceful-shutdown budget. Low impact since it's a one-time, terminal, best-effort cleanup step already wrapped in try/catch, but it is a sync-I/O-on-main-thread pattern worth a comment/awareness note if quit-latency complaints surface.",
+    "SessionManager.persistSessions()'s awaited call sites (createSession, destroySession, restartSession paths) still propagate a store.save() rejection to the caller after the in-memory side effect (session created/destroyed/killed) has already been committed — a client could receive a 500 for an operation that actually succeeded. This is pre-existing behavior (unchanged by the promise-queue serialization fix) and not introduced by this diff, but the new asyncHandler wrapping makes the resulting 500 response visible to clients for the first time (previously it would have hung); the caller-side inconsistency itself is unchanged."
+  ],
+  "testing_gaps": [
+    "No test coverage for electron/src/main.ts's new resolveTmuxBinary()/killTmuxServerBestEffort() functions (binary resolution precedence, kill-server invocation, or the before-quit timeout escalation path) — the electron package has no test files at all, so this new best-effort force-kill logic ships unverified beyond manual testing.",
+    "No test exercises the interaction between GitService's new BLAME_CACHE_MAX_ENTRIES eviction and cache correctness under heavy churn (e.g. verifying the oldest entry is evicted and a subsequent blame call for that file re-fetches correctly rather than serving stale/missing data)."
+  ]
+}

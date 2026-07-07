@@ -1,0 +1,74 @@
+{
+  "reviewer": "adversarial",
+  "findings": [
+    {
+      "title": "TOCTOU: symlink swap between pathScope check and mkdir/write wins race",
+      "severity": "P2",
+      "file": "server/src/utils/pathScope.ts",
+      "line": 64,
+      "why_it_matters": "resolveWithinBase/resolveRelativeWithinBase return the ORIGINAL lexical path (not the resolved realpath) after doing a point-in-time realpath check. Callers then do async fs work against that lexical path with multiple await gaps before the operation that matters. Concretely, PUT /api/fs/file (filesystem.ts) does: resolveWithinBase(check) -> await stat() [conflict check] -> await atomicWrite() [mkdir(recursive) -> writeFile(tmp) -> rename]. If the 'nearest existing ancestor' walk-up in realpathNearest validated a NOT-YET-EXISTING path component (e.g. session/newdir/newfile.txt where newdir doesn't exist yet), an attacker with write access to the session folder (e.g. the agent process itself, or a second concurrent API caller) can create `newdir` as a symlink to an arbitrary directory (e.g. the user's home dir) in the window between the check and atomicWrite's mkdir call. Node's `mkdir(dirname, {recursive:true})` and `writeFile`/`rename` all follow symlinks for intermediate path components, so the temp file and final rename land inside the symlink target, fully outside the session sandbox -- defeating the realpath hardening this PR just added. The race window is widened by the two intervening `await stat()` calls, and an attacker can retry the symlink-swap in a tight loop to win probabilistically.",
+      "autofix_class": "manual",
+      "owner": "human",
+      "requires_verification": true,
+      "suggested_fix": "Resolve once and operate on file descriptors/realpaths from then on: open the target with O_NOFOLLOW (or fs.realpathSync right before the syscall that matters, e.g. immediately before atomicWrite's rename) and re-verify containment on the descriptor's realpath, not the lexical path. At minimum, re-run resolveWithinBase (or a fresh realpath containment check) immediately before atomicWrite in filesystem.ts's PUT /file handler to shrink the window, and document the residual risk in pathScope.ts's docstring rather than implying the re-check is race-free.",
+      "confidence": 0.68,
+      "evidence": [
+        "pathScope.ts:64-70 resolveWithinBase does a point-in-time realpath check via realpathContained() but returns `resolved` (the pre-check lexical path), not the checked realpath.",
+        "pathScope.ts realpathNearest() explicitly permits not-yet-existing path segments by walking up to the nearest existing ancestor and re-attaching trailing (non-existent) segments -- this is the documented 'creating a new file' allowance.",
+        "filesystem.ts:158-187 PUT /file: `const resolved = resolveWithinBase(...)` at line 158, then `await stat(resolved)` (conflict check, line 174), then `await atomicWrite(resolved, content)` (line 186) -- two await points between check and use.",
+        "atomicWrite.ts: `await mkdir(path.dirname(filePath), {recursive:true})` then `writeFile(tmpPath,...)` then `rename(tmpPath, filePath)` -- all three follow symlinks for intermediate directory components, so a symlink planted at `dirname(filePath)` after the pathScope check but before this call redirects the entire write.",
+        "pathScope.test.ts's new symlink tests (all added in this diff) only assert the point-in-time check rejects an already-existing escaping symlink; none simulate a symlink created/swapped between check and use, so the TOCTOU gap is untested."
+      ],
+      "pre_existing": false
+    },
+    {
+      "title": "Synchronous tmux kill-server can block Electron main thread for 3s at quit",
+      "severity": "P2",
+      "file": "electron/src/main.ts",
+      "line": 783,
+      "why_it_matters": "killTmuxServerBestEffort() is invoked synchronously inside the 10s shutdown-timeout callback for 'Quit & Stop All' users, and it calls execFileSync (both for `which tmux` with no timeout, and for `tmux -L <socket> kill-server` with a 3s timeout). execFileSync blocks the entire Node/Electron main-process event loop -- the same thread that services window messages, the tray, and the run loop. Because the timeout callback runs entirely synchronously before calling resolve() (which lets Promise.race proceed to app.quit()), a stuck graceful shutdown now takes 10s + up to 3s (+ unbounded time for the untimed `which` call) of the main process being completely unresponsive, right at the moment a user is already waiting on a slow quit. On macOS this is exactly the kind of main-thread stall that can trigger the OS's 'Application Not Responding' force-quit path, which would kill Argus before its own graceful cleanup (e.g. saveWindowState, the very kill-server call in flight) completes -- ironically defeating the escalation's own goal of leaving no orphaned processes.",
+      "autofix_class": "manual",
+      "owner": "human",
+      "requires_verification": true,
+      "suggested_fix": "Use the async `execFile` (already imported for other calls) instead of execFileSync for both the `which tmux` lookup and the kill-server call, awaiting them with an explicit timeout via Promise.race/AbortController so the main-process event loop stays responsive while the escalation runs.",
+      "confidence": 0.62,
+      "evidence": [
+        "electron/src/main.ts:751-763 resolveTmuxBinary() calls `execFileSync('which', ['tmux'], {encoding:'utf-8'})` with no timeout option.",
+        "electron/src/main.ts:778-787 killTmuxServerBestEffort() calls `execFileSync(tmuxBin, ['-L', socket, 'kill-server'], {timeout:3000, stdio:'ignore'})`.",
+        "electron/src/main.ts:~810-820 the setTimeout callback for the 10s shutdown timeout calls `if (wantStopAll) killTmuxServerBestEffort();` synchronously BEFORE calling `resolve()`, so Promise.race (and therefore app.quit()) is gated on this blocking call completing.",
+        "testing.json (sibling reviewer) independently flags this path as 'completely untested', corroborating that this behavior has no test coverage to catch a regression here."
+      ],
+      "pre_existing": false
+    },
+    {
+      "title": "Replay-snapshot cache not invalidated on session restart serves stale frame",
+      "severity": "P3",
+      "file": "server/src/services/SessionManager.ts",
+      "line": 558,
+      "why_it_matters": "getReplaySnapshot() now serves a cached tmux capture-pane frame for up to 250ms (REPLAY_SNAPSHOT_TTL_MS) to absorb reconnect storms. The cache is invalidated on destroySession (line 357) but NOT on restartSession (line 367). If a client captures/caches a snapshot for session X just before a restart, and a second client (mobile companion, second desktop window, or the same client rejoining) requests the replay within the remaining TTL window, it receives the PRE-RESTART terminal content instead of the freshly-spawned pty's state. This is most likely to actually occur precisely because 'restart' is often followed immediately by a rejoin from the same or another connected surface -- the same reconnect-storm pattern this cache was built to optimize for.",
+      "autofix_class": "gated_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Call `this.replaySnapshotCache.delete(id)` at the start of restartSession(), mirroring the invalidation already done in the destroy path.",
+      "confidence": 0.6,
+      "evidence": [
+        "SessionManager.ts:90 declares `replaySnapshotCache`; line 357 deletes the cache entry inside the destroy path (`this.replaySnapshotCache.delete(id);`).",
+        "SessionManager.ts:367 `async restartSession(id)` has no corresponding `replaySnapshotCache.delete(id)` call.",
+        "SessionManager.ts:555-564 getReplaySnapshot() returns the cached frame verbatim whenever `Date.now() - cached.capturedAt < REPLAY_SNAPSHOT_TTL_MS`, with no session-generation/version check tying the cached frame to the current pty instance."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "pathScope's realpath re-check is a point-in-time defense, not an atomicity guarantee; any consumer that does async work between the check and the actual filesystem syscall retains a TOCTOU window (the PUT /file route is the highest-value target since it's a controlled write; GET routes in filesystem.ts/symbols.ts have the same gap but lower impact since they're read-only or ripgrep-mediated).",
+    "The 'Quit & Stop All' shutdown path now has three sequential blocking/timeout stages (10s graceful timeout, then up to 3s tmux kill-server, then an untimed `which tmux` lookup on cold cache) that all run on the Electron main thread; under repeated slow-quit conditions (e.g. tmux itself wedged) this could compound into a multi-second main-thread freeze during every quit, not just the escalation case.",
+    "NgrokService's pendingStartReject double-settle guard (stop() vs. the process 'exit' handler) was verified correct by tracing both call sites and is well covered by NgrokService.test.ts's new tests -- no residual risk found there despite it being flagged as a specific area to probe.",
+    "asyncHandler wrapping across sessions.ts/git.ts/config.ts was checked line-by-line for the 'missing early return' hazard the task called out; every handler already returns immediately after each res.status()/res.json() call, so no double-send or contract-divergence issue was found in this batch.",
+    "Electron fuse-flip ordering (afterPack.cjs) was verified to run flipFuses() unconditionally before both the ad-hoc re-sign branch and the CSC_LINK early-return, so CI (signed) and local dev (ad-hoc) builds get identical fuse hardening -- no divergence found."
+  ],
+  "testing_gaps": [
+    "No test exercises the pathScope TOCTOU window itself (symlink created/swapped concurrently with, or immediately after, a passing check) -- only point-in-time symlink rejection is covered.",
+    "No test covers getReplaySnapshot()'s cache TTL interacting with restartSession() (i.e. asserting a post-restart join does NOT receive a pre-restart cached frame).",
+    "No integration test simulates the Electron 'Quit & Stop All' path timing out and exercising killTmuxServerBestEffort() under a slow/hung tmux binary, to confirm the main process remains responsive or that the escalation itself doesn't get killed mid-execution."
+  ]
+}

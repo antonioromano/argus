@@ -1,0 +1,31 @@
+{
+  "reviewer": "api-contract",
+  "findings": [
+    {
+      "title": "pathScope symlink check narrows previously-valid inputs",
+      "severity": "P3",
+      "file": "server/src/utils/pathScope.ts",
+      "line": 62,
+      "why_it_matters": "resolveWithinBase/resolveRelativeWithinBase now reject any path that, once symlinks are resolved, lands outside `base` — even if the symlink itself lexically lives inside the session folder. A legitimate workflow (e.g. a session folder containing a symlink to a shared config/dependency directory outside the project root) that previously resolved successfully via fs/git/symbols/worktrees routes will now silently start failing (generic 'invalid path'-style 400/404 from the calling route) with no version bump, flag, or migration note. This is a deliberate security hardening (defense-in-depth against symlink escape) and is almost certainly intentional given the audit-remediation nature of this branch, but it is an undocumented narrowing of accepted input for every route funneling through pathScope (filesystem.ts, git.ts, symbols.ts, worktrees.ts).",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "requires_verification": true,
+      "suggested_fix": "If this is intentional (it looks correct from a security standpoint), add a short CHANGELOG/release-notes line calling out that symlinks pointing outside a session's folder are no longer traversable via the API, so users relying on such symlinks aren't surprised by a new class of 400/404 errors.",
+      "confidence": 0.6,
+      "evidence": [
+        "server/src/utils/pathScope.ts: `if (!realpathContained(base, resolved)) return null;` added to both resolveWithinBase and resolveRelativeWithinBase",
+        "Callers: server/src/routes/filesystem.ts:27,158,304; git.ts (10 call sites); symbols.ts:118; worktrees.ts:31 — all now reject symlink-escaping paths that previously passed the lexical-only check"
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "pathScope's new realpath-based containment check (server/src/utils/pathScope.ts) is a correct security fix but is an unannounced narrowing of accepted input for every fs/git/symbols/worktrees route; if any real user relies on a symlink inside a session folder pointing outside it, those requests will start failing with no changelog note.",
+    "server/src/routes/ngrok.ts's own async handlers (`/start`, `/stop`, `/recheck`) were NOT wrapped in asyncHandler in this PR (ngrok.ts is not in the changed-files list). `/recheck` in particular has no try/catch and isn't asyncHandler-wrapped, so a rejected `ngrokService.recheckInstallation()` would still hang the request with no response — the same class of bug this PR fixes elsewhere in sessions/config/git.ts. Pre-existing and out of scope for this diff, but worth a follow-up given the stated goal of eliminating hanging-request bugs.",
+    "The error-shape unification (asyncHandler → errorHandler → `{ error: 'Internal server error' }`, 500) is consistent with the app's existing `{ error: string }` convention across all reviewed routes and doesn't leak stack traces — no inconsistency found."
+  ],
+  "testing_gaps": [
+    "No integration test exercises the full ngrok.ts route → NgrokService.start() rejection path end-to-end (only NgrokService.test.ts unit-tests the service directly); a test hitting POST /ngrok/start with a fake failing binary and asserting the route returns 500 with the expected `{ error }` shape would close the loop between the service-level fix and the HTTP contract.",
+    "No regression test asserts that `/api/auth/status` and `/api/ngrok/status` remain reachable and 200 even when an expired/invalid bearer token is present in localStorage (now that getAuthStatus/getNgrokStatus route through authFetch, which special-cases 401) — relies on both routes never returning 401 today; a test would catch a future regression if either route's auth semantics change."
+  ]
+}

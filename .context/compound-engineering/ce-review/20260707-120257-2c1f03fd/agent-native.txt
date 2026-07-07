@@ -1,0 +1,15 @@
+AGENT-NATIVE PARITY REVIEW — fix/argus-audit-remediation
+
+(1) UI-only gaps: None found. This PR is remediation-only (asyncHandler wrapping, caching, race fixes, client ergonomics) and adds no new user-facing capability, so there is no new surface to check for agent parity.
+
+- sessions.ts/config.ts/git.ts: asyncHandler wrapping is purely mechanical error-handling; route paths, methods, params, and response shapes are unchanged. No route dropped or altered.
+- api.ts: authFetch's new `intercept401` opt and ngrok-skip-browser-warning header are HTTP client behavior only — they change how the *client* calls existing endpoints, not what the server exposes. getAuthStatus/getNgrokStatus switching to authFetch just adds the Bearer header/ngrok-bypass header consistently; same REST endpoints as before. No server-only capability introduced.
+- NgrokService/SessionManager/GitService/StateDetector: internal reliability fixes (settle pending promise on early ngrok exit, replay-snapshot cache with 250ms TTL, blameCache cap, persistSessions write-queue, StateDetector writeQueue rejection guard, writeToSession no-op if session already exited). All operate beneath existing routes/sockets — response contracts and event shapes are unchanged, so anything reachable via UI is equally reachable via raw API/socket calls.
+- socket/handler.ts: auth gate changed from `authService.enabled` to `authService.enforced` (matches REST middleware's existing check). This *improves* parity — previously socket and REST auth-gating logic could diverge; now both use the same `enforced` getter (exposed || password-enabled).
+- Focus.tsx Monaco lazy-load, useSocket.ts dev-only logging, useTerminal.ts resize-on-fontsize-change, MobileApp.tsx useMemo: all pure rendering/perf/DX changes with no new capability or hidden business logic.
+
+(2) What's fine as-is: Route surface, socket event surface, and system prompt/tool-equivalents (n/a — no LLM agent tool layer touches these routes directly in this repo; "agent" here means any programmatic REST/socket client) are unaffected. The auth-enforcement unification is a net positive for parity between transports.
+
+(3) Uncertain / needs human judgment: None. No new UI action, form, or button was added in this diff, so there's nothing to cross-reference against a missing API/tool. Confidence: high (0.9) — diff was read in full for all 28 changed files.
+
+Verdict: PASS — no agent-native parity gaps introduced by this PR.

@@ -1,0 +1,32 @@
+{
+  "reviewer": "correctness",
+  "findings": [
+    {
+      "title": "Lazy Monaco panels lack ErrorBoundary around Suspense",
+      "severity": "P2",
+      "file": "client/src/app/views/Focus.tsx",
+      "line": 285,
+      "why_it_matters": "React.lazy()'s dynamic import() can reject at runtime (corrupted/missing chunk on disk, transient FS error, or a CSP/asset issue), which throws during render and is caught only by an Error Boundary, not by Suspense alone. Before this change DiffWorkbench/ExplorerWorkbench were statically bundled so this failure mode didn't exist. The new Suspense block here has no ErrorBoundary wrapping it (unlike the sibling TerminalShell a few lines up at line 256, which is wrapped), and there's no root-level boundary elsewhere in the app (only Focus.tsx and Mosaic.tsx wrap their terminal shells). A failed dynamic import when a user opens the diff/explorer view would propagate past this component tree with no local recovery UI.",
+      "autofix_class": "safe_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Wrap the <Suspense>...</Suspense> maximized-panel block in the existing <ErrorBoundary key={active.id} label={active.name}> used for TerminalShell just above it, so a chunk-load failure shows the boundary's fallback instead of an unhandled render error.",
+      "confidence": 0.65,
+      "evidence": [
+        "client/src/app/views/Focus.tsx: `const DiffWorkbench = lazy(() => import('../panels/DiffWorkbench.js')...)` and the corresponding `<Suspense fallback={...}>` block (lines ~285-317) have no enclosing ErrorBoundary, whereas the TerminalShell just above (line 256) is wrapped in `<ErrorBoundary key={active.id} label={active.name}>`.",
+        "grep across client/src/app for ErrorBoundary usage shows only two call sites (Focus.tsx line 256, Mosaic.tsx line 773), neither covering the new lazy panels, and no app-root boundary in ArgusApp.tsx."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "pathScope's symlink hardening (server/src/utils/pathScope.ts) is synchronous realpath-based and correct against the tested cases, but has an inherent TOCTOU gap: a symlink could be swapped between the resolveWithinBase/resolveRelativeWithinBase check and the actual fs operation in the calling route. Exploiting this requires local filesystem write access to the scoped base, which is the same trust boundary the app already assumes (single-user desktop app), so this is a low-severity residual risk rather than a new bug.",
+    "The 250ms replay-snapshot cache (SessionManager.getReplaySnapshot) is keyed only by session id and TTL, with no invalidation on resize/state-transition events; a reconnect that lands inside the 250ms window immediately after a resize or exit could theoretically be served a frame captured just before that change. No concrete failure was found in the diff/tests, but this wasn't explicitly tested and is worth a targeted check if replay-after-resize glitches are ever reported.",
+    "Electron fuse hardening (afterPack.cjs) and the tmux kill-server escalation (electron/src/main.ts) are only exercisable via an actual packaged build / real quit-timeout, which isn't covered by the automated test suite — correctness here rests on manual/CI packaging verification rather than unit tests."
+  ],
+  "testing_gaps": [
+    "No test exercises the lazy-loaded DiffWorkbench/ExplorerWorkbench Suspense path in Focus.tsx (e.g. a rejected dynamic import) to confirm graceful degradation.",
+    "No test covers electron/afterPack.cjs's flipFuses ordering relative to the ad-hoc codesign pass (e.g. verifying resetAdHocDarwinSignature keeps the binary loadable before the --deep codesign step) — this can only really be verified via a real packaged build.",
+    "No test covers killTmuxServerBestEffort in electron/src/main.ts (resolveTmuxBinary fallback chain, socket-name selection) beyond manual/packaging-time verification."
+  ]
+}
