@@ -57,8 +57,12 @@ test('start() rejects when ngrok exits before the first successful poll', { time
 // pending start exactly once; the child's later SIGTERM-driven 'exit' must not
 // double-settle the (already settled) promise or throw on a nulled reject.
 test('stop() during connect settles the pending start() exactly once', { timeout: 3000 }, async () => {
-  // A fake ngrok that stays alive keeps start() in its polling phase.
-  const fake = makeFakeNgrok('sleep 30');
+  // A fake ngrok that stays alive keeps start() in its polling phase. `exec`
+  // replaces the shell with `sleep` in-place instead of forking it, so
+  // SIGTERM to this one process actually kills it — a plain `sleep 30`
+  // leaves an orphaned grandchild holding the inherited stdio pipe open
+  // for the full 30s after the shell dies, hanging this file's teardown.
+  const fake = makeFakeNgrok('exec sleep 30');
   const svc = makeService(fake.path);
   try {
     const startPromise = svc.start(5401);
