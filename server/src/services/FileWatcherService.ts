@@ -69,7 +69,13 @@ export class FileWatcherService {
       .on('addDir', onEvent)
       .on('unlink', onEvent)
       .on('unlinkDir', onEvent)
-      .on('error', (err) => console.error(`[FileWatcher] ${sessionId}:`, err));
+      .on('error', (err) => {
+        console.error(`[FileWatcher] ${sessionId}:`, err);
+        // A broken watcher (e.g. EMFILE from a huge/deep tree) re-emits the
+        // same error indefinitely instead of recovering. Stop it so one bad
+        // session can't starve the event loop and block the rest of startup.
+        void this.stop(sessionId);
+      });
 
     this.watchers.set(sessionId, entry);
   }
