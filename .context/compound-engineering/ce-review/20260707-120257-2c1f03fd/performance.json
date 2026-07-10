@@ -1,0 +1,13 @@
+{
+  "reviewer": "performance",
+  "findings": [],
+  "residual_risks": [
+    "getReplaySnapshot's 250ms cache only dedupes repeated capture-pane calls for the *same* sessionId within the TTL window. captureReplaySnapshot() still calls PtyManager.capturePane(), which shells out via execFileSync (server/src/services/PtyManager.ts:194) \u2014 a synchronous, blocking call on the Node event loop. In the reconnect-storm scenario this PR targets (app relaunch / tray reopen rejoining many *different* sessions at once), each session's first join still pays a blocking tmux capture-pane, and those blocking calls run serially on the event loop, stalling other Socket.io events (e.g. session:input for unrelated sessions) for their combined duration. The fix meaningfully helps the single-session multi-client case (mobile+desktop+tray all rejoining the same session) but does not address a many-distinct-sessions reconnect storm. Pre-existing blocking pattern (execFileSync predates this PR); this PR's cache is a partial mitigation, not a full fix.",
+    "GitService.blameCache eviction (server/src/services/GitService.ts:1020-1023) is FIFO by insertion order (Map iteration order), not LRU/LFU \u2014 a file blamed once long ago but never touched again is evicted at the same priority as a file that's blamed on every request. At the current cap (500) and blame's use pattern (one blame per file-open in the diff/explorer panel) this is unlikely to cause visible thrashing, but if the cap is lowered later or blame call volume grows, insertion-order eviction could evict hot entries while cold ones survive.",
+    "The Suspense fallback for DiffWorkbench/ExplorerWorkbench (client/src/app/views/Focus.tsx) is a bare spinner with no minimum-display-time or skeleton sized to the eventual panel \u2014 on a fast connection this can flash for a single frame, and on a cold Electron start with a slow disk (per project memory re: WebGL/glyph-metric issues) the first lazy-chunk fetch could take longer; this is a UX nit, not a correctness/perf regression, since the alternative (bundling Monaco eagerly, as before) is strictly worse for time-to-interactive."
+  ],
+  "testing_gaps": [
+    "No test exercises BLAME_CACHE_MAX_ENTRIES eviction (server/src/services/GitService.ts) \u2014 nothing asserts that the cache actually stays bounded after >500 distinct filePath+headSha keys, or verifies which entry gets evicted.",
+    "No test simulates a reconnect storm across multiple *distinct* sessions (as opposed to repeated joins on the same session) to confirm the getReplaySnapshot cache genuinely prevents an event-loop stall from concurrent synchronous tmux capture-pane calls."
+  ]
+}

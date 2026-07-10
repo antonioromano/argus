@@ -210,7 +210,11 @@ export class StateDetector {
         if (this.destroyed) { resolve(); return; }
         this.term.write(data, () => resolve());
       }),
-    );
+    ).catch((err) => {
+      // A rejected chain would otherwise permanently skip every future
+      // .then() on writeQueue, freezing status detection for this session.
+      console.error('StateDetector writeQueue error:', err);
+    });
 
     // Sustained-output heuristic: many feeds in a short window suggests the
     // agent is actively producing output rather than just repainting.

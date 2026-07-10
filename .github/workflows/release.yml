@@ -37,6 +37,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Gate the signed release artifact on the same lint + test checks CI runs.
+      # ci.yml doesn't trigger on tag pushes, so these must run inline here —
+      # build:all (typecheck) already runs inside package:mac below.
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
       - name: Build and package DMGs
         run: npm run package:mac
         env:

@@ -1,0 +1,31 @@
+{
+  "reviewer": "maintainability",
+  "findings": [
+    {
+      "title": "Tmux-binary resolution logic duplicated in electron/main.ts",
+      "severity": "P2",
+      "file": "electron/src/main.ts",
+      "line": 713,
+      "why_it_matters": "resolveTmuxBinary() in electron/src/main.ts re-implements PtyManager.resolveTmux()'s exact three-step priority order (ARGUS_TMUX_PATH override → bundled resourcesPath binary → `which tmux`) verbatim in a second file. The author even documents the mirroring in a comment ('Resolve the tmux binary the same way PtyManager does'), which is a self-admission that this is a copy, not a shared source of truth. If PtyManager's fallback logic changes in the future (e.g. new platform path, different bundling layout, additional override), this copy will silently go stale and the quit-timeout kill-switch could fail against the wrong binary or socket layout without any test catching the drift.",
+      "autofix_class": "manual",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Extract the resolution logic into an exported utility (e.g. server/src/utils/resolveTmuxBinary.ts) that both PtyManager.resolveTmux() and electron/src/main.ts's killTmuxServerBestEffort() call, re-exported from server/src/index.js if needed since main.ts already dynamically imports the server bundle.",
+      "confidence": 0.78,
+      "evidence": [
+        "electron/src/main.ts:713-734 resolveTmuxBinary() checks process.env.ARGUS_TMUX_PATH, then `resourcesPath/tmux/tmux-${arch}`, then `which tmux` on PATH.",
+        "server/src/services/PtyManager.ts:87-124 resolveTmux() implements the identical three-step fallback chain (env override → bundled path → PATH lookup) with the same existsSync/execFileSync 'which' pattern.",
+        "Comment in electron/src/main.ts:713-715 explicitly states this mirrors PtyManager.ts, confirming it's an intentional duplicate rather than independent logic."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "replaySnapshotCache (SessionManager) is invalidated on destroySession but not on restartSession; a client that joins within the 250ms TTL window immediately after a restart could be served a cached pre-restart snapshot. The short TTL bounds the exposure but the cache-invalidation contract is now split across two call sites in a way a future editor could miss when adding a third lifecycle transition.",
+    "Three new server/src/routes/*.asyncHandler.test.ts files each hand-roll near-identical express-server bootstrap boilerplate (create app, listen(0), read AddressInfo port, build base URL, close in after()). Not flagged as a hard finding (low payoff, differing route/store shapes per file), but a shared test helper (e.g. startTestServer(router, mountPath)) would reduce ~10 duplicated lines per file and keep the pattern consistent as more asyncHandler tests are added."
+  ],
+  "testing_gaps": [
+    "No test exercises electron/src/main.ts's resolveTmuxBinary()/killTmuxServerBestEffort() — the quit-timeout tmux force-kill path (and its duplication risk relative to PtyManager.resolveTmux) is unverified by CI.",
+    "No test covers SessionManager.getReplaySnapshot()/captureReplaySnapshot() cache behavior across a restartSession() call, only across plain buffer mutation (SessionManager.test.ts covers TTL expiry and reuse, not the restart-invalidation interaction)."
+  ]
+}

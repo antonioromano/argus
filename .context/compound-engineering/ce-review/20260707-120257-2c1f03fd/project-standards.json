@@ -1,0 +1,10 @@
+{
+  "reviewer": "project-standards",
+  "findings": [],
+  "residual_risks": [
+    "CLAUDE.md states 'authFetch (never bare fetch)' for remote-reachable requests; the diff correctly migrates getNgrokStatus/getAuthStatus/login to authFetch, but this reviewer did not exhaustively audit every call site outside the touched diff lines (pre-existing bare-fetch usages, if any, are out of scope per the pre_existing rule and were not found in the changed files).",
+    "electron/afterPack.cjs now runs flipFuses before any code-signing pass and documents the ordering rationale in comments, but there is no automated test asserting fuse state on the packaged binary — a future edit to this hook could silently reorder steps and regress the hardening without CI catching it.",
+    "server/src/services/SessionManager.ts persistSessions() is now queued via a promise chain (this.persistQueue = run.catch(() => {})); this is correct for avoiding races but swallows failures from the queue continuation itself (only the returned `run` promise surfaces the error to the immediate caller) — a systemic persistence failure would not visibly break the queue but also wouldn't surface beyond the single failing call's caller."
+  ],
+  "testing_gaps": []
+}

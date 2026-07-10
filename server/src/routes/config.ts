@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { AgentRegistry } from '../services/AgentRegistry.js';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 // Validate flag values stored in agentFlags config to prevent shell injection
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
@@ -40,12 +41,12 @@ function validateCustomAgents(customAgents: AgentDefinition[]): string | null {
 export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (config: AppConfig) => void): Router {
   const router = Router();
 
-  router.get('/', async (_req, res) => {
+  router.get('/', asyncHandler(async (_req, res) => {
     const config = await configStore.load();
     res.json(config);
-  });
+  }));
 
-  router.put('/', async (req, res) => {
+  router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
     const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle } = req.body;
 
@@ -96,7 +97,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
     await configStore.save(updated);
     onConfigChange?.(updated);
     res.json(updated);
-  });
+  }));
 
   return router;
 }

@@ -1,0 +1,32 @@
+{
+  "reviewer": "julik-frontend-races",
+  "findings": [
+    {
+      "title": "Font-size refit emits session:resize with no visibility guard",
+      "severity": "P1",
+      "file": "client/src/hooks/useTerminal.ts",
+      "line": 441,
+      "why_it_matters": "The new font-size effect calls `fitAddonRef.current?.fit()` and then `socket.emit('session:resize', ...)` unconditionally, whenever the app-wide `codeFontSize` setting changes. Every other call site in this same file that does fit()+emit (lines 229-235, 243-248, 261, 368-372) first checks `container.offsetWidth > 0 && container.offsetHeight > 0` before touching the pty size — this new one is the only one that doesn't. Focus.tsx keeps the terminal mounted with its container collapsed to `flex: 0 0 0px` while a Diff/Explorer workbench is maximized (comment at Focus.tsx:251-253: 'The terminal stays mounted at all times... it collapses to 0 height'). `@xterm/addon-fit`'s `proposeDimensions()` clamps degenerate sizes to `Math.max(2, ...)` cols / `Math.max(1, ...)` rows instead of bailing out (only NaN short-circuits), so fitting a 0-height container silently succeeds and returns `{cols:2, rows:1}`. The subsequent emit sends that to the server, whose `session:resize` handler resizes the real tmux pane to whichever client reports the largest dims (server/src/socket/handler.ts:44-61) — if the maximized Focus tile is the only viewer of that session, the pty is genuinely resized to 2x1, garbling live output for every future viewer until something else triggers a correct refit. Changing the font size while a workbench panel is maximized (a completely ordinary sequence: open Explorer, then bump font size in settings) reproduces this every time.",
+      "autofix_class": "gated_auto",
+      "owner": "review-fixer",
+      "requires_verification": true,
+      "suggested_fix": "Guard the fit()+emit pair the same way every other call site in this file does: `const c = containerRef.current; if (c && c.offsetWidth > 0 && c.offsetHeight > 0) { fitAddonRef.current?.fit(); socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows }); }`. Keep `t.options.fontSize = codeFontSize;` unconditional (it's a local style-only op). When the tile becomes visible again, the existing `terminal:refit` dispatch in Focus.tsx's `restoreToShell` (and the ResizeObserver/visibilitychange handlers) will fit+emit correct dimensions at the new font size.",
+      "confidence": 0.85,
+      "evidence": [
+        "client/src/hooks/useTerminal.ts:437-445: `useEffect(() => { const t = terminalRef.current; if (!t || t.options.fontSize === codeFontSize) return; t.options.fontSize = codeFontSize; fitAddonRef.current?.fit(); socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows }); }, [codeFontSize, sessionId, socket]);` — no container-size check, unlike lines 228-236 and 355-378 in the same file.",
+        "client/src/app/views/Focus.tsx:251-253/255: comment 'The terminal stays mounted at all times; when a tool window is maximized it collapses to 0 height' and `style={{ flex: maximized ? '0 0 0px' : 1, ... }}` on the div wrapping `<TerminalShell>`.",
+        "node_modules/@xterm/addon-fit/lib/addon-fit.js: `proposeDimensions()` returns `{cols: Math.max(2, floor(...)), rows: Math.max(1, floor(...))}` for a zero-height container instead of returning undefined, so `fit()` proceeds and resizes the terminal to 2x1.",
+        "server/src/socket/handler.ts:137-148: `session:resize` stores the reporting client's dims and resizes the pty via `getSessionDimensions` (largest desktop client, or smallest mobile client if any) — a lone 2x1 report from the only connected viewer becomes the pty's real size."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "The font-size refit effect (useTerminal.ts:437-445) has no debounce, unlike the ResizeObserver-driven doFit() (100ms) and terminal:refit handler (50ms) in the same hook. A font-size control that emits many intermediate values in quick succession (e.g. a live-dragged slider rather than discrete +/- steps) will fire fit()+session:resize once per intermediate value with no coalescing — likely just wasted socket traffic today, but worth confirming the actual font-size UI only emits on commit, not on every drag tick.",
+    "authFetch's new `intercept401` opt-out is currently only exercised by `login()`; if a future protected endpoint needs the same treatment (e.g. a 401 that carries a domain-specific error rather than session expiry) it's easy to forget the opt-out and get an unwanted forced logout — worth a code comment pointer at the `authFetch` definition site (already present) but no test currently pins the *default* (intercept401 undefined/true) path against a genuinely protected route beyond auth/status and ngrok/status, both of which are on the server's public-path allowlist and can never actually 401."
+  ],
+  "testing_gaps": [
+    "No test exercises useTerminal's font-size effect against a zero-size (hidden/collapsed) container to confirm session:resize isn't emitted with degenerate dimensions — the Focus.tsx maximized-workbench scenario that triggers this isn't covered by any client test.",
+    "api.test.ts's new suite covers authFetch's intercept401 behavior for login() in isolation, but doesn't test two concurrent authFetch calls racing on the same 401 (both clearing/dispatching) to confirm no double-navigation or lost-request state in ArgusApp/MobileApp's `auth:unauthorized` handlers."
+  ]
+}

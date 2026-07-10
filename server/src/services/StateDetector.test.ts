@@ -221,6 +221,24 @@ test('getLastPromptText reaches a question more than 15 rows above the footer', 
   det.destroy();
 });
 
+test('a writeQueue rejection does not freeze subsequent status detection', async () => {
+  let status: string | null = null;
+  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const term = (det as any).term;
+  const originalWrite = term.write.bind(term);
+  term.write = () => { throw new Error('simulated corrupted write'); };
+
+  det.feed(atBottom('this write blows up'));
+  await settle(100);
+  assert.equal(status, null, 'the failed write should not have produced a status');
+
+  term.write = originalWrite;
+  det.feed(atBottom('│ > '));
+  await settle();
+  assert.equal(status, 'waiting', 'detection must recover after a prior write rejected');
+  det.destroy();
+});
+
 test('onPromptUpdate fires when the menu paints after a cursor-hint waiting transition', async () => {
   // DECSCUSR can flip status to waiting BEFORE the menu is painted; the
   // one-shot extraction at the transition then returns undefined. A later

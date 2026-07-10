@@ -1,0 +1,31 @@
+{
+  "reviewer": "security",
+  "findings": [
+    {
+      "title": "pathScope symlink re-check has inherent TOCTOU gap",
+      "severity": "P3",
+      "file": "server/src/utils/pathScope.ts",
+      "line": 60,
+      "why_it_matters": "resolveWithinBase/resolveRelativeWithinBase realpath-check a path at request-validation time, but the actual fs/git operation runs later against the same lexical (non-realpath) string. A component swapped for a symlink between the check and the use (e.g. a directory replaced by a symlink to outside the session folder) would not be caught. In Argus's threat model the only actor with write access to the session folder is the pty process itself (already full-trust, same-user), so this is a defense-in-depth gap rather than a privilege escalation from the untrusted (remote/mobile) API caller — but it means the realpath hardening doesn't fully close the class of bug its own docstring claims to close (\"TOCTOU/symlink-escape gap\").",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "requires_verification": false,
+      "suggested_fix": "If full closure is desired, the containment check and the actual fs operation would need to share a single resolved file descriptor (open with O_NOFOLLOW / fs.realpathSync immediately before use, or perform the operation via the fd returned from open() rather than re-resolving the path string). Given the actual attacker model here (remote HTTP caller vs. local pty with full folder access), this is likely acceptable residual risk rather than something to fix now.",
+      "confidence": 0.55,
+      "evidence": [
+        "server/src/utils/pathScope.ts: resolveWithinBase() returns the lexically-resolved `resolved` path after realpathContained() succeeds, but callers (e.g. server/src/routes/filesystem.ts, server/src/routes/git.ts) subsequently pass the original/relative path string to fs/git operations rather than re-checking at the point of use."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "createSession's folderPath is still unvalidated/unscoped (any absolute path an authenticated caller supplies is accepted) — intentionally left as-is per the 35d6c00 commit message, on the reasoning that the auth fail-closed fix (98ab24b) already closes the practical attack path and a folder allowlist would break legitimate external-drive/tmp workflows. Worth revisiting if Argus's exposure model changes (e.g. multi-user tunneling).",
+      "pathScope's realpath containment check fails open (returns true / trusts the lexical check) when the base directory itself cannot be resolved, or when no path segment can be resolved at all — a deliberate non-regression choice, but it means the hardening added in 696d4ef provides no additional protection in those edge cases.",
+    "Mobile is explicitly not server-enforced read-only (by product decision, out of scope for this review) — combined with the still-unscoped createSession folderPath, an authenticated mobile/tunnel client has broad filesystem reach equivalent to the desktop user."
+  ],
+  "testing_gaps": [
+    "No test exercises the interaction between asyncHandler-wrapped routes and the auth middleware together (i.e. confirming a rejected promise from an authenticated-only route still 500s via errorHandler rather than ever reaching a handler without a valid token) — current tests appear to cover asyncHandler and auth middleware in isolation.",
+    "No test simulates a symlink swap between pathScope's containment check and the consuming fs/git operation (TOCTOU), which would be needed to substantiate or rule out the residual risk noted above.",
+    "electron/afterPack.cjs fuse-flipping has no automated test (understandably, since it needs a packaged .app) — verification relies on manual `codesign -d --entitlements` / `@electron/fuses` inspection post-release; consider a release-pipeline smoke check that asserts the fuse wire on the produced .app."
+  ]
+}

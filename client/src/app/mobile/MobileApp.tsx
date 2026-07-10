@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
@@ -65,7 +65,7 @@ function Inner() {
   const socket = useSocket();
   const { sessions, createSession, deleteSession } = useSessions(socket);
   const groups = useGroups();
-  const grouped = groups.groupedSessions(sessions);
+  const grouped = useMemo(() => groups.groupedSessions(sessions), [groups.groupedSessions, sessions]);
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
   const [focusedId, setFocusedId] = useState<string | null>(null);

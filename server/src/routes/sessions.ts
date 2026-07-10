@@ -4,6 +4,7 @@ import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { CreateSessionRequest, SessionGroup } from '@argus/shared';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 // Only allow safe flag characters — blocks shell metacharacters like ; | & ` $() etc.
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/]*$/;
@@ -33,12 +34,12 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     res.json(manager.getAllSessions());
   });
 
-  router.get('/order', async (_req, res) => {
+  router.get('/order', asyncHandler(async (_req, res) => {
     const order = await orderStore.load();
     res.json({ order });
-  });
+  }));
 
-  router.put('/order', async (req, res) => {
+  router.put('/order', asyncHandler(async (req, res) => {
     const { order } = req.body;
     if (!Array.isArray(order)) {
       res.status(400).json({ error: 'order must be an array of session IDs' });
@@ -46,14 +47,14 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
     await orderStore.save(order);
     res.json({ order });
-  });
+  }));
 
-  router.get('/mosaic-order', async (_req, res) => {
+  router.get('/mosaic-order', asyncHandler(async (_req, res) => {
     const order = await mosaicOrderStore.load();
     res.json({ order });
-  });
+  }));
 
-  router.put('/mosaic-order', async (req, res) => {
+  router.put('/mosaic-order', asyncHandler(async (req, res) => {
     const { order } = req.body;
     if (!Array.isArray(order)) {
       res.status(400).json({ error: 'order must be an array of session IDs' });
@@ -61,14 +62,14 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
     await mosaicOrderStore.save(order);
     res.json({ order });
-  });
+  }));
 
-  router.get('/groups', async (_req, res) => {
+  router.get('/groups', asyncHandler(async (_req, res) => {
     const groups = await groupStore.load();
     res.json({ groups });
-  });
+  }));
 
-  router.put('/groups', async (req, res) => {
+  router.put('/groups', asyncHandler(async (req, res) => {
     const { groups } = req.body;
     if (!Array.isArray(groups)) {
       res.status(400).json({ error: 'groups must be an array of SessionGroup' });
@@ -77,7 +78,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     const deduped = dedupeGroupMembership(groups as SessionGroup[]);
     await groupStore.save(deduped);
     res.json({ groups: deduped });
-  });
+  }));
 
   router.get('/:id', (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
@@ -88,7 +89,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     res.json(session);
   });
 
-  router.post('/', async (req, res) => {
+  router.post('/', asyncHandler(async (req, res) => {
     const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase } = req.body as CreateSessionRequest;
 
     if (!folderPath) {
@@ -123,9 +124,9 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       const message = err instanceof Error ? err.message : 'Failed to create session';
       res.status(400).json({ error: message });
     }
-  });
+  }));
 
-  router.patch('/:id/restart', async (req, res) => {
+  router.patch('/:id/restart', asyncHandler(async (req, res) => {
     try {
       const session = await manager.restartSession(req.params.id);
       res.json(session);
@@ -133,9 +134,9 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       const message = err instanceof Error ? err.message : 'Failed to restart session';
       res.status(404).json({ error: message });
     }
-  });
+  }));
 
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', asyncHandler(async (req, res) => {
     try {
       await manager.destroySession(req.params.id);
       res.status(204).send();
@@ -143,7 +144,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       const message = err instanceof Error ? err.message : 'Failed to delete session';
       res.status(404).json({ error: message });
     }
-  });
+  }));
 
   return router;
 }

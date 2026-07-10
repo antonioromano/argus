@@ -1,0 +1,33 @@
+{
+  "reviewer": "kieran-typescript",
+  "findings": [
+    {
+      "title": "useMemo intentionally skips `groups`, unexplained lint warning",
+      "severity": "P3",
+      "file": "client/src/app/mobile/MobileApp.tsx",
+      "line": 68,
+      "why_it_matters": "`const grouped = useMemo(() => groups.groupedSessions(sessions), [groups.groupedSessions, sessions]);` triggers `react-hooks/exhaustive-deps` (missing dep: 'groups'). The omission is actually correct — `groups` is a fresh object literal returned by `useGroups()` on every render, so depending on it directly would recompute on every render and defeat the perf goal of this exact commit; `groups.groupedSessions` is the useCallback-wrapped function (stable unless the internal group state changes), which is the right dependency. But nothing in the diff records that reasoning. A future contributor (or an autofix pass) 'fixing' the lint warning by adding `groups` to the deps array would silently reintroduce the per-render recompute this commit was written to avoid, and no test would catch the regression since it's a pure perf regression, not a correctness one.",
+      "autofix_class": "advisory",
+      "owner": "human",
+      "requires_verification": false,
+      "suggested_fix": "Add a one-line `// eslint-disable-next-line react-hooks/exhaustive-deps` comment (or equivalent) explaining that `groups.groupedSessions` is intentionally used instead of `groups` because `useGroups()` returns a new object identity every render while `groupedSessions` itself is stable via its own `useCallback`.",
+      "confidence": 0.62,
+      "evidence": [
+        "client/src/app/mobile/MobileApp.tsx:68 — `const grouped = useMemo(() => groups.groupedSessions(sessions), [groups.groupedSessions, sessions]);`",
+        "npm run lint -w client output: \"MobileApp.tsx 68:67 warning React Hook useMemo has a missing dependency: 'groups'\"",
+        "client/src/hooks/useGroups.ts: `groupedSessions` is `useCallback(..., [groups])` where `groups` is internal state, and the hook's own return value is a fresh object literal each call, so depending on the returned `groups` object (rather than `groups.groupedSessions`) would defeat the memoization."
+      ],
+      "pre_existing": false
+    }
+  ],
+  "residual_risks": [
+    "electron/src/main.ts's new resolveTmuxBinary()/killTmuxServerBestEffort() duplicates server/src/services/PtyManager.ts's resolveTmux()/TMUX_SOCKET resolution logic (necessarily, since electron/ and server/ are separate compilation units bundled independently). The duplication is well-commented and points back at the source of truth, but the two implementations can still silently drift on a future change to one side (e.g. a new binary lookup fallback) without a compiler or test catching the mismatch.",
+    "server/src/utils/pathScope.ts's new realpathContained()/realpathNearest() add a synchronous fs.realpathSync walk to every path-scoped filesystem/git request as defense-in-depth against symlink escapes; functionally sound and well-tested, but worth confirming this hasn't measurably regressed latency on the filesystem/git routes' hot paths, especially for deeply-nested repo trees on slow disks (network volumes, etc.).",
+    "The whole diff's type safety is unusually clean — no new `any`/unsafe casts landed in production code; every `as any`/`as unknown as X` introduced is confined to test files and follows the repo's existing convention of narrow-casting to access private internals for white-box testing. This lowers overall risk but means the review found little to flag; a second pass closer to release (or a runtime smoke test of the packaged .app, since electron/ isn't covered by the automated test suite at all) is still warranted given the security/reliability scope of this branch."
+  ],
+  "testing_gaps": [
+    "electron/src/main.ts's new killTmuxServerBestEffort()/resolveTmuxBinary() (force-kill escalation on shutdown timeout) has zero automated test coverage — electron/ has no test harness in this repo, so this safety-critical cleanup path is only exercised manually.",
+    "The shell:openExternal URL-scheme hardening fix (anchoring `//` after `https?:` to block a crafted `https:evil` bypassing the old regex) has no unit test asserting the previously-exploitable string is now rejected and that legitimate `https://...`/`mailto:...` URLs still pass — same electron/ test-harness gap as above.",
+    "client/src/app/views/Focus.tsx's new lazy()/Suspense wiring for DiffWorkbench/ExplorerWorkbench has no test verifying the Suspense fallback renders or that the lazy chunk resolves to the expected named export at runtime; a typo in the dynamic import path or the `.then((m) => ({ default: m.X }))` mapping would only surface as a runtime error in the browser, not at compile time (the module specifier itself is checked by tsc, but the shape of the resolved module is inferred, not asserted against DiffWorkbench's actual export)."
+  ]
+}

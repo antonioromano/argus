@@ -69,7 +69,7 @@ export function setupSocketHandler(
   updateService: UpdateService,
 ): void {
   io.use((socket, next) => {
-    if (!authService.enabled) {
+    if (!authService.enforced) {
       next();
       return;
     }
@@ -128,7 +128,11 @@ export function setupSocketHandler(
 
     socket.on('session:input', ({ sessionId, data }) => {
       if (!manager.getSession(sessionId)) return;
-      manager.writeToSession(sessionId, data);
+      try {
+        manager.writeToSession(sessionId, data);
+      } catch {
+        /* session may have exited between the guard check and write */
+      }
     });
 
     socket.on('session:resize', ({ sessionId, cols, rows }) => {
