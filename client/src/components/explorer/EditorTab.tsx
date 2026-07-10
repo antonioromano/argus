@@ -26,6 +26,8 @@ export interface TabBufferSnapshot {
 interface EditorTabProps {
   sessionId: string;
   path: string;
+  /** Session root folder — used to resolve leading-"/" links in markdown preview. */
+  rootPath: string;
   /** When false the tab stays mounted but hidden, preserving its buffer + Monaco view state. */
   visible: boolean;
   theme: 'dark' | 'light';
@@ -41,6 +43,7 @@ interface EditorTabProps {
 export function EditorTab({
   sessionId,
   path,
+  rootPath,
   visible,
   theme,
   viewMode,
@@ -85,6 +88,7 @@ export function EditorTab({
       ) : (
         <EditorArea
           path={path}
+          rootPath={rootPath}
           value={buffer.content}
           onChange={buffer.setContent}
           onSave={() => void buffer.save()}
@@ -101,6 +105,7 @@ export function EditorTab({
 
 interface EditorAreaProps {
   path: string;
+  rootPath: string;
   value: string;
   onChange: (next: string) => void;
   onSave: () => void;
@@ -111,11 +116,15 @@ interface EditorAreaProps {
   revealNonce?: number;
 }
 
-function PreviewPane({ kind, source }: { kind: PreviewKind; source: string }) {
-  return kind === 'csv' ? <CsvPreview source={source} /> : <MarkdownPreview source={source} />;
+function PreviewPane({ kind, source, filePath, rootPath }: { kind: PreviewKind; source: string; filePath: string; rootPath: string }) {
+  return kind === 'csv' ? (
+    <CsvPreview source={source} />
+  ) : (
+    <MarkdownPreview source={source} filePath={filePath} rootPath={rootPath} />
+  );
 }
 
-function EditorArea({ path, value, onChange, onSave, theme, kind, viewMode, revealLine, revealNonce }: EditorAreaProps) {
+function EditorArea({ path, rootPath, value, onChange, onSave, theme, kind, viewMode, revealLine, revealNonce }: EditorAreaProps) {
   const language = monacoLanguageFor(path);
   const [splitRatio, setSplitRatio] = useState<number>(() => readStoredRatio());
   const [isDragging, setIsDragging] = useState(false);
@@ -165,7 +174,7 @@ function EditorArea({ path, value, onChange, onSave, theme, kind, viewMode, reve
   }
 
   if (viewMode === 'preview') {
-    return <PreviewPane kind={kind} source={value} />;
+    return <PreviewPane kind={kind} source={value} filePath={path} rootPath={rootPath} />;
   }
 
   return (
@@ -190,7 +199,7 @@ function EditorArea({ path, value, onChange, onSave, theme, kind, viewMode, reve
         }}
       />
       <div style={{ flex: 1, minWidth: 0, display: 'flex' }}>
-        <PreviewPane kind={kind} source={value} />
+        <PreviewPane kind={kind} source={value} filePath={path} rootPath={rootPath} />
       </div>
     </div>
   );

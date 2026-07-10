@@ -18,6 +18,7 @@ import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
 import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { SleepPreventionService } from './SleepPreventionService.js';
+import { FileWatcherService } from './FileWatcherService.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
@@ -101,6 +102,11 @@ export class SessionManager {
   private gitPollRunning = false;
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
   private sleepPrevention = new SleepPreventionService();
+  // Per-session folder watcher; pushes changed dirs to the session's room so
+  // the client's file tree updates live (incl. externally-created files).
+  private fileWatcher = new FileWatcherService((sessionId, dirs) => {
+    this.io?.to(sessionId).emit('session:fsChanged', { sessionId, dirs });
+  });
   private preventSleepWhileRunning = false;
 
   constructor(dataDir: string, configStore: ConfigStore) {
@@ -335,6 +341,7 @@ export class SessionManager {
     });
 
     this.sessions.set(id, session);
+    this.fileWatcher.watch(id, session.folderPath);
     this.refreshSleepPrevention();
     await this.persistSessions();
 
@@ -348,6 +355,7 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
 
     session.stateDetector.destroy();
+    void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);                       // detaches the tmux client
     if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName); // actually stop the agent
@@ -732,6 +740,7 @@ export class SessionManager {
         // pty may already be dead — continue to next session
       }
     }
+    await this.fileWatcher.stopAll();
     await this.sleepPrevention.stop();
     await this.persistSessions();
   }

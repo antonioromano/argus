@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   initGroups,
+  isGroupsState,
   openInGroup,
   openPreviewInGroup,
   pinTab,
@@ -11,6 +12,37 @@ import {
   focusGroup,
   type GroupsState,
 } from '../components/explorer/editorGroups.js';
+
+/** localStorage key holding the open-tabs layout for one session. Lives in the
+ *  Electron userData profile, so tabs survive files-view close, Cmd+R, and app
+ *  restart (see plan: persistent tabs). */
+const tabsKey = (sessionId: string) => `argus.explorer.tabs.${sessionId}`;
+
+/** Best-effort hydrate of a session's persisted GroupsState. Any parse/shape
+ *  failure falls back to a fresh single group seeded with initialPath. */
+export function loadGroups(sessionId: string, initialPath?: string | null): GroupsState {
+  try {
+    const raw = window.localStorage.getItem(tabsKey(sessionId));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (isGroupsState(parsed)) {
+        // Honor a deep-link target: open it into the restored layout if absent.
+        return initialPath ? openInGroup(parsed, parsed.focused, initialPath) : parsed;
+      }
+    }
+  } catch {
+    /* localStorage unavailable / malformed — fall through to fresh state */
+  }
+  return initGroups(initialPath);
+}
+
+export function persistGroups(sessionId: string, state: GroupsState): void {
+  try {
+    window.localStorage.setItem(tabsKey(sessionId), JSON.stringify(state));
+  } catch {
+    /* best-effort; ignore quota/availability errors */
+  }
+}
 
 export interface UseEditorGroups {
   state: GroupsState;
@@ -29,8 +61,14 @@ export interface UseEditorGroups {
   moveTo: (fromGi: number, toGi: number, path: string) => void;
 }
 
-export function useEditorGroups(initialPath?: string | null): UseEditorGroups {
-  const [state, setState] = useState<GroupsState>(() => initGroups(initialPath));
+export function useEditorGroups(sessionId: string, initialPath?: string | null): UseEditorGroups {
+  const [state, setState] = useState<GroupsState>(() => loadGroups(sessionId, initialPath));
+
+  // Persist the open-tabs layout on every change so it survives close/reopen,
+  // Cmd+R, and app restart.
+  useEffect(() => {
+    persistGroups(sessionId, state);
+  }, [sessionId, state]);
 
   const open = useCallback((path: string) => {
     setState((s) => openInGroup(s, s.focused, path));

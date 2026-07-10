@@ -60,7 +60,7 @@ interface ZoneRect {
 
 export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLine, initialQuery }: ExplorerWorkbenchProps) {
   const { theme } = useTheme();
-  const groups = useEditorGroups(initialFilePath ?? null);
+  const groups = useEditorGroups(session.id, initialFilePath ?? null);
 
   const [tabStates, setTabStates] = useState<Record<string, TabBufferSnapshot>>({});
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
@@ -458,6 +458,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                           key={path}
                           sessionId={session.id}
                           path={path}
+                          rootPath={session.folderPath}
                           visible={path === g.active}
                           theme={theme}
                           viewMode={viewModeFor(path)}

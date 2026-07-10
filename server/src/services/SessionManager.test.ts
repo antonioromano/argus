@@ -25,6 +25,37 @@ function withFakeExitedSession(sm: SessionManager, id: string) {
   });
 }
 
+test('destroySession stops the folder watcher for that session', async () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  let stopped: string | null = null;
+  (sm as any).fileWatcher = {
+    watch: () => {},
+    stop: (id: string) => {
+      stopped = id;
+      return Promise.resolve();
+    },
+    stopAll: () => Promise.resolve(),
+  };
+  (sm as any).ptyManager.kill = () => {};
+  (sm as any).sessions.set('sess-w', {
+    id: 'sess-w',
+    name: 'test',
+    folderPath: os.tmpdir(),
+    agentType: 'claude',
+    flags: [],
+    status: 'running',
+    createdAt: new Date().toISOString(),
+    pty: {},
+    stateDetector: { destroy: () => {}, resize: () => {} },
+    outputBuffer: '',
+    persistent: false,
+    hasUserInputSinceIdle: false,
+  });
+
+  await sm.destroySession('sess-w');
+  assert.equal(stopped, 'sess-w');
+});
+
 test('writeToSession no-ops on an already-exited session instead of writing to a dead pty', () => {
   const sm = new SessionManager(os.tmpdir(), fakeConfig);
   withFakeExitedSession(sm, 'sess-1');

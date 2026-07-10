@@ -46,6 +46,27 @@ export function initGroups(initialPath?: string | null): GroupsState {
     : { groups: [{ tabs: [], active: null, preview: null }], focused: 0 };
 }
 
+/**
+ * Shape guard for a persisted GroupsState (from localStorage). Rejects anything
+ * that isn't a well-formed 1-or-2 group state so a corrupt/old payload can't
+ * crash the workbench — the caller falls back to a fresh initGroups().
+ */
+export function isGroupsState(value: unknown): value is GroupsState {
+  if (!value || typeof value !== 'object') return false;
+  const s = value as GroupsState;
+  if (!Array.isArray(s.groups) || s.groups.length < 1 || s.groups.length > 2) return false;
+  if (typeof s.focused !== 'number' || s.focused < 0 || s.focused >= s.groups.length) return false;
+  return s.groups.every(
+    (g) =>
+      !!g &&
+      typeof g === 'object' &&
+      Array.isArray(g.tabs) &&
+      g.tabs.every((t) => typeof t === 'string') &&
+      (g.active === null || typeof g.active === 'string') &&
+      (g.preview === null || typeof g.preview === 'string'),
+  );
+}
+
 /** Open (or activate) a file as a permanent, pinned tab. */
 export function openInGroup(state: GroupsState, gi: number, path: string): GroupsState {
   const groups = state.groups.map((g, i) => {

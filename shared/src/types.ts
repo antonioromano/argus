@@ -158,6 +158,10 @@ export interface ServerToClientEvents {
   'update:failed': (payload: { error: string; upToDate?: boolean }) => void;
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
+  /** Filesystem change detected under a session's folder. `dirs` are the
+   *  absolute parent directories of changed entries (tree path scheme), so the
+   *  client can re-fetch just those folders. */
+  'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
   // Ephemeral terminal responses
   'ephemeral:output': (payload: { id: string; data: string }) => void;
   'ephemeral:exit': (payload: { id: string; exitCode: number }) => void;
