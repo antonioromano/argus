@@ -236,10 +236,9 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 export async function startServer(): Promise<void> {
-  await sessionManager.restoreSessions();
   applyConfig(await configStore.load());
   updateService.start();
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     _startReject = reject;
     httpServer.listen(PORT, HOST, () => {
       _startReject = null;
@@ -248,6 +247,15 @@ export async function startServer(): Promise<void> {
       if (!loopback.includes(HOST)) authService.setExposed(true);
       resolve();
     });
+  });
+  // Restore persisted sessions in the background. Each restored session
+  // eagerly starts a recursive file watcher, which can take many seconds
+  // for large/many folders (worse under a low fd ulimit) — blocking window
+  // creation on this made a large session set look/act like a startup
+  // crash. Clients already handle sessions arriving progressively via the
+  // 'session:created' socket event, so there's no ordering requirement here.
+  void sessionManager.restoreSessions().catch((err) => {
+    console.error('Failed to restore sessions:', err);
   });
 }
 
