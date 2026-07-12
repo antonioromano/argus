@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import { SessionManager } from './SessionManager.js';
+import { tmuxSessionName } from './PtyManager.js';
 
 const fakeConfig = {
   load: async () => ({ defaultAgent: 'claude', customAgents: [], agentFlags: {} }),
@@ -154,4 +155,30 @@ test('persistSessions recovers after a rejected save instead of wedging future w
   await (sm as any).persistSessions();
 
   assert.deepEqual(calls, [['a'], ['a', 'b']], 'second persist must still run and see the latest session snapshot');
+});
+
+test('restoreSessions calls spawnTmux exactly once when reattaching to a live survivor', async () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  (sm as any).fileWatcher = { watch: () => {}, stop: () => Promise.resolve(), stopAll: () => Promise.resolve() };
+  (sm as any).store.load = async () => ([{
+    id: 'restore-1',
+    name: 'restored',
+    folderPath: os.tmpdir(),
+    agentType: 'claude',
+    flags: [],
+    createdAt: new Date().toISOString(),
+  }]);
+  (sm as any).store.save = async () => {};
+
+  const tmuxName = tmuxSessionName('restore-1');
+  const fakePty = { onData: () => {}, onExit: () => {}, kill: () => {} };
+  let spawnTmuxCalls = 0;
+  (sm as any).ptyManager.isTmuxAvailable = () => true;
+  (sm as any).ptyManager.listArgusSessions = () => new Set([tmuxName]);
+  (sm as any).ptyManager.isTmuxPaneDead = () => false;
+  (sm as any).ptyManager.spawnTmux = () => { spawnTmuxCalls++; return fakePty; };
+
+  await sm.restoreSessions();
+
+  assert.equal(spawnTmuxCalls, 1, 'reattach path must spawn exactly one client onto the survivor session');
 });

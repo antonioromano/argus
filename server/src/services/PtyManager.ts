@@ -224,6 +224,10 @@ export class PtyManager {
   ): IPty {
     const tmux = this.resolveTmux();
     if (!tmux) throw new Error('tmux not available');
+    // Evict any client left attached by a prior ungraceful death (crash, OOM-kill,
+    // Force Quit) before attaching a new one — two clients on the same session can
+    // race the tmux server and spin at ~100% CPU. Session itself is unaffected.
+    this.detachTmuxClients(tmuxName);
     const resolvedCommand = this.resolveCommand(command);
     const agentCmd = this.buildAgentCommand(resolvedCommand, flags);
     const args = this.tmuxArgs(
@@ -245,6 +249,19 @@ export class PtyManager {
     // server also has mouse + wheel-scroll bindings (fresh servers get it via -f).
     this.applyMouseConfig();
     return client;
+  }
+
+  /**
+   * Forcibly detach any client(s) currently attached to this session (e.g. an
+   * orphan left behind by an ungraceful app death). Session itself survives —
+   * detach-client only disconnects the client, per destroy-unattached off.
+   */
+  detachTmuxClients(tmuxName: string): void {
+    try {
+      this.runTmux(['detach-client', '-s', tmuxName]);
+    } catch {
+      /* no client attached, or session doesn't exist yet — nothing to detach */
+    }
   }
 
   /** True if a tmux session with this name currently exists. */
