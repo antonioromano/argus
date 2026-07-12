@@ -1,6 +1,6 @@
 {
   "name": "@argus/server",
-  "version": "0.20.17",
+  "version": "0.20.18",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,6 @@
     "@argus/shared": "*",
     "@vscode/ripgrep": "^1.18.0",
     "@xterm/headless": "^6.0.0",
-    "chokidar": "^4.0.3",
     "cors": "^2.8.5",
     "express": "^4.21.0",
     "node-pty": "^1.1.0",

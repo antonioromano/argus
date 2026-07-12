@@ -1,4 +1,4 @@
-import chokidar, { type FSWatcher } from 'chokidar';
+import { watch as fsWatch, type FSWatcher } from 'fs';
 import path from 'path';
 
 /**
@@ -21,6 +21,15 @@ const EXCLUDED_DIRS = new Set([
 
 const DEFAULT_DEBOUNCE_MS = 200;
 
+/**
+ * FSEvents delivers a burst of events for changes made shortly BEFORE the
+ * watcher armed (coarse since-when granularity) — e.g. the session folder's
+ * own creation. Events inside this window after arming are dropped so a new
+ * watcher doesn't fire a phantom refresh; anything the user actually changes
+ * later still reports normally.
+ */
+const ARMING_GRACE_MS = 200;
+
 export type FsChangeHandler = (sessionId: string, dirs: string[]) => void;
 
 interface WatchEntry {
@@ -33,10 +42,16 @@ interface WatchEntry {
 /**
  * Watches each session's folder for filesystem changes and reports the
  * (debounced, de-duplicated) set of parent directories that changed, so the
- * client can re-fetch just those folders. One chokidar watcher per session.
+ * client can re-fetch just those folders. One native recursive watcher per
+ * session.
  *
- * Uses chokidar v4 (pure JS, no native fsevents dependency) to keep the
- * packaged app free of extra native binaries.
+ * Uses node's fs.watch with `recursive: true`, which on macOS is a single
+ * FSEvents stream per watched root. The previous chokidar implementation
+ * created one watch handle per file/directory; on a large repo that exhausted
+ * the kernel's per-process watch limit (EMFILE regardless of the fd ulimit),
+ * and tearing the broken watcher down closed tens of thousands of fsevents
+ * handles — each blocking the main thread on a semaphore — freezing the app
+ * at startup. Exclusions are filtered per-event instead of at watch time.
  */
 export class FileWatcherService {
   private readonly watchers = new Map<string, WatchEntry>();
@@ -50,34 +65,31 @@ export class FileWatcherService {
   watch(sessionId: string, folderPath: string): void {
     if (this.watchers.has(sessionId)) return;
 
-    const watcher = chokidar.watch(folderPath, {
-      ignoreInitial: true,
-      ignorePermissionErrors: true,
-      // Ignore heavy/noise directories anywhere below the watched root. The
-      // root itself (and anything outside it) is never ignored.
-      ignored: (p: string) => {
-        const rel = path.relative(folderPath, p);
-        if (!rel || rel.startsWith('..')) return false;
-        return rel.split(path.sep).some((seg) => EXCLUDED_DIRS.has(seg));
-      },
+    let watcher: FSWatcher;
+    const armedAt = Date.now();
+    try {
+      watcher = fsWatch(folderPath, { recursive: true }, (_event, filename) => {
+        if (Date.now() - armedAt < ARMING_GRACE_MS) return;
+        if (!filename) {
+          // Rare overflow/unknown-path case — refresh the root.
+          this.enqueue(sessionId, folderPath);
+          return;
+        }
+        const rel = filename.toString();
+        if (rel.split(path.sep).some((seg) => EXCLUDED_DIRS.has(seg))) return;
+        this.enqueue(sessionId, path.dirname(path.join(folderPath, rel)));
+      });
+    } catch (err) {
+      console.error(`[FileWatcher] ${sessionId}: failed to watch ${folderPath}:`, err);
+      return;
+    }
+
+    watcher.on('error', (err) => {
+      console.error(`[FileWatcher] ${sessionId}:`, err);
+      void this.stop(sessionId);
     });
 
-    const entry: WatchEntry = { watcher, pending: new Set(), timer: null };
-    const onEvent = (changedPath: string) => this.enqueue(sessionId, path.dirname(changedPath));
-    watcher
-      .on('add', onEvent)
-      .on('addDir', onEvent)
-      .on('unlink', onEvent)
-      .on('unlinkDir', onEvent)
-      .on('error', (err) => {
-        console.error(`[FileWatcher] ${sessionId}:`, err);
-        // A broken watcher (e.g. EMFILE from a huge/deep tree) re-emits the
-        // same error indefinitely instead of recovering. Stop it so one bad
-        // session can't starve the event loop and block the rest of startup.
-        void this.stop(sessionId);
-      });
-
-    this.watchers.set(sessionId, entry);
+    this.watchers.set(sessionId, { watcher, pending: new Set(), timer: null });
   }
 
   private enqueue(sessionId: string, dir: string): void {
@@ -101,7 +113,7 @@ export class FileWatcherService {
     if (!entry) return;
     this.watchers.delete(sessionId);
     if (entry.timer) clearTimeout(entry.timer);
-    await entry.watcher.close();
+    entry.watcher.close();
   }
 
   /** Close all watchers — call on server shutdown. */

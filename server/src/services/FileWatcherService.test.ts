@@ -19,7 +19,8 @@ function makeCollector() {
   return { svc, calls };
 }
 
-/** chokidar needs a beat to arm its watch before fs mutations register. */
+/** Wait past the watcher's arming grace window (FSEvents replays pre-arm
+ *  changes at start; the service drops the first 200ms) before mutating. */
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test('reports the parent dir when a file is created in the watched root', async () => {
