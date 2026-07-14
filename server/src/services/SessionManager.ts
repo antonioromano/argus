@@ -77,6 +77,18 @@ const REPLAY_HISTORY_LINES = 5000;
 // the blocking capture cost.
 const REPLAY_SNAPSHOT_TTL_MS = 250;
 
+/**
+ * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
+ * buttons 64/65 or the legacy 0x60/0x61 encodings). The client only ever emits
+ * these for scroll — regular typing and clicks (button 0) never produce them —
+ * so matching them is safe. Used to route scroll to send-keys -l (see
+ * writeToSession). One session:input carries one report; allow a run of them.
+ */
+const WHEEL_REPORT_RE = /^(?:\x1b\[<6[4-7];\d+;\d+[Mm]|\x1b\[M[\x60-\x63]..)+$/;
+function isWheelReport(data: string): boolean {
+  return WHEEL_REPORT_RE.test(data);
+}
+
 /** Authoritative replay frame + the buffer/mouse truth the client reconciles to.
  *  Wire shape adds `sessionId` (see SessionReplay in @argus/shared). */
 export interface SessionReplayFrame {
@@ -634,6 +646,19 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
     if (session.status === 'exited') return;
+
+    // A forwarded wheel report is a scroll gesture, not user input. tmux 3.6b
+    // won't dispatch mouse reports injected as client input (the WheelUpPane
+    // binding never fires), so route it straight to the pane via send-keys -l —
+    // where the app actually receives it and scrolls. Returning early also keeps
+    // scrolling from tripping hasUserInputSinceIdle / clearing a 'done' badge.
+    if (isWheelReport(data)) {
+      if (session.tmuxName) {
+        try { this.ptyManager.sendKeysLiteral(session.tmuxName, data); } catch { /* session may be gone */ }
+      }
+      return;
+    }
+
     session.suppressDonePromotion = false;
     session.hasUserInputSinceIdle = true;
     // User sent input — exit sticky-done so StateDetector can track the new run.

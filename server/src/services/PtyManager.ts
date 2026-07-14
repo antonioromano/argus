@@ -403,6 +403,19 @@ export class PtyManager {
     ptyProcess.write(data);
   }
 
+  /**
+   * Deliver a raw wheel/mouse report straight to the pane's foreground app via
+   * `send-keys -l` (literal). We CANNOT scroll by writing the report to the pty
+   * (the tmux *client* input): tmux 3.6b does not dispatch mouse reports injected
+   * as client input, so the `WheelUpPane` binding never fires and the wheel never
+   * reaches the app. Writing to the pane bypasses tmux's client-side mouse
+   * parsing entirely and lets the app (Claude) scroll its own view. Best-effort:
+   * a gone session just throws and is swallowed by the caller.
+   */
+  sendKeysLiteral(tmuxName: string, data: string): void {
+    this.runTmux(['send-keys', '-t', tmuxName, '-l', data]);
+  }
+
   resize(ptyProcess: IPty, cols: number, rows: number): void {
     ptyProcess.resize(cols, rows);
   }

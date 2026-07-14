@@ -72,6 +72,54 @@ test('writeToSession still throws for a genuinely unknown session id', () => {
   assert.throws(() => sm.writeToSession('does-not-exist', 'x'), /not found/);
 });
 
+function withFakeRunningSession(sm: SessionManager, id: string) {
+  (sm as any).sessions.set(id, {
+    id, name: 'test', folderPath: os.tmpdir(), agentType: 'claude', flags: [],
+    status: 'running', createdAt: new Date().toISOString(),
+    pty: {}, tmuxName: tmuxSessionName(id, 'test'),
+    stateDetector: { resize: () => {} }, outputBuffer: '',
+    persistent: false, hasUserInputSinceIdle: false, suppressDonePromotion: true,
+  });
+}
+
+test('writeToSession routes a forwarded wheel report to the pane (send-keys -l), not the pty', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withFakeRunningSession(sm, 'sess-wheel');
+  let ptyWrite: string | null = null;
+  let sentLiteral: { name: string; data: string } | null = null;
+  (sm as any).ptyManager.write = (_p: unknown, d: string) => { ptyWrite = d; };
+  (sm as any).ptyManager.sendKeysLiteral = (name: string, data: string) => { sentLiteral = { name, data }; };
+
+  // SGR wheel-up report as the client forwards it
+  sm.writeToSession('sess-wheel', '\x1b[<64;1;1M');
+  assert.equal(ptyWrite, null, 'wheel must NOT be written to the tmux client input (tmux drops it)');
+  assert.ok(sentLiteral, 'wheel must be delivered to the pane via send-keys -l');
+  assert.equal((sentLiteral as any).data, '\x1b[<64;1;1M');
+
+  // Scrolling is not user input: it must not trip the done-promotion guard.
+  const sess = (sm as any).sessions.get('sess-wheel');
+  assert.equal(sess.hasUserInputSinceIdle, false);
+  assert.equal(sess.suppressDonePromotion, true, 'scroll must not touch state guards');
+});
+
+test('writeToSession sends real keystrokes to the pty, not send-keys -l', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withFakeRunningSession(sm, 'sess-keys');
+  let ptyWrite: string | null = null;
+  let literalCalled = false;
+  (sm as any).ptyManager.write = (_p: unknown, d: string) => { ptyWrite = d; };
+  (sm as any).ptyManager.sendKeysLiteral = () => { literalCalled = true; };
+
+  sm.writeToSession('sess-keys', 'echo hi\n');
+  assert.equal(ptyWrite, 'echo hi\n');
+  assert.equal(literalCalled, false);
+  // A left-click report (button 0) is NOT a wheel report — must go to the pty.
+  ptyWrite = null;
+  sm.writeToSession('sess-keys', '\x1b[<0;5;5M');
+  assert.equal(ptyWrite, '\x1b[<0;5;5M');
+  assert.equal(literalCalled, false);
+});
+
 function withFakeNonTmuxSession(sm: SessionManager, id: string, outputBuffer: string) {
   (sm as any).sessions.set(id, {
     id,
