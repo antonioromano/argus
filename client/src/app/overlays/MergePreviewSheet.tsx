@@ -61,7 +61,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
 
   const preview = mergeFlow.phase === 'preview' ? mergeFlow.preview : null;
   const availableBranches = mergeFlow.phase === 'preview' ? mergeFlow.availableBranches : [];
-  const files = preview?.files ?? [];
+  const files = useMemo(() => preview?.files ?? [], [preview]);
 
   const effectiveFile: MergePreviewFile | undefined = useMemo(() => {
     if (files.length === 0) return undefined;

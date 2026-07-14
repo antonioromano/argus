@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, FileSearchResult } from '@argus/shared';
 import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, Terminal } from 'lucide-react';
 import { isMac, isPrimaryModifier } from '../../utils/platform.js';
@@ -66,13 +66,16 @@ export function CommandPalette({
   };
 
   // Session-jump items, filtered by query. Hidden when the Files scope tab is active.
-  const sessionItems = sessions
-    .filter((s) =>
-      !query.trim() ||
-      s.name.toLowerCase().includes(query.toLowerCase()) ||
-      s.folderPath.toLowerCase().includes(query.toLowerCase()),
-    )
-    .slice(0, 5);
+  const sessionItems = useMemo(
+    () => sessions
+      .filter((s) =>
+        !query.trim() ||
+        s.name.toLowerCase().includes(query.toLowerCase()) ||
+        s.folderPath.toLowerCase().includes(query.toLowerCase()),
+      )
+      .slice(0, 5),
+    [sessions, query],
+  );
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 0);
@@ -114,8 +117,8 @@ export function CommandPalette({
 
   // Scope tabs filter which groups are visible/navigable. Files requires a scoped
   // session to search within (otherwise empty + a hint).
-  const visibleSessions = scope === 'files' ? [] : sessionItems;
-  const visibleResults = scope === 'sessions' ? [] : results;
+  const visibleSessions = useMemo(() => (scope === 'files' ? [] : sessionItems), [scope, sessionItems]);
+  const visibleResults = useMemo(() => (scope === 'sessions' ? [] : results), [scope, results]);
   const total = visibleSessions.length + visibleResults.length;
 
   // Keep selection in range as the visible list grows/shrinks. Adjust-during-render.

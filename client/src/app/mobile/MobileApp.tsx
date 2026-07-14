@@ -65,7 +65,10 @@ function Inner() {
   const socket = useSocket();
   const { sessions, createSession, deleteSession } = useSessions(socket);
   const groups = useGroups();
-  const grouped = useMemo(() => groups.groupedSessions(sessions), [groups.groupedSessions, sessions]);
+  // Destructure the stable useCallback so the memo keys on it directly (keying on
+  // `groups` would recompute every render — useGroups returns a fresh object).
+  const { groupedSessions } = groups;
+  const grouped = useMemo(() => groupedSessions(sessions), [groupedSessions, sessions]);
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
   const [focusedId, setFocusedId] = useState<string | null>(null);
