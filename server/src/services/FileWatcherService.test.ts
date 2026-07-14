@@ -13,9 +13,9 @@ function tmp(): { dir: string; cleanup: () => void } {
 
 /** Collector that resolves once onChange has fired at least once, after a
  *  short settle so bursts coalesce. */
-function makeCollector() {
+function makeCollector(debounceMs = 30) {
   const calls: Array<{ sessionId: string; dirs: string[] }> = [];
-  const svc = new FileWatcherService((sessionId, dirs) => calls.push({ sessionId, dirs }), 30);
+  const svc = new FileWatcherService((sessionId, dirs) => calls.push({ sessionId, dirs }), debounceMs);
   return { svc, calls };
 }
 
@@ -58,12 +58,16 @@ test('reports the nested parent dir for a file created in a subfolder', async ()
 
 test('coalesces a burst of creates into a single flush', async () => {
   const { dir, cleanup } = tmp();
-  const { svc, calls } = makeCollector();
+  // Leading-edge debounce: the first event arms a fixed window (it does not
+  // extend on later events). Under CI load the 5 fs.watch events can span more
+  // than a tight 30ms window, closing it early and opening a second flush. Use
+  // a generous window so the whole burst reliably lands in one flush.
+  const { svc, calls } = makeCollector(200);
   try {
     svc.watch('s1', dir);
     await settle(300);
     for (let i = 0; i < 5; i++) writeFileSync(join(dir, `f${i}.txt`), String(i));
-    await settle(300);
+    await settle(600);
     // All five land in the same dir within one debounce window → one flush, one dir.
     assert.equal(calls.length, 1, `expected a single coalesced flush, got ${calls.length}`);
     assert.deepEqual(calls[0].dirs, [dir]);
