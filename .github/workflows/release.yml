@@ -21,6 +21,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Full history + tags so the changelog step can find the previous tag
+          # and diff the real range (a shallow clone has neither, which makes
+          # PREV_TAG empty and the notes collapse to just the bump commit).
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -80,7 +84,10 @@ jobs:
           else
             RAW=$(git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges)
           fi
-          NOTES=$(echo "$RAW" | grep -v "^- chore: bump")
+          # `|| true`: grep -v exits 1 when it filters out every line (a release
+          # containing only chore:bump commits), which would fail the step under
+          # `set -e`. An empty changelog is fine — the release still publishes.
+          NOTES=$(echo "$RAW" | grep -v "^- chore: bump" || true)
           {
             echo "notes<<EOF"
             echo "$NOTES"
