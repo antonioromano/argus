@@ -654,6 +654,8 @@ function DesktopInner() {
                 : app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id })}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
               onExpandDiff={(file) => app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id, file })}
+              onOpenFileInEditor={(filePath, lineNumber) =>
+                app.openMaximized({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber })}
               onRestore={app.dismissMaximized}
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => requestKill(activeSession)}

@@ -12,6 +12,8 @@ export interface FileSectionProps {
   file: FileModel;
   sessionId: string;
   folderPath: string;
+  /** Open a file in the Monaco editor at a line (cmd+click go-to-def). */
+  onOpenInEditor?: (filePath: string, line?: number) => void;
   mode: 'split' | 'unified';
   /** True when this file is the scroll-active one (drives header highlight). */
   active: boolean;
@@ -108,6 +110,7 @@ export function FileSection({
   file,
   sessionId,
   folderPath,
+  onOpenInEditor,
   mode,
   active,
   registerRef,
@@ -142,6 +145,9 @@ export function FileSection({
   const isUnstaged = file.source === 'unstaged';
   const editTargetPath =
     isUnstaged && !file.isDeleted ? `${folderPath.replace(/\/$/, '')}/${file.path}` : null;
+  // Absolute path for symbol navigation (all sources; the server resolves the
+  // owning session by directory, so even a deleted file's path works).
+  const navFilePath = `${folderPath.replace(/\/$/, '')}/${file.path}`;
 
   const bodyMounted = !collapsed && renderBody;
   const inlineEdit = useDiffInlineEdit({
@@ -303,6 +309,8 @@ export function FileSection({
             <DiffViewer
               target={file.parsed}
               path={file.path}
+              navFilePath={navFilePath}
+              onOpenInEditor={onOpenInEditor}
               mode={mode}
               selection={selection}
               editProps={editProps}

@@ -1,7 +1,9 @@
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { File as DiffFile } from 'parse-diff';
 import { SplitDiff } from '../overlays/SplitDiff.js';
 import { BlockGutterCell } from '../overlays/diff/BlockGutterCell.js';
 import { type ChangeBlock, segmentChangeBlocks } from '../overlays/diff/changeBlocks.js';
+import { isNavModifier, onDiffCodeClick, useNavModifierHeld } from '../overlays/diff/diffSymbolNav.js';
 
 export interface DiffViewerSelectionProps {
   isChecked: (filePath: string, hash: string) => boolean;
@@ -30,6 +32,8 @@ function lineText(c: { content: string }): string {
 export function DiffViewer({
   target,
   path,
+  navFilePath,
+  onOpenInEditor,
   mode,
   selection,
   editProps,
@@ -37,11 +41,20 @@ export function DiffViewer({
 }: {
   target: DiffFile;
   path: string;
+  /** Absolute path of this file, for cmd+click symbol resolution. */
+  navFilePath?: string;
+  /** Open a file in the Monaco editor at a line (cmd+click go-to-def). */
+  onOpenInEditor?: (filePath: string, line?: number) => void;
   mode: 'split' | 'unified';
   selection?: DiffViewerSelectionProps;
   editProps?: DiffViewerEditProps;
   editStatus?: DiffViewerEditStatus;
 }) {
+  const navHeld = useNavModifierHeld();
+  const nav =
+    navFilePath && onOpenInEditor
+      ? { filePath: navFilePath, held: navHeld, open: onOpenInEditor }
+      : null;
   return (
     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
       {editStatus && (editStatus.saving || editStatus.error) && (
@@ -67,6 +80,7 @@ export function DiffViewer({
               : undefined
           }
           edit={editProps}
+          nav={nav}
         />
       ) : (
         target.chunks.map((chunk, i) => {
@@ -102,6 +116,20 @@ export function DiffViewer({
                   ? undefined
                   : (c as { ln2?: number }).ln2;
               const canEdit = !!editProps && !isDel && lineNo != null;
+              // Symbol nav uses the line the click lands on: new line for
+              // add/ctx, old line for del (server uses it only to drop the self-hit).
+              const navLine =
+                isAdd || isDel ? (c as { ln?: number }).ln : (c as { ln2?: number }).ln2;
+              const navProps = nav
+                ? {
+                    onMouseDown: (e: ReactMouseEvent) => {
+                      if (isNavModifier(e)) e.preventDefault();
+                    },
+                    onClick: (e: ReactMouseEvent) =>
+                      onDiffCodeClick(e, nav.filePath, navLine ?? 0, nav.open),
+                  }
+                : null;
+              const navCursor = nav?.held ? { cursor: 'pointer' as const } : null;
               return (
                 <div
                   key={j}
@@ -138,12 +166,15 @@ export function DiffViewer({
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') e.preventDefault();
                       }}
-                      style={{ outline: 'none', flex: 1, minWidth: 0 }}
+                      {...(navProps ?? {})}
+                      style={{ outline: 'none', flex: 1, minWidth: 0, ...(navCursor ?? {}) }}
                     >
                       {lineText(c)}
                     </span>
                   ) : (
-                    <span>{lineText(c)}</span>
+                    <span {...(navProps ?? {})} style={navCursor ?? undefined}>
+                      {lineText(c)}
+                    </span>
                   )}
                 </div>
               );

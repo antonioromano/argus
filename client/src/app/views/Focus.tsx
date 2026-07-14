@@ -55,6 +55,8 @@ interface FocusProps {
   onToggleTerminal: () => void;
   /** Maximize the diff tool window over the shell (optionally focused on a file). */
   onExpandDiff: (file?: string) => void;
+  /** Open a file in the Monaco editor at a line (cmd+click go-to-def from the diff). */
+  onOpenFileInEditor: (filePath: string, lineNumber?: number) => void;
   /** Close the maximized tool window, returning to the shell. */
   onRestore: () => void;
   onClone: () => void;
@@ -80,6 +82,7 @@ export function Focus({
   onToggleExplorer,
   onToggleTerminal,
   onExpandDiff,
+  onOpenFileInEditor,
   onRestore,
   onClone,
   onKill,
@@ -307,6 +310,7 @@ export function Focus({
                         session={active}
                         onClose={restoreToShell}
                         initialFile={maximized.file}
+                        onOpenInEditor={onOpenFileInEditor}
                       />
                     ) : (
                       <ExplorerWorkbench

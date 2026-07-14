@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { File as DiffFile, Chunk, Change } from 'parse-diff';
 import { segmentChangeBlocks, type ChangeBlock } from './diff/changeBlocks.js';
 import { BlockGutterCell } from './diff/BlockGutterCell.js';
+import { diffNavHandlers, type DiffNav } from './diff/diffSymbolNav.js';
 
 const GUTTER = 34;
 const BLOCK_GUTTER_W = 50;
@@ -79,13 +80,14 @@ const codeStyle: React.CSSProperties = {
   paddingRight: 8,
 };
 
-function DelRow({ c }: { c: Change }) {
+function DelRow({ c, nav }: { c: Change; nav?: DiffNav | null }) {
   const ln = (c as Change & { ln?: number }).ln;
+  const { handlers, cursor } = diffNavHandlers(nav, ln);
   return (
     <div style={{ ...rowStyle, background: 'var(--diff-del)', color: 'var(--diff-del-fg)' }}>
       <div style={{ ...lnStyle, background: 'transparent' }}>{ln}</div>
       <div style={{ ...markStyle, color: 'var(--diff-del-tok)' }}>−</div>
-      <div style={codeStyle}>{lineText(c)}</div>
+      <div {...handlers} style={{ ...codeStyle, cursor }}>{lineText(c)}</div>
     </div>
   );
 }
@@ -118,13 +120,14 @@ function EditableCode({
   );
 }
 
-function AddRow({ c, edit }: { c: Change; edit?: SplitDiffEditProps }) {
+function AddRow({ c, edit, nav }: { c: Change; edit?: SplitDiffEditProps; nav?: DiffNav | null }) {
   const ln = (c as Change & { ln?: number }).ln;
+  const { handlers, cursor } = diffNavHandlers(nav, ln);
   return (
     <div style={{ ...rowStyle, background: 'var(--diff-add)', color: 'var(--diff-add-fg)' }}>
       <div style={{ ...lnStyle, background: 'transparent' }}>{ln}</div>
       <div style={{ ...markStyle, color: 'var(--diff-add-tok)' }}>+</div>
-      <div style={codeStyle}>
+      <div {...handlers} style={{ ...codeStyle, cursor }}>
         {edit ? (
           <EditableCode text={lineText(c)} lineNo={ln} editLine={edit.editLine} />
         ) : (
@@ -135,14 +138,25 @@ function AddRow({ c, edit }: { c: Change; edit?: SplitDiffEditProps }) {
   );
 }
 
-function CtxRow({ c, side, edit }: { c: Change; side: 'l' | 'r'; edit?: SplitDiffEditProps }) {
+function CtxRow({
+  c,
+  side,
+  edit,
+  nav,
+}: {
+  c: Change;
+  side: 'l' | 'r';
+  edit?: SplitDiffEditProps;
+  nav?: DiffNav | null;
+}) {
   const n = side === 'l' ? (c as Change & { ln1?: number }).ln1 : (c as Change & { ln2?: number }).ln2;
   const editable = edit && side === 'r' && n != null;
+  const { handlers, cursor } = diffNavHandlers(nav, n);
   return (
     <div style={{ ...rowStyle, color: 'var(--fg-1)' }}>
       <div style={lnStyle}>{n}</div>
       <div style={{ ...markStyle, color: 'var(--fg-4)' }} />
-      <div style={codeStyle}>
+      <div {...handlers} style={{ ...codeStyle, cursor }}>
         {editable ? (
           <EditableCode text={lineText(c)} lineNo={n} editLine={edit.editLine} />
         ) : (
@@ -168,11 +182,13 @@ function ChunkSplit({
   chunkIndex,
   selection,
   edit,
+  nav,
 }: {
   chunk: Chunk;
   chunkIndex: number;
   selection?: SplitDiffSelectionProps;
   edit?: SplitDiffEditProps;
+  nav?: DiffNav | null;
 }) {
   const uid = useId();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -248,16 +264,16 @@ function ChunkSplit({
   const gutterRows: React.ReactNode[] = [];
   for (const s of segs) {
     if (s.type === 'ctx') {
-      leftRows.push(<CtxRow key={rowKey} c={s.change} side="l" />);
-      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" edit={edit} />);
+      leftRows.push(<CtxRow key={rowKey} c={s.change} side="l" nav={nav} />);
+      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" edit={edit} nav={nav} />);
       if (selection) gutterRows.push(<BlockGutterCell key={rowKey} block={null} isChecked={false} onToggle={() => {}} onRevert={() => {}} />);
       rowKey += 1;
     } else {
       const h = Math.max(s.dels.length, s.adds.length);
       const blk = selection ? changeBlocks[blockCursor] : null;
       for (let k = 0; k < h; k++) {
-        leftRows.push(k < s.dels.length ? <DelRow key={rowKey} c={s.dels[k]} /> : <FillRow key={rowKey} />);
-        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} edit={edit} /> : <FillRow key={rowKey} />);
+        leftRows.push(k < s.dels.length ? <DelRow key={rowKey} c={s.dels[k]} nav={nav} /> : <FillRow key={rowKey} />);
+        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} edit={edit} nav={nav} /> : <FillRow key={rowKey} />);
         if (selection) {
           const isFirstRow = k === 0;
           gutterRows.push(
@@ -322,15 +338,17 @@ export function SplitDiff({
   target,
   selection,
   edit,
+  nav,
 }: {
   target: DiffFile;
   selection?: SplitDiffSelectionProps;
   edit?: SplitDiffEditProps;
+  nav?: DiffNav | null;
 }) {
   return (
     <>
       {target.chunks.map((chunk, i) => (
-        <ChunkSplit key={i} chunk={chunk} chunkIndex={i} selection={selection} edit={edit} />
+        <ChunkSplit key={i} chunk={chunk} chunkIndex={i} selection={selection} edit={edit} nav={nav} />
       ))}
     </>
   );

@@ -29,9 +29,11 @@ interface DiffWorkbenchProps {
   /** Close the tool window entirely (return to plain terminal focus). */
   onClose: () => void;
   initialFile?: string;
+  /** Open a file in the Monaco editor at a line (cmd+click go-to-def from the diff). */
+  onOpenInEditor?: (filePath: string, line?: number) => void;
 }
 
-export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchProps) {
+export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }: DiffWorkbenchProps) {
   const { diff, isLoading, error, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
@@ -603,6 +605,7 @@ export function DiffWorkbench({ session, onClose, initialFile }: DiffWorkbenchPr
                   file={f}
                   sessionId={session.id}
                   folderPath={session.folderPath}
+                  onOpenInEditor={onOpenInEditor}
                   mode={viewMode}
                   active={resolvedActiveId === f.id}
                   registerRef={registerRef}
