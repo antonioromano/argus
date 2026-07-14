@@ -1,6 +1,6 @@
 {
   "name": "@argus/shared",
-  "version": "0.20.18",
+  "version": "0.20.19",
   "private": true,
   "main": "src/types.ts",
   "types": "src/types.ts",

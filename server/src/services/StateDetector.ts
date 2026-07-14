@@ -10,14 +10,30 @@ const Terminal = (xtermHeadless as unknown as {
 }).Terminal;
 
 /**
- * Prompt patterns evaluated against individual rendered rows from the terminal's
- * screen grid — NOT against the raw byte stream. This lets us anchor to line
- * start/end and recognize the specific shape of each agent's input box.
+ * Input-box rows — the agent's persistent text-entry line (e.g. Claude's
+ * "│ > "). Present whether the agent is idle, working, OR waiting, so these are
+ * NOT a waiting signal on their own (that would flip an actively-working
+ * session to "waiting" the moment output pauses). They are used only to *anchor*
+ * prompt-text extraction — the question sits just above the input box.
  */
-const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
+const AGENT_INPUT_BOX_PATTERNS: Record<string, RegExp[]> = {
   claude: [
     /[│|┃]\s*>\s/,               // input-box row: "│ > …"
     /[│|┃]\s*❯\s/,               // alt prompt glyph
+  ],
+  gemini: [/[│|┃]\s*>\s/],
+  codex: [/[│|┃]\s*>\s/],
+};
+
+/**
+ * Prompt patterns evaluated against individual rendered rows from the terminal's
+ * screen grid — NOT against the raw byte stream. These identify a *genuine*
+ * pending question / confirmation / menu, meaning the agent is WAITING for a
+ * user decision. The bare input box is intentionally NOT here (see
+ * AGENT_INPUT_BOX_PATTERNS).
+ */
+const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
+  claude: [
     /\(y\/n\)/i,
     /\[y\/n\]/i,
     /\[Y\/n\]/,
@@ -39,17 +55,34 @@ const AGENT_PROMPT_PATTERNS: Record<string, RegExp[]> = {
     /Press Enter to continue/i,
   ],
   gemini: [
-    /[│|┃]\s*>\s/,
     /\(y\/n\)/i,
     /\[y\/n\]/i,
     /Yes\s*\/\s*No/i,
   ],
   codex: [
-    /[│|┃]\s*>\s/,
     /\(y\/n\)/i,
     /\[y\/n\]/i,
     /approve/i,
   ],
+};
+
+/**
+ * Working-indicator patterns — a footer that means the agent is ACTIVELY
+ * working, even when it only redraws a single low-volume line (which the
+ * feed-count activity heuristic misses). Match the *structure* of Claude's
+ * working footer, not the randomized verb ("Crafting", "Herding", …):
+ * an elapsed-time + token counter, e.g. "(20s · ↓ 540 tokens)" /
+ * "(16m 43s · ↑ 37.0k tokens)", or the "esc to interrupt" hint.
+ * gemini/codex slots are intentionally empty until we have real captures.
+ */
+const AGENT_WORKING_PATTERNS: Record<string, RegExp[]> = {
+  claude: [
+    /esc to interrupt/i,
+    /\(\s*\d+m?\s*\d*s?\s*·[^)]*\btokens\b/i,   // "(20s · ↓ 540 tokens)" / "(16m 43s · ↑ 37.0k tokens)"
+    /[↑↓]\s*[\d.,]+\s*k?\s*tokens/i,            // bare "↓ 540 tokens" / "↑ 37.0k tokens"
+  ],
+  gemini: [],
+  codex: [],
 };
 
 const DEFAULT_PROMPT_PATTERNS: RegExp[] = [
@@ -129,6 +162,10 @@ export class StateDetector {
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
   private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
+  private inputBoxPatterns: RegExp[];
+  private workingPatterns: RegExp[];
+  /** prompt + input-box patterns — used only to anchor prompt-text extraction. */
+  private extractAnchorPatterns: RegExp[];
   private currentStatus: SessionStatus = 'running';
   private pendingStatus: SessionStatus | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -149,6 +186,11 @@ export class StateDetector {
   ) {
     this.onStatusChange = onStatusChange;
     this.promptPatterns = AGENT_PROMPT_PATTERNS[agentType] ?? DEFAULT_PROMPT_PATTERNS;
+    this.inputBoxPatterns = AGENT_INPUT_BOX_PATTERNS[agentType] ?? [];
+    this.workingPatterns = AGENT_WORKING_PATTERNS[agentType] ?? [];
+    // Extraction anchors on either a real prompt or the input box (the question
+    // sits just above the box even when the box itself isn't a waiting signal).
+    this.extractAnchorPatterns = [...this.promptPatterns, ...this.inputBoxPatterns];
     this.term = new Terminal({
       cols,
       rows,
@@ -216,6 +258,17 @@ export class StateDetector {
       console.error('StateDetector writeQueue error:', err);
     });
 
+    // Promptly classify on each settled write: a working footer or a real
+    // prompt is a positive on-screen signal we act on immediately, without
+    // waiting for the 500ms idle settle (which exists only to detect the
+    // ABSENCE of both — e.g. the menu-that-never-quiets case where a blinking
+    // cursor keeps output trickling so settle() would never run).
+    this.writeQueue.then(() => {
+      if (this.destroyed) return;
+      const s = this.classify();
+      if (s) this.scheduleStatus(s);
+    });
+
     // Sustained-output heuristic: many feeds in a short window suggests the
     // agent is actively producing output rather than just repainting.
     this.feedCount++;
@@ -246,10 +299,16 @@ export class StateDetector {
 
   private settle(): void {
     if (this.destroyed) return;
-    const hasPrompt = this.screenShowsPrompt();
+    // Priority: a working footer wins (running), else a real prompt (waiting),
+    // else the DECSCUSR cursor hint (waiting — catches a menu about to paint),
+    // else the screen is quiet with no signal → idle. A bare input box is NOT
+    // a signal here, so a finished session (box only) settles to idle.
+    const classified = this.classify();
     const recentCursorStyle = Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
 
-    if (hasPrompt || recentCursorStyle) {
+    if (classified === 'running') {
+      this.scheduleStatus('running');
+    } else if (classified === 'waiting' || recentCursorStyle) {
       this.scheduleStatus('waiting');
       // Already stably waiting (no transition pending → onStatusChange won't
       // refire): re-extract so a late-painted menu still reaches notifications.
@@ -267,7 +326,7 @@ export class StateDetector {
     if (process.env['DEBUG_STATE']) {
       const snapshot = this.visibleRows().join('\n');
       console.log(
-        `[StateDetector] settle hasPrompt=${hasPrompt} recentCursorStyle=${recentCursorStyle} cursor=(${this.term.buffer.active.cursorX},${this.term.buffer.active.cursorY})\n` +
+        `[StateDetector] settle classified=${classified} recentCursorStyle=${recentCursorStyle} cursor=(${this.term.buffer.active.cursorX},${this.term.buffer.active.cursorY})\n` +
           snapshot,
       );
     }
@@ -296,7 +355,7 @@ export class StateDetector {
     return lines;
   }
 
-  /** True if any of the last few visible rows looks like a prompt / input box. */
+  /** True if any of the last few visible rows is a genuine pending prompt/menu. */
   private screenShowsPrompt(): boolean {
     const lines = this.visibleRows();
     for (const line of lines) {
@@ -305,6 +364,31 @@ export class StateDetector {
       }
     }
     return false;
+  }
+
+  /** True if a working-indicator footer (agent actively working) is on screen. */
+  private screenShowsWorking(): boolean {
+    if (this.workingPatterns.length === 0) return false;
+    const lines = this.visibleRows();
+    for (const line of lines) {
+      for (const p of this.workingPatterns) {
+        if (p.test(line)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Priority-ordered screen classifier. A visible working footer wins over
+   * everything — it means the agent is actively working even when its output is
+   * low-volume and even when the input box is on screen. A genuine prompt/menu
+   * means waiting. Neither → null: an idle candidate, confirmed only once the
+   * screen goes quiet (see settle()).
+   */
+  private classify(): 'running' | 'waiting' | null {
+    if (this.screenShowsWorking()) return 'running';
+    if (this.screenShowsPrompt()) return 'waiting';
+    return null;
   }
 
   /**
@@ -348,10 +432,11 @@ export class StateDetector {
     // the footer.
     const rows = this.visibleRows(EXTRACT_SCAN_ROWS);
 
-    // Find the bottom-most row that matches a prompt pattern — that's the input box.
+    // Find the bottom-most row that matches a prompt or input-box pattern —
+    // that's the anchor (usually the input box, which sits below the question).
     let promptIdx = -1;
     for (let i = rows.length - 1; i >= 0; i--) {
-      for (const p of this.promptPatterns) {
+      for (const p of this.extractAnchorPatterns) {
         if (p.test(rows[i] ?? '')) {
           promptIdx = i;
           break;
@@ -375,7 +460,7 @@ export class StateDetector {
       // — unless they read like the question itself (e.g. "Would you like to
       // proceed?" is both a prompt pattern and the notification body we want).
       if (
-        this.promptPatterns.some((p) => p.test(rows[i] ?? '')) &&
+        this.extractAnchorPatterns.some((p) => p.test(rows[i] ?? '')) &&
         !QUESTION_SHAPED.some((p) => p.test(cleaned))
       ) continue;
       candidates.push(cleaned);
