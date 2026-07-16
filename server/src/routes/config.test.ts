@@ -73,6 +73,16 @@ test('omitting fields preserves existing values', async () => {
   assert.equal(body.showClock, true);
 });
 
+test('PUT debugToolsEnabled:true persists and is returned (allowlist regression)', async () => {
+  // Regression: the PUT allowlist must include debugToolsEnabled, else the
+  // Settings toggle can never turn on (the field is silently dropped on save).
+  const { status, body } = await put({ debugToolsEnabled: true });
+  assert.equal(status, 200);
+  assert.equal(body.debugToolsEnabled, true);
+  const loaded = await get();
+  assert.equal(loaded.debugToolsEnabled, true);
+});
+
 test('truthy non-boolean is coerced to true', async () => {
   const { body } = await put({ exitSessionsOnQuit: 'yes' });
   assert.equal(body.exitSessionsOnQuit, true);

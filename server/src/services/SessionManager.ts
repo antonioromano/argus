@@ -13,6 +13,7 @@ import type {
 } from '@argus/shared';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
+import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
@@ -77,6 +78,12 @@ const REPLAY_HISTORY_LINES = 5000;
 // the blocking capture cost.
 const REPLAY_SNAPSHOT_TTL_MS = 250;
 
+// Rolling output buffer cap (see onData slicing); surfaced in diagnostics so a
+// dump shows fill-vs-cap. Keep in sync with the slice length in onData.
+const OUTPUT_BUFFER_CAP = 100_000;
+// How much of the rolling buffer to embed as the raw-tail fallback in a dump.
+const RAW_TAIL_BYTES = 16 * 1024;
+
 /**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
  * buttons 64/65 or the legacy 0x60/0x61 encodings). The client only ever emits
@@ -121,7 +128,10 @@ export class SessionManager {
   });
   private preventSleepWhileRunning = false;
 
+  private readonly dataDir: string;
+
   constructor(dataDir: string, configStore: ConfigStore) {
+    this.dataDir = dataDir;
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
     this.ptyManager = new PtyManager(dataDir);
@@ -565,6 +575,72 @@ export class SessionManager {
 
   getSessionBuffer(id: string): string | undefined {
     return this.sessions.get(id)?.outputBuffer;
+  }
+
+  /**
+   * Assemble a full diagnostics snapshot for one session — Argus's in-memory
+   * status machine + StateDetector signals + tmux/pty truth + the session's
+   * scrollback — and write it to `~/.argus/diagnostics/`. Returns the written
+   * file path, or undefined if the session doesn't exist. Read-only w.r.t. the
+   * session (never mutates tmux/copy-mode state).
+   */
+  async collectSessionDiagnostics(id: string): Promise<string | undefined> {
+    const session = this.sessions.get(id);
+    if (!session) return undefined;
+
+    let tmux: SessionDiagnosticsPayload['tmux'] = null;
+    let scrollback: string | null = null;
+    if (session.tmuxName) {
+      const paneDead = this.ptyManager.isTmuxPaneDead(session.tmuxName);
+      const state = this.ptyManager.captureState(session.tmuxName);
+      tmux = { tmuxName: session.tmuxName, paneDead, ...state };
+      if (!paneDead) {
+        try {
+          scrollback = this.ptyManager.capturePane(session.tmuxName, REPLAY_HISTORY_LINES);
+        } catch {
+          scrollback = null;
+        }
+      }
+    }
+
+    const capturedAt = new Date().toISOString();
+    const payload: SessionDiagnosticsPayload = {
+      session: this.toSessionInfo(session),
+      runtime: {
+        persistent: session.persistent,
+        tmuxName: session.tmuxName,
+        cols: session.cols,
+        rows: session.rows,
+        suppressDonePromotion: !!session.suppressDonePromotion,
+        donePromotionPending: session.doneTimer != null,
+        hasUserInputSinceIdle: session.hasUserInputSinceIdle,
+        outputBufferBytes: session.outputBuffer.length,
+        outputBufferCapBytes: OUTPUT_BUFFER_CAP,
+        connectedClients: this.io?.sockets.adapter.rooms.get(id)?.size ?? 0,
+      },
+      detector: session.stateDetector.getDiagnostics(),
+      tmux,
+      scrollback,
+      rawTail: session.outputBuffer.slice(-RAW_TAIL_BYTES),
+      app: {
+        nodeEnv: process.env['NODE_ENV'] ?? '',
+        port: process.env['ARGUS_PORT'] ?? process.env['PORT'] ?? '',
+        tmuxSocket: process.env['ARGUS_TMUX_SOCKET'] ?? 'argus',
+        pid: process.pid,
+        capturedAt,
+      },
+    };
+
+    const { markdown } = buildReport(payload);
+    return writeReport(this.dataDir, markdown, payload.session, capturedAt);
+  }
+
+  /** Force StateDetector to re-classify now and re-emit status. Returns false if unknown. */
+  forceDetect(id: string): boolean {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    session.stateDetector.forceReclassify();
+    return true;
   }
 
   /**

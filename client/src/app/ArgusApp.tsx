@@ -208,6 +208,17 @@ function DesktopInner() {
     setPendingKill(s);
   }, [confirmCloseShell, deleteSession, app]);
 
+  // Debug action: write a full diagnostics dump for the session to disk, then
+  // toast the path so it can be copied and handed to an external tool.
+  const handleDumpDiagnostics = useCallback(async (s: SessionInfo) => {
+    try {
+      const { path } = await api.dumpSessionDiagnostics(s.id);
+      pushToast(`Diagnostics written to ${path}`, 'ok');
+    } catch {
+      pushToast('Failed to write diagnostics', 'warn');
+    }
+  }, []);
+
   // Cmd+W → close the active terminal's shell. Registered once; reads latest state via ref.
   const closeActiveShell = useCallback(() => {
     if (!activeTerminalId) return;
@@ -617,6 +628,8 @@ function DesktopInner() {
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
+              onDumpDiagnostics={(s) => void handleDumpDiagnostics(s)}
+              showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
@@ -660,6 +673,8 @@ function DesktopInner() {
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
+              onDumpDiagnostics={() => void handleDumpDiagnostics(activeSession)}
+              showDiagnostics={config?.debugToolsEnabled ?? false}
               shortcuts={shortcuts.resolved}
               searchOpen={searchSessionId === activeSession.id}
               onOpenSearch={() => openTerminalSearchFor(activeSession.id)}

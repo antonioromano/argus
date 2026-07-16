@@ -148,6 +148,27 @@ const CURSOR_ESC_WINDOW_MS = 1500;    // how long a recent cursor-style change c
 const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIGWINCH redraw window
 
 /**
+ * Point-in-time snapshot of the detector's internal signals. Surfaced by
+ * `getDiagnostics()` for the session-diagnostics dump (and reused by the
+ * `DEBUG_STATE` log) so a stuck/mis-detected status can be inspected off-box.
+ */
+export interface StateDetectorDiagnostics {
+  currentStatus: SessionStatus;
+  pendingStatus: SessionStatus | null;
+  feedCount: number;
+  /** `classify()` result at snapshot time: the immediate screen signal. */
+  classified: 'running' | 'waiting' | null;
+  recentCursorStyle: boolean;
+  cursor: { x: number; y: number };
+  lastReportedPrompt: string | undefined;
+  extractedPrompt: string | undefined;
+  /** ANSI-stripped tail of the rendered grid (what the classifier scans). */
+  visibleRows: string[];
+  resizeAgeMs: number;
+  timing: Record<string, number>;
+}
+
+/**
  * State detector built on top of a headless xterm.js terminal emulator.
  *
  * Each pty byte stream is fed into the emulator so we can read the actual
@@ -324,10 +345,10 @@ export class StateDetector {
     }
 
     if (process.env['DEBUG_STATE']) {
-      const snapshot = this.visibleRows().join('\n');
+      const d = this.getDiagnostics();
       console.log(
-        `[StateDetector] settle classified=${classified} recentCursorStyle=${recentCursorStyle} cursor=(${this.term.buffer.active.cursorX},${this.term.buffer.active.cursorY})\n` +
-          snapshot,
+        `[StateDetector] settle classified=${d.classified} recentCursorStyle=${d.recentCursorStyle} cursor=(${d.cursor.x},${d.cursor.y})\n` +
+          d.visibleRows.join('\n'),
       );
     }
   }
@@ -417,6 +438,65 @@ export class StateDetector {
 
   getStatus(): SessionStatus {
     return this.currentStatus;
+  }
+
+  /**
+   * Snapshot every internal signal the classifier uses. Best-effort: reads the
+   * emulator grid synchronously without draining the write queue, so it reflects
+   * the state as of the last settled write. Returns empty/default values once
+   * destroyed. Consumed by the session-diagnostics dump and `DEBUG_STATE`.
+   */
+  getDiagnostics(): StateDetectorDiagnostics {
+    const timing = {
+      IDLE_SETTLE_MS,
+      DEBOUNCE_MS,
+      ACTIVITY_WINDOW_MS,
+      ACTIVITY_MIN_FEEDS,
+      SCAN_ROWS,
+      EXTRACT_SCAN_ROWS,
+      CURSOR_ESC_WINDOW_MS,
+      RESIZE_GRACE_MS,
+    };
+    if (this.destroyed) {
+      return {
+        currentStatus: this.currentStatus,
+        pendingStatus: this.pendingStatus,
+        feedCount: this.feedCount,
+        classified: null,
+        recentCursorStyle: false,
+        cursor: { x: 0, y: 0 },
+        lastReportedPrompt: this.lastReportedPrompt,
+        extractedPrompt: undefined,
+        visibleRows: [],
+        resizeAgeMs: Date.now() - this.lastResizeAt,
+        timing,
+      };
+    }
+    const buf = this.term.buffer.active;
+    return {
+      currentStatus: this.currentStatus,
+      pendingStatus: this.pendingStatus,
+      feedCount: this.feedCount,
+      classified: this.classify(),
+      recentCursorStyle: Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS,
+      cursor: { x: buf.cursorX, y: buf.cursorY },
+      lastReportedPrompt: this.lastReportedPrompt,
+      extractedPrompt: this.getLastPromptText(),
+      visibleRows: this.visibleRows(),
+      resizeAgeMs: Date.now() - this.lastResizeAt,
+      timing,
+    };
+  }
+
+  /**
+   * Re-run classification now (after the write queue drains) and re-emit status.
+   * Backs the "force re-detect" debug action for a session that looks stuck.
+   */
+  forceReclassify(): void {
+    if (this.destroyed) return;
+    this.writeQueue.then(() => {
+      if (!this.destroyed) this.settle();
+    });
   }
 
   /**

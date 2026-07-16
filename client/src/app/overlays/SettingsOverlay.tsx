@@ -465,6 +465,11 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   </SettingRow>
                 )}
               </Section>
+              <Section title="Developer">
+                <SettingRow label="Enable developer tools" hint="Adds a per-session diagnostics dump button (writes session state + output to ~/.argus/diagnostics for debugging)">
+                  <Toggle checked={config.debugToolsEnabled ?? false} onChange={(v) => onSave({ debugToolsEnabled: v })} />
+                </SettingRow>
+              </Section>
               <Section title="Groups">
                 <SettingRow label='"Others" folder name' hint="Display name for the ungrouped shells bucket">
                   <TextInput

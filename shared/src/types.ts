@@ -40,6 +40,7 @@ export interface AppConfig {
   uiFontSize?: number;   // base font size (px) for the interface chrome (default: 14)
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
+  debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
 }
 
 export interface AgentStatus {

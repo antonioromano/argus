@@ -132,6 +132,42 @@ describe('tunnel-safe mobile-first calls', () => {
     });
   });
 
+  describe('dumpSessionDiagnostics', () => {
+    it('POSTs to the diagnostics endpoint and returns the written path', async () => {
+      const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+        Promise.resolve(ngrokAwareResponse(init, { path: '/home/u/.argus/diagnostics/x.md' }))
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const res = await api.dumpSessionDiagnostics('sess-1');
+
+      expect(res).toEqual({ path: '/home/u/.argus/diagnostics/x.md' });
+      const url = fetchMock.mock.calls[0][0];
+      const init = fetchMock.mock.calls[0][1] as RequestInit;
+      expect(url).toBe('/api/sessions/sess-1/diagnostics');
+      expect(init.method).toBe('POST');
+    });
+
+    it('throws ApiError when the session is missing', async () => {
+      vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(404, { error: 'Session not found' }))));
+      await expect(api.dumpSessionDiagnostics('nope')).rejects.toMatchObject({ name: 'ApiError', status: 404 });
+    });
+  });
+
+  describe('forceDetectState', () => {
+    it('POSTs to the redetect endpoint and resolves on 204', async () => {
+      let captured: { url: string; method?: string } | null = null;
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        captured = { url, method: init?.method };
+        return Promise.resolve(jsonResponse(204, {}));
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(api.forceDetectState('sess-1')).resolves.toBeUndefined();
+      expect(captured).toEqual({ url: '/api/sessions/sess-1/redetect', method: 'POST' });
+    });
+  });
+
   describe('login', () => {
     it('sends the ngrok-skip-browser-warning header and returns the token', async () => {
       const fetchMock = vi.fn((_url: string, init?: RequestInit) =>

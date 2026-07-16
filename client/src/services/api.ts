@@ -126,6 +126,15 @@ export const api = {
     return (await requireOk(res)).json();
   },
 
+  dumpSessionDiagnostics: async (id: string): Promise<{ path: string }> => {
+    const res = await authFetch(`${API_BASE}/sessions/${id}/diagnostics`, { method: 'POST' });
+    return (await requireOk(res)).json();
+  },
+
+  forceDetectState: async (id: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/sessions/${id}/redetect`, { method: 'POST' }));
+  },
+
   getPathCompletions: async (path: string): Promise<string[]> => {
     const res = await authFetch(`${API_BASE}/fs/autocomplete?path=${encodeURIComponent(path)}`);
     const data: PathCompletionResponse = await (await requireOk(res)).json();

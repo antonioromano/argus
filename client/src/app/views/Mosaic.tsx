@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProper
 import type { SessionInfo, MosaicWaitingStyle } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal, Bug } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, StatusDot, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
@@ -54,6 +54,9 @@ interface MosaicProps {
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  onDumpDiagnostics: (session: SessionInfo) => void;
+  /** Show the per-tile diagnostics button (gated by the developer-tools setting). */
+  showDiagnostics: boolean;
   onMarkDone?: (session: SessionInfo) => void;
   onMerge?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
@@ -78,7 +81,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -152,9 +155,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -162,6 +165,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
+  const handleTileDumpDiagnostics = useCallback((s: SessionInfo) => propCbRef.current.onDumpDiagnostics(s), []);
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
   const handleTileClone = useCallback((s: SessionInfo) => propCbRef.current.onClone?.(s), []);
@@ -336,6 +340,8 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onOpen={handleTileOpen}
                   onKill={handleTileKill}
                   onRestart={handleTileRestart}
+                  onDumpDiagnostics={handleTileDumpDiagnostics}
+                  showDiagnostics={showDiagnostics}
                   onMarkDone={onMarkDone ? handleTileMarkDone : undefined}
                   canMarkDone={!!onMarkDone && s.status === 'idle'}
                   onMerge={onMerge ? handleTileMerge : undefined}
@@ -412,6 +418,8 @@ type MosaicTileSharedProps = {
   onOpen: (id: string) => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  onDumpDiagnostics: (session: SessionInfo) => void;
+  showDiagnostics: boolean;
   /** Mark-as-done handler; gated by `canMarkDone` for whether the button shows. */
   onMarkDone?: (session: SessionInfo) => void;
   canMarkDone?: boolean;
@@ -554,6 +562,8 @@ function MosaicTileInner({
   onOpen,
   onKill,
   onRestart,
+  onDumpDiagnostics,
+  showDiagnostics,
   onMarkDone,
   canMarkDone,
   onMerge,
@@ -754,6 +764,10 @@ function MosaicTileInner({
             {onMerge && canMerge && (
               <IconButton icon={ArrowDownToLine} label="Apply to project" size="sm"
                 onClick={(e) => { e.stopPropagation(); onMerge(session); }} />
+            )}
+            {showDiagnostics && (
+              <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm"
+                onClick={(e) => { e.stopPropagation(); onDumpDiagnostics(session); }} />
             )}
             <IconButton icon={RotateCcw} label="Restart shell" size="sm"
               onClick={(e) => { e.stopPropagation(); onRestart(session); }} />

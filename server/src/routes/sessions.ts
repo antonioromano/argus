@@ -89,6 +89,27 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     res.json(session);
   });
 
+  // Write a full diagnostics dump for one session to ~/.argus/diagnostics/ and
+  // return the file path. On-demand debug tool: an external agent (Claude Code)
+  // reads the written file to inspect Argus internals + the session's output.
+  router.post('/:id/diagnostics', asyncHandler(async (req, res) => {
+    const path = await manager.collectSessionDiagnostics(req.params.id);
+    if (!path) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    res.json({ path });
+  }));
+
+  // Force StateDetector to re-classify now (debug action for a stuck status).
+  router.post('/:id/redetect', (req, res) => {
+    if (!manager.forceDetect(req.params.id)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    res.status(204).end();
+  });
+
   router.post('/', asyncHandler(async (req, res) => {
     const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase } = req.body as CreateSessionRequest;
 
