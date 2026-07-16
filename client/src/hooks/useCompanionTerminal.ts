@@ -215,11 +215,22 @@ export function useCompanionTerminal(
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
+    // Copy via xterm's getSelection() so multi-line selections keep real
+    // newlines (the DOM renderer otherwise lets Chromium join rows with
+    // spaces). See useTerminal for the full rationale.
+    const handleCopy = (e: ClipboardEvent) => {
+      if (!terminal.hasSelection()) return;
+      e.clipboardData?.setData('text/plain', terminal.getSelection());
+      e.preventDefault();
+    };
+    container.addEventListener('copy', handleCopy);
+
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
       document.removeEventListener('visibilitychange', handleVisibility);
+      container.removeEventListener('copy', handleCopy);
       disposeMouse();
       scrollDisposable.dispose();
       onDataDisposable.dispose();

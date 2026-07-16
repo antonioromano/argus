@@ -196,6 +196,19 @@ export function useTerminal(
     xtermTextarea?.addEventListener('focus', onXtermFocus);
     xtermTextarea?.addEventListener('blur', onXtermBlur);
 
+    // Copy: substitute xterm's own getSelection() into the clipboard. The DOM
+    // renderer paints each buffer row as a separate element, so Chromium's
+    // native selection serializer joins rows with spaces — multi-line commands
+    // paste as one broken line. getSelection() emits real `\n` at hard row
+    // boundaries and joins soft-wrapped lines without a break. One `copy`
+    // listener covers both Cmd+C and the Electron Edit-menu `{ role: 'copy' }`.
+    const handleCopy = (e: ClipboardEvent) => {
+      if (!terminal.hasSelection()) return;
+      e.clipboardData?.setData('text/plain', terminal.getSelection());
+      e.preventDefault();
+    };
+    container.addEventListener('copy', handleCopy);
+
     // Renderer: xterm's built-in DOM renderer (no WebGL/Canvas addon). GPU-atlas
     // renderers (WebGL, Canvas) bake a glyph atlas + char-cell metrics at init and,
     // on a fresh Electron renderer (cold fonts / unsettled DPR), bake them wrong and
@@ -409,6 +422,7 @@ export function useTerminal(
       document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
+      container.removeEventListener('copy', handleCopy);
       disposeMouse();
       scrollDisposable.dispose();
       onDataDisposable?.dispose();
