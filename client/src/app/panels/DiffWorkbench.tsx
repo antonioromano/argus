@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
-import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw } from 'lucide-react';
+import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw, Upload } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
@@ -67,6 +67,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState('');
   const [committing, setCommitting] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [commitError, setCommitError] = useState<string | null>(null);
 
   // Parse each diff group exactly once. Memoizing per group keeps a poll that
@@ -179,13 +180,14 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
     setCommitOpen(true);
   };
 
-  const submitCommit = async () => {
+  const submitCommit = async (push = false) => {
     const msg = commitMessage.trim();
     if (!msg) {
       setCommitError('Commit message required');
       return;
     }
-    setCommitting(true);
+    if (push) setPushing(true);
+    else setCommitting(true);
     setCommitError(null);
     try {
       const filesByPath = new Map<string, FileModel>();
@@ -210,14 +212,19 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
       if (stagedPaths.length === 0) throw new Error('No checked blocks to commit');
       const commit = await api.commitWithFiles(session.id, msg, false, stagedPaths);
       if (!commit.success) throw new Error(commit.error || 'Commit failed');
+      if (push) {
+        const pushed = await api.gitPush(session.id);
+        if (!pushed.success) throw new Error(pushed.error || 'Push failed');
+      }
       selection.clearForFiles(stagedPaths);
       setCommitOpen(false);
       setCommitMessage('');
       await refresh();
     } catch (e) {
-      setCommitError(e instanceof Error ? e.message : 'Commit failed');
+      setCommitError(e instanceof Error ? e.message : push ? 'Push failed' : 'Commit failed');
     } finally {
       setCommitting(false);
+      setPushing(false);
     }
   };
 
@@ -646,8 +653,10 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           message={commitMessage}
           onMessageChange={setCommitMessage}
           onCancel={() => setCommitOpen(false)}
-          onSubmit={submitCommit}
-          submitting={committing}
+          onSubmit={() => submitCommit(false)}
+          onSubmitAndPush={() => submitCommit(true)}
+          committing={committing}
+          pushing={pushing}
           error={commitError}
           fileCount={selection.checkedHashesByFile.size}
           blockCount={selection.totalChecked}
@@ -772,13 +781,16 @@ interface CommitPopoverProps {
   onMessageChange: (s: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
-  submitting: boolean;
+  onSubmitAndPush: () => void;
+  committing: boolean;
+  pushing: boolean;
   error: string | null;
   fileCount: number;
   blockCount: number;
 }
 
-function CommitPopover({ message, onMessageChange, onCancel, onSubmit, submitting, error, fileCount, blockCount }: CommitPopoverProps) {
+function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitAndPush, committing, pushing, error, fileCount, blockCount }: CommitPopoverProps) {
+  const busy = committing || pushing;
   return (
     <div
       style={{
@@ -818,7 +830,8 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, submittin
           minHeight: 60,
         }}
         onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') onSubmit();
+          if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') onSubmitAndPush();
+          else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') onSubmit();
           if (e.key === 'Escape') onCancel();
         }}
       />
@@ -826,9 +839,12 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, submittin
         <div style={{ color: 'var(--danger)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)' }}>{error}</div>
       )}
       <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={submitting}>Cancel</Button>
-        <Button variant="primary" size="sm" icon={GitCommit} onClick={onSubmit} disabled={submitting || !message.trim()}>
-          {submitting ? 'Committing…' : 'Commit'}
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>Cancel</Button>
+        <Button variant="secondary" size="sm" icon={GitCommit} onClick={onSubmit} disabled={busy || !message.trim()}>
+          {committing ? 'Committing…' : 'Commit'}
+        </Button>
+        <Button variant="primary" size="sm" icon={Upload} onClick={onSubmitAndPush} disabled={busy || !message.trim()}>
+          {pushing ? 'Pushing…' : 'Commit & Push'}
         </Button>
       </div>
     </div>
