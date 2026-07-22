@@ -142,6 +142,22 @@ test('round-trip: precise cursor position (no trailing newline)', async () => {
   assert.deepEqual(d, [], `cursor diffs:\n${d.join('\n')}`);
 });
 
+test('survivor seed: history beyond the screen lands in scrollback and round-trips (U3)', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  // A capture-pane seed of history + screen: 2× the viewport height of lines.
+  const lines = Array.from({ length: ROWS * 2 }, (_, i) => `hist-line-${i}`);
+  await m.feed(lines.join('\r\n'));
+  await m.afterWrite();
+  const frame = m.serialize();
+  const dst = freshTerm();
+  await write(dst, frame);
+  const d = diff(snapshot(m.term), snapshot(dst));
+  assert.deepEqual(d, [], `seeded scrollback must round-trip:\n${d.join('\n')}`);
+  assert.ok(snapshot(m.term).length > ROWS, 'seed produced scrollback beyond the visible screen');
+  assert.equal(m.seeding, false, 'seeding flag is off by default');
+  m.dispose();
+});
+
 // ---------------------------------------------------------------------------
 // Mode-append scanner (Q4 gap fix) — serialize omits ?1006h and ?25; the mirror
 // tracks DECSET/DECRST and re-emits them.

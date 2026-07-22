@@ -399,6 +399,33 @@ export class SessionManager {
     // Re-attaching to a live survivor: start neutral and let the detector
     // reclassify from the repaint, and suppress the redraw activity burst.
     if (attachExisting) stateDetector.markAttachRedraw();
+
+    // Survivor mirror seeding (plan 2026-07-22-002 U3): a restored session gets a
+    // FRESH, empty mirror, so without a seed its replay would carry no pre-restart
+    // scrollback until new output arrives. Feed one capture-pane snapshot
+    // (history + screen) into the mirror BEFORE its onData is wired, so it queues
+    // ahead of tmux's attach-repaint — which then rewrites the visible region in
+    // place over the seed (no duplication). Normal screen only: alt-screen apps
+    // (vim/less) have no meaningful scrollback and the repaint alone reconstructs
+    // them, and a text seed fed into the mirror's normal buffer would fight the
+    // repaint's ?1049h. Best-effort — on any tmux hiccup the live repaint still
+    // fills the current screen.
+    if (attachExisting && persistent && tmuxName) {
+      try {
+        if (!this.ptyManager.isTmuxPaneDead(tmuxName) && !this.ptyManager.captureState(tmuxName).alternate) {
+          const seed = this.ptyManager
+            .capturePane(tmuxName, MIRROR_SCROLLBACK)
+            .replace(/\n$/, '')
+            .replace(/\r?\n/g, '\r\n');
+          if (seed) {
+            mirror.markSeeding();
+            void mirror.feed(seed).then(() => mirror.clearSeeding());
+          }
+        }
+      } catch {
+        /* pane gone / tmux hiccup — live repaint still reconstructs the screen */
+      }
+    }
     // Restored sessions (existingId set) start neutral, never synthetic 'running':
     // a 'running' baseline makes the first settle look like running→idle and get
     // promoted to a false 'done' on every app/Mac restart. Genuinely new sessions

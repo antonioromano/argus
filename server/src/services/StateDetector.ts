@@ -298,7 +298,11 @@ export class StateDetector {
         const resizeAge = Date.now() - this.lastResizeAt;
         this.mirror.afterWrite().then(() => {
           if (this.destroyed) return;
-          if (!this.screenShowsPrompt() && resizeAge >= RESIZE_GRACE_MS) this.scheduleStatus('running');
+          // Suppress the 'running' flip during a survivor re-seed too (plan 002
+          // U3): the one-shot capture-pane feed isn't real agent activity.
+          if (!this.screenShowsPrompt() && resizeAge >= RESIZE_GRACE_MS && !this.mirror.seeding) {
+            this.scheduleStatus('running');
+          }
         });
       }
     }, ACTIVITY_WINDOW_MS);
