@@ -464,6 +464,36 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                     <Toggle checked={config.confirmExitOnQuit ?? true} onChange={(v) => onSave({ confirmExitOnQuit: v })} />
                   </SettingRow>
                 )}
+                <SettingRow
+                  label="Session backend"
+                  hint="How agent processes survive an app quit. Daemon (argusd) is the default; tmux is the legacy fallback. Takes effect on the next app launch."
+                >
+                  <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+                    {([['auto', 'Daemon'], ['tmux', 'tmux (legacy)']] as const).map(([val, label]) => {
+                      const cur = config.ptyBackend ?? 'auto';
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => onSave({ ptyBackend: val })}
+                          style={{
+                            all: 'unset',
+                            cursor: 'pointer',
+                            padding: '6px var(--s-3)',
+                            background: cur === val ? 'var(--accent-bg)' : 'var(--bg-1)',
+                            border: `1px solid ${cur === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                            borderRadius: 'var(--r-2)',
+                            fontSize: 'var(--t-sm)',
+                            color: cur === val ? 'var(--accent)' : 'var(--fg-1)',
+                            textAlign: 'center',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SettingRow>
               </Section>
               <Section title="Developer">
                 <SettingRow label="Enable developer tools" hint="Adds a per-session diagnostics dump button (writes session state + output to ~/.argus/diagnostics for debugging)">

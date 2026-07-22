@@ -246,7 +246,10 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 });
 
 export async function startServer(): Promise<void> {
-  applyConfig(await configStore.load());
+  const startupConfig = await configStore.load();
+  applyConfig(startupConfig);
+  // Resolve the pty backend from config BEFORE restoring sessions (below).
+  sessionManager.configureBackend(startupConfig.ptyBackend ?? 'auto');
   updateService.start();
   await new Promise<void>((resolve, reject) => {
     _startReject = reject;

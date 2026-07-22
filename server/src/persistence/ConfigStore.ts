@@ -22,6 +22,7 @@ const DEFAULT_CONFIG: AppConfig = {
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
   debugToolsEnabled: false,
+  ptyBackend: 'auto',
 };
 
 export class ConfigStore {

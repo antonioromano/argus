@@ -175,6 +175,17 @@ export class SessionManager {
     this.backend = makePtyBackend(this.ptyManager, dataDir);
   }
 
+  /**
+   * Re-resolve the pty backend from the persisted config preference. Called once
+   * at startup before restoreSessions; a no-op once sessions exist, because a
+   * running session is bound to its backend (a live tmux session can't become a
+   * daemon session) — changing the setting takes effect on the next app launch.
+   */
+  configureBackend(preference: 'auto' | 'tmux'): void {
+    if (this.sessions.size > 0) return;
+    this.backend = makePtyBackend(this.ptyManager, this.dataDir, preference);
+  }
+
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */
   setSignalConfig(secret: string, binPath: string): void {
     this.signalSecret = secret;

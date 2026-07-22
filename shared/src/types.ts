@@ -66,6 +66,10 @@ export interface AppConfig {
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
+  // Process-survival backend: 'auto' = argusd daemon when available (default),
+  // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
+  // needs an app restart (running sessions are bound to their backend).
+  ptyBackend?: 'auto' | 'tmux';
 }
 
 export interface AgentStatus {
