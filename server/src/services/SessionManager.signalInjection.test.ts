@@ -29,9 +29,29 @@ test('buildSignalInjection (claude): flags + common env + coverage', () => {
   assert.deepEqual([...inj.coverage], ['running', 'waiting', 'idle']);
 });
 
-test('buildSignalInjection returns null for agents without an adapter (gemini/codex — Units 4/5)', () => {
-  assert.equal(build(sm(), 'gemini', []), null);
-  assert.equal(build(sm(), 'codex', []), null);
+test('buildSignalInjection returns null for agents without an adapter', () => {
+  assert.equal(build(sm(), 'some-custom-agent', []), null);
+});
+
+test('buildSignalInjection (gemini): env-based injection + full coverage', () => {
+  const inj = build(sm(), 'gemini', ['--foo']);
+  assert.ok(inj);
+  assert.match(inj.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH, /gemini-sess-X\.json$/);
+  assert.ok(inj.env.ARGUS_SIGNAL_URL && inj.env.ARGUS_SIGNAL_TOKEN, 'common env still injected');
+  assert.deepEqual(inj.flags, ['--foo'], 'gemini flags unchanged (env-based)');
+  assert.equal(inj.files.length, 1);
+  assert.deepEqual([...inj.coverage], ['running', 'waiting', 'idle']);
+});
+
+test('buildSignalInjection (codex): -c notify flag + idle-only coverage', () => {
+  const inj = build(sm(), 'codex', ['--model', 'x']);
+  assert.ok(inj);
+  assert.ok(inj.flags.includes('-c'), 'adds -c');
+  assert.ok(
+    inj.flags.some((f: string) => f.startsWith('notify=') && f.includes('--state') && f.includes('idle')),
+    'notify program posts idle',
+  );
+  assert.deepEqual([...inj.coverage], ['idle']);
 });
 
 test('buildSignalInjection returns null when signals are unconfigured', () => {
