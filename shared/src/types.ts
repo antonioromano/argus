@@ -6,6 +6,29 @@ export type MosaicWaitingStyle = 'breathing' | 'flag';
 export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
 export type AgentType = BuiltinAgentId | string;
 
+/** Native lifecycle states an agent CLI can report (subset of SessionStatus).
+ *  'done'/'exited' are Argus-level promotions, never reported natively. */
+export type AgentSignalState = 'running' | 'waiting' | 'idle';
+
+/** Canonical native lifecycle signal, after per-agent mapping. The ingestion
+ *  route builds this from a validated request and hands it to the arbiter. */
+export interface AgentSignal {
+  sessionId: string;
+  state: AgentSignalState;
+  /** Native prompt/question text (e.g. Claude Notification.message); preferred over screen scraping. */
+  promptText?: string;
+  source: 'native';
+  /** Raw payload — kept only in diagnostics, never trusted for control flow. */
+  raw?: unknown;
+}
+
+/** Opt-in native-signal config for a custom agent (built-ins use their adapter). */
+export interface AgentStateSignalConfig {
+  mechanism: 'claude-hooks' | 'gemini-hooks' | 'codex-notify';
+  /** States this mechanism reports; the arbiter suppresses heuristics only for these. */
+  coverage: AgentSignalState[];
+}
+
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -13,6 +36,8 @@ export interface AgentDefinition {
   builtin: boolean;
   installCommand?: string;
   installUrl?: string;
+  /** Optional opt-in to native state signals (custom agents). */
+  stateSignals?: AgentStateSignalConfig;
 }
 
 export interface AgentFlag {

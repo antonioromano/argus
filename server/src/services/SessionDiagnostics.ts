@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, AgentSignal, AgentSignalState } from '@argus/shared';
 import type { StateDetectorDiagnostics } from './StateDetector.js';
 
 /** Subfolder of the Argus data dir (`~/.argus`) where dump files land. */
@@ -37,6 +37,15 @@ export interface SessionDiagnosticsPayload {
     outputBufferBytes: number;
     outputBufferCapBytes: number;
     connectedClients: number;
+    /** Native-signal arbitration state (plan 2026-07-22-001); absent pre-feature. */
+    native?: {
+      state: AgentSignalState | null;
+      lastSeenAt: number | null;
+      ageMs: number | null;
+      fresh: boolean;
+      coverage: AgentSignalState[] | null;
+      ring: AgentSignal[];
+    };
   };
   detector: StateDetectorDiagnostics;
   tmux: TmuxDiagnostics | null;

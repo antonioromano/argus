@@ -8,12 +8,15 @@ import type { Server } from 'socket.io';
 import type {
   SessionInfo,
   SessionStatus,
+  AgentSignalState,
+  AgentSignal,
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@argus/shared';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror, MIRROR_SCROLLBACK, MIRROR_IDLE_SCROLLBACK } from './TerminalMirror.js';
+import { coverageFor } from './agentSignals/coverage.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
@@ -41,6 +44,15 @@ interface ManagedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
+  /** Native-signal arbitration (plan 2026-07-22-001): when the last native
+   *  signal arrived, the state it reported, and the states this session's
+   *  adapter covers. While fresh, the arbiter suppresses contradicting
+   *  heuristic transitions for covered states. */
+  nativeLastSeenAt?: number;
+  nativeState?: AgentSignalState;
+  nativeCoverage?: Set<AgentSignalState>;
+  /** Last few raw native signals — diagnostics dump only, never control flow. */
+  nativeRing?: AgentSignal[];
   /** tmux session name backing this agent (undefined in non-persistent mode). */
   tmuxName?: string;
   /** Last terminal dimensions reported by a client; used to size a restart's fresh
@@ -75,6 +87,13 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const OUTPUT_BUFFER_CAP = 100_000;
 // How much of the rolling buffer to embed as the raw-tail fallback in a dump.
 const RAW_TAIL_BYTES = 16 * 1024;
+
+// A native signal keeps its authority for this long. Refreshed by every native
+// event; once stale (old CLI, user stripped the hook config), the heuristic
+// detector silently takes back over (plan 2026-07-22-001, R4).
+const NATIVE_FRESHNESS_MS = 30_000;
+// Depth of the per-session raw-signal ring kept for the diagnostics dump.
+const NATIVE_RING_SIZE = 5;
 
 /**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
@@ -489,6 +508,15 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) return;
 
+    // Native-signal arbitration (plan 2026-07-22-001): while a native channel is
+    // fresh, it is authoritative for the states its adapter covers — drop the
+    // heuristic transition for a covered state. Heuristic still owns 'exited'
+    // (never in coverage) and everything once the native window goes stale (R3/R4).
+    if (this.nativeIsFresh(session)) {
+      const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
+      if (coverage.has(detected as AgentSignalState)) return;
+    }
+
     let status = detected;
     if (detected === 'idle' || detected === 'waiting') {
       if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle) {
@@ -544,6 +572,76 @@ export class SessionManager {
     if (session.lastPrompt === text) return;
     session.lastPrompt = text;
     this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
+  }
+
+  private nativeIsFresh(session: ManagedSession): boolean {
+    return (
+      session.nativeLastSeenAt !== undefined &&
+      Date.now() - session.nativeLastSeenAt < NATIVE_FRESHNESS_MS
+    );
+  }
+
+  /**
+   * Ingest a native lifecycle signal (Claude/Gemini hooks, Codex notify),
+   * forwarded by the agent-signals route. Records freshness so the arbiter can
+   * suppress contradicting heuristics (plan 2026-07-22-001), then applies the
+   * state — with two differences from the heuristic path: a native `idle` is a
+   * real turn boundary, so it promotes to `done` immediately (no 2s grace); and
+   * native `promptText` wins over screen scraping for the notification body (R7).
+   * Unknown/exited sessions are ignored (fire-and-forget from the CLI).
+   */
+  applyNativeSignal(
+    id: string,
+    signal: { state: AgentSignalState; promptText?: string; coverage?: AgentSignalState[] },
+  ): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status === 'exited') return;
+
+    session.nativeLastSeenAt = Date.now();
+    session.nativeState = signal.state;
+    if (signal.coverage && signal.coverage.length > 0) {
+      session.nativeCoverage = new Set(signal.coverage);
+    }
+    // Diagnostics ring only — never trusted for control flow.
+    const raw: AgentSignal = {
+      sessionId: id,
+      state: signal.state,
+      promptText: signal.promptText,
+      source: 'native',
+    };
+    (session.nativeRing ??= []).push(raw);
+    if (session.nativeRing.length > NATIVE_RING_SIZE) session.nativeRing.shift();
+
+    // A native event is a turn boundary — cancel any pending heuristic done-grace.
+    if (session.doneTimer) {
+      clearTimeout(session.doneTimer);
+      session.doneTimer = undefined;
+    }
+
+    let status: SessionStatus = signal.state;
+    // Native idle promotes straight to 'done' (no 2s grace) under the same gates
+    // as the heuristic path: a genuine finish of a user-initiated run.
+    if (
+      signal.state === 'idle' &&
+      !session.suppressDonePromotion &&
+      session.status === 'running' &&
+      session.hasUserInputSinceIdle
+    ) {
+      status = 'done';
+    }
+
+    // 'done' is sticky vs a repeat idle; a native running/waiting is genuine new
+    // activity and clears it.
+    if (session.status === 'done' && (status === 'idle' || status === 'done')) return;
+
+    session.status = status;
+    if (status === 'waiting') {
+      session.lastPrompt = signal.promptText ?? session.stateDetector.getLastPromptText();
+    } else {
+      session.lastPrompt = undefined;
+    }
+    this.refreshSleepPrevention();
+    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
   /** Client manually promotes an idle session to done. */
@@ -627,6 +725,14 @@ export class SessionManager {
         outputBufferBytes: session.outputBuffer.length,
         outputBufferCapBytes: OUTPUT_BUFFER_CAP,
         connectedClients: this.io?.sockets.adapter.rooms.get(id)?.size ?? 0,
+        native: {
+          state: session.nativeState ?? null,
+          lastSeenAt: session.nativeLastSeenAt ?? null,
+          ageMs: session.nativeLastSeenAt !== undefined ? Date.now() - session.nativeLastSeenAt : null,
+          fresh: this.nativeIsFresh(session),
+          coverage: session.nativeCoverage ? [...session.nativeCoverage] : null,
+          ring: session.nativeRing ?? [],
+        },
       },
       detector: session.stateDetector.getDiagnostics(),
       tmux,
