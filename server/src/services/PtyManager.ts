@@ -138,6 +138,15 @@ export class PtyManager {
       'set-option -g destroy-unattached off',                  // linchpin: keep session alive when our client detaches
       'set-option -g default-terminal "xterm-256color"',
       'set-option -ga terminal-overrides ",xterm-256color:Tc"', // truecolor passthrough
+      // Strip the outer terminal's alt-screen caps. With smcup, tmux parks the
+      // attached client on the alternate buffer and redraws in place — the
+      // TerminalMirror then never accumulates normal-buffer scrollback, and a
+      // serialize() replay frame leaves every client stuck in an unscrollable
+      // alt screen (plan 002 regression: wheel dead in all shells). Without
+      // smcup, tmux draws on the normal screen and full-height scrolls push
+      // history into the mirror's scrollback — which is exactly the replay
+      // history serialize needs.
+      'set-option -ga terminal-overrides ",*:smcup@:rmcup@"',
       'set-option -g window-size latest',                      // pane tracks the (single) attached client size
       'set-window-option -g aggressive-resize on',
       'set-window-option -g remain-on-exit on',                // keep dead pane so we can detect exited-while-detached
@@ -180,6 +189,12 @@ export class PtyManager {
       this.runTmux(['set-option', '-g', 'mouse', 'on']);
       this.runTmux(['bind-key', '-n', 'WheelUpPane', 'if-shell', '-F', '#{mouse_any_flag}', 'send-keys -M', 'copy-mode -e']);
       this.runTmux(['bind-key', '-n', 'WheelDownPane', 'if-shell', '-F', '#{mouse_any_flag}', 'send-keys -M']);
+      // Same smcup/rmcup strip as the -f config (see ensureTmuxConfig) — a
+      // survivor server never re-reads the config file, and the override must be
+      // in place before our client attaches or the mirror lands on the alt screen.
+      if (this.runTmux(['show-options', '-g', 'terminal-overrides']).indexOf('smcup@') === -1) {
+        this.runTmux(['set-option', '-ga', 'terminal-overrides', ',*:smcup@:rmcup@']);
+      }
     } catch {
       /* server not up yet → the -f config covers the fresh-server case */
     }
