@@ -1,6 +1,6 @@
 {
   "name": "@argus/server",
-  "version": "0.20.24",
+  "version": "0.21.0",
   "private": true,
   "type": "module",
   "scripts": {
