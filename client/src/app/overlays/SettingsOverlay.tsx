@@ -466,48 +466,28 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   </SettingRow>
                 )}
                 <SettingRow
-                  label="Session backend"
-                  hint="How agent processes survive an app quit. Daemon (argusd) is the default; tmux is the legacy fallback. Takes effect on the next app launch."
+                  label="Use argusd daemon"
+                  hint="Default process backend (survives app quit without tmux). Turn off to use the legacy tmux backend. Applies on the next app launch."
                 >
-                  <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
-                    {([['auto', 'Daemon'], ['tmux', 'tmux (legacy)']] as const).map(([val, label]) => {
-                      const cur = config.ptyBackend ?? 'auto';
-                      return (
-                        <button
-                          key={val}
-                          onClick={async () => {
-                            if (val === cur) return;
-                            const choice = await showNativeMessageBox({
-                              type: 'question',
-                              message: `Switch the session backend to ${label}?`,
-                              detail:
-                                'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts.',
-                              buttons: ['Cancel', 'Apply on next launch', 'Restart now'],
-                              defaultId: 2,
-                              cancelId: 0,
-                            }).catch(() => 0);
-                            if (choice === 0) return; // Cancel
-                            onSave({ ptyBackend: val });
-                            if (choice === 2) window.electronApp?.relaunch();
-                          }}
-                          style={{
-                            all: 'unset',
-                            cursor: 'pointer',
-                            padding: '6px var(--s-3)',
-                            background: cur === val ? 'var(--accent-bg)' : 'var(--bg-1)',
-                            border: `1px solid ${cur === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                            borderRadius: 'var(--r-2)',
-                            fontSize: 'var(--t-sm)',
-                            color: cur === val ? 'var(--accent)' : 'var(--fg-1)',
-                            textAlign: 'center',
-                            boxSizing: 'border-box',
-                          }}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <Toggle
+                    checked={(config.ptyBackend ?? 'auto') !== 'tmux'}
+                    onChange={async (v) => {
+                      const target: 'auto' | 'tmux' = v ? 'auto' : 'tmux';
+                      if (target === (config.ptyBackend ?? 'auto')) return;
+                      const choice = await showNativeMessageBox({
+                        type: 'question',
+                        message: v ? 'Switch to the argusd daemon backend?' : 'Switch to the legacy tmux backend?',
+                        detail:
+                          'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts.',
+                        buttons: ['Cancel', 'Apply on next launch', 'Restart now'],
+                        defaultId: 2,
+                        cancelId: 0,
+                      }).catch(() => 0);
+                      if (choice === 0) return; // Cancel — Toggle is config-controlled, so it snaps back
+                      await onSave({ ptyBackend: target });
+                      if (choice === 2) window.electronApp?.relaunch();
+                    }}
+                  />
                 </SettingRow>
               </Section>
               <Section title="Developer">
