@@ -53,5 +53,8 @@ else
 fi
 
 URL="${ARGUS_SIGNAL_URL%/}/$SESSION"
-curl -s -m 1 -X POST -H 'Content-Type: application/json' -d "$BODY" "$URL" >/dev/null 2>&1 || true
+# Send the body via stdin (--data-binary @-), never `-d "$BODY"`: the token is a
+# per-session credential and `-d` would place it in curl's argv, exposing it to
+# local `ps aux` for the request's lifetime.
+printf '%s' "$BODY" | curl -s -m 1 -X POST -H 'Content-Type: application/json' --data-binary @- "$URL" >/dev/null 2>&1 || true
 exit 0
