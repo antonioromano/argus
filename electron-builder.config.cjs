@@ -63,6 +63,15 @@ module.exports = {
       to: 'bin',
       filter: ['argus-signal'],
     },
+    // argusd pty-host daemon (plan 2026-07-22-003), built per-arch by
+    // `make -C daemon build`. Resolved at runtime as
+    // resourcesPath/argusd/argusd-${process.arch}. A Mach-O binary, so it stays
+    // in the bundle for afterPack's ad-hoc --deep sign (like tmux, not stashed).
+    {
+      from: 'electron/resources/argusd',
+      to: 'argusd',
+      filter: ['argusd-*'],
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

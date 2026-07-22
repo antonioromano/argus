@@ -34,3 +34,10 @@ docs/plans/
 
 # TypeScript incremental build cache (machine-specific; must not be committed)
 *.tsbuildinfo
+
+# argusd daemon binaries (built from daemon/ via `make build` in CI/packaging)
+electron/resources/argusd/argusd-arm64
+electron/resources/argusd/argusd-x64
+
+# Go build output (default `go build` in daemon/ emits ./daemon)
+daemon/daemon

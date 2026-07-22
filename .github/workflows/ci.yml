@@ -39,3 +39,27 @@ jobs:
 
       - name: Test
         run: npm test
+
+  daemon:
+    # argusd pty-host daemon (Go) — vet, test, and cross-compile both macOS arches
+    # (plan 2026-07-22-003). Independent of the Node job.
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build (arm64 + x64)
+        run: make build
