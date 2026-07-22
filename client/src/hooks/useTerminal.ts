@@ -372,6 +372,22 @@ export function useTerminal(
         const prevCols = terminal.cols;
         const prevRows = terminal.rows;
         fitAddon.fit();
+        // FitAddon derives cols from one measured cell, but at fractional zoom
+        // the DOM renderer's real per-cell advance differs sub-pixel from that
+        // measurement — across ~200 columns the error accumulates past the
+        // panel's side padding, so the last glyphs touch or clip the tile
+        // border. Measure the grid the renderer actually produced and shave
+        // columns until it genuinely fits the mount width.
+        const screenEl = terminal.element?.querySelector<HTMLElement>('.xterm-screen');
+        if (terminal.element && screenEl && terminal.cols > 2) {
+          const avail = terminal.element.getBoundingClientRect().width;
+          const actual = screenEl.getBoundingClientRect().width;
+          if (actual > avail && avail > 0) {
+            const cellW = actual / terminal.cols;
+            const maxCols = Math.max(2, Math.floor(avail / cellW));
+            if (maxCols < terminal.cols) terminal.resize(maxCols, terminal.rows);
+          }
+        }
         // Column change means lines were rewrapped, which can leave the DOM
         // renderer's scrollback row elements in a stale state at the old scroll
         // position. Reset to the active buffer so the user sees correct content;
