@@ -4,6 +4,8 @@ import os from 'os';
 import { SessionManager } from './SessionManager.js';
 import { TerminalMirror } from './TerminalMirror.js';
 
+process.env.ARGUS_PTY_BACKEND = 'tmux'; // pin backend so a built argusd binary doesn't flip the default
+
 const fakeConfig = {
   load: async () => ({ defaultAgent: 'claude', customAgents: [], agentFlags: {} }),
   save: async () => {},

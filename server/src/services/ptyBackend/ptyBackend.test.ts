@@ -11,21 +11,38 @@ import { resolveDaemonBin } from '../daemon/resolveDaemonBin.js';
 const BIN = resolveDaemonBin();
 const daemonGuard = BIN ? undefined : { skip: 'argusd binary not built (run make -C daemon build)' };
 
-test('makePtyBackend defaults to the tmux backend', () => {
+test('makePtyBackend: ARGUS_PTY_BACKEND=tmux forces the tmux backend', () => {
   const prev = process.env.ARGUS_PTY_BACKEND;
-  delete process.env.ARGUS_PTY_BACKEND;
+  process.env.ARGUS_PTY_BACKEND = 'tmux';
   try {
     const b = makePtyBackend(new PtyManager(os.tmpdir()), os.tmpdir());
     assert.equal(b.kind, 'tmux');
   } finally {
     if (prev !== undefined) process.env.ARGUS_PTY_BACKEND = prev;
+    else delete process.env.ARGUS_PTY_BACKEND;
   }
 });
 
-test('makePtyBackend falls back to tmux when daemon requested but binary missing', () => {
+test('makePtyBackend: defaults to daemon when the binary resolves', daemonGuard ?? {}, () => {
   const prevF = process.env.ARGUS_PTY_BACKEND;
   const prevB = process.env.ARGUS_DAEMON_BIN;
-  process.env.ARGUS_PTY_BACKEND = 'daemon';
+  delete process.env.ARGUS_PTY_BACKEND;
+  process.env.ARGUS_DAEMON_BIN = BIN!;
+  try {
+    const b = makePtyBackend(new PtyManager(os.tmpdir()), os.tmpdir());
+    assert.equal(b.kind, 'daemon', 'daemon is the default when its binary is available');
+  } finally {
+    if (prevF !== undefined) process.env.ARGUS_PTY_BACKEND = prevF;
+    else delete process.env.ARGUS_PTY_BACKEND;
+    if (prevB !== undefined) process.env.ARGUS_DAEMON_BIN = prevB;
+    else delete process.env.ARGUS_DAEMON_BIN;
+  }
+});
+
+test('makePtyBackend: falls back to tmux when the binary is missing', () => {
+  const prevF = process.env.ARGUS_PTY_BACKEND;
+  const prevB = process.env.ARGUS_DAEMON_BIN;
+  delete process.env.ARGUS_PTY_BACKEND;
   process.env.ARGUS_DAEMON_BIN = '/nonexistent/argusd';
   try {
     const b = makePtyBackend(new PtyManager(os.tmpdir()), os.tmpdir());

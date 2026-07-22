@@ -4,6 +4,10 @@ import os from 'os';
 import { SessionManager } from './SessionManager.js';
 import { tmuxSessionName } from './PtyManager.js';
 
+// These tests exercise the tmux-delegation path via PtyManager stubs; pin the
+// backend so a locally-built argusd binary doesn't flip the default to daemon.
+process.env.ARGUS_PTY_BACKEND = 'tmux';
+
 const fakeConfig = {
   load: async () => ({ defaultAgent: 'claude', customAgents: [], agentFlags: {} }),
   save: async () => {},
