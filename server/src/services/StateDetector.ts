@@ -1,13 +1,12 @@
 import type { SessionStatus } from '@argus/shared';
-import type { Terminal as XTerminal, ITerminalOptions, ITerminalInitOnlyOptions } from '@xterm/headless';
-// The @xterm/headless package's main entry is CJS (lib-headless/xterm-headless.js);
-// Node's ESM↔CJS interop can't statically detect the `exports.Terminal = …`
-// assignment pattern it uses, so a named import throws at load time.
-// Default-import the module object and pull `Terminal` off it instead.
-import xtermHeadless from '@xterm/headless';
-const Terminal = (xtermHeadless as unknown as {
-  Terminal: new (opts?: ITerminalOptions & ITerminalInitOnlyOptions) => XTerminal;
-}).Terminal;
+import type { Terminal as XTerminal } from '@xterm/headless';
+import { TerminalMirror } from './TerminalMirror.js';
+
+// Standalone StateDetectors (unit tests) create their own mirror at the old
+// scrollback depth; a session-backed detector is handed the shared session
+// mirror (5000, adaptive) by SessionManager so classification and replay use
+// one emulator.
+const STANDALONE_SCROLLBACK = 500;
 
 /**
  * Input-box rows — the agent's persistent text-entry line (e.g. Claude's
@@ -177,7 +176,14 @@ export interface StateDetectorDiagnostics {
  * frames and lets us use the cursor's row as a first-class signal.
  */
 export class StateDetector {
-  private term: XTerminal;
+  /** The authoritative emulator; shared with replay when session-backed. */
+  private mirror: TerminalMirror;
+  /** True only when this detector created its own mirror (standalone/tests) and must dispose it. */
+  private ownsMirror: boolean;
+  /** Convenience accessor so the existing grid-reading code stays untouched. */
+  private get term(): XTerminal {
+    return this.mirror.term;
+  }
   private onStatusChange: (status: SessionStatus) => void;
   private onPromptUpdate: ((text: string) => void) | null = null;
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
@@ -196,14 +202,13 @@ export class StateDetector {
   private lastCursorStyleAt = 0;
   private lastResizeAt = 0;
   private destroyed = false;
-  /** Serialises `term.write()` calls so buffer reads happen after the parser has caught up. */
-  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     onStatusChange: (status: SessionStatus) => void,
     agentType: string = 'claude',
     cols: number = 120,
     rows: number = 30,
+    mirror?: TerminalMirror,
   ) {
     this.onStatusChange = onStatusChange;
     this.promptPatterns = AGENT_PROMPT_PATTERNS[agentType] ?? DEFAULT_PROMPT_PATTERNS;
@@ -212,18 +217,17 @@ export class StateDetector {
     // Extraction anchors on either a real prompt or the input box (the question
     // sits just above the box even when the box itself isn't a waiting signal).
     this.extractAnchorPatterns = [...this.promptPatterns, ...this.inputBoxPatterns];
-    this.term = new Terminal({
-      cols,
-      rows,
-      allowProposedApi: true,
-      scrollback: 500,
-    });
+    // Consume the shared session mirror when provided; otherwise own a private
+    // one (standalone/tests) at the historical scrollback depth.
+    this.ownsMirror = !mirror;
+    this.mirror = mirror ?? new TerminalMirror(cols, rows, STANDALONE_SCROLLBACK);
 
     // DECSCUSR (`\e[<n> q`) — cursor-style change. Many TUIs emit this when
     // the input box becomes active. Record the timestamp; we treat a very
-    // recent one as a 'waiting' hint during settle().
+    // recent one as a 'waiting' hint during settle(). Registered on the shared
+    // emulator's parser (coexists with the mirror's own mode scanner).
     // `intermediates: ' '` matches the single-space intermediate in DECSCUSR.
-    this.term.parser.registerCsiHandler({ intermediates: ' ', final: 'q' }, () => {
+    this.mirror.term.parser.registerCsiHandler({ intermediates: ' ', final: 'q' }, () => {
       this.lastCursorStyleAt = Date.now();
       return false; // fall through to default handling
     });
@@ -243,11 +247,7 @@ export class StateDetector {
 
   resize(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
-    try {
-      this.term.resize(cols, rows);
-    } catch {
-      // xterm throws on invalid sizes — ignore and keep current grid
-    }
+    this.mirror.resize(cols, rows);
     // Stamp so the activity heuristic suppresses 'running' during the SIGWINCH redraw burst.
     this.lastResizeAt = Date.now();
   }
@@ -267,24 +267,16 @@ export class StateDetector {
     // Ignore it — the emulator is disposed and the timers are gone.
     if (this.destroyed) return;
 
-    // Feed raw bytes (ANSI and all) to the emulator so the grid updates correctly.
-    this.writeQueue = this.writeQueue.then(
-      () => new Promise<void>((resolve) => {
-        if (this.destroyed) { resolve(); return; }
-        this.term.write(data, () => resolve());
-      }),
-    ).catch((err) => {
-      // A rejected chain would otherwise permanently skip every future
-      // .then() on writeQueue, freezing status detection for this session.
-      console.error('StateDetector writeQueue error:', err);
-    });
+    // Feed raw bytes (ANSI and all) into the shared mirror so the grid updates
+    // correctly. The mirror owns the write queue (reads see a settled parser).
+    const written = this.mirror.feed(data);
 
     // Promptly classify on each settled write: a working footer or a real
     // prompt is a positive on-screen signal we act on immediately, without
     // waiting for the 500ms idle settle (which exists only to detect the
     // ABSENCE of both — e.g. the menu-that-never-quiets case where a blinking
     // cursor keeps output trickling so settle() would never run).
-    this.writeQueue.then(() => {
+    written.then(() => {
       if (this.destroyed) return;
       const s = this.classify();
       if (s) this.scheduleStatus(s);
@@ -304,7 +296,7 @@ export class StateDetector {
         // Also suppress during resize grace window: SIGWINCH causes a full redraw
         // burst that looks like activity but isn't real agent work.
         const resizeAge = Date.now() - this.lastResizeAt;
-        this.writeQueue.then(() => {
+        this.mirror.afterWrite().then(() => {
           if (this.destroyed) return;
           if (!this.screenShowsPrompt() && resizeAge >= RESIZE_GRACE_MS) this.scheduleStatus('running');
         });
@@ -314,7 +306,7 @@ export class StateDetector {
     // After output settles, classify based on what's actually on the screen.
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
-      this.writeQueue.then(() => this.settle());
+      this.mirror.afterWrite().then(() => this.settle());
     }, IDLE_SETTLE_MS);
   }
 
@@ -494,7 +486,7 @@ export class StateDetector {
    */
   forceReclassify(): void {
     if (this.destroyed) return;
-    this.writeQueue.then(() => {
+    this.mirror.afterWrite().then(() => {
       if (!this.destroyed) this.settle();
     });
   }
@@ -571,6 +563,8 @@ export class StateDetector {
     if (this.idleTimer) clearTimeout(this.idleTimer);
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.runningTimer) clearTimeout(this.runningTimer);
-    this.term.dispose();
+    // Only dispose the emulator we created; a shared session mirror is owned by
+    // SessionManager and outlives the detector across restart.
+    if (this.ownsMirror) this.mirror.dispose();
   }
 }

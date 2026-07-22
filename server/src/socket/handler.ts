@@ -97,6 +97,8 @@ export function setupSocketHandler(
         return;
       }
       socket.join(sessionId);
+      // A client is watching → keep the mirror's deep replay history (Q6).
+      manager.setMirrorScrollback(sessionId, true);
       // Register this socket for dimension tracking
       if (!clientDimensions.has(sessionId)) {
         clientDimensions.set(sessionId, new Map());
@@ -114,6 +116,8 @@ export function setupSocketHandler(
 
     socket.on('session:leave', (sessionId: string) => {
       socket.leave(sessionId);
+      // Room may now be empty → drop mirror scrollback to the idle depth (Q6).
+      manager.setMirrorScrollback(sessionId, (io.sockets.adapter.rooms.get(sessionId)?.size ?? 0) > 0);
       // Remove this socket's dimensions and resize PTY to remaining max
       const sockets = clientDimensions.get(sessionId);
       if (sockets) {
@@ -282,6 +286,9 @@ export function setupSocketHandler(
             if (dims) {
               try { manager.resizeSession(roomKey, dims.cols, dims.rows); } catch { /* session may be gone */ }
             }
+            // socket.io clears this socket from its rooms on disconnect, so the
+            // room count now reflects remaining watchers (Q6).
+            manager.setMirrorScrollback(roomKey, (io.sockets.adapter.rooms.get(roomKey)?.size ?? 0) > 0);
           }
         }
       }

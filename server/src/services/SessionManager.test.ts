@@ -137,23 +137,21 @@ function withFakeNonTmuxSession(sm: SessionManager, id: string, outputBuffer: st
   });
 }
 
-test('getReplaySnapshot reuses a cached frame within the TTL instead of re-capturing', () => {
+test('getReplaySnapshot returns a fresh frame each call (no TTL cache)', () => {
+  // The TTL snapshot cache was removed with the move to mirror.serialize()
+  // (plan 002 Unit 2): serving is an in-memory read, so every join reflects the
+  // latest state immediately. These fakes carry no mirror, exercising the
+  // raw-buffer fallback path — enough to prove there is no stale caching.
   const sm = new SessionManager(os.tmpdir(), fakeConfig);
   withFakeNonTmuxSession(sm, 'sess-2', 'first-snapshot');
   assert.equal(sm.getReplaySnapshot('sess-2')?.data, 'first-snapshot');
 
   (sm as any).sessions.get('sess-2').outputBuffer = 'second-snapshot';
-  assert.equal(sm.getReplaySnapshot('sess-2')?.data, 'first-snapshot', 'expected cached frame, not a fresh capture');
-});
-
-test('getReplaySnapshot captures fresh once the cache entry is stale', () => {
-  const sm = new SessionManager(os.tmpdir(), fakeConfig);
-  withFakeNonTmuxSession(sm, 'sess-3', 'first-snapshot');
-  sm.getReplaySnapshot('sess-3');
-
-  (sm as any).replaySnapshotCache.get('sess-3').capturedAt = Date.now() - 1000;
-  (sm as any).sessions.get('sess-3').outputBuffer = 'second-snapshot';
-  assert.equal(sm.getReplaySnapshot('sess-3')?.data, 'second-snapshot');
+  assert.equal(
+    sm.getReplaySnapshot('sess-2')?.data,
+    'second-snapshot',
+    'no cache — a fresh call reflects the latest state immediately',
+  );
 });
 
 test('persistSessions serializes concurrent writes and always persists the latest state (no stale overwrite)', async () => {

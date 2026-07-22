@@ -13,6 +13,7 @@ import type {
 } from '@argus/shared';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
+import { TerminalMirror, MIRROR_SCROLLBACK, MIRROR_IDLE_SCROLLBACK } from './TerminalMirror.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
@@ -34,6 +35,8 @@ interface ManagedSession {
   createdAt: string;
   pty: IPty;
   stateDetector: StateDetector;
+  /** Authoritative server-side screen — shared with stateDetector, source of replay frames. */
+  mirror: TerminalMirror;
   outputBuffer: string;
   worktreePath?: string;
   worktreeBranch?: string;
@@ -67,17 +70,6 @@ const GIT_POLL_INTERVAL_MS = 10_000;
 // is eventually picked up without re-spawning `git rev-parse` every tick.
 const GIT_REPO_RECHECK_MS = 60_000;
 
-// Lines of tmux scrollback to seed into a client's xterm on (re)join, so mobile
-// (and desktop after Cmd+R) can scroll up into history that predates the join.
-// Fits under xterm's 5000 scrollback cap; bounded by tmux history-limit 50000.
-const REPLAY_HISTORY_LINES = 5000;
-
-// A reconnect storm (tray reopen + mobile + desktop all rejoining at once) can
-// trigger N tmux capture-panes for the same session within a few ms. Serve a
-// short-lived cached snapshot instead so only the first join in the burst pays
-// the blocking capture cost.
-const REPLAY_SNAPSHOT_TTL_MS = 250;
-
 // Rolling output buffer cap (see onData slicing); surfaced in diagnostics so a
 // dump shows fill-vs-cap. Keep in sync with the slice length in onData.
 const OUTPUT_BUFFER_CAP = 100_000;
@@ -107,7 +99,6 @@ export interface SessionReplayFrame {
 
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
-  private replaySnapshotCache = new Map<string, { frame: SessionReplayFrame; capturedAt: number }>();
   private persistQueue: Promise<void> = Promise.resolve();
   private ptyManager: PtyManager;
   private agentRegistry = new AgentRegistry();
@@ -300,7 +291,16 @@ export class SessionManager {
     const sessionName = name || path.basename(effectiveFolderPath);
     const createdAt = existingCreatedAt ?? new Date().toISOString();
 
-    const stateDetector = new StateDetector((status) => this.applyDetectedStatus(id, status), resolvedAgentType);
+    // Authoritative screen for this session, sized to the spawn grid. Shared
+    // with the detector so classification + replay read one emulator.
+    const mirror = new TerminalMirror(120, 30);
+    const stateDetector = new StateDetector(
+      (status) => this.applyDetectedStatus(id, status),
+      resolvedAgentType,
+      120,
+      30,
+      mirror,
+    );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
 
     const resolvedFlags = flags || [];
@@ -331,6 +331,7 @@ export class SessionManager {
       createdAt,
       pty: ptyProcess,
       stateDetector,
+      mirror,
       outputBuffer: '',
       worktreePath,
       worktreeBranch,
@@ -377,6 +378,7 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
 
     session.stateDetector.destroy();
+    session.mirror?.dispose();
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);                       // detaches the tmux client
@@ -384,7 +386,6 @@ export class SessionManager {
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
-    this.replaySnapshotCache.delete(id);
     const stillInUse = Array.from(this.sessions.values()).some((s) => s.folderPath === session.folderPath);
     if (!stillInUse) this.gitRepoCache.delete(session.folderPath);
     cleanupSessionDimensions(id);
@@ -402,6 +403,7 @@ export class SessionManager {
     // surviving conversation is discarded — otherwise new-session -A would just
     // reattach to the old process and "restart" would be a no-op.
     session.stateDetector.destroy();
+    session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);
     if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
@@ -422,16 +424,23 @@ export class SessionManager {
     const agentDef = this.agentRegistry.getById(session.agentType, config.customAgents);
     const command = agentDef?.command ?? session.agentType;
 
-    // New state detector wired to same id
-    const stateDetector = new StateDetector((status) => this.applyDetectedStatus(id, status), session.agentType);
-    stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
-
-    // Spawn fresh pty at the viewer's last-known grid (not the 120×30 default):
-    // the client xterm isn't remounted on restart, so it keeps its current width.
-    // Spawning at a mismatched size makes the fresh agent draw into the wrong grid
-    // (wrapped/overlapping text). Fall back to 120×30 if no client ever reported.
+    // Fresh grid: the viewer's last-known size (not the 120×30 default). The
+    // client xterm isn't remounted on restart, so it keeps its current width;
+    // spawning at a mismatched size makes the fresh agent draw into the wrong
+    // grid (wrapped/overlapping text). Fall back to 120×30 if none reported.
     const cols = session.cols ?? 120;
     const rows = session.rows ?? 30;
+
+    // New mirror + state detector wired to the same id, sized to the fresh grid.
+    const mirror = new TerminalMirror(cols, rows);
+    const stateDetector = new StateDetector(
+      (status) => this.applyDetectedStatus(id, status),
+      session.agentType,
+      cols,
+      rows,
+      mirror,
+    );
+    stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     const ptyProcess = session.persistent && session.tmuxName
       ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, cols, rows, session.flags)
       : this.ptyManager.spawn(session.folderPath, command, cols, rows, session.flags);
@@ -447,6 +456,7 @@ export class SessionManager {
     // async by kill() above — no-ops, instead of emitting a spurious session:exit.
     session.pty = ptyProcess;
     session.stateDetector = stateDetector;
+    session.mirror = mirror;
 
     ptyProcess.onData((data) => {
       if (session.pty !== ptyProcess) return;
@@ -589,18 +599,18 @@ export class SessionManager {
     if (!session) return undefined;
 
     let tmux: SessionDiagnosticsPayload['tmux'] = null;
-    let scrollback: string | null = null;
     if (session.tmuxName) {
       const paneDead = this.ptyManager.isTmuxPaneDead(session.tmuxName);
       const state = this.ptyManager.captureState(session.tmuxName);
       tmux = { tmuxName: session.tmuxName, paneDead, ...state };
-      if (!paneDead) {
-        try {
-          scrollback = this.ptyManager.capturePane(session.tmuxName, REPLAY_HISTORY_LINES);
-        } catch {
-          scrollback = null;
-        }
-      }
+    }
+    // Scrollback is the authoritative mirror's serialized screen (was a tmux
+    // capture-pane) — consistent with what replay now serves, and non-blocking.
+    let scrollback: string | null = null;
+    try {
+      scrollback = session.mirror.serialize();
+    } catch {
+      scrollback = null;
     }
 
     const capturedAt = new Date().toISOString();
@@ -644,73 +654,34 @@ export class SessionManager {
   }
 
   /**
-   * A clean frame to paint on (re)join. For a live tmux-backed session, snapshot
-   * the current screen — always a valid escape stream — instead of the raw
-   * rolling buffer, whose 100KB slice can start mid-escape and render garbled in
-   * a fresh xterm (the bug behind "__"/black-icon after Cmd+R or tray reopen).
-   * Falls back to the raw buffer for non-tmux sessions or if capture fails.
+   * A clean frame to paint on (re)join, served synchronously from the session's
+   * `TerminalMirror` — the authoritative server-side screen fed every pty byte.
+   * No tmux subprocess, no TTL cache: `serialize()` is an in-memory read, so a
+   * reconnect storm is cheap and deterministic (plan 2026-07-22-002 Unit 2).
+   *
+   * Phase-1 keeps the client-side reconcile prefix verbatim (Q5 truth table
+   * peels it in Unit 4). Unlike the old capture-pane frame — which needed a
+   * different prefix for alt vs normal because it captured only one screen —
+   * `serialize()` re-emits the buffer switch (`?1049h`) and both buffers itself,
+   * so a single prefix that (a) forces the client onto the normal buffer and
+   * (b) clears its stale screen + scrollback is correct for both cases. The
+   * frame then repaints everything (validated by TerminalMirror dirty-target
+   * tests). Falls back to the raw rolling buffer only if the mirror is unusable.
    */
   getReplaySnapshot(id: string): SessionReplayFrame | undefined {
-    const cached = this.replaySnapshotCache.get(id);
-    if (cached && Date.now() - cached.capturedAt < REPLAY_SNAPSHOT_TTL_MS) {
-      return cached.frame;
-    }
-    const frame = this.captureReplaySnapshot(id);
-    if (frame) this.replaySnapshotCache.set(id, { frame, capturedAt: Date.now() });
-    else this.replaySnapshotCache.delete(id);
-    return frame;
-  }
-
-  private captureReplaySnapshot(id: string): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
-    if (session.persistent && session.tmuxName) {
-      try {
-        if (!this.ptyManager.isTmuxPaneDead(session.tmuxName)) {
-          // A resync can fire while the user has scrolled into tmux copy-mode;
-          // capturing then would snapshot the scrolled view. Cancel first so the
-          // capture lands on the live bottom-of-screen frame.
-          this.ptyManager.exitCopyMode(session.tmuxName);
-          // Seed scrollback from history on the normal screen so the client can
-          // scroll up into pre-join output. Skip for alt-screen apps (vim/less):
-          // they have no meaningful scrollback and history scroll routes through
-          // tmux copy-mode, not local xterm scrollback.
-          const { cursorX, cursorY, alternate, appMouse, sgr } = this.ptyManager.captureState(session.tmuxName);
-          const depth = alternate ? 0 : REPLAY_HISTORY_LINES;
-          // Strip ONLY the single trailing line-terminator, not the blank rows
-          // below the cursor: those rows are part of the visible screen, and a
-          // seeded buffer (history + screen) is bottom-anchored in xterm, so the
-          // bottom `pane_height` rows must map 1:1 to tmux's live screen. A greedy
-          // strip (/\n+$/) deletes the trailing blanks, shifting the screen-top up
-          // off the viewport-top — then any in-place redraw (claude's input box via
-          // \x1b[H) lands on history rows and overwrites them (old text bleeds over
-          // the current screen). Keeping full height aligns redraws.
-          const snap = this.ptyManager.capturePane(session.tmuxName, depth).replace(/\n$/, '');
-          // Reconcile xterm's active buffer to tmux's truth, THEN paint. capture-pane
-          // separates rows with bare LF; xterm needs CRLF or it staircases.
-          //  - normal: `?1049l` forces xterm onto the normal buffer regardless of
-          //    where it was; `\x1b[3J` erases stale scrollback so reconnect replaces
-          //    rather than duplicates.
-          //  - alt: `?1049l` then `?1049h` makes the buffer switch deterministic and
-          //    lands on a fresh alt buffer. DROP `3J` here — clearing scrollback on
-          //    the alt screen is pointless and would wipe normal-buffer history.
-          // Trailing cursor-position escape restores the real cursor cell (tmux's
-          // 0-based coords → xterm's 1-based; viewport-relative == screen coords
-          // once the screen sits at full height in the bottom rows).
-          const prefix = alternate ? '\x1b[?1049l\x1b[?1049h\x1b[2J\x1b[H' : '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H';
-          const data = prefix
-            + snap.replace(/\r?\n/g, '\r\n')
-            + `\x1b[${cursorY + 1};${cursorX + 1}H`;
-          return { data, alternate, appMouse, sgr };
-        }
-      } catch {
-        /* tmux gone / pane dead — fall through to the raw buffer */
-      }
+    try {
+      const alternate = session.mirror.bufferType() === 'alternate';
+      const { appMouse, sgr } = session.mirror.modes();
+      const prefix = '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H';
+      return { data: prefix + session.mirror.serialize(), alternate, appMouse, sgr };
+    } catch {
+      // Mirror unexpectedly unusable — fall back to the raw rolling buffer.
+      const data = session.outputBuffer;
+      if (data === undefined) return undefined;
+      return { data, alternate: false, appMouse: false, sgr: true };
     }
-    // Non-tmux / dead-pane fallback: raw rolling buffer, normal screen, gate off.
-    const data = session.outputBuffer;
-    if (data === undefined) return undefined;
-    return { data, alternate: false, appMouse: false, sgr: true };
   }
 
   clearBuffer(id: string): void {
@@ -753,6 +724,19 @@ export class SessionManager {
     session.stateDetector.resize(cols, rows);
     session.cols = cols;
     session.rows = rows;
+  }
+
+  /**
+   * Adaptive replay scrollback (Q6): keep the deep 5000-row history only while a
+   * client is in the session room; drop to 1000 when the room empties to free
+   * ~10MB/mirror. Called by the socket handler on join/leave/disconnect. The
+   * shrink drops the oldest rows permanently — a later rejoin replays the
+   * shallower depth until new output refills (accepted trade).
+   */
+  setMirrorScrollback(id: string, hasClients: boolean): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.mirror.setScrollback(hasClients ? MIRROR_SCROLLBACK : MIRROR_IDLE_SCROLLBACK);
   }
 
   async restoreSessions(): Promise<void> {
@@ -836,6 +820,7 @@ export class SessionManager {
     for (const session of this.sessions.values()) {
       try {
         session.stateDetector.destroy();
+        session.mirror?.dispose();
         this.ptyManager.kill(session.pty); // detaches tmux client; agent survives
       } catch {
         // pty may already be dead — continue to next session
