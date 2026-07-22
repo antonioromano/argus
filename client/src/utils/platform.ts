@@ -17,6 +17,8 @@ export type MenuChannel =
 export interface ElectronAppBridge {
   setBadge(count: number): void;
   onMenu(channel: MenuChannel, cb: () => void): () => void;
+  /** Relaunch the app (quit + start fresh) — used to apply a startup-only setting. */
+  relaunch(): void;
 }
 
 export interface ElectronNotificationsBridge {

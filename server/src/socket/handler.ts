@@ -96,6 +96,10 @@ export function setupSocketHandler(
         socket.emit('session:error', { sessionId, message: 'Session not found' });
         return;
       }
+      // Flush coalesced output to the room BEFORE this socket joins it: pending
+      // bytes are already baked into the mirror, so the replay frame below covers
+      // them — receiving the flush after joining would paint them twice.
+      manager.flushOutput(sessionId);
       socket.join(sessionId);
       // A client is watching → keep the mirror's deep replay history (Q6).
       manager.setMirrorScrollback(sessionId, true);

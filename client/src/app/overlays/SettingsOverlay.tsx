@@ -23,6 +23,7 @@ import {
   isNgrokPasswordValid,
 } from '../../components/primitives/index.js';
 import { KeyboardSettings } from './settings/KeyboardSettings.js';
+import { showNativeMessageBox } from '../../utils/nativeDialog.js';
 
 interface SettingsOverlayProps {
   config: AppConfig;
@@ -474,7 +475,21 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       return (
                         <button
                           key={val}
-                          onClick={() => onSave({ ptyBackend: val })}
+                          onClick={async () => {
+                            if (val === cur) return;
+                            const choice = await showNativeMessageBox({
+                              type: 'question',
+                              message: `Switch the session backend to ${label}?`,
+                              detail:
+                                'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts.',
+                              buttons: ['Cancel', 'Apply on next launch', 'Restart now'],
+                              defaultId: 2,
+                              cancelId: 0,
+                            }).catch(() => 0);
+                            if (choice === 0) return; // Cancel
+                            onSave({ ptyBackend: val });
+                            if (choice === 2) window.electronApp?.relaunch();
+                          }}
                           style={{
                             all: 'unset',
                             cursor: 'pointer',

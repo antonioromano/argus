@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('electronApp', {
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.off(channel, listener);
   },
+  relaunch: () => {
+    ipcRenderer.send('app:relaunch');
+  },
 });
 
 contextBridge.exposeInMainWorld('electronShell', {

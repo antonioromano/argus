@@ -471,6 +471,12 @@ async function main() {
     if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
   });
 
+  // Relaunch to apply a startup-only setting (e.g. the pty backend switch).
+  ipcMain.on('app:relaunch', () => {
+    app.relaunch();
+    app.exit(0);
+  });
+
   // Dock badge sync — renderer mirrors waiting-session count
   ipcMain.on('dock:setBadge', (_event, count: number) => {
     if (process.platform !== 'darwin') return;
