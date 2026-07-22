@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -26,6 +26,7 @@
     "package:mac": "npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
