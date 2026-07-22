@@ -107,7 +107,9 @@ test('writeToSession sends real keystrokes to the pty, not send-keys -l', () => 
   withFakeRunningSession(sm, 'sess-keys');
   let ptyWrite: string | null = null;
   let literalCalled = false;
-  (sm as any).ptyManager.write = (_p: unknown, d: string) => { ptyWrite = d; };
+  // writeToSession now writes straight to the pty (session.pty.write); the wheel
+  // path goes through the backend, which for tmux uses sendKeysLiteral.
+  (sm as any).sessions.get('sess-keys').pty.write = (d: string) => { ptyWrite = d; };
   (sm as any).ptyManager.sendKeysLiteral = () => { literalCalled = true; };
 
   sm.writeToSession('sess-keys', 'echo hi\n');

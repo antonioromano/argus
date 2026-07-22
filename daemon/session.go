@@ -65,27 +65,44 @@ func (s *session) kill() {
 	_ = s.ptmx.Close()
 }
 
-// spawnEnv flattens the server-supplied env and guarantees a UTF-8 locale on the
-// AGENT process itself — no client-side locale dependency (plan 003 R3; contrast
-// the tmux path where the client's env decided the downgrade).
+// spawnEnv builds the agent's environment: the daemon's own process env (PATH,
+// HOME, …) as the base, with the server-supplied per-session vars overlaid, plus
+// a guaranteed UTF-8 locale on the AGENT process itself — no client-side locale
+// dependency (plan 003 R3; contrast the tmux path where the client's env decided
+// the downgrade). Starting from os.Environ() is load-bearing: without it the
+// agent would lose PATH and fail to exec.
 func spawnEnv(env map[string]string) []string {
-	if env == nil {
-		env = map[string]string{}
+	merged := map[string]string{}
+	for _, kv := range os.Environ() {
+		if i := indexByte(kv, '='); i >= 0 {
+			merged[kv[:i]] = kv[i+1:]
+		}
 	}
-	has := func(k string) bool { _, ok := env[k]; return ok }
-	utf8 := utf8Locale(env["LC_ALL"]) || utf8Locale(env["LC_CTYPE"]) || utf8Locale(env["LANG"])
-	if !utf8 {
-		env["LANG"] = "en_US.UTF-8"
-		env["LC_ALL"] = "en_US.UTF-8"
-	}
-	if !has("TERM") {
-		env["TERM"] = "xterm-256color"
-	}
-	out := make([]string, 0, len(env))
 	for k, v := range env {
+		merged[k] = v
+	}
+	utf8 := utf8Locale(merged["LC_ALL"]) || utf8Locale(merged["LC_CTYPE"]) || utf8Locale(merged["LANG"])
+	if !utf8 {
+		merged["LANG"] = "en_US.UTF-8"
+		merged["LC_ALL"] = "en_US.UTF-8"
+	}
+	if merged["TERM"] == "" {
+		merged["TERM"] = "xterm-256color"
+	}
+	out := make([]string, 0, len(merged))
+	for k, v := range merged {
 		out = append(out, k+"="+v)
 	}
 	return out
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
 }
 
 func utf8Locale(v string) bool {

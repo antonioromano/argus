@@ -21,6 +21,8 @@ import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
+import { makePtyBackend } from './ptyBackend/index.js';
+import type { PtyBackend } from './ptyBackend/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
@@ -45,6 +47,9 @@ interface ManagedSession {
   /** Authoritative server-side screen — shared with stateDetector, source of replay frames. */
   mirror: TerminalMirror;
   outputBuffer: string;
+  /** Output accumulated since the last socket flush (see emitOutput). */
+  pendingOutput?: string;
+  flushTimer?: NodeJS.Timeout;
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
@@ -100,6 +105,18 @@ const NATIVE_FRESHNESS_MS = 30_000;
 const NATIVE_RING_SIZE = 5;
 
 /**
+ * Coalesce pty output into ≤60fps socket emissions. Per-chunk emits (node-pty
+ * fires one per read) produce hundreds of messages/sec under streaming; each
+ * becomes an xterm write task in the renderer, and the back-to-back task
+ * stream starves React commits — a file-tree expand took 700ms–∞ to paint
+ * while any terminal streamed (measured via DevTools; no single long task,
+ * just no idle gap). One frame of added echo latency is imperceptible.
+ */
+const OUTPUT_COALESCE_MS = 16;
+/** Flush early if a burst accumulates this much before the timer fires. */
+const OUTPUT_COALESCE_MAX_BYTES = 64 * 1024;
+
+/**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
  * buttons 64/65 or the legacy 0x60/0x61 encodings). The client only ever emits
  * these for scroll — regular typing and clicks (button 0) never produce them —
@@ -147,11 +164,15 @@ export class SessionManager {
   private signalSecret?: string;
   private signalBinPath?: string;
 
+  /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
+  private backend: PtyBackend;
+
   constructor(dataDir: string, configStore: ConfigStore) {
     this.dataDir = dataDir;
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
     this.ptyManager = new PtyManager(dataDir);
+    this.backend = makePtyBackend(this.ptyManager, dataDir);
   }
 
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */
@@ -194,9 +215,9 @@ export class SessionManager {
     };
   }
 
-  /** True when sessions run inside tmux and survive an app quit. */
+  /** True when sessions survive an app quit (tmux or daemon backend). */
   isPersistent(): boolean {
-    return this.ptyManager.isTmuxAvailable();
+    return this.backend.isPersistent();
   }
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
@@ -389,43 +410,32 @@ export class SessionManager {
     const spawnFlags = inj?.flags ?? resolvedFlags;
     const spawnEnv = inj?.env ?? {};
 
-    // tmux-backed when available (survives app quit); otherwise a plain pty.
-    const persistent = this.ptyManager.isTmuxAvailable();
-    const tmuxName = persistent ? tmuxSessionName(id) : undefined;
-    const ptyProcess = persistent && tmuxName
-      ? this.ptyManager.spawnTmux(tmuxName, effectiveFolderPath, command, 120, 30, spawnFlags, spawnEnv)
-      : this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, spawnFlags, spawnEnv);
+    // Survives app quit when the backend is persistent. tmuxName is set only for
+    // the tmux backend (diagnostics/legacy); the daemon backend keys off id.
+    const persistent = this.backend.isPersistent();
+    const tmuxName = persistent && this.backend.kind === 'tmux' ? tmuxSessionName(id) : undefined;
+    await this.backend.ready?.();
+    const ptyProcess = this.backend.spawn({
+      sessionId: id,
+      folderPath: effectiveFolderPath,
+      command,
+      cols: 120,
+      rows: 30,
+      flags: spawnFlags,
+      extraEnv: spawnEnv,
+      attachExisting,
+    });
 
     // Re-attaching to a live survivor: start neutral and let the detector
     // reclassify from the repaint, and suppress the redraw activity burst.
     if (attachExisting) stateDetector.markAttachRedraw();
 
-    // Survivor mirror seeding (plan 2026-07-22-002 U3): a restored session gets a
-    // FRESH, empty mirror, so without a seed its replay would carry no pre-restart
-    // scrollback until new output arrives. Feed one capture-pane snapshot
-    // (history + screen) into the mirror BEFORE its onData is wired, so it queues
-    // ahead of tmux's attach-repaint — which then rewrites the visible region in
-    // place over the seed (no duplication). Normal screen only: alt-screen apps
-    // (vim/less) have no meaningful scrollback and the repaint alone reconstructs
-    // them, and a text seed fed into the mirror's normal buffer would fight the
-    // repaint's ?1049h. Best-effort — on any tmux hiccup the live repaint still
-    // fills the current screen.
-    if (attachExisting && persistent && tmuxName) {
-      try {
-        if (!this.ptyManager.isTmuxPaneDead(tmuxName) && !this.ptyManager.captureState(tmuxName).alternate) {
-          const seed = this.ptyManager
-            .capturePane(tmuxName, MIRROR_SCROLLBACK)
-            .replace(/\n$/, '')
-            .replace(/\r?\n/g, '\r\n');
-          if (seed) {
-            mirror.markSeeding();
-            void mirror.feed(seed).then(() => mirror.clearSeeding());
-          }
-        }
-      } catch {
-        /* pane gone / tmux hiccup — live repaint still reconstructs the screen */
-      }
-    }
+    // Survivor mirror seeding (plan 002 U3): a restored session gets a FRESH,
+    // empty mirror, so without a seed its replay would carry no pre-restart
+    // scrollback until new output arrives. The backend seeds it — tmux via one
+    // capture-pane feed (queued ahead of the attach-repaint), daemon via the
+    // ring the attach already replayed through onData.
+    if (attachExisting) this.backend.seedMirror(id, mirror);
     // Restored sessions (existingId set) start neutral, never synthetic 'running':
     // a 'running' baseline makes the first settle look like running→idle and get
     // promoted to a false 'done' on every app/Mac restart. Genuinely new sessions
@@ -467,13 +477,14 @@ export class SessionManager {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
       }
       stateDetector.feed(data);
-      this.io?.to(id).emit('session:output', { sessionId: id, data });
+      this.emitOutput(session, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
       // A replaced pty's exit must not be reported as the session exiting.
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
 
@@ -493,6 +504,10 @@ export class SessionManager {
 
     session.stateDetector.destroy();
     session.mirror?.dispose();
+    if (session.flushTimer) {
+      clearTimeout(session.flushTimer);
+      session.flushTimer = undefined;
+    }
     // Remove the generated native-signal settings file (best-effort).
     try {
       rmSync(path.join(this.dataDir, 'signals', `${id}.json`), { force: true });
@@ -501,8 +516,8 @@ export class SessionManager {
     }
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
-    this.ptyManager.kill(session.pty);                       // detaches the tmux client
-    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName); // actually stop the agent
+    this.backend.detach(session.pty);   // detach our client (tmux) / stop receiving (daemon)
+    this.backend.stopSession(id);        // actually stop the agent
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
@@ -525,8 +540,8 @@ export class SessionManager {
     session.stateDetector.destroy();
     session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
-    this.ptyManager.kill(session.pty);
-    if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
+    this.backend.detach(session.pty);
+    this.backend.stopSession(id); // discard the surviving conversation so restart is a real restart
     this.companionTerminals.kill(id);
 
     // Reset state
@@ -579,14 +594,23 @@ export class SessionManager {
     session.nativeState = undefined;
     const spawnFlags = inj?.flags ?? session.flags;
     const spawnEnv = inj?.env ?? {};
-    const ptyProcess = session.persistent && session.tmuxName
-      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, cols, rows, spawnFlags, spawnEnv)
-      : this.ptyManager.spawn(session.folderPath, command, cols, rows, spawnFlags, spawnEnv);
+    await this.backend.ready?.();
+    const ptyProcess = this.backend.spawn({
+      sessionId: id,
+      folderPath: session.folderPath,
+      command,
+      cols,
+      rows,
+      flags: spawnFlags,
+      extraEnv: spawnEnv,
+      attachExisting: false,
+    });
 
     // Wipe the client xterm before the fresh agent paints: the terminal still holds
     // the pre-restart buffer (stale scrollback rows that the new agent's startup
     // clear doesn't fully overwrite). \x1b[3J also drops scrollback so nothing lingers.
-    this.io?.to(id).emit('session:output', { sessionId: id, data: '\x1b[2J\x1b[3J\x1b[H' });
+    // Routed through emitOutput so it stays ordered behind the old pty's last bytes.
+    this.emitOutput(session, '\x1b[2J\x1b[3J\x1b[H');
 
     // Swap in the new pty + detector BEFORE wiring handlers. The identity guard
     // below compares against session.pty, so this ordering both (a) admits the new
@@ -603,12 +627,13 @@ export class SessionManager {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
       }
       stateDetector.feed(data);
-      this.io?.to(id).emit('session:output', { sessionId: id, data });
+      this.emitOutput(session, data);
     });
 
     ptyProcess.onExit(({ exitCode }) => {
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
 
@@ -893,6 +918,37 @@ export class SessionManager {
    * frame then repaints everything (validated by TerminalMirror dirty-target
    * tests). Falls back to the raw rolling buffer only if the mirror is unusable.
    */
+  /** Queue output for the session's room, coalesced into ≤60fps emissions. */
+  private emitOutput(session: ManagedSession, data: string): void {
+    session.pendingOutput = (session.pendingOutput ?? '') + data;
+    if (session.pendingOutput.length >= OUTPUT_COALESCE_MAX_BYTES) {
+      this.flushOutput(session.id);
+      return;
+    }
+    if (!session.flushTimer) {
+      session.flushTimer = setTimeout(() => this.flushOutput(session.id), OUTPUT_COALESCE_MS);
+    }
+  }
+
+  /**
+   * Emit any coalesced output now. The join handler calls this BEFORE adding a
+   * socket to the room: pending bytes are already baked into the mirror, so the
+   * replay frame covers them — flushing after the join would paint them twice.
+   */
+  flushOutput(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (session.flushTimer) {
+      clearTimeout(session.flushTimer);
+      session.flushTimer = undefined;
+    }
+    if (session.pendingOutput) {
+      const data = session.pendingOutput;
+      session.pendingOutput = '';
+      this.io?.to(id).emit('session:output', { sessionId: id, data });
+    }
+  }
+
   getReplaySnapshot(id: string): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
@@ -919,15 +975,12 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${id} not found`);
     if (session.status === 'exited') return;
 
-    // A forwarded wheel report is a scroll gesture, not user input. tmux 3.6b
-    // won't dispatch mouse reports injected as client input (the WheelUpPane
-    // binding never fires), so route it straight to the pane via send-keys -l —
-    // where the app actually receives it and scrolls. Returning early also keeps
-    // scrolling from tripping hasUserInputSinceIdle / clearing a 'done' badge.
+    // A forwarded wheel report is a scroll gesture, not user input. The backend
+    // routes it: tmux via send-keys -l to the pane (tmux 3.6b drops injected
+    // mouse reports as client input); daemon via a plain pty write. Returning
+    // early keeps scrolling from tripping hasUserInputSinceIdle / clearing 'done'.
     if (isWheelReport(data)) {
-      if (session.tmuxName) {
-        try { this.ptyManager.sendKeysLiteral(session.tmuxName, data); } catch { /* session may be gone */ }
-      }
+      this.backend.writeWheel(id, session.pty, data);
       return;
     }
 
@@ -938,14 +991,14 @@ export class SessionManager {
       session.status = 'idle';
       this.io?.emit('session:status', { sessionId: id, status: 'idle' });
     }
-    this.ptyManager.write(session.pty, data);
+    session.pty.write(data);
   }
 
   resizeSession(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
     if (session.status === 'exited') return;
-    this.ptyManager.resize(session.pty, cols, rows);
+    session.pty.resize(cols, rows);
     session.stateDetector.resize(cols, rows);
     session.cols = cols;
     session.rows = rows;
@@ -967,14 +1020,14 @@ export class SessionManager {
   async restoreSessions(): Promise<void> {
     const persisted = await this.store.load();
 
-    // Scan for survivors once: tmux sessions still alive from a previous run.
-    const tmuxAvailable = this.ptyManager.isTmuxAvailable();
-    const survivors = tmuxAvailable ? this.ptyManager.listArgusSessions() : new Set<string>();
-    const knownNames = new Set<string>();
+    // Scan for survivors once: sessions still alive from a previous run (tmux
+    // sessions, or daemon sessions the daemon kept across our restart).
+    await this.backend.ready?.();
+    const survivors = await this.backend.listSurvivors(); // session ids
+    const knownIds = new Set<string>();
 
     for (const p of persisted) {
-      const tmuxName = tmuxSessionName(p.id);
-      knownNames.add(tmuxName);
+      knownIds.add(p.id);
 
       try {
         await access(p.folderPath);
@@ -985,10 +1038,10 @@ export class SessionManager {
 
       // Decide whether a live agent survived to re-attach to.
       let attach = false;
-      if (survivors.has(tmuxName)) {
-        if (this.ptyManager.isTmuxPaneDead(tmuxName)) {
+      if (survivors.has(p.id)) {
+        if (this.backend.isSurvivorDead(p.id)) {
           // Agent exited while detached — discard the dead session and start fresh.
-          this.ptyManager.killTmuxSession(tmuxName);
+          this.backend.stopSession(p.id);
         } else {
           attach = true;
         }
@@ -1002,13 +1055,9 @@ export class SessionManager {
       }
     }
 
-    // Reap orphan argus-* tmux sessions with no matching persisted record
-    // (e.g. sessions.json was deleted, or a crash left them behind).
-    if (tmuxAvailable) {
-      for (const name of survivors) {
-        if (!knownNames.has(name)) this.ptyManager.killTmuxSession(name);
-      }
-    }
+    // Reap orphan survivors with no matching persisted record (sessions.json
+    // deleted, or a crash left them behind).
+    await this.backend.reapOrphans(knownIds);
 
     // Ensure sessions.json reflects only successfully restored sessions.
     // This is idempotent when all sessions restore, but necessary when some
@@ -1046,7 +1095,7 @@ export class SessionManager {
       try {
         session.stateDetector.destroy();
         session.mirror?.dispose();
-        this.ptyManager.kill(session.pty); // detaches tmux client; agent survives
+        this.backend.detach(session.pty); // detach only; agent survives the quit
       } catch {
         // pty may already be dead — continue to next session
       }
@@ -1061,10 +1110,7 @@ export class SessionManager {
    * then run the normal shutdown. Kills the whole argus tmux server to be sure.
    */
   async stopAllAndShutdown(): Promise<void> {
-    for (const session of this.sessions.values()) {
-      if (session.tmuxName) this.ptyManager.killTmuxSession(session.tmuxName);
-    }
-    if (this.ptyManager.isTmuxAvailable()) this.ptyManager.killTmuxServer();
+    this.backend.stopAll(); // terminate every agent (tmux: kill server; daemon: kill-all + exit)
     await this.shutdown();
   }
 
