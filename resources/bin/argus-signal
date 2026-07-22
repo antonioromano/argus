@@ -1,0 +1,57 @@
+#!/bin/sh
+# argus-signal — post a native agent lifecycle signal to the local Argus server.
+#
+# Invoked by injected agent hooks (Claude/Gemini) or notify (Codex). STRICTLY
+# fire-and-forget: a dead or slow server must never block or fail the agent, so
+# every failure path exits 0 and the curl call is time-boxed. No Node dependency.
+#
+# Usage:
+#   argus-signal --session <id> --state <running|waiting|idle> [--prompt-from-stdin]
+#
+# Env (injected into the agent process by Argus at spawn):
+#   ARGUS_SIGNAL_URL    base URL, e.g. http://127.0.0.1:5757/api/agent-signals
+#   ARGUS_SIGNAL_TOKEN  per-session HMAC token
+set -u
+
+SESSION=""
+STATE=""
+PROMPT_FROM_STDIN=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --session) SESSION="${2:-}"; shift 2 ;;
+    --state) STATE="${2:-}"; shift 2 ;;
+    --prompt-from-stdin) PROMPT_FROM_STDIN=1; shift ;;
+    *) shift ;;
+  esac
+done
+
+# Missing wiring (feature off, or invoked outside a signal-enabled session):
+# stay silent and succeed so the agent is unaffected.
+[ -n "${ARGUS_SIGNAL_URL:-}" ] || exit 0
+[ -n "${ARGUS_SIGNAL_TOKEN:-}" ] || exit 0
+[ -n "$SESSION" ] || exit 0
+[ -n "$STATE" ] || exit 0
+
+# JSON-escape backslashes and double quotes (minimal; values are simple).
+esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+PROMPT=""
+if [ "$PROMPT_FROM_STDIN" -eq 1 ]; then
+  RAW=$(cat 2>/dev/null || true)
+  # Best-effort: pull the first "message":"..." out of the hook's stdin JSON.
+  # Not robust to escaped quotes inside the message; the server falls back to
+  # screen scraping when promptText is absent, so an imperfect grab is fine.
+  PROMPT=$(printf '%s' "$RAW" | tr '\n' ' ' | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+fi
+
+TOKEN_J=$(esc "${ARGUS_SIGNAL_TOKEN}")
+STATE_J=$(esc "$STATE")
+if [ -n "$PROMPT" ]; then
+  BODY=$(printf '{"token":"%s","state":"%s","promptText":"%s"}' "$TOKEN_J" "$STATE_J" "$(esc "$PROMPT")")
+else
+  BODY=$(printf '{"token":"%s","state":"%s"}' "$TOKEN_J" "$STATE_J")
+fi
+
+URL="${ARGUS_SIGNAL_URL%/}/$SESSION"
+curl -s -m 1 -X POST -H 'Content-Type: application/json' -d "$BODY" "$URL" >/dev/null 2>&1 || true
+exit 0

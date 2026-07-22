@@ -54,6 +54,15 @@ module.exports = {
       to: 'terminal-notifier',
       filter: ['**/*'],
     },
+    // Native agent-signal transport script (plan 2026-07-22-001). Resolved at
+    // runtime as resourcesPath/bin/argus-signal (see resolveSignalBin). A POSIX
+    // sh script — interpreted, not a Mach-O binary — so it needs no code-signing;
+    // afterPack's ad-hoc binary re-sign leaves it alone.
+    {
+      from: 'resources/bin',
+      to: 'bin',
+      filter: ['argus-signal'],
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

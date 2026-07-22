@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { access, mkdir } from 'fs/promises';
+import { mkdirSync, writeFileSync, rmSync } from 'fs';
 import { createHash } from 'crypto';
 import path from 'path';
 import os from 'os';
@@ -17,6 +18,9 @@ import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror, MIRROR_SCROLLBACK, MIRROR_IDLE_SCROLLBACK } from './TerminalMirror.js';
 import { coverageFor } from './agentSignals/coverage.js';
+import { computeSignalToken } from './agentSignals/token.js';
+import { getSignalAdapter } from './agentSignals/registry.js';
+import type { InjectionFile } from './agentSignals/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
@@ -139,12 +143,55 @@ export class SessionManager {
   private preventSleepWhileRunning = false;
 
   private readonly dataDir: string;
+  /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
+  private signalSecret?: string;
+  private signalBinPath?: string;
 
   constructor(dataDir: string, configStore: ConfigStore) {
     this.dataDir = dataDir;
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
     this.ptyManager = new PtyManager(dataDir);
+  }
+
+  /** Wire the native agent-signal secret + resolved argus-signal binary path. */
+  setSignalConfig(secret: string, binPath: string): void {
+    this.signalSecret = secret;
+    this.signalBinPath = binPath;
+  }
+
+  /**
+   * Compose a session's native-signal injection: the adapter's flags/env/files
+   * plus the common ARGUS_SIGNAL_URL/TOKEN env. Returns null when signals are
+   * unconfigured or the agent has no adapter (→ heuristic-only). Writes are done
+   * by the caller right before spawn.
+   */
+  private buildSignalInjection(
+    sessionId: string,
+    agentType: string,
+    userFlags: string[],
+  ): { flags: string[]; env: Record<string, string>; files: InjectionFile[]; coverage: readonly AgentSignalState[] } | null {
+    if (!this.signalSecret || !this.signalBinPath) return null;
+    const adapter = getSignalAdapter(agentType);
+    if (!adapter) return null;
+
+    const port = process.env.ARGUS_PORT || process.env.PORT || '5401';
+    const url = `http://127.0.0.1:${port}/api/agent-signals`;
+    const token = computeSignalToken(this.signalSecret, sessionId);
+    const signalDir = path.join(this.dataDir, 'signals');
+    try {
+      mkdirSync(signalDir, { recursive: true });
+    } catch {
+      /* dir may already exist */
+    }
+
+    const inj = adapter.inject({ sessionId, signalBinPath: this.signalBinPath, signalDir, userFlags });
+    return {
+      flags: inj.flags,
+      env: { ...inj.env, ARGUS_SIGNAL_URL: url, ARGUS_SIGNAL_TOKEN: token },
+      files: inj.files,
+      coverage: adapter.coverage,
+    };
   }
 
   /** True when sessions run inside tmux and survive an app quit. */
@@ -324,12 +371,30 @@ export class SessionManager {
 
     const resolvedFlags = flags || [];
 
+    // Native-signal injection (plan 001 U2/U3): only on a FRESH create — a tmux
+    // `new-session -A` re-attach ignores the command/flags/-e env, and the
+    // surviving agent keeps the hooks it was spawned with (the settings file
+    // persists on disk across restart, R6). A restored session's arbiter falls
+    // back to coverageFor(agentType), so native signals from a survivor still count.
+    const inj = attachExisting ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags);
+    if (inj) {
+      for (const f of inj.files) {
+        try {
+          writeFileSync(f.path, f.content);
+        } catch (e) {
+          console.warn(`[agentSignals] failed to write ${f.path}:`, e);
+        }
+      }
+    }
+    const spawnFlags = inj?.flags ?? resolvedFlags;
+    const spawnEnv = inj?.env ?? {};
+
     // tmux-backed when available (survives app quit); otherwise a plain pty.
     const persistent = this.ptyManager.isTmuxAvailable();
     const tmuxName = persistent ? tmuxSessionName(id) : undefined;
     const ptyProcess = persistent && tmuxName
-      ? this.ptyManager.spawnTmux(tmuxName, effectiveFolderPath, command, 120, 30, resolvedFlags)
-      : this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, resolvedFlags);
+      ? this.ptyManager.spawnTmux(tmuxName, effectiveFolderPath, command, 120, 30, spawnFlags, spawnEnv)
+      : this.ptyManager.spawn(effectiveFolderPath, command, 120, 30, spawnFlags, spawnEnv);
 
     // Re-attaching to a live survivor: start neutral and let the detector
     // reclassify from the repaint, and suppress the redraw activity burst.
@@ -352,6 +417,9 @@ export class SessionManager {
       stateDetector,
       mirror,
       outputBuffer: '',
+      // Eager coverage for a freshly-injected session; a restored survivor leaves
+      // this undefined and the arbiter falls back to coverageFor(agentType).
+      nativeCoverage: inj ? new Set(inj.coverage) : undefined,
       worktreePath,
       worktreeBranch,
       tmuxName,
@@ -398,6 +466,12 @@ export class SessionManager {
 
     session.stateDetector.destroy();
     session.mirror?.dispose();
+    // Remove the generated native-signal settings file (best-effort).
+    try {
+      rmSync(path.join(this.dataDir, 'signals', `${id}.json`), { force: true });
+    } catch {
+      /* ignore */
+    }
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     this.ptyManager.kill(session.pty);                       // detaches the tmux client
@@ -460,9 +534,27 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+
+    // Restart is a fresh run (the old tmux session was killed above), so re-inject
+    // native signals and reset the native-freshness window.
+    const inj = this.buildSignalInjection(id, session.agentType, session.flags);
+    if (inj) {
+      for (const f of inj.files) {
+        try {
+          writeFileSync(f.path, f.content);
+        } catch (e) {
+          console.warn(`[agentSignals] failed to write ${f.path}:`, e);
+        }
+      }
+    }
+    session.nativeCoverage = inj ? new Set(inj.coverage) : undefined;
+    session.nativeLastSeenAt = undefined;
+    session.nativeState = undefined;
+    const spawnFlags = inj?.flags ?? session.flags;
+    const spawnEnv = inj?.env ?? {};
     const ptyProcess = session.persistent && session.tmuxName
-      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, cols, rows, session.flags)
-      : this.ptyManager.spawn(session.folderPath, command, cols, rows, session.flags);
+      ? this.ptyManager.spawnTmux(session.tmuxName, session.folderPath, command, cols, rows, spawnFlags, spawnEnv)
+      : this.ptyManager.spawn(session.folderPath, command, cols, rows, spawnFlags, spawnEnv);
 
     // Wipe the client xterm before the fresh agent paints: the terminal still holds
     // the pre-restart buffer (stale scrollback rows that the new agent's startup

@@ -33,6 +33,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { createDebugScrollRoute } from './routes/debugScroll.js';
 import { createAgentSignalRoutes } from './routes/agentSignals.js';
 import { getOrCreateSignalSecret } from './services/agentSignals/token.js';
+import { resolveSignalBin } from './services/agentSignals/resolveBin.js';
 import { registerProcessHandlers } from './process/globalHandlers.js';
 
 registerProcessHandlers();
@@ -147,6 +148,7 @@ authService.setIo(io);
 // the local CLI/daemon can post without a UI token; hardened independently by
 // per-session HMAC + loopback-only + a tiny body cap (plan 2026-07-22-001, R5).
 const signalSecret = getOrCreateSignalSecret(path.join(dataDir, 'signal-secret'));
+sessionManager.setSignalConfig(signalSecret, resolveSignalBin());
 app.use('/api/agent-signals', createAgentSignalRoutes(sessionManager, () => signalSecret));
 
 // Auth middleware — before routes

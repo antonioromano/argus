@@ -221,6 +221,7 @@ export class PtyManager {
     cols: number = 120,
     rows: number = 30,
     flags?: string[],
+    extraEnv: Record<string, string> = {},
   ): IPty {
     const tmux = this.resolveTmux();
     if (!tmux) throw new Error('tmux not available');
@@ -230,12 +231,20 @@ export class PtyManager {
     this.detachTmuxClients(tmuxName);
     const resolvedCommand = this.resolveCommand(command);
     const agentCmd = this.buildAgentCommand(resolvedCommand, flags);
+    // Per-session env must reach the AGENT process, which inherits the tmux
+    // *server* env, not this client pty's env — so pass it via `new-session -e`
+    // (tmux ≥ 3.2; bundled tmux is 3.6). Only applied when the session is
+    // created; a survivor re-attach keeps its original spawn env (R6). See the
+    // spawnEnv() comment for the client-vs-server env distinction.
+    const envArgs: string[] = [];
+    for (const [k, v] of Object.entries(extraEnv)) envArgs.push('-e', `${k}=${v}`);
     const args = this.tmuxArgs(
       'new-session', '-A',
       '-s', tmuxName,
       '-x', String(cols),
       '-y', String(rows),
       '-c', folderPath,
+      ...envArgs,
       agentCmd,
     );
     const client = pty.spawn(tmux, args, {
@@ -243,7 +252,7 @@ export class PtyManager {
       cols,
       rows,
       cwd: folderPath,
-      env: this.spawnEnv(),
+      env: { ...this.spawnEnv(), ...extraEnv },
     });
     // The server is up now (new-session created/attached it); ensure a survivor
     // server also has mouse + wheel-scroll bindings (fresh servers get it via -f).
@@ -386,16 +395,25 @@ export class PtyManager {
 
   // ─── non-persistent fallback (tmux unavailable) ────────────────────────────
 
-  spawn(folderPath: string, command: string = 'claude', cols: number = 120, rows: number = 30, flags?: string[]): IPty {
+  spawn(
+    folderPath: string,
+    command: string = 'claude',
+    cols: number = 120,
+    rows: number = 30,
+    flags?: string[],
+    extraEnv: Record<string, string> = {},
+  ): IPty {
     const resolvedCommand = this.resolveCommand(command);
     const shell = process.env.SHELL || '/bin/zsh';
     const flagStr = flags?.length ? ' ' + flags.map(f => `'${f.replace(/'/g, "'\\''")}'`).join(' ') : '';
+    // No tmux-server indirection here — the shell (and agent) inherit this env
+    // directly, so per-session vars merge straight in.
     return pty.spawn(shell, ['-l', '-c', `exec ${resolvedCommand}${flagStr}`], {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: folderPath,
-      env: this.spawnEnv(),
+      env: { ...this.spawnEnv(), ...extraEnv },
     });
   }
 
