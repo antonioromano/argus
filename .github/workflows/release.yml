@@ -38,6 +38,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Go builds the argusd daemon binaries bundled into the DMG (package:mac
+      # runs `make -C daemon build`).
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+
       - name: Install dependencies
         run: npm ci
 

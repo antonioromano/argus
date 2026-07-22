@@ -23,7 +23,7 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run build:all && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
+    "package:mac": "npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@xterm/headless": "^6.0.0",
