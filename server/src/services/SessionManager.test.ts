@@ -91,7 +91,10 @@ test('writeToSession routes a forwarded wheel report to the pane (send-keys -l),
   withFakeRunningSession(sm, 'sess-wheel');
   let ptyWrite: string | null = null;
   let sentLiteral: { name: string; data: string } | null = null;
-  (sm as any).ptyManager.write = (_p: unknown, d: string) => { ptyWrite = d; };
+  // The tmux backend routes wheel via send-keys only when tmux is available;
+  // force it so the assertion is deterministic on CI runners without tmux.
+  (sm as any).ptyManager.isTmuxAvailable = () => true;
+  (sm as any).sessions.get('sess-wheel').pty.write = (d: string) => { ptyWrite = d; };
   (sm as any).ptyManager.sendKeysLiteral = (name: string, data: string) => { sentLiteral = { name, data }; };
 
   // SGR wheel-up report as the client forwards it
