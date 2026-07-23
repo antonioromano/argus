@@ -29,6 +29,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Every server runtime dep must also be a ROOT dep or electron-builder
+      # prunes it from app.asar and the packaged app breaks (broke v0.21.0 and
+      # v0.21.1). Cheap static check; the release workflow also boot-tests the
+      # real artifact.
+      - name: Check dependency sync
+        run: npm run check:deps
+
       - name: Lint
         run: npm run lint
 

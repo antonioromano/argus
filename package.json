@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -15,6 +15,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js",
     "sync-versions": "node scripts/sync-versions.mjs",
+    "check:deps": "node scripts/check-dep-sync.mjs",
     "lint": "npm run lint -w client",
     "test": "npm test -w server && npm test -w client",
     "dev": "npm run electron:dev",
@@ -23,9 +24,10 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && make -C daemon build && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
+    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
+    "@vscode/ripgrep": "^1.18.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "cors": "^2.8.5",
