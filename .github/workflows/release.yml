@@ -57,6 +57,12 @@ jobs:
       - name: Test
         run: npm test
 
+      # Fail fast on the missing-root-dependency class (broke v0.21.0/v0.21.1)
+      # before spending minutes on the packaging step. package:mac re-runs it
+      # as its first command, so local packaging is guarded too.
+      - name: Check dependency sync
+        run: npm run check:deps
+
       - name: Build and package DMGs
         run: npm run package:mac
         env:
@@ -71,8 +77,33 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Compute SHA256
-        id: sha
+      # Boot the actual packaged .app (native arch) and require /api/health to
+      # answer before anything is released. Tests the artifact, not the recipe:
+      # catches pruned asar deps, missing bundled binaries (argusd, tmux), and
+      # broken native modules — the class that shipped broken v0.21.0/v0.21.1.
+      - name: Smoke test packaged app
+        run: |
+          APP="dist/mac-arm64/Argus.app"
+          "$APP/Contents/MacOS/Argus" > smoke.log 2>&1 &
+          APP_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:5757/api/health > /dev/null; then
+              echo "✔ packaged app healthy after ~${i}s"
+              kill "$APP_PID" 2>/dev/null || true
+              exit 0
+            fi
+            # Died early (e.g. ERR_MODULE_NOT_FOUND on startup) — fail now, not in 30s.
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "✖ app process exited before becoming healthy"
+              cat smoke.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "✖ /api/health never answered on 127.0.0.1:5757"
+          cat smoke.log
+          kill "$APP_PID" 2>/dev/null || true
+          exit 1
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARM_SHA=$(shasum -a 256 "dist/Argus-${VERSION}-arm64.dmg" | awk '{print $1}')
