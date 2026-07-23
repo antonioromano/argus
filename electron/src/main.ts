@@ -537,6 +537,14 @@ async function main() {
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
+        // Bind the notification to Argus's bundle id so its CLICK activation
+        // routes to Argus. Without -sender, terminal-notifier 2.0.0 exits right
+        // after posting, and a click RELAUNCHES it with no activation target —
+        // it then falls back to its historical default sender, Terminal.app,
+        // which is why a stray Terminal window popped open on every click.
+        // Packaged only: in dev the running app is Electron, not the installed
+        // com.antonio.argus bundle, so -sender would activate the wrong app.
+        ...(app.isPackaged ? ['-sender', 'com.antonio.argus'] : []),
         // Click opens the SCHEME:// url, which activates this instance AND fires the
         // main-process open-url handler with the session id — the only way to
         // round-trip a per-session deep-link through terminal-notifier (it can't
