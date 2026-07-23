@@ -104,6 +104,9 @@ jobs:
           cat smoke.log
           kill "$APP_PID" 2>/dev/null || true
           exit 1
+
+      - name: Compute SHA256
+        id: sha
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           ARM_SHA=$(shasum -a 256 "dist/Argus-${VERSION}-arm64.dmg" | awk '{print $1}')
