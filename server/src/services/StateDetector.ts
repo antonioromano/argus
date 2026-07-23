@@ -200,6 +200,7 @@ export class StateDetector {
   private runningTimer: ReturnType<typeof setTimeout> | null = null;
   private feedCount = 0;
   private lastCursorStyleAt = 0;
+  private lastFeedAt = 0;
   private lastResizeAt = 0;
   private destroyed = false;
 
@@ -262,10 +263,21 @@ export class StateDetector {
     this.lastResizeAt = Date.now();
   }
 
+  /**
+   * Milliseconds since the last pty output reached feed(); Infinity before any
+   * output. SessionManager's done-promotion uses this as a quiescence gate — a
+   * screen that is still painting (e.g. a background Task subagent's spinner)
+   * is not a finished session, whatever Claude's Stop hook claims.
+   */
+  msSinceLastFeed(): number {
+    return this.lastFeedAt === 0 ? Infinity : Date.now() - this.lastFeedAt;
+  }
+
   feed(data: string): void {
     // pty flushes buffered output on kill, so onData can fire after destroy().
     // Ignore it — the emulator is disposed and the timers are gone.
     if (this.destroyed) return;
+    this.lastFeedAt = Date.now();
 
     // Feed raw bytes (ANSI and all) into the shared mirror so the grid updates
     // correctly. The mirror owns the write queue (reads see a settled parser).

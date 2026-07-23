@@ -39,7 +39,7 @@ function inject(sm: SessionManager, over: Record<string, unknown> = {}): any {
     status: 'running',
     createdAt: new Date().toISOString(),
     pty: {},
-    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {} },
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => Infinity },
     outputBuffer: '',
     persistent: false,
     hasUserInputSinceIdle: true,
@@ -75,6 +75,29 @@ test('arbiter: Codex idle-only coverage does NOT suppress heuristic waiting/runn
   assert.equal(s.status, 'waiting', 'heuristic idle suppressed (covered by native)');
 });
 
+test('arbiter: heuristic running overrides a fresh native waiting (background subagent still streaming)', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', hasUserInputSinceIdle: false });
+  // Claude's Notification hook fires "waiting for your input" while a background
+  // Task keeps working — the terminal keeps streaming spinner output.
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude is waiting for your input', coverage: FULL });
+  assert.equal(s.status, 'waiting');
+
+  detect(sm, 'running'); // real output activity — cannot be faked
+  assert.equal(s.status, 'running', 'heuristic running wins over a fresh native waiting');
+  assert.equal(s.lastPrompt, undefined, 'prompt cleared when activity resumes');
+});
+
+test('arbiter: heuristic running overrides a fresh native idle (Stop fired mid-background-task)', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', hasUserInputSinceIdle: false });
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL }); // no done (no user input) → idle
+  assert.equal(s.status, 'idle');
+
+  detect(sm, 'running');
+  assert.equal(s.status, 'running', 'heuristic running wins over a fresh native idle');
+});
+
 test('arbiter: a stale native window hands control back to the heuristic', () => {
   const { sm } = mgr();
   const s = inject(sm, { agentType: 'claude', status: 'running', hasUserInputSinceIdle: false });
@@ -85,7 +108,7 @@ test('arbiter: a stale native window hands control back to the heuristic', () =>
   assert.equal(s.status, 'idle', 'heuristic resumes once native goes stale (R4)');
 });
 
-test('native idle promotes to done immediately — no 2s grace', () => {
+test('native idle on a quiet screen promotes to done immediately — no 2s grace', () => {
   const { sm } = mgr();
   const s = inject(sm, {
     agentType: 'claude',
@@ -96,6 +119,53 @@ test('native idle promotes to done immediately — no 2s grace', () => {
   sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
   assert.equal(s.status, 'done', 'native idle is a turn boundary → immediate done');
   assert.equal(s.doneTimer, undefined, 'no pending done-grace timer');
+});
+
+test('native idle while output still streams arms the grace timer instead of immediate done', () => {
+  const { sm } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    suppressDonePromotion: false,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => 100 },
+  });
+  // Claude fires Stop while a background Task subagent keeps painting the screen.
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
+  assert.equal(s.status, 'running', 'no immediate done while the terminal is active');
+  assert.ok(s.doneTimer, 'grace timer armed to re-check once output settles');
+  clearTimeout(s.doneTimer);
+});
+
+test('done-grace fire skips promotion while output still streams', () => {
+  const { sm, emitted } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => 100 },
+  });
+  emitted.length = 0;
+  (sm as any).tryPromoteDone('s');
+  assert.equal(s.status, 'running', 'promotion skipped — background task still working');
+  assert.equal(emitted.length, 0, 'no status emitted');
+});
+
+test('done-grace fire promotes once output has gone quiet', () => {
+  const { sm } = mgr();
+  let quietMs = 100;
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => quietMs },
+  });
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
+  assert.equal(s.status, 'running');
+  quietMs = 5_000; // output stopped
+  (sm as any).tryPromoteDone('s');
+  assert.equal(s.status, 'done', 'quiet screen at grace fire → genuine finish');
+  clearTimeout(s.doneTimer);
 });
 
 test('native running cancels a pending heuristic done-grace timer', () => {

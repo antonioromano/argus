@@ -101,6 +101,10 @@ const RAW_TAIL_BYTES = 16 * 1024;
 // event; once stale (old CLI, user stripped the hook config), the heuristic
 // detector silently takes back over (plan 2026-07-22-001, R4).
 const NATIVE_FRESHNESS_MS = 30_000;
+/** Hold 'done' promotion until the screen stops painting for this long. */
+const DONE_GRACE_MS = 2_000;
+/** Output younger than this at grace-fire means the session is still working. */
+const DONE_QUIET_MS = 1_200;
 // Depth of the per-session raw-signal ring kept for the diagnostics dump.
 const NATIVE_RING_SIZE = 5;
 
@@ -667,7 +671,12 @@ export class SessionManager {
     // fresh, it is authoritative for the states its adapter covers — drop the
     // heuristic transition for a covered state. Heuristic still owns 'exited'
     // (never in coverage) and everything once the native window goes stale (R3/R4).
-    if (this.nativeIsFresh(session)) {
+    // Exception: heuristic 'running' always applies — it is driven by real output
+    // activity, which a wrong native claim cannot fake. Claude fires Stop (→idle)
+    // and the 60s "waiting for your input" Notification while a background Task
+    // subagent is still working (its inner tool calls emit no hooks), so a fresh
+    // native idle/waiting must not pin the status while the terminal streams.
+    if (detected !== 'running' && this.nativeIsFresh(session)) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
       if (coverage.has(detected as AgentSignalState)) return;
     }
@@ -686,18 +695,7 @@ export class SessionManager {
     }
 
     if (status === 'done') {
-      if (session.doneTimer) return; // timer already running, don't restart
-      // Hold 'done' promotion for 2 s: Claude pauses between tool calls and the
-      // screen can look idle mid-run, causing a false done + premature notification.
-      session.doneTimer = setTimeout(() => {
-        session.doneTimer = undefined;
-        if (!this.sessions.has(id)) return;
-        if (session.status !== 'running') return; // discard: status changed before timer fired
-        session.status = 'done';
-        session.lastPrompt = undefined;
-        this.refreshSleepPrevention();
-        this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
-      }, 2_000);
+      this.armDoneGrace(session);
       return;
     }
 
@@ -727,6 +725,38 @@ export class SessionManager {
     if (session.lastPrompt === text) return;
     session.lastPrompt = text;
     this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
+  }
+
+  /**
+   * Arm the done-grace timer (idempotent): Claude pauses between tool calls and
+   * the screen can look idle mid-run, so promotion waits DONE_GRACE_MS and then
+   * re-checks via tryPromoteDone.
+   */
+  private armDoneGrace(session: ManagedSession): void {
+    if (session.doneTimer) return; // timer already running, don't restart
+    session.doneTimer = setTimeout(() => {
+      session.doneTimer = undefined;
+      this.tryPromoteDone(session.id);
+    }, DONE_GRACE_MS);
+  }
+
+  /**
+   * Promote a session to 'done' if it is genuinely finished: still 'running'
+   * (nothing changed it since the grace was armed) AND the screen has stopped
+   * painting. Recent output means work is still happening — e.g. a background
+   * Task subagent whose inner tool calls fire no hooks — so promotion is
+   * skipped; the eventual SubagentStop → re-invoke → Stop cycle lands the real
+   * 'done' later.
+   */
+  private tryPromoteDone(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    if (session.status !== 'running') return; // discard: status changed before the grace fired
+    if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) return;
+    session.status = 'done';
+    session.lastPrompt = undefined;
+    this.refreshSleepPrevention();
+    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
   }
 
   private nativeIsFresh(session: ManagedSession): boolean {
@@ -774,14 +804,22 @@ export class SessionManager {
     }
 
     let status: SessionStatus = signal.state;
-    // Native idle promotes straight to 'done' (no 2s grace) under the same gates
-    // as the heuristic path: a genuine finish of a user-initiated run.
+    // Native idle promotes to 'done' under the same gates as the heuristic path:
+    // a genuine finish of a user-initiated run. Immediate only when the screen
+    // is already quiet — Claude's Stop hook also fires when the MAIN turn ends
+    // while a background Task subagent keeps working (its inner tool calls emit
+    // no hooks), and there the terminal is still painting. In that case hold the
+    // promotion behind the grace timer, which re-checks quiescence before firing.
     if (
       signal.state === 'idle' &&
       !session.suppressDonePromotion &&
       session.status === 'running' &&
       session.hasUserInputSinceIdle
     ) {
+      if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) {
+        this.armDoneGrace(session);
+        return; // stay 'running' — a still-painting screen is not a finished session
+      }
       status = 'done';
     }
 
