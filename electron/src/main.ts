@@ -514,7 +514,7 @@ async function main() {
   };
   terminalNotifierPath = resolveTerminalNotifier();
 
-  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean }) => {
+  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean; attributeToApp?: boolean }) => {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
     // Reject any id that isn't a UUID: it's interpolated into terminal-notifier's
@@ -537,6 +537,19 @@ async function main() {
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
+        // Attribute the post to Argus's (top-level, always-present) bundle when the
+        // caller asks. This is defence against a polluted LaunchServices db: the
+        // vendored terminal-notifier.app shares the generic bundle id
+        // fr.julienxx.oss.terminal-notifier with any other copy on the machine
+        // (Homebrew, node-notifier, ...). If LS resolves that id to a stale/dead
+        // path, usernoted logs "Failed to source application bundle" and falls back
+        // to launching Terminal.app to present the banner — a stray Terminal window.
+        // -sender routes sourcing to Argus instead, sidestepping the collision.
+        // Only real (background) notifications set this: they fire while Argus is
+        // unfocused, so macOS never suppresses the banner. The Settings test button
+        // omits it precisely because it fires while Argus is frontmost, where an
+        // Argus-attributed banner WOULD be suppressed.
+        ...(payload.attributeToApp && app.isPackaged ? ['-sender', 'com.antonio.argus'] : []),
         // Click opens the SCHEME:// url via -open (NOT -execute). -open hands the
         // URL straight to LaunchServices, which activates the scheme owner (Argus)
         // and fires the main-process open-url handler with the session id — same
