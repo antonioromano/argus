@@ -270,8 +270,16 @@ function deliverNotifClick(id: string): void {
   }
   // The banner is consumed by the click, but an alert-style notification lingers
   // in Notification Center — remove it by its group id.
+  // -sender (packaged): every terminal-notifier invocation must attribute to
+  // Argus, not just the -show path. An unattributed spawn makes usernoted try to
+  // source the generic fr.julienxx.oss.terminal-notifier bundle; if that fails it
+  // launches Terminal.app to present — so a CLICK (which runs this -remove) would
+  // itself pop a stray Terminal window. Attributing to Argus sidesteps it.
   if (terminalNotifierPath) {
-    execFile(terminalNotifierPath, ['-remove', id], () => {});
+    const removeArgs = app.isPackaged
+      ? ['-remove', id, '-sender', 'com.antonio.argus']
+      : ['-remove', id];
+    execFile(terminalNotifierPath, removeArgs, () => {});
   }
 }
 
@@ -636,7 +644,9 @@ async function main() {
 
   ipcMain.on('notif:close', (_event, id: string) => {
     if (app.isPackaged && terminalNotifierPath) {
-      execFile(terminalNotifierPath, ['-remove', id], (err) => {
+      // -sender so this -remove attributes to Argus (see deliverNotifClick):
+      // an unattributed terminal-notifier spawn can source-fail and bounce Terminal.
+      execFile(terminalNotifierPath, ['-remove', id, '-sender', 'com.antonio.argus'], (err) => {
         if (err) console.error(`[notif] terminal-notifier -remove failed id=${id}:`, err);
       });
       return;
