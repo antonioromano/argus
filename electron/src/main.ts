@@ -47,7 +47,7 @@ if (!app.isPackaged) {
 // Notification deep-link scheme. Dev uses 'argus-dev://' so a notification raised
 // by the dev instance routes back to the dev window instead of the installed app
 // (which owns 'argus://'). Drives setAsDefaultProtocolClient, the terminal-notifier
-// -execute URL, and the open-url strip below.
+// -open URL, and the open-url strip below.
 const SCHEME = app.isPackaged ? 'argus' : 'argus-dev';
 
 interface ApplyUpdateResult {
@@ -245,8 +245,8 @@ let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
 let getActiveSessionSummaries: (() => { name: string; status: string }[]) | null = null;
 
 // Session ids are crypto.randomUUID() values. Validate any id that crosses the
-// IPC/URL boundary before it reaches terminal-notifier — its `-execute` runs via
-// /bin/sh, so an unvalidated id would be a shell-injection sink. UUID chars only.
+// IPC/URL boundary before it reaches terminal-notifier — it's interpolated into
+// the -open deep-link URL and used as the -group/-remove key. UUID chars only.
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Resolved terminal-notifier binary path, set in main(). Module-level so the
@@ -518,7 +518,7 @@ async function main() {
     console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
 
     // Reject any id that isn't a UUID: it's interpolated into terminal-notifier's
-    // -execute shell command below (and used as -group/-remove key).
+    // -open deep-link URL below (and used as -group/-remove key).
     if (!SESSION_ID_RE.test(payload.id)) {
       console.error(`[notif] rejected non-UUID id=${JSON.stringify(payload.id)}`);
       return;
@@ -537,19 +537,20 @@ async function main() {
         '-message', payload.body,
         // Same-group notifications replace each other.
         '-group', payload.id,
-        // Bind the notification to Argus's bundle id so its CLICK activation
-        // routes to Argus. Without -sender, terminal-notifier 2.0.0 exits right
-        // after posting, and a click RELAUNCHES it with no activation target —
-        // it then falls back to its historical default sender, Terminal.app,
-        // which is why a stray Terminal window popped open on every click.
-        // Packaged only: in dev the running app is Electron, not the installed
-        // com.antonio.argus bundle, so -sender would activate the wrong app.
-        ...(app.isPackaged ? ['-sender', 'com.antonio.argus'] : []),
-        // Click opens the SCHEME:// url, which activates this instance AND fires the
-        // main-process open-url handler with the session id — the only way to
-        // round-trip a per-session deep-link through terminal-notifier (it can't
-        // reach the notif:click IPC). The id is a UUID, so it's shell-safe.
-        '-execute', `open "${SCHEME}://notif/${payload.id}"`,
+        // Click opens the SCHEME:// url via -open (NOT -execute). -open hands the
+        // URL straight to LaunchServices, which activates the scheme owner (Argus)
+        // and fires the main-process open-url handler with the session id — same
+        // deep-link round-trip, no per-session notif:click IPC needed.
+        //
+        // Why not -execute / -sender: -execute runs the URL through /bin/sh and,
+        // with no -activate set, terminal-notifier falls back to activating its
+        // hardcoded default sender com.apple.Terminal → a stray Terminal window
+        // popped open on every click. -sender only sets the banner icon, never the
+        // click target, so it didn't stop that AND (attributing the post to Argus)
+        // let macOS suppress the banner whenever Argus was frontmost — which broke
+        // the Settings "Send test notification" button. -open fixes both: no shell,
+        // and the click target is Argus by scheme ownership.
+        '-open', `${SCHEME}://notif/${payload.id}`,
       ];
       if (payload.sound) args.push('-sound', 'default');
       execFile(terminalNotifierPath, args, (err) => {
