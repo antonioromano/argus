@@ -187,7 +187,10 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
   const notifBridgeAvailable = typeof window !== 'undefined' && !!window.electronNotifications;
   const handleTestNotif = () => {
     window.electronNotifications?.show({
-      id: 'argus-test',
+      // Must be a UUID: the main-process notif:show handler rejects any other id
+      // (it's interpolated into terminal-notifier's -execute shell command). A
+      // hardcoded 'argus-test' was silently dropped by that guard.
+      id: crypto.randomUUID(),
       title: 'Argus',
       subtitle: 'Test',
       body: 'Notification delivery works.',
