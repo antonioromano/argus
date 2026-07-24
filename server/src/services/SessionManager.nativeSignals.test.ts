@@ -75,12 +75,13 @@ test('arbiter: Codex idle-only coverage does NOT suppress heuristic waiting/runn
   assert.equal(s.status, 'waiting', 'heuristic idle suppressed (covered by native)');
 });
 
-test('arbiter: heuristic running overrides a fresh native waiting (background subagent still streaming)', () => {
+test('arbiter: heuristic running overrides a fresh native waiting (genuine prompt, background subagent streaming)', () => {
   const { sm } = mgr();
   const s = inject(sm, { agentType: 'claude', status: 'running', hasUserInputSinceIdle: false });
-  // Claude's Notification hook fires "waiting for your input" while a background
-  // Task keeps working — the terminal keeps streaming spinner output.
-  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude is waiting for your input', coverage: FULL });
+  // A genuine permission prompt lands while a background Task keeps painting the
+  // screen. (The 60s "waiting for your input" nudge is a different Notification
+  // flavour — see the idle-nudge tests below.)
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Approve edit to foo.ts?', coverage: FULL });
   assert.equal(s.status, 'waiting');
 
   detect(sm, 'running'); // real output activity — cannot be faked
@@ -202,6 +203,33 @@ test('native waiting without promptText falls back to scraping', () => {
   const s = inject(sm, { agentType: 'claude', status: 'running' });
   sm.applyNativeSignal('s', { state: 'waiting', coverage: FULL });
   assert.equal(s.lastPrompt, 'SCRAPED', 'falls back to getLastPromptText() when no native text');
+});
+
+test('Claude idle nudge does not resurrect a done session (the finished-turn false positive)', () => {
+  const { sm, emitted } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'done' });
+  emitted.length = 0;
+  // ~60s after the turn finished Claude fires its "waiting for your input" nudge,
+  // wired to `waiting`. It is not a pending decision — the session stays done.
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude is waiting for your input', coverage: FULL });
+  assert.equal(s.status, 'done', 'idle nudge coerced to a turn boundary; done stays done');
+  assert.equal(emitted.length, 0, 'no bogus waiting emitted');
+});
+
+test('Claude idle nudge does not flip an idle session to waiting', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'idle', hasUserInputSinceIdle: false });
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude is waiting for your input', coverage: FULL });
+  assert.equal(s.status, 'idle', 'idle nudge stays idle, never waiting');
+  assert.equal(s.lastPrompt, undefined, 'no prompt text from the generic nudge');
+});
+
+test('a genuine permission prompt is unaffected by idle-nudge coercion', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running' });
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude needs your permission to use Bash', coverage: FULL });
+  assert.equal(s.status, 'waiting', 'real prompt still raises waiting');
+  assert.equal(s.lastPrompt, 'Claude needs your permission to use Bash');
 });
 
 test('applyNativeSignal ignores unknown and exited sessions', () => {

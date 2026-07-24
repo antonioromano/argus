@@ -109,6 +109,21 @@ const DONE_QUIET_MS = 1_200;
 const NATIVE_RING_SIZE = 5;
 
 /**
+ * Claude's `Notification` hook is wired to `waiting` for BOTH a genuine
+ * permission prompt AND the ~60s "Claude is waiting for your input" idle nudge —
+ * a hook command can't branch on the message, so both post the same state. The
+ * nudge is NOT a pending decision: it fires only because the user hasn't typed
+ * since the turn finished, so it must not resurrect a done/idle session into a
+ * bogus `waiting` (a genuine permission prompt fires mid-run and carries a
+ * different message). This matches the nudge message; tolerant of minor wording
+ * drift across Claude versions.
+ */
+const CLAUDE_IDLE_NUDGE_RE = /waiting for (your |the )?input/i;
+function isClaudeIdleNudge(agentType: string, promptText: string | undefined): boolean {
+  return agentType === 'claude' && !!promptText && CLAUDE_IDLE_NUDGE_RE.test(promptText);
+}
+
+/**
  * Coalesce pty output into ≤60fps socket emissions. Per-chunk emits (node-pty
  * fires one per read) produce hundreds of messages/sec under streaming; each
  * becomes an xterm write task in the renderer, and the back-to-back task
@@ -803,7 +818,17 @@ export class SessionManager {
       session.doneTimer = undefined;
     }
 
-    let status: SessionStatus = signal.state;
+    // Claude's 60s "waiting for your input" idle nudge arrives as a native
+    // `waiting` but is only a turn boundary (see isClaudeIdleNudge). Coerce it to
+    // `idle` for control flow so it can't override a finished session — and drop
+    // its promptText, which is the generic nudge string, not a real question. The
+    // raw `waiting` is still recorded in nativeRing above for diagnostics.
+    const effectiveState: AgentSignalState = isClaudeIdleNudge(session.agentType, signal.promptText)
+      ? 'idle'
+      : signal.state;
+    const effectivePrompt = effectiveState === signal.state ? signal.promptText : undefined;
+
+    let status: SessionStatus = effectiveState;
     // Native idle promotes to 'done' under the same gates as the heuristic path:
     // a genuine finish of a user-initiated run. Immediate only when the screen
     // is already quiet — Claude's Stop hook also fires when the MAIN turn ends
@@ -811,7 +836,7 @@ export class SessionManager {
     // no hooks), and there the terminal is still painting. In that case hold the
     // promotion behind the grace timer, which re-checks quiescence before firing.
     if (
-      signal.state === 'idle' &&
+      effectiveState === 'idle' &&
       !session.suppressDonePromotion &&
       session.status === 'running' &&
       session.hasUserInputSinceIdle
@@ -829,7 +854,7 @@ export class SessionManager {
 
     session.status = status;
     if (status === 'waiting') {
-      session.lastPrompt = signal.promptText ?? session.stateDetector.getLastPromptText();
+      session.lastPrompt = effectivePrompt ?? session.stateDetector.getLastPromptText();
     } else {
       session.lastPrompt = undefined;
     }
