@@ -1196,10 +1196,16 @@ export class SessionManager {
     this.chainTrim(session, () => this.trimStaleScrollback(session.id));
   }
 
-  /** Config-gated purge of the scrollback a width change invalidated. */
+  /**
+   * Opt-in purge of the scrollback a width change invalidated. **Off by default,
+   * on purpose:** those rows are wrongly wrapped but still readable, whereas
+   * dropping them makes a mosaic→focus switch — ordinary navigation — silently
+   * eat the session's scroll history. Cosmetic damage beats functional damage.
+   * Cmd+L is the explicit way to get a clean buffer.
+   */
   private async trimStaleScrollback(id: string): Promise<void> {
     const config = await this.configStore.load();
-    if (config.trimScrollbackOnResize === false) return;
+    if (config.trimScrollbackOnResize !== true) return;
     await this.purgeScrollback(id);
   }
 

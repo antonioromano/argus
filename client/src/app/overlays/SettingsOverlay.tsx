@@ -496,9 +496,9 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
               <Section title="Terminal">
                 <SettingRow
                   label="Trim scrollback when a shell's width changes"
-                  hint="Resizing a shell makes the agent reprint its output at the new width, leaving the old, wrongly-wrapped copy above it. This drops that history once the repaint settles. Turn off to keep the history, duplicated blocks included."
+                  hint="Resizing a shell makes the agent reprint its output at the new width, leaving the old, wrongly-wrapped copy above it. Turning this on drops that history. Off by default: switching a shell between the mosaic and focus is a width change, so this trades your scroll history for a tidy buffer. Cmd+L clears on demand instead."
                 >
-                  <Toggle checked={config.trimScrollbackOnResize ?? true} onChange={(v) => onSave({ trimScrollbackOnResize: v })} />
+                  <Toggle checked={config.trimScrollbackOnResize ?? false} onChange={(v) => onSave({ trimScrollbackOnResize: v })} />
                 </SettingRow>
               </Section>
               <Section title="Developer">

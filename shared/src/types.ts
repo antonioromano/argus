@@ -67,8 +67,9 @@ export interface AppConfig {
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
   // When a shell's width changes, drop the scrollback that was wrapped for the old
-  // width once the agent's repaint settles (default: true). Off keeps that history
-  // at the cost of the duplicated, wrongly-wrapped blocks it contains.
+  // width (default: FALSE). On buys a clean buffer; the price is that ordinary
+  // navigation — a mosaic→focus switch is a width change — takes the session's
+  // scroll history with it. Cmd+L clears on demand without that bargain.
   trimScrollbackOnResize?: boolean;
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it

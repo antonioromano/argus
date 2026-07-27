@@ -61,8 +61,20 @@ async function fixture(id: string, cols: number, rows: number, config: any = {})
 const historyGone = (sm: SessionManager, id: string): boolean =>
   !/hist-line-0\b/.test(sm.getReplaySnapshot(id)!.data);
 
+test('by default a width change keeps scrollback — losing it on every mosaic→focus switch is worse than the stale rows', async () => {
+  const f = await fixture('t0', 40, 10); // no trimScrollbackOnResize in config
+
+  f.sm.resizeSession('t0', 160, 10);
+  await f.settled();
+
+  assert.equal(historyGone(f.sm, 't0'), false, 'navigation must not eat the scroll history');
+  assert.equal(f.replays(), 0);
+  clearTimeout(f.session.trimTimer);
+  f.mirror.dispose();
+});
+
 test('a width change drops the invalidated history at once, so a joining view opens clean', async () => {
-  const f = await fixture('t1', 40, 10);
+  const f = await fixture('t1', 40, 10, { trimScrollbackOnResize: true });
   assert.equal(historyGone(f.sm, 't1'), false, 'precondition: history present');
 
   f.sm.resizeSession('t1', 160, 10);
@@ -80,7 +92,7 @@ test('a width change drops the invalidated history at once, so a joining view op
 });
 
 test('the leftovers the agent repaint pushes into history are trimmed on the following quiet check', async () => {
-  const f = await fixture('t2', 40, 10);
+  const f = await fixture('t2', 40, 10, { trimScrollbackOnResize: true });
   f.sm.resizeSession('t2', 40 * 4, 10);
   await f.settled();
   const afterResize = f.replays();
@@ -101,7 +113,7 @@ test('the leftovers the agent repaint pushes into history are trimmed on the fol
 });
 
 test('a quiet check while output is still streaming re-arms instead of trimming mid-repaint', async () => {
-  const f = await fixture('t3', 40, 10);
+  const f = await fixture('t3', 40, 10, { trimScrollbackOnResize: true });
   f.sm.resizeSession('t3', 160, 10);
   await f.settled();
   const afterResize = f.replays();
@@ -123,7 +135,7 @@ test('a quiet check while output is still streaming re-arms instead of trimming 
 });
 
 test('a quiet check keeps trimming a session that never goes quiet, once past the max wait', async () => {
-  const f = await fixture('t4', 40, 10);
+  const f = await fixture('t4', 40, 10, { trimScrollbackOnResize: true });
   f.sm.resizeSession('t4', 160, 10);
   await f.settled();
   const afterResize = f.replays();
