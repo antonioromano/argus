@@ -66,6 +66,10 @@ export interface AppConfig {
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
+  // When a shell's width changes, drop the scrollback that was wrapped for the old
+  // width once the agent's repaint settles (default: true). Off keeps that history
+  // at the cost of the duplicated, wrongly-wrapped blocks it contains.
+  trimScrollbackOnResize?: boolean;
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
   // needs an app restart (running sessions are bound to their backend).
@@ -171,6 +175,14 @@ export interface SessionReplay {
   alternate: boolean;
   appMouse: boolean;
   sgr: boolean;
+  /**
+   * Why this frame was sent. `join` (default) is the client asking — it must be
+   * painted, or the terminal stays blank/garbled. `refresh` is the server pushing
+   * an improved frame nobody asked for (e.g. after trimming stale scrollback); a
+   * client whose user is scrolled up reading history may skip it, since the frame
+   * resets the viewport to the bottom and one will be served again on the next join.
+   */
+  reason?: 'join' | 'refresh';
 }
 
 export interface ServerToClientEvents {

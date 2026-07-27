@@ -78,6 +78,12 @@ interface ManagedSession {
   suppressDonePromotion?: boolean;
   /** Pending timer that will promote this session to 'done' after a 2 s grace period. */
   doneTimer?: ReturnType<typeof setTimeout>;
+  /** Pending quiet-check for the post-width-change scrollback trim (see TRIM_QUIET_MS). */
+  trimTimer?: ReturnType<typeof setTimeout>;
+  /** When the re-arming quiet-check gives up and trims anyway (TRIM_MAX_WAIT_MS). */
+  trimDeadline?: number;
+  /** In-flight trim; a second one chains onto it rather than racing its broadcast. */
+  trimPromise?: Promise<void>;
   /**
    * True when the user has sent input (or created/restarted the session) since it
    * was last idle. Gates done-promotion: prevents internal terminal refreshes from
@@ -156,6 +162,17 @@ export const IDLE_MIN_ROWS = 40;
  */
 export const SPAWN_COLS = 120;
 export const SPAWN_ROWS = 30;
+
+/**
+ * How long the pty must stay quiet after a width change before the stale
+ * scrollback is dropped. The trim can't happen at resize time: the rows we want
+ * gone don't exist yet. They appear *during* the agent's SIGWINCH repaint — it
+ * reprints its transcript at the new width, and the old copy scrolls up into
+ * history as it does. So wait for that repaint to finish.
+ */
+export const TRIM_QUIET_MS = 600;
+/** A session that never goes quiet (long stream) still gets trimmed eventually. */
+export const TRIM_MAX_WAIT_MS = 15_000;
 
 /**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
@@ -568,6 +585,7 @@ export class SessionManager {
     }
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     this.backend.detach(session.pty);   // detach our client (tmux) / stop receiving (daemon)
     this.backend.stopSession(id);        // actually stop the agent
     this.companionTerminals.kill(id);
@@ -592,6 +610,7 @@ export class SessionManager {
     session.stateDetector.destroy();
     session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     this.backend.detach(session.pty);
     this.backend.stopSession(id); // discard the surviving conversation so restart is a real restart
     this.companionTerminals.kill(id);
@@ -1073,11 +1092,23 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) return;
     session.outputBuffer = '';
+    await this.purgeScrollback(id);
+  }
+
+  /**
+   * Drop the mirror's history, keep the screen, and repaint everyone watching so
+   * a mosaic tile and a phone don't disagree about what history exists.
+   */
+  private async purgeScrollback(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
     // Pending bytes belong before the clear, or they'd be dropped by it.
     this.flushOutput(id);
     await session.mirror?.clearScrollback();
     const frame = this.getReplaySnapshot(id);
-    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame });
+    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
+    // rather than have its viewport yanked to the bottom.
+    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
   }
 
   writeToSession(id: string, data: string): void {
@@ -1114,10 +1145,62 @@ export class SessionManager {
     // still re-stamps the detector's RESIZE_GRACE_MS window, which suppresses the
     // 'running' heuristic for 2s. Drop the repeat here so state detection stays sharp.
     if (session.cols === cols && session.rows === rows) return;
+    // A width change invalidates the wrap of everything already on screen; a
+    // height change doesn't. Only the former leaves stale rows behind.
+    const widthChanged = session.cols !== undefined && session.cols !== cols;
     session.pty.resize(cols, rows);
     session.stateDetector.resize(cols, rows);
     session.cols = cols;
     session.rows = rows;
+    if (widthChanged) {
+      // Twice, deliberately. Now: the history is already wrapped for the width we
+      // just left, and a view mounting into this session joins for a frame built
+      // from it — dropping it here is what makes Focus open clean instead of
+      // showing the stale block for half a second. Later: the agent's SIGWINCH
+      // repaint pushes its *own* old copy up into history as it reprints, and
+      // those rows don't exist yet.
+      this.chainTrim(session, () => this.trimStaleScrollback(session.id));
+      this.scheduleScrollbackTrim(session);
+    }
+  }
+
+  /** Serialize trims so two purge+broadcast pairs can't interleave. */
+  private chainTrim(session: ManagedSession, run: () => Promise<void>): void {
+    session.trimPromise = session.trimPromise ? session.trimPromise.then(run, run) : run();
+  }
+
+  /**
+   * Arm (or push back) the quiet-check that drops scrollback wrapped for a width
+   * this session no longer has. Debounced: a burst of width changes — a drag that
+   * slipped through, a window resize — waits once, not once per step.
+   */
+  private scheduleScrollbackTrim(session: ManagedSession): void {
+    session.trimDeadline ??= Date.now() + TRIM_MAX_WAIT_MS;
+    if (session.trimTimer) clearTimeout(session.trimTimer);
+    session.trimTimer = setTimeout(() => this.runScrollbackTrim(session), TRIM_QUIET_MS);
+  }
+
+  private runScrollbackTrim(session: ManagedSession): void {
+    session.trimTimer = undefined;
+    // Still streaming? The repaint whose leftovers we're here to remove hasn't
+    // finished, so trimming now would drop rows and keep the stale ones. Re-arm —
+    // but not forever: a session streaming for minutes still deserves the trim.
+    if (
+      session.stateDetector.msSinceLastFeed() < TRIM_QUIET_MS &&
+      Date.now() < (session.trimDeadline ?? 0)
+    ) {
+      session.trimTimer = setTimeout(() => this.runScrollbackTrim(session), TRIM_QUIET_MS);
+      return;
+    }
+    session.trimDeadline = undefined;
+    this.chainTrim(session, () => this.trimStaleScrollback(session.id));
+  }
+
+  /** Config-gated purge of the scrollback a width change invalidated. */
+  private async trimStaleScrollback(id: string): Promise<void> {
+    const config = await this.configStore.load();
+    if (config.trimScrollbackOnResize === false) return;
+    await this.purgeScrollback(id);
   }
 
   /**

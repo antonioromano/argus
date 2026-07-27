@@ -22,7 +22,10 @@ function withSizedSession(sm: SessionManager, id: string, cols: number, rows: nu
     id, name: 'test', folderPath: os.tmpdir(), agentType: 'claude', flags: [],
     status: 'running', createdAt: new Date().toISOString(),
     pty: { resize: (c: number, r: number) => { calls.pty.push({ cols: c, rows: r }); } },
-    stateDetector: { resize: (c: number, r: number) => { calls.detector.push({ cols: c, rows: r }); } },
+    stateDetector: {
+      resize: (c: number, r: number) => { calls.detector.push({ cols: c, rows: r }); },
+      msSinceLastFeed: () => 10_000, // quiet, as the real detector reports for an idle pty
+    },
     outputBuffer: '', persistent: false, hasUserInputSinceIdle: false,
     cols, rows,
   });
@@ -47,6 +50,9 @@ test('resizeSession applies a genuinely different geometry', () => {
 
   assert.deepEqual(calls.pty, [{ cols: 200, rows: 50 }]);
   assert.deepEqual(calls.detector, [{ cols: 200, rows: 50 }]);
+  // The width change also armed the stale-scrollback trim; that behavior lives in
+  // SessionManager.trim.test.ts, so don't leave its timer running past this test.
+  clearTimeout((sm as any).sessions.get('sess-diff').trimTimer);
 });
 
 test('applyIdleGeometry floors the rows of an unattached session, leaving cols alone', () => {

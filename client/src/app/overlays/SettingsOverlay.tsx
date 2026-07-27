@@ -493,6 +493,14 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   />
                 </SettingRow>
               </Section>
+              <Section title="Terminal">
+                <SettingRow
+                  label="Trim scrollback when a shell's width changes"
+                  hint="Resizing a shell makes the agent reprint its output at the new width, leaving the old, wrongly-wrapped copy above it. This drops that history once the repaint settles. Turn off to keep the history, duplicated blocks included."
+                >
+                  <Toggle checked={config.trimScrollbackOnResize ?? true} onChange={(v) => onSave({ trimScrollbackOnResize: v })} />
+                </SettingRow>
+              </Section>
               <Section title="Developer">
                 <SettingRow label="Enable developer tools" hint="Adds a per-session diagnostics dump button (writes session state + output to ~/.argus/diagnostics for debugging)">
                   <Toggle checked={config.debugToolsEnabled ?? false} onChange={(v) => onSave({ debugToolsEnabled: v })} />

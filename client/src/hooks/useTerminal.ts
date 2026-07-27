@@ -339,8 +339,15 @@ export function useTerminal(
     // Authoritative replay (join/reconnect/resync). Reconcile the wheel-forwarding
     // gate to tmux's truth BEFORE painting, then refresh once the frame parses so
     // the buffer-mode flip (?1049l/h in the frame) leaves no stale DOM rows.
-    const handleReplay = ({ sessionId: sid, data, appMouse, sgr }: SessionReplay) => {
+    const handleReplay = ({ sessionId: sid, data, appMouse, sgr, reason }: SessionReplay) => {
       if (sid !== sessionId) return;
+      // An unsolicited 'refresh' frame (server trimmed stale scrollback) starts with
+      // \x1b[3J and snaps the viewport to the bottom. Same guard as the settle-resync:
+      // never do that to someone reading history. A join frame is not optional.
+      if (reason === 'refresh') {
+        const b = terminal.buffer.active;
+        if (b.viewportY < b.baseY) return;
+      }
       reconcileMouse(appMouse, sgr);
       terminal.write(data, () => terminal.refresh(0, terminal.rows - 1));
     };
