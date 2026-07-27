@@ -8,6 +8,7 @@ import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, Session
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
+import { ResizeEmitGate } from './resizeGate.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
@@ -31,6 +32,13 @@ interface UseTerminalOptions {
   onRequestSearch?: () => void;
   /** Increment to imperatively focus the terminal (e.g. notification click). */
   requestFocusToken?: number;
+  /**
+   * Hold back `session:resize` while the user is dragging a layout divider. The
+   * terminal still refits locally; only the pty is spared the intermediate widths
+   * (each one costs a duplicated, wrongly-wrapped block — see ResizeEmitGate).
+   * The caller must dispatch `terminal:refit` when the drag ends.
+   */
+  suspendResize?: boolean;
 }
 
 const DARK_THEME = {
@@ -86,7 +94,12 @@ export function useTerminal(
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken } = options;
+  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken, suspendResize = false } = options;
+  // Rebuilt with the terminal (see the create effect) so a fresh grid always
+  // reports itself once; read through a ref by the font-size effect too.
+  const resizeGateRef = useRef(new ResizeEmitGate());
+  const suspendResizeRef = useRef(suspendResize);
+  useEffect(() => { suspendResizeRef.current = suspendResize; }, [suspendResize]);
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
   const { codeFontSize } = useFontSettings();
@@ -123,6 +136,14 @@ export function useTerminal(
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    // Fresh grid, fresh gate: this terminal has told the server nothing yet.
+    const resizeGate = new ResizeEmitGate();
+    resizeGateRef.current = resizeGate;
+    const emitResize = (cols: number, rows: number, opts?: { force?: boolean }) => {
+      if (!resizeGate.request(cols, rows, { ...opts, suspended: suspendResizeRef.current })) return;
+      socket.emit('session:resize', { sessionId, cols, rows });
+    };
 
     const fitAddon = new FitAddon();
     const terminal = new Terminal({
@@ -241,11 +262,9 @@ export function useTerminal(
     requestAnimationFrame(() => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
-        socket.emit('session:resize', {
-          sessionId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        });
+        // Forced: the join below replays a frame built for whatever size the
+        // server thinks we are, so it must hear ours first even mid-drag.
+        emitResize(terminal.cols, terminal.rows, { force: true });
       }
       if (autoFocusRef.current && !readOnly) terminal.focus();
       socket.emit('session:join', sessionId);
@@ -254,11 +273,8 @@ export function useTerminal(
     // Re-join room on reconnect (server restart loses room membership).
     // Resize before join for the same capture-width reason as the initial mount.
     const handleReconnect = () => {
-      socket.emit('session:resize', {
-        sessionId,
-        cols: terminal.cols,
-        rows: terminal.rows,
-      });
+      // Forced: after a server restart it has no record of our size.
+      emitResize(terminal.cols, terminal.rows, { force: true });
       socket.emit('session:join', sessionId);
     };
     socket.on('connect', handleReconnect);
@@ -271,7 +287,9 @@ export function useTerminal(
     const resync = (delay: number, joinDelay = 0) => {
       if (resyncTimer) clearTimeout(resyncTimer);
       resyncTimer = setTimeout(() => {
-        socket.emit('session:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+        // Unforced: whatever changed the grid already reported it. This emit only
+        // exists to guarantee ordering (server sized before it builds the frame).
+        emitResize(terminal.cols, terminal.rows);
         const doJoin = () => socket.emit('session:join', sessionId);
         if (joinDelay > 0) setTimeout(doJoin, joinDelay);
         else doJoin();
@@ -339,10 +357,15 @@ export function useTerminal(
         return false;
       }
 
-      // Clear terminal (default Cmd/Ctrl+L) — matches Terminal.app convention.
+      // Clear terminal (default Cmd/Ctrl+L): purge scrollback, keep the screen.
+      // ED 3 locally for instant feedback; the server clears the mirror's history
+      // too and broadcasts an authoritative frame, so the rows stay gone across
+      // joins and resyncs. Deliberately NOT terminal.clear() (which keeps only the
+      // cursor row): the mirror's screen must keep matching what the agent thinks
+      // it painted, or its next partial repaint lands on a blank grid.
       if (comboMatches(event, binds['clear-terminal'])) {
         if (event.type === 'keydown') {
-          terminal.clear();
+          terminal.write('\x1b[3J');
           socket.emit('session:clear-buffer', sessionId);
         }
         return false;
@@ -394,16 +417,15 @@ export function useTerminal(
         // they can scroll up again from a clean state.
         if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
-        socket.emit('session:resize', {
-          sessionId,
-          cols: terminal.cols,
-          rows: terminal.rows,
-        });
+        emitResize(terminal.cols, terminal.rows);
         // A grid change re-sizes the tmux pane, so the seeded buffer is now wrapped
         // for the wrong width/height. Reseed an aligned frame (rows matter too — the
         // bottom-anchored replay needs xterm rows == pane_height). Debounced and
         // gated on an actual change so steady-state refreshes don't reseed.
-        if (terminal.cols !== prevCols || terminal.rows !== prevRows) resync(120);
+        // Skip while a drag holds the pty at its old grid — reseeding now would
+        // paint a frame wrapped for that grid into our already-refitted one. The
+        // refit dispatched at drag end reseeds properly.
+        if (!suspendResizeRef.current && (terminal.cols !== prevCols || terminal.rows !== prevRows)) resync(120);
       }
     };
 
@@ -476,7 +498,9 @@ export function useTerminal(
     fitAddonRef.current?.fit();
     // fit() only resizes the local xterm buffer — without this the pty stays
     // at the old size until some other trigger happens to refit, garbling output.
-    socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows });
+    if (resizeGateRef.current.request(t.cols, t.rows, { suspended: suspendResizeRef.current })) {
+      socket.emit('session:resize', { sessionId, cols: t.cols, rows: t.rows });
+    }
   }, [codeFontSize, sessionId, socket, containerRef]);
 
   // Imperatively focus when requestFocusToken increments (e.g. notification click).

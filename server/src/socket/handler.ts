@@ -127,9 +127,13 @@ export function setupSocketHandler(
       if (sockets) {
         sockets.delete(socket.id);
         const dims = getSessionDimensions(sessionId);
-        if (dims) {
-          try { manager.resizeSession(sessionId, dims.cols, dims.rows); } catch { /* session may be gone */ }
-        }
+        try {
+          // No viewers left → hand it a tall screen so the agent's repaints fit
+          // (see IDLE_MIN_ROWS). Skipping this leaves the pty frozen at the last
+          // tile's height, and a minimized mosaic tile is ~12–25 rows.
+          if (dims) manager.resizeSession(sessionId, dims.cols, dims.rows);
+          else manager.applyIdleGeometry(sessionId);
+        } catch { /* session may be gone */ }
       }
       console.log(`Client ${socket.id} left session ${sessionId}`);
     });
@@ -256,7 +260,9 @@ export function setupSocketHandler(
 
     socket.on('session:clear-buffer', (sessionId: string) => {
       if (!manager.getSession(sessionId)) return;
-      manager.clearBuffer(sessionId);
+      // Fire-and-forget: the mirror write queue orders the clear against pending
+      // output, and the authoritative repaint is broadcast when it lands.
+      void manager.clearBuffer(sessionId);
     });
 
     // Client opened/focused a session — clear an unacknowledged 'done' status.
@@ -287,9 +293,12 @@ export function setupSocketHandler(
             // Recompute AFTER removing this socket so a departing phone reverts
             // the session to the desktop's size.
             const dims = getSessionDimensions(roomKey);
-            if (dims) {
-              try { manager.resizeSession(roomKey, dims.cols, dims.rows); } catch { /* session may be gone */ }
-            }
+            try {
+              // Same idle-geometry handoff as session:leave — a closed window is
+              // just a viewer that left without saying so.
+              if (dims) manager.resizeSession(roomKey, dims.cols, dims.rows);
+              else manager.applyIdleGeometry(roomKey);
+            } catch { /* session may be gone */ }
             // socket.io clears this socket from its rooms on disconnect, so the
             // room count now reflects remaining watchers (Q6).
             manager.setMirrorScrollback(roomKey, (io.sockets.adapter.rooms.get(roomKey)?.size ?? 0) > 0);

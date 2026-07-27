@@ -35,7 +35,7 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
-  { id: 'clear-terminal', label: 'Clear terminal', category: 'Terminal', defaultCombo: 'mod+l' },
+  { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },
   { id: 'terminal-newline', label: 'Insert newline (multi-line prompt)', category: 'Terminal', defaultCombo: 'shift+enter', fixed: true },
 ];
 

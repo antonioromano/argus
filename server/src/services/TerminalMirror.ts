@@ -131,6 +131,17 @@ export class TerminalMirror {
     }
   }
 
+  /**
+   * Drop the history rows, keep the visible screen (ED 3 — the same erase the
+   * client's replay prefix uses). Goes through the write queue so it can't race
+   * a pending feed. This is what makes "clear terminal" stick: without it the
+   * mirror keeps every stale row and hands them straight back on the next
+   * join/resync, duplicated blocks included.
+   */
+  clearScrollback(): Promise<void> {
+    return this.feed('\x1b[3J');
+  }
+
   /** Adaptive scrollback: SessionManager raises to 5000 on client-join, lowers to 1000 on empty (Q6). */
   setScrollback(n: number): void {
     if (this.destroyed || n <= 0) return;

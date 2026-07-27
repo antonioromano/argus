@@ -136,6 +136,28 @@ const OUTPUT_COALESCE_MS = 16;
 const OUTPUT_COALESCE_MAX_BYTES = 64 * 1024;
 
 /**
+ * Row floor for a session no client is watching (last viewer minimized its tile
+ * or closed the window). Argus otherwise leaves the pty frozen at the geometry
+ * of whatever tile it last lived in — a mosaic tile is 12–25 rows — and the
+ * agent keeps streaming into that short screen. Ink (Claude Code's renderer)
+ * repaints its live region by erasing the rows it believes it wrote; once a
+ * frame is taller than the screen the overflow has already scrolled off, the
+ * erase misses it, and the repaint lands *below* the leftovers. One duplicated
+ * block per overflowing frame, all baked into the mirror and still there when
+ * the tile comes back. Nobody is looking at an unattached session, so a taller
+ * screen is free. Rows only — raising cols would rewrap the transcript, which
+ * is the *other* half of that bug.
+ */
+export const IDLE_MIN_ROWS = 40;
+
+/**
+ * Grid a session is spawned with, before any client reports its tile size. Also
+ * the assumed geometry when a session was never attached (nothing resized it).
+ */
+export const SPAWN_COLS = 120;
+export const SPAWN_ROWS = 30;
+
+/**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
  * buttons 64/65 or the legacy 0x60/0x61 encodings). The client only ever emits
  * these for scroll — regular typing and clicks (button 0) never produce them —
@@ -449,8 +471,8 @@ export class SessionManager {
       sessionId: id,
       folderPath: effectiveFolderPath,
       command,
-      cols: 120,
-      rows: 30,
+      cols: SPAWN_COLS,
+      rows: SPAWN_ROWS,
       flags: spawnFlags,
       extraEnv: spawnEnv,
       attachExisting,
@@ -1039,9 +1061,23 @@ export class SessionManager {
     }
   }
 
-  clearBuffer(id: string): void {
+  /**
+   * "Clear terminal" (Cmd+L). Drops the scrollback the *mirror* holds, not just
+   * the legacy rolling buffer — the mirror is what replay serves, so clearing
+   * only the client's xterm left every stale row (duplicated blocks from a pty
+   * width change, overflow leftovers from a short pane) to reappear on the next
+   * join or resync. Keeps the visible screen, then repaints everyone in the room
+   * so a mosaic tile and a phone don't disagree about what history exists.
+   */
+  async clearBuffer(id: string): Promise<void> {
     const session = this.sessions.get(id);
-    if (session) session.outputBuffer = '';
+    if (!session) return;
+    session.outputBuffer = '';
+    // Pending bytes belong before the clear, or they'd be dropped by it.
+    this.flushOutput(id);
+    await session.mirror?.clearScrollback();
+    const frame = this.getReplaySnapshot(id);
+    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame });
   }
 
   writeToSession(id: string, data: string): void {
@@ -1072,10 +1108,31 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
     if (session.status === 'exited') return;
+    // Clients refit on plenty of triggers that don't change the grid (visibility,
+    // global terminal:refit, a sibling tile appearing). Re-applying the same size
+    // is a no-op at the ioctl (TIOCSWINSZ only signals on an actual change) but it
+    // still re-stamps the detector's RESIZE_GRACE_MS window, which suppresses the
+    // 'running' heuristic for 2s. Drop the repeat here so state detection stays sharp.
+    if (session.cols === cols && session.rows === rows) return;
     session.pty.resize(cols, rows);
     session.stateDetector.resize(cols, rows);
     session.cols = cols;
     session.rows = rows;
+  }
+
+  /**
+   * No client is watching this session any more — give it a screen tall enough
+   * that the agent's repaints fit (see IDLE_MIN_ROWS). Called by the socket
+   * handler when the room empties; the rejoin's resize-before-join snaps the
+   * grid back to the real tile.
+   */
+  applyIdleGeometry(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    const cols = session.cols ?? SPAWN_COLS;
+    const rows = session.rows ?? SPAWN_ROWS;
+    if (rows >= IDLE_MIN_ROWS) return;
+    this.resizeSession(id, cols, IDLE_MIN_ROWS);
   }
 
   /**

@@ -158,6 +158,34 @@ test('survivor seed: history beyond the screen lands in scrollback and round-tri
   m.dispose();
 });
 
+test('clearScrollback drops the history rows and keeps the visible screen', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  const lines = Array.from({ length: ROWS * 2 }, (_, i) => `hist-line-${i}`);
+  await m.feed(lines.join('\r\n'));
+  await m.afterWrite();
+  assert.ok(snapshot(m.term).length > ROWS, 'precondition: the feed produced scrollback');
+
+  await m.clearScrollback();
+
+  assert.equal(snapshot(m.term).length, ROWS, 'buffer is down to the visible screen');
+  const frame = m.serialize();
+  assert.ok(!frame.includes('hist-line-0'), 'the oldest row must not survive into the replay frame');
+  assert.ok(frame.includes(`hist-line-${ROWS * 2 - 1}`), 'the current screen must survive');
+  m.dispose();
+});
+
+test('clearScrollback on a mirror with no history leaves the screen untouched', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('one\r\ntwo\r\nprompt> ');
+  await m.afterWrite();
+  const before = snapshot(m.term);
+
+  await m.clearScrollback();
+
+  assert.deepEqual(diff(before, snapshot(m.term)), []);
+  m.dispose();
+});
+
 // ---------------------------------------------------------------------------
 // Mode-append scanner (Q4 gap fix) — serialize omits ?1006h and ?25; the mirror
 // tracks DECSET/DECRST and re-emits them.

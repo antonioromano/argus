@@ -93,6 +93,46 @@ test('reconnect storm: N joins do zero tmux subprocess calls (no TTL cache neede
   mirror.dispose();
 });
 
+test('clearBuffer wipes the mirror history so the stale rows cannot come back on the next join', async () => {
+  const mirror = new TerminalMirror(40, 10, 200);
+  const lines = Array.from({ length: 20 }, (_, i) => `hist-line-${i}`);
+  await mirror.feed(lines.join('\r\n'));
+  await mirror.afterWrite();
+  const { sm } = mgrWithMirrorSession('s5', mirror);
+  assert.match(sm.getReplaySnapshot('s5')!.data, /hist-line-0/, 'precondition: history is in the frame');
+
+  await sm.clearBuffer('s5');
+
+  const frame = sm.getReplaySnapshot('s5')!;
+  assert.doesNotMatch(frame.data, /hist-line-0\b/, 'cleared history must not be served again');
+  assert.match(frame.data, /hist-line-19/, 'the visible screen survives the clear');
+  assert.equal((sm as any).sessions.get('s5').outputBuffer, '', 'raw rolling buffer cleared too');
+  mirror.dispose();
+});
+
+test('clearBuffer repaints the clients already in the room, not just the one that asked', async () => {
+  const mirror = new TerminalMirror(40, 10, 200);
+  await mirror.feed(Array.from({ length: 20 }, (_, i) => `hist-line-${i}`).join('\r\n'));
+  await mirror.afterWrite();
+  const { sm } = mgrWithMirrorSession('s6', mirror);
+  const sent: Array<{ room: string; event: string; payload: any }> = [];
+  (sm as any).io = {
+    to: (room: string) => ({
+      emit: (event: string, payload: any) => { sent.push({ room, event, payload }); },
+    }),
+    emit: () => {},
+  };
+
+  await sm.clearBuffer('s6');
+
+  const replay = sent.find((s) => s.event === 'session:replay');
+  assert.ok(replay, 'every watcher gets an authoritative frame');
+  assert.equal(replay!.room, 's6');
+  assert.doesNotMatch(replay!.payload.data, /hist-line-0\b/);
+  assert.match(replay!.payload.data, /hist-line-19/);
+  mirror.dispose();
+});
+
 test('getReplaySnapshot falls back to the raw buffer when the mirror throws', async () => {
   const mirror = new TerminalMirror(40, 10, 200);
   mirror.dispose(); // disposed → serialize() returns '' (not a throw); force a throw instead

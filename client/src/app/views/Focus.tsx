@@ -138,6 +138,10 @@ export function Focus({
     const onUp = () => {
       dragStateRef.current = null;
       setIsResizing(false);
+      // The terminal withheld every intermediate width (one duplicated block
+      // each). Nothing else will re-measure now that the size stopped changing,
+      // so ask for the one refit that reports the width the user settled on.
+      setTimeout(() => window.dispatchEvent(new Event('terminal:refit')), 0);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -279,6 +283,7 @@ export function Focus({
                   onOpenSearch={onOpenSearch}
                   onCloseSearch={onCloseSearch}
                   requestFocusToken={focusToken}
+                  suspendResize={isResizing}
                 />
               </ErrorBoundary>
             </div>
