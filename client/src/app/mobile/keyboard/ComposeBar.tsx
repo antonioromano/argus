@@ -1,5 +1,6 @@
 import { forwardRef } from 'react';
 import { ArrowUp } from 'lucide-react';
+import { COMPOSE_MAX_H, autoGrowCompose } from './compose.js';
 
 interface ComposeBarProps {
   value: string;
@@ -10,16 +11,10 @@ interface ComposeBarProps {
   nativeInput: boolean;
 }
 
-const MAX_H = 132;
-
 /** Textarea + send button. Extracted from the old ActionBar. fontSize:16 keeps
  *  iOS from zooming on focus; the field auto-grows up to ~5 rows. */
 export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
   ({ value, onChange, onSubmit, nativeInput }, ref) => {
-    const autoGrow = (el: HTMLTextAreaElement) => {
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, MAX_H)}px`;
-    };
     const canSend = value.trim().length > 0;
 
     return (
@@ -32,12 +27,22 @@ export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
           value={value}
           rows={1}
           readOnly={!nativeInput}
-          onChange={(e) => { onChange(e.target.value); autoGrow(e.target); }}
+          onChange={(e) => { onChange(e.target.value); autoGrowCompose(e.target); }}
+          onKeyDown={(e) => {
+            // A textarea swallows Enter as a newline, so a hardware keyboard (iPad,
+            // or a phone with one paired) could type a command and have no way to
+            // send it but the on-screen button. Enter submits; Shift+Enter keeps
+            // the newline, matching the desktop terminal's binding. `isComposing`
+            // guards IME candidate selection, which also arrives as Enter.
+            if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
+            e.preventDefault();
+            onSubmit();
+          }}
           placeholder="Send message…"
           autoComplete="off"
           autoCapitalize="off"
           spellCheck={false}
-          enterKeyHint="enter"
+          enterKeyHint="send"
           style={{
             flex: 1,
             background: 'var(--bg-2)',
@@ -50,7 +55,7 @@ export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
             color: 'var(--fg-0)',
             outline: 'none',
             minHeight: 44,
-            maxHeight: MAX_H,
+            maxHeight: COMPOSE_MAX_H,
             resize: 'none',
             boxSizing: 'border-box',
           }}

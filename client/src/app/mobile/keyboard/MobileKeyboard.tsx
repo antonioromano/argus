@@ -8,6 +8,7 @@ import { KEY, arrow, isArrow, isScroll, composeSubmit, type KeyId } from './keys
 import { SpecialPad } from './SpecialPad.js';
 import { SpecialToolbar } from './SpecialToolbar.js';
 import { ComposeBar } from './ComposeBar.js';
+import { autoGrowCompose, insertNewlineAt } from './compose.js';
 import { CustomQwerty } from './CustomQwerty.js';
 
 interface MobileKeyboardProps {
@@ -69,7 +70,38 @@ export function MobileKeyboard({ session, terminalRef, onClose }: MobileKeyboard
     navigator.vibrate?.(8);
     send(composeSubmit(text));
     setText('');
-    if (taRef.current) taRef.current.style.height = 'auto';
+    if (taRef.current) {
+      taRef.current.style.height = 'auto';
+      // Keep the caret in the field so a second command doesn't cost a tap (and
+      // on iOS doesn't cost dismissing and re-raising the keyboard). Only in
+      // hybrid mode: the dual keyboard's field is readOnly and focusing it would
+      // summon the very native keyboard that mode exists to avoid.
+      if (mode === 'hybrid') taRef.current.focus();
+    }
+  };
+
+  /**
+   * Put a newline into the message at the caret. The compose field sends on
+   * Enter and a software keyboard offers no Shift+Enter, so without this a phone
+   * cannot write a multi-line message at all — and composeSubmit exists purely to
+   * translate those newlines for the agent. Keeps focus so the keyboard stays up.
+   */
+  const insertComposeNewline = () => {
+    navigator.vibrate?.(8);
+    const el = taRef.current;
+    if (!el) {
+      setText((t) => `${t}\n`);
+      return;
+    }
+    // Read from the field, not from a state updater: the caret belongs to the
+    // same snapshot as the value, and the updater would have to leak it back out.
+    const next = insertNewlineAt(el.value, el.selectionStart, el.selectionEnd);
+    setText(next.text);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(next.caret, next.caret);
+      autoGrowCompose(el);
+    });
   };
 
   // Hybrid: reveal the compose field and focus it within the tap gesture so iOS
@@ -90,7 +122,7 @@ export function MobileKeyboard({ session, terminalRef, onClose }: MobileKeyboard
           <SpecialPad onKey={onKey} onAbc={summonNative} onClose={onClose} />
         ) : (
           <>
-            <SpecialToolbar onKey={onKey} onBackToKeys={dismissNative} />
+            <SpecialToolbar onKey={onKey} onBackToKeys={dismissNative} onComposeNewline={insertComposeNewline} />
             <div style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
               <ComposeBar ref={taRef} value={text} onChange={setText} onSubmit={submit} nativeInput />
             </div>

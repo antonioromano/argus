@@ -6,13 +6,20 @@ interface SpecialToolbarProps {
   onKey: (id: KeyId) => void;
   /** Return to the special-actions pad (Hybrid native view). */
   onBackToKeys: () => void;
+  /**
+   * Insert a newline into the message being composed. The only way to write a
+   * multi-line message from a phone: the compose field submits on Enter, and a
+   * software keyboard has no Shift+Enter. Distinct from the `↵` key below, which
+   * sends a carriage return straight to the agent.
+   */
+  onComposeNewline: () => void;
 }
 
 /**
  * Horizontal strip of terminal keys shown above the native keyboard in Hybrid's
  * text view. Leads with a "keys" button to return to the special-actions pad.
  */
-export function SpecialToolbar({ onKey, onBackToKeys }: SpecialToolbarProps) {
+export function SpecialToolbar({ onKey, onBackToKeys, onComposeNewline }: SpecialToolbarProps) {
   return (
     <div
       className="mobile-keys-toolbar"
@@ -26,6 +33,7 @@ export function SpecialToolbar({ onKey, onBackToKeys }: SpecialToolbarProps) {
       }}
     >
       <KeyCap label={<Keyboard size={16} />} tone="accent" ariaLabel="Back to keys" onPress={onBackToKeys} />
+      <KeyCap label="⇧↵" sub="line" ariaLabel="Insert newline in message" onPress={onComposeNewline} />
       <KeyCap label="tab" ariaLabel="Tab" onPress={() => onKey('tab')} />
       <KeyCap label="⇧⇥" ariaLabel="Shift Tab" onPress={() => onKey('shifttab')} />
       <KeyCap label="esc" ariaLabel="Escape" onPress={() => onKey('esc')} />
