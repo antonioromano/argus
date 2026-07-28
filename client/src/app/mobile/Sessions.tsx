@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import { ChevronRight, MoreVertical, Plus, Play } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -28,6 +28,21 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
 
 const STATUS_RANK: Partial<Record<SessionStatus, number>> = { waiting: 0, done: 1 };
 
+/** Two sessions on the same folder with the same name are indistinguishable in the
+ *  list — same glyph, same subtitle, same age — and a phone has no hover or tooltip
+ *  to break the tie. Identity key for spotting those. */
+function identityKey(s: SessionInfo): string {
+  return `${s.name}\u0000${s.folderPath}`;
+}
+
+/** Extra subtitle fragment shown only for sessions that collide: the worktree
+ *  branch when there is one, otherwise a short id so the rows are at least
+ *  individually addressable. */
+function discriminator(s: SessionInfo): string {
+  const branch = s.worktreePath?.split('/').filter(Boolean).pop();
+  return branch ? ` · ${branch}` : ` · #${s.id.slice(0, 4)}`;
+}
+
 function byStatus(a: SessionInfo, b: SessionInfo): number {
   const ra = STATUS_RANK[a.status] ?? 2;
   const rb = STATUS_RANK[b.status] ?? 2;
@@ -35,7 +50,7 @@ function byStatus(a: SessionInfo, b: SessionInfo): number {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
-function Section({ title, color, sessions, ghosts, filter, onSelect, onAction, onSpawnFavorite }: { title: string; color: string | null; sessions: SessionInfo[]; ghosts?: GhostFavorite[]; filter: StatusFilter; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void; onSpawnFavorite?: (ghost: GhostFavorite) => void }) {
+function Section({ title, color, sessions, ghosts, filter, collidingKeys, onSelect, onAction, onSpawnFavorite }: { title: string; color: string | null; sessions: SessionInfo[]; ghosts?: GhostFavorite[]; filter: StatusFilter; collidingKeys: Set<string>; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void; onSpawnFavorite?: (ghost: GhostFavorite) => void }) {
   const [collapsed, setCollapsed] = useState(false);
   const visible = filter === 'all' ? sessions : sessions.filter((s) => s.status === filter);
   // Ghost (saved, spun-down) favourites have no status, so only surface them in the unfiltered view.
@@ -58,7 +73,15 @@ function Section({ title, color, sessions, ghosts, filter, onSelect, onAction, o
         <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
         <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{visible.length + visibleGhosts.length}</span>
       </button>
-      {!collapsed && sorted.map((s) => <Row key={s.id} session={s} onSelect={() => onSelect(s.id)} onAction={() => onAction(s)} />)}
+      {!collapsed && sorted.map((s) => (
+        <Row
+          key={s.id}
+          session={s}
+          collides={collidingKeys.has(identityKey(s))}
+          onSelect={() => onSelect(s.id)}
+          onAction={() => onAction(s)}
+        />
+      ))}
       {!collapsed && visibleGhosts.map((g) => <GhostRow key={g.id} ghost={g} onSpawn={() => onSpawnFavorite?.(g)} />)}
     </div>
   );
@@ -114,7 +137,7 @@ function timeAgo(d: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: () => void; onAction: () => void }) {
+function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; collides: boolean; onSelect: () => void; onAction: () => void }) {
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
   return (
     <div
@@ -169,7 +192,7 @@ function Row({ session, onSelect, onAction }: { session: SessionInfo; onSelect: 
               textOverflow: 'ellipsis',
             }}
           >
-            {folder} · {timeAgo(session.createdAt)}
+            {folder} · {timeAgo(session.createdAt)}{collides ? discriminator(session) : ''}
           </div>
           {session.status === 'waiting' && session.lastPrompt && (
             <div
@@ -223,6 +246,57 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
   };
   for (const s of sessions) counts[s.status] += 1;
   const waiting = sessions.filter((s) => s.status === 'waiting');
+
+  const collidingKeys = useMemo(() => {
+    const tally = new Map<string, number>();
+    for (const s of sessions) {
+      const k = identityKey(s);
+      tally.set(k, (tally.get(k) ?? 0) + 1);
+    }
+    return new Set([...tally].filter(([, n]) => n > 1).map(([k]) => k));
+  }, [sessions]);
+
+  // The filter row scrolls horizontally, and at phone width the last chip is cut
+  // mid-word with nothing to suggest there is more. Fade whichever edge has
+  // content beyond it, so the clipping reads as "scrollable" rather than "broken".
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const [chipFade, setChipFade] = useState({ start: false, end: false });
+  const syncChipFade = () => {
+    const el = chipsRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const next = { start: el.scrollLeft > 2, end: max > 2 && el.scrollLeft < max - 2 };
+    setChipFade((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+  };
+  // What decides whether the row overflows is its own width, not the session
+  // count (FILTERS is static), so the row has to be re-measured whenever the
+  // viewport changes: rotating a phone can turn a scrolling row into a fitting
+  // one, and a fade left over from the other orientation reads as a bug.
+  // ResizeObserver catches the element's own width, including the chrome around
+  // it changing without a window resize; orientationchange covers Safari firing
+  // it before the new layout is measurable.
+  useEffect(() => {
+    syncChipFade();
+    const el = chipsRef.current;
+    const ro = el && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncChipFade) : null;
+    if (el && ro) ro.observe(el);
+    const onOrientation = () => requestAnimationFrame(syncChipFade);
+    window.addEventListener('orientationchange', onOrientation);
+    window.addEventListener('resize', syncChipFade);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('orientationchange', onOrientation);
+      window.removeEventListener('resize', syncChipFade);
+    };
+  }, []);
+  // A chip row that appears/disappears with the session list needs one more
+  // measure once it is actually in the DOM.
+  useEffect(syncChipFade, [sessions.length]);
+  const fadeStops = [
+    chipFade.start ? 'transparent 0, #000 18px' : '#000 0',
+    chipFade.end ? '#000 calc(100% - 18px), transparent 100%' : '#000 100%',
+  ].join(', ');
+  const chipMask = `linear-gradient(to right, ${fadeStops})`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
@@ -279,7 +353,15 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
       )}
 
       {sessions.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, padding: 'var(--s-2) var(--s-3)', overflowX: 'auto', borderBottom: '1px solid var(--line-1)', flexShrink: 0 }}>
+        <div
+          ref={chipsRef}
+          onScroll={syncChipFade}
+          style={{
+            display: 'flex', gap: 6, padding: 'var(--s-2) var(--s-3)', overflowX: 'auto',
+            borderBottom: '1px solid var(--line-1)', flexShrink: 0,
+            maskImage: chipMask, WebkitMaskImage: chipMask,
+          }}
+        >
           {FILTERS.map((f) => {
             const on = filter === f.id;
             return (
@@ -350,6 +432,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 sessions={grouped.favorites.items.filter((i): i is SessionInfo => !('ghost' in i))}
                 ghosts={grouped.favorites.items.filter((i): i is GhostFavorite => 'ghost' in i)}
                 filter={filter}
+                collidingKeys={collidingKeys}
                 onSelect={onSelect}
                 onAction={onAction}
                 onSpawnFavorite={onSpawnFavorite}
@@ -362,11 +445,12 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 color={resolveGroupColor(group.color, true)}
                 sessions={gs}
                 filter={filter}
+                collidingKeys={collidingKeys}
                 onSelect={onSelect}
                 onAction={onAction}
               />
             ))}
-            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} filter={filter} onSelect={onSelect} onAction={onAction} />
+            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} filter={filter} collidingKeys={collidingKeys} onSelect={onSelect} onAction={onAction} />
             {filter !== 'all' && counts[filter] === 0 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--s-8) var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
                 No {filter} shells

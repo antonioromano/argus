@@ -64,7 +64,11 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
         </span>
         {session.hasGitChanges && <DirtyBadge size="sm" />}
       </div>
-      <div style={{ flexShrink: 0 }}>
+      {/* Fixed width, right-aligned: the pill's own width tracks its label, so a
+          status change (IDLE → RUNNING) used to widen it and truncate the session
+          name mid-word — `bursttest` became `burst…` just because output started.
+          Reserve the widest label's footprint so the title never reflows. */}
+      <div style={{ flexShrink: 0, minWidth: 86, display: 'flex', justifyContent: 'flex-end' }}>
         <StatusPill status={session.status} size="sm" />
       </div>
       <button
