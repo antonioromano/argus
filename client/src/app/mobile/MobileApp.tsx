@@ -71,7 +71,12 @@ function Inner() {
   const grouped = useMemo(() => groupedSessions(sessions), [groupedSessions, sessions]);
   const { status: ngrokStatus } = useNgrok(socket);
   const [tab, setTab] = useState<MobileTab>('sessions');
-  const [focusedId, setFocusedId] = useState<string | null>(null);
+  // Seeded from `#/session/<id>` so a restored tab lands back in its session on the
+  // first render — no effect, so nothing flashes the list on the way. An id whose
+  // session is gone simply resolves to null in `focused` below and shows the list.
+  const [focusedId, setFocusedId] = useState<string | null>(
+    () => window.location.hash.match(/^#\/session\/([\w-]+)$/)?.[1] ?? null,
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [actionTarget, setActionTarget] = useState<SessionInfo | null>(null);
   const [killTarget, setKillTarget] = useState<SessionInfo | null>(null);
@@ -82,6 +87,27 @@ function Inner() {
   useWaitingNotifications(sessions, notify, notifyDone);
 
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
+
+  // Mirror the open session into the URL as `#/session/<id>`.
+  //
+  // Which session you are in used to live only in React state, so anything that
+  // reloaded the document — and iOS Safari evicts background tabs aggressively —
+  // dropped you back to the list. The hash survives that, and makes a session
+  // linkable. replaceState (not pushState) keeps the history stack flat and, since
+  // it fires no hashchange, cannot loop against the listener below.
+  useEffect(() => {
+    const target = focusedId ? `#/session/${focusedId}` : '#/';
+    if (window.location.hash !== target) window.history.replaceState(null, '', target);
+  }, [focusedId]);
+
+  // Someone edits the hash, or a restored tab navigates within history.
+  useEffect(() => {
+    const onHashChange = () => {
+      setFocusedId(window.location.hash.match(/^#\/session\/([\w-]+)$/)?.[1] ?? null);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   // Acknowledge 'done' when the session is open on this phone.
   useEffect(() => {
