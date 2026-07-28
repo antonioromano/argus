@@ -119,7 +119,7 @@ func (d *daemon) cleanup() {
 // handleConn serves the single active server connection: handshake, then a frame
 // read loop. On disconnect, sessions survive (unsubscribed) — the whole point.
 func (d *daemon) handleConn(conn net.Conn) {
-	fc := newFramedConn(conn)
+	fc := newClientConn(conn)
 	d.mu.Lock()
 	d.client = fc
 	d.lastActivity = time.Now()
@@ -129,7 +129,7 @@ func (d *daemon) handleConn(conn net.Conn) {
 	log.Println("server connected")
 
 	defer func() {
-		_ = conn.Close()
+		fc.drop() // stops the writer goroutine and closes the socket
 		d.mu.Lock()
 		d.client = nil
 		d.lastActivity = time.Now()
@@ -256,16 +256,20 @@ func (d *daemon) readLoop(s *session) {
 			s.mu.Lock()
 			s.ring.write(chunk)
 			sub := s.subscribed
-			var c *framedConn
+			s.mu.Unlock()
+			// Deliberately outside s.mu: the send is non-blocking (see
+			// framedConn), but holding a session lock across a hand-off to the
+			// shared connection is the shape that jammed the whole daemon, so
+			// the lock does not span it at all. Ring order is still the pty's
+			// byte order — this is the session's only read loop.
 			if sub {
 				d.mu.Lock()
-				c = d.client
+				c := d.client
 				d.mu.Unlock()
+				if c != nil {
+					_ = c.writeData(s.id, chunk)
+				}
 			}
-			if c != nil {
-				_ = c.writeData(s.id, chunk)
-			}
-			s.mu.Unlock()
 		}
 		if err != nil {
 			break

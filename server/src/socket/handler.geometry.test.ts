@@ -12,6 +12,7 @@ interface Harness {
   connect: (id: string) => { on: Map<string, Handler>; fire: (ev: string, ...args: any[]) => void };
   resizes: Array<{ id: string; cols: number; rows: number }>;
   idled: string[];
+  cancelled: string[];
 }
 
 /**
@@ -23,6 +24,7 @@ function harness(): Harness {
   const rooms = new Map<string, Set<string>>();
   const resizes: Harness['resizes'] = [];
   const idled: string[] = [];
+  const cancelled: string[] = [];
 
   const manager = {
     getSession: () => ({ id: 'x' }),
@@ -30,7 +32,8 @@ function harness(): Harness {
     setMirrorScrollback: () => {},
     getReplaySnapshot: () => undefined,
     resizeSession: (id: string, cols: number, rows: number) => { resizes.push({ id, cols, rows }); },
-    applyIdleGeometry: (id: string) => { idled.push(id); },
+    scheduleIdleGeometry: (id: string) => { idled.push(id); },
+    cancelIdleGeometry: (id: string) => { cancelled.push(id); },
   } as unknown as SessionManager;
 
   let connection: ((socket: Socket) => void) | undefined;
@@ -52,6 +55,7 @@ function harness(): Harness {
   return {
     resizes,
     idled,
+    cancelled,
     connect(id: string) {
       const on = new Map<string, Handler>();
       const socket = {
@@ -91,7 +95,7 @@ test('the last viewer leaving hands the session a tall idle screen instead of le
 
   a.fire('session:leave', 'sess-solo');
 
-  assert.deepEqual(h.idled, ['sess-solo'], 'an unattached session must get the idle row floor');
+  assert.deepEqual(h.idled, ['sess-solo'], 'an unattached session must be queued for the idle row floor');
   assert.deepEqual(h.resizes, [], 'no client dimensions remain to size it from');
 });
 
@@ -121,4 +125,23 @@ test('a viewer leaving while another stays sizes the pty to the survivor, not th
 
   assert.deepEqual(h.resizes, [{ id: 'sess-pair', cols: 200, rows: 50 }]);
   assert.deepEqual(h.idled, [], 'someone is still watching — no idle floor');
+});
+
+test('a viewer that rejoins cancels the pending idle resize, so a reconnect costs no repaint', () => {
+  const h = harness();
+  const a = h.connect('sock-r');
+  a.fire('session:join', 'sess-flap');
+  a.fire('session:resize', { sessionId: 'sess-flap', cols: 62, rows: 14 });
+
+  a.fire('disconnect');
+  assert.deepEqual(h.idled, ['sess-flap'], 'queued while nobody is watching');
+
+  // Socket comes back (socket.io reconnect) and re-joins the room.
+  const b = h.connect('sock-r2');
+  b.fire('session:join', 'sess-flap');
+
+  assert.ok(
+    h.cancelled.includes('sess-flap'),
+    'rejoining must cancel the queued idle resize instead of letting it SIGWINCH the agent',
+  );
 });

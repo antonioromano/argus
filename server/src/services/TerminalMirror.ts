@@ -142,6 +142,16 @@ export class TerminalMirror {
     return this.feed('\x1b[3J');
   }
 
+  /**
+   * Wipe screen AND scrollback. Unlike clearScrollback this is not a user
+   * gesture: it precedes an authoritative reseed (the daemon replaying a
+   * session's ring after a reconnect), where keeping the old screen would
+   * leave the pre-reconnect frame stacked above the replayed one.
+   */
+  reset(): Promise<void> {
+    return this.feed('\x1b[2J\x1b[3J\x1b[H');
+  }
+
   /** Adaptive scrollback: SessionManager raises to 5000 on client-join, lowers to 1000 on empty (Q6). */
   setScrollback(n: number): void {
     if (this.destroyed || n <= 0) return;

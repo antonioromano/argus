@@ -8,17 +8,39 @@ import type { PtyBackend, SpawnOpts } from './types.js';
  * Backend backed by the argusd pty-host daemon (plan 2026-07-22-003). Sessions
  * survive app quit because the daemon outlives it; bytes flow untouched, so the
  * tmux byte-mangling class (mouse rewriting, locale downgrade, capture-pane)
- * disappears. EXPERIMENTAL — gated behind ARGUS_PTY_BACKEND=daemon (default
- * tmux) and pending live soak; the restart-race + reconnect-health edges still
- * need real-app verification.
+ * disappears. This is the DEFAULT backend whenever the argusd binary resolves
+ * ('auto'); tmux is the fallback. Losing and regaining the socket is a normal
+ * event — the daemon drops a consumer that stops draining it — so reconnect and
+ * re-attach are part of the contract, not an edge case.
  */
 export class DaemonBackend implements PtyBackend {
   readonly kind = 'daemon' as const;
   private client: DaemonClient;
   private ptys = new Map<string, DaemonPty>();
 
+  private resyncCb: ((sessionId: string) => void) | null = null;
+
   constructor(socketPath: string, binPath: string, socketLabel: string) {
     this.client = new DaemonClient(socketPath, binPath, socketLabel);
+    // The daemon drops a consumer it judges dead (outbox overflow / write
+    // timeout) and keeps the agents running. When we get back, nothing is
+    // subscribed any more: every session must be re-attached or its terminal
+    // stays frozen for the rest of the app's life.
+    this.client.on('reconnected', () => this.reattachAll());
+  }
+
+  private reattachAll(): void {
+    console.log(`[argusd] re-attaching ${this.ptys.size} session(s) after reconnect`);
+    for (const sessionId of this.ptys.keys()) {
+      // Wipe the mirror first: attach replays the session's whole ring, which
+      // overlaps whatever we already had.
+      this.resyncCb?.(sessionId);
+      this.client.attach(sessionId);
+    }
+  }
+
+  onSessionResync(cb: (sessionId: string) => void): void {
+    this.resyncCb = cb;
   }
 
   async ready(): Promise<void> {

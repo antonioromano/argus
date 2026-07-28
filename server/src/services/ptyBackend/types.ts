@@ -65,4 +65,13 @@ export interface PtyBackend {
   /** Establish any connection the backend needs before spawn/list (daemon: connect
    *  + handshake). No-op for tmux. Awaited by SessionManager before first use. */
   ready?(): Promise<void>;
+
+  /**
+   * Register a callback fired just before the backend replays a session's
+   * history from scratch, because its transport was re-established (daemon
+   * reconnect). The mirror holds pre-drop state that the replay is about to
+   * repeat, so SessionManager wipes it and withholds client output until the
+   * replay settles. tmux has no such transport, so it never registers.
+   */
+  onSessionResync?(cb: (sessionId: string) => void): void;
 }

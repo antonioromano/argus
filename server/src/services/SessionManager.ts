@@ -28,6 +28,7 @@ import { SessionStore, type PersistedSession } from '../persistence/SessionStore
 import { ConfigStore } from '../persistence/ConfigStore.js';
 import { AgentRegistry } from './AgentRegistry.js';
 import { CompanionTerminalManager } from './CompanionTerminalManager.js';
+import { IdleGeometryGate } from './idleGeometryGate.js';
 import { SleepPreventionService } from './SleepPreventionService.js';
 import { FileWatcherService } from './FileWatcherService.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
@@ -50,6 +51,13 @@ interface ManagedSession {
   /** Output accumulated since the last socket flush (see emitOutput). */
   pendingOutput?: string;
   flushTimer?: NodeJS.Timeout;
+  /** True while the backend is replaying this session's history after its
+   *  transport came back (see beginResync): bytes feed the mirror but are
+   *  withheld from clients, who get one authoritative frame at the end. */
+  resyncing?: boolean;
+  resyncSettleTimer?: NodeJS.Timeout;
+  /** Wall-clock cap for the reseed window — a streaming session never goes quiet. */
+  resyncDeadline?: number;
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
@@ -164,6 +172,13 @@ export const SPAWN_COLS = 120;
 export const SPAWN_ROWS = 30;
 
 /**
+ * How long a session must stay unattached before it gets the idle row floor.
+ * Long enough to cover a socket.io reconnect (500ms–3s backoff) and an app
+ * window closing and reopening, so ordinary churn never reaches the pty.
+ */
+export const IDLE_GEOMETRY_DELAY_MS = 15_000;
+
+/**
  * How long the pty must stay quiet after a width change before the stale
  * scrollback is dropped. The trim can't happen at resize time: the rows we want
  * gone don't exist yet. They appear *during* the agent's SIGWINCH repaint — it
@@ -225,12 +240,21 @@ export class SessionManager {
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
 
+  /** Deferred idle-geometry resizes, so a transient viewer loss costs no SIGWINCH. */
+  private idleGeometry = new IdleGeometryGate(IDLE_GEOMETRY_DELAY_MS, (id) => this.applyIdleGeometry(id));
+
   constructor(dataDir: string, configStore: ConfigStore) {
     this.dataDir = dataDir;
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
     this.ptyManager = new PtyManager(dataDir);
     this.backend = makePtyBackend(this.ptyManager, dataDir);
+    this.wireBackend();
+  }
+
+  /** Subscribe to backend-level events that outlive an individual session. */
+  private wireBackend(): void {
+    this.backend.onSessionResync?.((id) => this.beginResync(id));
   }
 
   /**
@@ -242,6 +266,7 @@ export class SessionManager {
   configureBackend(preference: 'auto' | 'tmux'): void {
     if (this.sessions.size > 0) return;
     this.backend = makePtyBackend(this.ptyManager, this.dataDir, preference);
+    this.wireBackend();
   }
 
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */
@@ -546,6 +571,12 @@ export class SessionManager {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
       }
       stateDetector.feed(data);
+      // Mid-reseed these bytes are history the clients already have; they go to
+      // the mirror only, and one authoritative frame follows (see beginResync).
+      if (session.resyncing) {
+        this.armResyncSettle(session);
+        return;
+      }
       this.emitOutput(session, data);
     });
 
@@ -1111,6 +1142,79 @@ export class SessionManager {
     if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
   }
 
+  /** Quiet window that marks the end of a reseed burst (the daemon's ring
+   *  replay arrives as one run of chunks, then normal live output resumes). */
+  private static readonly RESYNC_SETTLE_MS = 250;
+  /**
+   * Hard cap on the reseed window. A session that is actively streaming never
+   * goes quiet, so waiting for quiet alone would withhold its output forever —
+   * the terminal stays blank exactly for the busy sessions that matter most.
+   * Past this the frame goes out and live output resumes regardless.
+   */
+  private static readonly RESYNC_MAX_MS = 1_500;
+
+  /**
+   * The backend re-attached this session after its transport came back, and is
+   * about to replay the session's entire history. Two things must not happen:
+   * the mirror must not end up with the pre-drop screen stacked above the
+   * replayed one, and clients must not receive the replay as *new* output —
+   * that would paste the whole transcript a second time into their terminals.
+   *
+   * So: wipe the mirror, withhold client emission, and once the burst goes
+   * quiet send one authoritative frame instead.
+   */
+  beginResync(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    // Anything buffered belongs to the pre-drop stream the replay supersedes.
+    session.pendingOutput = '';
+    if (session.flushTimer) {
+      clearTimeout(session.flushTimer);
+      session.flushTimer = undefined;
+    }
+    session.outputBuffer = '';
+    session.resyncing = true;
+    session.resyncDeadline = Date.now() + SessionManager.RESYNC_MAX_MS;
+    void session.mirror?.reset();
+    this.armResyncSettle(session);
+  }
+
+  private armResyncSettle(session: ManagedSession): void {
+    if (!session.resyncing) return;
+    const remaining = (session.resyncDeadline ?? 0) - Date.now();
+    if (remaining <= 0) {
+      this.endResync(session);
+      return;
+    }
+    if (session.resyncSettleTimer) clearTimeout(session.resyncSettleTimer);
+    session.resyncSettleTimer = setTimeout(
+      () => this.endResync(session),
+      Math.min(SessionManager.RESYNC_SETTLE_MS, remaining),
+    );
+    session.resyncSettleTimer.unref?.();
+  }
+
+  private endResync(session: ManagedSession): void {
+    if (session.resyncSettleTimer) {
+      clearTimeout(session.resyncSettleTimer);
+      session.resyncSettleTimer = undefined;
+    }
+    if (!session.resyncing) return;
+    session.resyncing = false;
+    session.resyncDeadline = undefined;
+    void this.broadcastResyncFrame(session.id);
+  }
+
+  private async broadcastResyncFrame(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    await session.mirror?.afterWrite();
+    const frame = this.getReplaySnapshot(id);
+    // 'refresh', like the scrollback purge: unsolicited, so a client scrolled up
+    // in history keeps its viewport and picks the frame up on its next join.
+    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+  }
+
   writeToSession(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
@@ -1210,14 +1314,32 @@ export class SessionManager {
   }
 
   /**
+   * The room emptied. Arm the idle resize rather than doing it now: a dropped
+   * socket is usually a viewer that is about to come back, and resizing on the
+   * way out plus again on the way in makes the agent repaint twice — every
+   * session at once, right in the middle of a reconnect. See IdleGeometryGate.
+   */
+  scheduleIdleGeometry(id: string): void {
+    this.idleGeometry.schedule(id);
+  }
+
+  /** A viewer is watching again (join, or a fresh size report). */
+  cancelIdleGeometry(id: string): void {
+    this.idleGeometry.cancel(id);
+  }
+
+  /**
    * No client is watching this session any more — give it a screen tall enough
-   * that the agent's repaints fit (see IDLE_MIN_ROWS). Called by the socket
-   * handler when the room empties; the rejoin's resize-before-join snaps the
-   * grid back to the real tile.
+   * that the agent's repaints fit (see IDLE_MIN_ROWS). Runs from the gate once
+   * the session has stayed unattached for IDLE_GEOMETRY_DELAY_MS; the rejoin's
+   * resize-before-join snaps the grid back to the real tile.
    */
   applyIdleGeometry(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
+    // Raced with the session going away or a viewer returning between the
+    // timer firing and here.
+    if (session.status === 'exited') return;
     const cols = session.cols ?? SPAWN_COLS;
     const rows = session.rows ?? SPAWN_ROWS;
     if (rows >= IDLE_MIN_ROWS) return;

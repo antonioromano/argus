@@ -8,6 +8,9 @@ const KIND_DATA = 0x44; // 'D'
 const PROTOCOL_VERSION = 1;
 const CONNECT_TIMEOUT_MS = 3000;
 const CONNECT_RETRY_MS = 100;
+/** Backoff bounds for reconnecting after the daemon drops us. */
+const RECONNECT_MIN_MS = 250;
+const RECONNECT_MAX_MS = 5000;
 
 interface Control {
   op: string;
@@ -37,6 +40,9 @@ export class DaemonClient extends EventEmitter {
   private connected = false;
   private connecting: Promise<void> | null = null;
   private listPending: ((ids: string[]) => void)[] = [];
+  private disposed = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDelay = RECONNECT_MIN_MS;
 
   constructor(
     private socketPath: string,
@@ -126,7 +132,39 @@ export class DaemonClient extends EventEmitter {
     this.sock = null;
     const was = this.connected;
     this.connected = false;
-    if (was) this.emit('disconnected');
+    if (was) {
+      console.warn('[argusd] connection lost — sessions keep running, reconnecting');
+      this.emit('disconnected');
+    }
+    this.scheduleReconnect();
+  }
+
+  /**
+   * Come back after a drop. The daemon closes the connection when its outbox
+   * overflows — i.e. when this process stopped draining the socket long enough
+   * to look dead — and its sessions deliberately survive that. Without a
+   * reconnect the agents keep running with nobody listening and every terminal
+   * in the app is frozen until a restart.
+   */
+  private scheduleReconnect(): void {
+    if (this.disposed || this.reconnectTimer || this.connected) return;
+    const delayMs = this.reconnectDelay;
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.disposed || this.connected) return;
+      void this.ensureConnected()
+        .then(() => {
+          this.reconnectDelay = RECONNECT_MIN_MS;
+          console.log('[argusd] reconnected — re-attaching sessions');
+          this.emit('reconnected');
+        })
+        .catch((err) => {
+          console.warn('[argusd] reconnect failed, retrying:', (err as Error)?.message);
+          this.scheduleReconnect();
+        });
+    }, delayMs);
+    this.reconnectTimer.unref?.();
   }
 
   private onBytes(chunk: Buffer): void {
@@ -224,6 +262,11 @@ export class DaemonClient extends EventEmitter {
   }
 
   dispose(): void {
+    this.disposed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.sock) {
       this.sock.removeAllListeners();
       this.sock.destroy();

@@ -101,6 +101,9 @@ export function setupSocketHandler(
       // them — receiving the flush after joining would paint them twice.
       manager.flushOutput(sessionId);
       socket.join(sessionId);
+      // A viewer is back before the idle resize landed → it never happens, so
+      // ordinary navigation costs the agent no SIGWINCH repaint at all.
+      manager.cancelIdleGeometry(sessionId);
       // A client is watching → keep the mirror's deep replay history (Q6).
       manager.setMirrorScrollback(sessionId, true);
       // Register this socket for dimension tracking
@@ -130,9 +133,10 @@ export function setupSocketHandler(
         try {
           // No viewers left → hand it a tall screen so the agent's repaints fit
           // (see IDLE_MIN_ROWS). Skipping this leaves the pty frozen at the last
-          // tile's height, and a minimized mosaic tile is ~12–25 rows.
+          // tile's height, and a minimized mosaic tile is ~12–25 rows. Deferred:
+          // a viewer that returns within the grace window cancels it.
           if (dims) manager.resizeSession(sessionId, dims.cols, dims.rows);
-          else manager.applyIdleGeometry(sessionId);
+          else manager.scheduleIdleGeometry(sessionId);
         } catch { /* session may be gone */ }
       }
       console.log(`Client ${socket.id} left session ${sessionId}`);
@@ -295,9 +299,10 @@ export function setupSocketHandler(
             const dims = getSessionDimensions(roomKey);
             try {
               // Same idle-geometry handoff as session:leave — a closed window is
-              // just a viewer that left without saying so.
+              // just a viewer that left without saying so, and a dropped socket
+              // is usually one that reconnects in seconds.
               if (dims) manager.resizeSession(roomKey, dims.cols, dims.rows);
-              else manager.applyIdleGeometry(roomKey);
+              else manager.scheduleIdleGeometry(roomKey);
             } catch { /* session may be gone */ }
             // socket.io clears this socket from its rooms on disconnect, so the
             // room count now reflects remaining watchers (Q6).

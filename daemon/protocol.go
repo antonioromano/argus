@@ -3,9 +3,13 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Wire framing: [uint32 BE bodyLen][body]. body[0] = kind, body[1] = idLen,
@@ -38,14 +42,114 @@ type control struct {
 	Msg      string            `json:"msg,omitempty"`
 }
 
+const (
+	// Bytes of un-sent output the daemon is willing to hold for one consumer.
+	// Past this the consumer is not slow, it is gone: we drop the connection
+	// rather than grow without bound. ~2 full session rings.
+	maxOutboxBytes = 8 << 20
+	// Frames the outbox can hold regardless of size, so a flood of tiny frames
+	// can't outrun the writer either.
+	maxOutboxFrames = 8192
+	// A single socket write that can't complete in this long means the consumer
+	// is wedged, not busy.
+	writeTimeout = 15 * time.Second
+)
+
+var errOutboxFull = errors.New("outbox full — consumer not draining")
+
 // framedConn serializes all writes to a connection (many pty read-loop
 // goroutines + control replies share one socket).
+//
+// Writes NEVER block the caller. A pty read loop that had to wait on the socket
+// would hold its session lock while it waited, and — because every session
+// shares this one connection — every other session's read loop would pile up
+// behind it, stalling the agents themselves and jamming the daemon's control
+// path (spawn/attach/resize/kill) daemon-wide. Instead frames go into a bounded
+// outbox drained by one writer goroutine; if the consumer stops draining, the
+// outbox fills and we close the connection. Sessions survive that close, so the
+// server reconnects and re-attaches, and each session's ring replays the gap.
 type framedConn struct {
 	w  io.Writer
-	mu sync.Mutex
+	mu sync.Mutex // guards w on the synchronous path (no outbox)
+
+	// Async path — set by newClientConn, nil for plain io.Writer wrapping.
+	conn   net.Conn
+	q      chan []byte
+	queued atomic.Int64
+	dead   chan struct{}
+	once   sync.Once
 }
 
+// newFramedConn wraps a plain writer with synchronous framing (test helpers and
+// the client side of the protocol, where there is no fan-in to protect).
 func newFramedConn(w io.Writer) *framedConn { return &framedConn{w: w} }
+
+// newClientConn wraps the active server connection and starts its writer
+// goroutine. All daemon→server frames go through the bounded outbox.
+func newClientConn(c net.Conn) *framedConn {
+	fc := &framedConn{
+		w:    c,
+		conn: c,
+		q:    make(chan []byte, maxOutboxFrames),
+		dead: make(chan struct{}),
+	}
+	go fc.writeLoop()
+	return fc
+}
+
+func (c *framedConn) writeLoop() {
+	for {
+		select {
+		case <-c.dead:
+			return
+		case buf := <-c.q:
+			c.queued.Add(-int64(len(buf)))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if _, err := c.conn.Write(buf); err != nil {
+				c.drop()
+				return
+			}
+		}
+	}
+}
+
+// drop closes the connection and the outbox. Idempotent: the writer goroutine,
+// an overflowing producer and the read loop can all reach it.
+func (c *framedConn) drop() {
+	c.once.Do(func() {
+		close(c.dead)
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
+	})
+}
+
+// enqueue hands one encoded frame to the writer, never blocking.
+func (c *framedConn) enqueue(buf []byte) error {
+	if c.q == nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, err := c.w.Write(buf)
+		return err
+	}
+	select {
+	case <-c.dead:
+		return errOutboxFull
+	default:
+	}
+	if c.queued.Load()+int64(len(buf)) > maxOutboxBytes {
+		c.drop()
+		return errOutboxFull
+	}
+	select {
+	case c.q <- buf:
+		c.queued.Add(int64(len(buf)))
+		return nil
+	default:
+		c.drop()
+		return errOutboxFull
+	}
+}
 
 func (c *framedConn) writeControl(ctl control) error {
 	b, err := json.Marshal(ctl)
@@ -67,16 +171,13 @@ func (c *framedConn) writeFrame(kind byte, id string, payload []byte) error {
 	body = append(body, kind, byte(len(id)))
 	body = append(body, id...)
 	body = append(body, payload...)
-	var hdr [4]byte
-	binary.BigEndian.PutUint32(hdr[:], uint32(len(body)))
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, err := c.w.Write(hdr[:]); err != nil {
-		return err
-	}
-	_, err := c.w.Write(body)
-	return err
+	// One buffer, one write: the outbox hands the writer a complete frame, so a
+	// header can never be separated from its body by a concurrent producer.
+	buf := make([]byte, 4+len(body))
+	binary.BigEndian.PutUint32(buf[:4], uint32(len(body)))
+	copy(buf[4:], body)
+	return c.enqueue(buf)
 }
 
 type frame struct {
