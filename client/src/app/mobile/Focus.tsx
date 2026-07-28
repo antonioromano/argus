@@ -72,6 +72,40 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
     };
   }, []);
 
+  // Landscape on a phone leaves ~380px of height. With the input surface docked
+  // that left the terminal 8 rows (measured, iPhone 15 Pro over the tunnel) — and
+  // since the server fits the pty to the smallest mobile viewer, those 8 rows
+  // became everyone's pty height. Collapse the surface to its restore strip on
+  // rotation into landscape and give the rows back to the terminal; reopening is
+  // one tap, and rotating back restores what we closed.
+  //
+  // Keyed off orientation, NOT height: the software keyboard also shrinks
+  // visualViewport.height, and collapsing the surface then would fight the very
+  // keyboard the user just raised.
+  const [landscape, setLandscape] = useState(
+    () => window.matchMedia?.('(orientation: landscape)').matches ?? false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia?.('(orientation: landscape)');
+    if (!mq) return;
+    const onChange = (e: MediaQueryListEvent) => setLandscape(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const autoClosedRef = useRef(false);
+  useEffect(() => {
+    if (landscape) {
+      setKeyboardOpen((open) => {
+        if (open) autoClosedRef.current = true;
+        return false;
+      });
+    } else if (autoClosedRef.current) {
+      autoClosedRef.current = false;
+      setKeyboardOpen(true);
+    }
+  }, [landscape]);
+
   // On-device debug overlay: visit /mobile?debug=1 to activate.
   // Shows live terminal buffer stats so scroll issues can be diagnosed without
   // Safari Web Inspector or a cable.

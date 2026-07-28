@@ -336,6 +336,13 @@ export function useTerminal(
     };
     socket.on('session:output', handleOutput);
 
+    // Lines-from-bottom to re-apply after the next reseed frame paints. A refit that
+    // changes cols must reseed (skipping it leaves rewrapped duplicate blocks in the
+    // scrollback), and the reseed frame opens with \x1b[3J which lands at the bottom.
+    // Restoring the offset afterwards keeps a rotating reader near their place
+    // without giving up the reseed's correctness. 0 = nothing pending.
+    let pendingScrollRestore = 0;
+
     // Authoritative replay (join/reconnect/resync). Reconcile the wheel-forwarding
     // gate to tmux's truth BEFORE painting, then refresh once the frame parses so
     // the buffer-mode flip (?1049l/h in the frame) leaves no stale DOM rows.
@@ -349,7 +356,16 @@ export function useTerminal(
         if (b.viewportY < b.baseY) return;
       }
       reconcileMouse(appMouse, sgr);
-      terminal.write(data, () => terminal.refresh(0, terminal.rows - 1));
+      terminal.write(data, () => {
+        terminal.refresh(0, terminal.rows - 1);
+        if (pendingScrollRestore > 0) {
+          const lines = pendingScrollRestore;
+          pendingScrollRestore = 0;
+          // The seeded scrollback may be shallower than the reader was deep, in
+          // which case this lands at the top — still nearer than the tail.
+          terminal.scrollLines(-lines);
+        }
+      });
     };
     socket.on('session:replay', handleReplay);
 
@@ -401,6 +417,12 @@ export function useTerminal(
           ((window as Window & { __argusFit?: number }).__argusFit ?? 0) + 1;
         const prevCols = terminal.cols;
         const prevRows = terminal.rows;
+        // How far up the reader was, in lines from the bottom. Rotating a phone
+        // changes cols, and the branch below used to snap such a refit straight to
+        // the bottom — losing the reader's place mid-scrollback. Capture first.
+        const before = terminal.buffer.active;
+        const linesFromBottom = Math.max(0, before.baseY - before.viewportY);
+        const wasScrolledUp = linesFromBottom > 0;
         fitAddon.fit();
         // FitAddon derives cols from one measured cell, but at fractional zoom
         // the DOM renderer's real per-cell advance differs sub-pixel from that
@@ -420,8 +442,7 @@ export function useTerminal(
         }
         // Column change means lines were rewrapped, which can leave the DOM
         // renderer's scrollback row elements in a stale state at the old scroll
-        // position. Reset to the active buffer so the user sees correct content;
-        // they can scroll up again from a clean state.
+        // position. Reset to the active buffer so the user sees correct content.
         if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
         emitResize(terminal.cols, terminal.rows);
@@ -432,7 +453,17 @@ export function useTerminal(
         // Skip while a drag holds the pty at its old grid — reseeding now would
         // paint a frame wrapped for that grid into our already-refitted one. The
         // refit dispatched at drag end reseeds properly.
-        if (!suspendResizeRef.current && (terminal.cols !== prevCols || terminal.rows !== prevRows)) resync(120);
+        const willResync =
+          !suspendResizeRef.current && (terminal.cols !== prevCols || terminal.rows !== prevRows);
+        // Rotating a phone changes cols, and the scrollToBottom above would leave a
+        // reader who was mid-scrollback pinned to the tail. Hand the offset to the
+        // reseed frame (which is what actually repaints) rather than restoring it
+        // here, where the incoming \x1b[3J would immediately undo it.
+        if (wasScrolledUp) {
+          if (willResync) pendingScrollRestore = linesFromBottom;
+          else if (terminal.cols !== prevCols) terminal.scrollLines(-linesFromBottom);
+        }
+        if (willResync) resync(120);
       }
     };
 

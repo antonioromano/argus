@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupSocketHandler } from './handler.js';
+import { setupSocketHandler, MOBILE_MIN_ROWS } from './handler.js';
 import { AuthService } from '../services/AuthService.js';
 import type { Server, Socket } from 'socket.io';
 import type { SessionManager } from '../services/SessionManager.js';
@@ -9,7 +9,7 @@ import type { UpdateService } from '../services/UpdateService.js';
 type Handler = (...args: any[]) => void;
 
 interface Harness {
-  connect: (id: string) => { on: Map<string, Handler>; fire: (ev: string, ...args: any[]) => void };
+  connect: (id: string, client?: 'mobile') => { on: Map<string, Handler>; fire: (ev: string, ...args: any[]) => void };
   resizes: Array<{ id: string; cols: number; rows: number }>;
   idled: string[];
   cancelled: string[];
@@ -56,11 +56,11 @@ function harness(): Harness {
     resizes,
     idled,
     cancelled,
-    connect(id: string) {
+    connect(id: string, client?: 'mobile') {
       const on = new Map<string, Handler>();
       const socket = {
         id,
-        handshake: { auth: {}, query: {} },
+        handshake: { auth: {}, query: client ? { client } : {} },
         on: (ev: string, fn: Handler) => { on.set(ev, fn); },
         emit: () => {},
         join: (room: string) => {
@@ -125,6 +125,51 @@ test('a viewer leaving while another stays sizes the pty to the survivor, not th
 
   assert.deepEqual(h.resizes, [{ id: 'sess-pair', cols: 200, rows: 50 }]);
   assert.deepEqual(h.idled, [], 'someone is still watching — no idle floor');
+});
+
+test('a phone in landscape cannot shrink the pty below the mobile row floor', () => {
+  const h = harness();
+  const desktop = h.connect('sock-desk', undefined);
+  const phone = h.connect('sock-phone', 'mobile');
+  desktop.fire('session:join', 'sess-rot');
+  phone.fire('session:join', 'sess-rot');
+  desktop.fire('session:resize', { sessionId: 'sess-rot', cols: 200, rows: 50 });
+  h.resizes.length = 0;
+
+  // Rotating to landscape measured 104x8 on an iPhone 15 Pro.
+  phone.fire('session:resize', { sessionId: 'sess-rot', cols: 104, rows: 8 });
+
+  assert.deepEqual(
+    h.resizes,
+    [{ id: 'sess-rot', cols: 104, rows: MOBILE_MIN_ROWS }],
+    'the phone still dictates width, but 8 rows must be lifted to the floor so the agent stays usable for every viewer',
+  );
+});
+
+test('a phone in portrait is sized to its own rows, floor or no floor', () => {
+  const h = harness();
+  const phone = h.connect('sock-portrait', 'mobile');
+  phone.fire('session:join', 'sess-portrait');
+  h.resizes.length = 0;
+
+  phone.fire('session:resize', { sessionId: 'sess-portrait', cols: 46, rows: 42 });
+
+  assert.deepEqual(
+    h.resizes,
+    [{ id: 'sess-portrait', cols: 46, rows: 42 }],
+    'portrait already clears the floor — the clamp must not alter the common case',
+  );
+});
+
+test('the floor applies to a phone-only session too, not just when a desktop is watching', () => {
+  const h = harness();
+  const phone = h.connect('sock-solo-phone', 'mobile');
+  phone.fire('session:join', 'sess-solo-rot');
+  h.resizes.length = 0;
+
+  phone.fire('session:resize', { sessionId: 'sess-solo-rot', cols: 104, rows: 8 });
+
+  assert.deepEqual(h.resizes, [{ id: 'sess-solo-rot', cols: 104, rows: MOBILE_MIN_ROWS }]);
 });
 
 test('a viewer that rejoins cancels the pending idle resize, so a reconnect costs no repaint', () => {

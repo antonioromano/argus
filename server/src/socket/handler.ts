@@ -36,9 +36,21 @@ function getMaxDimensions(sessionId: string): { cols: number; rows: number } | n
 }
 
 /**
+ * Row floor for the mobile fit below. A phone in LANDSCAPE has almost no vertical
+ * room left once the input surface is on screen — measured at 8 rows on an iPhone
+ * 15 Pro. Because the fit below takes the *smallest* mobile client, those 8 rows
+ * would become the pty height for every viewer of the session, including a desktop
+ * mosaic tile, and an agent redrawing into 8 rows is unusable. Clamp instead: the
+ * phone then shows the bottom slice of a taller pty (its own scrollback holds the
+ * rest), which is the lesser evil. Portrait is unaffected — it measures ~42 rows.
+ */
+export const MOBILE_MIN_ROWS = 20;
+
+/**
  * PTY size for a session. If any mobile client is viewing it, fit the smallest
  * mobile client (a too-wide pty is unreadable on a phone; a desktop showing a
- * narrower pty merely letterboxes — the standard shared-terminal tradeoff).
+ * narrower pty merely letterboxes — the standard shared-terminal tradeoff),
+ * subject to MOBILE_MIN_ROWS so one landscape phone can't starve everyone.
  * Otherwise size to the largest client (unchanged desktop/mosaic behavior).
  */
 function getSessionDimensions(sessionId: string): { cols: number; rows: number } | null {
@@ -55,7 +67,7 @@ function getSessionDimensions(sessionId: string): { cols: number; rows: number }
     if (rows < minRows) minRows = rows;
   }
   if (hasMobile && minCols > 0 && minRows > 0 && minCols !== Infinity && minRows !== Infinity) {
-    return { cols: minCols, rows: minRows };
+    return { cols: minCols, rows: Math.max(minRows, MOBILE_MIN_ROWS) };
   }
   return getMaxDimensions(sessionId);
 }
