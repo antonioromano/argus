@@ -53,7 +53,7 @@ export function setAppQuitting(v: boolean): void {
 
 // Whether the pending quit should also STOP all agent sessions (vs. the default
 // keep-alive quit that detaches and leaves them running in tmux). Set by the
-// "Quit & Stop All Sessions" menu item / tray entry; read in before-quit.
+// "Quit & Stop All Sessions" menu item; read in before-quit.
 export function setStopAllOnQuit(v: boolean): void {
   stopAllOnQuit = v;
 }
@@ -120,7 +120,7 @@ export function createWindow(): BrowserWindow {
       // filenames, diffs, terminal output) loses direct OS access.
       sandbox: true,
       preload: join(__dirname, 'preload.js'),
-      // Keep the renderer painting while hidden in the tray — reduces how often
+      // Keep the renderer painting while the window is hidden — reduces how often
       // the WebGL terminal surface loses its GPU context on hide/show.
       backgroundThrottling: false,
     },
@@ -163,7 +163,7 @@ export function createWindow(): BrowserWindow {
   });
 
   win.on('close', (e) => {
-    // If the app is quitting, allow the close. Otherwise hide to tray.
+    // If the app is quitting, allow the close. Otherwise hide window + dock icon.
     if (!appIsQuitting) {
       e.preventDefault();
       win?.hide();

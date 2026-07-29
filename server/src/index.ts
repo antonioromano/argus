@@ -280,7 +280,7 @@ export async function shutdownServer(): Promise<void> {
 
 // "Quit & Stop All Sessions" path — terminates every agent instead of detaching,
 // so tmux-backed sessions do NOT survive this quit. Wired to a dedicated Electron
-// menu item / tray entry.
+// menu item.
 export async function shutdownServerStoppingAll(): Promise<void> {
   updateService.stop();
   await sessionManager.stopAllAndShutdown();

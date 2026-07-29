@@ -482,7 +482,7 @@ export function useTerminal(
     };
     window.addEventListener('terminal:refit', handleRefit);
 
-    // Returning from the tray / regaining visibility: refit+refresh so an idle
+    // Reopening the window / regaining visibility: refit+refresh so an idle
     // terminal repaints cleanly at the current size (handles size/DPR drift).
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') handleRefit();

@@ -6,7 +6,6 @@ import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState, setZoomLevel, getZoomLevel } from './window.js';
-import { createTray } from './tray.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
 // session, or after the shader cache is evicted) Chromium's GPU glyph
@@ -714,7 +713,6 @@ async function main() {
   }
 
   createWindow();
-  createTray();
 
   // Surface a failed Phase-2 install from the previous run: if the cache install
   // errored after we quit, the helper relaunched the OLD version and left a
@@ -776,12 +774,17 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-// Prevent Electron from quitting when the last window is closed.
-// The tray keeps the app alive; quitting is only via the tray menu or before-quit.
-// window-all-closed: prevent default quit — tray keeps app alive
+// Prevent Electron from quitting when the last window is closed. Closing only
+// hides the window (and the dock icon); the app stays alive so agents keep
+// streaming. Quitting goes through the Argus menu / Cmd+Q.
 app.on('window-all-closed', () => {
-  // Do nothing — let the tray keep the app alive
+  // Do nothing — the hidden window keeps the app alive
 });
+
+// Reopen paths now that the menu-bar icon is gone: relaunching Argus hits the
+// single-instance lock and fires 'second-instance' → showWindow; clicking the
+// dock icon (while the window is visible, or after an unhide) fires 'activate'.
+app.on('activate', () => { showWindow(); });
 
 // Resolve the tmux binary the same way PtyManager does (server/src/services/
 // PtyManager.ts resolveTmux): ARGUS_TMUX_PATH override → binary bundled in the
@@ -841,7 +844,7 @@ app.on('before-quit', (e) => {
     quitting = true;
     // Save window state before shutdown so position/fullscreen survives a restart.
     saveWindowState();
-    // Signal the window close-handler that this is a real quit, not a hide-to-tray.
+    // Signal the window close-handler that this is a real quit, not a hide.
     setAppQuitting(true);
 
     // Default quit detaches (keep-alive); stop-all terminates every agent.
