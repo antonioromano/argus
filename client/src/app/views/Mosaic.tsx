@@ -731,33 +731,39 @@ function MosaicTileInner({
           {STATUS_LABELS[session.status]}
         </span>
 
-        {/* Layout A: [action] [⋯] ┃ [minimize] [expand] — window pair at the edge. */}
+        {/* [action] ┃ [minimize] [expand] ┃ [⋯] — a rule per group: the pinned
+            action, the window pair, the menu. ⋯ sits last so its popup lines up
+            with the tile's right edge instead of hanging inside it. The leading
+            rule is dropped with the action it separates ('none'). */}
         <div className="argus-tile-actions">
           {quickMeta && quick && (
-            <IconButton
-              icon={quickMeta.icon}
-              label={quickMeta.id === 'diff' && session.hasGitChanges
-                ? 'Diff — has changes'
-                : `${quickMeta.label}${quickMeta.shortcut ? `  ${quickMeta.shortcut}` : ''}`}
-              size="sm"
-              style={quickMeta.id === 'diff'
-                ? { color: session.hasGitChanges ? 'var(--dirty)' : undefined }
-                : undefined}
-              disabled={!quick.available}
-              onClick={(e) => { e.stopPropagation(); quick.run(); }}
-            />
+            <>
+              <IconButton
+                icon={quickMeta.icon}
+                label={quickMeta.id === 'diff' && session.hasGitChanges
+                  ? 'Diff — has changes'
+                  : `${quickMeta.label}${quickMeta.shortcut ? `  ${quickMeta.shortcut}` : ''}`}
+                size="sm"
+                style={quickMeta.id === 'diff'
+                  ? { color: session.hasGitChanges ? 'var(--dirty)' : undefined }
+                  : undefined}
+                disabled={!quick.available}
+                onClick={(e) => { e.stopPropagation(); quick.run(); }}
+              />
+              <span className="argus-tile-winsep" aria-hidden />
+            </>
           )}
+          <IconButton icon={Minus} label="Minimize to chip row" size="sm"
+            onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
+          <IconButton icon={Maximize2} label="Expand to focus view" size="sm"
+            onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
+          <span className="argus-tile-winsep" aria-hidden />
           <IconButton
             icon={MoreHorizontal}
             label="More actions"
             size="sm"
             onClick={openMenu}
           />
-          <span className="argus-tile-winsep" aria-hidden />
-          <IconButton icon={Minus} label="Minimize to chip row" size="sm"
-            onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
-          <IconButton icon={Maximize2} label="Expand to focus view" size="sm"
-            onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
         </div>
 
         {runningIndicator === 'hairline' && session.status === 'running' && (

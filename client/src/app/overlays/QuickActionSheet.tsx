@@ -170,11 +170,16 @@ export function QuickActionPreview({ action }: { action: TileQuickAction }) {
         </span>
         <span className="argus-tile-status argus-status" data-status="running">{STATUS_LABELS.running}</span>
         <span style={{ display: 'flex', alignItems: 'center', color: 'var(--fg-2)' }}>
-          {Icon && <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon size={13} strokeWidth={1.7} /></span>}
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><MoreHorizontal size={13} strokeWidth={1.7} /></span>
-          <span className="argus-tile-winsep" />
+          {Icon && (
+            <>
+              <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon size={13} strokeWidth={1.7} /></span>
+              <span className="argus-tile-winsep" />
+            </>
+          )}
           <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Minus size={13} strokeWidth={1.7} /></span>
           <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Maximize2 size={13} strokeWidth={1.7} /></span>
+          <span className="argus-tile-winsep" />
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><MoreHorizontal size={13} strokeWidth={1.7} /></span>
         </span>
         <span className="argus-tile-prog"><i /></span>
       </div>
