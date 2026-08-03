@@ -40,7 +40,9 @@ export function CompanionTerminalPanel({
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--s-2)',
-          padding: 'var(--s-1) var(--s-4)',
+          height: 'var(--h-panel-header)',
+          boxSizing: 'border-box',
+          padding: '0 var(--s-4)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
         }}

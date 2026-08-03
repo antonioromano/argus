@@ -220,6 +220,13 @@
   --s-9: 56px;
   --s-10: 72px;
 
+  /* Panel header height — one row for the shell header and every side panel that
+     docks beside it (diff, explorer, terminal), so their hairlines line up. Set by
+     the tallest thing any of them holds: a size="sm" Button/IconButton (24px) plus
+     --s-1 above and below, plus the 1px bottom border. Headers pin this with
+     box-sizing: border-box, so adding a control cannot silently retune the row. */
+  --h-panel-header: 33px;
+
   /* Radius — micro, not pillowy */
   --r-0: 0;
   --r-1: 2px;
