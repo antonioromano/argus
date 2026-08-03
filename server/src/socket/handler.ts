@@ -133,6 +133,20 @@ export function setupSocketHandler(
       }
     });
 
+    // A client already in the room whose screen drifted out of alignment (refit,
+    // output settle). Unlike a join it must NOT cost the reader their scroll
+    // position, so it is answered with a screen-only frame — no history, no
+    // `\x1b[3J`. Same flush-before-frame invariant as join: pending coalesced
+    // bytes are already baked into the mirror, so the frame covers them.
+    socket.on('session:resync', (sessionId: string) => {
+      if (!manager.getSession(sessionId)) return;
+      manager.flushOutput(sessionId);
+      const replay = manager.getReplaySnapshot(sessionId, 'screen');
+      if (replay) {
+        socket.emit('session:replay', { sessionId, ...replay, reason: 'resync' });
+      }
+    });
+
     socket.on('session:leave', (sessionId: string) => {
       socket.leave(sessionId);
       // Room may now be empty → drop mirror scrollback to the idle depth (Q6).

@@ -10,6 +10,7 @@ import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcu
 import { installSelectableMouse } from './terminalMouse.js';
 import { terminalSelectionToClipboard } from './terminalCopy.js';
 import { ResizeEmitGate } from './resizeGate.js';
+import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
@@ -284,20 +285,21 @@ export function useTerminal(
     };
     socket.on('connect', handleReconnect);
 
-    // Re-pull a fresh, grid-aligned replay frame (resize-then-join, same as a mount).
-    // The server's join handler returns a snapshot prefixed with \x1b[2J\x1b[3J\x1b[H,
-    // so this REPLACES the buffer rather than appending — the only way, short of a
-    // remount, to re-align a drifted terminal.
+    // Re-pull a grid-aligned replay frame (resize first, so the server builds the
+    // frame for our grid). `session:resync` — not `session:join` — because the
+    // buffer here is not stale: it holds correct history and only the screen has
+    // drifted. The server answers with a screen-only frame (no \x1b[3J), so this
+    // realigns without erasing the scrollback the reader may be sitting in.
     let resyncTimer: ReturnType<typeof setTimeout> | null = null;
-    const resync = (delay: number, joinDelay = 0) => {
+    const resync = (delay: number, frameDelay = 0) => {
       if (resyncTimer) clearTimeout(resyncTimer);
       resyncTimer = setTimeout(() => {
         // Unforced: whatever changed the grid already reported it. This emit only
         // exists to guarantee ordering (server sized before it builds the frame).
         emitResize(terminal.cols, terminal.rows);
-        const doJoin = () => socket.emit('session:join', sessionId);
-        if (joinDelay > 0) setTimeout(doJoin, joinDelay);
-        else doJoin();
+        const askFrame = () => socket.emit('session:resync', sessionId);
+        if (frameDelay > 0) setTimeout(askFrame, frameDelay);
+        else askFrame();
       }, delay);
     };
 
@@ -311,11 +313,10 @@ export function useTerminal(
     // so reseed once: flicker-free since nothing is streaming. Never reseed while
     // running (would flicker the live output).
     //
-    // Scroll-position guard: the resync snapshot starts with \x1b[3J which clears the
-    // entire xterm scrollback and resets the viewport to the bottom. When the user is
-    // scrolled up reading history, that would destroy their position. Skip the resync
-    // whenever the user has scrolled up — the content alignment it provides only
-    // matters for the live bottom-of-buffer view.
+    // A scrolled-up reader is no longer excluded: the resync frame is screen-only,
+    // so realigning them costs nothing (see replayPolicy). The alternate buffer
+    // still is — its frames degrade to full ones server-side, and its real target
+    // here is normal-buffer scrollback (the mosaic-drift reseed) anyway.
     let lastStatus: SessionStatus | null = null;
     const handleStatus = ({ sessionId: sid, status }: { sessionId: string; status: SessionStatus }) => {
       if (sid !== sessionId) return;
@@ -323,11 +324,7 @@ export function useTerminal(
       lastStatus = status;
       if (prev === 'running' && (status === 'waiting' || status === 'done')) {
         const b = terminal.buffer.active;
-        if (b.viewportY < b.baseY) return; // scrolled up — resync would clear scrollback
-        // On the alternate screen, tmux copy-mode keeps the frame fresh and this
-        // output-settle resync's real target is normal-buffer scrollback (the
-        // mosaic-drift reseed). Reseeding the alt frame here would flicker.
-        if (b.type === 'alternate') return;
+        if (!shouldRequestResync({ bufferType: b.type, scrolledUp: b.viewportY < b.baseY })) return;
         resync(150, 300);
       }
     };
@@ -353,13 +350,8 @@ export function useTerminal(
     // the buffer-mode flip (?1049l/h in the frame) leaves no stale DOM rows.
     const handleReplay = ({ sessionId: sid, data, appMouse, sgr, reason }: SessionReplay) => {
       if (sid !== sessionId) return;
-      // An unsolicited 'refresh' frame (server trimmed stale scrollback) starts with
-      // \x1b[3J and snaps the viewport to the bottom. Same guard as the settle-resync:
-      // never do that to someone reading history. A join frame is not optional.
-      if (reason === 'refresh') {
-        const b = terminal.buffer.active;
-        if (b.viewportY < b.baseY) return;
-      }
+      const buf = terminal.buffer.active;
+      if (!shouldPaintReplay(reason, buf.viewportY < buf.baseY)) return;
       reconcileMouse(appMouse, sgr);
       terminal.write(data, () => {
         terminal.refresh(0, terminal.rows - 1);

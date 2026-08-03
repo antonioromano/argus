@@ -145,6 +145,13 @@ export interface PathCompletionResponse {
 // Socket.io typed events
 export interface ClientToServerEvents {
   'session:join': (sessionId: string) => void;
+  /**
+   * "My screen has drifted — realign it, but leave my scrollback alone." Asked by
+   * a client that is already in the room and already holds correct history (after
+   * a refit, or once output settles). Answered with a screen-only frame; a join
+   * would answer with a history-bearing one that erases the reader's place.
+   */
+  'session:resync': (sessionId: string) => void;
   'session:leave': (sessionId: string) => void;
   'session:input': (payload: { sessionId: string; data: string }) => void;
   'session:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;
@@ -182,8 +189,11 @@ export interface SessionReplay {
    * an improved frame nobody asked for (e.g. after trimming stale scrollback); a
    * client whose user is scrolled up reading history may skip it, since the frame
    * resets the viewport to the bottom and one will be served again on the next join.
+   * `resync` is a screen-only realignment (see 'session:resync'): it carries no
+   * history and no ED 3, so it costs a scrolled-up reader nothing and is always
+   * painted.
    */
-  reason?: 'join' | 'refresh';
+  reason?: 'join' | 'refresh' | 'resync';
 }
 
 export interface ServerToClientEvents {

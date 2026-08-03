@@ -296,6 +296,37 @@ test('dirty-target: prefix rescues a client stuck in the alt buffer', async () =
 // env (see task #6 / memory argus-npm-install-env-gotchas). Auto-activates once
 // a `headless55` module resolves.
 // ---------------------------------------------------------------------------
+// Screen-only frames — the payload behind a non-destructive mid-life resync.
+// A full serialize() re-emits history, which forces the client frame to open
+// with ED 3 (wiping the client's own scrollback). serializeScreen() carries the
+// visible screen alone, so the frame can realign without that erase.
+// ---------------------------------------------------------------------------
+
+test('serializeScreen carries the visible screen without the scrollback history', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  const filler = Array.from({ length: 28 }, (_, i) => `filler${i}`).join('\r\n');
+  await m.feed(`OLDEST\r\n${filler}\r\nNEWEST`);
+  await m.afterWrite();
+
+  assert.match(m.serialize(), /OLDEST/, 'full frame must still carry scrolled-off history');
+  const screen = m.serializeScreen();
+  assert.doesNotMatch(screen, /OLDEST/, 'screen-only frame must omit scrolled-off history');
+  assert.match(screen, /NEWEST/, 'screen-only frame must carry the current screen');
+  m.dispose();
+});
+
+test('serializeScreen re-emits the modes serialize() omits', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('\x1b[?1006h\x1b[?25lhidden');
+  await m.afterWrite();
+
+  const screen = m.serializeScreen();
+  assert.match(screen, /\x1b\[\?1006h/, 'SGR mouse encoding must survive a screen-only frame');
+  assert.match(screen, /\x1b\[\?25l/, 'hidden cursor must survive a screen-only frame');
+  m.dispose();
+});
+
+// ---------------------------------------------------------------------------
 
 test('cross-version: serialize 6.0.0 → replay 5.5.0 holds grid', async (t) => {
   let Terminal55: (new (opts?: ITerminalOptions & ITerminalInitOnlyOptions) => XTerminal) | null = null;

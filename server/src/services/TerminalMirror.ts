@@ -174,6 +174,17 @@ export class TerminalMirror {
     return this.serializer.serialize({ scrollback: this.scrollback }) + this.appendModes();
   }
 
+  /**
+   * The visible screen alone — no scrollback history. Payload for a mid-life
+   * resync, whose whole point is to realign the client's screen WITHOUT the
+   * `\x1b[3J` that a history-bearing frame needs to avoid stacking duplicate
+   * rows. Modes are appended exactly as in serialize().
+   */
+  serializeScreen(): string {
+    if (this.destroyed) return '';
+    return this.serializer.serialize({ scrollback: 0 }) + this.appendModes();
+  }
+
   /** Escape sequences for enabled modes that serialize() does not itself emit. */
   private appendModes(): string {
     let out = '';

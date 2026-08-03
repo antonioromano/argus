@@ -79,6 +79,42 @@ test('getReplaySnapshot reflects alternate + SGR mouse mode from the mirror', as
   mirror.dispose();
 });
 
+test("the 'screen' flavor realigns without ED 3, so a client keeps its own scrollback", async () => {
+  const mirror = new TerminalMirror(40, 10, 200);
+  const filler = Array.from({ length: 28 }, (_, i) => `filler${i}`).join('\r\n');
+  await mirror.feed(`OLDEST\r\n${filler}\r\nNEWEST`);
+  await mirror.afterWrite();
+
+  const { sm } = mgrWithMirrorSession('s-screen', mirror);
+  const frame = sm.getReplaySnapshot('s-screen', 'screen');
+
+  assert.ok(frame, 'frame returned');
+  assert.ok(
+    frame!.data.startsWith('\x1b[?1049l\x1b[2J\x1b[H'),
+    'screen frame must force the normal buffer and erase the screen only',
+  );
+  assert.ok(!frame!.data.includes('\x1b[3J'), 'screen frame must never erase the client scrollback');
+  assert.doesNotMatch(frame!.data, /OLDEST/, 'screen frame must not re-send scrolled-off history');
+  assert.match(frame!.data, /NEWEST/, 'screen frame must still carry the current screen');
+  mirror.dispose();
+});
+
+test("the 'screen' flavor degrades to a full frame on the alternate buffer", async () => {
+  const mirror = new TerminalMirror(40, 10, 200);
+  await mirror.feed('\x1b[?1049h'); // alt screen: no scrollback to preserve, needs the buffer switch
+  await mirror.feed('alt content');
+  await mirror.afterWrite();
+
+  const { sm } = mgrWithMirrorSession('s-alt-screen', mirror);
+  const frame = sm.getReplaySnapshot('s-alt-screen', 'screen');
+
+  assert.ok(
+    frame!.data.startsWith('\x1b[?1049l\x1b[2J\x1b[3J\x1b[H'),
+    'alt-buffer sessions must keep the full reconcile prefix',
+  );
+  mirror.dispose();
+});
+
 test('reconnect storm: N joins do zero tmux subprocess calls (no TTL cache needed)', async () => {
   const mirror = new TerminalMirror(40, 10, 200);
   await mirror.feed('storm test\r\n');

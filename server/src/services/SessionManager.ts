@@ -201,6 +201,20 @@ function isWheelReport(data: string): boolean {
   return WHEEL_REPORT_RE.test(data);
 }
 
+/**
+ * How much of the mirror a replay frame carries.
+ *
+ * `full` — screen + scrollback, opened with ED 3. The only correct frame for a
+ * client whose buffer is empty or stale (mount, socket reconnect, daemon
+ * re-attach, post-trim refresh): it must replace whatever is there.
+ *
+ * `screen` — the visible screen alone, no ED 3. For a mid-life resync, where the
+ * client already holds correct history and only its screen has drifted out of
+ * alignment. Erasing its scrollback there would throw away the reader's place
+ * for nothing.
+ */
+export type ReplayFlavor = 'full' | 'screen';
+
 /** Authoritative replay frame + the buffer/mouse truth the client reconciles to.
  *  Wire shape adds `sessionId` (see SessionReplay in @argus/shared). */
 export interface SessionReplayFrame {
@@ -1095,12 +1109,22 @@ export class SessionManager {
     }
   }
 
-  getReplaySnapshot(id: string): SessionReplayFrame | undefined {
+  getReplaySnapshot(id: string, flavor: ReplayFlavor = 'full'): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
     try {
       const alternate = session.mirror.bufferType() === 'alternate';
       const { appMouse, sgr } = session.mirror.modes();
+      // Alt screen has no scrollback to protect, and the frame must re-emit the
+      // buffer switch to land at all — so a screen-only frame buys nothing here.
+      if (flavor === 'screen' && !alternate) {
+        return {
+          data: '\x1b[?1049l\x1b[2J\x1b[H' + session.mirror.serializeScreen(),
+          alternate,
+          appMouse,
+          sgr,
+        };
+      }
       const prefix = '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H';
       return { data: prefix + session.mirror.serialize(), alternate, appMouse, sgr };
     } catch {
