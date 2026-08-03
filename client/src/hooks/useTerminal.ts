@@ -8,6 +8,7 @@ import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, Session
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
+import { terminalSelectionToClipboard } from './terminalCopy.js';
 import { ResizeEmitGate } from './resizeGate.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
@@ -223,9 +224,13 @@ export function useTerminal(
     // paste as one broken line. getSelection() emits real `\n` at hard row
     // boundaries and joins soft-wrapped lines without a break. One `copy`
     // listener covers both Cmd+C and the Electron Edit-menu `{ role: 'copy' }`.
+    //
+    // getSelection() alone still pastes badly, because the agent wraps and
+    // gutters its output itself — every row arrives as a hard line with a left
+    // indent, so there is no soft wrap left for xterm to join. See terminalCopy.
     const handleCopy = (e: ClipboardEvent) => {
       if (!terminal.hasSelection()) return;
-      e.clipboardData?.setData('text/plain', terminal.getSelection());
+      e.clipboardData?.setData('text/plain', terminalSelectionToClipboard(terminal.getSelection()));
       e.preventDefault();
     };
     container.addEventListener('copy', handleCopy);

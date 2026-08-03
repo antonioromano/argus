@@ -6,6 +6,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
+import { terminalSelectionToClipboard } from './terminalCopy.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
@@ -215,12 +216,11 @@ export function useCompanionTerminal(
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Copy via xterm's getSelection() so multi-line selections keep real
-    // newlines (the DOM renderer otherwise lets Chromium join rows with
-    // spaces). See useTerminal for the full rationale.
+    // Copy via xterm's getSelection(), then undo the agent's own wrapping and
+    // gutter. See useTerminal / terminalCopy for the full rationale.
     const handleCopy = (e: ClipboardEvent) => {
       if (!terminal.hasSelection()) return;
-      e.clipboardData?.setData('text/plain', terminal.getSelection());
+      e.clipboardData?.setData('text/plain', terminalSelectionToClipboard(terminal.getSelection()));
       e.preventDefault();
     };
     container.addEventListener('copy', handleCopy);
