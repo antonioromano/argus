@@ -46,6 +46,20 @@ export interface AgentFlag {
   enabled: boolean;  // sticky default (last-used state per agent)
 }
 
+/** Action pinned in every mosaic tile header, next to the permanent window controls. */
+export type TileQuickAction =
+  | 'diff'
+  | 'files'
+  | 'shell'
+  | 'clone'
+  | 'restart'
+  | 'done'
+  | 'apply'
+  | 'none';
+
+/** How a running shell signals progress in its tile header. */
+export type TileRunningIndicator = 'hairline' | 'off';
+
 export interface AppConfig {
   defaultAgent: AgentType;
   customAgents: AgentDefinition[];
@@ -75,6 +89,15 @@ export interface AppConfig {
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
   // needs an app restart (running sessions are bound to their backend).
   ptyBackend?: 'auto' | 'tmux';
+  // Mosaic tile header: the one configurable action pinned beside the permanent
+  // minimize/expand controls (default: 'diff'). Everything else lives in the ⋯ menu.
+  tileQuickAction?: TileQuickAction;
+  // 2px progress hairline under the header while an agent is working (default: 'hairline').
+  tileRunningIndicator?: TileRunningIndicator;
+  // Version that already showed the quick-action picker. Empty/absent ⇒ show it on
+  // next launch. A version string (not a bool) so a future release can re-ask
+  // without a config migration.
+  quickActionPromptedAt?: string;
 }
 
 export interface AgentStatus {

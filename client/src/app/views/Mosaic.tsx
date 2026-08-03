@@ -1,11 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { SessionInfo, MosaicWaitingStyle } from '@argus/shared';
+import type { SessionInfo, MosaicWaitingStyle, TileQuickAction, TileRunningIndicator } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Layers, MoreHorizontal, Bug } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, MoreHorizontal, Bug } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { StatusPill, StatusDot, EmptyState, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu } from '../../components/primitives/index.js';
+import type { ContextMenuEntry } from '../../components/primitives/index.js';
+import { STATUS_LABELS } from '../../constants/status.js';
+import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
 import { Landing } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
@@ -77,11 +80,15 @@ interface MosaicProps {
   notifiedTileId?: string | null;
   /** Visual treatment for a waiting-for-input tile (default: breathing). */
   waitingStyle?: MosaicWaitingStyle;
+  /** The one configurable action pinned in each tile header (default: diff). */
+  quickAction?: TileQuickAction;
+  /** Progress hairline under the header while running (default: hairline). */
+  runningIndicator?: TileRunningIndicator;
 }
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -356,6 +363,8 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onOpenSearch={onRequestSearch ? handleTileOpenSearch : undefined}
                   onCloseSearch={onCloseSearch ? handleTileCloseSearch : undefined}
                   isNotified={notifiedTileId === s.id}
+                  quickAction={quickAction}
+                  runningIndicator={runningIndicator}
                 />
               ))}
             </div>
@@ -438,6 +447,9 @@ type MosaicTileSharedProps = {
   onCloseSearch?: () => void;
   /** True while this tile is the notification-click target; triggers glow + terminal focus. */
   isNotified?: boolean;
+  /** Pinned header action + running-progress treatment, both from config. */
+  quickAction: TileQuickAction;
+  runningIndicator: TileRunningIndicator;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -474,20 +486,10 @@ function TileDragPreview({ session }: { session: SessionInfo; theme: 'dark' | 'l
     <div className="argus-tile argus-tile-drag-overlay" data-status={session.status}>
       <div className="argus-tile-header">
         <AgentGlyph agent={session.agentType} size={16} />
-        <StatusPill status={session.status} size="sm" />
-        <span
-          style={{
-            flex: '0 1 auto',
-            minWidth: 0,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-tiny)',
-            color: 'var(--fg-0)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {shellLabel(session)}
+        <StatusDot status={session.status} size={7} />
+        <span className="argus-tile-name" style={{ color: 'var(--fg-0)' }}>{shellLabel(session)}</span>
+        <span className="argus-tile-status argus-status" data-status={session.status}>
+          {STATUS_LABELS[session.status]}
         </span>
       </div>
     </div>
@@ -533,12 +535,6 @@ function ChipDragPreview({ session }: { session: SessionInfo }) {
   );
 }
 
-// ─── MosaicTile animation constants ──────────────────────────────────────────
-const CTA_DUR = 200;
-const CTA_STAGGER = 20;
-const CTA_EASE = 'cubic-bezier(.42,0,.58,1)';
-const CTA_TEXT_DELAY = Math.round(CTA_DUR * 0.65 + CTA_STAGGER * 3);
-
 // ─── MosaicTile ───────────────────────────────────────────────────────────────
 
 function MosaicTileInner({
@@ -577,12 +573,14 @@ function MosaicTileInner({
   searchOpen,
   onOpenSearch,
   onCloseSearch,
+  quickAction,
+  runningIndicator,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
 }) {
   const [copied, setCopied] = useState(false);
-  const [ctaHovered, setCtaHovered] = useState(false);
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // Stable wrapper so TerminalShell's memo isn't busted by a fresh closure here.
   const sessionId = session.id;
   const handleFocusChange = useCallback(
@@ -594,8 +592,6 @@ function MosaicTileInner({
     () => onOpenSearch?.(sessionId),
     [onOpenSearch, sessionId],
   );
-  const pathRef = useRef<HTMLSpanElement>(null);
-  const stripRef = useRef<HTMLDivElement>(null);
   const tileRootRef = useRef<HTMLDivElement>(null);
   // Capture autoFocus at mount: true means this tile is being restored from the
   // minimized row and should skip the staggered entrance animation (which would
@@ -603,7 +599,6 @@ function MosaicTileInner({
   // Capture autoFocus once at mount via useState initializer (reading a ref's
   // .current during render is disallowed); the value never updates afterward.
   const [skipAnimation] = useState(autoFocus);
-  const animTimeoutRef = useRef<number | null>(null);
 
   // Notification-click: scroll into view and increment focusToken to request xterm focus.
   const [focusToken, setFocusToken] = useState(0);
@@ -622,47 +617,56 @@ function MosaicTileInner({
   };
   const copyPath = (e: React.MouseEvent) => { e.stopPropagation(); doCopy(); };
 
-  const handleCtaEnter = () => {
-    const path = pathRef.current;
-    const strip = stripRef.current;
-    if (!path || !strip) return;
-    if (animTimeoutRef.current !== null) {
-      clearTimeout(animTimeoutRef.current);
-      animTimeoutRef.current = null;
-    }
-    const icons = [...strip.children] as HTMLElement[];
-    path.style.transitionDelay = '0ms';
-    icons.forEach((el, i) => {
-      el.style.pointerEvents = 'none';
-      el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${i * CTA_STAGGER}ms`;
-      el.style.transform = 'translateX(0)';
-    });
-    const lastDone = CTA_DUR + (icons.length - 1) * CTA_STAGGER;
-    animTimeoutRef.current = window.setTimeout(() => {
-      icons.forEach(el => { el.style.pointerEvents = ''; });
-      animTimeoutRef.current = null;
-    }, lastDone);
-    setCtaHovered(true);
+  // ⋯ overflow menu. Opened by click (never hover), anchored under the button.
+  // Click-driven state cannot be stranded: ContextMenu closes on Escape, outside
+  // mousedown, window blur, and resize.
+  const openMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenuAt({ x: r.right - 200, y: r.bottom + 4 });
   };
+  const closeMenu = useCallback(() => setMenuAt(null), []);
 
-  const handleCtaLeave = () => {
-    const path = pathRef.current;
-    const strip = stripRef.current;
-    if (!path || !strip) return;
-    if (animTimeoutRef.current !== null) {
-      clearTimeout(animTimeoutRef.current);
-      animTimeoutRef.current = null;
-    }
-    const icons = [...strip.children] as HTMLElement[];
-    icons.forEach((el, i) => {
-      el.style.pointerEvents = 'none';
-      const delay = (icons.length - 1 - i) * CTA_STAGGER;
-      el.style.transition = `transform ${CTA_DUR}ms ${CTA_EASE} ${delay}ms`;
-      el.style.transform = 'translateX(300px)';
-    });
-    path.style.transitionDelay = `${CTA_TEXT_DELAY}ms`;
-    setCtaHovered(false);
+  const menuItems: ContextMenuEntry[] = [
+    { header: 'Navigate' },
+    {
+      id: 'diff',
+      label: session.hasGitChanges ? 'Diff — has changes' : 'Diff',
+      icon: GitBranch,
+      shortcut: '⌘D',
+      disabled: !onFocusDiff && !onOpenDiff,
+      onClick: () => { if (onFocusDiff) onFocusDiff(session.id); else onOpenDiff?.(session.id); },
+    },
+    ...(onFocusExplorer ? [{ id: 'files', label: 'Files', icon: FolderOpen, shortcut: '⌘E', onClick: () => onFocusExplorer(session.id) }] : []),
+    ...(onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: Terminal, shortcut: '⌘T', onClick: () => onFocusTerminal(session.id) }] : []),
+    { id: 'focus', label: 'Expand to focus', icon: Maximize2, onClick: () => onOpen(session.id) },
+    { separator: true },
+    { header: 'Session' },
+    { id: 'minimize', label: 'Minimize', icon: Minus, onClick: () => onToggleMinimize(session.id) },
+    ...(onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => onClone(session) }] : []),
+    ...(onMerge && canMerge ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => onMerge(session) }] : []),
+    ...(onMarkDone && canMarkDone ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => onMarkDone(session) }] : []),
+    { id: 'restart', label: 'Restart shell', icon: RotateCcw, onClick: () => onRestart(session) },
+    ...(showDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => onDumpDiagnostics(session) }] : []),
+    { separator: true },
+    { header: 'Danger' },
+    { id: 'close', label: 'Close shell', icon: CircleX, shortcut: '⌘W', danger: true, onClick: () => onKill(session) },
+  ];
+
+  // The one configurable pinned action. 'none' collapses the slot; the action
+  // itself never disappears — it is always in the ⋯ menu above.
+  const quickMeta = quickAction === 'none' ? null : tileActionMeta(quickAction);
+  const quickHandlers: Record<Exclude<TileQuickAction, 'none'>, { run: () => void; available: boolean }> = {
+    diff:    { run: () => { if (onFocusDiff) onFocusDiff(session.id); else onOpenDiff?.(session.id); }, available: !!(onFocusDiff || onOpenDiff) },
+    files:   { run: () => onFocusExplorer?.(session.id), available: !!onFocusExplorer },
+    shell:   { run: () => onFocusTerminal?.(session.id), available: !!onFocusTerminal },
+    clone:   { run: () => onClone?.(session),            available: !!onClone },
+    restart: { run: () => onRestart(session),            available: true },
+    done:    { run: () => onMarkDone?.(session),         available: !!onMarkDone && !!canMarkDone },
+    apply:   { run: () => onMerge?.(session),            available: !!onMerge && !!canMerge },
   };
+  const quick = quickMeta ? quickHandlers[quickMeta.id as Exclude<TileQuickAction, 'none'>] : null;
+
   const tileClass = [
     'argus-tile',
     isMinimizing && 'argus-tile--minimizing',
@@ -681,10 +685,10 @@ function MosaicTileInner({
       {(!isFocused || !windowFocused) && (
         <div className="argus-tile-overlay" />
       )}
+      {/* Header: identity is permanent. Nothing here ever slides, so no hover
+          state can strand the name off-screen (the pre-0.22 swap could). */}
       <div
-        className={`argus-tile-header${ctaHovered ? ' argus-tile-header--hovered' : ''}`}
-        onMouseEnter={handleCtaEnter}
-        onMouseLeave={handleCtaLeave}
+        className="argus-tile-header"
         {...dragHandleListeners}
         {...dragHandleAttributes}
       >
@@ -695,93 +699,73 @@ function MosaicTileInner({
             style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
           />
         )}
-        {/* pill stays outside swap zone; label collapses to dot on hover via CSS */}
-        <StatusPill status={session.status} size="sm" />
+        <StatusDot status={session.status} size={7} />
 
-        {/* swap zone: path slides out left, icons enter from right */}
-        <div className="argus-tile-swap-zone">
+        <Tooltip content="Click to copy path">
           <span
-            ref={pathRef}
-            className="argus-tile-path"
+            role="button"
+            tabIndex={0}
+            className="argus-tile-name"
+            aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
+            onClick={copyPath}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
+            style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
           >
-            <Tooltip content="Click to copy path">
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
-                onClick={copyPath}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-tiny)',
-                  color: copied ? 'var(--accent)' : 'var(--fg-0)',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {copied && <Check size={11} strokeWidth={2} />}
-                {copied ? 'Copied path' : shellLabel(session)}
-              </span>
-            </Tooltip>
+            {copied && <Check size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
+            {copied ? 'Copied path' : shellLabel(session)}
           </span>
+        </Tooltip>
 
-          {/* icon strip — all start off-screen right via CSS; JS animates */}
-          <div ref={stripRef} className="argus-tile-icon-strip">
-            {/* unified git icon: amber when dirty, muted when clean */}
+        {session.worktreeBranch && (
+          <Tooltip content={session.worktreeBranch}>
+            <span className="argus-tile-branch">{session.worktreeBranch.replace(/^argus\//, '')}</span>
+          </Tooltip>
+        )}
+        {session.hasGitChanges && (
+          <Tooltip content="Uncommitted changes">
+            <span className="argus-tile-dirty" />
+          </Tooltip>
+        )}
+
+        <span className="argus-tile-status argus-status" data-status={session.status}>
+          {STATUS_LABELS[session.status]}
+        </span>
+
+        {/* Layout A: [action] [⋯] ┃ [minimize] [expand] — window pair at the edge. */}
+        <div className="argus-tile-actions">
+          {quickMeta && quick && (
             <IconButton
-              icon={GitBranch}
-              label={session.hasGitChanges ? 'Open diff (has changes)' : 'No git changes'}
+              icon={quickMeta.icon}
+              label={quickMeta.id === 'diff' && session.hasGitChanges
+                ? 'Diff — has changes'
+                : `${quickMeta.label}${quickMeta.shortcut ? `  ${quickMeta.shortcut}` : ''}`}
               size="sm"
-              style={{ color: session.hasGitChanges ? 'var(--dirty)' : 'var(--fg-4)' }}
-              onClick={(e) => { e.stopPropagation(); if (onFocusDiff) { onFocusDiff(session.id); } else { onOpenDiff?.(session.id); } }}
-              disabled={!onFocusDiff && !onOpenDiff}
+              style={quickMeta.id === 'diff'
+                ? { color: session.hasGitChanges ? 'var(--dirty)' : undefined }
+                : undefined}
+              disabled={!quick.available}
+              onClick={(e) => { e.stopPropagation(); quick.run(); }}
             />
-            {onFocusExplorer && (
-              <IconButton icon={FolderOpen} label="Open files in focus" size="sm"
-                onClick={(e) => { e.stopPropagation(); onFocusExplorer(session.id); }} />
-            )}
-            {onFocusTerminal && (
-              <IconButton icon={Terminal} label="Open shell in focus" size="sm"
-                onClick={(e) => { e.stopPropagation(); onFocusTerminal(session.id); }} />
-            )}
-            {onMarkDone && canMarkDone && (
-              <IconButton icon={CheckCircle2} label="Mark as done" size="sm"
-                style={{ color: 'var(--status-done)' }}
-                onClick={(e) => { e.stopPropagation(); onMarkDone(session); }} />
-            )}
-            <div style={{ width: 1, height: 14, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 1px' }} />
-            <IconButton icon={Minus} label="Minimize shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
-            <IconButton icon={Maximize2} label="Open in focus" size="sm"
-              onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
-            {onClone && (
-              <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm"
-                onClick={(e) => { e.stopPropagation(); onClone(session); }} />
-            )}
-            {onMerge && canMerge && (
-              <IconButton icon={ArrowDownToLine} label="Apply to project" size="sm"
-                onClick={(e) => { e.stopPropagation(); onMerge(session); }} />
-            )}
-            {showDiagnostics && (
-              <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm"
-                onClick={(e) => { e.stopPropagation(); onDumpDiagnostics(session); }} />
-            )}
-            <IconButton icon={RotateCcw} label="Restart shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onRestart(session); }} />
-            <IconButton icon={CircleX} label="Close shell" size="sm"
-              onClick={(e) => { e.stopPropagation(); onKill(session); }} />
-          </div>
+          )}
+          <IconButton
+            icon={MoreHorizontal}
+            label="More actions"
+            size="sm"
+            onClick={openMenu}
+          />
+          <span className="argus-tile-winsep" aria-hidden />
+          <IconButton icon={Minus} label="Minimize to chip row" size="sm"
+            onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
+          <IconButton icon={Maximize2} label="Expand to focus view" size="sm"
+            onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
         </div>
 
-        {/* group triggers — hint at hidden actions; collapse on hover */}
-        <div className="argus-tile-group-triggers" aria-hidden>
-          <span className="argus-tile-gt"><Layers size={12} strokeWidth={1.6} /></span>
-          <span className="argus-tile-gt"><MoreHorizontal size={12} strokeWidth={1.6} /></span>
-        </div>
+        {runningIndicator === 'hairline' && session.status === 'running' && (
+          <span className="argus-tile-prog" aria-hidden><i /></span>
+        )}
       </div>
+
+      {menuAt && <ContextMenu x={menuAt.x} y={menuAt.y} items={menuItems} onClose={closeMenu} />}
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>

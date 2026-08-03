@@ -32,6 +32,9 @@ import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
+import { QuickActionSheet } from './overlays/QuickActionSheet.js';
+import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
+import { DEFAULT_TILE_QUICK_ACTION } from '../constants/tileActions.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
@@ -645,6 +648,8 @@ function DesktopInner() {
               onActiveTerminalChange={setMosaicFocusedId}
               notifiedTileId={notifiedTileId}
               waitingStyle={config?.mosaicWaitingStyle ?? 'breathing'}
+              quickAction={config?.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
+              runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
             />
           )}
 
@@ -810,6 +815,17 @@ function DesktopInner() {
           onClose={() => setMergeFlow(null)}
           onMerge={(branch) => { void executeMerge(branch); }}
           onCleanUp={() => { void handleMergeDeleteWorktree(); }}
+        />
+      )}
+
+      {/* One-time quick-action picker. Held back until config and the running
+          version are both known, so it can never stamp itself away on boot. */}
+      {shouldPromptQuickAction(config, updateStatus?.currentVersion) && (
+        <QuickActionSheet
+          version={updateStatus!.currentVersion}
+          onConfirm={(action, version) => {
+            void updateConfig({ tileQuickAction: action, quickActionPromptedAt: version });
+          }}
         />
       )}
 

@@ -486,12 +486,6 @@ body {
   overflow: hidden;
   max-width: 60px;
   white-space: nowrap;
-  /* No transition: animating max-width/margin reflows every frame on the CPU
-     (GPU compositing is off). The collapse is now instant — one layout, not 26. */
-}
-.argus-tile-header--hovered .argus-pill .argus-pill-label {
-  max-width: 0;
-  margin-left: -6px; /* absorb the flex gap so dot stays centered in pill */
 }
 
 .argus-dot {
@@ -803,57 +797,103 @@ body {
   cursor: grabbing;
 }
 
-/* ── Tile header hover-reveal CTA swap ───────────────────────────────────── */
-.argus-tile-swap-zone {
+/* ── Tile header — static identity, permanent window controls ─────────────────
+   0.22 replaced the hover swap (name slid out so an icon strip could take its
+   pixels). That swap mixed a React class with imperative inline transforms, so
+   any missed mouseleave — drag handle re-parenting, minimize's pointer-events:
+   none, reflow spring, window blur — stranded the header showing actions and no
+   name. Nothing here transforms, so that failure mode cannot recur. */
+.argus-tile-name {
   flex: 1;
   min-width: 0;
-  position: relative;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-0);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
-.argus-tile-path {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  display: flex;
-  align-items: center;
-  transform: translateX(0);
-  transition: transform 200ms cubic-bezier(.42,0,.58,1);
-  pointer-events: all;
-}
-.argus-tile-header--hovered .argus-tile-path {
-  transform: translateX(-110%);
-}
-.argus-tile-icon-strip {
-  position: absolute;
-  right: 0; top: 0; bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-/* all strip children start off-screen right; JS overrides via inline style */
-.argus-tile-icon-strip > * {
-  transform: translateX(300px);
-}
-.argus-tile-group-triggers {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+.argus-tile-branch {
   flex-shrink: 0;
-  max-width: 48px;
+  max-width: 104px;
   overflow: hidden;
-  transition: max-width 200ms cubic-bezier(.42,0,.58,1), opacity 100ms;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-eye);
+  background: var(--accent-bg);
+  color: var(--accent);
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-1);
+  padding: 1px var(--s-1);
 }
-.argus-tile-header--hovered .argus-tile-group-triggers {
-  max-width: 0;
-  opacity: 0;
+.argus-tile-dirty {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dirty);
+  flex-shrink: 0;
+}
+/* Padded so the `flag` waiting style can fill it into a chip without reflowing. */
+.argus-tile-status {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-eye);
+  color: var(--st-color);
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  padding: 1px var(--s-1);
+  line-height: 1.2;
+}
+/* Always mounted, always the same size — hover only changes opacity, so no row
+   reflow (and no hover-revealed control that can be left stranded). */
+.argus-tile-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity var(--dur-fast) var(--ease-std);
+}
+.argus-tile:hover .argus-tile-actions,
+.argus-tile-actions:focus-within {
+  opacity: 1;
+}
+.argus-tile-winsep {
+  width: 1px;
+  height: 14px;
+  background: var(--line-2);
+  border-radius: 1px;
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* Running progress hairline — replaces the marquee bar for `running` tiles.
+   Animates `left` on a 2px strip inside overflow:hidden: one compositable
+   property, no layout, and it reads at 12-tile scale. */
+.argus-tile-prog {
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 2px;
+  overflow: hidden;
   pointer-events: none;
 }
-.argus-tile-gt {
-  width: 20px; height: 20px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--r-2);
-  color: var(--fg-4);
-  flex-shrink: 0;
+.argus-tile-prog > i {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 34%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--status-running), transparent);
+  animation: argus-tile-prog-crawl 1.9s cubic-bezier(.45, 0, .55, 1) infinite;
+}
+@keyframes argus-tile-prog-crawl {
+  0%   { left: -36%; }
+  100% { left: 102%; }
 }
 
 /* Minimized-shell pill — shared by the focus OTHERS strip and the mosaic minrow. */
@@ -1012,7 +1052,7 @@ body {
   animation: argus-pulse-bar var(--dur-ambient) ease-in-out infinite;
   pointer-events: none;
 }
-.argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-pill {
+.argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-tile-status {
   background: var(--accent);
   color: var(--fg-on-accent);
   border-color: var(--accent);
@@ -1030,8 +1070,16 @@ body {
     animation: none !important;
     box-shadow: 0 0 0 2px var(--status-waiting), 0 0 24px 2px var(--accent-glow);
   }
-  .argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-pill {
+  .argus-mosaic[data-waiting-style="flag"] .argus-tile[data-status="waiting"] .argus-tile-status {
     animation: none !important;
+  }
+  /* Static bar instead of a crawling one — still says "working". */
+  .argus-tile-prog > i {
+    animation: none !important;
+    left: 0;
+    width: 100%;
+    background: var(--status-running);
+    opacity: 0.55;
   }
 }
 

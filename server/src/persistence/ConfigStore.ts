@@ -23,6 +23,9 @@ const DEFAULT_CONFIG: AppConfig = {
   mosaicWaitingStyle: 'breathing',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
+  tileQuickAction: 'diff',
+  tileRunningIndicator: 'hairline',
+  quickActionPromptedAt: '',
 };
 
 export class ConfigStore {

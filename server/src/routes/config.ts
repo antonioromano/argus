@@ -1,8 +1,14 @@
 import { Router } from 'express';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { AgentRegistry } from '../services/AgentRegistry.js';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
+import type { AgentDefinition, AgentFlag, AppConfig, TileQuickAction } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
+
+const TILE_QUICK_ACTIONS: readonly TileQuickAction[] = ['diff', 'files', 'shell', 'clone', 'restart', 'done', 'apply', 'none'];
+
+function isTileQuickAction(v: unknown): v is TileQuickAction {
+  return typeof v === 'string' && (TILE_QUICK_ACTIONS as readonly string[]).includes(v);
+}
 
 // Validate flag values stored in agentFlags config to prevent shell injection
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
@@ -48,7 +54,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, debugToolsEnabled, ptyBackend } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -95,6 +101,15 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
         : current.mosaicWaitingStyle,
       debugToolsEnabled: debugToolsEnabled !== undefined ? !!debugToolsEnabled : current.debugToolsEnabled,
       ptyBackend: (ptyBackend === 'auto' || ptyBackend === 'tmux') ? ptyBackend : current.ptyBackend,
+      tileQuickAction: isTileQuickAction(tileQuickAction) ? tileQuickAction : current.tileQuickAction,
+      tileRunningIndicator: (tileRunningIndicator === 'hairline' || tileRunningIndicator === 'off')
+        ? tileRunningIndicator
+        : current.tileRunningIndicator,
+      // Written once by the first-run picker; a string (incl. '') always wins so the
+      // prompt can be re-armed by clearing it.
+      quickActionPromptedAt: typeof quickActionPromptedAt === 'string'
+        ? quickActionPromptedAt
+        : current.quickActionPromptedAt,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

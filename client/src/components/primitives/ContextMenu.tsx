@@ -11,7 +11,7 @@ export interface ContextMenuItem {
   onClick: () => void;
 }
 
-export type ContextMenuEntry = ContextMenuItem | { separator: true };
+export type ContextMenuEntry = ContextMenuItem | { separator: true } | { header: string };
 
 interface ContextMenuProps {
   x: number;
@@ -22,6 +22,10 @@ interface ContextMenuProps {
 
 function isSeparator(entry: ContextMenuEntry): entry is { separator: true } {
   return 'separator' in entry;
+}
+
+function isHeader(entry: ContextMenuEntry): entry is { header: string } {
+  return 'header' in entry;
 }
 
 const MENU_W = 200;
@@ -82,6 +86,17 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       {items.map((entry, i) => {
         if (isSeparator(entry)) {
           return <div key={`sep-${i}`} style={{ height: 1, background: 'var(--line-2)', margin: '4px 6px' }} />;
+        }
+        if (isHeader(entry)) {
+          return (
+            <div
+              key={`hdr-${i}`}
+              className="eyebrow"
+              style={{ padding: '6px 9px 3px', color: 'var(--fg-4)' }}
+            >
+              {entry.header}
+            </div>
+          );
         }
         const Icon = entry.icon;
         return (
