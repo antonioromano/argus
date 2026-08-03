@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, SessionReplay } from '@argus/shared';
 import { comboMatches } from '../keyboard/combo.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
 import { terminalSelectionToClipboard } from './terminalCopy.js';
+import { createTerminalLinkProvider } from './terminalLinks.js';
 import { ResizeEmitGate } from './resizeGate.js';
 import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
 import { openExternal } from '../utils/openExternal.js';
@@ -181,7 +181,10 @@ export function useTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon((_event, uri) => openExternal(uri)));
+    // Not WebLinksAddon: it reads a logical line off `isWrapped`, which agent CLIs
+    // never set — they wrap their own transcript and end every row with a real \n,
+    // so a URL broken over two rows opened truncated. See terminalLinks.ts.
+    terminal.registerLinkProvider(createTerminalLinkProvider(terminal, openExternal));
     const searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
 import { terminalSelectionToClipboard } from './terminalCopy.js';
+import { createTerminalLinkProvider } from './terminalLinks.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
@@ -126,7 +126,9 @@ export function useCompanionTerminal(
     });
 
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon((_event, uri) => openExternal(uri)));
+    // Plain-text URLs, rejoined across the line breaks agent CLIs write themselves
+    // (see useTerminal / terminalLinks.ts).
+    terminal.registerLinkProvider(createTerminalLinkProvider(terminal, openExternal));
 
     terminal.open(container);
     // Built-in DOM renderer (no WebGL/Canvas addon) — see useTerminal for why.
