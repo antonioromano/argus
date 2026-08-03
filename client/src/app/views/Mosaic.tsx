@@ -33,6 +33,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
+import type { ShortcutActionId } from '../../keyboard/registry.js';
+import { formatCombo } from '../../keyboard/combo.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -627,18 +629,23 @@ function MosaicTileInner({
   };
   const closeMenu = useCallback(() => setMenuAt(null), []);
 
+  // Menu and tooltip labels come from the live binding, so a rebind in settings
+  // cannot leave the ⋯ menu advertising a key that no longer does anything.
+  const comboLabel = (id: ShortcutActionId): string | undefined =>
+    shortcuts ? formatCombo(shortcuts[id]) : undefined;
+
   const menuItems: ContextMenuEntry[] = [
     { header: 'Navigate' },
     {
       id: 'diff',
       label: session.hasGitChanges ? 'Diff — has changes' : 'Diff',
       icon: GitBranch,
-      shortcut: '⌘D',
+      shortcut: comboLabel('open-diff'),
       disabled: !onFocusDiff && !onOpenDiff,
       onClick: () => { if (onFocusDiff) onFocusDiff(session.id); else onOpenDiff?.(session.id); },
     },
-    ...(onFocusExplorer ? [{ id: 'files', label: 'Files', icon: FolderOpen, shortcut: '⌘E', onClick: () => onFocusExplorer(session.id) }] : []),
-    ...(onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: Terminal, shortcut: '⌘T', onClick: () => onFocusTerminal(session.id) }] : []),
+    ...(onFocusExplorer ? [{ id: 'files', label: 'Files', icon: FolderOpen, shortcut: comboLabel('open-files'), onClick: () => onFocusExplorer(session.id) }] : []),
+    ...(onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: Terminal, shortcut: comboLabel('open-shell'), onClick: () => onFocusTerminal(session.id) }] : []),
     { id: 'focus', label: 'Expand to focus', icon: Maximize2, onClick: () => onOpen(session.id) },
     { separator: true },
     { header: 'Session' },
@@ -650,7 +657,7 @@ function MosaicTileInner({
     ...(showDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => onDumpDiagnostics(session) }] : []),
     { separator: true },
     { header: 'Danger' },
-    { id: 'close', label: 'Close shell', icon: CircleX, shortcut: '⌘W', danger: true, onClick: () => onKill(session) },
+    { id: 'close', label: 'Close shell', icon: CircleX, shortcut: comboLabel('close-shell'), danger: true, onClick: () => onKill(session) },
   ];
 
   // The one configurable pinned action. 'none' collapses the slot; the action
@@ -666,6 +673,7 @@ function MosaicTileInner({
     apply:   { run: () => onMerge?.(session),            available: !!onMerge && !!canMerge },
   };
   const quick = quickMeta ? quickHandlers[quickMeta.id as Exclude<TileQuickAction, 'none'>] : null;
+  const quickCombo = quickMeta?.shortcutId ? comboLabel(quickMeta.shortcutId) : undefined;
 
   const tileClass = [
     'argus-tile',
@@ -742,7 +750,7 @@ function MosaicTileInner({
                 icon={quickMeta.icon}
                 label={quickMeta.id === 'diff' && session.hasGitChanges
                   ? 'Diff — has changes'
-                  : `${quickMeta.label}${quickMeta.shortcut ? `  ${quickMeta.shortcut}` : ''}`}
+                  : `${quickMeta.label}${quickCombo ? `  ${quickCombo}` : ''}`}
                 size="sm"
                 style={quickMeta.id === 'diff'
                   ? { color: session.hasGitChanges ? 'var(--dirty)' : undefined }

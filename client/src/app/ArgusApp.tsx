@@ -336,7 +336,11 @@ function DesktopInner() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      const isTyping = !!target && (
+      // xterm keeps a hidden textarea for focus and IME, so a focused terminal
+      // reads as a form field. It is not one: shortcuts scoped to the focused
+      // shell would be dead exactly where they are meant to work.
+      const inTerminal = !!target?.closest('.xterm');
+      const isTyping = !!target && !inTerminal && (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable
@@ -363,13 +367,31 @@ function DesktopInner() {
           e.preventDefault();
           openTerminalSearch();
           break;
+        // The three navigation actions the ⋯ menu advertises. They need a shell to
+        // act on, so with nothing focused the key is left alone rather than eaten.
+        case 'open-diff':
+          if (isTyping || !activeTerminalId) return;
+          e.preventDefault();
+          app.openMaximized({ kind: 'diff', sessionId: activeTerminalId });
+          break;
+        case 'open-files':
+          if (isTyping || !activeTerminalId) return;
+          e.preventDefault();
+          app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId });
+          break;
+        case 'open-shell':
+          if (isTyping || !activeTerminalId) return;
+          e.preventDefault();
+          app.openSession(activeTerminalId);
+          app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
+          break;
         default:
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId

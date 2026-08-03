@@ -11,6 +11,9 @@ export type ShortcutActionId =
   | 'close-shell'
   | 'command-palette'
   | 'open-settings'
+  | 'open-diff'
+  | 'open-files'
+  | 'open-shell'
   | 'terminal-search'
   | 'clear-terminal'
   | 'terminal-newline';
@@ -34,6 +37,11 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'close-shell', label: 'Close active shell', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
   { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
+  // Act on the focused shell — the tile whose terminal has focus in the mosaic,
+  // or the open one in focus view. The ⋯ menu labels these from the same bindings.
+  { id: 'open-diff', label: 'Diff for the focused shell', category: 'Navigation', defaultCombo: 'mod+d' },
+  { id: 'open-files', label: 'Files for the focused shell', category: 'Navigation', defaultCombo: 'mod+e' },
+  { id: 'open-shell', label: 'Terminal for the focused shell', category: 'Navigation', defaultCombo: 'mod+t' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },
   { id: 'terminal-newline', label: 'Insert newline (multi-line prompt)', category: 'Terminal', defaultCombo: 'shift+enter', fixed: true },

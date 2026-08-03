@@ -1,4 +1,5 @@
 import type { TileQuickAction } from '@argus/shared';
+import type { ShortcutActionId } from '../keyboard/registry.js';
 import {
   GitBranch,
   FolderOpen,
@@ -24,13 +25,15 @@ export interface TileActionMeta {
   /** One line shown in the first-run picker and the settings dropdown. */
   hint: string;
   icon: LucideIcon;
-  shortcut?: string;
+  /** Bound action this pin duplicates, so the label can be rendered from the
+   *  live binding rather than a glyph that goes stale on a rebind. */
+  shortcutId?: ShortcutActionId;
 }
 
 export const TILE_ACTION_META: Record<Exclude<TileQuickAction, 'none'>, TileActionMeta> = {
-  diff:    { id: 'diff',    label: 'Diff',      hint: 'Open the diff workbench for this shell', icon: GitBranch,       shortcut: '⌘D' },
-  files:   { id: 'files',   label: 'Files',     hint: 'Open the file explorer at this folder',  icon: FolderOpen,      shortcut: '⌘E' },
-  shell:   { id: 'shell',   label: 'Shell',     hint: 'Open a plain terminal in this folder',   icon: Terminal,        shortcut: '⌘T' },
+  diff:    { id: 'diff',    label: 'Diff',      hint: 'Open the diff workbench for this shell', icon: GitBranch,       shortcutId: 'open-diff' },
+  files:   { id: 'files',   label: 'Files',     hint: 'Open the file explorer at this folder',  icon: FolderOpen,      shortcutId: 'open-files' },
+  shell:   { id: 'shell',   label: 'Shell',     hint: 'Open a plain terminal in this folder',   icon: Terminal,        shortcutId: 'open-shell' },
   clone:   { id: 'clone',   label: 'Clone',     hint: 'Start a new shell in the same folder',   icon: Copy },
   restart: { id: 'restart', label: 'Restart',   hint: 'Restart the agent process',              icon: RotateCcw },
   done:    { id: 'done',    label: 'Mark done', hint: 'Flag the run as finished',               icon: CheckCircle2 },
