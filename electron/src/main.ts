@@ -253,6 +253,30 @@ const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 // Center after deep-linking it.
 let terminalNotifierPath: string | null = null;
 
+// terminal-notifier spawns an NSApplication and talks to usernoted, and it can
+// block forever instead of exiting — observed with `-remove` against a group id
+// that Notification Center has already dropped. execFile has no default timeout,
+// so every such spawn was a permanently parked ~6MB process; a long-running app
+// accumulated 100+ of them (process-table + RAM pressure, and a contributor to
+// the EMFILE class of startup hangs). Every terminal-notifier invocation must go
+// through this helper so a hung child is always reaped.
+//
+// SIGTERM is ignored by a notifier already wedged inside its run loop, hence
+// SIGKILL. 5s is far above the real exit time (posting to usernoted returns in
+// milliseconds; the banner outlives the process either way), so the timeout only
+// ever fires on a genuine hang — it never truncates a working delivery.
+const NOTIFIER_TIMEOUT_MS = 5000;
+
+function runNotifier(args: string[], onDone?: (err: Error | null) => void): void {
+  if (!terminalNotifierPath) return;
+  execFile(
+    terminalNotifierPath,
+    args,
+    { timeout: NOTIFIER_TIMEOUT_MS, killSignal: 'SIGKILL' },
+    (err) => onDone?.(err),
+  );
+}
+
 // Bring Argus forward and deliver a clicked notification's session id to the
 // renderer, reusing the existing `notif:click` → highlightSession glow/focus
 // chain. Called from `open-url` (packaged terminal-notifier deep-link) — the dev
@@ -274,12 +298,11 @@ function deliverNotifClick(id: string): void {
   // source the generic fr.julienxx.oss.terminal-notifier bundle; if that fails it
   // launches Terminal.app to present — so a CLICK (which runs this -remove) would
   // itself pop a stray Terminal window. Attributing to Argus sidesteps it.
-  if (terminalNotifierPath) {
-    const removeArgs = app.isPackaged
+  runNotifier(
+    app.isPackaged
       ? ['-remove', id, '-sender', 'com.antonio.argus']
-      : ['-remove', id];
-    execFile(terminalNotifierPath, removeArgs, () => {});
-  }
+      : ['-remove', id],
+  );
 }
 
 function readAppVersion(): string {
@@ -573,7 +596,7 @@ async function main() {
         '-open', `${SCHEME}://notif/${payload.id}`,
       ];
       if (payload.sound) args.push('-sound', 'default');
-      execFile(terminalNotifierPath, args, (err) => {
+      runNotifier(args, (err) => {
         if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
         else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
       });
@@ -645,7 +668,7 @@ async function main() {
     if (app.isPackaged && terminalNotifierPath) {
       // -sender so this -remove attributes to Argus (see deliverNotifClick):
       // an unattributed terminal-notifier spawn can source-fail and bounce Terminal.
-      execFile(terminalNotifierPath, ['-remove', id, '-sender', 'com.antonio.argus'], (err) => {
+      runNotifier(['-remove', id, '-sender', 'com.antonio.argus'], (err) => {
         if (err) console.error(`[notif] terminal-notifier -remove failed id=${id}:`, err);
       });
       return;
