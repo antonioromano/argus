@@ -8,6 +8,7 @@ import { useMosaicOrder } from '../hooks/useMosaicOrder.js';
 import { useGroups } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
+import { useKeepAwake } from '../hooks/useKeepAwake.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
@@ -155,6 +156,7 @@ function DesktopInner() {
   const socketConnected = useSocketStatus();
   const { sessions, loaded: sessionsLoaded, createSession, deleteSession } = useSessions(socket);
   const ngrok = useNgrok(socket);
+  const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
@@ -556,6 +558,9 @@ function DesktopInner() {
         onOpenUpdate={() => app.openOverlay({ kind: 'update' })}
         showClock={config?.showClock ?? false}
         clockShowSeconds={config?.clockShowSeconds ?? false}
+        keepAwakeStatus={keepAwake.status}
+        onArmKeepAwake={keepAwake.arm}
+        onDisarmKeepAwake={keepAwake.disarm}
       />
       <Tooltip content="⌘N">
         <Button variant="primary" icon={Plus} size="md" onClick={() => app.openOverlay({ kind: 'create' })}>
