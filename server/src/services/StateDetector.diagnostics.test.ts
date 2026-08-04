@@ -1,12 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SessionStatus } from '@argus/shared';
 import { StateDetector } from './StateDetector.js';
+import { FakeClock } from './StateDetector.testClock.js';
 
-const settle = (ms = 1000) => new Promise((r) => setTimeout(r, ms));
 const atBottom = (line: string) => '\r\n'.repeat(20) + line;
 
+
+/**
+ * Each test gets its own virtual clock, so `settle()` fires the detector's
+ * chained timers (500ms idle settle → 300ms commit debounce) instead of sleeping
+ * past them. Sleeping was flaky: under load the real timers fire late and the
+ * sleep expires first, so a correct classification reads as a wrong one.
+ */
+function make(onStatus: (s: SessionStatus) => void, agentType = 'claude') {
+  const clock = new FakeClock();
+  const det = new StateDetector(onStatus, agentType, 120, 30, undefined, clock);
+  return { det, clock, settle: (ms = 900) => clock.advance(ms) };
+}
+
 test('getDiagnostics reflects a waiting confirmation prompt', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('Do you want to proceed? (y/n)'));
   await settle();
 
@@ -20,7 +34,7 @@ test('getDiagnostics reflects a waiting confirmation prompt', async () => {
 });
 
 test('getDiagnostics returns safe defaults after destroy', () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.destroy();
   const d = det.getDiagnostics();
   assert.equal(d.classified, null);
@@ -30,7 +44,7 @@ test('getDiagnostics returns safe defaults after destroy', () => {
 
 test('forceReclassify re-emits status without new feed', async () => {
   let calls = 0;
-  const det = new StateDetector(() => { calls++; }, 'claude');
+  const { det, settle } = make(() => { calls++; }, 'claude');
   det.feed(atBottom('Do you want to proceed? (y/n)'));
   await settle();
   const before = calls;
