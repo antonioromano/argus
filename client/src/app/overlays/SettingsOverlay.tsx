@@ -1,6 +1,6 @@
 import { useState, Fragment } from 'react';
-import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus, SessionInfo, TileQuickAction } from '@argus/shared';
-import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch, Volume2, Timer, Keyboard, Minus, Maximize2 } from 'lucide-react';
+import type { AppConfig, AgentDefinition, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
+import { SlidersHorizontal, Cpu, Bell, Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag, Wifi, WifiOff, Copy, Check, AlertTriangle, ExternalLink, GitBranch, Volume2, Timer, Keyboard, Minus, Maximize2, CircleX } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { QRCodeSVG } from 'qrcode.react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -24,7 +24,9 @@ import {
 } from '../../components/primitives/index.js';
 import { KeyboardSettings } from './settings/KeyboardSettings.js';
 import { QuickActionPreview } from './QuickActionSheet.js';
-import { DEFAULT_TILE_QUICK_ACTION, PICKABLE_QUICK_ACTIONS, tileActionMeta } from '../../constants/tileActions.js';
+import { QuickActionPicker } from '../ui/QuickActionPicker.js';
+import { WaitingStylePreview } from '../ui/WaitingStylePreview.js';
+import { DEFAULT_TILE_QUICK_ACTION } from '../../constants/tileActions.js';
 import { showNativeMessageBox } from '../../utils/nativeDialog.js';
 
 interface SettingsOverlayProps {
@@ -370,45 +372,20 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                   label="Quick action"
                   hint="One action pinned beside the window controls in every shell header. Everything else stays in the ⋯ menu."
                 >
-                  <select
+                  <QuickActionPicker
                     value={config.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
-                    onChange={(e) => onSave({ tileQuickAction: e.target.value as TileQuickAction })}
-                    style={{
-                      appearance: 'none',
-                      minWidth: 190,
-                      height: 32,
-                      padding: '0 var(--s-2)',
-                      background: 'var(--bg-1)',
-                      border: '1px solid var(--line-2)',
-                      borderRadius: 'var(--r-2)',
-                      color: 'var(--fg-0)',
-                      fontFamily: 'var(--font-sans)',
-                      fontSize: 'var(--t-sm)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {PICKABLE_QUICK_ACTIONS.map((id) => {
-                      const meta = tileActionMeta(id);
-                      return (
-                        <option key={id} value={id}>
-                          {id === DEFAULT_TILE_QUICK_ACTION ? `${meta.label} (Default)` : meta.label}
-                        </option>
-                      );
-                    })}
-                  </select>
+                    onChange={(tileQuickAction) => onSave({ tileQuickAction })}
+                    defaultAction={DEFAULT_TILE_QUICK_ACTION}
+                  />
                 </SettingRow>
                 <SettingRow
                   label="Window controls"
-                  hint="Minimize and expand are always shown. Not configurable."
+                  hint="Minimize, expand and close are always shown. Not configurable."
                 >
                   <div style={{ display: 'flex', gap: 2, opacity: 0.6, color: 'var(--fg-2)' }}>
                     <Minus size={14} strokeWidth={1.7} />
                     <Maximize2 size={14} strokeWidth={1.7} />
-                  </div>
-                </SettingRow>
-                <SettingRow label="Preview" hint="How the header reads with your pick">
-                  <div style={{ width: 300 }}>
-                    <QuickActionPreview action={config.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION} />
+                    <CircleX size={14} strokeWidth={1.7} />
                   </div>
                 </SettingRow>
                 <SettingRow
@@ -440,6 +417,17 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                         </button>
                       );
                     })}
+                  </div>
+                </SettingRow>
+                {/* Sits last so it previews every pick above it — the quick action
+                    AND the running indicator are the same header widget, so one
+                    preview covers both. */}
+                <SettingRow label="Preview" hint="How the header reads with your picks">
+                  <div style={{ width: 300 }}>
+                    <QuickActionPreview
+                      action={config.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
+                      runningIndicator={config.tileRunningIndicator ?? 'hairline'}
+                    />
                   </div>
                 </SettingRow>
                 <SettingRow trailing>
@@ -509,6 +497,11 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                       );
                     })}
                   </div>
+                </SettingRow>
+                {/* "Breathing halo" vs "Pulse bar + flag" is unreadable as text —
+                    the difference is the motion, so show it moving. */}
+                <SettingRow label="Preview" hint="A waiting shell in the mosaic, animating">
+                  <WaitingStylePreview style={config.mosaicWaitingStyle ?? 'breathing'} />
                 </SettingRow>
               </Section>
               <Section title="Typography">

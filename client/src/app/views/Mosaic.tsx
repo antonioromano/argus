@@ -739,10 +739,13 @@ function MosaicTileInner({
           {STATUS_LABELS[session.status]}
         </span>
 
-        {/* [action] ┃ [minimize] [expand] ┃ [⋯] — a rule per group: the pinned
-            action, the window pair, the menu. ⋯ sits last so its popup lines up
-            with the tile's right edge instead of hanging inside it. The leading
-            rule is dropped with the action it separates ('none'). */}
+        {/* [action] ┃ [minimize] [expand] [close] ┃ [⋯] — a rule per group: the
+            pinned action, the window controls, the menu. ⋯ sits last so its popup
+            lines up with the tile's right edge instead of hanging inside it. The
+            leading rule is dropped with the action it separates ('none'). Close
+            is the third window control, as in a real title bar; it carries no
+            standing red — `hover-danger` colors it only on hover, so a benign
+            header has no permanent alarm in it. */}
         <div className="argus-tile-actions">
           {quickMeta && quick && (
             <>
@@ -765,6 +768,13 @@ function MosaicTileInner({
             onClick={(e) => { e.stopPropagation(); onToggleMinimize(session.id); }} />
           <IconButton icon={Maximize2} label="Expand to focus view" size="sm"
             onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
+          <IconButton
+            icon={CircleX}
+            label={`Close shell${comboLabel('close-shell') ? `  ${comboLabel('close-shell')}` : ''}`}
+            size="sm"
+            className="hover-danger"
+            onClick={(e) => { e.stopPropagation(); onKill(session); }}
+          />
           <span className="argus-tile-winsep" aria-hidden />
           <IconButton
             icon={MoreHorizontal}
