@@ -20,8 +20,8 @@
  *
  * The separator is what keeps a wrong guess harmless: the URL regex stops dead at
  * whitespace, so joining two rows that were not one URL simply produces no longer
- * match. Only the no-separator case can extend a URL, and that needs both halves
- * to overflow the line together — which no real pair of adjacent words does.
+ * match. Only the no-separator case can extend a URL, so it is taken only where a
+ * URL is still open at the break — see `isSplitToken`.
  *
  * `isWrapped` is still honoured when set, so genuinely emulator-wrapped output
  * (a non-Ink program printing past the right margin) keeps working.
@@ -103,16 +103,33 @@ function isForcedBreak(prev: string, next: string, limit: number): boolean {
   return prev.length >= limit;
 }
 
+/** A URL began in this token and no whitespace has ended it. */
+const URL_OPENED = /(?:https?|HTTPS?):[/]{2}/;
+
 /**
  * True when the break split a single token, so the halves rejoin with nothing
- * between them. A token is only ever split when it cannot fit a line at all, so
- * the two fragments together must exceed the wrap width.
+ * between them.
+ *
+ * The wrapper splits a token when it overruns the room left *on that row*, not
+ * only when the token could not fit a row of its own: `  - PR: <59-char URL>` at a
+ * 59-column wrap breaks mid-URL even though the URL alone would have fit a fresh
+ * row — the prefix ate the difference. So "the fragments together exceed the wrap
+ * width" is too strict, and its correct form — they exceed the room the token had —
+ * is trivially true of every filled row, which would also swallow the space a word
+ * break dropped off the end.
+ *
+ * Take the wider reading only while a URL is still open on `prev`: joining there can
+ * lengthen a link but never invent one, and a URL cannot contain the space that
+ * would otherwise be spliced into it. Elsewhere the length test still decides, so
+ * ordinary prose keeps its space.
  */
 function isSplitToken(prev: string, next: string, limit: number): boolean {
   if (prev.length !== limit) return false; // a hard split fills the row exactly
-  const tail = /\S*$/.exec(prev)![0].length;
-  const head = /^\S*/.exec(next.trimStart())![0].length;
-  return tail > 0 && head > 0 && tail + head > limit;
+  const tail = /\S*$/.exec(prev)![0];
+  const head = /^\S*/.exec(next.trimStart())![0];
+  if (!tail || !head) return false;
+  if (URL_OPENED.test(tail)) return true;
+  return tail.length + head.length > limit;
 }
 
 /** Wrap width the agent laid its transcript out to, measured from the rows around

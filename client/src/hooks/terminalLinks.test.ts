@@ -69,6 +69,24 @@ describe('findLinks', () => {
     expect(texts(splitUrl, 2)).toEqual([]);
   });
 
+  // The row's prefix pushed the URL over the wrap width on its own: the URL is 51
+  // columns of a 59-column wrap, so the fragments sum to exactly the width and
+  // "they must exceed it" read the split as a word break — a space landed inside
+  // the URL and the link stopped at the end of the first row.
+  const prefixedSplit = [
+    '  - Branch: feat/integration-testing-ministack (cut from',
+    '  master @ 54fd85d)',
+    '  - Commit: 54533d8',
+    '  - PR: https://github.com/rbly-internal/claude-marketplace',
+    '  /pull/37 → master',
+  ];
+
+  it('rejoins a URL split at exactly the wrap width', () => {
+    const url = 'https://github.com/rbly-internal/claude-marketplace/pull/37';
+    expect(texts(prefixedSplit, 3)).toEqual([url]);
+    expect(texts(prefixedSplit, 4)).toEqual([url]);
+  });
+
   it('leaves the URL alone when the row it ends on had room to spare', () => {
     // Nothing forced this break, so the row below is a new line the agent wrote.
     const rows = [
