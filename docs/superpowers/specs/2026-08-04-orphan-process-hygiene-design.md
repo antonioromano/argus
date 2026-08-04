@@ -86,7 +86,7 @@ Rules are structural, never age-based:
 |---|----------|------|
 | A | Claude burner husk | `PPID == 1` **and** command contains `.claude/shell-snapshots/` **and** `%CPU >= 20` |
 | B | MCP watchdog husk | command has `--parent-pid=N` **and** `kill -0 N` fails |
-| C | tmux husk | per argus socket: `session_attached == 0` **and** `pane_pid`'s command is not `claude`/`gemini`/`codex` |
+| C | tmux husk | per argus socket: `session_attached == 0` **and** `pane_pid` is a bare shell (`zsh`/`bash`/`sh`) **and** it has no child processes |
 | D | Dead socket file | socket file exists but `tmux -L <sock> list-sessions` reports no server |
 
 Why each rule is safe:
@@ -97,8 +97,12 @@ Why each rule is safe:
 - **B** uses the watchdog's own declared parent rather than elapsed time. This is what makes the 8-day
   watchdogs correctly *ineligible*.
 - **C** requires the agent process to be gone, not merely detached. A husk is a pane whose agent has
-  exited, leaving a bare shell. Validated against live data: all three detached `argus-dev` sessions
-  are correctly spared.
+  exited, leaving a bare childless shell. The test is deliberately phrased as "is a bare shell with no
+  children" rather than "is not one of the known agent commands": Argus's `AgentRegistry` supports
+  **custom** agent definitions, so any whitelist of agent binaries would misclassify a custom agent's
+  pane as a husk and kill live work. Absence of children is registry-agnostic. Validated against live
+  data: all three detached `argus-dev` sessions are correctly spared (each `pane_pid` is a `claude`
+  process with five children).
 - **D** removes only the socket *file*, and only when no server answers on it.
 
 Behavior:
@@ -136,7 +140,9 @@ live work is worse than the original bug.
    reported as ineligible.
 6. **Rule C negative.** Against the three live detached `argus-dev` sessions, confirm none is listed.
    This is the highest-consequence test in the suite.
-7. **Report-only default.** A run with reapable items present kills nothing unless `--yes` is passed.
+7. **Rule C negative, custom agent.** Register a custom `agentType` in `AgentRegistry`, spawn a session
+   on it, detach, confirm it is not listed. Guards the whitelist bug the rule was rewritten to avoid.
+8. **Report-only default.** A run with reapable items present kills nothing unless `--yes` is passed.
 
 ## Risks
 
