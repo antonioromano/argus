@@ -211,12 +211,19 @@ burn() {
     print -u2 "burn: seconds must be between 1 and 600 (got $secs)"
     return 1
   fi
+  BURNERS=""
   for i in $(seq 1 $(sysctl -n hw.ncpu)); do
     ( end=$(( SECONDS + secs )); while (( SECONDS < end )); do :; done ) &
+    BURNERS+="$! "
   done
-  BURNERS=$(jobs -p | tr '\n' ' ')
 }
 ```
+
+**Do not use `BURNERS=$(jobs -p | tr '\n' ' ')`.** Command substitution runs in a subshell
+with no job table, so in zsh 5.9 it yields an empty string — verified: `X=$(jobs -p)` gives
+`[]` while a direct `jobs -p` lists the jobs. The 2026-08-04 incident script used exactly that
+line, which means its `kill $BURNERS` expanded to a bare `kill` and could never have killed
+anything even had the driver shell survived to run it. Collect `$!` after each `&` instead.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
