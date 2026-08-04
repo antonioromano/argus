@@ -106,3 +106,52 @@ fixture_cleanup() {
   : > $FIXTURE_PID_LOG
   return 0
 }
+
+# Scratch tmux server on its own argus-prefixed socket so the reaper's
+# /private/tmp/tmux-$(id -u)/argus* glob picks it up. Never touches the real
+# argus / argus-dev / argus-uitest sockets.
+#
+# No nohup here, unlike the burner/watchdog fixtures above: `tmux new-session
+# -d` daemonizes the tmux server (if one isn't already running on that
+# socket), so the pane process is a child of the tmux server, not of the
+# calling subshell that $(fixture_tmux_husk_session) forks. The subshell
+# exiting sends HUP only to ITS OWN background jobs; the tmux server and its
+# panes were never in that job table. Verified empirically: a session created
+# via $(...) capture and its pane process both survived well past the
+# capturing subshell's exit.
+typeset -g FIXTURE_TMUX_SOCK=""
+typeset -g TMUX_BIN=${TMUX_BIN:-$(command -v tmux || print /opt/homebrew/bin/tmux)}
+
+fixture_tmux_socket() {
+  FIXTURE_TMUX_SOCK="argus-fixture-$$"
+  print -r -- $FIXTURE_TMUX_SOCK
+}
+
+# A husk: detached session whose pane is a bare childless shell.
+fixture_tmux_husk_session() {
+  local sess="husk-$$"
+  $TMUX_BIN -L $FIXTURE_TMUX_SOCK new-session -d -s $sess '/bin/zsh -f' 2>/dev/null
+  sleep 1
+  print -r -- $sess
+}
+
+# A live session: detached, but the pane runs a non-shell command with a child.
+# `cat` stands in for a custom AgentRegistry agentType — deliberately NOT one of
+# claude/gemini/codex, because rule C must not depend on an agent whitelist.
+fixture_tmux_live_session() {
+  local sess="live-$$"
+  $TMUX_BIN -L $FIXTURE_TMUX_SOCK new-session -d -s $sess '/bin/cat' 2>/dev/null
+  sleep 1
+  print -r -- $sess
+}
+
+fixture_tmux_pane_pid() {
+  $TMUX_BIN -L $FIXTURE_TMUX_SOCK list-panes -t $1 -F '#{pane_pid}' 2>/dev/null | head -1
+}
+
+fixture_tmux_teardown() {
+  [[ -n $FIXTURE_TMUX_SOCK ]] && $TMUX_BIN -L $FIXTURE_TMUX_SOCK kill-server 2>/dev/null
+  [[ -n $FIXTURE_TMUX_SOCK ]] && rm -f /private/tmp/tmux-$(id -u)/$FIXTURE_TMUX_SOCK
+  FIXTURE_TMUX_SOCK=""
+  return 0
+}
