@@ -18,23 +18,30 @@ assert_exit 1 "burn 601 is rejected" burn 601
 assert_exit 1 "burn with no arg is rejected" burn
 
 print "test-burn: rejected input spawns nothing"
-BURNERS=""
+# Assert on the actual side effect (a spawned background job), not on whether
+# BURNERS was touched — the two are different claims. $jobstates is a builtin
+# zsh array (one element per background job); read it directly, no fork
+# involved, unlike `jobs -p` piped or captured via $(...).
+jobs_before=${#jobstates}
 burn 0 >/dev/null 2>&1
-assert_eq "${BURNERS:-empty}" "empty" "no BURNERS set after rejected call"
+jobs_after=${#jobstates}
+assert_eq $jobs_after $jobs_before "no background jobs spawned after rejected call"
 
 print "test-burn: burners run and are killable early"
 burn 30
-typeset -a pids=(${=BURNERS})
-assert_eq $(( ${#pids} > 0 ? 1 : 0 )) 1 "burn 30 spawned at least one burner"
+assert_eq $(( ${#BURNERS} > 0 ? 1 : 0 )) 1 "burn 30 spawned at least one burner"
 # `alive` is a plain global — `local` is only valid inside a function in zsh and
 # would abort the script at top level.
 alive=0
-for p in $pids; do kill -0 $p 2>/dev/null && (( alive++ )); done
-assert_eq $(( alive == ${#pids} ? 1 : 0 )) 1 "all spawned burners are alive"
-kill $pids 2>/dev/null
+for p in $BURNERS; do kill -0 $p 2>/dev/null && (( alive++ )); done
+assert_eq $(( alive == ${#BURNERS} ? 1 : 0 )) 1 "all spawned burners are alive"
+# Exercise `kill $BURNERS` literally (not a pre-split copy) — BURNERS is an
+# array, so unquoted expansion splits into multiple words on its own. A scalar
+# BURNERS would make this line report "illegal pid" and kill nothing.
+kill $BURNERS 2>/dev/null
 sleep 1
 alive=0
-for p in $pids; do kill -0 $p 2>/dev/null && (( alive++ )); done
+for p in $BURNERS; do kill -0 $p 2>/dev/null && (( alive++ )); done
 assert_eq $alive 0 "kill \$BURNERS still terminates them early"
 
 print "test-burn: orphaned burner self-terminates (the incident regression)"
