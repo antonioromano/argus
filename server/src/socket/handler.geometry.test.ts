@@ -29,7 +29,6 @@ function harness(): Harness {
   const manager = {
     getSession: () => ({ id: 'x' }),
     flushOutput: () => {},
-    setMirrorScrollback: () => {},
     getReplaySnapshot: () => undefined,
     resizeSession: (id: string, cols: number, rows: number) => { resizes.push({ id, cols, rows }); },
     scheduleIdleGeometry: (id: string) => { idled.push(id); },

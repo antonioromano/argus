@@ -34,7 +34,6 @@ function harness(): Harness {
   const manager = {
     getSession: (id: string) => (known.has(id) ? { id } : undefined),
     flushOutput: () => { calls.push('flushOutput'); },
-    setMirrorScrollback: () => {},
     getReplaySnapshot: (_id: string, flavor?: string) => {
       calls.push('getReplaySnapshot');
       flavors.push(flavor);

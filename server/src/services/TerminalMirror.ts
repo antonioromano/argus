@@ -26,11 +26,14 @@ export interface ReplayModes {
   sgr: boolean;
 }
 
-/** Scrollback while a client is watching the session (deep replay history). */
+/**
+ * Replay history depth, fixed for the mirror's whole life. Deliberately not
+ * adaptive: an xterm scrollback shrink drops the oldest rows permanently, and
+ * because a join replays a full frame (ED 3) over the client's own buffer, the
+ * mirror's depth is the ceiling on what anyone can ever scroll back to. Trading
+ * ~10MB per idle mirror for history nobody can recover was the wrong trade.
+ */
 export const MIRROR_SCROLLBACK = 5000;
-/** Scrollback once no client is in the room — frees ~10MB/mirror (Q6); rejoin
- *  replays this depth until new output refills. */
-export const MIRROR_IDLE_SCROLLBACK = 1000;
 
 /**
  * DEC private modes whose *set* state `@xterm/addon-serialize@0.14.0` does NOT
@@ -150,17 +153,6 @@ export class TerminalMirror {
    */
   reset(): Promise<void> {
     return this.feed('\x1b[2J\x1b[3J\x1b[H');
-  }
-
-  /** Adaptive scrollback: SessionManager raises to 5000 on client-join, lowers to 1000 on empty (Q6). */
-  setScrollback(n: number): void {
-    if (this.destroyed || n <= 0) return;
-    this.scrollback = n;
-    try {
-      this.term.options.scrollback = n;
-    } catch {
-      // ignore — keep prior scrollback
-    }
   }
 
   /**

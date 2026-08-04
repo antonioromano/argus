@@ -116,8 +116,6 @@ export function setupSocketHandler(
       // A viewer is back before the idle resize landed → it never happens, so
       // ordinary navigation costs the agent no SIGWINCH repaint at all.
       manager.cancelIdleGeometry(sessionId);
-      // A client is watching → keep the mirror's deep replay history (Q6).
-      manager.setMirrorScrollback(sessionId, true);
       // Register this socket for dimension tracking
       if (!clientDimensions.has(sessionId)) {
         clientDimensions.set(sessionId, new Map());
@@ -149,8 +147,12 @@ export function setupSocketHandler(
 
     socket.on('session:leave', (sessionId: string) => {
       socket.leave(sessionId);
-      // Room may now be empty → drop mirror scrollback to the idle depth (Q6).
-      manager.setMirrorScrollback(sessionId, (io.sockets.adapter.rooms.get(sessionId)?.size ?? 0) > 0);
+      // Deliberately NOT trimming the mirror here. Its scrollback is the ceiling
+      // on what any client can scroll back to (a join answers with a full frame
+      // opening ED 3, which replaces the client's own buffer), and an xterm
+      // scrollback shrink drops the oldest rows for good. Trimming on leave made
+      // an ordinary tile unmount — minimize, mosaic → focus — quietly destroy
+      // history that an idle session then never refilled.
       // Remove this socket's dimensions and resize PTY to remaining max
       const sockets = clientDimensions.get(sessionId);
       if (sockets) {
@@ -330,9 +332,9 @@ export function setupSocketHandler(
               if (dims) manager.resizeSession(roomKey, dims.cols, dims.rows);
               else manager.scheduleIdleGeometry(roomKey);
             } catch { /* session may be gone */ }
-            // socket.io clears this socket from its rooms on disconnect, so the
-            // room count now reflects remaining watchers (Q6).
-            manager.setMirrorScrollback(roomKey, (io.sockets.adapter.rooms.get(roomKey)?.size ?? 0) > 0);
+            // No mirror trim here either — same reason as session:leave. A
+            // dropped socket is usually one that reconnects in seconds, and it
+            // must not cost the session rows no one can bring back.
           }
         }
       }

@@ -16,7 +16,7 @@ import type {
 } from '@argus/shared';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
-import { TerminalMirror, MIRROR_SCROLLBACK, MIRROR_IDLE_SCROLLBACK } from './TerminalMirror.js';
+import { TerminalMirror } from './TerminalMirror.js';
 import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
@@ -1377,19 +1377,6 @@ export class SessionManager {
     const rows = session.rows ?? SPAWN_ROWS;
     if (rows >= IDLE_MIN_ROWS) return;
     this.resizeSession(id, cols, IDLE_MIN_ROWS);
-  }
-
-  /**
-   * Adaptive replay scrollback (Q6): keep the deep 5000-row history only while a
-   * client is in the session room; drop to 1000 when the room empties to free
-   * ~10MB/mirror. Called by the socket handler on join/leave/disconnect. The
-   * shrink drops the oldest rows permanently — a later rejoin replays the
-   * shallower depth until new output refills (accepted trade).
-   */
-  setMirrorScrollback(id: string, hasClients: boolean): void {
-    const session = this.sessions.get(id);
-    if (!session) return;
-    session.mirror.setScrollback(hasClients ? MIRROR_SCROLLBACK : MIRROR_IDLE_SCROLLBACK);
   }
 
   async restoreSessions(): Promise<void> {
