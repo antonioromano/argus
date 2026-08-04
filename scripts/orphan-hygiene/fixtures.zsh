@@ -62,6 +62,40 @@ fixture_spawn_parented_burner() {
   print -r -- "$parent $child"
 }
 
+# A process whose command line carries --parent-pid=<pid>, mimicking
+# chrome-devtools-mcp's watchdog. Pass a dead PID to make it a husk, a live
+# PID to make it healthy.
+#
+# The trailing `:` after `sleep 60` is load-bearing: zsh -c elides the exec of
+# a script's final external command into its own process image (tail-call
+# optimization), which would otherwise replace this process with a bare
+# `sleep 60` and wipe the --parent-pid marker `ps` needs to see. Verified:
+# without the trailing `:`, `ps` showed "sleep 60"; with it, the full
+# commented script line survived.
+fixture_spawn_watchdog() {
+  local parent_pid=$1
+  local pidfile=$(mktemp)
+  nohup /bin/zsh -c "# watchdog/main.js --parent-pid=$parent_pid --app-version=0.0.0
+               print \$\$ > $pidfile
+               sleep 60
+               :" >/dev/null 2>&1 &
+  local pid=$!
+  _fixture_record $pid
+  local tries=0
+  while [[ ! -s $pidfile ]] && (( tries++ < 50 )); do sleep 0.1; done
+  local reported_pid=$(< $pidfile); rm -f $pidfile
+  [[ -n $reported_pid && $reported_pid != $pid ]] && _fixture_record $reported_pid
+  print -r -- ${reported_pid:-$pid}
+}
+
+# A PID that is guaranteed not to be running: spawn `true` and reap it.
+fixture_dead_pid() {
+  /bin/zsh -c 'exit 0' &
+  local p=$!
+  wait $p 2>/dev/null
+  print -r -- $p
+}
+
 fixture_cleanup() {
   typeset -a pids
   pids=($FIXTURE_PIDS ${(f)"$(<$FIXTURE_PID_LOG)"})
