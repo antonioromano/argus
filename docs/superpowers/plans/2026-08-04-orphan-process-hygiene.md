@@ -646,6 +646,24 @@ Test asserts every real live-parent watchdog currently running is spared."
 - Consumes: the record format and `findings` assembly from Tasks 2–3.
 - Produces: `find_tmux_husks`, emitting `C|<pane_pid>|<age>|-|<description>` and `D|-|-|-|<socket path>`. Adds five fixtures: `fixture_tmux_socket` (sets and prints a scratch socket name), `fixture_tmux_husk_session` (prints the session name), `fixture_tmux_live_session` (prints the session name), `fixture_tmux_pane_pid <session>` (prints that session's first pane PID), and `fixture_tmux_teardown`. Also sets the global `TMUX_BIN`, which `test-reap.zsh` uses directly.
 
+> **Hazards established AFTER this plan was written — they override the code below where they
+> conflict.** Tasks 1-3 each hit a shell-semantics defect in this plan's fixture code. The snippets
+> below were written before those were known, so treat them as intent, not as text to transcribe:
+>
+> 1. **`nohup` every backgrounded fixture process** (`>/dev/null 2>&1` to avoid `nohup.out`). zsh
+>    SIGHUPs a shell's own background jobs when that shell exits, and fixtures are called as
+>    `$(fixture_...)`, whose subshell exits immediately. *Probably not needed for the tmux fixtures
+>    below — `tmux new-session -d` daemonizes the server, so the pane processes are tmux's children,
+>    not the calling subshell's — but verify rather than assume.*
+> 2. **Record PIDs via the existing `_fixture_record` / `FIXTURE_PID_LOG` helper**, never
+>    `FIXTURE_PIDS+=($pid)` inside a `$( )` function — a subshell's array mutation never reaches the
+>    parent, which silently emptied `fixture_cleanup`'s kill list and leaked two real burners.
+> 3. **A `zsh -c` script's final command gets exec-elided**, replacing the shell's process image and
+>    wiping any marker text from `ps`. Add a trailing `:` to any fixture whose *command line* must
+>    remain inspectable. Irrelevant where the pane is meant to be a bare shell.
+> 4. `fixture_tmux_socket` must be called plainly (`fixture_tmux_socket >/dev/null`), not via
+>    `$( )` — it sets the global `FIXTURE_TMUX_SOCK`, which a subshell would discard.
+
 - [ ] **Step 1: Add the tmux fixtures**
 
 Append to `scripts/orphan-hygiene/fixtures.zsh`:
