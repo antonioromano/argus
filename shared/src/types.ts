@@ -227,6 +227,7 @@ export interface ServerToClientEvents {
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
   'ngrok:status': (status: NgrokStatus) => void;
+  'keepawake:status': (status: KeepAwakeStatus) => void;
   'auth:required': (payload: { required: boolean }) => void;
   'update:available': (status: UpdateStatus) => void;
   'update:applying': () => void;
@@ -282,6 +283,19 @@ export interface NgrokStatus {
   error: string | null;
   platform: string;
   authRequired: boolean;
+}
+
+/**
+ * State of the manual "keep this Mac awake" window (the toolbar CTA).
+ *
+ * Server-owned: the client renders a countdown from `expiresAt` but never
+ * decides when the window ends. Not persisted — an armed window dies with the app.
+ */
+export interface KeepAwakeStatus {
+  active: boolean;
+  /** Epoch ms when the window ends. null when off, and null when indefinite. */
+  expiresAt: number | null;
+  indefinite: boolean;
 }
 
 export interface NgrokStartResponse {

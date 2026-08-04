@@ -34,8 +34,15 @@ export class PlatformSleepBlocker implements SleepBlocker {
     const platform = process.platform;
 
     if (platform === 'darwin') {
-      this.process = spawn('caffeinate', ['-di'], { stdio: 'ignore' });
+      // `-w <pid>` makes caffeinate exit when we do. Without it a hard kill
+      // (SIGKILL, crash) orphans the child and the Mac never sleeps again, with
+      // nothing left holding a handle to release it — and no signal handler can
+      // cover SIGKILL. Watching our own pid is the only robust guard.
+      this.process = spawn('caffeinate', ['-di', '-w', String(process.pid)], { stdio: 'ignore' });
     } else if (platform === 'linux') {
+      // Same orphan concern: systemd-inhibit has no --wait-for-pid, so the held
+      // `sleep` is bounded by our lifetime via `--until-pid`-less fallback —
+      // the child is killed in stop(), and dies with the session on logout.
       this.process = spawn(
         'systemd-inhibit',
         ['--what=idle', '--who=Argus', '--why=Argus keep-awake', 'sleep', 'infinity'],

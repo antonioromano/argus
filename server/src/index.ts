@@ -24,6 +24,8 @@ import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { NgrokService } from './services/NgrokService.js';
 import { SleepPreventionService } from './services/SleepPreventionService.js';
+import { KeepAwakeService } from './services/KeepAwakeService.js';
+import { createKeepAwakeRoutes } from './routes/keepAwake.js';
 import { UpdateService } from './services/UpdateService.js';
 import { createConfigRoutes, createAgentRoutes } from './routes/config.js';
 import { createUpdateRoutes } from './routes/update.js';
@@ -133,6 +135,14 @@ const agentRegistry = new AgentRegistry();
 // each other's intent.
 const sleepPrevention = new SleepPreventionService();
 
+// Manual keep-awake window (toolbar CTA). Server-owned expiry; every transition
+// is broadcast so a second window or a reloaded renderer never shows a stale
+// countdown.
+const keepAwakeService = new KeepAwakeService(sleepPrevention);
+keepAwakeService.onChange((status) => {
+  io.emit('keepawake:status', status);
+});
+
 // Session manager
 const sessionManager = new SessionManager(dataDir, configStore, sleepPrevention);
 sessionManager.setIo(io);
@@ -205,6 +215,7 @@ app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
+app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
 app.use('/api/auth', createAuthRoutes(authService));
 app.use('/api/config', createConfigRoutes(configStore, applyConfig));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
