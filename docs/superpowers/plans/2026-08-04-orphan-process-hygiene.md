@@ -211,19 +211,29 @@ burn() {
     print -u2 "burn: seconds must be between 1 and 600 (got $secs)"
     return 1
   fi
-  BURNERS=""
+  typeset -ga BURNERS=()
   for i in $(seq 1 $(sysctl -n hw.ncpu)); do
     ( end=$(( SECONDS + secs )); while (( SECONDS < end )); do :; done ) &
-    BURNERS+="$! "
+    BURNERS+=($!)
   done
 }
 ```
 
-**Do not use `BURNERS=$(jobs -p | tr '\n' ' ')`.** Command substitution runs in a subshell
-with no job table, so in zsh 5.9 it yields an empty string — verified: `X=$(jobs -p)` gives
-`[]` while a direct `jobs -p` lists the jobs. The 2026-08-04 incident script used exactly that
-line, which means its `kill $BURNERS` expanded to a bare `kill` and could never have killed
-anything even had the driver shell survived to run it. Collect `$!` after each `&` instead.
+`BURNERS` must be an **array**, populated from `$!`. The incident script's
+`BURNERS=$(jobs -p | tr '\n' ' ')` was broken two independent ways, and each was verified:
+
+1. **Empty.** Command substitution runs in a subshell with no job table, so `X=$(jobs -p)`
+   yields `[]` while a direct `jobs -p` lists the jobs.
+2. **Unsplittable even when populated.** zsh does not word-split unquoted scalars
+   (`SH_WORD_SPLIT` off, including under `emulate -L zsh`). With `BURNERS="78214 78215 "`,
+   `kill $BURNERS` gives `zsh:kill:6: illegal pid: 78214 78215` and both processes survive;
+   only `kill ${=BURNERS}` works.
+
+So the incident's `kill $BURNERS` could never have killed anything even had the driver shell
+survived to run it — orphaning was its second failure, not its only one. An array fixes both:
+`kill $BURNERS` expands to multiple words naturally, so no caller has to remember `${=...}`.
+The test suite must exercise `kill $BURNERS` **literally** — an assertion that pre-splits
+would not have caught defect 2.
 
 - [ ] **Step 5: Run the test to verify it passes**
 
