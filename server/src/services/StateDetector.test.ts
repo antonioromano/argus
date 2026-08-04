@@ -1,12 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SessionStatus } from '@argus/shared';
 import { StateDetector } from './StateDetector.js';
+import { FakeClock } from './StateDetector.testClock.js';
 
-const settle = (ms = 1000) => new Promise((r) => setTimeout(r, ms));
 
 // The detector scans the BOTTOM ~15 rows, where a real TUI parks its input box —
 // so push content down with newlines before the line under test.
 const atBottom = (line: string) => '\r\n'.repeat(20) + line;
+
+
+/**
+ * Each test gets its own virtual clock, so `settle()` fires the detector's
+ * chained timers (500ms idle settle → 300ms commit debounce) instead of sleeping
+ * past them. Sleeping was flaky: under load the real timers fire late and the
+ * sleep expires first, so a correct classification reads as a wrong one.
+ */
+function make(onStatus: (s: SessionStatus) => void, agentType = 'claude') {
+  const clock = new FakeClock();
+  const det = new StateDetector(onStatus, agentType, 120, 30, undefined, clock);
+  return { det, clock, settle: (ms = 900) => clock.advance(ms) };
+}
 
 test('a bare claude input box (no menu, no working footer) settles to idle', async () => {
   // The input box is ALWAYS on screen in current Claude Code — idle, working,
@@ -14,7 +28,7 @@ test('a bare claude input box (no menu, no working footer) settles to idle', asy
   // session showing only the box must read as idle (→ done promotion), not
   // waiting.
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.feed(atBottom('│ > '));
   await settle();
   assert.equal(status, 'idle');
@@ -23,7 +37,7 @@ test('a bare claude input box (no menu, no working footer) settles to idle', asy
 
 test('a (y/n) confirmation settles to waiting', async () => {
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.feed(atBottom('Do you want to proceed? (y/n)'));
   await settle();
   assert.equal(status, 'waiting');
@@ -32,7 +46,7 @@ test('a (y/n) confirmation settles to waiting', async () => {
 
 test('plain output with no prompt settles to idle', async () => {
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.feed(atBottom('compiling modules, please wait'));
   await settle();
   assert.equal(status, 'idle');
@@ -41,7 +55,7 @@ test('plain output with no prompt settles to idle', async () => {
 
 test('setExited transitions to exited synchronously', () => {
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.setExited();
   assert.equal(status, 'exited');
   det.destroy();
@@ -49,7 +63,7 @@ test('setExited transitions to exited synchronously', () => {
 
 test('no status changes are emitted after destroy()', async () => {
   let count = 0;
-  const det = new StateDetector(() => { count++; }, 'claude');
+  const { det, settle } = make(() => { count++; }, 'claude');
   det.destroy();
   det.feed(atBottom('│ > '));
   await settle(900);
@@ -57,7 +71,7 @@ test('no status changes are emitted after destroy()', async () => {
 });
 
 test('getLastPromptText extracts the question above the input box', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('Which file should I edit?\r\n│ > '));
   await settle();
   assert.equal(det.getLastPromptText(), 'Which file should I edit?');
@@ -65,7 +79,7 @@ test('getLastPromptText extracts the question above the input box', async () => 
 });
 
 test('getLastPromptText skips a bare file path and returns the question above it', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom(
     'Which file should I edit?\r\n' +
     '/var/folders/s7/T/TemporaryItems/NSIRD_screencaptureui_GQo8sF/Screenshot 2026-06-05 at 10.11.33.png\r\n' +
@@ -77,7 +91,7 @@ test('getLastPromptText skips a bare file path and returns the question above it
 });
 
 test('getLastPromptText skips user-message echoes', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('I will update the config file.\r\n> fix the bug\r\n│ > '));
   await settle();
   assert.equal(det.getLastPromptText(), 'I will update the config file.');
@@ -85,7 +99,7 @@ test('getLastPromptText skips user-message echoes', async () => {
 });
 
 test('getLastPromptText prefers a question-shaped line over nearer prose', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('Do you want me to continue?\r\nSome status line here\r\n│ > '));
   await settle();
   assert.equal(det.getLastPromptText(), 'Do you want me to continue?');
@@ -97,7 +111,7 @@ test('a plan-approval menu rendered at the top of the screen settles to waiting'
   // prompt block sits at the TOP of the grid with blank rows below it. A
   // bottom-anchored scan window sees only blanks and misclassifies as idle.
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.feed(
     [
       'Claude has written up a plan and is ready to execute. Would you like to proceed?',
@@ -117,7 +131,7 @@ test('a plan-approval menu rendered at the top of the screen settles to waiting'
 });
 
 test('getLastPromptText finds the question when the prompt block is at the top of the screen', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(
     'Claude has written up a plan. Would you like to proceed?\r\n' +
     '❯ 1. Yes, and use auto mode\r\n' +
@@ -129,7 +143,7 @@ test('getLastPromptText finds the question when the prompt block is at the top o
 });
 
 test('getLastPromptText returns the question of a Bash permission dialog, not a menu option', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom(
     [
       'Bash command',
@@ -152,7 +166,7 @@ test('getLastPromptText returns the question of a Bash permission dialog, not a 
 });
 
 test('getLastPromptText never returns a bare menu option row', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('  2. No\r\nEsc to cancel · Tab to amend · ctrl+e to explain'));
   await settle();
   assert.equal(det.getLastPromptText(), undefined);
@@ -160,7 +174,7 @@ test('getLastPromptText never returns a bare menu option row', async () => {
 });
 
 test('getLastPromptText returns undefined when only a path sits above the box', async () => {
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(atBottom('/tmp/foo/Screenshot 2026-06-05 at 10.11.33.png\r\n│ > '));
   await settle();
   assert.equal(det.getLastPromptText(), undefined);
@@ -170,7 +184,7 @@ test('getLastPromptText returns undefined when only a path sits above the box', 
 test('getLastPromptText extracts the question from a multi-tab AskUserQuestion menu', async () => {
   // Real screen from 2026-06-05: tabbed AskUserQuestion with long option
   // descriptions — the question sits ~13 rows above the footer.
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(
     [
       'Planning: /Users/macbookpro10/.claude/plans/i-want-to-work-reactive-parnas.md',
@@ -203,7 +217,7 @@ test('getLastPromptText reaches a question more than 15 rows above the footer', 
   // 15-row window.
   const filler = (n: number) =>
     Array.from({ length: n }, (_, i) => `     details about this option, line ${i + 1}`);
-  const det = new StateDetector(() => {}, 'claude');
+  const { det, settle } = make(() => {}, 'claude');
   det.feed(
     [
       'Which approach should we take?',
@@ -227,7 +241,7 @@ test('getLastPromptText reaches a question more than 15 rows above the footer', 
 
 test('a writeQueue rejection does not freeze subsequent status detection', async () => {
   let status: string | null = null;
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   const term = (det as any).term;
   const originalWrite = term.write.bind(term);
   term.write = () => { throw new Error('simulated corrupted write'); };
@@ -250,7 +264,7 @@ test('onPromptUpdate fires when the menu paints after a cursor-hint waiting tran
   // blank repaint must never downgrade it back to undefined.
   let status: string | null = null;
   const updates: string[] = [];
-  const det = new StateDetector((s) => { status = s; }, 'claude');
+  const { det, settle } = make((s) => { status = s; }, 'claude');
   det.setOnPromptUpdate((text) => updates.push(text));
 
   // 1. Cursor-style hint only — waiting with nothing extractable on screen.

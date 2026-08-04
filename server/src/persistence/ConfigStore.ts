@@ -25,6 +25,7 @@ const DEFAULT_CONFIG: AppConfig = {
   ptyBackend: 'auto',
   tileQuickAction: 'diff',
   tileRunningIndicator: 'hairline',
+  trimScrollbackOnResize: false,
   quickActionPromptedAt: '',
 };
 

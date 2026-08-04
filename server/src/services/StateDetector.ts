@@ -146,6 +146,33 @@ const EXTRACT_SCAN_ROWS = 25;         // deeper window for notification-body ext
 const CURSOR_ESC_WINDOW_MS = 1500;    // how long a recent cursor-style change counts as a hint
 const RESIZE_GRACE_MS = 2000;         // suppress 'running' heuristic during SIGWINCH redraw window
 
+/** Opaque timer handle — real `setTimeout` returns a Timeout, fakes return an id. */
+export type StateDetectorTimer = unknown;
+
+/**
+ * Time source for the detector's own clocks and timers.
+ *
+ * Injected because every classification here is time-gated (a 500ms output
+ * settle, a 300ms commit debounce, a 150ms activity window), so tests otherwise
+ * have to sleep past real deadlines — which is both slow and flaky under load: a
+ * loaded CI box fires the internal timers late and the sleep expires first.
+ *
+ * Deliberately scoped to THIS class rather than faking global timers: the
+ * TerminalMirror write queue and xterm's parser run on real timers, and faking
+ * those globally makes every `mirror.afterWrite()` await hang forever.
+ */
+export interface StateDetectorClock {
+  now(): number;
+  setTimeout(fn: () => void, ms: number): StateDetectorTimer;
+  clearTimeout(handle: StateDetectorTimer): void;
+}
+
+export const realClock: StateDetectorClock = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 /**
  * Point-in-time snapshot of the detector's internal signals. Surfaced by
  * `getDiagnostics()` for the session-diagnostics dump (and reused by the
@@ -195,9 +222,10 @@ export class StateDetector {
   private extractAnchorPatterns: RegExp[];
   private currentStatus: SessionStatus = 'running';
   private pendingStatus: SessionStatus | null = null;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private runningTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleTimer: StateDetectorTimer | null = null;
+  private debounceTimer: StateDetectorTimer | null = null;
+  private runningTimer: StateDetectorTimer | null = null;
+  private readonly clock: StateDetectorClock;
   private feedCount = 0;
   private lastCursorStyleAt = 0;
   private lastFeedAt = 0;
@@ -210,7 +238,9 @@ export class StateDetector {
     cols: number = 120,
     rows: number = 30,
     mirror?: TerminalMirror,
+    clock: StateDetectorClock = realClock,
   ) {
+    this.clock = clock;
     this.onStatusChange = onStatusChange;
     this.promptPatterns = AGENT_PROMPT_PATTERNS[agentType] ?? DEFAULT_PROMPT_PATTERNS;
     this.inputBoxPatterns = AGENT_INPUT_BOX_PATTERNS[agentType] ?? [];
@@ -229,7 +259,7 @@ export class StateDetector {
     // emulator's parser (coexists with the mirror's own mode scanner).
     // `intermediates: ' '` matches the single-space intermediate in DECSCUSR.
     this.mirror.term.parser.registerCsiHandler({ intermediates: ' ', final: 'q' }, () => {
-      this.lastCursorStyleAt = Date.now();
+      this.lastCursorStyleAt = this.clock.now();
       return false; // fall through to default handling
     });
   }
@@ -250,7 +280,7 @@ export class StateDetector {
     if (cols <= 0 || rows <= 0) return;
     this.mirror.resize(cols, rows);
     // Stamp so the activity heuristic suppresses 'running' during the SIGWINCH redraw burst.
-    this.lastResizeAt = Date.now();
+    this.lastResizeAt = this.clock.now();
   }
 
   /**
@@ -260,7 +290,7 @@ export class StateDetector {
    * grace window.
    */
   markAttachRedraw(): void {
-    this.lastResizeAt = Date.now();
+    this.lastResizeAt = this.clock.now();
   }
 
   /**
@@ -270,14 +300,14 @@ export class StateDetector {
    * is not a finished session, whatever Claude's Stop hook claims.
    */
   msSinceLastFeed(): number {
-    return this.lastFeedAt === 0 ? Infinity : Date.now() - this.lastFeedAt;
+    return this.lastFeedAt === 0 ? Infinity : this.clock.now() - this.lastFeedAt;
   }
 
   feed(data: string): void {
     // pty flushes buffered output on kill, so onData can fire after destroy().
     // Ignore it — the emulator is disposed and the timers are gone.
     if (this.destroyed) return;
-    this.lastFeedAt = Date.now();
+    this.lastFeedAt = this.clock.now();
 
     // Feed raw bytes (ANSI and all) into the shared mirror so the grid updates
     // correctly. The mirror owns the write queue (reads see a settled parser).
@@ -297,8 +327,8 @@ export class StateDetector {
     // Sustained-output heuristic: many feeds in a short window suggests the
     // agent is actively producing output rather than just repainting.
     this.feedCount++;
-    if (this.runningTimer) clearTimeout(this.runningTimer);
-    this.runningTimer = setTimeout(() => {
+    if (this.runningTimer) this.clock.clearTimeout(this.runningTimer);
+    this.runningTimer = this.clock.setTimeout(() => {
       const count = this.feedCount;
       this.feedCount = 0;
       this.runningTimer = null;
@@ -307,7 +337,7 @@ export class StateDetector {
         // input box is already visible (Claude re-renders its prompt frequently).
         // Also suppress during resize grace window: SIGWINCH causes a full redraw
         // burst that looks like activity but isn't real agent work.
-        const resizeAge = Date.now() - this.lastResizeAt;
+        const resizeAge = this.clock.now() - this.lastResizeAt;
         this.mirror.afterWrite().then(() => {
           if (this.destroyed) return;
           // Suppress the 'running' flip during a survivor re-seed too (plan 002
@@ -320,8 +350,8 @@ export class StateDetector {
     }, ACTIVITY_WINDOW_MS);
 
     // After output settles, classify based on what's actually on the screen.
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => {
+    if (this.idleTimer) this.clock.clearTimeout(this.idleTimer);
+    this.idleTimer = this.clock.setTimeout(() => {
       this.mirror.afterWrite().then(() => this.settle());
     }, IDLE_SETTLE_MS);
   }
@@ -333,7 +363,7 @@ export class StateDetector {
     // else the screen is quiet with no signal → idle. A bare input box is NOT
     // a signal here, so a finished session (box only) settles to idle.
     const classified = this.classify();
-    const recentCursorStyle = Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
+    const recentCursorStyle = this.clock.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
 
     if (classified === 'running') {
       this.scheduleStatus('running');
@@ -428,8 +458,8 @@ export class StateDetector {
     if (status === this.currentStatus && this.pendingStatus === null) return;
     if (status === this.pendingStatus) return;
     this.pendingStatus = status;
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
+    if (this.debounceTimer) this.clock.clearTimeout(this.debounceTimer);
+    this.debounceTimer = this.clock.setTimeout(() => {
       this.debounceTimer = null;
       if (this.pendingStatus !== null && this.pendingStatus !== this.currentStatus) {
         this.currentStatus = this.pendingStatus;
@@ -476,7 +506,7 @@ export class StateDetector {
         lastReportedPrompt: this.lastReportedPrompt,
         extractedPrompt: undefined,
         visibleRows: [],
-        resizeAgeMs: Date.now() - this.lastResizeAt,
+        resizeAgeMs: this.clock.now() - this.lastResizeAt,
         timing,
       };
     }
@@ -486,12 +516,12 @@ export class StateDetector {
       pendingStatus: this.pendingStatus,
       feedCount: this.feedCount,
       classified: this.classify(),
-      recentCursorStyle: Date.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS,
+      recentCursorStyle: this.clock.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS,
       cursor: { x: buf.cursorX, y: buf.cursorY },
       lastReportedPrompt: this.lastReportedPrompt,
       extractedPrompt: this.getLastPromptText(),
       visibleRows: this.visibleRows(),
-      resizeAgeMs: Date.now() - this.lastResizeAt,
+      resizeAgeMs: this.clock.now() - this.lastResizeAt,
       timing,
     };
   }
@@ -564,9 +594,9 @@ export class StateDetector {
 
   setExited(): void {
     if (this.destroyed) return;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (this.runningTimer) clearTimeout(this.runningTimer);
+    if (this.idleTimer) this.clock.clearTimeout(this.idleTimer);
+    if (this.debounceTimer) this.clock.clearTimeout(this.debounceTimer);
+    if (this.runningTimer) this.clock.clearTimeout(this.runningTimer);
     this.pendingStatus = null;
     if (this.currentStatus !== 'exited') {
       this.currentStatus = 'exited';
@@ -576,9 +606,9 @@ export class StateDetector {
 
   destroy(): void {
     this.destroyed = true;
-    if (this.idleTimer) clearTimeout(this.idleTimer);
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    if (this.runningTimer) clearTimeout(this.runningTimer);
+    if (this.idleTimer) this.clock.clearTimeout(this.idleTimer);
+    if (this.debounceTimer) this.clock.clearTimeout(this.debounceTimer);
+    if (this.runningTimer) this.clock.clearTimeout(this.runningTimer);
     // Only dispose the emulator we created; a shared session mirror is owned by
     // SessionManager and outlives the detector across restart.
     if (this.ownsMirror) this.mirror.dispose();

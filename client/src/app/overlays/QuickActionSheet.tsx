@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { TileQuickAction } from '@argus/shared';
-import { Info, Minus, Maximize2, MoreHorizontal } from 'lucide-react';
+import { Info, Minus, Maximize2, MoreHorizontal, CircleX } from 'lucide-react';
 import { Sheet, Button, Kbd, StatusDot } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
@@ -144,7 +144,19 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
  * Non-interactive replica of the tile header. Shared by this sheet and the
  * settings row so the two can never drift.
  */
-export function QuickActionPreview({ action }: { action: TileQuickAction }) {
+/**
+ * Static mock of a mosaic tile header. Mirrors the real control order in
+ * views/Mosaic — pinned action ┃ minimize expand close ┃ ⋯ — so the settings
+ * preview does not drift from the thing it previews. `runningIndicator` lets the
+ * same widget preview that setting too, instead of a second mockup of one header.
+ */
+export function QuickActionPreview({
+  action,
+  runningIndicator = 'hairline',
+}: {
+  action: TileQuickAction;
+  runningIndicator?: 'hairline' | 'off';
+}) {
   const meta = action === 'none' ? null : tileActionMeta(action);
   const Icon = meta?.icon;
   return (
@@ -178,10 +190,11 @@ export function QuickActionPreview({ action }: { action: TileQuickAction }) {
           )}
           <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Minus size={13} strokeWidth={1.7} /></span>
           <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Maximize2 size={13} strokeWidth={1.7} /></span>
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><CircleX size={13} strokeWidth={1.7} /></span>
           <span className="argus-tile-winsep" />
           <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><MoreHorizontal size={13} strokeWidth={1.7} /></span>
         </span>
-        <span className="argus-tile-prog"><i /></span>
+        {runningIndicator === 'hairline' && <span className="argus-tile-prog"><i /></span>}
       </div>
     </div>
   );
