@@ -42,9 +42,9 @@ export class NgrokService {
   public onDisconnect: (() => void) | null = null;
   public onExposureChange: ((exposed: boolean) => void) | null = null;
 
-  constructor() {
+  constructor(sleepPrevention: SleepPreventionService = new SleepPreventionService()) {
     this.ngrokPath = findNgrok();
-    this.sleepPrevention = new SleepPreventionService();
+    this.sleepPrevention = sleepPrevention;
   }
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
@@ -95,8 +95,8 @@ export class NgrokService {
       this.publicUrl = existingUrl;
       this.tunnelStatus = 'connected';
       this.error = null;
-      this.sleepPrevention.start().catch((err) => {
-        console.error('[ngrok] sleepPrevention.start failed:', err);
+      this.sleepPrevention.acquire('ngrok').catch((err: unknown) => {
+        console.error('[ngrok] sleepPrevention.acquire failed:', err);
       });
       this.onExposureChange?.(true);
       this.broadcastStatus();
@@ -131,7 +131,7 @@ export class NgrokService {
         this.tunnelStatus = 'error';
         this.publicUrl = null;
         this.stopPolling();
-        this.sleepPrevention.stop();
+        void this.sleepPrevention.release('ngrok');
         this.onExposureChange?.(false);
         this.broadcastStatus();
         this.onDisconnect?.();
@@ -169,8 +169,8 @@ export class NgrokService {
           this.publicUrl = url;
           this.tunnelStatus = 'connected';
           this.error = null;
-          this.sleepPrevention.start().catch((err) => {
-            console.error('[ngrok] sleepPrevention.start failed:', err);
+          this.sleepPrevention.acquire('ngrok').catch((err: unknown) => {
+            console.error('[ngrok] sleepPrevention.acquire failed:', err);
           });
           this.onExposureChange?.(true);
           this.broadcastStatus();
@@ -196,7 +196,7 @@ export class NgrokService {
       this.pendingStartReject(new Error('ngrok stopped while connecting'));
       this.pendingStartReject = null;
     }
-    this.sleepPrevention.stop();
+    void this.sleepPrevention.release('ngrok');
     if (this.process) {
       this.process.kill('SIGTERM');
       this.process = null;

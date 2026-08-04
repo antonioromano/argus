@@ -23,6 +23,7 @@ import { createGitRoutes } from './routes/git.js';
 import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { NgrokService } from './services/NgrokService.js';
+import { SleepPreventionService } from './services/SleepPreventionService.js';
 import { UpdateService } from './services/UpdateService.js';
 import { createConfigRoutes, createAgentRoutes } from './routes/config.js';
 import { createUpdateRoutes } from './routes/update.js';
@@ -127,8 +128,13 @@ export function getActiveSessionSummaries(): { name: string; status: string }[] 
 }
 const agentRegistry = new AgentRegistry();
 
+// One OS-level sleep blocker for the whole process, arbitrated by reason so a
+// running shell, an ngrok tunnel and a manual keep-awake window cannot cancel
+// each other's intent.
+const sleepPrevention = new SleepPreventionService();
+
 // Session manager
-const sessionManager = new SessionManager(dataDir, configStore);
+const sessionManager = new SessionManager(dataDir, configStore, sleepPrevention);
 sessionManager.setIo(io);
 
 // Order store
@@ -155,7 +161,7 @@ app.use('/api/agent-signals', createAgentSignalRoutes(sessionManager, () => sign
 app.use(createAuthMiddleware(authService));
 
 // Ngrok service (assigned to the var declared above for dynamic CORS)
-ngrokService = new NgrokService();
+ngrokService = new NgrokService(sleepPrevention);
 ngrokService.setIo(io);
 ngrokService.getAuthRequired = () => authService.enabled;
 ngrokService.onDisconnect = () => authService.clearAuth();
