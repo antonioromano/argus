@@ -1,6 +1,8 @@
 import { Globe, Sun, Moon, Settings, ArrowUp } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import type { KeepAwakeStatus } from '@argus/shared';
 import { Tooltip } from '../../components/primitives/index.js';
+import { KeepAwakeButton } from './KeepAwakeButton.js';
 
 function formatTime(date: Date, showSeconds: boolean): string {
   const h = String(date.getHours()).padStart(2, '0');
@@ -44,6 +46,9 @@ interface ElectronToolbarProps {
   onOpenUpdate?: () => void;
   showClock?: boolean;
   clockShowSeconds?: boolean;
+  keepAwakeStatus: KeepAwakeStatus | null;
+  onArmKeepAwake: (durationMs: number | null) => void;
+  onDisarmKeepAwake: () => void;
 }
 
 const iconBtn = (active = false): React.CSSProperties => ({
@@ -73,6 +78,9 @@ export function ElectronToolbar({
   onOpenUpdate,
   showClock,
   clockShowSeconds,
+  keepAwakeStatus,
+  onArmKeepAwake,
+  onDisarmKeepAwake,
 }: ElectronToolbarProps) {
   return (
     <div
@@ -109,6 +117,12 @@ export function ElectronToolbar({
             <ArrowUp size={10} strokeWidth={2} /> v{updateVersion}
           </button>
         )}
+
+        <KeepAwakeButton
+          status={keepAwakeStatus}
+          onArm={onArmKeepAwake}
+          onDisarm={onDisarmKeepAwake}
+        />
 
         <Tooltip content="Remote Access">
           <button

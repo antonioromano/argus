@@ -238,7 +238,8 @@ export class SessionManager {
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
   private gitPollRunning = false;
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
-  private sleepPrevention = new SleepPreventionService();
+  /** Shared with NgrokService and KeepAwakeService — see SleepPreventionService. */
+  private readonly sleepPrevention: SleepPreventionService;
   // Per-session folder watcher; pushes changed dirs to the session's room so
   // the client's file tree updates live (incl. externally-created files).
   private fileWatcher = new FileWatcherService((sessionId, dirs) => {
@@ -257,10 +258,15 @@ export class SessionManager {
   /** Deferred idle-geometry resizes, so a transient viewer loss costs no SIGWINCH. */
   private idleGeometry = new IdleGeometryGate(IDLE_GEOMETRY_DELAY_MS, (id) => this.applyIdleGeometry(id));
 
-  constructor(dataDir: string, configStore: ConfigStore) {
+  constructor(
+    dataDir: string,
+    configStore: ConfigStore,
+    sleepPrevention: SleepPreventionService = new SleepPreventionService(),
+  ) {
     this.dataDir = dataDir;
     this.store = new SessionStore(path.join(dataDir, 'sessions.json'));
     this.configStore = configStore;
+    this.sleepPrevention = sleepPrevention;
     this.ptyManager = new PtyManager(dataDir);
     this.backend = makePtyBackend(this.ptyManager, dataDir);
     this.wireBackend();
@@ -354,7 +360,10 @@ export class SessionManager {
     let running = 0;
     for (const s of this.sessions.values()) if (s.status === 'running') running++;
     const want = this.preventSleepWhileRunning && running > 0;
-    (want ? this.sleepPrevention.start() : this.sleepPrevention.stop()).catch(console.error);
+    (want
+      ? this.sleepPrevention.acquire('sessions')
+      : this.sleepPrevention.release('sessions')
+    ).catch(console.error);
   }
 
   /**
@@ -1467,7 +1476,7 @@ export class SessionManager {
       }
     }
     await this.fileWatcher.stopAll();
-    await this.sleepPrevention.stop();
+    await this.sleepPrevention.release('sessions');
     await this.persistSessions();
   }
 

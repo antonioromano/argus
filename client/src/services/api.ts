@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -395,6 +395,26 @@ export const api = {
 
   recheckNgrok: async (): Promise<NgrokStatus> => {
     const res = await authFetch(`${API_BASE}/ngrok/recheck`, { method: 'POST' });
+    return (await requireOk(res)).json();
+  },
+
+  getKeepAwake: async (): Promise<KeepAwakeStatus> => {
+    const res = await authFetch(`${API_BASE}/keep-awake`);
+    return (await requireOk(res)).json();
+  },
+
+  /** `durationMs: null` arms indefinitely. */
+  armKeepAwake: async (durationMs: number | null): Promise<KeepAwakeStatus> => {
+    const res = await authFetch(`${API_BASE}/keep-awake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ durationMs }),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  disarmKeepAwake: async (): Promise<KeepAwakeStatus> => {
+    const res = await authFetch(`${API_BASE}/keep-awake`, { method: 'DELETE' });
     return (await requireOk(res)).json();
   },
 
