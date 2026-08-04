@@ -98,9 +98,12 @@ class KeepAwakeService {
   disarm(): KeepAwakeStatus
   get status(): KeepAwakeStatus
   onChange(cb: (s: KeepAwakeStatus) => void): void
-  shutdown(): void                                  // clear timer, release
+  shutdown(): Promise<void>                         // clear timer, release
 }
 ```
+
+The timer is scheduled through an injected `Scheduler` (default: `setTimeout` + `unref`) so expiry is
+testable by invoking the captured callback — no fake timers.
 
 - State: `expiresAt: number | null` (`null` = off) plus `indefinite: boolean`. One `setTimeout`,
   cleared and re-armed on every `arm()`; fires → `disarm()` → notify.
