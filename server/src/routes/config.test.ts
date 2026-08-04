@@ -159,3 +159,77 @@ test('a non-string quickActionPromptedAt is ignored, keeping the stamp', async (
   const { body } = await put({ quickActionPromptedAt: true });
   assert.equal(body.quickActionPromptedAt, '0.22.0');
 });
+
+// ─── Terminal: scrollback trim ───────────────────────────────────────────────
+
+test('PUT trimScrollbackOnResize:true persists (allowlist regression)', async () => {
+  // Shipped broken: the field was absent from the PUT allowlist, so the Settings
+  // toggle snapped straight back and the feature could never be switched on.
+  const { status, body } = await put({ trimScrollbackOnResize: true });
+  assert.equal(status, 200);
+  assert.equal(body.trimScrollbackOnResize, true);
+  const loaded = await get();
+  assert.equal(loaded.trimScrollbackOnResize, true);
+});
+
+test('trimScrollbackOnResize switches back off', async () => {
+  await put({ trimScrollbackOnResize: true });
+  const { body } = await put({ trimScrollbackOnResize: false });
+  assert.equal(body.trimScrollbackOnResize, false);
+  assert.equal((await get()).trimScrollbackOnResize, false);
+});
+
+test('an unrelated PUT does not clear trimScrollbackOnResize', async () => {
+  await put({ trimScrollbackOnResize: true });
+  const { body } = await put({ showClock: true });
+  assert.equal(body.trimScrollbackOnResize, true);
+});
+
+// ─── Whole-surface guard ─────────────────────────────────────────────────────
+// Two fields have now shipped missing from the PUT allowlist (debugToolsEnabled,
+// trimScrollbackOnResize), each time invisible until a user tried the toggle.
+// This asserts the allowlist covers EVERY field at once, so the next addition
+// fails here instead of in the UI.
+
+test('no AppConfig field is silently dropped by PUT', async () => {
+  // One non-default, valid value per field. Add new fields here when AppConfig grows.
+  const nonDefault: Record<string, unknown> = {
+    defaultAgent: 'gemini',
+    customAgents: [{ id: 'aider', name: 'Aider', command: 'aider', builtin: false }],
+    agentFlags: { claude: [{ value: '--verbose', enabled: true }] },
+    notificationsEnabled: true,
+    notifyOnWaiting: false,
+    notifyOnDone: true,
+    notificationSound: true,
+    showClock: true,
+    clockShowSeconds: true,
+    othersFolderName: 'Archive',
+    preventSleepWhileRunning: true,
+    confirmCloseShell: false,
+    exitSessionsOnQuit: true,
+    confirmExitOnQuit: false,
+    keyboardShortcuts: { 'open-diff': 'Cmd+Shift+D' },
+    uiFontSize: 16,
+    codeFontSize: 15,
+    mosaicWaitingStyle: 'flag',
+    debugToolsEnabled: true,
+    ptyBackend: 'tmux',
+    tileQuickAction: 'files',
+    tileRunningIndicator: 'off',
+    trimScrollbackOnResize: true,
+    quickActionPromptedAt: '0.23.0',
+  };
+
+  const { body } = await put(nonDefault);
+  const loaded = await get();
+
+  const dropped: string[] = [];
+  for (const [key, want] of Object.entries(nonDefault)) {
+    const echoed = JSON.stringify((body as Record<string, unknown>)[key]);
+    const stored = JSON.stringify((loaded as Record<string, unknown>)[key]);
+    const expected = JSON.stringify(want);
+    if (echoed !== expected) dropped.push(`${key}: response has ${echoed}, sent ${expected}`);
+    else if (stored !== expected) dropped.push(`${key}: stored ${stored}, sent ${expected}`);
+  }
+  assert.deepEqual(dropped, [], `PUT /api/config dropped or mangled fields:\n  ${dropped.join('\n  ')}`);
+});
