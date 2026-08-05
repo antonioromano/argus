@@ -82,8 +82,10 @@ Design notes:
   absolute deadline. Verified to genuinely load a core: ~2.7M iterations/sec.
 - **600s cap.** An upper bound on the worst case if every kill path fails. Long enough for any
   realistic flakiness run, short enough that a forgotten orphan is a nuisance rather than an outage.
-- **`BURNERS` is still exported** so existing scripts that call `kill $BURNERS` keep working
-  unchanged. The idiom is strictly additive.
+- **`BURNERS` is a global array (`typeset -ga`)**, not an exported scalar, so existing scripts that
+  call `kill $BURNERS` keep working unchanged — unquoted array expansion always splits into multiple
+  words in zsh, which is what makes `kill $BURNERS` actually kill every PID instead of failing with
+  `illegal pid`. The idiom is strictly additive.
 
 ### Part 2 — `orphan-reap` (detection, report-only by default)
 
@@ -96,7 +98,7 @@ Rules are structural, never age-based:
 | A | Claude burner husk | `PPID == 1` **and** command contains `.claude/shell-snapshots/` **and** `%CPU >= 20` |
 | B | MCP watchdog husk | command has `--parent-pid=N` **and** `kill -0 N` fails |
 | C | tmux husk | per argus socket: `session_attached == 0` **and** `pane_pid` is a bare shell (`zsh`/`bash`/`sh`) **and** it has no child processes |
-| D | Dead socket file | socket file exists but `tmux -L <sock> list-sessions` reports no server |
+| D | Dead socket file | socket file exists but `tmux -S <full path> list-sessions` reports no server |
 
 Why each rule is safe:
 
@@ -112,7 +114,9 @@ Why each rule is safe:
   pane as a husk and kill live work. Absence of children is registry-agnostic. Validated against live
   data: all three detached `argus-dev` sessions are correctly spared (each `pane_pid` is a `claude`
   process with five children).
-- **D** removes only the socket *file*, and only when no server answers on it.
+- **D** only *reports* the dead socket file; it is never removed by `orphan-reap`, with or without
+  `--yes`. A tmux server cannot recreate its own socket, so unlinking a live one would leave the
+  server running but permanently unattachable — removal is a decision for a human, not the tool.
 
 Behavior:
 
