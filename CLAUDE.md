@@ -32,6 +32,27 @@ npm test -w client
 
 CI (`.github/workflows/ci.yml`) runs `lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
 
+### Load testing (flaky-test investigation)
+
+To run a test under CPU saturation, **always** source the self-terminating burner:
+
+```bash
+source ~/.claude/bin/burn.sh
+burn 60                     # saturates all cores, each burner expires after 60s
+npx tsx --test server/src/services/StateDetector.classify.test.ts
+kill $BURNERS 2>/dev/null   # optional early release
+```
+
+**Never** write a bare `(while :; do :; done) &`. On 2026-08-04 that idiom left 22
+orphaned burners at load average 118 — the driver shell died before its `kill` line
+ran, and nothing else could ever stop them. `burn` puts the deadline inside each
+subshell so an orphan expires on its own.
+
+`~/.claude/bin/orphan-reap` reports orphaned burners, MCP watchdogs with dead
+parents, and tmux husks. It kills nothing without `--yes`. Both scripts live in
+`~/.claude/bin` and are not part of this repo — see
+`docs/superpowers/specs/2026-08-04-orphan-process-hygiene-design.md`.
+
 The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) still exists for fast hot-reload iteration on UI changes, but Electron is the only supported client surface. The browser `<header>` and `window.confirm` fallback have been removed.
 
 ## Architecture
