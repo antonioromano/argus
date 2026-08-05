@@ -85,6 +85,16 @@ fixture_spawn_watchdog() {
   while [[ ! -s $pidfile ]] && (( tries++ < 50 )); do sleep 0.1; done
   local reported_pid=$(< $pidfile); rm -f $pidfile
   [[ -n $reported_pid && $reported_pid != $pid ]] && _fixture_record $reported_pid
+  # S4 pattern (see fixture_tmux_shell_with_child above): `sleep 60` is an
+  # external binary, so this watchdog zsh forks a grandchild that SIGKILLing
+  # the zsh itself (fixture_cleanup) does not reap. Without this, cleanup
+  # killed the wrapper and left the sleep grandchild orphaned at PPID 1 for
+  # up to 60s. Recorded after the pidfile wait so the child actually exists
+  # by now.
+  local gc
+  for gc in ${(f)"$(pgrep -P ${reported_pid:-$pid} 2>/dev/null)"}; do
+    [[ -n $gc ]] && _fixture_record $gc
+  done
   print -r -- ${reported_pid:-$pid}
 }
 
