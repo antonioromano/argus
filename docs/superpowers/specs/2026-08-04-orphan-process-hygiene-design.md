@@ -17,10 +17,18 @@ BURNERS=$(jobs -p | tr '\n' ' ')
 kill $BURNERS 2>/dev/null
 ```
 
-The cleanup line is the *only* exit condition. When the driver shell died before reaching it — a
-killed Bash tool call, an interrupted session, a crash — the backgrounded subshells were orphaned and
-span forever. Nothing in the system reclaims them; they are not children of any live process, they
-hold no resources anyone audits, and they never terminate on their own.
+The cleanup was broken three independent ways, all since verified, so it could never have worked
+under any circumstances:
+
+1. `BURNERS=$(jobs -p | tr '\n' ' ')` — command substitution runs in a subshell with no job table, so
+   `BURNERS` was always empty.
+2. `kill $BURNERS` — zsh does not word-split unquoted scalars, so even a populated scalar reaches
+   `kill` as a single argument and fails with `illegal pid`.
+3. Only then, the driver shell died before reaching that already-inert cleanup line — a killed Bash
+   tool call, an interrupted session, a crash.
+
+Nothing in the system reclaims an orphaned subshell; it is not a child of any live process, it holds
+no resources anyone audits, and it never terminates on its own.
 
 This was not an Argus bug. Argus's own footprint at the time was a single `tmux -L argus-dev` process
 at 0.0% CPU. The failure belongs to the ad-hoc load-testing idiom, and it will recur every time that
@@ -57,10 +65,11 @@ burn() {
   local secs=${1:?usage: burn <seconds>} i
   (( secs >= 1 )) || { print -u2 "burn: seconds must be >= 1"; return 1 }
   (( secs <= 600 )) || { print -u2 "burn: refusing >600s"; return 1 }
+  typeset -ga BURNERS=()
   for i in $(seq 1 $(sysctl -n hw.ncpu)); do
     ( end=$(( SECONDS + secs )); while (( SECONDS < end )); do :; done ) &
+    BURNERS+=($!)
   done
-  BURNERS=$(jobs -p | tr '\n' ' ')
 }
 ```
 
@@ -109,7 +118,9 @@ Behavior:
 
 - Default run: table of category, PID, age, %CPU, and a one-line identification. Exit 0 whether or
   not anything was found. Kills nothing.
-- `--yes`: SIGTERM, wait 2s, SIGKILL survivors. Category D unlinks the socket file.
+- `--yes`: SIGTERM, wait 2s, SIGKILL survivors. Category D is never unlinked, even with `--yes` — a
+  tmux server cannot recreate its socket, so unlinking a *live* one would leave the server running but
+  permanently unattachable. Dead sockets are reported for the human to remove by hand.
 - Sockets are discovered by globbing `/private/tmp/tmux-$UID/argus*`, so `argus`, `argus-dev`, and
   `argus-uitest` are all covered without hardcoding a list.
 - Never installed as a hook. Manual invocation only — the reaper has no authority to fire on its own,
