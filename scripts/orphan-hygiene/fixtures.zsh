@@ -131,12 +131,15 @@ fixture_tmux_socket() {
 
 # A husk: detached session whose pane is a bare childless shell.
 #
-# M3: guard against being called before fixture_tmux_socket — without this,
-# an empty FIXTURE_TMUX_SOCK_PATH would silently create a session on
+# M3/S1: guard against being called before fixture_tmux_socket — without
+# this, an empty FIXTURE_TMUX_SOCK_PATH would silently create a session on
 # whatever tmux's own default socket resolves to, which is exactly the
-# ambient-state failure mode -S is meant to avoid.
+# ambient-state failure mode -S is meant to avoid. Guards check
+# FIXTURE_TMUX_SOCK_PATH itself (S1) — that's the variable every command
+# below actually consumes; FIXTURE_TMUX_SOCK alone being set would not
+# catch a bug in fixture_tmux_socket that left the path unset.
 fixture_tmux_husk_session() {
-  [[ -n $FIXTURE_TMUX_SOCK ]] || return 1
+  [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
   local sess="husk-$$"
   $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess '/bin/zsh -f' 2>/dev/null
   sleep 1
@@ -151,7 +154,7 @@ fixture_tmux_husk_session() {
 # `cat` stands in for a custom AgentRegistry agentType — deliberately NOT one of
 # claude/gemini/codex, because rule C must not depend on an agent whitelist.
 fixture_tmux_live_session() {
-  [[ -n $FIXTURE_TMUX_SOCK ]] || return 1
+  [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
   local sess="live-$$"
   $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess '/bin/cat' 2>/dev/null
   sleep 1
@@ -164,32 +167,55 @@ fixture_tmux_live_session() {
 # PtyManager produces (agent spawned through the user's login shell). Rule C
 # must spare this. Without the fixture's trailing `:`, zsh's exec-elision
 # of a `zsh -c` script's final simple command would replace the pane process
-# image with a bare `sleep 300`, so the pane would stop being `zsh` at all
-# and this test would pass for the wrong reason (failing the comm check,
-# never reaching the childlessness check it exists to exercise).
+# image with a bare `sleep`, so the pane would stop being `zsh` at all and
+# this test would pass for the wrong reason (failing the comm check, never
+# reaching the childlessness check it exists to exercise).
+#
+# S4: self-limits to 60s, matching every other spawn fixture in this file —
+# SIGKILLing the pane's own zsh (as fixture_cleanup does via _fixture_record)
+# does not kill that zsh's own children, so without a short deadline here a
+# bypassed kill-server/cleanup would leave the sleep grandchild running for
+# however long its sleep argument said.
 fixture_tmux_shell_with_child() {
-  [[ -n $FIXTURE_TMUX_SOCK ]] || return 1
+  [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
   local sess="child-$$"
-  $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess '/bin/zsh -fc "sleep 300; :"' 2>/dev/null
+  $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess '/bin/zsh -fc "sleep 60; :"' 2>/dev/null
   sleep 1
   local p=$($TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" list-panes -t $sess -F '#{pane_pid}' 2>/dev/null | head -1)
-  [[ -n $p ]] && _fixture_record $p
+  if [[ -n $p ]]; then
+    _fixture_record $p
+    # Record the sleep grandchild directly too (see S4 note above) — it is
+    # not reaped merely by killing its parent pane.
+    local gc=$(pgrep -P $p 2>/dev/null)
+    [[ -n $gc ]] && _fixture_record $gc
+  fi
   print -r -- $sess
 }
 
 fixture_tmux_pane_pid() {
-  [[ -n $FIXTURE_TMUX_SOCK ]] || return 1
+  [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
   $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" list-panes -t $1 -F '#{pane_pid}' 2>/dev/null | head -1
 }
 
 fixture_tmux_teardown() {
-  [[ -n $FIXTURE_TMUX_SOCK ]] && $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" kill-server 2>/dev/null
-  [[ -n $FIXTURE_TMUX_SOCK ]] && rm -f "$FIXTURE_TMUX_SOCK_PATH"
-  # M5: prefix-locked sweep for any argus-fixture-* socket left behind by an
-  # aborted run (e.g. a crash between fixture_tmux_socket and this call, or a
-  # prior interrupted run whose own teardown never fired). Scoped strictly to
-  # the argus-fixture- prefix — never touches argus / argus-dev / argus-uitest.
-  rm -f /private/tmp/tmux-$(id -u)/argus-fixture-*(N)
+  # N1 (was M5): a prefix-locked sweep for any argus-fixture-* socket left
+  # behind by an aborted run — this glob already covers $FIXTURE_TMUX_SOCK_PATH
+  # itself, since that path always matches the argus-fixture- prefix, so there
+  # is no separate named-socket step. The FIRST fix attempt here just
+  # `rm -f`'d every matching socket file without killing its server first —
+  # for a socket whose server is still alive (the exact case this sweep
+  # exists to catch: an earlier run crashed before reaching its own
+  # teardown), that reproduces the Critical this whole task exists to
+  # prevent: the server keeps running, unattachable forever, invisible to
+  # every future glob and every future teardown, turning a recoverable leak
+  # into a permanent one. Always kill-server each match before unlinking it.
+  # Scoped strictly to the argus-fixture- prefix — never touches
+  # argus / argus-dev / argus-uitest.
+  local s
+  for s in /private/tmp/tmux-$(id -u)/argus-fixture-*(N); do
+    $TMUX_BIN -S "$s" kill-server 2>/dev/null
+    rm -f "$s"
+  done
   FIXTURE_TMUX_SOCK=""
   FIXTURE_TMUX_SOCK_PATH=""
   return 0

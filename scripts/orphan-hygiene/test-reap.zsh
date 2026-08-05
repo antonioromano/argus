@@ -102,8 +102,22 @@ child_pane=$(fixture_tmux_pane_pid $child_sess)
 if [[ -z $child_pane ]]; then
   skip "rule C negative, shell with child" "tmux fixture failed"
 else
-  out=$($REAP)
-  assert_not_contains "$out" "C|$child_pane|" "childful shell pane spared (childlessness, not comm, gates rule C)"
+  # N4: the trailing `:` that keeps this pane's comm at `zsh` (instead of
+  # exec-eliding into a bare `sleep`) is load-bearing and otherwise
+  # unasserted. Without this guard, a future zsh that elides differently
+  # would turn the pane into a non-shell `sleep`, the comm gate in rule C
+  # would filter it out for an unrelated reason, and assert_not_contains
+  # below would keep passing forever — a silent, permanent false negative
+  # for the exact property this fixture exists to exercise. Fail loud (skip)
+  # instead, so the fixture's own precondition failing is visible.
+  fixture_comm=${$(ps -p $child_pane -o comm= 2>/dev/null):t}
+  fixture_children=$(pgrep -P $child_pane 2>/dev/null)
+  if [[ $fixture_comm != (zsh|bash|sh) || -z $fixture_children ]]; then
+    skip "rule C negative, shell with child" "fixture no longer produces a childful shell pane (comm=$fixture_comm children=${fixture_children:-none})"
+  else
+    out=$($REAP)
+    assert_not_contains "$out" "C|$child_pane|" "childful shell pane spared (childlessness, not comm, gates rule C)"
+  fi
 fi
 
 print "test-reap: rule C — real detached argus sessions with live agents/panes are spared"
@@ -133,13 +147,43 @@ for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
 done
 (( found_any )) || skip "real detached agent panes spared" "no live detached argus sessions present"
 
-print "test-reap: rule D — socket file with no server is listed"
-fixture_tmux_teardown          # kills the server, may leave the socket file behind
-dead_sock=/private/tmp/tmux-$(id -u)/argus-fixture-dead-$$
-: > $dead_sock
+# N2: the original version of this test did `: > $dead_sock` — a plain
+# regular file, not a real tmux socket. tmux's actual reply to that is
+# "Socket operation on non-socket", which does NOT match D1's dead-socket
+# patterns, so it was classified `?`, not `D`. `assert_contains "$out"
+# "$dead_sock"` matched the `?` line's path just as happily as it would have
+# matched a `D` line, so this test passed with ZERO coverage of the `D`
+# branch: deleting D1's match list entirely (the exact regression D1 exists
+# to prevent) would have left this suite green. Fixed by exercising a REAL
+# crashed server — kill -9 the server process directly (never kill-server),
+# which is what actually produces "no server running on <path>" and, on
+# this tmux (3.6b), leaves the socket file behind. The plain-file case is
+# kept as its own test, now correctly asserting `?`, not `D`.
+print "test-reap: rule D — socket left behind by a crashed server is listed as dead"
+# Addendum note: this reuses the scratch socket from the rule-C tests above,
+# whose panes (husk_pane/live_pane/child_pane) were each already
+# _fixture_record'd by their own spawn fixtures BEFORE we got here — so
+# fixture_cleanup can reap them by pid directly even though the server we're
+# about to kill can no longer enumerate or signal them itself. Do NOT "fix"
+# this by moving the kill -9 earlier or reordering fixture creation; the
+# pane-recording-before-kill invariant already holds by construction.
+srv_pid=$($TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" display-message -p '#{pid}' 2>/dev/null)
+if [[ -z $srv_pid ]]; then
+  skip "rule D positive" "could not resolve the scratch tmux server pid"
+else
+  kill -9 $srv_pid 2>/dev/null
+  sleep 0.3
+  out=$($REAP)
+  assert_contains "$out" "D|-|-|-|dead tmux socket file (report-only — never unlinked by --yes): $FIXTURE_TMUX_SOCK_PATH" "crashed server's leftover socket is listed as D"
+fi
+
+print "test-reap: rule ? — a non-socket leftover file at a socket path is inconclusive, not dead"
+noise_sock=/private/tmp/tmux-$(id -u)/argus-fixture-noise-$$
+: > $noise_sock
 out=$($REAP)
-assert_contains "$out" "$dead_sock" "orphaned socket file is listed"
-rm -f $dead_sock
+assert_contains "$out" "?|-|-|-|inconclusive tmux socket probe, investigate by hand: $noise_sock" "plain-file leftover is reported as inconclusive"
+assert_not_contains "$out" "D|-|-|-|dead tmux socket file (report-only — never unlinked by --yes): $noise_sock" "plain-file leftover is never classified as dead"
+rm -f $noise_sock
 
 fixture_cleanup
 summary
