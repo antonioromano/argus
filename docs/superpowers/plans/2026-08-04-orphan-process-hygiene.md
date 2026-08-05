@@ -955,6 +955,56 @@ uses a non-shell pane command standing in for a custom agent."
 >
 > Also add the `ORPHAN_REAP_CPU_MIN` coverage the Task 2 review found missing: with the threshold
 > raised above a live fixture burner's CPU, rule A must not list it; at the default it must.
+>
+> **Use `-S "$sock"` in the seam, not `-L "${sock:t}"`** — see Amendment 3. With `-L`, the seam would
+> glob fixture sockets in the scratch dir and then probe the *real* dir, classifying every fixture as
+> dead: rule C would be silently dead in the scoped suite while the D-side assertions passed.
+
+#### Task 5 also carries these, accumulated from the Task 2 and Task 4 reviews
+
+**HARD REQUIREMENT — N5: `_c_still_husk` has zero test coverage.** Verified: `--yes` appears in the
+suite only inside assertion *strings*, never as an invocation, so both re-check gates
+(`orphan-reap:227` before `kill`, `:243` after the `sleep 2` before `kill -9`) are never executed.
+Replacing the function body with `return 0` leaves the suite green at `pass=24`. That silently reverts
+the tool to pre-I5 behaviour, re-opening the TOCTOU window I5 exists to close — and it puts the guard
+that decides whether a pid gets signalled in the one path no test touches. This is N2's shape (green
+suite, uncovered branch) relocated into the destructive path. Strongest honest form first:
+
+1. A fixture-scoped `--yes` run that creates a husk pane, makes it childful between classification and
+   signalling, and asserts a `spared on re-check` line appears.
+2. Failing that, a static assertion that `_c_still_husk` is referenced at both signalling sites.
+
+**Report-only lock needs a static guard.** C1's fix has no automated protection, and running `--yes`
+unscoped in-suite is itself the hazard. Zero-risk form: assert the tool's text contains no `to_unlink`
+and no `rm ` in the kill path.
+
+**Per-group assertion counters (from the Q1 analysis).** `pass=N` is not a usable regression signal:
+the per-loop breakdown is hand-authored in the report, so it cannot fail and drifts with ambient state.
+**Two** groups are environment-dependent, not one — the rule-B watchdog loop (MCP churn) and the
+rule-C real-session loop (however many detached `argus-dev` sessions happen to exist). The fixed core
+is **11**: A 2 + default-kills-nothing 1 + B 2 + C 3 + D 1 + `?` 2. Have the two ambient loops
+increment their own named counters, make `summary` print per-group lines, and **assert the fixed core
+equals 11** — that assertion is the real signal, because it catches a whole block being silently
+skipped, which no total can. Until then `fail=0 skip=0` is the signal and `pass=N` is informational.
+
+**S5 — fix the spared-on-re-check message.** For a pid that has already exited, `comm` is empty, so it
+prints `spared on re-check: 1234 is now  with children` — a double space plus a claim that is untrue.
+Same text appears when `pgrep` is missing. Add a `kill -0` check for "already gone" and an else-branch
+for the inconclusive case. This is operator-facing text in the destructive path, where wrong messages
+cost the most.
+
+**S8 — quote the needle in `assert.zsh`.** Line 18 is `[[ $haystack == *$needle* ]]`, with the needle
+unquoted inside the pattern. That is safe today only because zsh's `NO_GLOB_SUBST` default stops
+expanded parameters being re-read as patterns. Round 2 introduced the first needles containing glob
+metacharacters — `?|-|-|-|…`, `(report-only …)`, and `|` throughout — so under `setopt glob_subst`,
+`emulate sh`, or a port to bash, `?` becomes a wildcard and `(…)`/`|` become alternation, and those
+assertions silently change meaning. Use `*"$needle"*`.
+
+**S6 / S7 — take if cheap.** S6: the numeric field-2 predicate is computed in two loops
+(`orphan-reap:173-175` and `:193-200`) and can drift; build `to_kill`/`cat_of` once, then
+`actionable=${#to_kill}`. S7: `local gc=$(pgrep -P $p …)` — zsh doesn't word-split unquoted
+parameters, so a pane with more than one child hands `_fixture_record` a single argument containing a
+newline; use `for gc in ${(f)"$(pgrep -P $p)"}; do _fixture_record $gc; done`.
 
 - [ ] **Step 1: Write the failing kill-semantics tests**
 
