@@ -185,11 +185,84 @@ fixture_tmux_shell_with_child() {
   if [[ -n $p ]]; then
     _fixture_record $p
     # Record the sleep grandchild directly too (see S4 note above) — it is
-    # not reaped merely by killing its parent pane.
-    local gc=$(pgrep -P $p 2>/dev/null)
-    [[ -n $gc ]] && _fixture_record $gc
+    # not reaped merely by killing its parent pane. S7: zsh does not
+    # word-split an unquoted parameter, so `local gc=$(pgrep -P $p)` would
+    # hand _fixture_record a single argument containing an embedded newline
+    # if this pane ever had more than one child; ${(f)...} splits on
+    # newlines explicitly instead.
+    local gc
+    for gc in ${(f)"$(pgrep -P $p 2>/dev/null)"}; do
+      [[ -n $gc ]] && _fixture_record $gc
+    done
   fi
   print -r -- $sess
+}
+
+# For --yes tests only: places the fixture socket under an arbitrary
+# directory instead of the shared real tmux socket dir
+# (/private/tmp/tmux-$(id -u), where argus/argus-dev/argus-uitest also live),
+# so ORPHAN_REAP_TMUX_DIR can scope a destructive run to exactly what this
+# fixture created and nothing else. Never call this for the report-only
+# tests above — they deliberately want the real dir so rule C/D exercise
+# real machine state alongside the fixtures.
+fixture_tmux_socket_in() {
+  local dir=$1
+  FIXTURE_TMUX_SOCK="argus-fixture-$$"
+  FIXTURE_TMUX_SOCK_PATH="$dir/$FIXTURE_TMUX_SOCK"
+  print -r -- $FIXTURE_TMUX_SOCK
+}
+
+# N5: a husk pane that traps SIGTERM (so it survives the first signal) and,
+# a couple of seconds after it starts, forks a background child of its own —
+# mimicking a PtyManager pane execing its agent between classification and
+# signalling. Verified empirically that `sleep 2.5` as the delay does NOT
+# work here: `sleep` is an external binary, so the delay itself forks a
+# child for its whole duration, making the pane look childful from t=0 and
+# leaving no genuinely-childless window for find_tmux_husks's cheap
+# pre-filter to ever classify it as a finding in the first place ("nothing
+# to reap" for the whole run). The delay must fork NOTHING — a builtin
+# busy-wait (`SECONDS`, `while`, `:`) — so the pane is truly childless until
+# the deliberate `sleep 60 &` below.
+#
+# The delay must clear TWO deadlines: it must still be childless when
+# find_tmux_husks classifies it (this fixture's own settle `sleep 1` plus
+# $(...) capture overhead puts classification at roughly 1.1-1.4s after the
+# pane starts), and it must still land before the SECOND re-check, after the
+# SIGTERM grace period — whichever of the two re-check sites ends up
+# catching it, both print the identical "spared on re-check" text, so this
+# test does not depend on which one actually fires. 2s clears classification
+# with margin and lands inside the ~2s SIGTERM grace window that follows it.
+#
+# Every construct here is a compound command (`while`, `;`-lists ending in a
+# builtin), never a bare simple command, so (per the exec-elision hazard
+# documented elsewhere in this file) the pane's comm stays `zsh` throughout
+# instead of being replaced by a final command's own process image.
+fixture_tmux_husk_survivor_session() {
+  [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
+  local sess="survivor-$$"
+  $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess \
+    "/bin/zsh -f -c 'trap : TERM; end=\$((SECONDS+2)); while ((SECONDS<end)); do :; done; sleep 60 & while :; do :; done'" 2>/dev/null
+  sleep 1
+  local p=$($TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" list-panes -t $sess -F '#{pane_pid}' 2>/dev/null | head -1)
+  [[ -n $p ]] && _fixture_record $p
+  print -r -- $sess
+}
+
+# Tears down a --yes-test scratch socket directory: kill-server on every
+# match first (same ordering rationale as fixture_tmux_teardown — never
+# unlink a live server's socket out from under it), then remove the whole
+# scratch directory. Distinct from fixture_tmux_teardown, which only ever
+# sweeps the real /private/tmp/tmux-$(id -u) — this one operates on a
+# caller-supplied scratch dir and is safe to rm -rf wholesale because the
+# caller created that directory purely for this purpose.
+fixture_tmux_teardown_dir() {
+  local dir=$1
+  [[ -n $dir && -d $dir ]] || return 0
+  local s
+  for s in $dir/argus-fixture-*(N); do
+    $TMUX_BIN -S "$s" kill-server 2>/dev/null
+  done
+  rm -rf "$dir"
 }
 
 fixture_tmux_pane_pid() {
