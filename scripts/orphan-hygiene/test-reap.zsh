@@ -91,7 +91,22 @@ else
   assert_not_contains "$out" "C|$live_pane|" "non-shell pane spared (custom agentType safe)"
 fi
 
-print "test-reap: rule C — real detached argus sessions with live agents are spared"
+# I1: the childlessness clause has no other test that fails if it's deleted —
+# the husk positive passes on comm+childless together, the /bin/cat negative
+# passes on comm alone, and (pre-fix) the real-session loop below skipped
+# every shell pane outright. This is the one exercising the exact PtyManager
+# shape: pane stays a shell, but has a live child.
+print "test-reap: rule C — detached shell pane WITH a child is spared (PtyManager shape)"
+child_sess=$(fixture_tmux_shell_with_child)
+child_pane=$(fixture_tmux_pane_pid $child_sess)
+if [[ -z $child_pane ]]; then
+  skip "rule C negative, shell with child" "tmux fixture failed"
+else
+  out=$($REAP)
+  assert_not_contains "$out" "C|$child_pane|" "childful shell pane spared (childlessness, not comm, gates rule C)"
+fi
+
+print "test-reap: rule C — real detached argus sessions with live agents/panes are spared"
 out=$($REAP)
 found_any=0
 for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
@@ -104,11 +119,17 @@ for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
     [[ $rattached == 0 ]] || continue
     [[ $rpane == <-> ]] || continue
     rcomm=${$(ps -p $rpane -o comm= 2>/dev/null):t}
-    if [[ -n $rcomm && $rcomm != (zsh|bash|sh) ]]; then
+    [[ -n $rcomm ]] || continue
+    if [[ $rcomm != (zsh|bash|sh) ]]; then
       found_any=1
       assert_not_contains "$out" "C|$rpane|" "live detached agent pane $rpane ($rcomm) spared"
+    elif [[ -n $(pgrep -P $rpane 2>/dev/null) ]]; then
+      # A real shell pane WITH children — assert spared instead of skipping
+      # it, so this loop also covers I1's property against real machine state.
+      found_any=1
+      assert_not_contains "$out" "C|$rpane|" "live detached shell-with-child pane $rpane ($rcomm) spared"
     fi
-  done < <($TMUX_BIN -L ${sock:t} list-panes -a -F '#{session_attached}|#{pane_pid}' 2>/dev/null)
+  done < <($TMUX_BIN -S "$sock" list-panes -a -F '#{session_attached}|#{pane_pid}' 2>/dev/null)
 done
 (( found_any )) || skip "real detached agent panes spared" "no live detached argus sessions present"
 
