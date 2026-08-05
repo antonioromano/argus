@@ -255,9 +255,23 @@ fixture_tmux_husk_survivor_session() {
 # sweeps the real /private/tmp/tmux-$(id -u) — this one operates on a
 # caller-supplied scratch dir and is safe to rm -rf wholesale because the
 # caller created that directory purely for this purpose.
+#
+# I3 (fix round 1): this is the suite's only unguarded `rm -rf $var` — the
+# exact class of mistake this whole task exists to prevent, per N1's comment
+# above on fixture_tmux_teardown. A caller passing the real
+# /private/tmp/tmux-$(id -u) here (an easy slip given the similar name) would
+# delete argus/argus-dev/argus-uitest's sockets outright. Refuse explicitly
+# rather than trusting every future call site to always pass a real scratch
+# dir.
 fixture_tmux_teardown_dir() {
   local dir=$1
   [[ -n $dir && -d $dir ]] || return 0
+  case $dir in
+    /|/private/tmp/tmux-*)
+      print -u2 "fixture_tmux_teardown_dir: refusing to touch $dir (looks like the real tmux socket dir, not a scratch dir)"
+      return 1
+      ;;
+  esac
   local s
   for s in $dir/argus-fixture-*(N); do
     $TMUX_BIN -S "$s" kill-server 2>/dev/null

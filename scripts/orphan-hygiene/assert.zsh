@@ -39,7 +39,10 @@ _group_tally() {   # $1 = pass|fail|skip
 
 assert_eq() {
   local actual=$1 expected=$2 label=$3
-  if [[ $actual == $expected ]]; then
+  # S1 (fix round 1): same rationale as S8 in assert_contains/assert_not_contains
+  # below — the RHS of == is a glob pattern unless quoted, and only zsh's
+  # NO_GLOB_SUBST default made this safe so far. Quote it.
+  if [[ $actual == "$expected" ]]; then
     (( ASSERT_PASS++ )); _group_tally pass; print "  ok   $label"
   else
     (( ASSERT_FAIL++ )); _group_tally fail; print "  FAIL $label"; print "       expected: $expected"; print "       actual:   $actual"
