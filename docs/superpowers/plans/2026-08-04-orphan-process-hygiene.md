@@ -8,6 +8,35 @@
 
 **Tech Stack:** zsh 5.9, BSD `ps`, `pgrep`, tmux 3.x (`/opt/homebrew/bin/tmux`). No `bats` on this machine — the test harness is a self-contained zsh script with assertion helpers. No new dependencies.
 
+## Amendments (2026-08-05) — these OVERRIDE any task snippet they contradict
+
+Four corrections from the Task 4 review, all ruled on by the human partner. The task sections below
+predate them.
+
+1. **Rule D is report-only, permanently.** `orphan-reap` must NEVER unlink a socket file, even with
+   `--yes`. Remove the `to_unlink` / `rm -f` path entirely.
+   *Why:* rule D inferred "server is gone" from `list-sessions` exiting non-zero, which is also what
+   a protocol-version mismatch looks like after `brew upgrade tmux` while a server runs. A tmux
+   server cannot recreate its socket file, so unlinking a live server's socket leaves it running but
+   **permanently unattachable** — the next attach silently starts a fresh empty server, orphaning the
+   agents inside. On this machine that would have been 3 live `claude` sessions, one 8 days old.
+   Auto-deleting a 0-byte file was never worth that.
+2. **Rule D must still fail closed when classifying.** Emit D only when tmux's stderr actually
+   indicates absence (`no server running`, `No such file or directory`, `onnection refused`).
+   Anything else is reported as *inconclusive*, not dead. This matters more, not less, under
+   report-only: a human now does the deleting, so a wrong D line could send them at a live socket.
+3. **Use `-S "$sock"` (full socket path), never `-L "${sock:t}"`, in `find_tmux_husks`.** Verified:
+   `-L <name>` resolves the name under tmux's own tmpdir, ignoring where the socket was actually
+   found — `tmux -L probe-sock list-sessions` reports `error connecting to
+   /private/tmp/tmux-501/probe-sock` for a socket living elsewhere, while `-S <full path>` finds it.
+   With `-L`, Task 5's `ORPHAN_REAP_TMUX_DIR` seam would glob fixture sockets in the scratch dir and
+   then probe the real dir, classifying every fixture as dead — rule C would be silently dead in the
+   scoped suite while the D-side tests still passed.
+4. **`local` at zsh script top level is VALID.** Earlier revisions of this plan asserted it was
+   invalid and every task dispatch repeated it. That is a *bash* rule: `bash -c 'local y=2'` fails
+   with "can only be used in a function"; `zsh -c 'local y=2'` succeeds. No code change is required
+   anywhere, and the Task 4 review finding that rested on it is not a defect.
+
 ## Global Constraints
 
 - Target shell is **zsh 5.9** on darwin (arm64). `emulate -L zsh` at the top of every script.
