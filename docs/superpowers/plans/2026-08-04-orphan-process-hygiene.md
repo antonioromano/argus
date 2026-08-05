@@ -1095,13 +1095,27 @@ kill $BURNERS 2>/dev/null   # optional early release
 ```
 
 **Never** write a bare `(while :; do :; done) &`. On 2026-08-04 that idiom left 22
-orphaned burners at load average 118 — the driver shell died before its `kill` line
-ran, and nothing else could ever stop them. `burn` puts the deadline inside each
-subshell so an orphan expires on its own.
+orphaned burners at load average 118 on 11 cores. The script's cleanup was broken
+three independent ways, all since verified:
+
+1. `BURNERS=$(jobs -p | tr '\n' ' ')` — command substitution runs in a subshell with
+   no job table, so `BURNERS` was always empty.
+2. `kill $BURNERS` — zsh does not word-split unquoted scalars, so even a populated
+   scalar reaches `kill` as a single argument and fails with `illegal pid`.
+3. The driver shell then died before reaching that (already inert) cleanup line.
+
+So the cleanup could never have worked under any circumstances. The lesson is not
+"remember to clean up" — it is **make the burner expire on its own**. `burn` puts an
+absolute deadline inside each subshell, and `BURNERS` is a zsh **array**, which is
+what makes the documented `kill $BURNERS` actually work.
 
 `~/.claude/bin/orphan-reap` reports orphaned burners, MCP watchdogs with dead
-parents, and tmux husks. It kills nothing without `--yes`. Both scripts live in
-`~/.claude/bin` and are not part of this repo — see
+parents, and tmux husks. It **kills nothing without `--yes`**, and it **never unlinks
+socket files at all**, even with `--yes` — a tmux server cannot recreate its socket,
+so unlinking a live one would leave it running but permanently unattachable. Dead
+sockets are reported for you to remove by hand. Both scripts live in `~/.claude/bin`
+and are **not** part of this repo, so a fresh clone gets this rule but not the tools —
+a deliberate tradeoff recorded in
 `docs/superpowers/specs/2026-08-04-orphan-process-hygiene-design.md`.
 ```
 
