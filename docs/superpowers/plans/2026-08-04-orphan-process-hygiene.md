@@ -1139,7 +1139,30 @@ caused the 2026-08-04 load-118 incident."
 
 ### Task 7: Final verification against the spec
 
-**Files:** none modified.
+> **Added after the Task 6 review — the spec and `burn.sh`'s header have drifted from what shipped,
+> and `CLAUDE.md` now cites a spec that contradicts it.** Fix all four before the final walkthrough;
+> the spec is the design record and is currently wrong in three places.
+>
+> 1. **Spec "Problem" section** tells the single-defect story ("the driver shell died before its `kill`
+>    line ran"). Replace with the three verified defects, matching `CLAUDE.md`'s account: empty
+>    `$(jobs -p)` capture, unsplittable scalar (`illegal pid`), and only then the driver's death.
+> 2. **Spec's proposed `burn.sh` pseudocode** still contains `BURNERS=$(jobs -p | tr '\n' ' ')` — the
+>    exact line defect #1 identifies as fatally broken. Replace with the shipped array form
+>    (`typeset -ga BURNERS=()` / `BURNERS+=($!)`).
+> 3. **Spec's `--yes` description** says "Category D unlinks the socket file". The code never unlinks,
+>    by deliberate ruling — a tmux server cannot recreate its socket, so unlinking a live one leaves it
+>    running but permanently unattachable. Correct it, and state why.
+> 4. **`~/.claude/bin/burn.sh`'s own header comment** tells the same single-defect story. A future
+>    session opening the file to source it lands on the narrower account. Bring it in line.
+>
+> Rationale for doing this here rather than deferring: `CLAUDE.md` explicitly cites the spec for "the
+> full rationale", so a reader who follows that citation currently finds a contradicting account and a
+> code sample the rule tells them never to write. Documentation drift is how a code-enforced safety
+> property degrades into folklore.
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-08-04-orphan-process-hygiene-design.md` (items 1-3)
+- Modify: `$HOME/.claude/bin/burn.sh` (item 4, comment only — do not touch the code)
 
 **Interfaces:**
 - Consumes: all previous tasks.
