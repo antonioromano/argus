@@ -894,11 +894,38 @@ uses a non-shell pane command standing in for a custom agent."
 
 **Files:**
 - Modify: `scripts/orphan-hygiene/test-reap.zsh`
-- Modify: `$HOME/.claude/bin/orphan-reap` (only if a test exposes a defect)
+- Modify: `$HOME/.claude/bin/orphan-reap` (add the `ORPHAN_REAP_TMUX_DIR` seam below; otherwise only if a test exposes a defect)
 
 **Interfaces:**
 - Consumes: everything from Tasks 2–4.
-- Produces: no new interface. Locks the `--yes` contract and the report-only default with tests.
+- Produces: `ORPHAN_REAP_TMUX_DIR`, an override for the tmux socket-discovery root, defaulting to `/private/tmp/tmux-$(id -u)`. Otherwise no new interface. Locks the `--yes` contract and the report-only default with tests.
+
+> **Scope the kill test to its own fixtures — ruled on by the human partner.** As originally
+> written, this task ran a blanket `orphan-reap --yes`, which reaps *real machine state*, not just
+> fixtures. On the development machine that included two genuine dead socket files
+> (`/private/tmp/tmux-501/argus` and `/private/tmp/tmux-501/argus-uitest`), so the suite would have
+> deleted real files as a side effect of proving that a fixture burner dies. A test suite must not
+> mutate things it did not create.
+>
+> Rules A and B cannot produce collateral here — a real category-A or category-B finding *is* a
+> genuine orphan, and killing it is the tool doing its job. Only category D reaches non-fixture
+> state, through the hardcoded socket glob. So the minimal seam is to make that root overridable.
+>
+> In `find_tmux_husks`, replace the hardcoded glob root with an override that keeps today's value
+> as the default:
+>
+> ```zsh
+> typeset -g TMUX_SOCKET_DIR=${ORPHAN_REAP_TMUX_DIR:-/private/tmp/tmux-$(id -u)}
+> # ...
+> for sock in $TMUX_SOCKET_DIR/argus*(N); do
+> ```
+>
+> The kill test then points that root at an empty scratch directory, so `--yes` can only reach the
+> fixture burner it created. Assert explicitly that both real socket files still exist afterwards —
+> that assertion is the regression guard for this ruling.
+>
+> Also add the `ORPHAN_REAP_CPU_MIN` coverage the Task 2 review found missing: with the threshold
+> raised above a live fixture burner's CPU, rule A must not list it; at the default it must.
 
 - [ ] **Step 1: Write the failing kill-semantics tests**
 
