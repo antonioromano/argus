@@ -32,7 +32,13 @@ SCRATCH_TMUX_DIR=$(mktemp -d)
   exit 1
 }
 
-trap 'fixture_cleanup; fixture_tmux_teardown; fixture_tmux_teardown_dir $SCRATCH_TMUX_DIR' EXIT INT TERM
+# M-4 (fix round 2): fixture_tmux_teardown_dir's I-3 refusal returns 1
+# without cleaning up anything, and a trap ignores the exit status of the
+# commands it runs — so if that refusal ever actually fires (e.g. a TMPDIR
+# under /private/tmp/tmux-$(id -u) making mktemp -d produce a path the
+# guard itself refuses), the scratch dir would leak with only a stderr line
+# from deep inside fixtures.zsh to notice by. Surface it plainly here too.
+trap 'fixture_cleanup; fixture_tmux_teardown; fixture_tmux_teardown_dir $SCRATCH_TMUX_DIR || print -u2 "test-reap: fixture_tmux_teardown_dir refused to clean up $SCRATCH_TMUX_DIR — see the stderr line above; the scratch dir may have leaked"' EXIT INT TERM
 
 # C-1 (fix round 1): capture which of the two real dead sockets exist BEFORE
 # any --yes call runs, so the regression guard placed after the last --yes
@@ -43,14 +49,47 @@ for _s in /private/tmp/tmux-$(id -u)/argus /private/tmp/tmux-$(id -u)/argus-uite
   [[ -e $_s ]] && REAL_DEAD_SOCKETS_PRESENT+=($_s)
 done
 
+# F-1 (fix round 2): the real, live detached-session panes and their
+# session counts, captured in the C_ambient block below (before any --yes
+# call), so the regression guard after the last --yes call (see
+# "real_pane_guard") has something concrete to compare against. This is
+# what a scoping regression actually destroys — rule C would SIGTERM/
+# SIGKILL these bare-shell panes for real — and nothing before this round
+# asserted they were still alive afterward; C_ambient only asserts they
+# weren't LISTED, and only before the first --yes call.
+typeset -a REAL_LIVE_PANES=()
+typeset -A REAL_SESSION_COUNT_BEFORE
+
 # C-2 (fix round 1): prove the seam actually scopes discovery away from the
 # real tmux dir BEFORE any destructive call relies on it — a report-only
 # run, so nothing here can reap anything even if this assertion itself were
 # wrong.
 group "seam_guard"
 print "test-reap: ORPHAN_REAP_TMUX_DIR seam scopes discovery away from the real tmux dir"
-out=$(ORPHAN_REAP_TMUX_DIR=$SCRATCH_TMUX_DIR $REAP)
-assert_not_contains "$out" "/private/tmp/tmux-$(id -u)/argus" "seam scopes socket discovery away from the real tmux dir"
+# F-2 (fix round 2): detection alone doesn't stop anything — a failed
+# assert_not_contains below wouldn't halt the script, so both --yes calls
+# later in this file would still run unscoped if the tool's seam were ever
+# removed entirely (e.g. a revert of find_tmux_husks). Refuse outright,
+# deterministically, before anything destructive can run.
+grep -q 'ORPHAN_REAP_TMUX_DIR' $REAP || {
+  print -u2 "test-reap: $REAP has no ORPHAN_REAP_TMUX_DIR seam — refusing to run --yes tests"
+  summary
+  exit 1
+}
+# F-2: the negative assertion below is only meaningful with a positive
+# control — an UNSCOPED run that actually names the real dir. Without one,
+# a machine with no real D/? finding there would pass vacuously, proving
+# nothing about scoping at all. Reuses the same before-the-run precondition
+# captured for C-1 above; skips (does not silently pass) when there's
+# nothing to point at.
+if (( ! ${#REAL_DEAD_SOCKETS_PRESENT} )); then
+  skip "seam scopes socket discovery away from the real tmux dir" "no real dead argus/argus-uitest socket present to serve as a positive control"
+else
+  unscoped_out=$($REAP)
+  assert_contains "$unscoped_out" "/private/tmp/tmux-$(id -u)/argus" "positive control: an unscoped run does name the real tmux dir"
+  scoped_out=$(ORPHAN_REAP_TMUX_DIR=$SCRATCH_TMUX_DIR $REAP)
+  assert_not_contains "$scoped_out" "/private/tmp/tmux-$(id -u)/argus" "seam scopes socket discovery away from the real tmux dir"
+fi
 
 group "A"
 print "test-reap: rule A — burner husks"
@@ -188,11 +227,24 @@ for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
     if [[ $rcomm != (zsh|bash|sh) ]]; then
       found_any=1
       assert_not_contains "$out" "C|$rpane|" "live detached agent pane $rpane ($rcomm) spared"
+      # F-1 (fix round 2): record this pane (and its socket's session count)
+      # so the real_pane_guard after the last --yes call below has a
+      # baseline to compare against. This is the property a scoping
+      # regression actually destroys — a live pane being listed here is
+      # bad, but a live pane being SIGTERMed/SIGKILLed for real is the
+      # actual catastrophe, and nothing before this round asserted these
+      # panes were still alive AFTER a --yes call, only that they weren't
+      # LISTED before one.
+      REAL_LIVE_PANES+=($rpane)
+      [[ -n ${REAL_SESSION_COUNT_BEFORE[$sock]} ]] || REAL_SESSION_COUNT_BEFORE[$sock]=$($TMUX_BIN -S "$sock" list-sessions 2>/dev/null | wc -l | tr -d ' ')
     elif [[ -n $(pgrep -P $rpane 2>/dev/null) ]]; then
       # A real shell pane WITH children — assert spared instead of skipping
       # it, so this loop also covers I1's property against real machine state.
       found_any=1
       assert_not_contains "$out" "C|$rpane|" "live detached shell-with-child pane $rpane ($rcomm) spared"
+      # F-1: same capture as above, for the childful-shell-pane case.
+      REAL_LIVE_PANES+=($rpane)
+      [[ -n ${REAL_SESSION_COUNT_BEFORE[$sock]} ]] || REAL_SESSION_COUNT_BEFORE[$sock]=$($TMUX_BIN -S "$sock" list-sessions 2>/dev/null | wc -l | tr -d ' ')
     fi
   done < <($TMUX_BIN -S "$sock" list-panes -a -F '#{session_attached}|#{pane_pid}' 2>/dev/null)
 done
@@ -257,16 +309,31 @@ print "test-reap: report-only lock — no unlink path exists in the kill path"
 # automated protection of its own. Zero-risk static guard: the kill path
 # (everything from the report-only branch onward) must never mention
 # to_unlink or invoke rm/unlink. kill_path is reused below (I-1) and by the
-# rm/unlink checks; kill_path_code additionally strips comment-only lines so
-# neither a comment mentioning these words (S7) nor the pre-existing "form "
-# false positive (the --help text's unrelated word, matched by a bare "rm ")
-# can produce one. to_unlink is checked over the WHOLE tool (I-2) — it has
-# no legitimate use anywhere in the file, not just in the kill path, so
-# scoping that check to the kill path region only would let a reintroduced
-# to_unlink construct hide just above the region boundary.
+# rm/unlink checks. Two INDEPENDENT defenses here, not one (M-3, fix round
+# 2 — round 1's comment conflated them): region scoping is what keeps the
+# --help text's "form " out of this check at all (kill_path starts after
+# the --help text ends, so that word never enters the string being
+# searched); comment-stripping (kill_path_code additionally drops
+# comment-only lines) is a SEPARATE defense against a comment INSIDE the
+# kill path region mentioning these words, e.g. the S7 comment's own
+# "unlinked" prose a few lines below. to_unlink is checked over the WHOLE
+# tool (I-2) — it has no legitimate use anywhere in the file, not just in
+# the kill path, so scoping that check to the kill path region only would
+# let a reintroduced to_unlink construct hide just above the region
+# boundary.
 kill_path=$(sed -n '/^if (( ! DO_KILL/,$p' $REAP)
 kill_path_code=$(sed -n '/^if (( ! DO_KILL/,$p' $REAP | grep -v '^[[:space:]]*#')
 tool_code=$(grep -v '^[[:space:]]*#' $REAP)
+# M-2 (fix round 2): every assert_not_contains below passes vacuously on an
+# EMPTY haystack — if the `sed -n '/^if (( ! DO_KILL/,$p'` anchor above ever
+# stops matching (e.g. that line gets reformatted), kill_path/kill_path_code
+# both silently become empty strings, and all three not-contains checks
+# below would still report "ok" while checking nothing. Only I-1's
+# assert_eq (which requires exactly 2 matches) would ever have caught that,
+# and only for as long as I-1 itself exists. A COUNTED, positive assertion
+# that the region actually captured real kill-path code closes the gap on
+# its own.
+assert_contains "$kill_path_code" "SIGKILL" "static-guard region is non-empty (sed anchor still matches real kill-path code)"
 assert_not_contains "$tool_code" "to_unlink" "C1 guard: no to_unlink construct anywhere in the tool"
 assert_not_contains "$kill_path_code" "rm " "C1 guard: no rm invocation in the kill path"
 # S7: "unlink " (trailing space), not bare "unlink" — the report-only
@@ -287,11 +354,15 @@ assert_not_contains "$kill_path_code" "unlink " "S7 guard: no unlink/zf_unlink i
 # anchored on "! _c_still_husk $pid" (the exact invocation form), not the
 # bare function name — a bare "_c_still_husk " substring also matches the
 # S5 comment a few lines above the real invocations in the source, which
-# would silently inflate this count. Deliberately group_none: a structural
-# guard on the suite itself, not a coverage count that belongs in either
-# the fixed-core or new-Task-5-groups total below.
+# would silently inflate this count. M-1 (fix round 2): runs against
+# kill_path_code (comment-stripped), not the raw kill_path — belt and
+# suspenders on top of the anchored pattern above, so a FUTURE comment that
+# happens to quote the literal invocation text verbatim still can't inflate
+# this count to 3. Deliberately group_none: a structural guard on the suite
+# itself, not a coverage count that belongs in either the fixed-core or
+# new-Task-5-groups total below.
 group_none
-assert_eq ${#${(M)${(f)kill_path}:#*'! _c_still_husk $pid'*}} 2 "both signalling sites re-check _c_still_husk"
+assert_eq ${#${(M)${(f)kill_path_code}:#*'! _c_still_husk $pid'*}} 2 "both signalling sites re-check _c_still_husk"
 
 group "cpu_min"
 print "test-reap: ORPHAN_REAP_CPU_MIN gates rule A"
@@ -367,8 +438,20 @@ else
   # (snapshot-zsh-fixture, argus-fixture) would ever match a stray
   # `sleep 60`, so without this nobody could tell whether it actually died
   # along with its parent below.
-  survivor_child=$(pgrep -P $survivor_pane 2>/dev/null)
-  [[ -n $survivor_child ]] && _fixture_record $survivor_child
+  # F-4 (fix round 2): loop over ${(f)...}, not a bare
+  # `local x=$(pgrep -P ...)` — zsh doesn't word-split an unquoted
+  # parameter, so more than one child would hand _fixture_record a single
+  # argument containing an embedded newline. This is exactly the shape S7
+  # fixed in fixtures.zsh one round earlier; reintroducing it here (even
+  # though today's fixture only ever has one child, same as S7's fixture
+  # did) was the mistake. Note: in the RED run below, the pane is already
+  # dead by the time this line runs, so `pgrep -P` finds nothing and no
+  # child is ever recorded here — this capture only fires in the GREEN
+  # (correctly-behaving) case, which is also the only case where it's
+  # actually needed.
+  for survivor_child in ${(f)"$(pgrep -P $survivor_pane 2>/dev/null)"}; do
+    [[ -n $survivor_child ]] && _fixture_record $survivor_child
+  done
   # S3 (fix round 1): kill -0 alone can report a zombie as "alive" between
   # its death and its parent reaping it — this is why the RED run below
   # showed fail=1, not fail=2: the "survives" assertion passed on a zombie
@@ -422,6 +505,56 @@ else
   done
 fi
 
+# F-1 (fix round 2): "nothing asserts the real live panes survived, and
+# that is what a scoping regression actually destroys." C-1 (above) guards
+# the report-only lock — it can only ever fail if an unlink path
+# reappears. It says nothing about rule C, which is what a scoping
+# regression actually exposes to a real --yes call: SIGTERM/SIGKILL
+# against real detached bare-shell panes inside argus/argus-dev/
+# argus-uitest. C_ambient only asserted these panes weren't LISTED, and
+# only before the first --yes call in the file. This is the missing
+# after-the-fact check: every real live pane captured in C_ambient is
+# still alive (not gone, not a zombie — same shape as S3), and every real
+# socket that had one still reports the same session count.
+group "real_pane_guard"
+print "test-reap: F1 regression guard — real live panes and sessions survive every --yes call in this suite"
+if (( ! ${#REAL_LIVE_PANES} )); then
+  skip "real live panes survive --yes" "no live detached argus-session pane present on this machine"
+else
+  for _p in $REAL_LIVE_PANES; do
+    _pane_state=$(ps -p $_p -o state= 2>/dev/null | tr -d ' ')
+    if [[ -z $_pane_state ]]; then
+      assert_eq "gone" "alive" "real pane $_p is still alive after every --yes call in this suite"
+    elif [[ $_pane_state == Z* ]]; then
+      assert_eq "zombie" "alive" "real pane $_p is still alive after every --yes call in this suite"
+    else
+      assert_eq "alive" "alive" "real pane $_p is still alive after every --yes call in this suite"
+    fi
+  done
+  for _sock in ${(k)REAL_SESSION_COUNT_BEFORE}; do
+    _sess_after=$($TMUX_BIN -S "$_sock" list-sessions 2>/dev/null | wc -l | tr -d ' ')
+    assert_eq $_sess_after ${REAL_SESSION_COUNT_BEFORE[$_sock]} "session count on ${_sock:t} unchanged after every --yes call in this suite"
+  done
+fi
+
+# F-3 (fix round 2): "the three guards you added this round sit outside
+# every count lock... delete real_socket_guard and nothing fails; skip it
+# and nothing notices." Same disease I-4 exists to cure, applied to I-4's
+# own siblings. These three groups are genuinely ambient (their assertion
+# count depends on how many real dead sockets / live panes happen to exist
+# on this machine right now), so they can't join fixed_core or new_core —
+# but each has an EXACT, self-referential invariant computed from the same
+# precondition captured at the top, which is a real lock: a whole block
+# going dark (skip fired when it shouldn't have, or fewer assertions ran
+# than the precondition promised) still fails these, even though no fixed
+# constant could ever describe "however many real sockets/panes exist right
+# now." Deliberately group_none, same reasoning as the I-1/fixed_core/
+# new_core checks below.
+group_none
+assert_eq $GROUP_PASS[real_socket_guard] ${#REAL_DEAD_SOCKETS_PRESENT} "real_socket_guard ran exactly one assertion per real dead socket found"
+assert_eq $GROUP_PASS[real_pane_guard] $(( ${#REAL_LIVE_PANES} + ${#REAL_SESSION_COUNT_BEFORE} )) "real_pane_guard ran exactly one assertion per real live pane plus one per distinct real socket"
+assert_eq $GROUP_PASS[seam_guard] $(( ${#REAL_DEAD_SOCKETS_PRESENT} ? 2 : 0 )) "seam_guard ran its full positive-control-plus-seam-check pair iff a real dead socket exists to point at"
+
 group "exit_codes"
 print "test-reap: exit codes and argument handling"
 assert_exit 0 "default run exits 0"        $REAP
@@ -456,8 +589,13 @@ assert_eq $fixed_core 11 "fixed-core groups (A+default+B+C+D+unknown) total 11 p
 # just for a different set of groups. All six of these are fixed by
 # construction, same as the fixed-core set above — none of them depend on
 # ambient machine state.
+# fix round 2: static_guard gained a 4th assertion (M-2's SIGKILL
+# non-emptiness check), moving this total from round 1's 13 to 14. Computed
+# from source (GROUP_PASS, read back after a real run) rather than asserted
+# by hand-arithmetic, which has been wrong twice already across the two
+# review rounds.
 new_core=$(( GROUP_PASS[n5] + GROUP_PASS[yes_kill] + GROUP_PASS[static_guard] + GROUP_PASS[cpu_min] + GROUP_PASS[exit_codes] + GROUP_PASS[help_text] ))
-assert_eq $new_core 13 "new Task-5 groups (n5+yes_kill+static_guard+cpu_min+exit_codes+help_text) total 13 passing assertions"
+assert_eq $new_core 14 "new Task-5 groups (n5+yes_kill+static_guard+cpu_min+exit_codes+help_text) total 14 passing assertions"
 
 fixture_cleanup
 summary
