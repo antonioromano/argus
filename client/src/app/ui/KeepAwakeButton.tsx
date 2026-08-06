@@ -57,8 +57,21 @@ const armedPill: React.CSSProperties = {
  * gear beside it. Armed it grows into an amber pill with a live countdown, so the
  * remaining time never costs a hover. The countdown field has a fixed width and
  * tabular figures, so ticking digits cannot jitter the toolbar.
+ *
+ * The `key` is load-bearing. The inner component samples the wall clock once in a
+ * useState initializer and thereafter only from its own interval — which runs only
+ * while a finite window is armed. An idle toolbar therefore leaves that sample
+ * frozen at mount, and arming would paint `expiresAt - mountTime`: the window plus
+ * the whole app uptime (arm 5m three hours in → "3:05:00", snapping to "5:00" one
+ * tick later). Remounting per window re-runs the initializer, so the first paint is
+ * right without a setState-in-effect seed and its cascading render.
  */
-export function KeepAwakeButton({ status, onArm, onDisarm }: KeepAwakeButtonProps) {
+export function KeepAwakeButton(props: KeepAwakeButtonProps) {
+  const windowKey = props.status?.active ? String(props.status.expiresAt ?? 'indefinite') : 'idle';
+  return <KeepAwakeButtonInner key={windowKey} {...props} />;
+}
+
+function KeepAwakeButtonInner({ status, onArm, onDisarm }: KeepAwakeButtonProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // The clock lives in state and is formatted during render: reading Date.now()
@@ -70,11 +83,9 @@ export function KeepAwakeButton({ status, onArm, onDisarm }: KeepAwakeButtonProp
   const indefinite = status?.indefinite ?? false;
 
   // Tick once a second, but only while a finite window is actually armed — an
-  // idle toolbar must not hold a live interval. `now` is deliberately NOT seeded
-  // here (a synchronous setState in an effect cascades renders): a `now` up to a
-  // second stale reports slightly MORE time remaining, and formatRemaining rounds
-  // up, so a freshly-armed pill reads the full window and self-corrects on the
-  // first tick.
+  // idle toolbar must not hold a live interval. The initializer above is the only
+  // other writer of `now`, which is why the wrapper remounts this component per
+  // window: see its comment.
   useEffect(() => {
     if (!active || expiresAt === null) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
