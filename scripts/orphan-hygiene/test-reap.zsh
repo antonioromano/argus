@@ -273,6 +273,11 @@ fi
 group "C_ambient"
 print "test-reap: rule C — real detached argus sessions with live agents/panes are spared"
 out=$($REAP)
+# re-init: B_ambient also uses this plain global `found_any`. Without
+# resetting it here, a leftover found_any=1 from B_ambient's block above
+# would silently disable THIS block's own skip check below, regardless of
+# whether C_ambient itself found anything — the only reason M-2's B_ambient
+# guard can't accidentally neuter this one.
 found_any=0
 for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
   [[ ${sock:t} == argus-fixture-* ]] && continue
@@ -623,10 +628,14 @@ fi
 group "real_pane_guard"
 print "test-reap: F1 regression guard — real live panes and sessions survive every --yes call in this suite"
 # H-1 (final review): gate on BOTH preconditions, not REAL_LIVE_PANES alone.
-# An ordinary machine state — every real detached session's only pane
-# already accounted for via REAL_SESSION_COUNT_BEFORE but REAL_LIVE_PANES
-# empty for some other reason, or vice versa — must not silently switch
-# this guard off. Gating on the count (a fixed constant) instead of this
+# REAL_LIVE_PANES can be legitimately empty on an entirely ordinary machine
+# — every real session is attached right now (C_ambient only records
+# detached, spared panes), or the only detached panes present are genuine
+# husks (which C_ambient never adds to REAL_LIVE_PANES, by construction) —
+# while REAL_SESSION_COUNT_BEFORE still holds real sockets with real
+# sessions on them. Gating on REAL_LIVE_PANES alone would have skipped this
+# whole block, including the session-count half, on either of those two
+# ordinary states. Gating on the count (a fixed constant) instead of this
 # double-empty check is the wrong repair: it would permanently disable the
 # one assertion that detects a scoping regression killing a genuine real
 # husk pane, which is exactly the failure this guard exists to catch.

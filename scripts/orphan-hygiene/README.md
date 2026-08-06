@@ -33,8 +33,12 @@ This is not a hermetic unit-test suite. Running it has real, machine-wide side e
   real Argus state, not a stand-in for it.
 
 All of this is safe **by construction**, not by accident:
-- Every synthetic fixture self-limits to a short deadline (see `fixtures.zsh`'s own comments) even if
-  cleanup is skipped entirely.
+- Every synthetic fixture self-limits to a short deadline (see `fixtures.zsh`'s own comments), so a
+  crashed or interrupted run cannot leave one running forever. This matters more for the three
+  tmux-socket fixtures than the process ones: their scratch sockets live under `mktemp -d`, outside
+  `/private/tmp/tmux-$UID/argus*`, so `orphan-reap`'s own discovery — and the prefix sweep in
+  `fixture_tmux_teardown` — cannot see them at all. For those three, the deadline is the *only*
+  backstop, not a redundant one on top of the reaper.
 - `fixture_cleanup` runs in an `EXIT INT TERM` trap, so an interrupted run still reaps its own
   fixtures.
 - Rule C/D discovery for every `--yes` call in this file is scoped away from the real
@@ -43,7 +47,12 @@ All of this is safe **by construction**, not by accident:
   machine is in.
 - The suite's own regression guards (`real_socket_guard`, `real_pane_guard`) assert, after every
   `--yes` call in the file, that the real sockets and real live panes present when the run started
-  are still exactly as they were.
+  are still there. The two checks are not equally strong: the session-count half (one per real
+  socket) is what would actually catch a real husk pane being killed by a scoping regression; the
+  per-pane liveness/comm half is narrower than it looks — it only re-checks panes rule C's own
+  classification logic already decided to spare, so it can never catch the thing a scoping regression
+  actually destroys. Kept anyway as a legitimate, narrower check — see the `do not remove` comment on
+  the capture in `C_ambient` for why.
 
 None of that makes this suite something to run casually on someone else's machine, or in an
 environment you don't control. See "Why this is not in CI" below.
@@ -92,23 +101,42 @@ $GROUP_PASS[group] N ...`) fails if a whole block goes dark — a fixture stops 
 assertions get deleted outright. It does **not** fail if an assertion's *body* is weakened while its
 count stays the same: a property test that silently degrades into an unfalsifiable tautology still
 reports the same `pass=N`, green forever, with nothing in the suite's own output ever pointing at it.
-This happened twice during this branch's own review history — a fixture-liveness bug held a group's
-count at exactly what the lock expected while the assertion inside it proved nothing, and a similar
-dilution held another group's count steady while its actual coverage of the property under test
-silently disappeared. Both were caught only by deliberately breaking the real property by hand and
-confirming the suite actually screamed — nowhere else, and nowhere written down before this file.
+This happened twice during this branch's own review history, both concretely:
+
+- **N2**: a test asserted on a *path string*, and a `?` (inconclusive) finding's line matched that
+  assertion just as happily as the `D` (dead-socket) line it claimed to test. Rule D's whole matching
+  branch could have been deleted outright and this suite would have stayed green.
+- **N5**: coverage that was never actually there. `--yes` appeared in the suite only inside assertion
+  *strings* — the literal text `_c_still_husk` — never in a call that would actually exercise either
+  re-check site, so both signalling-site gates were unreachable by any test in the file.
+
+Both were caught only by deliberately breaking the real property by hand and confirming the suite
+actually screamed — nowhere else, and nowhere written down before this file.
 
 **The procedure, for any assertion whose failure mode you're not sure the suite can actually detect:**
 
-1. **Stub the behavior the assertion claims to prove**, directly in the installed tool (never in this
-   repo — `burn.sh`/`orphan-reap` live in `$HOME/.claude/bin`, so editing them there does not touch
-   version control and is trivially reverted).
+0. **Back up the installed tool first**: `cp ~/.claude/bin/orphan-reap /tmp/orphan-reap.bak` (or
+   `burn.sh`, whichever you're about to stub). There is no git-tracked copy to fall back on — the
+   tools live outside any checkout by design (see the top of this file) — so this manual backup is
+   the *only* way back. What actually restored the tool during this branch's own use of this
+   procedure was a backup taken exactly this way beforehand, not "the working copy" — there isn't one.
+1. **Stub the behavior the assertion claims to prove**, directly in the installed tool at
+   `$HOME/.claude/bin`.
 2. **Re-run the suite** and confirm it goes **red** — the specific assertion under test fails, not
    just "some assertion somewhere." A suite that stays green after you deliberately broke the
    property is the exact failure this procedure exists to catch.
-3. **Restore the installed tool** from the working copy (or re-source it — nothing here is
-   version-controlled, so there is no `git checkout` step) and re-run once more to confirm you're
-   back to a clean, fully-green baseline before trusting any further result.
+
+**Between steps 2 and 3, the installed reaper is stubbed and unsafe.** Depending on which property
+you mutated, an unscoped `orphan-reap --yes` run in this window can do real damage — the I1 mutation
+below, for instance, makes rule C treat *every* detached shell pane as a husk, so an unscoped
+`--yes` in that state is exactly the catastrophe this whole branch exists to prevent, performed by
+the procedure meant to protect against it. Never invoke the stubbed tool by hand with `--yes` while a
+mutation is live; observe the RED result through the test suite itself, whose own `--yes` calls are
+all scoped via `ORPHAN_REAP_TMUX_DIR`.
+
+3. **Restore the installed tool from the backup you took in step 0**
+   (`cp /tmp/orphan-reap.bak ~/.claude/bin/orphan-reap`) and re-run once more to confirm you're back
+   to a clean, fully-green baseline before trusting any further result.
 
 Three properties in this suite were validated this way and should be re-validated the same way after
 any future change that touches them:
@@ -120,18 +148,33 @@ any future change that touches them:
   RED run, nothing else in the suite proves this clause is load-bearing — the husk-positive test
   passes on comm+childless together and the `/bin/cat` negative passes on comm alone, so deleting the
   childlessness check entirely would otherwise leave the suite green.
-- **N5 — both `_c_still_husk` re-check sites.** Stub one of the two invocations in `orphan-reap` (the
-  pre-SIGTERM check or the pre-SIGKILL check) to skip the re-check. Confirm the N5 test — and,
-  independently, the static `assert_eq ... 2 "both signalling sites re-check _c_still_husk"` count —
-  both go red. The static count exists precisely because N5's fixture-based test alone cannot tell
-  *which* site caught the survivor pane; deleting one site while leaving the other intact would
-  otherwise stay green.
+- **N5 — both `_c_still_husk` re-check sites.** Two different mutations exercise two different parts
+  of this property, and which one you use matters:
+  - **Stub one of the two call sites** (comment out the pre-SIGTERM check, or the pre-SIGKILL check)
+    to skip that particular re-check. N5's own test stays **green** — whichever site you disabled,
+    the other one still catches the survivor pane and prints the identical "spared on re-check" text,
+    so nothing about the pane's actual fate changes. Only the static
+    `assert_eq ... 2 "both signalling sites re-check _c_still_husk"` count goes **red** (it drops to
+    1). That asymmetry is itself the lesson: N5's fixture-based test alone cannot tell *which* site
+    caught the survivor pane, which is exactly why the static count exists as an independent check.
+  - **Stub the `_c_still_husk` function body itself** to unconditionally `return 0` (i.e. make every
+    re-check at both sites report "still a husk," deleting the re-check's actual effect everywhere at
+    once). This is the mutation that makes **N5 itself** go red — the survivor pane's injected
+    mid-run child is no longer honored by either site, so the pane gets SIGKILLed instead of spared,
+    and both of N5's own assertions fail. This is the run actually recorded during this branch's
+    review.
 - **The `ORPHAN_REAP_TMUX_DIR` seam.** Stub `find_tmux_husks` to ignore the environment override
   (hardcode the real `/private/tmp/tmux-$(id -u)` glob). Confirm the suite's own unconditional
   refusal fires (`exit 1`, "seam did not scope discovery away from the real tmux dir") *before* any
-  `--yes` call runs — this is the one RED-mutation you should expect to abort the whole script rather
+  `--yes` call runs — this is one RED-mutation you should expect to abort the whole script rather
   than print a `FAIL` line, which is deliberate: a broken seam must stop the suite outright, not just
-  fail an assertion and continue running unscoped `--yes` calls against real machine state.
+  fail an assertion and continue running unscoped `--yes` calls against real machine state. There is
+  a second, differently-shaped RED for this same seam: a mutation that stops scanning *anywhere*
+  inside the scoped scratch dir too (finding nothing at all, neither the real-dir marker nor the
+  planted control file) does not trip the real-dir refusal — nothing in its output names the real
+  dir — so the script keeps running, and instead the `seam_guard` group's planted-control-file
+  assertion (`seam scoping finds a planted control file inside the scratch dir`) fails as an ordinary
+  `FAIL` line. Trigger both shapes deliberately; they catch different failure modes of one seam.
 
 If you add a new property whose only test is a single narrow assertion, run this procedure against it
 before trusting the suite to have actually locked it in.

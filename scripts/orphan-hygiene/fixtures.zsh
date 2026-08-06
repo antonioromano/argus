@@ -247,11 +247,24 @@ fixture_tmux_socket_in() {
 # builtin), never a bare simple command, so (per the exec-elision hazard
 # documented elsewhere in this file) the pane's comm stays `zsh` throughout
 # instead of being replaced by a final command's own process image.
+#
+# R-3 (final review, round 2): the final `while :; do :; done` used to be
+# unbounded — a real bug, not a hypothetical one. This fixture's own scratch
+# socket lives under `mktemp -d`, outside `/private/tmp/tmux-$UID/argus*`, so
+# `orphan-reap` cannot see it and neither can the prefix sweep in
+# fixture_tmux_teardown. In practice this pane's own _fixture_record + the
+# EXIT trap + the inline teardown moments later in test-reap.zsh reap it well
+# within its lifetime, but a crashed or interrupted run (the exact scenario
+# every OTHER fixture in this file already guards against with its own
+# deadline) would leave a 100%-CPU busy loop running forever, invisible to
+# the very tool built to find orphans like it — this branch's own incident,
+# one level in. Bounded to 120s here, same self-limiting shape as every
+# other spawn fixture; N5 only ever needs this pane alive for ~5s.
 fixture_tmux_husk_survivor_session() {
   [[ -n $FIXTURE_TMUX_SOCK_PATH ]] || return 1
   local sess="survivor-$$"
   $TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" new-session -d -s $sess \
-    "/bin/zsh -f -c 'trap : TERM; end=\$((SECONDS+2)); while ((SECONDS<end)); do :; done; sleep 60 & while :; do :; done'" 2>/dev/null
+    "/bin/zsh -f -c 'trap : TERM; end=\$((SECONDS+2)); while ((SECONDS<end)); do :; done; sleep 60 & end2=\$((SECONDS+120)); while ((SECONDS<end2)); do :; done'" 2>/dev/null
   sleep 1
   local p=$($TMUX_BIN -S "$FIXTURE_TMUX_SOCK_PATH" list-panes -t $sess -F '#{pane_pid}' 2>/dev/null | head -1)
   [[ -n $p ]] && _fixture_record $p
