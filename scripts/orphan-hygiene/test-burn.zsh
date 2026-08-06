@@ -57,6 +57,16 @@ rm -f $PIDFILE
 if (( ${#orphans} == 0 )); then
   skip "orphaned burner self-terminates" "could not capture orphan pids"
 else
+  # I-2 (final review): without this probe, the assertion below passes
+  # whether the burners died ON their 3s deadline (the property this test
+  # claims to prove) or were SIGHUP-killed the instant the capturing
+  # subshell exited (the failure the deadline exists to survive) — both
+  # read as "alive=0 six seconds later." Probe well before the 3s deadline
+  # so a still-alive result can only mean HUP didn't kill them.
+  sleep 1
+  alive=0
+  for p in $orphans; do kill -0 $p 2>/dev/null && (( alive++ )); done
+  assert_eq $alive ${#orphans} "orphaned burners are still alive before their deadline (not HUP-killed)"
   sleep 6   # deadline was 3s; 6s covers scheduling slop plus the capture wait
   alive=0
   for p in $orphans; do kill -0 $p 2>/dev/null && (( alive++ )); done

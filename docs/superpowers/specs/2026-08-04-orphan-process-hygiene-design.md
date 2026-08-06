@@ -58,13 +58,23 @@ rather than the sole exit path. An orphaned burner then expires on its own.
 
 `~/.claude/bin/burn.sh`:
 
+Byte-for-byte what ships (M-5, final review — a prior version of this block diverged from the
+installed file: it validated with `local secs=${1:?…}` plus separate range checks and no numeric
+guard, so `burn abc` would have hit zsh arithmetic on a non-numeric string instead of failing cleanly.
+Kept in sync here rather than relabeled "design sketch," since it's short enough to just match):
+
 ```zsh
-# burn <seconds> — saturate all cores, self-terminating even if orphaned.
-# Sets BURNERS to the spawned job PIDs so callers may still kill early.
 burn() {
-  local secs=${1:?usage: burn <seconds>} i
-  (( secs >= 1 )) || { print -u2 "burn: seconds must be >= 1"; return 1 }
-  (( secs <= 600 )) || { print -u2 "burn: refusing >600s"; return 1 }
+  emulate -L zsh
+  local secs=${1:-} i
+  if [[ $secs != <-> ]]; then
+    print -u2 "burn: usage: burn <seconds>  (1-600)"
+    return 1
+  fi
+  if (( secs < 1 || secs > 600 )); then
+    print -u2 "burn: seconds must be between 1 and 600 (got $secs)"
+    return 1
+  fi
   typeset -ga BURNERS=()
   for i in $(seq 1 $(sysctl -n hw.ncpu)); do
     ( end=$(( SECONDS + secs )); while (( SECONDS < end )); do :; done ) &

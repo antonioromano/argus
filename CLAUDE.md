@@ -36,7 +36,7 @@ CI (`.github/workflows/ci.yml`) runs `lint → build:all (typecheck) → test` o
 
 To run a test under CPU saturation, **always** source the self-terminating burner:
 
-```bash
+```zsh
 source ~/.claude/bin/burn.sh
 burn 60                     # saturates all cores, each burner expires after 60s
 npx tsx --test server/src/services/StateDetector.classify.test.ts

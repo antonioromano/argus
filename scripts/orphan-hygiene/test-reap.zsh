@@ -92,12 +92,25 @@ grep -q 'ORPHAN_REAP_TMUX_DIR' $REAP || {
 # real dir is never legitimate under ANY machine state, so refuse outright
 # here too; this half needs no positive control and therefore carries no
 # vacuity or false-failure risk.
+# S-a (final review): plant a control file INSIDE the scratch dir before the
+# scoped run below, so the scoped run's output can be checked for a genuine
+# POSITIVE claim — "scoping found something I put in the scoped dir" — not
+# only the negative "scoping didn't find the real dir" the refusal below
+# already establishes. Without this, the assert_not_contains a few lines
+# down (M-1) is unfalsifiable: reaching it at all already means the string
+# it checks for is absent (the refusal above would have exited otherwise),
+# so it can only ever pass. This closes that gap deterministically — no
+# dependency on ambient real-machine dead sockets to serve as a control.
+seam_control_path=$SCRATCH_TMUX_DIR/argus-seam-check-$$
+: > $seam_control_path
 scoped_out=$(ORPHAN_REAP_TMUX_DIR=$SCRATCH_TMUX_DIR $REAP)
 if [[ $scoped_out == *"/private/tmp/tmux-$(id -u)/argus"* ]]; then
   print -u2 "test-reap: seam did not scope discovery away from the real tmux dir — refusing to run --yes tests"
   summary
   exit 1
 fi
+assert_contains "$scoped_out" "$seam_control_path" "seam scoping finds a planted control file inside the scratch dir (falsifiable positive claim)"
+rm -f $seam_control_path
 # G-3 (fix round 3): the positive control below is bookkeeping, not
 # prevention (G-1's refusal above already IS the prevention) — but round
 # 2's version of it was also simply wrong: REAL_DEAD_SOCKETS_PRESENT is
@@ -107,14 +120,16 @@ fi
 # line, never names the path, and that control would FAIL for a purely
 # environmental reason while the seam is fine. Derive the precondition
 # from the tool's OWN unscoped output instead of the filesystem. Skips
-# (not a vacuous pass) when there's nothing to point at right now.
+# (not a vacuous pass) when there's nothing to point at right now. Kept
+# alongside S-a's planted-file control above as a second, independent
+# check against real ambient state, when one happens to be available.
 unscoped_out=$($REAP)
 typeset -i SEAM_GUARD_HAD_CONTROL=0
 if [[ $unscoped_out != *"/private/tmp/tmux-$(id -u)/argus"* ]]; then
-  skip "seam scopes socket discovery away from the real tmux dir" "no real-dir finding available as a positive control right now"
+  skip "seam scopes socket discovery away from the real tmux dir (ambient control)" "no real-dir finding available as a positive control right now"
 else
   SEAM_GUARD_HAD_CONTROL=1
-  assert_not_contains "$scoped_out" "/private/tmp/tmux-$(id -u)/argus" "seam scopes socket discovery away from the real tmux dir"
+  assert_not_contains "$scoped_out" "/private/tmp/tmux-$(id -u)/argus" "seam scopes socket discovery away from the real tmux dir (ambient control)"
 fi
 
 group "A"
@@ -134,8 +149,16 @@ if [[ -z $parented_child ]]; then
   skip "rule A negative" "fixture failed to spawn"
 else
   sleep 1
-  out=$($REAP)
-  assert_not_contains "$out" "A|$parented_child|" "parented burner is not listed"
+  # M-3 (final review): S-4's explicit-liveness shape (see yes_kill below),
+  # back-applied here — without it, this assert_not_contains passes
+  # vacuously if the fixture already died before this check, same as an
+  # empty haystack would.
+  if ! kill -0 $parented_child 2>/dev/null; then
+    skip "rule A negative" "fixture burner already gone before the check (would pass vacuously)"
+  else
+    out=$($REAP)
+    assert_not_contains "$out" "A|$parented_child|" "parented burner is not listed"
+  fi
 fi
 
 group "default_kills_nothing"
@@ -172,6 +195,11 @@ fi
 group "B_ambient"
 print "test-reap: rule B — real machine watchdogs with live parents are spared"
 out=$($REAP)
+# M-2 (final review): mirrors C_ambient's found_any/skip guard below. Without
+# it, zero live watchdogs on this machine means zero iterations of the loop,
+# zero assertions, and no skip line either — this whole block can go dark in
+# total silence, with nothing in the output to say it ran and found nothing.
+found_any=0
 # NOTE: process substitution, not a pipe. A `cmd | while read` loop runs in a
 # subshell, so assert_* would increment ASSERT_PASS/ASSERT_FAIL in a child and
 # the counts — including failures — would be discarded. `< <(...)` keeps the
@@ -180,9 +208,11 @@ while read -r rpid rcmd; do
   rparent=${${rcmd##*--parent-pid=}%%[[:space:]]*}
   [[ $rparent == <-> ]] || continue
   if kill -0 $rparent 2>/dev/null; then
+    found_any=1
     assert_not_contains "$out" "B|$rpid|" "live-parent watchdog $rpid spared"
   fi
 done < <(ps -eo pid=,command= | grep -- '--parent-pid=' | grep -v grep)
+(( found_any )) || skip "real machine watchdogs spared" "no live-parent watchdog process present"
 
 group "C"
 print "test-reap: rule C — detached childless shell pane is a husk"
@@ -201,6 +231,11 @@ live_sess=$(fixture_tmux_live_session)
 live_pane=$(fixture_tmux_pane_pid $live_sess)
 if [[ -z $live_pane ]]; then
   skip "rule C negative, custom agent" "tmux fixture failed"
+# M-3 (final review): same S-4 liveness shape as rule A's negative above —
+# without it, this assertion also passes vacuously if the fixture pane
+# already exited before the check.
+elif ! kill -0 $live_pane 2>/dev/null; then
+  skip "rule C negative, custom agent" "fixture pane already gone before the check (would pass vacuously)"
 else
   out=$($REAP)
   assert_not_contains "$out" "C|$live_pane|" "non-shell pane spared (custom agentType safe)"
@@ -274,6 +309,9 @@ for sock in /private/tmp/tmux-$(id -u)/argus*(N); do
       # regression killing a genuine real husk (which falls into neither
       # branch and is never captured here at all). Kept anyway: still a
       # legitimate, if narrower, check, and N-2 below strengthens it further.
+      # do not remove: this note is what tells a future maintainer this
+      # capture is narrower than it looks and why it stays anyway — deleting
+      # it as "redundant" with the session-count check would be a mistake.
       REAL_LIVE_PANES+=($rpane)
       REAL_PANE_COMM_BEFORE[$rpane]=$rcomm
     elif [[ -n $(pgrep -P $rpane 2>/dev/null) ]]; then
@@ -346,7 +384,7 @@ group "static_guard"
 print "test-reap: report-only lock — no unlink path exists in the kill path"
 # C1: rule D used to unlink sockets under --yes; that fix (D1) has no
 # automated protection of its own. Zero-risk static guard: the kill path
-# (everything from the report-only branch onward) must never mention
+# (everything from the classification block onward) must never mention
 # to_unlink or invoke rm/unlink. kill_path_code is reused below (I-1) and
 # by the rm/unlink checks. Two INDEPENDENT defenses here, not one (M-3,
 # fix round 2 — round 1's comment conflated them): region scoping is what
@@ -365,10 +403,21 @@ print "test-reap: report-only lock — no unlink path exists in the kill path"
 # moved that check onto kill_path_code instead, leaving kill_path
 # unreferenced anywhere in the file. Removed; kill_path_code is the only
 # capture needed now.
-kill_path_code=$(sed -n '/^if (( ! DO_KILL/,$p' $REAP | grep -v '^[[:space:]]*#')
+# I-1 (final review): the anchor used to be `/^if (( ! DO_KILL/`, but S6
+# hoisted the classification block (`typeset -A cat_of`, `to_kill`, and the
+# `[[ $pid == <-> ]]` test that structurally excludes category D from the
+# kill set) up to ABOVE that line — the fifteen lines that decide which
+# findings are actionable, and the likeliest landing site for a
+# reintroduced unlink, were covered only by the whole-file `to_unlink` name
+# check. Anchoring on `/^typeset -A cat_of/` instead pulls that block back
+# inside the guarded region. Checked for false positives: the --help
+# heredoc (source of the "form " collision above) ends well above this
+# line, and the region contains no literal `rm ` outside comments (which
+# are stripped anyway).
+kill_path_code=$(sed -n '/^typeset -A cat_of/,$p' $REAP | grep -v '^[[:space:]]*#')
 tool_code=$(grep -v '^[[:space:]]*#' $REAP)
 # M-2 (fix round 2): every assert_not_contains below passes vacuously on an
-# EMPTY haystack — if the `sed -n '/^if (( ! DO_KILL/,$p'` anchor above ever
+# EMPTY haystack — if the `sed -n '/^typeset -A cat_of/,$p'` anchor above ever
 # stops matching (e.g. that line gets reformatted), kill_path/kill_path_code
 # both silently become empty strings, and all three not-contains checks
 # below would still report "ok" while checking nothing. Only I-1's
@@ -573,8 +622,16 @@ fi
 # this suite's fault.
 group "real_pane_guard"
 print "test-reap: F1 regression guard — real live panes and sessions survive every --yes call in this suite"
-if (( ! ${#REAL_LIVE_PANES} )); then
-  skip "real live panes survive --yes" "no live detached argus-session pane present on this machine"
+# H-1 (final review): gate on BOTH preconditions, not REAL_LIVE_PANES alone.
+# An ordinary machine state — every real detached session's only pane
+# already accounted for via REAL_SESSION_COUNT_BEFORE but REAL_LIVE_PANES
+# empty for some other reason, or vice versa — must not silently switch
+# this guard off. Gating on the count (a fixed constant) instead of this
+# double-empty check is the wrong repair: it would permanently disable the
+# one assertion that detects a scoping regression killing a genuine real
+# husk pane, which is exactly the failure this guard exists to catch.
+if (( ! ${#REAL_LIVE_PANES} && ! ${#REAL_SESSION_COUNT_BEFORE} )); then
+  skip "real live panes survive --yes" "no live detached argus-session pane AND no real socket with a session present on this machine"
 else
   for _p in $REAL_LIVE_PANES; do
     _pane_state=$(ps -p $_p -o state= 2>/dev/null | tr -d ' ')
@@ -617,10 +674,13 @@ fi
 # (captured where the control is actually evaluated, from the tool's own
 # output, not the filesystem-based REAL_DEAD_SOCKETS_PRESENT round 2 used)
 # is the correct precondition source here, per G-3's finding.
+# S-a (final review): the fixed 1 is now 2 — the planted-control-file
+# assertion always runs (deterministic, no ambient dependency), plus the
+# pre-existing ambient control contributes SEAM_GUARD_HAD_CONTROL (0 or 1).
 group_none
 assert_eq $GROUP_PASS[real_socket_guard] ${#REAL_DEAD_SOCKETS_PRESENT} "real_socket_guard ran exactly one assertion per real dead socket found"
 assert_eq $GROUP_PASS[real_pane_guard] $(( ${#REAL_LIVE_PANES} * 2 + ${#REAL_SESSION_COUNT_BEFORE} )) "real_pane_guard ran exactly two assertions per real live pane plus one per distinct real socket"
-assert_eq $GROUP_PASS[seam_guard] $SEAM_GUARD_HAD_CONTROL "seam_guard ran its fixed 1 assertion iff a real-dir finding served as a positive control"
+assert_eq $GROUP_PASS[seam_guard] $(( 1 + SEAM_GUARD_HAD_CONTROL )) "seam_guard ran its fixed deterministic control plus the ambient control iff one was available"
 
 group "exit_codes"
 print "test-reap: exit codes and argument handling"
