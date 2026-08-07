@@ -42,10 +42,14 @@ that are demonstrably a duplicate, keep everything else.
 
 ### Detection
 
-New per-session field: `trimBoundary?: number`, set in `resizeSession` to the
-mirror's `buffer.active.baseY` at the moment of a width change, captured **before**
-`mirror.resize`. This marks where pre-resize history ends and the agent's repaint
-begins.
+New per-session field: `trimBoundary?: number`, set in `resizeSession` to
+`mirror.totalRows()` (scrollback + screen) on a width change, captured **after**
+`stateDetector.resize` has resized the mirror. Everything already in the buffer at
+that instant is pre-resize content; the agent's repaint appends after it.
+
+Captured *after*, not before: narrowing makes xterm reflow its rows, which moves
+every absolute index, so a boundary taken before the resize would point somewhere
+else entirely.
 
 The quiet check runs on the existing deferred path (`scheduleScrollbackTrim` →
 `runScrollbackTrim`, `TRIM_QUIET_MS` = 600ms with re-arming, `TRIM_MAX_WAIT_MS` =
@@ -56,8 +60,13 @@ existed only so a purge left Focus opening clean; a dedup has no such need.
 
 On that pass:
 
-1. Walk `mirror.term.buffer.active`. Split at `trimBoundary` (`B`): `old` = rows
-   `[0, B)`, `new` = rows `[B, baseY + rows)`.
+0. Bail if `mirror.scrollbackFull()`. At the cap xterm evicts its oldest row on
+   every scroll, so `trimBoundary` no longer points at the content it was taken
+   from. Acting on a shifted index could delete live output; skipping only leaves
+   the duplicate visible.
+1. Read rows either side of `trimBoundary` (`B`): `old` = `[0, B)`,
+   `new` = `[B, totalRows())`. Bail if `B >= totalRows()` — the agent printed
+   nothing after the resize.
 2. Normalize each side: `translateToString(true)` per row, drop empty rows, join
    with no separator. Joining with no separator de-wraps both sides, so the same
    logical text compares equal despite being hard-wrapped at two different widths.

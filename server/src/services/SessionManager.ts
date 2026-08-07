@@ -31,6 +31,7 @@ import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { IdleGeometryGate } from './idleGeometryGate.js';
 import { SleepPreventionService } from './SleepPreventionService.js';
 import { FileWatcherService } from './FileWatcherService.js';
+import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
@@ -92,6 +93,12 @@ interface ManagedSession {
   trimDeadline?: number;
   /** In-flight trim; a second one chains onto it rather than racing its broadcast. */
   trimPromise?: Promise<void>;
+  /**
+   * Row count the mirror held when the width last changed — the line between
+   * pre-resize history and whatever the agent reprints in response. Recorded
+   * *after* the resize, since narrowing reflows the buffer and moves every index.
+   */
+  trimBoundary?: number;
   /**
    * True when the user has sent input (or created/restarted the session) since it
    * was last idle. Gates done-promotion: prevents internal terminal refreshes from
@@ -188,6 +195,14 @@ export const IDLE_GEOMETRY_DELAY_MS = 15_000;
 export const TRIM_QUIET_MS = 600;
 /** A session that never goes quiet (long stream) still gets trimmed eventually. */
 export const TRIM_MAX_WAIT_MS = 15_000;
+
+/**
+ * How much text must match before a block counts as the agent's reprint. Guards
+ * against coincidental repetition (a repeated prompt line, a banner) costing the
+ * user real scrollback. Tuned against live sessions — raise it if legitimate
+ * history ever disappears, lower it if short duplicates survive.
+ */
+export const MIN_DEDUP_CHARS = 200;
 
 /**
  * A standalone mouse-WHEEL report forwarded by the client's terminal (SGR
@@ -1290,13 +1305,13 @@ export class SessionManager {
     session.cols = cols;
     session.rows = rows;
     if (widthChanged) {
-      // Twice, deliberately. Now: the history is already wrapped for the width we
-      // just left, and a view mounting into this session joins for a frame built
-      // from it — dropping it here is what makes Focus open clean instead of
-      // showing the stale block for half a second. Later: the agent's SIGWINCH
-      // repaint pushes its *own* old copy up into history as it reprints, and
-      // those rows don't exist yet.
-      this.chainTrim(session, () => this.trimStaleScrollback(session.id));
+      // Everything already in the buffer is pre-resize content; the agent's
+      // SIGWINCH repaint appends after it. Recorded *after* stateDetector.resize
+      // above, which resizes the mirror: narrowing reflows rows, so an index taken
+      // before it would point somewhere else entirely.
+      session.trimBoundary = session.mirror?.totalRows();
+      // Deferred only. There is nothing to delete until the agent has actually
+      // reprinted, so an immediate pass would find no duplicate and do nothing.
       this.scheduleScrollbackTrim(session);
     }
   }
@@ -1330,20 +1345,52 @@ export class SessionManager {
       return;
     }
     session.trimDeadline = undefined;
-    this.chainTrim(session, () => this.trimStaleScrollback(session.id));
+    this.chainTrim(session, () => this.dedupeScrollback(session.id));
   }
 
   /**
-   * Opt-in purge of the scrollback a width change invalidated. **Off by default,
-   * on purpose:** those rows are wrongly wrapped but still readable, whereas
-   * dropping them makes a mosaic→focus switch — ordinary navigation — silently
-   * eat the session's scroll history. Cosmetic damage beats functional damage.
-   * Cmd+L is the explicit way to get a clean buffer.
+   * Delete the stale copy the agent leaves behind when it reprints its transcript
+   * after a width change — and nothing else.
+   *
+   * This replaces an earlier all-or-nothing purge that dropped the whole
+   * scrollback. That had to ship opt-in and off, because width changes are
+   * ordinary navigation here (mosaic↔Focus, window resize, tile drag) and losing
+   * scroll history reads far worse than a wrongly-wrapped block. Matching the
+   * duplicate instead means the destructive case is gone: when nothing matches
+   * confidently, nothing is removed, so the worst outcome is the duplicate
+   * staying visible — exactly the old default.
    */
-  private async trimStaleScrollback(id: string): Promise<void> {
-    const config = await this.configStore.load();
-    if (config.trimScrollbackOnResize !== true) return;
-    await this.purgeScrollback(id);
+  private async dedupeScrollback(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    const mirror = session?.mirror;
+    const boundary = session?.trimBoundary;
+    if (!session || !mirror || boundary === undefined) return;
+    session.trimBoundary = undefined;
+
+    // Pending bytes are part of the repaint we are measuring.
+    this.flushOutput(id);
+    await mirror.afterWrite();
+
+    // Saturated scrollback evicts its oldest row on every scroll, so `boundary`
+    // no longer points at the content it was taken from. Guessing here could
+    // delete live output; skipping only leaves the duplicate visible.
+    if (mirror.scrollbackFull()) return;
+
+    const total = mirror.totalRows();
+    if (boundary >= total) return; // the agent printed nothing after the resize
+
+    const range = findStaleRowRange(
+      mirror.readRows(0, boundary),
+      mirror.readRows(boundary, total),
+      MIN_DEDUP_CHARS,
+    );
+    if (!range) return;
+
+    await mirror.rebuildWithout(range.start, range.end);
+    const frame = this.getReplaySnapshot(id);
+    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
+    // rather than have its viewport yanked to the bottom.
+    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
   }
 
   /**

@@ -54,7 +54,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, trimScrollbackOnResize, quickActionPromptedAt } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -105,9 +105,6 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       tileRunningIndicator: (tileRunningIndicator === 'hairline' || tileRunningIndicator === 'off')
         ? tileRunningIndicator
         : current.tileRunningIndicator,
-      trimScrollbackOnResize: trimScrollbackOnResize !== undefined
-        ? !!trimScrollbackOnResize
-        : current.trimScrollbackOnResize,
       // Written once by the first-run picker; a string (incl. '') always wins so the
       // prompt can be re-armed by clearing it.
       quickActionPromptedAt: typeof quickActionPromptedAt === 'string'

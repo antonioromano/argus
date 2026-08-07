@@ -160,34 +160,10 @@ test('a non-string quickActionPromptedAt is ignored, keeping the stamp', async (
   assert.equal(body.quickActionPromptedAt, '0.22.0');
 });
 
-// ─── Terminal: scrollback trim ───────────────────────────────────────────────
-
-test('PUT trimScrollbackOnResize:true persists (allowlist regression)', async () => {
-  // Shipped broken: the field was absent from the PUT allowlist, so the Settings
-  // toggle snapped straight back and the feature could never be switched on.
-  const { status, body } = await put({ trimScrollbackOnResize: true });
-  assert.equal(status, 200);
-  assert.equal(body.trimScrollbackOnResize, true);
-  const loaded = await get();
-  assert.equal(loaded.trimScrollbackOnResize, true);
-});
-
-test('trimScrollbackOnResize switches back off', async () => {
-  await put({ trimScrollbackOnResize: true });
-  const { body } = await put({ trimScrollbackOnResize: false });
-  assert.equal(body.trimScrollbackOnResize, false);
-  assert.equal((await get()).trimScrollbackOnResize, false);
-});
-
-test('an unrelated PUT does not clear trimScrollbackOnResize', async () => {
-  await put({ trimScrollbackOnResize: true });
-  const { body } = await put({ showClock: true });
-  assert.equal(body.trimScrollbackOnResize, true);
-});
-
 // ─── Whole-surface guard ─────────────────────────────────────────────────────
-// Two fields have now shipped missing from the PUT allowlist (debugToolsEnabled,
-// trimScrollbackOnResize), each time invisible until a user tried the toggle.
+// Two fields have shipped missing from the PUT allowlist (debugToolsEnabled,
+// trimScrollbackOnResize — since retired), each time invisible until a user tried
+// the toggle.
 // This asserts the allowlist covers EVERY field at once, so the next addition
 // fails here instead of in the UI.
 
@@ -216,7 +192,6 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     ptyBackend: 'tmux',
     tileQuickAction: 'files',
     tileRunningIndicator: 'off',
-    trimScrollbackOnResize: true,
     quickActionPromptedAt: '0.23.0',
   };
 
