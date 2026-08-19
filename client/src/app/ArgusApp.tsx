@@ -25,6 +25,7 @@ import { WindowChrome } from './ui/WindowChrome.js';
 import { ElectronToolbar } from './ui/ElectronToolbar.js';
 import { Sidebar } from './ui/Sidebar.js';
 import { SessionTree } from './ui/SessionTree.js';
+import { SessionMenuProvider } from './ui/SessionMenuProvider.js';
 import { TopToolbar } from './ui/TopToolbar.js';
 import { Mosaic } from './views/Mosaic.js';
 import { Focus } from './views/Focus.js';
@@ -154,7 +155,7 @@ function DesktopInner() {
   const { theme, isDark, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
-  const { sessions, loaded: sessionsLoaded, createSession, deleteSession } = useSessions(socket);
+  const { sessions, loaded: sessionsLoaded, createSession, deleteSession, renameSession } = useSessions(socket);
   const ngrok = useNgrok(socket);
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
@@ -570,9 +571,36 @@ function DesktopInner() {
     </>
   );
 
+  // One shell action menu for the whole app: every surface that shows a shell
+  // name (tile header, focus header, sidebar row, minimized chip) opens this on
+  // right-click, and Rename flips that surface into an inline editor.
+  const sessionMenuActions = {
+    onOpen: app.openSession,
+    onKill: requestKill,
+    onRestart: setPendingRestart,
+    onToggleMinimize: mosaicVis.toggleMinimize,
+    onDumpDiagnostics: (s: SessionInfo) => void handleDumpDiagnostics(s),
+    showDiagnostics: config?.debugToolsEnabled ?? false,
+    onMarkDone: (s: SessionInfo) => socket.emit('session:mark-done', s.id),
+    // Same gates the mosaic tile applies, so the right-click menu never offers
+    // "Apply to project" for a non-worktree shell or "Mark as done" for a busy one.
+    canMarkDone: (s: SessionInfo) => s.status === 'idle',
+    onMerge: handleMerge,
+    canMerge: (s: SessionInfo) => !!s.worktreePath && mergeFlow?.session.id !== s.id,
+    onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType }),
+    onFocusDiff: (id: string) => app.openMaximized({ kind: 'diff', sessionId: id }),
+    onFocusExplorer: (id: string) => app.openMaximized({ kind: 'explorer', sessionId: id }),
+    onFocusTerminal: (id: string) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); },
+  };
+
   return (
     <FontSettingsProvider uiFontSize={config?.uiFontSize} codeFontSize={config?.codeFontSize}>
     <ToastProvider>
+    <SessionMenuProvider
+      actions={sessionMenuActions}
+      shortcuts={shortcuts.resolved}
+      onRename={(id, name) => void renameSession(id, name)}
+    >
     <WindowChrome
       title="ARGUS"
       leading={headerLeading}
@@ -874,6 +902,7 @@ function DesktopInner() {
         onCancel={() => setPendingKillGroup(null)}
       />
     </WindowChrome>
+    </SessionMenuProvider>
     </ToastProvider>
     </FontSettingsProvider>
   );

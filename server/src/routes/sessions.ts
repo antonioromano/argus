@@ -3,7 +3,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { CreateSessionRequest, SessionGroup } from '@argus/shared';
+import type { CreateSessionRequest, RenameSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 
 // Only allow safe flag characters — blocks shell metacharacters like ; | & ` $() etc.
@@ -144,6 +144,21 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create session';
       res.status(400).json({ error: message });
+    }
+  }));
+
+  // Display-name change. Cosmetic: the pty/tmux session is keyed by id, not name.
+  router.patch('/:id/name', asyncHandler(async (req, res) => {
+    const { name } = (req.body ?? {}) as RenameSessionRequest;
+    if (typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'name is required' });
+      return;
+    }
+    try {
+      res.json(await manager.renameSession(req.params.id, name));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to rename session';
+      res.status(404).json({ error: message });
     }
   }));
 

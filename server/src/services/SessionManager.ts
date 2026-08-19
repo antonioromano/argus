@@ -14,6 +14,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@argus/shared';
+import { SESSION_NAME_MAX } from '@argus/shared';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror } from './TerminalMirror.js';
@@ -634,6 +635,24 @@ export class SessionManager {
     const info = this.toSessionInfo(session);
     this.io?.emit('session:created', info);
     return info;
+  }
+
+  /**
+   * Change a session's display name. Cosmetic only: the tmux session name is
+   * derived from the session id, so nothing about the running agent changes.
+   * Throws on an unknown id or a name that is empty once trimmed.
+   */
+  async renameSession(id: string, name: string): Promise<SessionInfo> {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found`);
+
+    const trimmed = name.trim().slice(0, SESSION_NAME_MAX);
+    if (!trimmed) throw new Error('Session name cannot be empty');
+
+    session.name = trimmed;
+    await this.persistSessions();
+    this.io?.emit('session:renamed', { sessionId: id, name: trimmed });
+    return this.toSessionInfo(session);
   }
 
   async destroySession(id: string): Promise<void> {

@@ -7,6 +7,8 @@ import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { useSessionMenu } from './sessionMenuContext.js';
+import { SessionRenameInput } from './SessionRenameInput.js';
 
 const OTHERS = '__others__';
 
@@ -478,15 +480,18 @@ function Leaf({
   onToggleFavorite: () => void;
 }) {
   const [hover, setHover] = useState(false);
+  const sessionMenu = useSessionMenu();
   const label = shellLabel(session);
+  const renaming = sessionMenu.isRenaming(session.id);
   return (
     <Tooltip content={session.folderPath}>
       <div
-        draggable
+        draggable={!renaming}
         role="button"
         tabIndex={0}
         aria-label={`Open ${label}`}
         onDragStart={onDragStart}
+        onContextMenu={(e) => sessionMenu.openMenu(session, e)}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
         onMouseEnter={() => setHover(true)}
@@ -502,10 +507,18 @@ function Leaf({
       >
         <StatusDot status={session.status} size={6} decorative />
         <AgentGlyph agent={session.agentType} size={12} />
-        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
-          color: hover ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </span>
+        {renaming ? (
+          <SessionRenameInput
+            initial={label}
+            onCommit={(v) => sessionMenu.commitRename(session.id, v)}
+            onCancel={sessionMenu.cancelRename}
+          />
+        ) : (
+          <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
+            color: hover ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+        )}
         {/* Star toggle — fixed-width slot so label never shifts on hover */}
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
           <Tooltip content={isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}>

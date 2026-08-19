@@ -9,6 +9,8 @@ import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { useSessionMenu } from '../ui/sessionMenuContext.js';
+import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 // Monaco-backed workbench panels are lazy-loaded so the heavy editor bundle is
 // only fetched when a user actually opens the code explorer / diff view
@@ -99,6 +101,7 @@ export function Focus({
   onCloseSearch,
 }: FocusProps) {
   const [copied, setCopied] = useState(false);
+  const sessionMenu = useSessionMenu();
   const [terminalFocused, setTerminalFocused] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState<number>(readStoredWidth);
   const [isResizing, setIsResizing] = useState(false);
@@ -197,11 +200,20 @@ export function Focus({
           >
             <AgentGlyph agent={active.agentType} size={16} />
             <StatusPill status={active.status} />
-            <Tooltip content="Click to copy path">
+            {sessionMenu.isRenaming(active.id) ? (
+              <SessionRenameInput
+                initial={shellLabel(active)}
+                onCommit={(v) => sessionMenu.commitRename(active.id, v)}
+                onCancel={sessionMenu.cancelRename}
+                style={{ flex: '0 1 260px', fontSize: 'var(--t-sm)' }}
+              />
+            ) : (
+            <Tooltip content="Click to copy path · right-click for actions">
               <span
                 role="button"
                 tabIndex={0}
                 aria-label={copied ? 'Path copied' : `Copy path ${active.folderPath}`}
+                onContextMenu={(e) => sessionMenu.openMenu(active, e)}
                 onClick={() => {
                   void navigator.clipboard.writeText(active.folderPath);
                   setCopied(true);
@@ -230,6 +242,7 @@ export function Focus({
                 {copied ? 'Copied path' : shellLabel(active)}
               </span>
             </Tooltip>
+            )}
             {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <div style={{ flex: 1 }} />
             <Button

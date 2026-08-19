@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
@@ -13,6 +13,10 @@ export function useSessions(socket: TypedSocket) {
   // found" decisions on this so a restored focus view isn't dropped before the
   // list has loaded (Cmd+R focus persistence).
   const [loaded, setLoaded] = useState(false);
+  // Mirror of `sessions` so rename can read the pre-edit name for rollback
+  // without taking `sessions` as a dependency (which would churn the callback).
+  const sessionsRef = useRef<SessionInfo[]>([]);
+  useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
   // Load sessions on mount and after reconnect
   useEffect(() => {
@@ -54,6 +58,10 @@ export function useSessions(socket: TypedSocket) {
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
     };
 
+    const handleRenamed = ({ sessionId, name }: { sessionId: string; name: string }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, name } : s)));
+    };
+
     const handleGitStatus = ({ sessionId, hasGitChanges }: { sessionId: string; hasGitChanges: boolean }) => {
       setSessions((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, hasGitChanges } : s)),
@@ -64,6 +72,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
     socket.on('session:deleted', handleDeleted);
+    socket.on('session:renamed', handleRenamed);
     socket.on('session:error', handleSessionError);
     socket.on('session:gitStatus', handleGitStatus);
 
@@ -72,6 +81,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:exit', handleExit);
       socket.off('session:created', handleCreated);
       socket.off('session:deleted', handleDeleted);
+      socket.off('session:renamed', handleRenamed);
       socket.off('session:error', handleSessionError);
       socket.off('session:gitStatus', handleGitStatus);
     };
@@ -86,6 +96,23 @@ export function useSessions(socket: TypedSocket) {
     return session;
   }, []);
 
+  // Optimistic: the name lands locally before the socket echo, so the surface
+  // that just committed the edit never flickers back to the old label.
+  const renameSession = useCallback(async (id: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const previous = sessionsRef.current.find((s) => s.id === id)?.name;
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)));
+    try {
+      await api.renameSession(id, trimmed);
+    } catch (err) {
+      if (previous !== undefined) {
+        setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name: previous } : s)));
+      }
+      pushToast(err instanceof Error ? err.message : 'Failed to rename shell', 'danger');
+    }
+  }, []);
+
   const deleteSession = useCallback(async (id: string) => {
     try {
       await api.deleteSession(id);
@@ -95,5 +122,5 @@ export function useSessions(socket: TypedSocket) {
     }
   }, []);
 
-  return { sessions, loaded, createSession, deleteSession };
+  return { sessions, loaded, createSession, deleteSession, renameSession };
 }

@@ -121,6 +121,15 @@ export const api = {
     await requireOk(res);
   },
 
+  renameSession: async (id: string, name: string): Promise<SessionInfo> => {
+    const res = await authFetch(`${API_BASE}/sessions/${id}/name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    return (await requireOk(res)).json();
+  },
+
   restartSession: async (id: string): Promise<SessionInfo> => {
     const res = await authFetch(`${API_BASE}/sessions/${id}/restart`, { method: 'PATCH' });
     return (await requireOk(res)).json();

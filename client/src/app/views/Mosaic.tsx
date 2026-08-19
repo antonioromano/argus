@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProper
 import type { SessionInfo, MosaicWaitingStyle, TileQuickAction, TileRunningIndicator } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, MoreHorizontal, Bug } from 'lucide-react';
+import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu } from '../../components/primitives/index.js';
@@ -13,6 +13,9 @@ import { Landing } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { buildSessionMenuItems } from '../ui/sessionMenu.js';
+import { useSessionMenu } from '../ui/sessionMenuContext.js';
+import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { mosaicLayout } from '../../utils/mosaicLayout.js';
 import {
   DndContext,
@@ -583,6 +586,7 @@ function MosaicTileInner({
 }) {
   const [copied, setCopied] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const sessionMenu = useSessionMenu();
   // Stable wrapper so TerminalShell's memo isn't busted by a fresh closure here.
   const sessionId = session.id;
   const handleFocusChange = useCallback(
@@ -634,31 +638,21 @@ function MosaicTileInner({
   const comboLabel = (id: ShortcutActionId): string | undefined =>
     shortcuts ? formatCombo(shortcuts[id]) : undefined;
 
-  const menuItems: ContextMenuEntry[] = [
-    { header: 'Navigate' },
+  // Same list the right-click menu builds, so Rename and every other action stay
+  // in lockstep between the ⋯ button and the header's context menu.
+  const menuItems: ContextMenuEntry[] = buildSessionMenuItems(
+    session,
     {
-      id: 'diff',
-      label: session.hasGitChanges ? 'Diff — has changes' : 'Diff',
-      icon: GitBranch,
-      shortcut: comboLabel('open-diff'),
-      disabled: !onFocusDiff && !onOpenDiff,
-      onClick: () => { if (onFocusDiff) onFocusDiff(session.id); else onOpenDiff?.(session.id); },
+      onRename: () => sessionMenu.beginRename(session.id),
+      onOpen, onKill, onRestart, onToggleMinimize,
+      onDumpDiagnostics, showDiagnostics,
+      onMarkDone, canMarkDone: () => !!canMarkDone,
+      onMerge, canMerge: () => !!canMerge,
+      onClone,
+      onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff,
     },
-    ...(onFocusExplorer ? [{ id: 'files', label: 'Files', icon: FolderOpen, shortcut: comboLabel('open-files'), onClick: () => onFocusExplorer(session.id) }] : []),
-    ...(onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: Terminal, shortcut: comboLabel('open-shell'), onClick: () => onFocusTerminal(session.id) }] : []),
-    { id: 'focus', label: 'Expand to focus', icon: Maximize2, onClick: () => onOpen(session.id) },
-    { separator: true },
-    { header: 'Session' },
-    { id: 'minimize', label: 'Minimize', icon: Minus, onClick: () => onToggleMinimize(session.id) },
-    ...(onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => onClone(session) }] : []),
-    ...(onMerge && canMerge ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => onMerge(session) }] : []),
-    ...(onMarkDone && canMarkDone ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => onMarkDone(session) }] : []),
-    { id: 'restart', label: 'Restart shell', icon: RotateCcw, onClick: () => onRestart(session) },
-    ...(showDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => onDumpDiagnostics(session) }] : []),
-    { separator: true },
-    { header: 'Danger' },
-    { id: 'close', label: 'Close shell', icon: CircleX, shortcut: comboLabel('close-shell'), danger: true, onClick: () => onKill(session) },
-  ];
+    shortcuts,
+  );
 
   // The one configurable pinned action. 'none' collapses the slot; the action
   // itself never disappears — it is always in the ⋯ menu above.
@@ -709,20 +703,30 @@ function MosaicTileInner({
         )}
         <StatusDot status={session.status} size={7} />
 
-        <Tooltip content="Click to copy path">
-          <span
-            role="button"
-            tabIndex={0}
-            className="argus-tile-name"
-            aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
-            onClick={copyPath}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
-            style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
-          >
-            {copied && <Check size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
-            {copied ? 'Copied path' : shellLabel(session)}
-          </span>
-        </Tooltip>
+        {sessionMenu.isRenaming(session.id) ? (
+          <SessionRenameInput
+            initial={shellLabel(session)}
+            onCommit={(v) => sessionMenu.commitRename(session.id, v)}
+            onCancel={sessionMenu.cancelRename}
+            style={{ flex: '0 1 220px', fontSize: 'var(--t-sm)' }}
+          />
+        ) : (
+          <Tooltip content="Click to copy path · right-click for actions">
+            <span
+              role="button"
+              tabIndex={0}
+              className="argus-tile-name"
+              aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
+              onClick={copyPath}
+              onContextMenu={(e) => sessionMenu.openMenu(session, e)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
+              style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
+            >
+              {copied && <Check size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
+              {copied ? 'Copied path' : shellLabel(session)}
+            </span>
+          </Tooltip>
+        )}
 
         {session.worktreeBranch && (
           <Tooltip content={session.worktreeBranch}>

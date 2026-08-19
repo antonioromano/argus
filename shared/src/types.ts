@@ -130,6 +130,16 @@ export interface CreateSessionRequest {
 
 export interface CreateSessionResponse extends SessionInfo {}
 
+/** Display-name change for a live shell. The tmux session name derives from the
+ *  session id, so a rename is purely cosmetic and never touches the backend pty. */
+export interface RenameSessionRequest {
+  name: string;
+}
+
+/** Longest accepted shell display name. Long enough for a descriptive label,
+ *  short enough that the tile header still fits its status pill. */
+export const SESSION_NAME_MAX = 60;
+
 export const FAVORITES_GROUP_ID = '__favorites__';
 
 export interface FavoriteEntryMeta {
@@ -221,6 +231,7 @@ export interface ServerToClientEvents {
   'session:exit': (payload: { sessionId: string; exitCode: number }) => void;
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
+  'session:renamed': (payload: { sessionId: string; name: string }) => void;
   'ngrok:status': (status: NgrokStatus) => void;
   'keepawake:status': (status: KeepAwakeStatus) => void;
   'auth:required': (payload: { required: boolean }) => void;
