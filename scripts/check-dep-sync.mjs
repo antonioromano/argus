@@ -43,7 +43,7 @@ if (missing.length > 0) {
 console.log(`✔ dep-sync: all ${serverDeps.length} server runtime deps present in root package.json`);
 
 // ---------------------------------------------------------------------------
-// Check 2: no runtime (value) imports of a workspace package from server code.
+// Check 2: no runtime (value) imports of a workspace package from packaged code.
 // ---------------------------------------------------------------------------
 
 /** Every .ts file under a directory, tests included. */
@@ -63,8 +63,12 @@ function tsFiles(dir) {
 // 'path';` can never be swallowed into this one's clause.
 const VALUE_IMPORT = /import\s+(?!type\b)([^;]*?)\s*from\s*['"](@argus\/[^'"]+)['"]/g;
 
+// Both trees are loaded from inside app.asar at runtime, so both are subject to
+// the same resolution limit. electron/src is type-only today; keep it that way.
+const PACKAGED_TREES = ['server/src', 'electron/src'];
+
 const offenders = [];
-for (const file of tsFiles('server/src')) {
+for (const file of PACKAGED_TREES.flatMap(tsFiles)) {
   const src = readFileSync(path.join(repoRoot, file), 'utf8');
   for (const [, clause, pkg] of src.matchAll(VALUE_IMPORT)) {
     // A brace clause whose every specifier is `type X` is still type-only.
@@ -75,7 +79,7 @@ for (const file of tsFiles('server/src')) {
 }
 
 if (offenders.length > 0) {
-  console.error('✖ dep-sync: server code imports a workspace package at RUNTIME:');
+  console.error('✖ dep-sync: packaged code imports a workspace package at RUNTIME:');
   for (const o of offenders) console.error(`    ${o.file}: import ${o.clause} from '${o.pkg}'`);
   console.error(
     '\n  The packaged app cannot resolve `@argus/*` bare specifiers — app.asar has\n' +
@@ -86,7 +90,7 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log('✔ dep-sync: server imports no workspace package at runtime');
+console.log(`✔ dep-sync: ${PACKAGED_TREES.join(' + ')} import no workspace package at runtime`);
 
 // ---------------------------------------------------------------------------
 // Check 3: constants duplicated across the server/shared boundary agree.
