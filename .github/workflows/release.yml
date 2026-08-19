@@ -81,9 +81,32 @@ jobs:
       # answer before anything is released. Tests the artifact, not the recipe:
       # catches pruned asar deps, missing bundled binaries (argusd, tmux), and
       # broken native modules — the class that shipped broken v0.21.0/v0.21.1.
+      #
+      # The .app is copied OUT of the workspace first, because Node resolves bare
+      # specifiers by walking ancestor directories: run in place, an app missing a
+      # package still finds the repo's own node_modules and boots happily. That is
+      # how v0.22.5 got a ✔ here and still died at /Applications with
+      # ERR_MODULE_NOT_FOUND. /tmp has no node_modules above it, like a real install.
       - name: Smoke test packaged app
         run: |
-          APP="dist/mac-arm64/Argus.app"
+          SMOKE_ROOT="$(mktemp -d /tmp/argus-smoke.XXXXXX)"
+          cp -R "dist/mac-arm64/Argus.app" "$SMOKE_ROOT/"
+          APP="$SMOKE_ROOT/Argus.app"
+          echo "smoking $APP (outside the checkout: $(cd "$SMOKE_ROOT" && pwd))"
+          # Assert no ancestor carries a node_modules the app could borrow from.
+          # Only the app's own ancestors matter — siblings under /tmp are irrelevant.
+          DIR="$SMOKE_ROOT"
+          while [ "$DIR" != "/" ]; do
+            if [ -d "$DIR/node_modules" ]; then
+              echo "✖ $DIR/node_modules is above the smoke dir — resolution would not be hermetic"
+              exit 1
+            fi
+            DIR="$(dirname "$DIR")"
+          done
+          if [ -d /node_modules ]; then
+            echo "✖ /node_modules exists — not hermetic"
+            exit 1
+          fi
           "$APP/Contents/MacOS/Argus" > smoke.log 2>&1 &
           APP_PID=$!
           for i in $(seq 1 30); do

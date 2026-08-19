@@ -14,7 +14,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
 } from '@argus/shared';
-import { SESSION_NAME_MAX } from '@argus/shared';
+import { SESSION_NAME_MAX } from '../constants/session.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror } from './TerminalMirror.js';
