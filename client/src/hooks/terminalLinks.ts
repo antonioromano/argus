@@ -25,6 +25,12 @@
  *
  * `isWrapped` is still honoured when set, so genuinely emulator-wrapped output
  * (a non-Ink program printing past the right margin) keeps working.
+ *
+ * A box-drawn table is the same wrap one level in: each cell is laid out to its
+ * own column, so the halves of a split URL are separated by the other columns'
+ * text and no amount of row joining puts them back together. Those rows are cut
+ * out of their frame first and the same joining runs down a single cell — see
+ * `cellBuffer`.
  */
 
 import type { IBufferRange, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
@@ -242,8 +248,8 @@ function locate(segments: Segment[], index: number): { segment: Segment; column:
   return undefined;
 }
 
-/** Every URL covering row `y`, resolved across the rows it was broken over. */
-export function findLinks(buf: LinkBuffer, y: number): FoundLink[] {
+/** Every URL covering row `y` of a buffer whose rows are whole logical lines. */
+function linksOnLine(buf: LinkBuffer, y: number): FoundLink[] {
   const { joined, segments } = joinRows(buf, y, wrapWidth(buf, y));
   if (!joined) return [];
 
@@ -266,6 +272,100 @@ export function findLinks(buf: LinkBuffer, y: number): FoundLink[] {
       endY: to.segment.y,
       endX: to.column,
     });
+  }
+  return links;
+}
+
+/** The rule a box-drawn table puts between its cells. */
+const CELL_RULE = '│';
+
+interface TableLayout {
+  /** Code-unit index of each rule in the row. */
+  seps: number[];
+  /** Cell column of each rule — what matches one row's frame against another's,
+   *  since a wide character earlier in the row shifts the indexes but not the frame. */
+  ruleColumns: number[];
+}
+
+/** The frame of a table row, or undefined for a row that is not one. */
+function tableLayout(row: LinkRow): TableLayout | undefined {
+  const seps: number[] = [];
+  for (let i = 0; i < row.text.length; i++) if (row.text[i] === CELL_RULE) seps.push(i);
+  if (seps.length < 2) return undefined; // a pair of rules is the least a cell needs
+  if (row.text.slice(0, seps[0]).trim() !== '') return undefined; // text outside the frame
+  const columns = row.columns?.();
+  return { seps, ruleColumns: columns ? seps.map((i) => columns[i] ?? i) : seps };
+}
+
+/**
+ * One column of a table read as a buffer of its own, so the joining above runs
+ * over the cell's own text and measures the cell's own wrap width.
+ *
+ * A row framed differently from the hovered one ends the column: a border row
+ * (`├─┼─┤`) carries no rules at all, and a second table or plain prose
+ * carries them elsewhere. That is also what keeps one table row's last line from
+ * absorbing the next row's first — for the unruled borders agents draw between
+ * rows. Where there is no border, the ordinary guard applies: the last line of a
+ * cell is short of the wrap width, so nothing joins onto it.
+ */
+function cellBuffer(buf: LinkBuffer, layout: TableLayout, cell: number): LinkBuffer {
+  const sameFrame = (other: TableLayout): boolean =>
+    other.ruleColumns.length === layout.ruleColumns.length &&
+    other.ruleColumns.every((column, i) => column === layout.ruleColumns[i]);
+  return {
+    row(y: number): LinkRow | undefined {
+      const row = buf.row(y);
+      if (!row) return undefined;
+      const frame = tableLayout(row);
+      if (!frame || !sameFrame(frame)) return undefined;
+      const from = frame.seps[cell] + 1;
+      const columns = row.columns ?? identityColumns(row.text);
+      return {
+        // Trailing pad is the frame's, not the cell's: without dropping it the
+        // cell never reads as filled to its width and so never joins.
+        text: row.text.slice(from, frame.seps[cell + 1]).trimEnd(),
+        isWrapped: false, // a cell is wrapped by the agent, never by the emulator
+        columns: () => columns().slice(from),
+      };
+    },
+  };
+}
+
+const identityColumns =
+  (text: string) =>
+  (): number[] =>
+    Array.from({ length: text.length }, (_, i) => i);
+
+/** The row with its cell walk run at most once. */
+function once(row: LinkRow | undefined): LinkRow | undefined {
+  const columns = row?.columns;
+  if (!row || !columns) return row;
+  let cached: number[] | undefined;
+  return { ...row, columns: () => (cached ??= columns()) };
+}
+
+/** Read each row — and its cell walk — at most once per lookup. Every cell of a
+ *  table row asks for the same rows over again. */
+function memoize(buf: LinkBuffer): LinkBuffer {
+  const rows = new Map<number, LinkRow | undefined>();
+  return {
+    row(y: number): LinkRow | undefined {
+      if (!rows.has(y)) rows.set(y, once(buf.row(y)));
+      return rows.get(y);
+    },
+  };
+}
+
+/** Every URL covering row `y`, resolved across the rows it was broken over. */
+export function findLinks(source: LinkBuffer, y: number): FoundLink[] {
+  const buf = memoize(source);
+  const row = buf.row(y);
+  if (!row) return [];
+  const layout = tableLayout(row);
+  if (!layout) return linksOnLine(buf, y);
+  const links: FoundLink[] = [];
+  for (let cell = 0; cell + 1 < layout.seps.length; cell++) {
+    links.push(...linksOnLine(memoize(cellBuffer(buf, layout, cell)), y));
   }
   return links;
 }

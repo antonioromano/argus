@@ -29,6 +29,53 @@ describe('findLinks', () => {
     expect(link).toMatchObject({ startY: 0, startX: 3, endY: 0, endX: 23 });
   });
 
+  // ── box-drawn tables ───────────────────────────────────────────────────────
+
+  // A markdown table as Claude Code renders it: every cell wrapped to its own
+  // column, so a split URL has three other columns' text between its halves.
+  const table = [
+    '┌──────────────────────────────────────────────────────┬──────────────────┬─────────┐',
+    '│ PR                                                   │ Repo             │ Tickets │',
+    '├──────────────────────────────────────────────────────┼──────────────────┼─────────┤',
+    '│ #48 (https://github.com/rbly-internal/oauth/pull/48) │ oauth            │ PLAT-88 │',
+    '│                                                      │                  │ 8, 889  │',
+    '├──────────────────────────────────────────────────────┼──────────────────┼─────────┤',
+    '│ #8 (https://github.com/rbly-internal/rb-abuse-email- │ rb-abuse-email-s │ PLAT-88 │',
+    '│ slack/pull/8)                                        │ lack             │ 4       │',
+    '└──────────────────────────────────────────────────────┴──────────────────┴─────────┘',
+  ];
+  const inCell = 'https://github.com/rbly-internal/rb-abuse-email-slack/pull/8';
+
+  it('finds a URL that fits inside one table cell', () => {
+    expect(texts(table, 3)).toEqual(['https://github.com/rbly-internal/oauth/pull/48']);
+  });
+
+  it('rejoins a URL split down a table cell', () => {
+    expect(texts(table, 6)).toEqual([inCell]);
+  });
+
+  it('finds the same URL from the row holding its tail', () => {
+    expect(texts(table, 7)).toEqual([inCell]);
+  });
+
+  it('ranges a cell-split link at the cells it occupies', () => {
+    const [link] = findLinks(buffer(table), 7);
+    expect(link).toMatchObject({ startY: 6, startX: 6, endY: 7, endX: 13 });
+  });
+
+  it('does not join a cell onto the row of a different table', () => {
+    const rows = [
+      '│ see https://github.com/rbly-internal/rb-abuse-email- │ x │',
+      '│ slack/pull/8) │',
+    ];
+    expect(texts(rows, 0)).toEqual(['https://github.com/rbly-internal/rb-abuse-email-']);
+  });
+
+  it('leaves rows outside a frame alone', () => {
+    const rows = ['tail │ https://example.com/a │ b │'];
+    expect(texts(rows, 0)).toEqual(['https://example.com/a']);
+  });
+
   // ── the agent's own line breaks ────────────────────────────────────────────
 
   // A row filled to the wrap width, with the URL cut mid-token — the shape every

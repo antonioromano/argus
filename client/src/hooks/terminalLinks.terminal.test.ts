@@ -33,6 +33,19 @@ function linksOn(term: Terminal, row: number): ILink[] {
 }
 
 describe('createTerminalLinkProvider', () => {
+  it('rejoins a URL split down a table cell', async () => {
+    const term = await withRows(
+      [
+        '│ #8 (https://github.com/rbly-internal/rb-abuse- │ 1 │',
+        '│ email-slack/pull/8)                            │ 2 │',
+      ],
+      54,
+    );
+    const expected = 'https://github.com/rbly-internal/rb-abuse-email-slack/pull/8';
+    expect(linksOn(term, 0).map((l) => l.text)).toEqual([expected]);
+    expect(linksOn(term, 1).map((l) => l.text)).toEqual([expected]);
+  });
+
   it('rejoins a URL the agent split across two rows', async () => {
     const term = await withRows([
       '  The fix — https://github.com/rbly/rebrandly-otel',
