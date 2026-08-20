@@ -482,7 +482,7 @@ function Leaf({
   const [hover, setHover] = useState(false);
   const sessionMenu = useSessionMenu();
   const label = shellLabel(session);
-  const renaming = sessionMenu.isRenaming(session.id);
+  const renaming = sessionMenu.isRenaming(session.id, 'tree');
   return (
     <Tooltip content={session.folderPath}>
       <div
@@ -491,7 +491,7 @@ function Leaf({
         tabIndex={0}
         aria-label={`Open ${label}`}
         onDragStart={onDragStart}
-        onContextMenu={(e) => sessionMenu.openMenu(session, e)}
+        onContextMenu={(e) => sessionMenu.openMenu(session, e, 'tree')}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
         onMouseEnter={() => setHover(true)}

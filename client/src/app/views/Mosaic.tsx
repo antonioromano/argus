@@ -643,7 +643,7 @@ function MosaicTileInner({
   const menuItems: ContextMenuEntry[] = buildSessionMenuItems(
     session,
     {
-      onRename: () => sessionMenu.beginRename(session.id),
+      onRename: () => sessionMenu.beginRename(session.id, 'tile'),
       onOpen, onKill, onRestart, onToggleMinimize,
       onDumpDiagnostics, showDiagnostics,
       onMarkDone, canMarkDone: () => !!canMarkDone,
@@ -703,7 +703,7 @@ function MosaicTileInner({
         )}
         <StatusDot status={session.status} size={7} />
 
-        {sessionMenu.isRenaming(session.id) ? (
+        {sessionMenu.isRenaming(session.id, 'tile') ? (
           <SessionRenameInput
             initial={shellLabel(session)}
             onCommit={(v) => sessionMenu.commitRename(session.id, v)}
@@ -718,7 +718,7 @@ function MosaicTileInner({
               className="argus-tile-name"
               aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
               onClick={copyPath}
-              onContextMenu={(e) => sessionMenu.openMenu(session, e)}
+              onContextMenu={(e) => sessionMenu.openMenu(session, e, 'tile')}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
               style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
             >

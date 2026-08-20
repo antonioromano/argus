@@ -24,14 +24,14 @@ interface MinimizedChipProps {
  */
 export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget }: MinimizedChipProps) {
   const sessionMenu = useSessionMenu();
-  const renaming = sessionMenu.isRenaming(session.id);
+  const renaming = sessionMenu.isRenaming(session.id, 'chip');
   return (
     <button
       className="argus-chip"
       draggable={!renaming}
       data-drop-target={isDropTarget || undefined}
       onClick={onClick}
-      onContextMenu={(e) => sessionMenu.openMenu(session, e)}
+      onContextMenu={(e) => sessionMenu.openMenu(session, e, 'chip')}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver(); }}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}

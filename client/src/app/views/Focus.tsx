@@ -200,7 +200,7 @@ export function Focus({
           >
             <AgentGlyph agent={active.agentType} size={16} />
             <StatusPill status={active.status} />
-            {sessionMenu.isRenaming(active.id) ? (
+            {sessionMenu.isRenaming(active.id, 'focus') ? (
               <SessionRenameInput
                 initial={shellLabel(active)}
                 onCommit={(v) => sessionMenu.commitRename(active.id, v)}
@@ -213,7 +213,7 @@ export function Focus({
                 role="button"
                 tabIndex={0}
                 aria-label={copied ? 'Path copied' : `Copy path ${active.folderPath}`}
-                onContextMenu={(e) => sessionMenu.openMenu(active, e)}
+                onContextMenu={(e) => sessionMenu.openMenu(active, e, 'focus')}
                 onClick={() => {
                   void navigator.clipboard.writeText(active.folderPath);
                   setCopied(true);

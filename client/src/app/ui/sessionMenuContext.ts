@@ -1,13 +1,18 @@
 import { createContext, useContext } from 'react';
 import type { SessionInfo } from '@argus/shared';
 
+/** The surfaces that can show a shell name. A rename belongs to exactly one of
+ *  them: several are on screen at once (a mosaic tile and its sidebar row), and
+ *  an editor per surface would autofocus over — and so blur-cancel — the first. */
+export type SessionSurface = 'tile' | 'tree' | 'focus' | 'chip';
+
 export interface SessionMenuApi {
   /** Right-click handler: opens the shell action menu at the pointer. */
-  openMenu: (session: SessionInfo, e: React.MouseEvent) => void;
-  /** Flip a session's name into edit mode (used by the tile's own ⋯ menu). */
-  beginRename: (id: string) => void;
-  /** True while this session's name is being edited on some surface. */
-  isRenaming: (id: string) => boolean;
+  openMenu: (session: SessionInfo, e: React.MouseEvent, surface: SessionSurface) => void;
+  /** Flip a session's name into edit mode on one surface (used by the tile's own ⋯ menu). */
+  beginRename: (id: string, surface: SessionSurface) => void;
+  /** True while this session's name is being edited on *this* surface. */
+  isRenaming: (id: string, surface: SessionSurface) => boolean;
   commitRename: (id: string, name: string) => void;
   cancelRename: () => void;
 }
