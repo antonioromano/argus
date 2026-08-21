@@ -229,3 +229,93 @@ func listContains(t *testing.T, c net.Conn, id string, timeout time.Duration) bo
 		}
 	}
 }
+
+// A restart is kill(id) immediately followed by spawn(id) on the SAME id. The
+// old process dies asynchronously, so its read loop reaches its cleanup AFTER
+// the replacement is already in the table — it must not evict the replacement
+// (which left the fresh agent unreachable: writes went nowhere and the terminal
+// looked hung) nor report an exit for it.
+func TestRespawnSameIDSurvivesOldSessionExit(t *testing.T) {
+	d := startTestDaemon(t)
+	c := dial(t, d)
+	fc := newFramedConn(c)
+	expectHello(t, c)
+
+	if err := fc.writeControl(control{
+		Op: "spawn", ID: "s1",
+		Cmd: []string{"/bin/sh", "-c", "printf FIRST; sleep 30"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForData(t, c, "s1", "FIRST", 5*time.Second)
+
+	if err := fc.writeControl(control{Op: "kill", ID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fc.writeControl(control{
+		Op: "spawn", ID: "s1",
+		Cmd: []string{"/bin/sh", "-c", "printf SECOND; sleep 30"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForData(t, c, "s1", "SECOND", 5*time.Second)
+
+	// Let the killed process's read loop run its cleanup.
+	time.Sleep(500 * time.Millisecond)
+
+	d.mu.Lock()
+	live := d.sessions["s1"]
+	d.mu.Unlock()
+	if live == nil {
+		t.Fatal("replacement session was evicted by the old session's exit")
+	}
+	if live.cmd.ProcessState != nil {
+		t.Fatal("replacement session is not running")
+	}
+}
+
+// Spawning over a live id (the shape a restart takes) must replace it: the old
+// agent is killed, and its read loop must not evict the replacement from the
+// table nor report an exit against its id.
+func TestSpawnOverLiveIDReplacesIt(t *testing.T) {
+	d := startTestDaemon(t)
+	c := dial(t, d)
+	fc := newFramedConn(c)
+	expectHello(t, c)
+
+	if err := fc.writeControl(control{
+		Op: "spawn", ID: "s1",
+		Cmd: []string{"/bin/sh", "-c", "printf FIRST; sleep 30"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForData(t, c, "s1", "FIRST", 5*time.Second)
+
+	d.mu.Lock()
+	first := d.sessions["s1"]
+	d.mu.Unlock()
+
+	if err := fc.writeControl(control{
+		Op: "spawn", ID: "s1",
+		Cmd: []string{"/bin/sh", "-c", "printf SECOND; sleep 30"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	waitForData(t, c, "s1", "SECOND", 5*time.Second)
+
+	// Let the displaced session's read loop reach its cleanup.
+	time.Sleep(500 * time.Millisecond)
+
+	d.mu.Lock()
+	live := d.sessions["s1"]
+	d.mu.Unlock()
+	if live == nil {
+		t.Fatal("replacement was evicted by the displaced session's exit")
+	}
+	if live == first {
+		t.Fatal("spawn did not replace the live session")
+	}
+	if first.cmd.ProcessState == nil {
+		t.Fatal("displaced agent was left running")
+	}
+}

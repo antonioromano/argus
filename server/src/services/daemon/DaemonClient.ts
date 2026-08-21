@@ -251,6 +251,24 @@ export class DaemonClient extends EventEmitter {
   kill(id: string): void {
     this.send({ op: 'kill', id });
   }
+  /**
+   * Resolve once the daemon reports this session's exit, or after timeoutMs.
+   * Register it BEFORE sending the kill: exit frames are keyed by session id
+   * alone, so a restart must drain the old agent's exit before a replacement
+   * pty subscribes to the same id (else the stale exit marks it dead).
+   */
+  waitForExit(id: string, timeoutMs: number): Promise<void> {
+    if (!this.connected) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        this.removeListener(`exit:${id}`, done);
+        resolve();
+      };
+      const timer = setTimeout(done, timeoutMs);
+      this.once(`exit:${id}`, done);
+    });
+  }
   killAll(): void {
     this.send({ op: 'killAll' });
   }

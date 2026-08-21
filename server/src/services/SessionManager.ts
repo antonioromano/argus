@@ -700,7 +700,13 @@ export class SessionManager {
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     this.backend.detach(session.pty);
-    this.backend.stopSession(id); // discard the surviving conversation so restart is a real restart
+    // Discard the surviving conversation so restart is a real restart — and wait
+    // for the backend to release the id. The daemon reports the old agent's exit
+    // a few ms after the kill, keyed by session id only; spawning the replacement
+    // first meant that stale exit landed on the FRESH pty and marked the shell
+    // exited, so the restarted terminal looked hung until a second restart.
+    if (this.backend.stopSessionAndWait) await this.backend.stopSessionAndWait(id);
+    else this.backend.stopSession(id);
     this.companionTerminals.kill(id);
 
     // Reset state

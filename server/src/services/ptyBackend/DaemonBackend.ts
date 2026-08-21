@@ -4,6 +4,9 @@ import { shquote } from '../PtyManager.js';
 import type { TerminalMirror } from '../TerminalMirror.js';
 import type { PtyBackend, SpawnOpts } from './types.js';
 
+/** How long a restart waits for the killed agent's exit before giving up on it. */
+const STOP_EXIT_TIMEOUT_MS = 2_000;
+
 /**
  * Backend backed by the argusd pty-host daemon (plan 2026-07-22-003). Sessions
  * survive app quit because the daemon outlives it; bytes flow untouched, so the
@@ -85,6 +88,28 @@ export class DaemonBackend implements PtyBackend {
     this.client.kill(sessionId);
     this.ptys.get(sessionId)?.dispose();
     this.ptys.delete(sessionId);
+  }
+
+  /**
+   * Stop and wait until the daemon has reported the agent gone. Killing is
+   * asynchronous over the socket and exit frames carry only a session id, so a
+   * restart that spawns before the old exit arrives gets that exit delivered to
+   * the FRESH pty. Bounded by a timeout: a missing exit must not wedge restart.
+   */
+  async stopSessionAndWait(sessionId: string): Promise<void> {
+    if (!this.client.isConnected()) {
+      this.stopSession(sessionId);
+      return;
+    }
+    // Nothing to wait for when the daemon no longer holds the session.
+    const alive = (await this.client.list()).includes(sessionId);
+    if (!alive) {
+      this.stopSession(sessionId);
+      return;
+    }
+    const exited = this.client.waitForExit(sessionId, STOP_EXIT_TIMEOUT_MS);
+    this.stopSession(sessionId);
+    await exited;
   }
 
   stopAll(): void {

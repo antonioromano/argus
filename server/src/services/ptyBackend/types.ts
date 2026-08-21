@@ -49,6 +49,13 @@ export interface PtyBackend {
   /** Terminate the agent for one session (destroy/restart). */
   stopSession(sessionId: string): void;
 
+  /**
+   * Stop the agent and resolve only once the backend has released the id, so a
+   * respawn on the SAME id cannot race the dying one's teardown. Optional:
+   * tmux's kill-session is already synchronous, so only the daemon needs it.
+   */
+  stopSessionAndWait?(sessionId: string): Promise<void>;
+
   /** Terminate every agent (Quit & Stop All). */
   stopAll(): void;
 

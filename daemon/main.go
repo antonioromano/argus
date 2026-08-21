@@ -176,9 +176,16 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 			_ = fc.writeControl(control{Op: "error", ID: c.ID, Msg: err.Error()})
 			return
 		}
+		// A restart respawns the same id. Publish the replacement first, then kill
+		// whatever it displaced: its read loop compares the table against itself,
+		// so it can neither evict the replacement nor report an exit for it.
 		d.mu.Lock()
+		prev := d.sessions[c.ID]
 		d.sessions[c.ID] = s
 		d.mu.Unlock()
+		if prev != nil {
+			prev.kill()
+		}
 		go d.readLoop(s)
 		_ = fc.writeControl(control{Op: "spawned", ID: c.ID})
 
@@ -281,14 +288,21 @@ func (d *daemon) readLoop(s *session) {
 		code = s.cmd.ProcessState.ExitCode()
 	}
 	d.mu.Lock()
-	delete(d.sessions, s.id)
+	// Only tear down the table entry we still own: a respawn on the same id may
+	// have replaced us already, and evicting (or reporting an exit for) that
+	// replacement would leave the client talking to a session the daemon no
+	// longer has — an agent that looks alive but answers nothing.
+	superseded := d.sessions[s.id] != s
+	if !superseded {
+		delete(d.sessions, s.id)
+	}
 	c := d.client
 	d.lastActivity = time.Now()
 	d.mu.Unlock()
-	if c != nil {
+	if c != nil && !superseded {
 		_ = c.writeControl(control{Op: "exit", ID: s.id, Code: code})
 	}
-	log.Printf("session %s exited (code %d)", s.id, code)
+	log.Printf("session %s exited (code %d, superseded=%v)", s.id, code, superseded)
 }
 
 func (d *daemon) killAll() {
