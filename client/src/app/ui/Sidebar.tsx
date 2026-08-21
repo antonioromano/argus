@@ -186,10 +186,6 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       className="argus-sidebar"
       data-collapsed={collapsed || undefined}
       data-animating={animating ?? undefined}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('button, a, input, [role="button"]')) return;
-        toggleCollapsed();
-      }}
     >
       <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         <button
