@@ -175,6 +175,7 @@ function FavoritesNode({
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        onClick={headerClick(onChevron)}
         style={{
           ...headStyle,
           background: dropping ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
@@ -270,6 +271,7 @@ function GroupNode({
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        onClick={headerClick(onChevron)}
         style={{
           ...headStyle,
           background: dropping ? 'var(--accent-bg)' : active ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
@@ -397,6 +399,7 @@ function OthersNode({
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
+        onClick={headerClick(onChevron)}
         style={{ ...headStyle, background: dropping ? 'var(--accent-bg)' : active ? 'var(--accent-bg)' : hover ? 'var(--bg-2)' : 'transparent',
           borderLeft: `2px solid ${dropping ? 'var(--accent-edge)' : active ? 'var(--accent)' : 'transparent'}` }}
       >
@@ -625,8 +628,20 @@ function Act({ title, onClick, children }: { title?: string; onClick: () => void
   return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;
 }
 
+/** A section header row toggles its own collapse when clicked anywhere but on
+ *  one of its controls (chevron, colour dot, name, filter, kill). stopPropagation
+ *  keeps the click off the sidebar's click-anywhere-to-collapse handler, which
+ *  otherwise swallowed every header click and collapsed the whole sidebar. */
+function headerClick(toggle: () => void) {
+  return (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, [role="button"]')) return;
+    e.stopPropagation();
+    toggle();
+  };
+}
+
 const headStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 6,
+  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
   padding: '4px var(--s-2) 4px 4px', borderRadius: 'var(--r-2)',
   fontSize: 'var(--t-sm)', color: 'var(--fg-1)', minHeight: 26, boxSizing: 'border-box',
 };
