@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
-function storageKey(myWindowId: string): string {
+// Exported for unit testing (no @testing-library/react in this repo, so the
+// decision logic is kept as plain functions the hook wires up to React state).
+export function storageKey(myWindowId: string): string {
   return `mosaic-minimized:${myWindowId}`;
 }
 
-function loadMinimized(myWindowId: string): Set<string> {
+export function loadMinimized(myWindowId: string): Set<string> {
   try {
     const raw = localStorage.getItem(storageKey(myWindowId))
       // Legacy key (pre-multi-window) applies to the main window only.
@@ -17,6 +19,27 @@ function loadMinimized(myWindowId: string): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * The ownership + group-filter + hand-minimize decision, factored out of the
+ * hook so it's testable without mounting React. A foreign session is always
+ * minimized (collapsed to its chip) regardless of group filter or force-show —
+ * exclusive ownership means a session never renders as a live tile outside the
+ * window that owns it.
+ */
+export function computeIsMinimized(
+  id: string,
+  groupFilterIds: Set<string> | null | undefined,
+  activeGroupId: string | null | undefined,
+  minimized: ReadonlySet<string>,
+  forced: { group: string | null; ids: ReadonlySet<string> },
+  isForeign: (id: string) => boolean,
+): boolean {
+  if (isForeign(id)) return true;
+  const currentGroup = activeGroupId ?? null;
+  const forceShown = forced.group === currentGroup ? forced.ids : EMPTY_SET;
+  return groupFilterIds ? (!groupFilterIds.has(id) && !forceShown.has(id)) : minimized.has(id);
 }
 
 export interface MosaicVisibilityApi {
@@ -87,12 +110,8 @@ export function useMosaicVisibility(myWindowId: string, isForeign: (id: string) 
   }, []);
 
   const isMinimized = useCallback(
-    (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => {
-      if (isForeign(id)) return true;
-      const currentGroup = activeGroupId ?? null;
-      const forceShown = forced.group === currentGroup ? forced.ids : EMPTY_SET;
-      return groupFilterIds ? (!groupFilterIds.has(id) && !forceShown.has(id)) : minimized.has(id);
-    },
+    (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) =>
+      computeIsMinimized(id, groupFilterIds, activeGroupId, minimized, forced, isForeign),
     [minimized, forced, isForeign],
   );
 
