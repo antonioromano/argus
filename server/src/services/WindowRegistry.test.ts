@@ -92,6 +92,27 @@ test('onChange fires with a snapshot on every mutation', async (t) => {
   assert.equal(seen[1].windows.length, 1);
 });
 
+test('init prunes assignments referencing a window that no longer exists', async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-winreg-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'windows.json');
+  const seeded: WindowRegistryState = {
+    windows: [{ id: MAIN_WINDOW_ID, label: 'Main', isMain: true, createdAt: Date.now() }],
+    assignments: { s1: 'nonexistent-window-id' },
+  };
+  await new WindowStore(file).save(seeded);
+
+  const reg = new WindowRegistry(new WindowStore(file));
+  await reg.init();
+  assert.equal(reg.ownerOf('s1'), MAIN_WINDOW_ID);
+  assert.deepEqual(reg.getState().assignments, {});
+
+  // Pruning persisted, so a fresh load doesn't resurrect the stale assignment.
+  const reg2 = new WindowRegistry(new WindowStore(file));
+  await reg2.init();
+  assert.deepEqual(reg2.getState().assignments, {});
+});
+
 test('state survives a reload through the store', async (t) => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-winreg-test-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

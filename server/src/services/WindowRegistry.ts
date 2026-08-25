@@ -24,6 +24,19 @@ export class WindowRegistry {
 
   async init(): Promise<void> {
     this.state = await this.store.load(); // store guarantees main exists
+    // Spec: assignments referencing a window that no longer exists (e.g. a
+    // window row was lost/edited out-of-band) are pruned on load, falling
+    // back to main. Mutate state directly and save once — nothing is
+    // subscribed via onChange yet at this point in startup, so no notify.
+    const windowIds = new Set(this.state.windows.map((w) => w.id));
+    let changed = false;
+    for (const [sessionId, windowId] of Object.entries(this.state.assignments)) {
+      if (!windowIds.has(windowId)) {
+        delete this.state.assignments[sessionId];
+        changed = true;
+      }
+    }
+    if (changed) await this.store.save(this.state);
   }
 
   getState(): WindowRegistryState {
