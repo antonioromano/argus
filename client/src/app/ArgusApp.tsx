@@ -14,7 +14,7 @@ import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse } from '@argus/shared';
-import { FAVORITES_GROUP_ID } from '@argus/shared';
+import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
@@ -293,19 +293,29 @@ function DesktopInner() {
     return grouped.othersColor ? resolveGroupColor(grouped.othersColor, isDark) : null;
   };
 
-  // Auto-exit focus when the active session disappears — and validate a focus
-  // view restored from sessionStorage across Cmd+R. Gated on sessionsLoaded so
-  // the restored focus isn't dropped before the initial list fetch resolves
-  // (the list is empty until then, which would otherwise read as "not found").
+  // Auto-exit focus when the active session disappears, or when its ownership
+  // moves to another window (context-menu move, merge-all elsewhere, tear-off,
+  // …) — and validate a focus view restored from sessionStorage across Cmd+R.
+  // Gated on sessionsLoaded so the restored focus isn't dropped before the
+  // initial list fetch resolves (the list is empty until then, which would
+  // otherwise read as "not found"). The foreign check is additionally gated on
+  // windowsApi.loaded: before the first GET /api/windows resolves, useWindows
+  // state is empty and isForeign would read everything as foreign, which would
+  // falsely eject a legitimately-focused session in a secondary window at
+  // startup — leaving TWO windows mounting the same terminal is exactly the
+  // bug this effect exists to prevent, so we must not race it.
   const { view: appView, activeSessionId: appActiveSessionId, exitFocus: appExitFocus } = app;
+  const { loaded: windowsLoaded, isForeign: windowsIsForeign } = windowsApi;
   useEffect(() => {
     if (!sessionsLoaded) return;
     if (appView === 'focus' && appActiveSessionId) {
-      if (!sessions.find((s) => s.id === appActiveSessionId)) {
+      const gone = !sessions.find((s) => s.id === appActiveSessionId);
+      const movedAway = windowsLoaded && windowsIsForeign(appActiveSessionId);
+      if (gone || movedAway) {
         appExitFocus();
       }
     }
-  }, [sessionsLoaded, sessions, appView, appActiveSessionId, appExitFocus]);
+  }, [sessionsLoaded, sessions, appView, appActiveSessionId, appExitFocus, windowsLoaded, windowsIsForeign]);
 
   // Notification click: highlight the tile in the mosaic (rather than jumping to focus mode).
   const highlightSession = useCallback((id: string) => {
@@ -401,21 +411,27 @@ function DesktopInner() {
           break;
         // The three navigation actions the ⋯ menu advertises. They need a shell to
         // act on, so with nothing focused the key is left alone rather than eaten.
+        // Routed through guardForeign: mosaicFocusedId/activeSessionId can go stale
+        // when the session it names has since moved to another window (context-menu
+        // move, merge-all elsewhere) — acting on it directly would reach into a
+        // session this window no longer owns.
         case 'open-diff':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          app.openMaximized({ kind: 'diff', sessionId: activeTerminalId });
+          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'diff', sessionId: activeTerminalId }));
           break;
         case 'open-files':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId });
+          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId }));
           break;
         case 'open-shell':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          app.openSession(activeTerminalId);
-          app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
+          guardForeign(activeTerminalId, () => {
+            app.openSession(activeTerminalId);
+            app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
+          });
           break;
         default:
           break;
@@ -423,15 +439,29 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, guardForeign]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
       ? sessions.find((s) => s.id === app.activeSessionId) ?? null
       : null;
 
+  // A newly created session is unassigned by default (owned by main). From a
+  // secondary window that would make it foreign in the very window that just
+  // created it — claim it for this window before doing anything else with it,
+  // so the post-create openSession below never expands a foreign chip.
+  const claimForThisWindow = async (sessionId: string) => {
+    if (windowsApi.myWindowId === MAIN_WINDOW_ID) return;
+    try {
+      await api.assignWindow(sessionId, windowsApi.myWindowId);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
     const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
+    await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
     // Stay in mosaic if creating from dashboard; only jump to focus when already focused.
@@ -440,6 +470,7 @@ function DesktopInner() {
 
   const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
     const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
+    await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
     if (app.view === 'focus') app.openSession(created.id);
@@ -454,6 +485,7 @@ function DesktopInner() {
     if (!src) return;
     try {
       const created = await createSession(src.folderPath, src.name, src.agentType, src.flags);
+      await claimForThisWindow(created.id);
       addToRecentFolders(src.folderPath);
       groups.toggleFavorite(created);
       if (ghostId) {
