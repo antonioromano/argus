@@ -48,8 +48,10 @@ export function useGroups() {
   }, []);
 
   const createGroup = useCallback((name: string, color: string = DEFAULT_GROUP_COLOR) => {
+    const newGroup: SessionGroup = { id: crypto.randomUUID(), name, color, collapsed: false, sessionIds: [] };
     setGroups((prev) => {
-      const next = [...prev, { id: crypto.randomUUID(), name, color, collapsed: false, sessionIds: [] }];
+      if (prev.some((g) => g.id === newGroup.id)) return prev;
+      const next = [...prev, newGroup];
       commit(next);
       return next;
     });
