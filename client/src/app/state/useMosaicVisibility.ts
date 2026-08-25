@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
-const STORAGE_KEY = 'mosaic-minimized';
 
-function loadMinimized(): Set<string> {
+function storageKey(myWindowId: string): string {
+  return `mosaic-minimized:${myWindowId}`;
+}
+
+function loadMinimized(myWindowId: string): Set<string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(myWindowId))
+      // Legacy key (pre-multi-window) applies to the main window only.
+      ?? (myWindowId === 'main' ? localStorage.getItem('mosaic-minimized') : null);
     if (!raw) return new Set();
     const ids = JSON.parse(raw);
     return Array.isArray(ids) ? new Set(ids.filter((id): id is string => typeof id === 'string')) : new Set();
@@ -32,17 +37,17 @@ export interface MosaicVisibilityApi {
  * Owns the mosaic's minimized / force-shown state. Lives above the dashboard↔focus mount
  * boundary so minimized shells survive a focus round-trip (Mosaic unmounts in focus view).
  */
-export function useMosaicVisibility(): MosaicVisibilityApi {
-  const [minimized, setMinimized] = useState<Set<string>>(loadMinimized);
+export function useMosaicVisibility(myWindowId: string, isForeign: (id: string) => boolean): MosaicVisibilityApi {
+  const [minimized, setMinimized] = useState<Set<string>>(() => loadMinimized(myWindowId));
 
   // Persist hand-minimize state so minimized shells survive a Cmd+R reload.
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...minimized]));
+      localStorage.setItem(storageKey(myWindowId), JSON.stringify([...minimized]));
     } catch {
       // ignore quota/private-mode failures — minimize state is non-critical
     }
-  }, [minimized]);
+  }, [minimized, myWindowId]);
   // Shells the user clicked to pop back out of the filtered chip row (bypass the group filter).
   // Tagged with the group they belong to so they auto-reset when the active filter changes.
   const [forced, setForced] = useState<{ group: string | null; ids: Set<string> }>({ group: null, ids: new Set() });
@@ -83,11 +88,12 @@ export function useMosaicVisibility(): MosaicVisibilityApi {
 
   const isMinimized = useCallback(
     (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => {
+      if (isForeign(id)) return true;
       const currentGroup = activeGroupId ?? null;
       const forceShown = forced.group === currentGroup ? forced.ids : EMPTY_SET;
       return groupFilterIds ? (!groupFilterIds.has(id) && !forceShown.has(id)) : minimized.has(id);
     },
-    [minimized, forced],
+    [minimized, forced, isForeign],
   );
 
   return { toggleMinimize, restoreFromFilter, restoreAll, isMinimized };

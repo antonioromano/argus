@@ -916,6 +916,7 @@ body {
   cursor: grabbing;
 }
 .argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
+.argus-chip-window-badge { font-size: 10px; opacity: 0.6; margin-left: 4px; }
 .argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
 
 .argus-tile-overlay {

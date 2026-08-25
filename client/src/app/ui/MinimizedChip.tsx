@@ -13,6 +13,7 @@ interface MinimizedChipProps {
   onDrop: () => void;
   onDragEnd: () => void;
   isDropTarget: boolean;
+  windowBadge?: string;
 }
 
 /**
@@ -22,7 +23,7 @@ interface MinimizedChipProps {
  * shared shell action menu; while renaming, the label becomes an input and the
  * chip stops being draggable so a text selection isn't read as a drag.
  */
-export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget }: MinimizedChipProps) {
+export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget, windowBadge }: MinimizedChipProps) {
   const sessionMenu = useSessionMenu();
   const renaming = sessionMenu.isRenaming(session.id, 'chip');
   return (
@@ -49,6 +50,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
       ) : (
         <span className="argus-chip-label">{shellLabel(session)}</span>
       )}
+      {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
       {session.hasGitChanges && <span className="argus-chip-dirty" />}
     </button>
   );

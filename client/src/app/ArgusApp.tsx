@@ -42,6 +42,7 @@ import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
+import { useWindows } from '../hooks/useWindows.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 
@@ -172,7 +173,35 @@ function DesktopInner() {
     | { phase: 'error'; session: SessionInfo; error: string; targetBranch?: string; parentRepoPath?: string };
 
   const app = useAppView();
-  const mosaicVis = useMosaicVisibility();
+  const windowsApi = useWindows(socket);
+  const mosaicVis = useMosaicVisibility(windowsApi.myWindowId, windowsApi.isForeign);
+
+  // Any action that would put a foreign-owned session into this window's focus
+  // view (or select it there) instead jumps to the window that owns it —
+  // exclusive ownership means a session only ever has one "home" tile.
+  const guardForeign = useCallback((id: string, action: () => void) => {
+    if (windowsApi.isForeign(id)) {
+      void windowsApi.focusWindow(windowsApi.ownerOf(id)).catch(console.error);
+      return;
+    }
+    action();
+  }, [windowsApi]);
+  const openSessionGuarded = useCallback(
+    (id: string) => guardForeign(id, () => app.openSession(id)),
+    [guardForeign, app],
+  );
+  const setActiveSessionGuarded = useCallback(
+    (id: string) => guardForeign(id, () => app.setActiveSession(id)),
+    [guardForeign, app],
+  );
+  const onFocusForeign = useCallback(
+    (id: string) => { void windowsApi.focusWindow(windowsApi.ownerOf(id)).catch(console.error); },
+    [windowsApi],
+  );
+  const foreignLabel = useCallback(
+    (id: string) => windowsApi.labelOf(windowsApi.ownerOf(id)),
+    [windowsApi],
+  );
   const [filter, setFilter] = useState('');
   const [notifiedTileId, setNotifiedTileId] = useState<string | null>(null);
   const notifiedTileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -542,7 +571,7 @@ function DesktopInner() {
       onFilter={setFilter}
       sessions={orderedSessions}
       activeSessionId={app.activeSessionId ?? undefined}
-      onSelectSession={app.openSession}
+      onSelectSession={openSessionGuarded}
     />
   );
 
@@ -575,7 +604,7 @@ function DesktopInner() {
   // name (tile header, focus header, sidebar row, minimized chip) opens this on
   // right-click, and Rename flips that surface into an inline editor.
   const sessionMenuActions = {
-    onOpen: app.openSession,
+    onOpen: openSessionGuarded,
     onKill: requestKill,
     onRestart: setPendingRestart,
     onToggleMinimize: mosaicVis.toggleMinimize,
@@ -590,7 +619,7 @@ function DesktopInner() {
     onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType }),
     onFocusDiff: (id: string) => app.openMaximized({ kind: 'diff', sessionId: id }),
     onFocusExplorer: (id: string) => app.openMaximized({ kind: 'explorer', sessionId: id }),
-    onFocusTerminal: (id: string) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); },
+    onFocusTerminal: (id: string) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }),
   };
 
   return (
@@ -657,7 +686,7 @@ function DesktopInner() {
                 collapsed: false,
                 sessionIds: grouped.others.map((s) => s.id),
               })}
-              onOpenSession={app.openSession}
+              onOpenSession={openSessionGuarded}
               onToggleFavorite={groups.toggleFavorite}
               onSpawnFromFavorite={handleSpawnFromFavorite}
               isFavorite={groups.isFavorite}
@@ -682,7 +711,10 @@ function DesktopInner() {
               restoreFromFilter={mosaicVis.restoreFromFilter}
               restoreAll={mosaicVis.restoreAll}
               isMinimized={mosaicVis.isMinimized}
-              onOpenSession={app.openSession}
+              isForeign={windowsApi.isForeign}
+              foreignLabel={foreignLabel}
+              onFocusForeign={onFocusForeign}
+              onOpenSession={openSessionGuarded}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
@@ -694,7 +726,7 @@ function DesktopInner() {
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
               onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
               onFocusExplorer={(id) => app.openMaximized({ kind: 'explorer', sessionId: id })}
-              onFocusTerminal={(id) => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }}
+              onFocusTerminal={(id) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); })}
               onOpenDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
               shortcuts={shortcuts.resolved}
               searchSessionId={searchSessionId}
@@ -716,7 +748,7 @@ function DesktopInner() {
               theme={theme}
               sidePanel={app.sidePanel}
               filter={filter}
-              onSelect={app.setActiveSession}
+              onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
               onBack={app.exitFocus}
               onToggleDiff={() => app.sidePanel?.kind === 'diff'
@@ -773,7 +805,7 @@ function DesktopInner() {
             sessions={sessions}
             initialScopeSessionId={app.view === 'focus' ? app.activeSessionId : null}
             onClose={app.closeOverlay}
-            onJumpSession={(id) => { app.closeOverlay(); app.openSession(id); }}
+            onJumpSession={(id) => { app.closeOverlay(); openSessionGuarded(id); }}
             onOpenInExplorer={(sessionId, filePath, lineNumber, query) => {
               app.closeOverlay();
               app.openMaximized({ kind: 'explorer', sessionId, filePath, lineNumber, query });

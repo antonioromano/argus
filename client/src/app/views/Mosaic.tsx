@@ -58,6 +58,12 @@ interface MosaicProps {
   restoreFromFilter: (id: string, currentGroup: string | null) => void;
   restoreAll: (ids: string[], currentGroup: string | null) => void;
   isMinimized: (id: string, groupFilterIds: Set<string> | null | undefined, activeGroupId: string | null | undefined) => boolean;
+  /** True when a session is owned by a different window (multi-window). */
+  isForeign: (id: string) => boolean;
+  /** Label of the window that owns a foreign session, for the chip badge. */
+  foreignLabel: (id: string) => string;
+  /** Jump to (focus) the window that owns a foreign session. */
+  onFocusForeign: (id: string) => void;
   onOpenSession: (id: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
@@ -93,7 +99,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -301,10 +307,13 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   key={s.id}
                   session={s}
                   isNew={newChipIds.has(s.id)}
-                  onClick={() => {
-                    handleRestore(s.id);
-                    setRestoreFocusId(s.id);
-                  }}
+                  windowBadge={isForeign(s.id) ? foreignLabel(s.id) : undefined}
+                  onClick={isForeign(s.id)
+                    ? () => onFocusForeign(s.id)
+                    : () => {
+                        handleRestore(s.id);
+                        setRestoreFocusId(s.id);
+                      }}
                 />
               ))}
             </div>
@@ -503,7 +512,7 @@ function TileDragPreview({ session }: { session: SessionInfo; theme: 'dark' | 'l
 
 // ─── SortableChip ────────────────────────────────────────────────────────────
 
-function SortableChip({ session, onClick, isNew }: { session: SessionInfo; onClick: () => void; isNew?: boolean }) {
+function SortableChip({ session, onClick, isNew, windowBadge }: { session: SessionInfo; onClick: () => void; isNew?: boolean; windowBadge?: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: session.id });
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -522,6 +531,7 @@ function SortableChip({ session, onClick, isNew }: { session: SessionInfo; onCli
       <StatusDot status={session.status} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
+      {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
       {session.hasGitChanges && <span className="argus-chip-dirty" />}
     </button>
   );
