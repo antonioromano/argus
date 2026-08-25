@@ -354,6 +354,10 @@ export class SessionManager {
     this.io = io;
   }
 
+  /** Invoked after a session is fully deleted — index.ts wires this to the
+   *  window registry so the deleted session's window assignment is dropped. */
+  onSessionDeleted?: (id: string) => void;
+
   setGitService(gitService: GitService): void {
     this.gitService = gitService;
     // Clear any prior timer so a second call doesn't orphan the first interval.
@@ -686,6 +690,7 @@ export class SessionManager {
     await this.persistSessions();
 
     this.io?.emit('session:deleted', { sessionId: id });
+    this.onSessionDeleted?.(id);
   }
 
   async restartSession(id: string): Promise<SessionInfo> {

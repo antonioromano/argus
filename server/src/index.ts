@@ -6,11 +6,19 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { AppConfig, ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import type {
+  AppConfig,
+  ClientToServerEvents,
+  ServerToClientEvents,
+  WindowRegistryState,
+} from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
 import { OrderStore } from './persistence/OrderStore.js';
 import { GroupStore } from './persistence/GroupStore.js';
+import { WindowStore } from './persistence/WindowStore.js';
+import { WindowRegistry } from './services/WindowRegistry.js';
+import { createWindowRoutes, type WindowHostHooks } from './routes/windows.js';
 import { ConfigStore } from './persistence/ConfigStore.js';
 import { ChangelistStore } from './persistence/ChangelistStore.js';
 import { CommitSelectionStore } from './persistence/CommitSelectionStore.js';
@@ -156,6 +164,39 @@ const mosaicOrderStore = new OrderStore(path.join(dataDir, 'mosaic-order.json'))
 // Group store
 const groupStore = new GroupStore(path.join(dataDir, 'groups.json'));
 
+// Window registry — source of truth for multi-window ownership.
+const windowStore = new WindowStore(path.join(dataDir, 'windows.json'));
+const windowRegistry = new WindowRegistry(windowStore);
+windowRegistry.onChange((state) => io.emit('window:state', state));
+sessionManager.onSessionDeleted = (id) => {
+  void windowRegistry.removeSession(id).catch(console.error);
+};
+
+// Electron host callbacks — mutable so the host can set them before/after
+// startServer (same pattern as _filesystemOptions).
+const _windowHooks: WindowHostHooks = {};
+export function setWindowHooks(h: WindowHostHooks): void {
+  Object.assign(_windowHooks, h);
+}
+export function getWindowRegistryState(): WindowRegistryState {
+  return windowRegistry.getState();
+}
+// In-process entry points for the Electron host (menu items, red-button close).
+export async function hostCreateWindow(): Promise<void> {
+  const win = await windowRegistry.createWindow();
+  _windowHooks.onCreate?.(win.id);
+}
+export async function hostDeleteWindow(id: string): Promise<void> {
+  if (await windowRegistry.deleteWindow(id)) _windowHooks.onClose?.(id);
+}
+export async function hostMergeAll(targetId: string): Promise<void> {
+  const removed = await windowRegistry.mergeAll(
+    targetId,
+    sessionManager.getAllSessions().map((s) => s.id),
+  );
+  for (const id of removed ?? []) _windowHooks.onClose?.(id);
+}
+
 // Auth service
 const authService = new AuthService();
 authService.setIo(io);
@@ -221,6 +262,11 @@ app.use('/api/config', createConfigRoutes(configStore, applyConfig));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
 app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
+app.use('/api/windows', createWindowRoutes(
+  windowRegistry,
+  () => sessionManager.getAllSessions().map((s) => s.id),
+  _windowHooks,
+));
 
 // Socket.io
 setupSocketHandler(io, sessionManager, authService, updateService);
@@ -265,6 +311,7 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
 export async function startServer(): Promise<void> {
   const startupConfig = await configStore.load();
   applyConfig(startupConfig);
+  await windowRegistry.init();
   // Resolve the pty backend from config BEFORE restoring sessions (below).
   sessionManager.configureBackend(startupConfig.ptyBackend ?? 'auto');
   updateService.start();
@@ -284,9 +331,16 @@ export async function startServer(): Promise<void> {
   // creation on this made a large session set look/act like a startup
   // crash. Clients already handle sessions arriving progressively via the
   // 'session:created' socket event, so there's no ordering requirement here.
-  void sessionManager.restoreSessions().catch((err) => {
-    console.error('Failed to restore sessions:', err);
-  });
+  void sessionManager
+    .restoreSessions()
+    .then(() =>
+      windowRegistry.pruneToSessions(
+        new Set(sessionManager.getAllSessions().map((s) => s.id)),
+      ),
+    )
+    .catch((err) => {
+      console.error('Failed to restore sessions:', err);
+    });
 }
 
 export async function shutdownServer(): Promise<void> {
