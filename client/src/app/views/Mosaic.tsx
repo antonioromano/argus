@@ -65,6 +65,8 @@ interface MosaicProps {
   /** Jump to (focus) the window that owns a foreign session. */
   onFocusForeign: (id: string) => void;
   onOpenSession: (id: string) => void;
+  /** Dragged past the window edge and released outside → spawn a new window owning it. */
+  onTearOff: (sessionId: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
@@ -99,7 +101,7 @@ interface MosaicProps {
 
 const MAX_TILES = 12;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -200,6 +202,18 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
 
   const handleTileDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    // Tear-off: pointer released outside the window → move to a new window.
+    const activator = event.activatorEvent as PointerEvent | undefined;
+    if (activator && typeof activator.clientX === 'number') {
+      const x = activator.clientX + event.delta.x;
+      const y = activator.clientY + event.delta.y;
+      const out = x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
+      if (out && !over) {
+        onTearOff(active.id as string);
+        setActiveTileId(null);
+        return;
+      }
+    }
     if (!over || active.id === over.id) {
       setActiveTileId(null);
       return;

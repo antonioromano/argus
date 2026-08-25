@@ -722,6 +722,7 @@ function DesktopInner() {
               foreignLabel={foreignLabel}
               onFocusForeign={onFocusForeign}
               onOpenSession={openSessionGuarded}
+              onTearOff={(id) => { void windowsApi.moveToNewWindow(id).catch(console.error); }}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
