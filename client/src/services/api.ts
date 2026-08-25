@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -251,6 +251,38 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ groups }),
     }));
+  },
+
+  getWindows: async (): Promise<WindowRegistryState> => {
+    const res = await authFetch(`${API_BASE}/windows`);
+    await requireOk(res);
+    return res.json();
+  },
+
+  createWindow: async (sessionId?: string): Promise<ArgusWindow> => {
+    const res = await authFetch(`${API_BASE}/windows`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionId ? { sessionId } : {}),
+    });
+    await requireOk(res);
+    return res.json();
+  },
+
+  assignWindow: async (sessionId: string, windowId: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/windows/assign`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, windowId }),
+    }));
+  },
+
+  mergeAllWindows: async (targetId: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/windows/${targetId}/merge-all`, { method: 'POST' }));
+  },
+
+  focusWindow: async (windowId: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/windows/${windowId}/focus`, { method: 'POST' }));
   },
 
   getSessionDiff: async (sessionId: string): Promise<GitDiffResponse> => {
