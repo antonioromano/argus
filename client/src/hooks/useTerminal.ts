@@ -79,7 +79,7 @@ const LIGHT_THEME = {
   magenta: '#5a4a78',
   cyan: '#0f4b6e',
   white: '#343b58',
-  brightBlack: '#9699a3',
+  brightBlack: '#565f7c',
   brightRed: '#8c4351',
   brightGreen: '#485e30',
   brightYellow: '#8f5e15',
