@@ -10,9 +10,13 @@ interface ChipStripProps {
   onSelect: (id: string) => void;
   /** Persist a new full ordering of session ids (global session order). */
   onReorder: (newOrderedIds: string[]) => void;
+  /** True when a session is owned by a different window (multi-window). */
+  isForeign?: (id: string) => boolean;
+  /** Label of the window that owns a foreign session, for the chip badge. */
+  foreignLabel?: (id: string) => string;
 }
 
-export function ChipStrip({ sessions, activeId, filter, onSelect, onReorder }: ChipStripProps) {
+export function ChipStrip({ sessions, activeId, filter, onSelect, onReorder, isForeign, foreignLabel }: ChipStripProps) {
   const others = filterSessions(sessions, filter ?? '').filter((s) => s.id !== activeId);
 
   // Native HTML5 drag-to-reorder. Splices over the full `sessions` id list so the
@@ -64,6 +68,7 @@ export function ChipStrip({ sessions, activeId, filter, onSelect, onReorder }: C
           onDrop={() => handleDrop(s.id)}
           onDragEnd={handleDragEnd}
           isDropTarget={dropTargetId === s.id}
+          windowBadge={isForeign?.(s.id) ? foreignLabel?.(s.id) : undefined}
         />
       ))}
     </div>

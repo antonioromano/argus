@@ -51,6 +51,10 @@ interface FocusProps {
   filter?: string;
   onSelect: (id: string) => void;
   onReorder: (newOrderedIds: string[]) => void;
+  /** True when a session is owned by a different window (multi-window). */
+  isForeign?: (id: string) => boolean;
+  /** Label of the window that owns a foreign session, for the OTHERS strip badge. */
+  foreignLabel?: (id: string) => string;
   onBack: () => void;
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
@@ -83,6 +87,8 @@ export function Focus({
   filter,
   onSelect,
   onReorder,
+  isForeign,
+  foreignLabel,
   onBack,
   onToggleDiff,
   onToggleExplorer,
@@ -181,7 +187,7 @@ export function Focus({
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} onReorder={onReorder} />
+      <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} onReorder={onReorder} isForeign={isForeign} foreignLabel={foreignLabel} />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>

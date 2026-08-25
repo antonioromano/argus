@@ -617,8 +617,8 @@ function DesktopInner() {
     onMerge: handleMerge,
     canMerge: (s: SessionInfo) => !!s.worktreePath && mergeFlow?.session.id !== s.id,
     onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType }),
-    onFocusDiff: (id: string) => app.openMaximized({ kind: 'diff', sessionId: id }),
-    onFocusExplorer: (id: string) => app.openMaximized({ kind: 'explorer', sessionId: id }),
+    onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
+    onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
     onFocusTerminal: (id: string) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }),
   };
 
@@ -750,6 +750,8 @@ function DesktopInner() {
               filter={filter}
               onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
+              isForeign={windowsApi.isForeign}
+              foreignLabel={foreignLabel}
               onBack={app.exitFocus}
               onToggleDiff={() => app.sidePanel?.kind === 'diff'
                 ? app.dismissMaximized()
@@ -808,11 +810,11 @@ function DesktopInner() {
             onJumpSession={(id) => { app.closeOverlay(); openSessionGuarded(id); }}
             onOpenInExplorer={(sessionId, filePath, lineNumber, query) => {
               app.closeOverlay();
-              app.openMaximized({ kind: 'explorer', sessionId, filePath, lineNumber, query });
+              guardForeign(sessionId, () => app.openMaximized({ kind: 'explorer', sessionId, filePath, lineNumber, query }));
             }}
             onOpenInDiff={(sessionId) => {
               app.closeOverlay();
-              app.openMaximized({ kind: 'diff', sessionId });
+              guardForeign(sessionId, () => app.openMaximized({ kind: 'diff', sessionId }));
             }}
           />
         </Overlay>
@@ -854,7 +856,7 @@ function DesktopInner() {
               sessions={orderedSessions}
               target={target}
               onClose={app.closeOverlay}
-              onPick={(id) => { app.closeOverlay(); app.openMaximized({ kind: target, sessionId: id }); }}
+              onPick={(id) => { app.closeOverlay(); guardForeign(id, () => app.openMaximized({ kind: target, sessionId: id })); }}
             />
           </Overlay>
         );
