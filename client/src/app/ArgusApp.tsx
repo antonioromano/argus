@@ -620,6 +620,13 @@ function DesktopInner() {
     onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
     onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
     onFocusTerminal: (id: string) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }),
+    onMoveToNewWindow: (s: SessionInfo) => { void windowsApi.moveToNewWindow(s.id).catch(console.error); },
+    moveTargets: windowsApi.windows
+      .filter((w) => w.id !== windowsApi.myWindowId)
+      .map((w) => ({ id: w.id, label: w.label })),
+    onMoveToWindow: (s: SessionInfo, windowId: string) => { void windowsApi.moveToWindow(s.id, windowId).catch(console.error); },
+    onMergeAllHere: () => { void windowsApi.mergeAllHere().catch(console.error); },
+    canMergeAllHere: windowsApi.windows.length > 1,
   };
 
   return (

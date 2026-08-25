@@ -1,4 +1,4 @@
-import { CircleX, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil } from 'lucide-react';
+import { CircleX, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -30,6 +30,14 @@ export interface SessionMenuActions {
   onFocusExplorer?: (id: string) => void;
   onFocusTerminal?: (id: string) => void;
   onOpenDiff?: (id: string) => void;
+  /** Multi-window: absent handlers collapse the entries (mobile surface omits them). */
+  onMoveToNewWindow?: (session: SessionInfo) => void;
+  /** Other windows this session could move to (excludes the current window). */
+  moveTargets?: { id: string; label: string }[];
+  onMoveToWindow?: (session: SessionInfo, windowId: string) => void;
+  onMergeAllHere?: () => void;
+  /** True when >1 window exists — gates the merge entry. */
+  canMergeAllHere?: boolean;
 }
 
 /**
@@ -62,6 +70,16 @@ export function buildSessionMenuItems(
     { header: 'Session' },
     { id: 'rename', label: 'Rename shell', icon: Pencil, onClick: () => a.onRename(session) },
     ...(a.onToggleMinimize ? [{ id: 'minimize', label: 'Minimize', icon: Minus, onClick: () => a.onToggleMinimize!(session.id) }] : []),
+    ...(a.onMoveToNewWindow ? [{ id: 'move-new-window', label: 'Move to New Window', icon: AppWindow, onClick: () => a.onMoveToNewWindow!(session) }] : []),
+    ...(a.onMoveToWindow
+      ? (a.moveTargets ?? []).map((t) => ({
+          id: `move-window-${t.id}`,
+          label: `Move to ${t.label}`,
+          icon: AppWindow,
+          onClick: () => a.onMoveToWindow!(session, t.id),
+        }))
+      : []),
+    ...(a.onMergeAllHere && a.canMergeAllHere ? [{ id: 'merge-all-windows', label: 'Merge All Windows Here', icon: Combine, onClick: () => a.onMergeAllHere!() }] : []),
     ...(a.onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => a.onClone!(session) }] : []),
     ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
     ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
