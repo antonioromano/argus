@@ -5,7 +5,12 @@ import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow, setAppQuitting, getWindow, showWindow, setStopAllOnQuit, getStopAllOnQuit, saveWindowState, setZoomLevel, getZoomLevel } from './window.js';
+import {
+  createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
+  getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
+  setZoomLevelForFocused, getZoomLevelForFocused,
+  setAppQuitting, setStopAllOnQuit, getStopAllOnQuit,
+} from './window.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
 // session, or after the shader cache is evicted) Chromium's GPU glyph
@@ -243,6 +248,16 @@ let getConfirmExitOnQuit: (() => boolean) | null = null;
 let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
 let getActiveSessionSummaries: (() => { name: string; status: string }[]) | null = null;
 
+// Window-registry entry points, captured from the in-process server in main().
+interface WindowRegistryStateLike {
+  windows: { id: string; isMain: boolean }[];
+  assignments: Record<string, string>;
+}
+let hostCreateWindowFn: (() => Promise<void>) | null = null;
+let hostDeleteWindowFn: ((id: string) => Promise<void>) | null = null;
+let hostMergeAllFn: ((targetId: string) => Promise<void>) | null = null;
+let getWindowRegistryStateFn: (() => WindowRegistryStateLike) | null = null;
+
 // Session ids are crypto.randomUUID() values. Validate any id that crosses the
 // IPC/URL boundary before it reaches terminal-notifier — it's interpolated into
 // the -open deep-link URL and used as the -group/-remove key. UUID chars only.
@@ -282,8 +297,9 @@ function runNotifier(args: string[], onDone?: (err: Error | null) => void): void
 // chain. Called from `open-url` (packaged terminal-notifier deep-link) — the dev
 // native-Notification path sends `notif:click` directly.
 function deliverNotifClick(id: string): void {
-  showWindow();
-  const win = getWindow();
+  const owner = getWindowRegistryStateFn?.().assignments[id] ?? 'main';
+  focusAppWindow(owner);
+  const win = getAppWindow(owner) ?? getMainWindow();
   if (win && !win.isDestroyed()) {
     const send = () => win.webContents.send('notif:click', id);
     // Cold-start: the click may launch the app before the renderer mounts its
@@ -316,10 +332,8 @@ function readAppVersion(): string {
 }
 
 function sendMenuEvent(channel: string): void {
-  const win = getWindow();
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(channel);
-  }
+  const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
+  if (win && !win.isDestroyed()) win.webContents.send(channel);
 }
 
 function buildAppMenu(): Menu {
@@ -357,6 +371,12 @@ function buildAppMenu(): Menu {
   const fileMenu: MenuItemConstructorOptions = {
     label: 'File',
     submenu: [
+      {
+        label: 'New Window',
+        accelerator: 'CmdOrCtrl+Shift+N',
+        click: () => { void hostCreateWindowFn?.().catch(console.error); },
+      },
+      { type: 'separator' },
       {
         label: 'New Session',
         accelerator: 'CmdOrCtrl+N',
@@ -405,9 +425,9 @@ function buildAppMenu(): Menu {
       // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
       // Custom click handlers (not built-in roles) so every change routes through
       // setZoomLevel and keeps the tracked level in sync — survives reload.
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevel(0) },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevel(getZoomLevel() + 0.5) },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevel(getZoomLevel() - 0.5) },
+      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelForFocused(0) },
+      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5) },
+      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5) },
       { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
@@ -418,6 +438,11 @@ function buildAppMenu(): Menu {
     submenu: [
       { role: 'minimize' },
       { role: 'zoom' },
+      { type: 'separator' },
+      {
+        label: 'Merge All Windows',
+        click: () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
+      },
       { type: 'separator' },
       { role: 'front' },
     ],
@@ -645,7 +670,7 @@ async function main() {
     });
     notif.on('click', () => {
       showWindow();
-      const win = getWindow();
+      const win = getMainWindow();
       if (win && !win.isDestroyed()) win.webContents.send('notif:click', payload.id);
       activeNotifs.delete(payload.id);
     });
@@ -727,6 +752,20 @@ async function main() {
   setConfirmExitOnQuit = server.setConfirmExitOnQuit as (v: boolean) => Promise<void>;
   getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string }[];
 
+  hostCreateWindowFn = server.hostCreateWindow as () => Promise<void>;
+  hostDeleteWindowFn = server.hostDeleteWindow as (id: string) => Promise<void>;
+  hostMergeAllFn = server.hostMergeAll as (targetId: string) => Promise<void>;
+  getWindowRegistryStateFn = server.getWindowRegistryState as () => WindowRegistryStateLike;
+
+  server.setWindowHooks({
+    onCreate: (id: string) => { createAppWindow(id); },
+    onClose: (id: string) => { destroyAppWindow(id); },
+    onFocus: (id: string) => { focusAppWindow(id); },
+  });
+  // Secondary red-button close → server deletes the record (sessions merge back
+  // to main) → onClose hook destroys the BrowserWindow.
+  setSecondaryCloseHandler((id) => { void hostDeleteWindowFn?.(id).catch(console.error); });
+
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
     app.dock?.setIcon(dockIcon);
@@ -735,7 +774,13 @@ async function main() {
     if (!app.isPackaged) app.dock?.setBadge('dev');
   }
 
-  createWindow();
+  // Full restore: one BrowserWindow per persisted registry window. Main first
+  // so it exists as fallback focus target.
+  const registryState = getWindowRegistryStateFn();
+  createAppWindow('main');
+  for (const w of registryState.windows) {
+    if (!w.isMain) createAppWindow(w.id);
+  }
 
   // Surface a failed Phase-2 install from the previous run: if the cache install
   // errored after we quit, the helper relaunched the OLD version and left a
@@ -866,7 +911,7 @@ app.on('before-quit', (e) => {
   const proceed = () => {
     quitting = true;
     // Save window state before shutdown so position/fullscreen survives a restart.
-    saveWindowState();
+    saveAllWindowStates();
     // Signal the window close-handler that this is a real quit, not a hide.
     setAppQuitting(true);
 
@@ -907,7 +952,7 @@ app.on('before-quit', (e) => {
       checkboxLabel: "Don't ask again",
       checkboxChecked: false,
     };
-    const win = getWindow();
+    const win = getMainWindow();
     const dlg = win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
     dlg
       .then((r) => {
