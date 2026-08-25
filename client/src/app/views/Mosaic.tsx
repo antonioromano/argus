@@ -100,6 +100,9 @@ interface MosaicProps {
 }
 
 const MAX_TILES = 12;
+// px beyond the window edge required to count as a deliberate drag-out —
+// distinguishes tear-off from sloppy edge-adjacent in-grid drops.
+const TEAR_OFF_MARGIN = 40;
 
 export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
@@ -202,13 +205,20 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
 
   const handleTileDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    // Tear-off: pointer released outside the window → move to a new window.
+    // Tear-off: pointer released more than TEAR_OFF_MARGIN outside the window
+    // → move to a new window. closestCenter (used by both DndContexts below)
+    // always resolves `over` to the nearest droppable regardless of distance,
+    // so `over` is non-null even when the pointer is far outside the window —
+    // gating on `!over` alone would make this dead code. The margin is what
+    // distinguishes a deliberate drag-out from edge-adjacent in-grid slop.
     const activator = event.activatorEvent as PointerEvent | undefined;
     if (activator && typeof activator.clientX === 'number') {
       const x = activator.clientX + event.delta.x;
       const y = activator.clientY + event.delta.y;
-      const out = x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight;
-      if (out && !over) {
+      const out =
+        x < -TEAR_OFF_MARGIN || y < -TEAR_OFF_MARGIN ||
+        x > window.innerWidth + TEAR_OFF_MARGIN || y > window.innerHeight + TEAR_OFF_MARGIN;
+      if (out) {
         onTearOff(active.id as string);
         setActiveTileId(null);
         return;
