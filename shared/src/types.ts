@@ -166,6 +166,27 @@ export interface SaveGroupsRequest {
   groups: SessionGroup[];
 }
 
+// ---- Multi-window ----
+
+/** Fixed id of the primary window. Sessions with no assignment belong here. */
+export const MAIN_WINDOW_ID = 'main';
+
+export interface ArgusWindow {
+  /** 'main' for the primary window, crypto.randomUUID() otherwise. */
+  id: string;
+  /** 'Main', 'Window 2', … */
+  label: string;
+  isMain: boolean;
+  createdAt: number;
+}
+
+/** Full window registry snapshot — windows plus sessionId → windowId assignments.
+ *  A session absent from `assignments` belongs to the main window. */
+export interface WindowRegistryState {
+  windows: ArgusWindow[];
+  assignments: Record<string, string>;
+}
+
 export interface PathCompletionResponse {
   completions: string[];
 }
@@ -234,6 +255,8 @@ export interface ServerToClientEvents {
   'session:renamed': (payload: { sessionId: string; name: string }) => void;
   'ngrok:status': (status: NgrokStatus) => void;
   'keepawake:status': (status: KeepAwakeStatus) => void;
+  /** Broadcast on every window-registry mutation (create/delete/assign/merge). */
+  'window:state': (state: WindowRegistryState) => void;
   'auth:required': (payload: { required: boolean }) => void;
   'update:available': (status: UpdateStatus) => void;
   'update:applying': () => void;
