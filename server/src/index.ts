@@ -196,6 +196,19 @@ export async function hostMergeAll(targetId: string): Promise<void> {
   );
   for (const id of removed ?? []) _windowHooks.onClose?.(id);
 }
+/**
+ * Main-window red-button close. With no secondaries → null (Electron hides
+ * main, today's behavior). Otherwise the oldest secondary takes over the
+ * main role (registry-side: label transfers, its record dissolves) and its
+ * old window id is returned so Electron can adopt its BrowserWindow as main.
+ * No onClose hook fires — the promoted BrowserWindow lives on.
+ */
+export async function hostCloseMainRequest(): Promise<string | null> {
+  const target = windowRegistry.oldestSecondary();
+  if (!target) return null;
+  const ok = await windowRegistry.promote(target.id);
+  return ok ? target.id : null;
+}
 
 // Auth service
 const authService = new AuthService();

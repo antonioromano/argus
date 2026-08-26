@@ -14,6 +14,7 @@ const destroying = new Set<string>();
 let appIsQuitting = false;
 let stopAllOnQuit = false;
 let onSecondaryClose: ((windowId: string) => void) | null = null;
+let onMainClose: (() => void) | null = null;
 
 interface PersistedWindowState {
   fullscreen: boolean;
@@ -61,6 +62,45 @@ export function saveAllWindowStates(): void {
 
 export function setSecondaryCloseHandler(fn: (windowId: string) => void): void {
   onSecondaryClose = fn;
+}
+
+/** Main-window red-button close. The handler asks the server whether to
+ *  promote a surviving window (real close) or hide (no other windows). */
+export function setMainCloseHandler(fn: () => void): void {
+  onMainClose = fn;
+}
+
+/** Hide the main window and, when nothing else is visible, the dock icon —
+ *  the app stays alive so agents keep streaming (pre-multi-window behavior). */
+export function hideMainWindow(): void {
+  const win = windows.get(MAIN_WINDOW_ID);
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  if (![...windows.values()].some((w) => !w.isDestroyed() && w.isVisible())) {
+    app.dock?.hide();
+  }
+}
+
+/**
+ * Re-key a surviving BrowserWindow onto the 'main' id after the server
+ * promoted its registry record (hostCloseMainRequest). The window reloads
+ * with ?windowId=main so its renderer takes on the main identity; tmux
+ * capture-pane replay repaints its terminals after the reload.
+ */
+export function adoptAsMain(oldId: string): void {
+  const win = windows.get(oldId);
+  if (!win || win.isDestroyed()) return;
+  windows.delete(oldId);
+  const zoom = zoomLevels.get(oldId) ?? 0;
+  zoomLevels.delete(oldId);
+  destroying.delete(oldId);
+  // The old main was just destroyed — clear any stale tombstone so the
+  // adopted window's future close events aren't mistaken for a teardown.
+  destroying.delete(MAIN_WINDOW_ID);
+  windows.set(MAIN_WINDOW_ID, win);
+  zoomLevels.set(MAIN_WINDOW_ID, zoom);
+  const port = process.env.ARGUS_PORT || '5757';
+  win.loadURL(`http://127.0.0.1:${port}/?windowId=${MAIN_WINDOW_ID}`);
 }
 
 export function setAppQuitting(v: boolean): void {
@@ -169,27 +209,43 @@ export function createAppWindow(windowId: string): BrowserWindow {
     app.dock?.show();
   });
 
+  // Resolve this BrowserWindow's CURRENT registry id at event time — adoption
+  // (adoptAsMain) re-keys a window from its uuid to 'main' after creation, so
+  // the id captured at construction can go stale.
+  const currentId = (): string => {
+    for (const [id, w] of windows) if (w === win) return id;
+    return windowId;
+  };
+
   win.on('close', (e) => {
-    if (appIsQuitting || destroying.has(windowId)) return; // allow real close
-    if (windowId === MAIN_WINDOW_ID) {
-      // Main: hide, keep app alive (existing behavior).
+    const id = currentId();
+    if (appIsQuitting || destroying.has(id)) return; // allow real close
+    if (id === MAIN_WINDOW_ID) {
+      // Main: the host decides — promote a surviving window (real close) or
+      // hide + keep the app alive (no other windows). Fallback hide when no
+      // handler is injected (plain-node dev without the Electron host flow).
       e.preventDefault();
-      win.hide();
-      if (![...windows.values()].some((w) => !w.isDestroyed() && w.isVisible())) {
-        app.dock?.hide();
-      }
+      if (onMainClose) onMainClose();
+      else hideMainWindow();
       return;
     }
     // Secondary: real close, but the server owns the decision — it deletes the
     // window record (merging sessions back to main) and calls destroyAppWindow
     // via the onClose host hook.
     e.preventDefault();
-    onSecondaryClose?.(windowId);
+    onSecondaryClose?.(id);
   });
   win.on('closed', () => {
-    windows.delete(windowId);
-    zoomLevels.delete(windowId);
-    destroying.delete(windowId);
+    // Clean up by live lookup only: after adoptAsMain re-keys another window
+    // onto 'main', a stale captured id must not delete the adopted entry.
+    for (const [id, w] of windows) {
+      if (w === win) {
+        windows.delete(id);
+        zoomLevels.delete(id);
+        destroying.delete(id);
+        return;
+      }
+    }
   });
   windows.set(windowId, win);
 

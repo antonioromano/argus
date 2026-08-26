@@ -137,6 +137,52 @@ test('rename changes a window label and notifies; unknown window fails', async (
   assert.equal(await reg.rename('nope', 'X'), false);
 });
 
+test('promote dissolves the window into main: label transfers, sessions become default-owned', async (t) => {
+  const reg = await makeRegistry(t);
+  const w2 = await reg.createWindow('s1');
+  await reg.rename(w2.id, 'Reviews');
+  assert.equal(await reg.promote(w2.id), true);
+  const state = reg.getState();
+  assert.equal(state.windows.length, 1);
+  assert.equal(state.windows[0].id, MAIN_WINDOW_ID);
+  assert.equal(state.windows[0].label, 'Reviews');
+  assert.equal(state.windows[0].isMain, true);
+  assert.equal(reg.ownerOf('s1'), MAIN_WINDOW_ID);
+});
+
+test('promote refuses main itself and unknown windows; other secondaries untouched', async (t) => {
+  const reg = await makeRegistry(t);
+  const w2 = await reg.createWindow('s1');
+  const w3 = await reg.createWindow('s2');
+  assert.equal(await reg.promote(MAIN_WINDOW_ID), false);
+  assert.equal(await reg.promote('nope'), false);
+  assert.equal(await reg.promote(w2.id), true);
+  // w3 and its assignment survive the promotion untouched.
+  assert.equal(reg.ownerOf('s2'), w3.id);
+  assert.ok(reg.getState().windows.some((w) => w.id === w3.id));
+});
+
+test('oldestSecondary picks the lowest createdAt; null when main is alone', async (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-winreg-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'windows.json');
+  const store = new WindowStore(file);
+  await store.save({
+    windows: [
+      { id: MAIN_WINDOW_ID, label: 'Main', isMain: true, createdAt: 1 },
+      { id: 'w-young', label: 'Window 3', isMain: false, createdAt: 300 },
+      { id: 'w-old', label: 'Window 2', isMain: false, createdAt: 200 },
+    ],
+    assignments: {},
+  });
+  const reg = new WindowRegistry(store);
+  await reg.init();
+  assert.equal(reg.oldestSecondary()?.id, 'w-old');
+
+  const solo = await makeRegistry(t);
+  assert.equal(solo.oldestSecondary(), null);
+});
+
 test('rename works for the main window (label only, id fixed)', async (t) => {
   const reg = await makeRegistry(t);
   assert.equal(await reg.rename(MAIN_WINDOW_ID, 'Command Center'), true);

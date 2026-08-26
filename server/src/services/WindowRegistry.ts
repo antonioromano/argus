@@ -107,6 +107,35 @@ export class WindowRegistry {
     return removed;
   }
 
+  /** Oldest (lowest createdAt) non-main window, or null when main is alone.
+   *  Used to pick the promotion target when the main window is closed. */
+  oldestSecondary(): ArgusWindow | null {
+    const secondaries = this.state.windows.filter((w) => !w.isMain);
+    if (secondaries.length === 0) return null;
+    const oldest = secondaries.reduce((a, b) => (b.createdAt < a.createdAt ? b : a));
+    return { ...oldest };
+  }
+
+  /**
+   * Main-close promotion: the promoted window takes over the main role in
+   * place — main keeps its fixed id but adopts the promoted window's label;
+   * the promoted window's record dissolves and its sessions become
+   * default-owned (absent assignment = main). Other secondaries untouched.
+   */
+  async promote(id: string): Promise<boolean> {
+    const win = this.state.windows.find((w) => w.id === id);
+    if (!win || win.isMain) return false;
+    const main = this.state.windows.find((w) => w.isMain);
+    if (!main) return false;
+    main.label = win.label;
+    this.state.windows = this.state.windows.filter((w) => w.id !== id);
+    for (const [sid, wid] of Object.entries(this.state.assignments)) {
+      if (wid === id) delete this.state.assignments[sid];
+    }
+    await this.commit();
+    return true;
+  }
+
   /** Change a window's display label (main included — only its label, never its id). */
   async rename(id: string, label: string): Promise<boolean> {
     const win = this.state.windows.find((w) => w.id === id);

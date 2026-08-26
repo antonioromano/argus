@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
+  setMainCloseHandler, hideMainWindow, adoptAsMain,
   setZoomLevelForFocused, getZoomLevelForFocused,
   setAppQuitting, setStopAllOnQuit, getStopAllOnQuit,
 } from './window.js';
@@ -765,6 +766,21 @@ async function main() {
   // Secondary red-button close → server deletes the record (sessions merge back
   // to main) → onClose hook destroys the BrowserWindow.
   setSecondaryCloseHandler((id) => { void hostDeleteWindowFn?.(id).catch(console.error); });
+  // Main red-button close → server promotes the oldest surviving window
+  // (its BrowserWindow is adopted as the new main); with no other windows,
+  // fall back to hide-and-keep-alive.
+  const hostCloseMainRequestFn = server.hostCloseMainRequest as () => Promise<string | null>;
+  setMainCloseHandler(() => {
+    void (async () => {
+      const promotedId = await hostCloseMainRequestFn();
+      if (!promotedId) {
+        hideMainWindow();
+        return;
+      }
+      destroyAppWindow('main');
+      adoptAsMain(promotedId);
+    })().catch(console.error);
+  });
 
   if (process.platform === 'darwin') {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
