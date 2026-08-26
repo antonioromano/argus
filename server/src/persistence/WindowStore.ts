@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
-import { MAIN_WINDOW_ID, type ArgusWindow, type WindowRegistryState } from '@argus/shared';
+import type { ArgusWindow, WindowRegistryState } from '@argus/shared';
+import { MAIN_WINDOW_ID } from '../constants/windows.js';
 import { atomicWrite } from '../utils/atomicWrite.js';
 
 function defaultState(): WindowRegistryState {

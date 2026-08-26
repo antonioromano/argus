@@ -96,22 +96,25 @@ console.log(`✔ dep-sync: ${PACKAGED_TREES.join(' + ')} import no workspace pac
 // Check 3: constants duplicated across the server/shared boundary agree.
 // ---------------------------------------------------------------------------
 
-/** Read `export const NAME = <number>` out of a TS source file. */
-function numericConst(file, name) {
+/** Read `export const NAME = <number | 'string'>` out of a TS source file. */
+function constValue(file, name) {
   const src = readFileSync(path.join(repoRoot, file), 'utf8');
-  const m = src.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`));
-  return m ? Number(m[1]) : null;
+  const num = src.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`));
+  if (num) return Number(num[1]);
+  const str = src.match(new RegExp(`export const ${name}\\s*=\\s*'([^']*)'`));
+  return str ? str[1] : null;
 }
 
 const DUPLICATED_CONSTS = [
   { name: 'SESSION_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/session.ts' },
+  { name: 'MAIN_WINDOW_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/windows.ts' },
 ];
 
 const drifted = DUPLICATED_CONSTS.filter((c) => {
-  const a = numericConst(c.shared, c.name);
-  const b = numericConst(c.server, c.name);
+  const a = constValue(c.shared, c.name);
+  const b = constValue(c.server, c.name);
   return a === null || b === null || a !== b;
-}).map((c) => `${c.name}: ${c.shared}=${numericConst(c.shared, c.name)} vs ${c.server}=${numericConst(c.server, c.name)}`);
+}).map((c) => `${c.name}: ${c.shared}=${constValue(c.shared, c.name)} vs ${c.server}=${constValue(c.server, c.name)}`);
 
 if (drifted.length > 0) {
   console.error('✖ dep-sync: constant duplicated across the server/shared boundary has drifted:');

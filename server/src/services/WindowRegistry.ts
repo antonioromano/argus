@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { MAIN_WINDOW_ID, type ArgusWindow, type WindowRegistryState } from '@argus/shared';
+import type { ArgusWindow, WindowRegistryState } from '@argus/shared';
+import { MAIN_WINDOW_ID } from '../constants/windows.js';
 import type { WindowStore } from '../persistence/WindowStore.js';
 
 /** 'Window N' where N is one past the highest existing numeric label (main is window 1). */
