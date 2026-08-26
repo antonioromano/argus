@@ -115,3 +115,19 @@ test('POST /:id/focus fires onFocus without changing state', async () => {
   assert.deepEqual(hookCalls, [`focus:${MAIN_WINDOW_ID}`]);
   assert.equal((await req('POST', '/nope/focus')).status, 404);
 });
+
+test('PUT /:id/label renames a window (label is trimmed)', async () => {
+  const w = await registry.createWindow();
+  const { status } = await req('PUT', `/${w.id}/label`, { label: '  Reviews  ' });
+  assert.equal(status, 200);
+  const state = registry.getState();
+  assert.equal(state.windows.find((x) => x.id === w.id)?.label, 'Reviews');
+});
+
+test('PUT /:id/label rejects invalid labels and unknown windows', async () => {
+  assert.equal((await req('PUT', `/${MAIN_WINDOW_ID}/label`, { label: '' })).status, 400);
+  assert.equal((await req('PUT', `/${MAIN_WINDOW_ID}/label`, { label: '   ' })).status, 400);
+  assert.equal((await req('PUT', `/${MAIN_WINDOW_ID}/label`, { label: 'x'.repeat(61) })).status, 400);
+  assert.equal((await req('PUT', `/${MAIN_WINDOW_ID}/label`, {})).status, 400);
+  assert.equal((await req('PUT', '/nope/label', { label: 'X' })).status, 404);
+});

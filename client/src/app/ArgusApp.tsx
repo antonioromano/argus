@@ -671,6 +671,8 @@ function DesktopInner() {
     >
     <WindowChrome
       title="ARGUS"
+      windowLabel={windowsApi.loaded ? windowsApi.labelOf(windowsApi.myWindowId) : undefined}
+      onRenameWindow={(label) => { void windowsApi.renameWindow(windowsApi.myWindowId, label).catch(console.error); }}
       leading={headerLeading}
       toolbar={headerToolbar}
     >

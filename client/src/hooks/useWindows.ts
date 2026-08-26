@@ -22,6 +22,7 @@ export interface WindowsApi {
   moveToNewWindow: (sessionId: string) => Promise<void>;
   mergeAllHere: () => Promise<void>;
   focusWindow: (windowId: string) => Promise<void>;
+  renameWindow: (windowId: string, label: string) => Promise<void>;
 }
 
 // ---- Pure helpers (exported for unit testing without mounting the hook) ----
@@ -91,6 +92,10 @@ export function useWindows(socket: TypedSocket): WindowsApi {
   );
   const mergeAllHere = useCallback(() => api.mergeAllWindows(myWindowId), []);
   const focusWindow = useCallback((windowId: string) => api.focusWindow(windowId), []);
+  const renameWindow = useCallback(
+    (windowId: string, label: string) => api.renameWindow(windowId, label),
+    [],
+  );
 
-  return { myWindowId, windows: state.windows, loaded, ownerOf, labelOf, isForeign, moveToWindow, moveToNewWindow, mergeAllHere, focusWindow };
+  return { myWindowId, windows: state.windows, loaded, ownerOf, labelOf, isForeign, moveToWindow, moveToNewWindow, mergeAllHere, focusWindow, renameWindow };
 }

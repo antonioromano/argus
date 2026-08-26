@@ -285,6 +285,14 @@ export const api = {
     await requireOk(await authFetch(`${API_BASE}/windows/${windowId}/focus`, { method: 'POST' }));
   },
 
+  renameWindow: async (windowId: string, label: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/windows/${windowId}/label`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    }));
+  },
+
   getSessionDiff: async (sessionId: string): Promise<GitDiffResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/diff`);
     return (await requireOk(res)).json();

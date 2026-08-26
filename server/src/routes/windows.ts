@@ -79,6 +79,21 @@ export function createWindowRoutes(
     res.json(registry.getState());
   }));
 
+  router.put('/:id/label', asyncHandler(async (req, res) => {
+    const raw = (req.body ?? {}).label;
+    const label = typeof raw === 'string' ? raw.trim() : '';
+    if (label.length < 1 || label.length > 60) {
+      res.status(400).json({ error: 'label must be a non-empty string of at most 60 characters' });
+      return;
+    }
+    const ok = await registry.rename(req.params.id, label);
+    if (!ok) {
+      res.status(404).json({ error: 'Window not found' });
+      return;
+    }
+    res.json(registry.getState());
+  }));
+
   router.post('/:id/focus', (req, res) => {
     const { id } = req.params;
     if (!registry.getState().windows.some((w) => w.id === id)) {

@@ -107,6 +107,15 @@ export class WindowRegistry {
     return removed;
   }
 
+  /** Change a window's display label (main included — only its label, never its id). */
+  async rename(id: string, label: string): Promise<boolean> {
+    const win = this.state.windows.find((w) => w.id === id);
+    if (!win) return false;
+    win.label = label;
+    await this.commit();
+    return true;
+  }
+
   async removeSession(sessionId: string): Promise<void> {
     if (sessionId in this.state.assignments) {
       delete this.state.assignments[sessionId];

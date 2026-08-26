@@ -125,3 +125,22 @@ test('state survives a reload through the store', async (t) => {
   assert.equal(reg2.ownerOf('s1'), w2.id);
   assert.equal(reg2.getState().windows.length, 2);
 });
+
+test('rename changes a window label and notifies; unknown window fails', async (t) => {
+  const reg = await makeRegistry(t);
+  const w2 = await reg.createWindow();
+  const seen: WindowRegistryState[] = [];
+  reg.onChange((s) => seen.push(s));
+  assert.equal(await reg.rename(w2.id, 'Reviews'), true);
+  assert.equal(reg.getState().windows.find((w) => w.id === w2.id)?.label, 'Reviews');
+  assert.equal(seen.length, 1);
+  assert.equal(await reg.rename('nope', 'X'), false);
+});
+
+test('rename works for the main window (label only, id fixed)', async (t) => {
+  const reg = await makeRegistry(t);
+  assert.equal(await reg.rename(MAIN_WINDOW_ID, 'Command Center'), true);
+  const main = reg.getState().windows.find((w) => w.id === MAIN_WINDOW_ID);
+  assert.equal(main?.label, 'Command Center');
+  assert.equal(main?.isMain, true);
+});
