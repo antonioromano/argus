@@ -53,6 +53,17 @@ test('a throwing subscriber cannot break the socket emit', () => {
   assert.equal(emits[0].payload.data, 'hello');
 });
 
+test('a throwing subscriber does not stop the next subscriber', () => {
+  const { sm } = fixture();
+  const seen: string[] = [];
+  sm.onOutput(() => { throw new Error('first exploded'); });
+  sm.onOutput((_id, data) => seen.push(data));
+
+  sm.flushOutput('s1');
+
+  assert.deepEqual(seen, ['hello'], 'second subscriber must still run');
+});
+
 test('no output means no notification', () => {
   const { sm } = fixture();
   (sm as any).sessions.set('s2', { id: 's2', pendingOutput: '', flushTimer: undefined });
