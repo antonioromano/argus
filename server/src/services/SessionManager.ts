@@ -249,6 +249,10 @@ export class SessionManager {
   private store: SessionStore;
   private configStore: ConfigStore;
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
+  /** In-process output subscribers (the native terminal host). Parallel to the
+   *  socket room: same payload, same moment. A subscriber must never be able to
+   *  break socket delivery, so each call is individually guarded. */
+  private outputSubscribers = new Set<(sessionId: string, data: string) => void>();
   private gitService: GitService | null = null;
   private gitDirtyMap = new Map<string, boolean>();
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
@@ -1160,7 +1164,25 @@ export class SessionManager {
       const data = session.pendingOutput;
       session.pendingOutput = '';
       this.io?.to(id).emit('session:output', { sessionId: id, data });
+      for (const cb of this.outputSubscribers) {
+        try {
+          cb(id, data);
+        } catch (err) {
+          console.error('[SessionManager] output subscriber threw:', err);
+        }
+      }
     }
+  }
+
+  /**
+   * Subscribe to the same output stream the socket rooms receive, in-process.
+   * Used by the native terminal host (Electron main), which runs the server
+   * in-process and would otherwise need a socket client of its own. Returns
+   * an unsubscribe function.
+   */
+  onOutput(cb: (sessionId: string, data: string) => void): () => void {
+    this.outputSubscribers.add(cb);
+    return () => { this.outputSubscribers.delete(cb); };
   }
 
   getReplaySnapshot(id: string, flavor: ReplayFlavor = 'full'): SessionReplayFrame | undefined {

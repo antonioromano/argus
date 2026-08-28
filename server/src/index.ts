@@ -178,6 +178,12 @@ const _windowHooks: WindowHostHooks = {};
 export function setWindowHooks(h: WindowHostHooks): void {
   Object.assign(_windowHooks, h);
 }
+/** The in-process SessionManager, for Electron main to wire the native terminal
+ *  host. Main runs the server in-process (electron/src/main.ts:515), so this is
+ *  a direct reference — no socket hop. */
+export function getSessionManager(): SessionManager {
+  return sessionManager;
+}
 export function getWindowRegistryState(): WindowRegistryState {
   return windowRegistry.getState();
 }
