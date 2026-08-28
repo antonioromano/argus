@@ -318,6 +318,15 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(String(decoding: got, as: UTF8.self), "ls -la\r")
   }
 
+  func testOverlayWindowCanBecomeKey() {
+    // Without this the overlay accepts no keyboard input at all. Regression
+    // guard: a plain borderless NSWindow returns false here.
+    let w = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    XCTAssertTrue(w.canBecomeKey)
+    XCTAssertFalse(w.canBecomeMain)
+  }
+
   func testClearScrollbackKeepsTheVisibleScreen() {
     let c = OverlayController(width: 800, height: 480)
     for i in 0..<200 { c.feed(data: Data("line \(i)\r\n".utf8) as NSData) }
@@ -342,6 +351,16 @@ Expected: FAIL — `cannot find 'OverlayController' in scope`.
 import AppKit
 import SwiftTerm
 
+/// A borderless NSWindow returns `canBecomeKey == false` by default, so it can
+/// never take keyboard focus and the terminal inside it receives nothing. This
+/// override is load-bearing — verified during Gate B, where a plain
+/// `NSWindow(styleMask: [.borderless])` reported `canBecomeKey: false`.
+/// `canBecomeMain` stays false so the Electron window remains the main window.
+final class KeyableWindow: NSWindow {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { false }
+}
+
 /// A SwiftTerm view in a borderless child NSWindow, driven entirely from
 /// outside. Deliberately dumb: it owns no process and makes no decisions —
 /// all policy lives in NativeTerminalHost (TypeScript), where it is testable.
@@ -362,8 +381,8 @@ import SwiftTerm
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
   /// BrowserWindow.getNativeWindowHandle().
   @objc public func attach(to parent: NSWindow) {
-    let w = NSWindow(contentRect: terminalView.frame,
-                     styleMask: [.borderless], backing: .buffered, defer: false)
+    let w = KeyableWindow(contentRect: terminalView.frame,
+                          styleMask: [.borderless], backing: .buffered, defer: false)
     w.contentView = terminalView
     w.isOpaque = true
     w.hasShadow = false
