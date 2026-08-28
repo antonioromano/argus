@@ -102,7 +102,7 @@ git commit -m "docs: close IME/accessibility gate"
 | `electron/src/preload.ts` (modify) | expose rect reporting |
 | `client/src/app/ui/TerminalShell.tsx` (modify) | transparent hole when native |
 | `client/src/hooks/useNativeOverlayRect.ts` (create) | rect reporting |
-| `client/src/hooks/useNativeOverlayRect.test.ts` (create) | Vitest |
+| `client/src/hooks/useNativeOverlayRect.test.tsx` (create) | Vitest |
 
 ---
 
@@ -453,12 +453,21 @@ git commit -m "feat(native): SwiftTerm shim in a child NSWindow"
   "targets": [{
     "target_name": "argus_native_terminal",
     "sources": ["src/addon.mm"],
-    "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
+    "include_dirs": [
+      "<!@(node -p \"require('node-addon-api').include\")",
+      // SwiftPM writes the generated ObjC header here, NOT into a framework.
+      "../ArgusTerminal/.build/release/ArgusTerminal.build"
+    ],
     "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"],
     "xcode_settings": {
       "OTHER_CPLUSPLUSFLAGS": ["-std=c++17", "-fobjc-arc"],
       "MACOSX_DEPLOYMENT_TARGET": "13.0",
-      "OTHER_LDFLAGS": ["-F../ArgusTerminal/.build/release", "-framework", "ArgusTerminal"]
+      // A SwiftPM `.dynamic` product is libArgusTerminal.dylib — a plain dylib,
+      // not a .framework. Link it with -L/-l and give the loader an rpath.
+      "OTHER_LDFLAGS": [
+        "-L../ArgusTerminal/.build/release", "-lArgusTerminal",
+        "-Wl,-rpath,@loader_path/../../../ArgusTerminal/.build/release"
+      ]
     }
   }]
 }
@@ -469,7 +478,7 @@ git commit -m "feat(native): SwiftTerm shim in a child NSWindow"
 ```objc
 // native/addon/src/addon.mm
 #import <Cocoa/Cocoa.h>
-#import <ArgusTerminal/ArgusTerminal-Swift.h>
+#import "ArgusTerminal-Swift.h"   // SwiftPM-generated, see binding.gyp include_dirs
 #include <napi.h>
 #include <map>
 
@@ -897,7 +906,7 @@ git commit -m "feat(electron): NativeTerminalHost — overlay lifecycle and sess
 
 **Interfaces:**
 - Consumes: `getSessionManager()` (Task 1), `NativeTerminalHost` (Task 4).
-- Produces: IPC channels `native-term:attach` `{sessionId, rect}`, `native-term:rect` `{sessionId, rect}`, `native-term:detach` `{sessionId}`; and `window.argus.nativeTerminal` in the renderer.
+- Produces: IPC channels `native-term:attach` `{sessionId, rect}`, `native-term:rect` `{sessionId, rect}`, `native-term:detach` `{sessionId}`, `native-term:available` (invoke); and `window.electronNativeTerminal` in the renderer.
 
 - [ ] **Step 1: Load the addon defensively**
 
@@ -944,13 +953,17 @@ Call `nativeTerminal.dispose()` alongside the existing shutdown handling.
 - [ ] **Step 3: Expose it in the preload**
 
 ```ts
-// electron/src/preload.ts — inside the existing contextBridge object
-nativeTerminal: {
+// electron/src/preload.ts — a new flat namespace, matching the existing
+// electronFiles / electronDialog / electronApp convention. There is no
+// `window.argus` object in this codebase; do not invent one.
+interface Rect { x: number; y: number; width: number; height: number }
+
+contextBridge.exposeInMainWorld('electronNativeTerminal', {
   available: () => ipcRenderer.invoke('native-term:available'),
   attach: (sessionId: string, rect: Rect) => ipcRenderer.send('native-term:attach', { sessionId, rect }),
   setRect: (sessionId: string, rect: Rect) => ipcRenderer.send('native-term:rect', { sessionId, rect }),
   detach: (sessionId: string) => ipcRenderer.send('native-term:detach', { sessionId }),
-},
+});
 ```
 
 - [ ] **Step 4: Typecheck and commit**
@@ -967,17 +980,17 @@ git commit -m "feat(electron): wire NativeTerminalHost behind ARGUS_NATIVE_TERM"
 
 **Files:**
 - Create: `client/src/hooks/useNativeOverlayRect.ts`
-- Create: `client/src/hooks/useNativeOverlayRect.test.ts`
+- Create: `client/src/hooks/useNativeOverlayRect.test.tsx`
 - Modify: `client/src/app/ui/TerminalShell.tsx`
 
 **Interfaces:**
-- Consumes: `window.argus.nativeTerminal` (Task 5).
+- Consumes: `window.electronNativeTerminal` (Task 5).
 - Produces: `useNativeOverlayRect(sessionId: string, enabled: boolean): React.RefObject<HTMLDivElement>` — attach the ref to the hole element; the hook attaches on mount, reports on every geometry change, and detaches on unmount.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-// client/src/hooks/useNativeOverlayRect.test.ts
+// client/src/hooks/useNativeOverlayRect.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -986,7 +999,7 @@ import { useNativeOverlayRect } from './useNativeOverlayRect.js';
 const api = { attach: vi.fn(), setRect: vi.fn(), detach: vi.fn(), available: vi.fn() };
 beforeEach(() => {
   vi.clearAllMocks();
-  (window as any).argus = { nativeTerminal: api };
+  (window as any).electronNativeTerminal = api;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
@@ -1030,7 +1043,7 @@ describe('useNativeOverlayRect', () => {
 - [ ] **Step 2: Run and confirm failure**
 
 ```bash
-nvm use 24 && npx vitest run src/hooks/useNativeOverlayRect.test.ts --root client
+nvm use 24 && npx vitest run src/hooks/useNativeOverlayRect.test.tsx --root client
 ```
 Expected: FAIL — cannot resolve the module.
 
@@ -1054,7 +1067,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    const api = window.argus?.nativeTerminal;
+    const api = window.electronNativeTerminal;
     const el = ref.current;
     if (!api || !el) return;
 
@@ -1096,7 +1109,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
 - [ ] **Step 4: Run tests**
 
 ```bash
-npx vitest run src/hooks/useNativeOverlayRect.test.ts --root client
+npx vitest run src/hooks/useNativeOverlayRect.test.tsx --root client
 ```
 Expected: 3 PASS.
 
@@ -1123,7 +1136,7 @@ Expected: all existing terminal tests still PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add client/src/hooks/useNativeOverlayRect.ts client/src/hooks/useNativeOverlayRect.test.ts client/src/app/ui/TerminalShell.tsx
+git add client/src/hooks/useNativeOverlayRect.ts client/src/hooks/useNativeOverlayRect.test.tsx client/src/app/ui/TerminalShell.tsx
 git commit -m "feat(client): transparent hole + rect reporting for native overlays"
 ```
 
