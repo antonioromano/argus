@@ -84,11 +84,26 @@ critical path. The probe used child `BrowserWindow`s — heavier than the native
 upper bound. Window *creation* costs ~12 ms each (~100 ms for a 12-tile mosaic),
 mitigated by pre-warming.
 
-**Not verified:** z-order against DOM surfaces, and how an opaque child window
-reads against `vibrancy: 'sidebar'`. `screencapture` returned desktop-only images
-because the dev terminal lacks Screen Recording permission. The z-order behaviour
-is asserted from AppKit semantics (a child window is always above its parent),
-not measured. **This must be confirmed before implementation begins.**
+**Z-order: measured and confirmed (Gate A, 2026-08-28).** Screenshots stayed
+blocked — the dev shell descends from an argusd daemon started days before the
+Screen Recording grant, and the daemon does not restart with the app — so
+z-order was measured without pixels instead, via
+`CGWindowListCopyWindowInfo([.optionOnScreenOnly, …])`, which returns on-screen
+windows front-to-back and needs no capture permission. With a borderless child
+attached to a parent via `addChildWindow(_:ordered:.above)`:
+
+```
+order[0] num=27379 layer=0   <- CHILD  (native overlay)
+order[1] num=27378 layer=0   <- PARENT (web content)
+```
+
+Same window layer, child in front. A DOM surface lives inside the parent
+window's own surface, so this is direct proof that a modal, palette or dropdown
+WOULD be occluded by an overlay. **Suppression (§4) is required, not optional.**
+
+**Still unverified (cosmetic, non-blocking):** how an opaque child reads against
+`vibrancy: 'sidebar'`. Deferred to implementation — terminals are opaque today,
+so the seam is a styling question, not an architectural one.
 
 ## 1. Components
 
@@ -246,7 +261,7 @@ Every piece has precedent. `node-pty` is already a native module rebuilt via
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | Z-order and vibrancy unverified | Confirm before implementation (needs Screen Recording permission) |
+| 1 | ~~Z-order unverified~~ | **CLOSED** — measured via CGWindowList: child orders above parent, suppression required. Vibrancy seam remains open but is cosmetic |
 | 2 | Suppression coverage gap | Contract test over z-tiers |
 | 3 | Two-arch native build + `afterPack` signing | Follow the `argusd` pattern; verify on a real packaged build |
 | 4 | `shift+enter` encoding | Verify against a live agent; intercept in the shim if needed |
@@ -259,10 +274,9 @@ Every piece has precedent. `node-pty` is already a native module rebuilt via
 Two risks are **blocking** — implementation does not start until both are closed,
 because either could invalidate the design rather than merely complicate it:
 
-- **Risk 1 (z-order / vibrancy).** Grant the dev terminal Screen Recording
-  permission and confirm by screenshot that a DOM sheet is occluded by an overlay
-  (proving suppression is required and sufficient) and that an opaque child window
-  is acceptable against `vibrancy: 'sidebar'`.
+- ~~**Risk 1 (z-order).**~~ **CLOSED 2026-08-28** — measured with
+  `CGWindowListCopyWindowInfo`; the child window orders above the parent, so
+  suppression is required. The vibrancy seam is cosmetic and does not gate work.
 - **Risk 5 (IME, dead keys, VoiceOver).** A short spike in the same throwaway
   harness. If SwiftTerm cannot handle IME inside a child window, the engine choice
   is wrong and we should revisit before writing any production code.
