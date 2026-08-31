@@ -136,9 +136,37 @@ export class NativeTerminalHost {
     }
   }
 
-  show(sessionId: string): void {
+  /**
+   * True when `parentHandle` is either absent (an unconditional caller — see
+   * below) or matches the window `attach()`/`reparent()` last recorded as
+   * this session's live parent.
+   *
+   * A session can move between Argus windows (`attach()`'s reparent branch
+   * above). When it does, the window it left still has a tile tearing down
+   * on its own timing, and that teardown's effect-cleanup fires the same
+   * detach/hide/show a real caller would use. Without this gate that stale
+   * call would win a race against the new window's already-succeeded attach
+   * and destroy/hide the overlay the new window just acquired — permanently,
+   * since the new window's own effect never re-fires to repair it.
+   *
+   * `parentHandle` is therefore optional and gates only renderer-initiated
+   * calls that legitimately have a requesting window to check (the IPC
+   * handlers in main.ts for detach/suppress/unsuppress, which resolve it
+   * from the sender's BrowserWindow rather than trusting a renderer-supplied
+   * id). Callers with no window context — onSessionDeleted (the session is
+   * gone; the overlay must die no matter who "owns" it), dispose() on app
+   * quit, and a window's own 'closed' handler tearing down what it hosted —
+   * omit it and stay unconditional, exactly as before this gate existed.
+   */
+  private isCurrentParent(sessionId: string, parentHandle?: Buffer): boolean {
+    if (!parentHandle) return true;
+    return this.parentBySession.get(sessionId) === parentHandle.toString('base64');
+  }
+
+  show(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon?.show(id);
     } catch (err) {
@@ -146,9 +174,10 @@ export class NativeTerminalHost {
     }
   }
 
-  hide(sessionId: string): void {
+  hide(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon?.hide(id);
     } catch (err) {
@@ -156,9 +185,18 @@ export class NativeTerminalHost {
     }
   }
 
-  detach(sessionId: string): void {
+  /**
+   * Returns whether the detach actually proceeded — false only when a
+   * `parentHandle` was supplied and it no longer matches this session's
+   * current parent (a stale request, ignored). Callers that track
+   * window→session ownership of their own (main.ts's windowIdToSessions)
+   * must consult this before dropping that bookkeeping: a session ignored
+   * here is still live, natively, under its real parent.
+   */
+  detach(sessionId: string, parentHandle?: Buffer): boolean {
     const id = this.bySession.get(sessionId);
-    if (id === undefined || !this.addon) return;
+    if (id === undefined || !this.addon) return true;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return false;
     try {
       this.addon.destroy(id);
     } catch (err) {
@@ -170,6 +208,7 @@ export class NativeTerminalHost {
     this.bySession.delete(sessionId);
     this.byOverlay.delete(id);
     this.parentBySession.delete(sessionId);
+    return true;
   }
 
   dispose(): void {

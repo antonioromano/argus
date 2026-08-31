@@ -629,9 +629,20 @@ async function main() {
   ipcMain.on('native-term:rect', (_e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     nativeTerminal!.setRect(sessionId, rect);
   });
-  ipcMain.on('native-term:detach', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.detach(sessionId);
-    untrackNativeTermSession(sessionId);
+  // Renderer-initiated detach must be scoped to the window making the
+  // request: a session can move to a new window (attach's reparent branch),
+  // and the tile it left behind unmounts on its own independent timing,
+  // firing this same detach afterward. The requesting window is resolved
+  // from e.sender rather than trusted from the payload — a renderer must
+  // not be able to name an arbitrary window — and NativeTerminalHost ignores
+  // the call when that window is no longer the session's current parent.
+  // untrackNativeTermSession must only run when the host actually detached;
+  // otherwise a stale, ignored call would wipe the *new* window's ownership
+  // record out from under it.
+  ipcMain.on('native-term:detach', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const detached = nativeTerminal!.detach(sessionId, win?.getNativeWindowHandle());
+    if (detached) untrackNativeTermSession(sessionId);
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
@@ -640,12 +651,16 @@ async function main() {
   // surface (modal, menu, tooltip...) that would render above a native
   // terminal must hide it for the duration. hide/show are no-ops when the
   // addon never loaded (flag unset), same as every other NativeTerminalHost
-  // call — safe to wire unconditionally.
-  ipcMain.on('native-term:suppress', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.hide(sessionId);
+  // call — safe to wire unconditionally. Scoped to the requesting window for
+  // the same reason as detach above: a stale suppress/unsuppress from a
+  // session's old window must not touch the overlay its new window owns.
+  ipcMain.on('native-term:suppress', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.hide(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:unsuppress', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.show(sessionId);
+  ipcMain.on('native-term:unsuppress', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.show(sessionId, win?.getNativeWindowHandle());
   });
 
   // Native message box — used by the renderer for confirmations (delete, close session, etc.)

@@ -295,3 +295,80 @@ test('attach reports success even when a post-create call fails — the overlay 
   failNext.setFrame = true;
   assert.equal(host.attach('s1', HANDLE, RECT), true);
 });
+
+// --- window-scoped detach/hide/show (Phase 2 final fix) -------------------
+// A session can move between Argus windows (reparent above). A renderer-
+// initiated detach/hide/show must be scoped to the window making the request:
+// a stale call from a session's OLD window must not touch the overlay its
+// NEW window just acquired. Calls with no window context (session deleted,
+// app quit, a window's own 'closed' handler) must remain unconditional.
+
+test('a detach from a window that is no longer the session\'s parent is ignored', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, emitOutput } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);           // reparented to B — A is stale now
+  const detached = host.detach('s1', winA); // stale detach from A
+  assert.equal(detached, false, 'must report that it did not detach');
+  assert.ok(!calls.includes('destroy:1'), `expected stale detach to be ignored, got ${calls.join(',')}`);
+  // Still tracked and live: output keeps feeding the overlay B owns.
+  calls.length = 0;
+  emitOutput('s1', 'still-alive');
+  assert.ok(calls.includes('feed:1:still-alive'), 'session must still be tracked after the ignored detach');
+});
+
+test('a detach from the current parent works', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);
+  const detached = host.detach('s1', winB);
+  assert.equal(detached, true);
+  assert.ok(calls.includes('destroy:1'), `expected detach from current parent to work, got ${calls.join(',')}`);
+});
+
+test('an unconditional detach (no window context) still works regardless of parent', () => {
+  // Mirrors onSessionDeleted / dispose() / a window's own 'closed' handler —
+  // none of these have a requesting window to check, and all must still
+  // tear the overlay down no matter which window currently owns it.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);
+  const detached = host.detach('s1');      // no parent arg — must destroy regardless
+  assert.equal(detached, true);
+  assert.ok(calls.includes('destroy:1'));
+});
+
+test('hide/show from a non-parent window are ignored', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);           // attach() itself calls addon.show — clear before probing
+  calls.length = 0;
+  host.hide('s1', winA);
+  host.show('s1', winA);
+  assert.ok(!calls.includes('hide:1'), `expected stale hide to be ignored, got ${calls.join(',')}`);
+  assert.ok(!calls.includes('show:1'), `expected stale show to be ignored, got ${calls.join(',')}`);
+});
+
+test('hide/show from the current parent still work', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);
+  host.hide('s1', winB);
+  host.show('s1', winB);
+  assert.ok(calls.includes('hide:1'));
+  assert.ok(calls.includes('show:1'));
+});
