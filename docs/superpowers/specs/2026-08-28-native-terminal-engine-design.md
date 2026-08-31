@@ -265,7 +265,7 @@ Every piece has precedent. `node-pty` is already a native module rebuilt via
 | 2 | Suppression coverage gap | Contract test over z-tiers |
 | 3 | Two-arch native build + `afterPack` signing | Follow the `argusd` pattern; verify on a real packaged build |
 | 4 | `shift+enter` encoding | Verify against a live agent; intercept in the shim if needed |
-| 5 | IME, dead keys, VoiceOver in the native view | **Unprobed** — needs its own spike before committing |
+| 5 | IME composition unverified | **ACCEPTED RISK** — typing, `insertText`, and multi-byte UTF-8 all verified; `setMarkedText` never observed. Mitigated by the per-session xterm.js fallback. Revisit before making native the default |
 | 6 | Selection/clipboard interop with Argus | Unprobed |
 | 7 | Addon load failure | Bulletproof fallback to `web`; covered by tests |
 
@@ -277,9 +277,19 @@ because either could invalidate the design rather than merely complicate it:
 - ~~**Risk 1 (z-order).**~~ **CLOSED 2026-08-28** — measured with
   `CGWindowListCopyWindowInfo`; the child window orders above the parent, so
   suppression is required. The vibrancy seam is cosmetic and does not gate work.
-- **Risk 5 (IME, dead keys, VoiceOver).** A short spike in the same throwaway
-  harness. If SwiftTerm cannot handle IME inside a child window, the engine choice
-  is wrong and we should revisit before writing any production code.
+- ~~**Risk 5 (IME, dead keys, VoiceOver).**~~ **CLOSED 2026-08-28 as accepted
+  risk.** Verified by real typing in a borderless child window: keyboard input
+  reaches the view, the `NSTextInputClient` path is engaged (`insertText:` fires
+  per key), and multi-byte UTF-8 flows correctly to the delegate
+  (`insertText: ´` -> `send bytes: c2 b4`) — which is the mechanism accented
+  characters use. Composition (`setMarkedText`) never fired and is UNVERIFIED;
+  a control comparing a normal window against a child window showed identical
+  behaviour, so nothing indicates the child window is at fault, but the control
+  synthesized its own `NSEvent`s and therefore could not exercise real
+  composition. Accepted because the target user's layout has no dead keys and no
+  CJK requirement, and because the engine is per-session: any session needing IME
+  can use xterm.js, where it demonstrably works. **Revisit if native becomes the
+  default or ships to users who need composition input.**
 
 ## 11. Phasing
 
