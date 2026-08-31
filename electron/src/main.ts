@@ -263,6 +263,56 @@ function loadNativeTerminalAddon(): NativeTerminalAddon | null {
 
 let nativeTerminal: NativeTerminalHost | null = null;
 
+// Window-lifecycle bookkeeping for native overlays. NativeTerminalHost itself
+// knows nothing about windows (its API is attach(sessionId, parentHandle, rect));
+// closing a single secondary window is not app quit, so main.ts — where
+// BrowserWindow lifecycle already lives — is what must notice a window going
+// away and detach whatever sessions were shown through it. sessionToWindowId
+// lets a session that gets reattached to a different window cleanly leave its
+// old window's set; windowIdToSessions is what a given window's 'closed'
+// listener walks to detach everything it was hosting.
+const sessionToWindowId = new Map<string, number>();
+const windowIdToSessions = new Map<number, Set<string>>();
+// Guards against stacking multiple 'closed' listeners on the same window
+// (attach can fire repeatedly, e.g. on every resize-driven re-attach).
+const windowsWithCloseListener = new Set<number>();
+
+function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
+  const winId = win.id;
+  const prevWinId = sessionToWindowId.get(sessionId);
+  if (prevWinId !== undefined && prevWinId !== winId) {
+    windowIdToSessions.get(prevWinId)?.delete(sessionId);
+  }
+  sessionToWindowId.set(sessionId, winId);
+  let sessions = windowIdToSessions.get(winId);
+  if (!sessions) {
+    sessions = new Set();
+    windowIdToSessions.set(winId, sessions);
+  }
+  sessions.add(sessionId);
+
+  if (windowsWithCloseListener.has(winId)) return;
+  windowsWithCloseListener.add(winId);
+  win.once('closed', () => {
+    const orphaned = windowIdToSessions.get(winId);
+    windowIdToSessions.delete(winId);
+    windowsWithCloseListener.delete(winId);
+    if (!orphaned || orphaned.size === 0) return;
+    console.warn(`[native-term] window ${winId} closed with ${orphaned.size} overlay(s) attached — detaching`);
+    for (const sessionId of orphaned) {
+      sessionToWindowId.delete(sessionId);
+      nativeTerminal?.detach(sessionId);
+    }
+  });
+}
+
+function untrackNativeTermSession(sessionId: string): void {
+  const winId = sessionToWindowId.get(sessionId);
+  if (winId === undefined) return;
+  sessionToWindowId.delete(sessionId);
+  windowIdToSessions.get(winId)?.delete(sessionId);
+}
+
 let shutdownServer: (() => Promise<void>) | null = null;
 let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 // Quit-time preference getters, injected from the in-process server module.
@@ -550,13 +600,16 @@ async function main() {
 
   ipcMain.on('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    if (win) nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
+    if (!win) return;
+    nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
+    trackNativeTermAttach(sessionId, win);
   });
   ipcMain.on('native-term:rect', (_e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     nativeTerminal!.setRect(sessionId, rect);
   });
   ipcMain.on('native-term:detach', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.detach(sessionId);
+    untrackNativeTermSession(sessionId);
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
