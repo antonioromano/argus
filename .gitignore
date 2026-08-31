@@ -44,3 +44,6 @@ daemon/daemon
 
 # SwiftPM build artifacts (native/ArgusTerminal)
 .build/
+
+# node-gyp output for the native terminal addon (native/addon)
+native/addon/build/
