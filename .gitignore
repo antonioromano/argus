@@ -41,3 +41,6 @@ electron/resources/argusd/argusd-x64
 
 # Go build output (default `go build` in daemon/ emits ./daemon)
 daemon/daemon
+
+# SwiftPM build artifacts (native/ArgusTerminal)
+.build/
