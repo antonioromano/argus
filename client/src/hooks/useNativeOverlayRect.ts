@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { registerOverlay, unregisterOverlay } from './nativeOverlayRegistry.js';
 
 interface NativeOverlayRect { x: number; y: number; width: number; height: number }
 
@@ -63,6 +64,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       if (key === lastRectKey.current) return;
       lastRectKey.current = key;
       api.setRect(sessionId, rect);
+      registerOverlay(sessionId, rect);
     };
 
     let ro: ResizeObserver | null = null;
@@ -81,6 +83,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       // ResizeObserver callback after attach doesn't immediately re-send an
       // identical rect through setRect (redundant IPC).
       lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
+      registerOverlay(sessionId, initialRect);
 
       // Guard like the rest of the codebase (see Sessions.tsx) — jsdom under
       // Vitest has no ResizeObserver; attach/detach still work without it.
@@ -96,6 +99,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
       api.detach(sessionId);
+      unregisterOverlay(sessionId);
     };
   }, [sessionId, enabled]);
 
