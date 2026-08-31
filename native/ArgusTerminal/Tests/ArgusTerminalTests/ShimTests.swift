@@ -70,4 +70,20 @@ final class ShimTests: XCTestCase {
     XCTAssertFalse(a.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
                    "the old parent must no longer own the child")
   }
+
+  func testSearchFindsFedText() {
+    let c = OverlayController(width: 400, height: 200)
+    c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)
+    XCTAssertTrue(c.search("beta", forward: true))
+    XCTAssertFalse(c.search("nonexistent-token", forward: true))
+  }
+
+  func testClearScrollbackKeepsVisibleScreenAfterSearch() {
+    let c = OverlayController(width: 400, height: 200)
+    c.feed(data: Data("findme\r\n".utf8) as NSData)
+    _ = c.search("findme", forward: true)
+    c.clearSearch()
+    c.clearScrollback()
+    XCTAssertEqual(c.debugRow(0), "findme")
+  }
 }

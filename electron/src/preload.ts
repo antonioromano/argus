@@ -88,6 +88,14 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   unsuppress: (sessionId: string): void => {
     ipcRenderer.send('native-term:unsuppress', { sessionId });
   },
+  search: (sessionId: string, term: string, forward: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('native-term:search', { sessionId, term, forward }),
+  clearSearch: (sessionId: string): void => {
+    ipcRenderer.send('native-term:clear-search', { sessionId });
+  },
+  clearScrollback: (sessionId: string): void => {
+    ipcRenderer.send('native-term:clear-scrollback', { sessionId });
+  },
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {

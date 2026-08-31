@@ -75,6 +75,20 @@ final class KeyableWindow: NSWindow {
   @objc public func hide() { window?.orderOut(nil) }
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
+  /// Search forward or backward for `term`, selecting and scrolling the match
+  /// into view. Returns whether a match was found so the renderer can show a
+  /// no-results state. Drives SwiftTerm's own search machinery
+  /// (TerminalViewSearch.swift's findNext/findPrevious, backed by SearchEngine)
+  /// rather than reimplementing it.
+  @objc public func search(_ term: String, forward: Bool) -> Bool {
+    forward ? terminalView.findNext(term) : terminalView.findPrevious(term)
+  }
+
+  /// Clears the current search selection/highlight. Does not touch scrollback.
+  @objc public func clearSearch() {
+    terminalView.clearSearch()
+  }
+
   @objc public func destroy() {
     window?.parent?.removeChildWindow(window!)
     window?.orderOut(nil)

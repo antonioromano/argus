@@ -185,6 +185,33 @@ Napi::Value ClearScrollback(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+Napi::Value Search(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  // Mirrors SetFrame's validating convention: `term` feeds straight into
+  // Utf8Value()/UTF8String below. `.As<T>()` performs no runtime check, and
+  // under NAPI_DISABLE_CPP_EXCEPTIONS a wrong-typed arg would leave a pending
+  // exception while more N-API calls are made — undefined behaviour. So the
+  // term (and the forward flag) must be validated before either is read.
+  if (info.Length() < 3 || !info[1].IsString() || !info[2].IsBoolean()) {
+    Napi::TypeError::New(env, "search(id, term, forward) requires a string term and a boolean forward")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  OverlayController* c = Lookup(info, nullptr);
+  if (!c) return Napi::Boolean::New(env, false);
+
+  std::string term = info[1].As<Napi::String>().Utf8Value();
+  bool forward = info[2].As<Napi::Boolean>().Value();
+  BOOL found = [c search:[NSString stringWithUTF8String:term.c_str()] forward:forward];
+  return Napi::Boolean::New(env, found == YES);
+}
+
+Napi::Value ClearSearch(const Napi::CallbackInfo& info) {
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) [c clearSearch];
+  return info.Env().Undefined();
+}
+
 Napi::Value Destroy(const Napi::CallbackInfo& info) {
   uint32_t id = 0;
   OverlayController* c = Lookup(info, &id);
@@ -217,6 +244,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   exports.Set("feed", Napi::Function::New(env, Feed));
   exports.Set("clearScrollback", Napi::Function::New(env, ClearScrollback));
+  exports.Set("search", Napi::Function::New(env, Search));
+  exports.Set("clearSearch", Napi::Function::New(env, ClearSearch));
   exports.Set("onInput", Napi::Function::New(env, OnInput));
   exports.Set("onResize", Napi::Function::New(env, OnResize));
   return exports;

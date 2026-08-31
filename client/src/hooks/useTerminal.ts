@@ -89,14 +89,29 @@ const LIGHT_THEME = {
   brightWhite: '#343b58',
 };
 
+/** The slice of the native-terminal preload bridge this module drives directly. */
+interface NativeClearScrollbackBridge {
+  clearScrollback(sessionId: string): void;
+}
+
 // Server-side half of "clear scrollback": purges the mirror's history and
 // broadcasts an authoritative frame so the rows stay gone across joins and
 // resyncs. Exported so the menu:clear-terminal path (ArgusApp.tsx, for when a
 // native tile holds key focus and this hook's own keydown handler below never
 // sees the keystroke) emits the identical event rather than a hand-copied one
 // that could drift from this one.
+//
+// Also asks a native overlay (if this session has one attached) to clear its
+// own scrollback — SwiftTerm's Terminal.clearScrollback(), the native
+// counterpart of this hook's local `terminal.write('\x1b[3J')` below, which a
+// native tile has no xterm instance to receive. Safe to call unconditionally:
+// NativeTerminalHost no-ops for a session with no attached overlay, and the
+// bridge itself is a no-op outside Electron (dev:web/jsdom) or when the
+// native addon never loaded.
 export function clearScrollback(socket: TypedSocket, sessionId: string): void {
   socket.emit('session:clear-buffer', sessionId);
+  (window as Window & { electronNativeTerminal?: NativeClearScrollbackBridge })
+    .electronNativeTerminal?.clearScrollback(sessionId);
 }
 
 export function useTerminal(

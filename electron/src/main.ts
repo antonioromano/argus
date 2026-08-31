@@ -716,6 +716,21 @@ async function main() {
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
+  // Search / clear-scrollback — not window-scoped like detach/hide/show: these
+  // are ordinary control actions on an already-attached overlay, not lifecycle
+  // transitions that move ownership between windows, so there is nothing for a
+  // stale requesting window to race against (setRect above is unscoped for the
+  // same reason).
+  ipcMain.handle('native-term:search', (_e, { sessionId, term, forward }: { sessionId: string; term: string; forward: boolean }) => {
+    return nativeTerminal!.search(sessionId, term, forward);
+  });
+  ipcMain.on('native-term:clear-search', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.clearSearch(sessionId);
+  });
+  ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.clearScrollback(sessionId);
+  });
+
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
   // A child NSWindow always paints above the parent's web content, so a DOM
   // surface (modal, menu, tooltip...) that would render above a native

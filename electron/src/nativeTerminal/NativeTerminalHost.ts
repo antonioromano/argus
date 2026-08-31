@@ -137,6 +137,49 @@ export class NativeTerminalHost {
   }
 
   /**
+   * Search the native overlay for `term`. Returns whether a match was found —
+   * false for a session with no attached overlay (nothing to search) or when
+   * the addon call throws, matching every other native call's degrade-rather-
+   * than-throw contract.
+   */
+  search(sessionId: string, term: string, forward: boolean): boolean {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return false;
+    try {
+      return this.addon.search(id, term, forward);
+    } catch (err) {
+      console.error('[native-term] search failed for', sessionId, err);
+      return false;
+    }
+  }
+
+  clearSearch(sessionId: string): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.clearSearch(id);
+    } catch (err) {
+      console.error('[native-term] clearSearch failed for', sessionId, err);
+    }
+  }
+
+  /**
+   * Purges the native view's own scrollback (SwiftTerm's `Terminal.clearScrollback()`),
+   * the native counterpart of the xterm.js path's local `terminal.write('\x1b[3J')` —
+   * a native overlay has no xterm instance for that instant local feedback, so
+   * this is the only thing that ever visually clears its history.
+   */
+  clearScrollback(sessionId: string): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.clearScrollback(id);
+    } catch (err) {
+      console.error('[native-term] clearScrollback failed for', sessionId, err);
+    }
+  }
+
+  /**
    * True when `parentHandle` is either absent (an unconditional caller — see
    * below) or matches the window `attach()`/`reparent()` last recorded as
    * this session's live parent.

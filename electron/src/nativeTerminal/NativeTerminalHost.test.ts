@@ -10,7 +10,7 @@ function fakeAddon() {
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
-  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent', boolean>> = {};
+  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent' | 'search', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: () => {
       calls.push(`create:${next}`);
@@ -33,6 +33,12 @@ function fakeAddon() {
       if (failNext.feed) { failNext.feed = false; throw new Error('feed failed'); }
     },
     clearScrollback: (id) => calls.push(`clear:${id}`),
+    search: (id, term, forward) => {
+      calls.push(`search:${id}:${term}:${forward}`);
+      if (failNext.search) { failNext.search = false; throw new Error('search failed'); }
+      return term === 'findme';
+    },
+    clearSearch: (id) => calls.push(`clearSearch:${id}`),
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
   };
@@ -371,4 +377,68 @@ test('hide/show from the current parent still work', () => {
   host.show('s1', winB);
   assert.ok(calls.includes('hide:1'));
   assert.ok(calls.includes('show:1'));
+});
+
+// --- search / clearSearch / clearScrollback --------------------------------
+
+test('search on an unattached session returns false and does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  assert.equal(host.search('never-attached', 'term', true), false);
+  assert.equal(calls.length, 0, 'must not reach the addon for an unknown session');
+});
+
+test('search delegates to the addon and returns its result', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  assert.equal(host.search('s1', 'findme', true), true);
+  assert.equal(host.search('s1', 'nope', false), false);
+  assert.ok(calls.includes('search:1:findme:true'));
+  assert.ok(calls.includes('search:1:nope:false'));
+});
+
+test('a throwing addon.search does not propagate and reports no match', () => {
+  const { addon, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  failNext.search = true;
+  assert.doesNotThrow(() => {
+    assert.equal(host.search('s1', 'findme', true), false);
+  });
+});
+
+test('search with no addon is inert', () => {
+  const { host } = harness(null);
+  assert.equal(host.search('s1', 'term', true), false);
+});
+
+test('clearSearch on an unattached session is a no-op that does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  assert.doesNotThrow(() => host.clearSearch('never-attached'));
+  assert.equal(calls.length, 0);
+});
+
+test('clearSearch delegates to the addon', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.clearSearch('s1');
+  assert.ok(calls.includes('clearSearch:1'));
+});
+
+test('clearScrollback on an unattached session is a no-op that does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  assert.doesNotThrow(() => host.clearScrollback('never-attached'));
+  assert.equal(calls.length, 0);
+});
+
+test('clearScrollback delegates to the addon', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.clearScrollback('s1');
+  assert.ok(calls.includes('clear:1'));
 });

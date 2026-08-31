@@ -1,15 +1,35 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
+import type { ISearchOptions } from '@xterm/addon-search';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
+import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
+import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+// Decoration colors (must be #RRGGBB). Tokens aren't usable here — xterm paints these directly.
+const XTERM_SEARCH_DECORATIONS = {
+  matchBackground: '#3d59a1',
+  matchOverviewRuler: '#3d59a1',
+  activeMatchBackground: '#e0af68',
+  activeMatchColorOverviewRuler: '#e0af68',
+};
+
+/** The slice of the native-terminal preload bridge this shell drives directly
+ *  (search is a plain control action on an already-attached overlay — see
+ *  electron/src/main.ts's native-term:search/clear-search handlers — unlike
+ *  attach/detach it needs no window-scoping). */
+interface NativeSearchBridge {
+  search(sessionId: string, term: string, forward: boolean): Promise<boolean>;
+  clearSearch(sessionId: string): void;
+}
 
 interface TerminalShellProps {
   session: SessionInfo;
@@ -46,14 +66,71 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
+  const { session, searchOpen = false, onCloseSearch } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
   // blank transparent hole, is what makes that failure recoverable.
   const [failed, setFailed] = useState(false);
-  const holeRef = useNativeOverlayRect(props.session.id, !failed, () => setFailed(true));
+  const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true));
+  const searchBarRef = useRef<HTMLDivElement>(null);
+
+  // Drives the native overlay's own SwiftTerm search machinery
+  // (OverlayController.search/clearSearch) through the same TerminalSearchBar
+  // component the xterm path uses — the ruling behind this task is one
+  // visually identical search box regardless of engine, never SwiftTerm's own
+  // MacFindBarView. The native addon's search(term, forward) takes no
+  // case/regex options (see task-6-brief.md's literal signature), so those
+  // two toggle buttons are inert here — a known, disclosed limitation rather
+  // than a different-looking control set.
+  const nativeSearchEngine = useMemo<TerminalSearchEngine>(() => {
+    const listeners = new Set<(r: { index: number; count: number }) => void>();
+    const bridge = () =>
+      (window as Window & { electronNativeTerminal?: NativeSearchBridge }).electronNativeTerminal;
+    return {
+      find: (term, direction) => {
+        return bridge()?.search(session.id, term, direction === 'next').then((found) => {
+          // The native call only reports found/not-found, not a match count —
+          // `count: -1` (neither the ">0" nor the "===0" branch the bar's
+          // label checks) intentionally renders no number for a genuine find,
+          // rather than fabricating a "1/1" that would misstate how many
+          // matches actually exist.
+          const result = found ? { index: 0, count: -1 } : { index: -1, count: 0 };
+          for (const cb of listeners) cb(result);
+        });
+      },
+      clear: () => bridge()?.clearSearch(session.id),
+      onResults: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
+      // No native "make key" call exists (and none was added — the addon's
+      // export budget for this task is exactly attach+2, see the brief). The
+      // user reclaims the terminal with a click, same as any other unfocused
+      // native overlay.
+      focusTerminal: () => {},
+    };
+  }, [session.id]);
+
   if (failed) return <TerminalShellXterm {...props} />;
-  return <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent' }} />;
+  return (
+    <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent', position: 'relative' }}>
+      {searchOpen && onCloseSearch && (
+        <>
+          <TerminalSearchBar ref={searchBarRef} engine={nativeSearchEngine} onClose={onCloseSearch} />
+          {/* A child NSWindow always paints above the parent's web content
+              (Gate A), so this DOM search box would render invisibly BEHIND
+              the native terminal unless that overlay is hidden for as long as
+              the box covers it — see useOverlaySuppression. Scoped to the
+              box's own rect (not the whole tile) so only overlays it actually
+              intersects are affected, matching every other floating surface
+              in the app (Tooltip, ContextMenu, Sheet, ...). Trade-off: this
+              also blanks the terminal content behind the box for the
+              search's duration, unlike the xterm path where highlights stay
+              visible — accepted here rather than building bespoke partial
+              native-window clipping for a find bar. */}
+          <SuppressWhileMounted target={() => searchBarRef.current?.getBoundingClientRect() ?? null} />
+        </>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -64,6 +141,29 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken, suspendResize });
+
+  // Backs the shared TerminalSearchBar with xterm's own SearchAddon +
+  // decorations. Built on stable refs (identity never changes across
+  // renders), so this object stays referentially stable too — the bar's
+  // onResults effect only re-subscribes when the engine identity changes.
+  const xtermSearchEngine = useMemo<TerminalSearchEngine>(() => ({
+    find: (term, direction, options) => {
+      const addon = searchAddonRef.current;
+      if (!addon) return undefined;
+      const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: XTERM_SEARCH_DECORATIONS };
+      if (direction === 'next') addon.findNext(term, { ...opts, incremental: true });
+      else addon.findPrevious(term, opts);
+      return undefined;
+    },
+    clear: () => searchAddonRef.current?.clearDecorations(),
+    onResults: (cb) => {
+      const addon = searchAddonRef.current;
+      if (!addon) return () => {};
+      const sub = addon.onDidChangeResults((r) => cb({ index: r.resultIndex, count: r.resultCount }));
+      return () => sub.dispose();
+    },
+    focusTerminal: () => terminalRef.current?.focus(),
+  }), [searchAddonRef, terminalRef]);
 
   // Refit on focus enter so xterm cols/rows match
   useEffect(() => {
@@ -145,7 +245,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
       }}
     >
       {searchOpen && onCloseSearch && (
-        <TerminalSearchBar searchAddonRef={searchAddonRef} terminalRef={terminalRef} onClose={onCloseSearch} />
+        <TerminalSearchBar engine={xtermSearchEngine} onClose={onCloseSearch} />
       )}
       {focused === false && <div className="argus-tile-overlay" style={{ borderRadius: framed ? 'var(--r-2)' : 0 }} />}
       {isDragOver && (
