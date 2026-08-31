@@ -54,6 +54,13 @@ contextBridge.exposeInMainWorld('electronApp', {
   relaunch: () => {
     ipcRenderer.send('app:relaunch');
   },
+  // Renderer -> main: is a Monaco editor currently focused? Lets main disable
+  // the four menu accelerators that collide with Monaco's own default
+  // keybindings (Cmd+D/E/F/L) while the keystroke needs to reach Monaco
+  // instead of the menu — see electron/src/menuAcceleratorGating.ts.
+  setEditorFocused: (focused: boolean) => {
+    ipcRenderer.send('editor-focus:changed', focused);
+  },
 });
 
 contextBridge.exposeInMainWorld('electronShell', {

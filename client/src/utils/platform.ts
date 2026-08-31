@@ -24,6 +24,10 @@ export interface ElectronAppBridge {
   onMenu(channel: MenuChannel, cb: () => void): () => void;
   /** Relaunch the app (quit + start fresh) — used to apply a startup-only setting. */
   relaunch(): void;
+  /** Report whether a Monaco editor currently has focus, so main can disable the
+   *  four menu accelerators that collide with Monaco's own default keybindings
+   *  (Cmd+D/E/F/L) exactly while the keystroke needs to reach Monaco instead. */
+  setEditorFocused(focused: boolean): void;
 }
 
 export interface ElectronNotificationsBridge {

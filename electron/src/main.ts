@@ -8,6 +8,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon } from './nativeTerminal/types.js';
+import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
@@ -409,6 +410,29 @@ function sendMenuEvent(channel: string): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel);
 }
 
+// Per-window belief about whether a Monaco editor currently has focus in that
+// window (see menuAcceleratorGating.ts). Keyed on the BrowserWindow itself —
+// a WeakMap needs no explicit cleanup when a window closes.
+const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
+
+// Re-derive and apply enabled/disabled for the four Monaco-colliding menu
+// items from whichever window is resolved the same way sendMenuEvent resolves
+// its target — that's the only window whose keystrokes can trigger the
+// accelerator-vs-Monaco-keybinding race in the first place. Re-run on every
+// OS window-focus change too, not just on a new editor-focus report: switching
+// windows changes which window's belief is authoritative even though neither
+// window sent anything new.
+function applyMenuAcceleratorGating(): void {
+  const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
+  const editorFocused = win ? editorFocusByWindow.get(win) : undefined;
+  const enabled = shouldCollidingAcceleratorsBeEnabled(editorFocused);
+  const menu = Menu.getApplicationMenu();
+  for (const channel of COLLIDING_MENU_CHANNELS) {
+    const item = menu?.getMenuItemById(channel);
+    if (item) item.enabled = enabled;
+  }
+}
+
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
 
@@ -503,12 +527,19 @@ function buildAppMenu(): Menu {
       // user who rebinds one in Settings will not see the menu update. The four
       // existing menu items (mod+n, mod+w, mod+k, mod+,) already behave this
       // way; making menus config-driven is a separate change.
+      //
+      // `id` is set on the four that collide with Monaco's own default
+      // keybindings (see menuAcceleratorGating.ts) so applyMenuAcceleratorGating
+      // can look them up and toggle `.enabled` while an editor has focus.
+      // menu:open-shell (Cmd+T) has no Monaco collision and needs no id.
       {
+        id: 'menu:open-diff',
         label: 'Diff for Focused Shell',
         accelerator: 'CmdOrCtrl+D',
         click: () => sendMenuEvent('menu:open-diff'),
       },
       {
+        id: 'menu:open-files',
         label: 'Files for Focused Shell',
         accelerator: 'CmdOrCtrl+E',
         click: () => sendMenuEvent('menu:open-files'),
@@ -519,11 +550,13 @@ function buildAppMenu(): Menu {
         click: () => sendMenuEvent('menu:open-shell'),
       },
       {
+        id: 'menu:terminal-search',
         label: 'Search in Terminal',
         accelerator: 'CmdOrCtrl+F',
         click: () => sendMenuEvent('menu:terminal-search'),
       },
       {
+        id: 'menu:clear-terminal',
         label: 'Clear Scrollback',
         accelerator: 'CmdOrCtrl+L',
         click: () => sendMenuEvent('menu:clear-terminal'),
@@ -904,6 +937,20 @@ async function main() {
 
   // Application menu — gives Cmd+N/W/,/K/Shift+L the native menu-bar treatment.
   Menu.setApplicationMenu(buildAppMenu());
+
+  // Renderer reports Monaco editor focus enter/leave so the four colliding
+  // accelerators (menuAcceleratorGating.ts) can be disabled exactly while an
+  // editor would otherwise lose its own Cmd+D/E/F/L to the menu. The
+  // reporting window is resolved from e.sender, not trusted from the payload —
+  // a renderer must not be able to name an arbitrary window. Also re-applied
+  // on every OS window-focus change, since which window's belief is
+  // authoritative can change without either window reporting anything new.
+  ipcMain.on('editor-focus:changed', (e, focused: boolean) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) editorFocusByWindow.set(win, focused === true);
+    applyMenuAcceleratorGating();
+  });
+  app.on('browser-window-focus', () => applyMenuAcceleratorGating());
 
   // Inject native folder-picker dialog so the server can open macOS directory sheets.
   // Serialize concurrent calls: a double-click/held-shortcut in the renderer must not

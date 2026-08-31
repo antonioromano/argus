@@ -3,6 +3,7 @@ import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
 import { registerSymbolProviders, addSymbolEditorActions, symbolNavContext } from './registerSymbolProviders.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
+import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -41,6 +42,11 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
   // and the timer that clears the flash decoration — both disposed on unmount.
   const layoutWaitRef = useRef<monaco.IDisposable | null>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether THIS instance is currently counted in the shared editor-focus
+  // count (editorFocusReporting.ts). Tracked per-instance so the unmount
+  // cleanup below can decrement exactly once — and only if a final blur never
+  // fired — never double-counting against a blur that already ran.
+  const focusReportedRef = useRef(false);
 
   // Reveal + position the cursor on a line and flash-highlight the whole row,
   // then clear the decoration once the flash settles so no tint lingers.
@@ -127,12 +133,19 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
   }, [codeFontSize]);
 
   // Dispose the pending layout listener + flash timer + decoration on unmount so
-  // no callback fires against a disposed editor.
+  // no callback fires against a disposed editor. Also settle the shared
+  // editor-focus count: if this instance unmounts while still counted focused
+  // (a hard teardown with no final onDidBlurEditorText), decrement here so the
+  // count can never get stuck above zero — see editorFocusReporting.ts.
   useEffect(() => {
     return () => {
       layoutWaitRef.current?.dispose();
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
       decoRef.current?.clear();
+      if (focusReportedRef.current) {
+        focusReportedRef.current = false;
+        noteEditorBlurred();
+      }
     };
   }, []);
 
@@ -153,6 +166,18 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
             onSaveShortcut();
           });
         }
+        // Report focus enter/leave so main can gate the four menu accelerators
+        // that would otherwise steal Monaco's own Cmd+D/E/F/L (see
+        // editorFocusReporting.ts / electron/src/menuAcceleratorGating.ts).
+        editor.onDidFocusEditorText(() => {
+          focusReportedRef.current = true;
+          noteEditorFocused();
+        });
+        editor.onDidBlurEditorText(() => {
+          if (!focusReportedRef.current) return;
+          focusReportedRef.current = false;
+          noteEditorBlurred();
+        });
         if (revealLine) {
           pendingRevealRef.current = { line: revealLine, nonce: revealNonce ?? revealLine };
         }
