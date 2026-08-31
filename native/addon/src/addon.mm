@@ -103,14 +103,33 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
 }
 
 Napi::Value SetFrame(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  // `.As<Napi::Number>()` performs no runtime check. Under
+  // NAPI_DISABLE_CPP_EXCEPTIONS, DoubleValue() on a non-number leaves a JS
+  // exception *pending* and returns 0 — and every further N-API call made while
+  // an exception is pending is undefined behaviour, in practice an abort. So the
+  // geometry has to be validated before any of it is read, the way Create does.
+  if (info.Length() < 5) {
+    Napi::TypeError::New(env, "setFrame(id, x, y, width, height) requires 5 arguments")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  for (size_t i = 1; i <= 4; ++i) {
+    if (!info[i].IsNumber()) {
+      Napi::TypeError::New(env, "setFrame(id, x, y, width, height) requires numeric x, y, width and height")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+  }
+
   OverlayController* c = Lookup(info, nullptr);
-  if (c && info.Length() >= 5) {
+  if (c) {
     [c setFrameWithX:info[1].As<Napi::Number>().DoubleValue()
                    y:info[2].As<Napi::Number>().DoubleValue()
                width:info[3].As<Napi::Number>().DoubleValue()
               height:info[4].As<Napi::Number>().DoubleValue()];
   }
-  return info.Env().Undefined();
+  return env.Undefined();
 }
 
 Napi::Value Feed(const Napi::CallbackInfo& info) {
