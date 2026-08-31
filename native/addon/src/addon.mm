@@ -148,7 +148,12 @@ Napi::Value Reparent(const Napi::CallbackInfo& info) {
   OverlayController* c = Lookup(info, nullptr);
   if (c) {
     NSView* view = *reinterpret_cast<NSView* __unsafe_unretained*>(buf.Data());
-    [c reparentTo:[view window]];
+    NSWindow* parent = [view window];
+    if (parent == nil) {
+      Napi::Error::New(env, "parent NSView has no NSWindow").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    [c reparentTo:parent];
   }
   return env.Undefined();
 }

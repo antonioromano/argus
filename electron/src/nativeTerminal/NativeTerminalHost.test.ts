@@ -10,7 +10,7 @@ function fakeAddon() {
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
-  const failNext: Partial<Record<'create' | 'feed' | 'setFrame', boolean>> = {};
+  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: () => {
       calls.push(`create:${next}`);
@@ -21,7 +21,10 @@ function fakeAddon() {
       calls.push(`setFrame:${id}:${x},${y},${w},${h}`);
       if (failNext.setFrame) { failNext.setFrame = false; throw new Error('setFrame failed'); }
     },
-    reparent: (id, h) => calls.push(`reparent:${id}`),
+    reparent: (id) => {
+      calls.push(`reparent:${id}`);
+      if (failNext.reparent) { failNext.reparent = false; throw new Error('reparent failed'); }
+    },
     show: (id) => calls.push(`show:${id}`),
     hide: (id) => calls.push(`hide:${id}`),
     destroy: (id) => calls.push(`destroy:${id}`),
@@ -173,6 +176,32 @@ test('re-attaching to the SAME window does not reparent', () => {
   host.attach('s1', winA, RECT);
   host.attach('s1', winA, RECT);
   assert.ok(!calls.some((c) => c.startsWith('reparent:')), 'a same-window re-attach is just a setFrame');
+});
+
+test('a failing reparent leaves parentBySession unchanged, so the next attach retries', () => {
+  const { addon, calls, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  failNext.reparent = true;
+  host.attach('s1', winB, RECT);                   // reparent throws — must not throw out
+  assert.equal(calls.filter((c) => c.startsWith('reparent:')).length, 1, 'first reparent attempt');
+  host.attach('s1', winB, RECT);                    // still believes it's on winA — must retry
+  assert.equal(calls.filter((c) => c.startsWith('reparent:')).length, 2,
+    `expected a second reparent attempt after the first failed, got ${calls.join(',')}`);
+});
+
+test('a successful reparent records the new parent, so a repeat attach does not reparent again', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);                    // reparent succeeds
+  host.attach('s1', winB, RECT);                    // same window again — no-op
+  assert.equal(calls.filter((c) => c.startsWith('reparent:')).length, 1,
+    `expected exactly one reparent call total, got ${calls.join(',')}`);
 });
 
 // --- JS/native boundary guards -------------------------------------------

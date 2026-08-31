@@ -100,10 +100,14 @@ export class NativeTerminalHost {
       if (this.parentBySession.get(sessionId) !== parentKey) {
         try {
           this.addon.reparent(id, parentHandle);
+          // Only record success: a failed reparent leaves the overlay on its
+          // old (real) parent, and the tracked key must reflect that so the
+          // next attach() sees the mismatch again and retries, rather than
+          // believing the move already happened and stranding the overlay.
+          this.parentBySession.set(sessionId, parentKey);
         } catch (err) {
           console.error('[native-term] reparent failed for', sessionId, err);
         }
-        this.parentBySession.set(sessionId, parentKey);
       }
     }
     try {
