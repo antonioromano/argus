@@ -28,6 +28,20 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
   const ref = useRef<HTMLDivElement>(null);
   const lastRectKey = useRef<string>('');
 
+  // Mirror the latest onFailure into a ref rather than depending on it
+  // directly in the effect below. Callers (TerminalShellNativeHole) build
+  // `() => setFailed(true)` inline, so a fresh identity arrives on every
+  // render — status/focused/searchOpen/... all change during ordinary use.
+  // Depending on it directly would tear the overlay down and recreate it
+  // (a real NSWindow, via addon.destroy/create) on every such re-render
+  // instead of only on session/enabled changes. Keeping the ref inside the
+  // hook — rather than requiring every caller to useCallback it — is more
+  // robust against a future caller forgetting to memoize.
+  const onFailureRef = useRef(onFailure);
+  useEffect(() => {
+    onFailureRef.current = onFailure;
+  });
+
   useEffect(() => {
     if (!enabled) return;
     const api = (window as Window & { electronNativeTerminal?: NativeTerminalBridge }).electronNativeTerminal;
@@ -60,7 +74,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       // fire onFailure for a session the caller has moved on from.
       if (cancelled) return;
       if (!ok) {
-        onFailure?.();
+        onFailureRef.current?.();
         return;
       }
       // Seed with the rect we just attached with — not '' — so the first
@@ -83,7 +97,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       window.removeEventListener('scroll', report, true);
       api.detach(sessionId);
     };
-  }, [sessionId, enabled, onFailure]);
+  }, [sessionId, enabled]);
 
   return ref;
 }

@@ -17,6 +17,16 @@ function Probe({ enabled, onFailure }: { enabled: boolean; onFailure?: () => voi
   return <div ref={ref} data-testid="hole" />;
 }
 
+// Mirrors how TerminalShellNativeHole actually calls the hook: a fresh
+// `() => setFailed(true)` closure constructed inline on every render. `tick`
+// is an unrelated prop (stands in for status/focused/searchOpen/... changing
+// during ordinary use) that forces a re-render without touching sessionId or
+// enabled.
+function ProbeWithInlineOnFailure({ tick }: { tick: number }) {
+  const ref = useNativeOverlayRect('s1', true, () => {});
+  return <div ref={ref} data-testid="hole" data-tick={tick} />;
+}
+
 describe('useNativeOverlayRect', () => {
   it('attaches with the hole rect when enabled', () => {
     const c = document.createElement('div');
@@ -68,6 +78,27 @@ describe('useNativeOverlayRect', () => {
     expect(onFailure).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
+
+  // Regression: TerminalShellNativeHole calls the hook with an inline
+  // `() => setFailed(true)` closure, so a NEW `onFailure` function identity
+  // arrives on every render of that component (status/focused/searchOpen/...
+  // all change during ordinary use, and it isn't memoized upstream). If the
+  // hook's effect depends on `onFailure` directly, that new identity tears
+  // down and recreates the overlay — a real NSWindow via addon.destroy/create
+  // — on every such re-render, not just on session/enabled changes.
+  it('does not tear down and recreate the overlay when only an unrelated prop re-renders the caller', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<ProbeWithInlineOnFailure tick={1} />); });
+    expect(api.attach).toHaveBeenCalledTimes(1);
+
+    await act(async () => { root.render(<ProbeWithInlineOnFailure tick={2} />); });
+    expect(api.attach).toHaveBeenCalledTimes(1);
+    expect(api.detach).not.toHaveBeenCalled();
+
+    await act(async () => root.unmount());
+  });
 });
 
 /**
@@ -84,7 +115,15 @@ class FakeResizeObserver {
     this.cb = cb;
     FakeResizeObserver.instances.push(this);
   }
-  observe() {}
+  observe() {
+    // The real ResizeObserver contract delivers one initial notification as
+    // soon as observation starts, carrying the size AT THAT MOMENT — not
+    // only on later changes. The hook's async-window safety net (a geometry
+    // change that lands while `attach()` is still pending, before observers
+    // are installed) relies on exactly this initial delivery to self-heal;
+    // a no-op stub here would let that reliance go unverified.
+    this.trigger();
+  }
   unobserve() {}
   disconnect() {}
   /** Simulate the browser invoking the observer's callback. */
@@ -188,5 +227,36 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
     Object.defineProperty(window, 'scrollX', { value: originalScrollX, configurable: true });
     Object.defineProperty(window, 'scrollY', { value: originalScrollY, configurable: true });
+  });
+
+  it('a geometry change while attach() is still pending is not lost — the observer self-heals it on install', async () => {
+    // attach() is now awaited, so there's a window between "measure the
+    // initial rect" and "install the ResizeObserver" during which the hole
+    // can move without anything watching it yet. The safety net this test
+    // proves: ResizeObserver.observe() delivers one notification immediately
+    // with the CURRENT size, so a change that happened during the await is
+    // picked up as soon as observers install, not lost.
+    let resolveAttach!: (ok: boolean) => void;
+    api.attach.mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolveAttach = resolve; }));
+
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+
+    // attach() saw the ORIGINAL rect and is still pending.
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 301, height: 150 });
+    expect(api.setRect).not.toHaveBeenCalled();
+
+    // The hole moves while attach() is in flight — nothing is observing yet.
+    currentRect = { x: 99, y: 88, width: 400, height: 300 };
+
+    // Resolving now installs the ResizeObserver, which immediately reports
+    // the CURRENT (moved) rect rather than the stale one attach() saw.
+    await act(async () => { resolveAttach(true); });
+
+    expect(api.setRect).toHaveBeenCalledWith('s1', { x: 99, y: 88, width: 400, height: 300 });
+
+    await act(async () => root.unmount());
   });
 });
