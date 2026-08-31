@@ -38,6 +38,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
 import { formatCombo } from '../../keyboard/combo.js';
+import { useNativeEngine } from '../../hooks/useNativeEngine.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -105,6 +106,10 @@ const MAX_TILES = 12;
 const TEAR_OFF_MARGIN = 40;
 
 export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
+  // Resolved once here (not per-tile) so every tile agrees and the decision
+  // stays a stable boolean — a fresh per-tile hook call could resolve async
+  // availability at different times and momentarily disagree across tiles.
+  const nativeEngine = useNativeEngine();
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -403,6 +408,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   isNotified={notifiedTileId === s.id}
                   quickAction={quickAction}
                   runningIndicator={runningIndicator}
+                  nativeEngine={nativeEngine}
                 />
               ))}
             </div>
@@ -488,6 +494,10 @@ type MosaicTileSharedProps = {
   /** Pinned header action + running-progress treatment, both from config. */
   quickAction: TileQuickAction;
   runningIndicator: TileRunningIndicator;
+  /** Native terminal engine decision (see useNativeEngine), resolved once by
+   *  the Mosaic root and threaded down as a stable boolean so it can't bust
+   *  MosaicTile's memo. */
+  nativeEngine: boolean;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -614,6 +624,7 @@ function MosaicTileInner({
   onCloseSearch,
   quickAction,
   runningIndicator,
+  nativeEngine,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
@@ -831,7 +842,7 @@ function MosaicTileInner({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} useNative={nativeEngine} />
         </ErrorBoundary>
       </div>
     </div>

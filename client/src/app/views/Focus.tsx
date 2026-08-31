@@ -12,6 +12,7 @@ import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
+import { useNativeEngine } from '../../hooks/useNativeEngine.js';
 // Monaco-backed workbench panels are lazy-loaded so the heavy editor bundle is
 // only fetched when a user actually opens the code explorer / diff view
 // (e.g. /mobile never mounts these).
@@ -116,22 +117,8 @@ export function Focus({
 
   // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
   // then confirm the addon actually loaded in this process before trusting it.
-  // Focus view only — the mosaic keeps rendering xterm.js everywhere else.
-  const nativeTerminalRequested = import.meta.env.VITE_ARGUS_NATIVE_TERM === '1';
-  const [nativeTerminalAvailable, setNativeTerminalAvailable] = useState(false);
-  useEffect(() => {
-    if (!nativeTerminalRequested) return;
-    const api = (window as Window & { electronNativeTerminal?: { available: () => Promise<boolean> } }).electronNativeTerminal;
-    if (!api) return;
-    let cancelled = false;
-    api.available().then((ok) => {
-      if (!cancelled) setNativeTerminalAvailable(ok);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [nativeTerminalRequested]);
-  const useNativeTerminal = nativeTerminalRequested && nativeTerminalAvailable;
+  // Shared with Mosaic via useNativeEngine so the two surfaces cannot disagree.
+  const useNativeTerminal = useNativeEngine();
 
   const sendInput = (data: string) => {
     socket.emit('session:input', { sessionId: active.id, data });
