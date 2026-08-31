@@ -55,6 +55,24 @@ contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
 
+// Native terminal overlay bridge (Phase 1, opt-in via ARGUS_NATIVE_TERM). A
+// new flat namespace, matching the existing electronFiles / electronDialog /
+// electronApp convention — there is no `window.argus` object in this codebase.
+interface NativeTerminalRect { x: number; y: number; width: number; height: number }
+
+contextBridge.exposeInMainWorld('electronNativeTerminal', {
+  available: (): Promise<boolean> => ipcRenderer.invoke('native-term:available'),
+  attach: (sessionId: string, rect: NativeTerminalRect): void => {
+    ipcRenderer.send('native-term:attach', { sessionId, rect });
+  },
+  setRect: (sessionId: string, rect: NativeTerminalRect): void => {
+    ipcRenderer.send('native-term:rect', { sessionId, rect });
+  },
+  detach: (sessionId: string): void => {
+    ipcRenderer.send('native-term:detach', { sessionId });
+  },
+});
+
 contextBridge.exposeInMainWorld('electronNotifications', {
   show: (payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean; attributeToApp?: boolean }): void => {
     ipcRenderer.send('notif:show', payload);

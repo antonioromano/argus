@@ -2,9 +2,12 @@ import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notifica
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import { createRequire } from 'module';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
+import type { NativeTerminalAddon } from './nativeTerminal/types.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
@@ -240,6 +243,25 @@ function startPhase2(loginShell: string, logFile: string, lockFile: string): voi
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// This module compiles to ESM ('type: module' at the repo root), but the
+// native addon is a CommonJS .node binding — `import` can't load it directly.
+// createRequire gives us a scoped `require` for that one load.
+const nativeRequire = createRequire(import.meta.url);
+
+/** Phase 1 is opt-in. A missing or broken addon must degrade to web, never throw. */
+function loadNativeTerminalAddon(): NativeTerminalAddon | null {
+  if (process.env.ARGUS_NATIVE_TERM !== '1' || process.platform !== 'darwin') return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return nativeRequire('../../native/addon/build/Release/argus_native_terminal.node');
+  } catch (err) {
+    console.warn('[native-term] addon unavailable, using xterm.js:', err);
+    return null;
+  }
+}
+
+let nativeTerminal: NativeTerminalHost | null = null;
 
 let shutdownServer: (() => Promise<void>) | null = null;
 let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
@@ -513,6 +535,30 @@ async function main() {
   // Dynamic import after env vars are set so the server picks them up correctly.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const server = await import('../../server/dist/index.js') as any;
+
+  // Native terminal overlay (Phase 1, opt-in via ARGUS_NATIVE_TERM). The host
+  // is inert (isAvailable() === false, every call a no-op) when the addon
+  // didn't load, so wiring it unconditionally is safe with the flag unset.
+  const sm = server.getSessionManager();
+  nativeTerminal = new NativeTerminalHost({
+    addon: loadNativeTerminalAddon(),
+    onOutput: (cb: (sessionId: string, data: string) => void) => sm.onOutput(cb),
+    writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
+    resizeSession: (id: string, c: number, r: number) => sm.resizeSession(id, c, r),
+    getReplaySnapshot: (id: string) => sm.getReplaySnapshot(id),
+  });
+
+  ipcMain.on('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
+  });
+  ipcMain.on('native-term:rect', (_e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+    nativeTerminal!.setRect(sessionId, rect);
+  });
+  ipcMain.on('native-term:detach', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.detach(sessionId);
+  });
+  ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
   // Native message box — used by the renderer for confirmations (delete, close session, etc.)
   ipcMain.handle('dialog:showMessageBox', async (event, opts: Electron.MessageBoxOptions) => {
@@ -930,6 +976,8 @@ app.on('before-quit', (e) => {
     saveAllWindowStates();
     // Signal the window close-handler that this is a real quit, not a hide.
     setAppQuitting(true);
+    // Tear down any native terminal overlays (no-op when the addon never loaded).
+    nativeTerminal?.dispose();
 
     // Default quit detaches (keep-alive); stop-all terminates every agent.
     const chosen = wantStopAll ? shutdownServerStoppingAll : shutdownServer;
