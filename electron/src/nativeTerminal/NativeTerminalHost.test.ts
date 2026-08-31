@@ -21,6 +21,7 @@ function fakeAddon() {
       calls.push(`setFrame:${id}:${x},${y},${w},${h}`);
       if (failNext.setFrame) { failNext.setFrame = false; throw new Error('setFrame failed'); }
     },
+    reparent: (id, h) => calls.push(`reparent:${id}`),
     show: (id) => calls.push(`show:${id}`),
     hide: (id) => calls.push(`hide:${id}`),
     destroy: (id) => calls.push(`destroy:${id}`),
@@ -152,6 +153,26 @@ test('attaching twice reuses the existing overlay', () => {
   host.attach('s1', HANDLE, { x: 1, y: 2, width: 9, height: 9 });
   assert.equal(calls.filter((c) => c.startsWith('create:')).length, 1);
   assert.ok(calls.includes('setFrame:1:1,2,9,9'));
+});
+
+test('attaching a session to a different window reparents its overlay', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);
+  assert.equal(calls.filter((c) => c.startsWith('create:')).length, 1, 'must not create a second overlay');
+  assert.ok(calls.some((c) => c.startsWith('reparent:1')), `expected a reparent, got ${calls.join(',')}`);
+});
+
+test('re-attaching to the SAME window does not reparent', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winA, RECT);
+  assert.ok(!calls.some((c) => c.startsWith('reparent:')), 'a same-window re-attach is just a setFrame');
 });
 
 // --- JS/native boundary guards -------------------------------------------

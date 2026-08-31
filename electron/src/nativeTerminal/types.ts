@@ -5,6 +5,7 @@ export interface Rect { x: number; y: number; width: number; height: number }
 export interface NativeTerminalAddon {
   create(parentHandle: Buffer): number;
   setFrame(id: number, x: number, y: number, w: number, h: number): void;
+  reparent(id: number, parentHandle: Buffer): void;
   show(id: number): void;
   hide(id: number): void;
   destroy(id: number): void;

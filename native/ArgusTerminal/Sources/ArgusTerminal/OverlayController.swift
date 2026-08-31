@@ -31,6 +31,12 @@ final class KeyableWindow: NSWindow {
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
   /// BrowserWindow.getNativeWindowHandle().
   @objc public func attach(to parent: NSWindow) {
+    // Idempotent: a second attach reparents rather than orphaning the first
+    // window. Without this, the old window leaks with nothing referencing it.
+    if window != nil {
+      reparent(to: parent)
+      return
+    }
     let w = KeyableWindow(contentRect: terminalView.frame,
                           styleMask: [.borderless], backing: .buffered, defer: false)
     w.contentView = terminalView
@@ -40,6 +46,18 @@ final class KeyableWindow: NSWindow {
     parent.addChildWindow(w, ordered: .above)
     window = w
   }
+
+  /// Move an existing overlay to a different parent window. Argus supports
+  /// multiple windows and a session can move between them.
+  @objc public func reparent(to parent: NSWindow) {
+    guard let w = window else { return }
+    w.parent?.removeChildWindow(w)
+    parent.addChildWindow(w, ordered: .above)
+  }
+
+  // Test seams — not @objc, so invisible across the ObjC++ boundary.
+  public func debugWindowNumber() -> Int { window.map { Int($0.windowNumber) } ?? -1 }
+  public func debugParentWindowNumber() -> Int { window?.parent.map { Int($0.windowNumber) } ?? -1 }
 
   @objc public func feed(data: NSData) {
     let bytes = [UInt8](Data(referencing: data))

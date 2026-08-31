@@ -132,6 +132,27 @@ Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+Napi::Value Reparent(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[1].IsBuffer()) {
+    Napi::TypeError::New(env, "reparent(id, parentHandle) requires a Buffer handle")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto buf = info[1].As<Napi::Buffer<char>>();
+  if (buf.Length() < sizeof(void*)) {
+    Napi::TypeError::New(env, "reparent(id, parentHandle): handle too small")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) {
+    NSView* view = *reinterpret_cast<NSView* __unsafe_unretained*>(buf.Data());
+    [c reparentTo:[view window]];
+  }
+  return env.Undefined();
+}
+
 Napi::Value Feed(const Napi::CallbackInfo& info) {
   OverlayController* c = Lookup(info, nullptr);
   if (c && info.Length() >= 2 && info[1].IsBuffer()) {
@@ -185,6 +206,7 @@ Napi::Value OnResize(const Napi::CallbackInfo& info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
+  exports.Set("reparent", Napi::Function::New(env, Reparent));
   exports.Set("show", Napi::Function::New(env, Show));
   exports.Set("hide", Napi::Function::New(env, Hide));
   exports.Set("destroy", Napi::Function::New(env, Destroy));

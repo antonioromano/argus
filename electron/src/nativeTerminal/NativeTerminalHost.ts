@@ -23,6 +23,7 @@ export class NativeTerminalHost {
   private readonly deps: HostDeps;
   private readonly bySession = new Map<string, number>();
   private readonly byOverlay = new Map<number, string>();
+  private readonly parentBySession = new Map<string, string>();
   private unsubscribe?: () => void;
 
   constructor(deps: HostDeps) {
@@ -80,6 +81,7 @@ export class NativeTerminalHost {
       }
       this.bySession.set(sessionId, id);
       this.byOverlay.set(id, sessionId);
+      this.parentBySession.set(sessionId, parentHandle.toString('base64'));
       // Seed with the same replay frame a joining socket gets, so the native
       // view opens on the current screen instead of an empty one. Best-effort:
       // once create() has succeeded the overlay is a real native window, and
@@ -91,6 +93,17 @@ export class NativeTerminalHost {
         if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
       } catch (err) {
         console.error('[native-term] replay seed failed for', sessionId, err);
+      }
+    } else {
+      // A session can move between Argus windows; the overlay must follow it.
+      const parentKey = parentHandle.toString('base64');
+      if (this.parentBySession.get(sessionId) !== parentKey) {
+        try {
+          this.addon.reparent(id, parentHandle);
+        } catch (err) {
+          console.error('[native-term] reparent failed for', sessionId, err);
+        }
+        this.parentBySession.set(sessionId, parentKey);
       }
     }
     try {
@@ -144,6 +157,7 @@ export class NativeTerminalHost {
     // teardown itself failed.
     this.bySession.delete(sessionId);
     this.byOverlay.delete(id);
+    this.parentBySession.delete(sessionId);
   }
 
   dispose(): void {

@@ -41,4 +41,33 @@ final class ShimTests: XCTestCase {
     c.clearScrollback()
     XCTAssertEqual(c.debugRow(0), before)
   }
+
+  func testAttachTwiceDoesNotLeakTheFirstWindow() {
+    // attach(to:) previously had no guard: a second call overwrote `window`,
+    // orphaning a real NSWindow with no reference to close it.
+    let c = OverlayController(width: 200, height: 100)
+    let a = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    let b = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: a)
+    let first = c.debugWindowNumber()
+    c.attach(to: b)
+    XCTAssertEqual(c.debugWindowNumber(), first, "a second attach must not create a second window")
+    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber, "it must reparent instead")
+  }
+
+  func testReparentMovesTheChildToTheNewParent() {
+    let c = OverlayController(width: 200, height: 100)
+    let a = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    let b = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: a)
+    XCTAssertEqual(c.debugParentWindowNumber(), a.windowNumber)
+    c.reparent(to: b)
+    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber)
+    XCTAssertFalse(a.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
+                   "the old parent must no longer own the child")
+  }
 }
