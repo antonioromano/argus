@@ -3,6 +3,7 @@ import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { useTerminal } from '../../hooks/useTerminal.js';
+import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
@@ -33,13 +34,27 @@ interface TerminalShellProps {
   requestFocusToken?: number;
   /** True while a layout divider is being dragged — holds back pty resizes (see useTerminal). */
   suspendResize?: boolean;
+  /** Render a transparent hole for a native terminal overlay instead of mounting xterm.js. Phase 1, Focus view only. */
+  useNative?: boolean;
+}
+
+/**
+ * Transparent "hole" a native terminal overlay window is positioned over.
+ * A distinct component (not a branch inside TerminalShellXterm) so that
+ * switching `useNative` unmounts/mounts cleanly instead of conditionally
+ * calling useTerminal — that would leave xterm mounted underneath, or skip
+ * its teardown, depending on render order.
+ */
+function TerminalShellNativeHole({ sessionId }: { sessionId: string }) {
+  const holeRef = useNativeOverlayRect(sessionId, true);
+  return <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent' }} />;
 }
 
 /**
  * xterm.js container. Interior is fully owned by useTerminal — this wrapper
  * supplies the status-colored frame only. Refit via 'terminal:refit' window event.
  */
-function TerminalShellInner({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken, suspendResize = false }: TerminalShellProps) {
+function TerminalShellXterm({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken, suspendResize = false }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken, suspendResize });
@@ -157,7 +172,22 @@ function TerminalShellInner({ session, socket, theme, status, focused, onFocusCh
   );
 }
 
+/**
+ * Routes between the native hole and the xterm.js shell. `useNative` is
+ * expected to be stable for a given session (decided once, from a build
+ * flag + an availability check) — routing via component type, rather than
+ * an early return inside a single component, means a flip still tears down
+ * the previous path's hooks/effects correctly instead of calling useTerminal
+ * conditionally.
+ */
+function TerminalShellRouter(props: TerminalShellProps) {
+  if (props.useNative) {
+    return <TerminalShellNativeHole sessionId={props.session.id} />;
+  }
+  return <TerminalShellXterm {...props} />;
+}
+
 // Memoized: the mosaic parent re-renders on every focus/animation state change,
 // but TerminalShell only needs to re-render when its own props change. Props
 // passed in (onFocusChange, onOpenSearch, onCloseSearch) are stabilized upstream.
-export const TerminalShell = memo(TerminalShellInner);
+export const TerminalShell = memo(TerminalShellRouter);

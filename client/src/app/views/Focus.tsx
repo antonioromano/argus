@@ -114,6 +114,25 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
+  // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
+  // then confirm the addon actually loaded in this process before trusting it.
+  // Focus view only — the mosaic keeps rendering xterm.js everywhere else.
+  const nativeTerminalRequested = import.meta.env.VITE_ARGUS_NATIVE_TERM === '1';
+  const [nativeTerminalAvailable, setNativeTerminalAvailable] = useState(false);
+  useEffect(() => {
+    if (!nativeTerminalRequested) return;
+    const api = (window as Window & { electronNativeTerminal?: { available: () => Promise<boolean> } }).electronNativeTerminal;
+    if (!api) return;
+    let cancelled = false;
+    api.available().then((ok) => {
+      if (!cancelled) setNativeTerminalAvailable(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [nativeTerminalRequested]);
+  const useNativeTerminal = nativeTerminalRequested && nativeTerminalAvailable;
+
   const sendInput = (data: string) => {
     socket.emit('session:input', { sessionId: active.id, data });
   };
@@ -305,6 +324,7 @@ export function Focus({
                   onCloseSearch={onCloseSearch}
                   requestFocusToken={focusToken}
                   suspendResize={isResizing}
+                  useNative={useNativeTerminal}
                 />
               </ErrorBoundary>
             </div>
