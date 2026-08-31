@@ -1,7 +1,7 @@
 # Native Terminal Engine (SwiftTerm) — Design
 
 Date: 2026-08-28
-Status: Draft — awaiting review
+Status: Approved. Phase 1 implemented and merged-ready (branch feat/native-terminal-engine, 2026-08-31).
 
 ## Summary
 
@@ -305,9 +305,40 @@ still attach over xterm.js simultaneously.
 (create/hide/destroy/pre-warm), intersection-based suppression plus its contract
 test, multi-window parenting.
 
+Three requirements carried forward from Phase 1's final review (2026-08-31),
+all unreachable with the Phase 1 flags off:
+
+- **Reparenting.** `NativeTerminalHost.attach()` reuses an existing overlay by
+  `sessionId` and ignores `parentHandle` on the reuse path, while the addon calls
+  Swift `attachTo:` exactly once at creation with no reparent entry point. A
+  session attached from a second window would keep an overlay parented to the
+  first. Multi-window parenting must add a reparent path (and revisit Swift
+  `attach(to:)`'s missing double-call guard at the same time).
+- **Per-session fallback on attach failure.** The renderer decides `useNative`
+  from a one-time `available()` check, so if `create()` fails for one session the
+  user gets a permanently blank transparent hole with no fallback. Attach failure
+  must fall back to xterm.js for that session.
+- **Explicit detach on session exit.** Nothing calls `detach()` when a session
+  exits or is deleted; cleanup relies entirely on the React unmount path. It
+  works today but is implicit — needs a direct test.
+
+**Alt-screen seeding.** `getReplaySnapshot` is narrowed to `{data}`, so
+`alternate`/`appMouse`/`sgr` are not seeded. A native overlay attached to a
+session already in an alt-screen app (vim, htop) opens garbled until the next
+full repaint. Widen the seed when Phase 2 makes attach common.
+
 **Phase 3 — product surface.** `terminalEngine` in the schema, Create/Clone
 pickers, Settings default, menu-accelerator migration for the five bindings,
 search and clear wiring, fallback paths, packaging for both arches.
+
+**Packaging is entirely unwired as of Phase 1** (confirmed by final review):
+`build:native` exists but is in neither `build:all` nor `package:mac`, and
+`electron-builder.config.cjs` is untouched — no `asarUnpack` for the `.node`, no
+`extraResources` for the dylib. The packaged app therefore contains no addon at
+all today, which is why the dev-tree rpath
+(`@loader_path/../../../ArgusTerminal/.build/release`) has not yet mattered. All
+of it must be wired before Phase 3 ships, including the interaction with
+`afterPack.cjs`'s ad-hoc signing.
 
 Each phase gets its own implementation plan. Phase 1 is the one that can still
 kill the approach cheaply.
