@@ -11,8 +11,8 @@ export interface NativeTerminalAddon {
   destroy(id: number): void;
   feed(id: number, data: Buffer): void;
   clearScrollback(id: number): void;
-  search(id: number, term: string, forward: boolean): boolean;
-  clearSearch(id: number): void;
+  openFindBar(id: number): void;
+  closeFindBar(id: number): void;
   onInput(cb: (id: number, data: Buffer) => void): void;
   onResize(cb: (id: number, cols: number, rows: number) => void): void;
 }

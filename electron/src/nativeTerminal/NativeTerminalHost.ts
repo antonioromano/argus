@@ -137,29 +137,32 @@ export class NativeTerminalHost {
   }
 
   /**
-   * Search the native overlay for `term`. Returns whether a match was found —
-   * false for a session with no attached overlay (nothing to search) or when
-   * the addon call throws, matching every other native call's degrade-rather-
-   * than-throw contract.
+   * Opens SwiftTerm's OWN find bar for this overlay (see task-6's reversal:
+   * a DOM search box can never paint above a native tile's child NSWindow,
+   * so the renderer no longer sends a search term here — it just toggles
+   * SwiftTerm's own bar, which lives inside that window and owns its own
+   * typing/next/prev/options). No-op for a session with no attached overlay
+   * or when the addon call throws, matching every other native call's
+   * degrade-rather-than-throw contract.
    */
-  search(sessionId: string, term: string, forward: boolean): boolean {
-    const id = this.bySession.get(sessionId);
-    if (id === undefined || !this.addon) return false;
-    try {
-      return this.addon.search(id, term, forward);
-    } catch (err) {
-      console.error('[native-term] search failed for', sessionId, err);
-      return false;
-    }
-  }
-
-  clearSearch(sessionId: string): void {
+  openFindBar(sessionId: string): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
     try {
-      this.addon.clearSearch(id);
+      this.addon.openFindBar(id);
     } catch (err) {
-      console.error('[native-term] clearSearch failed for', sessionId, err);
+      console.error('[native-term] openFindBar failed for', sessionId, err);
+    }
+  }
+
+  /** Closes the native find bar and clears its search highlight/selection. */
+  closeFindBar(sessionId: string): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.closeFindBar(id);
+    } catch (err) {
+      console.error('[native-term] closeFindBar failed for', sessionId, err);
     }
   }
 

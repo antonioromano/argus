@@ -86,4 +86,27 @@ final class ShimTests: XCTestCase {
     c.clearScrollback()
     XCTAssertEqual(c.debugRow(0), "findme")
   }
+
+  func testOpenFindBarShowsSwiftTermsOwnFindBar() {
+    let c = OverlayController(width: 400, height: 200)
+    XCTAssertFalse(c.debugFindBarVisible(), "no find bar until opened")
+    c.openFindBar()
+    XCTAssertTrue(c.debugFindBarVisible())
+  }
+
+  func testCloseFindBarHidesItAndIsSafeWithoutAPriorSearch() {
+    let c = OverlayController(width: 400, height: 200)
+    c.openFindBar()
+    XCTAssertTrue(c.debugFindBarVisible())
+    c.closeFindBar()
+    XCTAssertFalse(c.debugFindBarVisible())
+  }
+
+  func testOpenFindBarIsIdempotent() {
+    // A second Cmd+F while already open must re-focus, not create a second bar.
+    let c = OverlayController(width: 400, height: 200)
+    c.openFindBar()
+    c.openFindBar()
+    XCTAssertTrue(c.debugFindBarVisible())
+  }
 }

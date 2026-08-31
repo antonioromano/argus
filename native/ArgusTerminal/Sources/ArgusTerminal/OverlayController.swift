@@ -76,10 +76,11 @@ final class KeyableWindow: NSWindow {
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
   /// Search forward or backward for `term`, selecting and scrolling the match
-  /// into view. Returns whether a match was found so the renderer can show a
-  /// no-results state. Drives SwiftTerm's own search machinery
-  /// (TerminalViewSearch.swift's findNext/findPrevious, backed by SearchEngine)
-  /// rather than reimplementing it.
+  /// into view. Returns whether a match was found. Drives SwiftTerm's own
+  /// search machinery (TerminalViewSearch.swift's findNext/findPrevious,
+  /// backed by SearchEngine) rather than reimplementing it. Not exposed to
+  /// the addon (see openFindBar/closeFindBar below) — kept as a Swift-level
+  /// seam so ShimTests can drive a search without a visible find bar.
   @objc public func search(_ term: String, forward: Bool) -> Bool {
     forward ? terminalView.findNext(term) : terminalView.findPrevious(term)
   }
@@ -87,6 +88,52 @@ final class KeyableWindow: NSWindow {
   /// Clears the current search selection/highlight. Does not touch scrollback.
   @objc public func clearSearch() {
     terminalView.clearSearch()
+  }
+
+  /// Opens SwiftTerm's OWN find bar (TerminalFindBarView, embedded as a
+  /// subview of the terminal view itself) rather than reusing Argus's DOM
+  /// `TerminalSearchBar`. A child NSWindow always paints above the parent's
+  /// web content (Phase 2 Gate A) — a DOM search box over a native tile would
+  /// render invisibly behind it, and the only way around that without
+  /// blanking the tile for the search's duration is to render the box
+  /// *inside* the same NSWindow as the terminal. SwiftTerm already ships
+  /// exactly that; `performTextFinderAction` is its public, `open` entry
+  /// point (the find bar itself — `TerminalFindBarView`/`ensureFindBar()`/
+  /// `showFindBar()` — is private to SwiftTerm's own file, not reachable
+  /// directly). Idempotent: calling this while already open just refocuses
+  /// the search field, which is also the right behavior for a repeated
+  /// Cmd+F.
+  @objc public func openFindBar() {
+    performFindPanelAction(NSTextFinder.Action.showFindInterface)
+  }
+
+  /// Closes SwiftTerm's find bar and clears the search highlight/selection.
+  /// `performTextFinderAction(.hideFindInterface)` alone only hides the bar —
+  /// it does not clear the match state, so `clearSearch()` is called
+  /// explicitly to guarantee closing always leaves no stale highlight behind.
+  @objc public func closeFindBar() {
+    performFindPanelAction(NSTextFinder.Action.hideFindInterface)
+    terminalView.clearSearch()
+  }
+
+  /// `performTextFinderAction(_:)` (and its sibling `performFindPanelAction`)
+  /// only accept an `NSMenuItem` — SwiftTerm reads `.tag`, nothing else off
+  /// it, so a throwaway item with no title/action is enough to drive it from
+  /// outside as if a Find menu item had been clicked.
+  private func performFindPanelAction(_ action: NSTextFinder.Action) {
+    let item = NSMenuItem()
+    item.tag = action.rawValue
+    terminalView.performTextFinderAction(item)
+  }
+
+  // Test seam: SwiftTerm's find bar (`TerminalFindBarView`) is a private type
+  // inside its own module, and `internal` to SwiftTerm even where it isn't
+  // file-private — neither is nameable or reachable from ArgusTerminal. It is
+  // publicly known to be an `NSVisualEffectView` subclass though, and nothing
+  // else `TerminalView` adds as a direct subview is one, so that's the only
+  // externally-visible signal of its presence/visibility.
+  public func debugFindBarVisible() -> Bool {
+    terminalView.subviews.first(where: { $0 is NSVisualEffectView })?.isHidden == false
   }
 
   @objc public func destroy() {

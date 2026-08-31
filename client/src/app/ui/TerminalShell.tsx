@@ -5,7 +5,6 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { ISearchOptions } from '@xterm/addon-search';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
-import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
@@ -23,12 +22,13 @@ const XTERM_SEARCH_DECORATIONS = {
 };
 
 /** The slice of the native-terminal preload bridge this shell drives directly
- *  (search is a plain control action on an already-attached overlay — see
- *  electron/src/main.ts's native-term:search/clear-search handlers — unlike
- *  attach/detach it needs no window-scoping). */
-interface NativeSearchBridge {
-  search(sessionId: string, term: string, forward: boolean): Promise<boolean>;
-  clearSearch(sessionId: string): void;
+ *  to toggle SwiftTerm's OWN find bar (open/close are plain control actions
+ *  on an already-attached overlay — see electron/src/main.ts's
+ *  native-term:open-find-bar/close-find-bar handlers — unlike attach/detach
+ *  they need no window-scoping). */
+interface NativeFindBarBridge {
+  openFindBar(sessionId: string): void;
+  closeFindBar(sessionId: string): void;
 }
 
 interface TerminalShellProps {
@@ -66,70 +66,51 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, searchOpen = false, onCloseSearch } = props;
+  const { session, searchOpen = false } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
   // blank transparent hole, is what makes that failure recoverable.
   const [failed, setFailed] = useState(false);
   const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true));
-  const searchBarRef = useRef<HTMLDivElement>(null);
 
-  // Drives the native overlay's own SwiftTerm search machinery
-  // (OverlayController.search/clearSearch) through the same TerminalSearchBar
-  // component the xterm path uses — the ruling behind this task is one
-  // visually identical search box regardless of engine, never SwiftTerm's own
-  // MacFindBarView. The native addon's search(term, forward) takes no
-  // case/regex options (see task-6-brief.md's literal signature), so those
-  // two toggle buttons are inert here — a known, disclosed limitation rather
-  // than a different-looking control set.
-  const nativeSearchEngine = useMemo<TerminalSearchEngine>(() => {
-    const listeners = new Set<(r: { index: number; count: number }) => void>();
-    const bridge = () =>
-      (window as Window & { electronNativeTerminal?: NativeSearchBridge }).electronNativeTerminal;
-    return {
-      find: (term, direction) => {
-        return bridge()?.search(session.id, term, direction === 'next').then((found) => {
-          // The native call only reports found/not-found, not a match count —
-          // `count: -1` (neither the ">0" nor the "===0" branch the bar's
-          // label checks) intentionally renders no number for a genuine find,
-          // rather than fabricating a "1/1" that would misstate how many
-          // matches actually exist.
-          const result = found ? { index: 0, count: -1 } : { index: -1, count: 0 };
-          for (const cb of listeners) cb(result);
-        });
-      },
-      clear: () => bridge()?.clearSearch(session.id),
-      onResults: (cb) => { listeners.add(cb); return () => listeners.delete(cb); },
-      // No native "make key" call exists (and none was added — the addon's
-      // export budget for this task is exactly attach+2, see the brief). The
-      // user reclaims the terminal with a click, same as any other unfocused
-      // native overlay.
-      focusTerminal: () => {},
+  // mod+f for a native tile toggles SwiftTerm's OWN find bar
+  // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the
+  // terminal renders in — see OverlayController.openFindBar/closeFindBar)
+  // rather than Argus's DOM TerminalSearchBar. Reversed from this task's
+  // original ruling: a child NSWindow always paints above the parent's web
+  // content (Phase 2 Gate A), so a DOM search box over a native tile can
+  // only ever render invisibly behind it, or force hiding the ENTIRE tile
+  // for the search's duration (the earlier approach, via
+  // useOverlaySuppression — reverted here). SwiftTerm's own bar sidesteps
+  // the z-order problem by living inside the window that's already on top:
+  // no suppression, no reflow, matches stay visible. Disclosed trade-off:
+  // its box looks different from the xterm path's TerminalSearchBar (no
+  // shared visual chrome between engines for search specifically), and a
+  // close triggered from INSIDE that bar (its own X button / Escape while
+  // the native window has focus) is invisible to this effect — SwiftTerm's
+  // find bar is a private type with no exposed "did close" callback, so
+  // only a JS-initiated close (this effect's `else` branch, e.g. Cmd+F
+  // moving to a different tile) is guaranteed to also clear the search
+  // highlight; an Escape typed directly into the native bar hides it via
+  // SwiftTerm's own (unexported) path, which does not.
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeFindBarBridge }).electronNativeTerminal;
+    if (searchOpen) bridge?.openFindBar(session.id);
+    else bridge?.closeFindBar(session.id);
+  }, [searchOpen, session.id]);
+
+  // Unmounting the tile (session closed, engine switched) must not leave a
+  // find bar open on an overlay id that could be reused later.
+  useEffect(() => {
+    return () => {
+      (window as Window & { electronNativeTerminal?: NativeFindBarBridge }).electronNativeTerminal?.closeFindBar(session.id);
     };
   }, [session.id]);
 
   if (failed) return <TerminalShellXterm {...props} />;
   return (
-    <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent', position: 'relative' }}>
-      {searchOpen && onCloseSearch && (
-        <>
-          <TerminalSearchBar ref={searchBarRef} engine={nativeSearchEngine} onClose={onCloseSearch} />
-          {/* A child NSWindow always paints above the parent's web content
-              (Gate A), so this DOM search box would render invisibly BEHIND
-              the native terminal unless that overlay is hidden for as long as
-              the box covers it — see useOverlaySuppression. Scoped to the
-              box's own rect (not the whole tile) so only overlays it actually
-              intersects are affected, matching every other floating surface
-              in the app (Tooltip, ContextMenu, Sheet, ...). Trade-off: this
-              also blanks the terminal content behind the box for the
-              search's duration, unlike the xterm path where highlights stay
-              visible — accepted here rather than building bespoke partial
-              native-window clipping for a find bar. */}
-          <SuppressWhileMounted target={() => searchBarRef.current?.getBoundingClientRect() ?? null} />
-        </>
-      )}
-    </div>
+    <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent', position: 'relative' }} />
   );
 }
 

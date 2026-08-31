@@ -716,16 +716,19 @@ async function main() {
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
-  // Search / clear-scrollback — not window-scoped like detach/hide/show: these
-  // are ordinary control actions on an already-attached overlay, not lifecycle
-  // transitions that move ownership between windows, so there is nothing for a
-  // stale requesting window to race against (setRect above is unscoped for the
-  // same reason).
-  ipcMain.handle('native-term:search', (_e, { sessionId, term, forward }: { sessionId: string; term: string; forward: boolean }) => {
-    return nativeTerminal!.search(sessionId, term, forward);
+  // Find bar / clear-scrollback — not window-scoped like detach/hide/show:
+  // these are ordinary control actions on an already-attached overlay, not
+  // lifecycle transitions that move ownership between windows, so there is
+  // nothing for a stale requesting window to race against (setRect above is
+  // unscoped for the same reason). open/close take no search term — the
+  // renderer only toggles SwiftTerm's own find bar (see task-6's reversal;
+  // NativeTerminalHost.openFindBar's doc comment), so both are fire-and-forget
+  // like clear-scrollback rather than the old search handler's request/reply.
+  ipcMain.on('native-term:open-find-bar', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.openFindBar(sessionId);
   });
-  ipcMain.on('native-term:clear-search', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.clearSearch(sessionId);
+  ipcMain.on('native-term:close-find-bar', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.closeFindBar(sessionId);
   });
   ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.clearScrollback(sessionId);

@@ -88,10 +88,13 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   unsuppress: (sessionId: string): void => {
     ipcRenderer.send('native-term:unsuppress', { sessionId });
   },
-  search: (sessionId: string, term: string, forward: boolean): Promise<boolean> =>
-    ipcRenderer.invoke('native-term:search', { sessionId, term, forward }),
-  clearSearch: (sessionId: string): void => {
-    ipcRenderer.send('native-term:clear-search', { sessionId });
+  // Opens/closes SwiftTerm's OWN find bar (see task-6's reversal) — no search
+  // term crosses this bridge; the bar itself owns typing/next/prev/options.
+  openFindBar: (sessionId: string): void => {
+    ipcRenderer.send('native-term:open-find-bar', { sessionId });
+  },
+  closeFindBar: (sessionId: string): void => {
+    ipcRenderer.send('native-term:close-find-bar', { sessionId });
   },
   clearScrollback: (sessionId: string): void => {
     ipcRenderer.send('native-term:clear-scrollback', { sessionId });

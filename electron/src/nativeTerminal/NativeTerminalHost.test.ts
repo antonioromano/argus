@@ -10,7 +10,7 @@ function fakeAddon() {
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
-  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent' | 'search', boolean>> = {};
+  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent' | 'openFindBar', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: () => {
       calls.push(`create:${next}`);
@@ -33,12 +33,11 @@ function fakeAddon() {
       if (failNext.feed) { failNext.feed = false; throw new Error('feed failed'); }
     },
     clearScrollback: (id) => calls.push(`clear:${id}`),
-    search: (id, term, forward) => {
-      calls.push(`search:${id}:${term}:${forward}`);
-      if (failNext.search) { failNext.search = false; throw new Error('search failed'); }
-      return term === 'findme';
+    openFindBar: (id) => {
+      calls.push(`openFindBar:${id}`);
+      if (failNext.openFindBar) { failNext.openFindBar = false; throw new Error('openFindBar failed'); }
     },
-    clearSearch: (id) => calls.push(`clearSearch:${id}`),
+    closeFindBar: (id) => calls.push(`closeFindBar:${id}`),
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
   };
@@ -379,53 +378,52 @@ test('hide/show from the current parent still work', () => {
   assert.ok(calls.includes('show:1'));
 });
 
-// --- search / clearSearch / clearScrollback --------------------------------
+// --- openFindBar / closeFindBar / clearScrollback --------------------------
+// task-6's reversal: the renderer no longer sends a search term across the
+// boundary (see NativeTerminalHost.openFindBar's doc comment) — it only
+// toggles SwiftTerm's own find bar. Renamed from search()/clearSearch().
 
-test('search on an unattached session returns false and does not throw', () => {
+test('openFindBar on an unattached session is a no-op that does not throw', () => {
   const { addon, calls } = fakeAddon();
   const { host } = harness(addon);
-  assert.equal(host.search('never-attached', 'term', true), false);
+  assert.doesNotThrow(() => host.openFindBar('never-attached'));
   assert.equal(calls.length, 0, 'must not reach the addon for an unknown session');
 });
 
-test('search delegates to the addon and returns its result', () => {
+test('openFindBar delegates to the addon', () => {
   const { addon, calls } = fakeAddon();
   const { host } = harness(addon);
   host.attach('s1', HANDLE, RECT);
-  assert.equal(host.search('s1', 'findme', true), true);
-  assert.equal(host.search('s1', 'nope', false), false);
-  assert.ok(calls.includes('search:1:findme:true'));
-  assert.ok(calls.includes('search:1:nope:false'));
+  host.openFindBar('s1');
+  assert.ok(calls.includes('openFindBar:1'));
 });
 
-test('a throwing addon.search does not propagate and reports no match', () => {
+test('a throwing addon.openFindBar does not propagate', () => {
   const { addon, failNext } = fakeAddon();
   const { host } = harness(addon);
   host.attach('s1', HANDLE, RECT);
-  failNext.search = true;
-  assert.doesNotThrow(() => {
-    assert.equal(host.search('s1', 'findme', true), false);
-  });
+  failNext.openFindBar = true;
+  assert.doesNotThrow(() => host.openFindBar('s1'));
 });
 
-test('search with no addon is inert', () => {
+test('openFindBar with no addon is inert', () => {
   const { host } = harness(null);
-  assert.equal(host.search('s1', 'term', true), false);
+  assert.doesNotThrow(() => host.openFindBar('s1'));
 });
 
-test('clearSearch on an unattached session is a no-op that does not throw', () => {
+test('closeFindBar on an unattached session is a no-op that does not throw', () => {
   const { addon, calls } = fakeAddon();
   const { host } = harness(addon);
-  assert.doesNotThrow(() => host.clearSearch('never-attached'));
+  assert.doesNotThrow(() => host.closeFindBar('never-attached'));
   assert.equal(calls.length, 0);
 });
 
-test('clearSearch delegates to the addon', () => {
+test('closeFindBar delegates to the addon', () => {
   const { addon, calls } = fakeAddon();
   const { host } = harness(addon);
   host.attach('s1', HANDLE, RECT);
-  host.clearSearch('s1');
-  assert.ok(calls.includes('clearSearch:1'));
+  host.closeFindBar('s1');
+  assert.ok(calls.includes('closeFindBar:1'));
 });
 
 test('clearScrollback on an unattached session is a no-op that does not throw', () => {

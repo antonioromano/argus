@@ -185,30 +185,21 @@ Napi::Value ClearScrollback(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
-Napi::Value Search(const Napi::CallbackInfo& info) {
-  Napi::Env env = info.Env();
-  // Mirrors SetFrame's validating convention: `term` feeds straight into
-  // Utf8Value()/UTF8String below. `.As<T>()` performs no runtime check, and
-  // under NAPI_DISABLE_CPP_EXCEPTIONS a wrong-typed arg would leave a pending
-  // exception while more N-API calls are made — undefined behaviour. So the
-  // term (and the forward flag) must be validated before either is read.
-  if (info.Length() < 3 || !info[1].IsString() || !info[2].IsBoolean()) {
-    Napi::TypeError::New(env, "search(id, term, forward) requires a string term and a boolean forward")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
+// Search is no longer driven with a term from JS (see task-6 report's
+// reversal): a DOM search box can never paint above a native tile's child
+// NSWindow (Gate A), so the renderer instead toggles SwiftTerm's OWN find
+// bar, which lives inside that same window. OpenFindBar/CloseFindBar take no
+// arguments beyond the id — everything else (typing, next/prev, options) is
+// handled by SwiftTerm's own NSSearchField, never round-tripping through JS.
+Napi::Value OpenFindBar(const Napi::CallbackInfo& info) {
   OverlayController* c = Lookup(info, nullptr);
-  if (!c) return Napi::Boolean::New(env, false);
-
-  std::string term = info[1].As<Napi::String>().Utf8Value();
-  bool forward = info[2].As<Napi::Boolean>().Value();
-  BOOL found = [c search:[NSString stringWithUTF8String:term.c_str()] forward:forward];
-  return Napi::Boolean::New(env, found == YES);
+  if (c) [c openFindBar];
+  return info.Env().Undefined();
 }
 
-Napi::Value ClearSearch(const Napi::CallbackInfo& info) {
+Napi::Value CloseFindBar(const Napi::CallbackInfo& info) {
   OverlayController* c = Lookup(info, nullptr);
-  if (c) [c clearSearch];
+  if (c) [c closeFindBar];
   return info.Env().Undefined();
 }
 
@@ -244,8 +235,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   exports.Set("feed", Napi::Function::New(env, Feed));
   exports.Set("clearScrollback", Napi::Function::New(env, ClearScrollback));
-  exports.Set("search", Napi::Function::New(env, Search));
-  exports.Set("clearSearch", Napi::Function::New(env, ClearSearch));
+  exports.Set("openFindBar", Napi::Function::New(env, OpenFindBar));
+  exports.Set("closeFindBar", Napi::Function::New(env, CloseFindBar));
   exports.Set("onInput", Napi::Function::New(env, OnInput));
   exports.Set("onResize", Napi::Function::New(env, OnResize));
   return exports;
