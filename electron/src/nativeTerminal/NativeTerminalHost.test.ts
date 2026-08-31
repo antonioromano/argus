@@ -36,7 +36,11 @@ function fakeAddon() {
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r) };
 }
 
-function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
+function harness(
+  addonOrNull: NativeTerminalAddon | null,
+  snapshot: { data: string; alternate: boolean } = { data: 'REPLAY', alternate: false },
+  overrides: Partial<HostDeps> = {},
+) {
   const wrote: Array<[string, string]> = [];
   const resized: Array<[string, number, number]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
@@ -45,7 +49,7 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     onOutput: (cb) => { emit = cb; return () => { emit = undefined; }; },
     writeToSession: (id, d) => wrote.push([id, d]),
     resizeSession: (id, c, r) => resized.push([id, c, r]),
-    getReplaySnapshot: () => ({ data: 'REPLAY' }),
+    getReplaySnapshot: () => snapshot,
     ...overrides,
   });
   return { host, wrote, resized, emitOutput: (id: string, d: string) => emit?.(id, d) };
@@ -61,6 +65,27 @@ test('attach creates an overlay and seeds it with the replay frame', () => {
   assert.ok(calls.includes('create:1'));
   assert.ok(calls.includes('feed:1:REPLAY'), `expected replay seed, got ${calls.join(',')}`);
   assert.ok(calls.includes('setFrame:1:10,20,300,200'));
+});
+
+test('an alt-screen session is seeded onto the alternate buffer', () => {
+  // A session already inside vim/htop must not have its alt-screen content
+  // painted into the normal buffer — the view would show a garbled mix until
+  // the next full repaint.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon, { data: 'VIMSCREEN', alternate: true });
+  host.attach('s1', HANDLE, RECT);
+  const fed = calls.filter((c) => c.startsWith('feed:1:')).join('|');
+  assert.ok(fed.includes('\x1b[?1049h'), `expected an alt-buffer switch before the seed, got ${fed}`);
+  assert.ok(fed.includes('VIMSCREEN'));
+});
+
+test('a normal-screen session is seeded without an alt-buffer switch', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon, { data: 'PLAIN', alternate: false });
+  host.attach('s1', HANDLE, RECT);
+  const fed = calls.filter((c) => c.startsWith('feed:1:')).join('|');
+  assert.ok(fed.includes('PLAIN'));
+  assert.ok(!fed.includes('\x1b[?1049h'), 'must not switch buffers for a normal-screen session');
 });
 
 test('session output is fed only to that session overlay', () => {
@@ -170,14 +195,14 @@ test('a setFrame failure after a successful create keeps the overlay registered'
 
 test('a throwing writeToSession does not propagate out of the onInput callback', () => {
   const { addon, fireInput } = fakeAddon();
-  const { host } = harness(addon, { writeToSession: () => { throw new Error('session gone'); } });
+  const { host } = harness(addon, undefined, { writeToSession: () => { throw new Error('session gone'); } });
   host.attach('s1', HANDLE, RECT);
   assert.doesNotThrow(() => fireInput(1, 'ls\r'));
 });
 
 test('a throwing resizeSession does not propagate out of the onResize callback', () => {
   const { addon, fireResize } = fakeAddon();
-  const { host } = harness(addon, { resizeSession: () => { throw new Error('session gone'); } });
+  const { host } = harness(addon, undefined, { resizeSession: () => { throw new Error('session gone'); } });
   host.attach('s1', HANDLE, RECT);
   assert.doesNotThrow(() => fireResize(1, 120, 40));
 });

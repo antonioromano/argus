@@ -14,10 +14,14 @@ export interface NativeTerminalAddon {
   onResize(cb: (id: number, cols: number, rows: number) => void): void;
 }
 
+/** What the host needs from a session's replay frame. `alternate` matters
+ *  because seeding alt-screen content into the normal buffer renders garbled. */
+export interface ReplaySnapshot { data: string; alternate: boolean }
+
 export interface HostDeps {
   addon: NativeTerminalAddon | null;   // null => unavailable, fall back to web
   onOutput(cb: (sessionId: string, data: string) => void): () => void;
   writeToSession(id: string, data: string): void;
   resizeSession(id: string, cols: number, rows: number): void;
-  getReplaySnapshot(id: string): { data: string } | undefined;
+  getReplaySnapshot(id: string): ReplaySnapshot | undefined;
 }
