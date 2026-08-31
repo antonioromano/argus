@@ -43,8 +43,12 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
       api.setRect(sessionId, rect);
     };
 
-    api.attach(sessionId, measure());
-    lastRectKey.current = '';
+    const initialRect = measure();
+    api.attach(sessionId, initialRect);
+    // Seed with the rect we just attached with — not '' — so the first
+    // ResizeObserver callback after attach doesn't immediately re-send an
+    // identical rect through setRect (redundant IPC).
+    lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
 
     // Guard like the rest of the codebase (see Sessions.tsx) — jsdom under
     // Vitest has no ResizeObserver; attach/detach still work without it.
