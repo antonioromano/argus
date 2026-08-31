@@ -68,6 +68,32 @@ describe('nativeOverlayRegistry', () => {
     expect(shown).toEqual([]);
   });
 
+  it('repeated registerOverlay for the same id under one suppression holds only once', () => {
+    const s = suppress('all');
+    registerOverlay('a', A);
+    registerOverlay('a', { ...A, x: 10 });
+    registerOverlay('a', { ...A, x: 20 });
+    expect(hidden).toEqual(['a']);          // hide fired once, not three times
+    s.release();
+    expect(shown).toEqual(['a']);           // shown fired once
+    // Genuinely released, not still held: a fresh suppression must be able
+    // to hide it again from scratch.
+    suppress('all');
+    expect(hidden).toEqual(['a', 'a']);
+  });
+
+  it('unregistering and re-registering under two active suppressions does not let one release both', () => {
+    const s1 = suppress('all');
+    const s2 = suppress('all');
+    registerOverlay('a', A);
+    unregisterOverlay('a');
+    registerOverlay('a', A);
+    s1.release();
+    expect(shown).toEqual([]);              // s2 must still be holding it
+    s2.release();
+    expect(shown).toEqual(['a']);           // now released exactly once
+  });
+
   it('touching edges do not count as an overlap', () => {
     registerOverlay('a', A);          // 0..100
     expect(suppress({ x: 100, y: 0, width: 10, height: 10 }).ids).toEqual([]);
