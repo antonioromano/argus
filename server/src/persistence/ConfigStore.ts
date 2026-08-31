@@ -26,6 +26,7 @@ const DEFAULT_CONFIG: AppConfig = {
   tileQuickAction: 'diff',
   tileRunningIndicator: 'hairline',
   quickActionPromptedAt: '',
+  defaultTerminalEngine: 'web',
 };
 
 export class ConfigStore {

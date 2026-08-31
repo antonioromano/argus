@@ -579,6 +579,34 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                     }}
                   />
                 </SettingRow>
+                <SettingRow label="Terminal engine" hint="native is macOS-only and falls back to Web everywhere else. Applies to newly created sessions; non-macOS and remote clients always use the web engine.">
+                  <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+                    {(['web', 'native'] as const).map((val) => {
+                      const label = val === 'web' ? 'Web' : 'Native (macOS)';
+                      const cur = config.defaultTerminalEngine ?? 'web';
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => onSave({ defaultTerminalEngine: val })}
+                          style={{
+                            all: 'unset',
+                            cursor: 'pointer',
+                            padding: '6px var(--s-3)',
+                            background: cur === val ? 'var(--accent-bg)' : 'var(--bg-1)',
+                            border: `1px solid ${cur === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                            borderRadius: 'var(--r-2)',
+                            fontSize: 'var(--t-sm)',
+                            color: cur === val ? 'var(--accent)' : 'var(--fg-1)',
+                            textAlign: 'center',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SettingRow>
               </Section>
               <Section title="Developer">
                 <SettingRow label="Enable developer tools" hint="Adds a per-session diagnostics dump button (writes session state + output to ~/.argus/diagnostics for debugging)">
