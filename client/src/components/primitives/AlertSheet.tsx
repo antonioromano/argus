@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Check } from 'lucide-react';
+import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 
 interface AlertSheetProps {
   isOpen: boolean;
@@ -64,6 +65,11 @@ export function AlertSheet({
 
   if (!isOpen) return null;
 
+  // AlertSheet is always mounted (callers toggle isOpen rather than
+  // conditionally rendering it), so a top-level useOverlaySuppression call
+  // would suppress forever from first mount. SuppressWhileMounted below is
+  // only rendered while isOpen, giving it the correct mount/unmount lifetime.
+
   const confirmBg = confirmDestructive ? 'var(--danger)' : 'var(--accent)';
   const confirmFg = confirmDestructive ? '#ffffff' : 'var(--fg-on-accent)';
 
@@ -92,6 +98,7 @@ export function AlertSheet({
         zIndex: 'var(--z-overlay)',
       }}
     >
+      <SuppressWhileMounted target="all" />
       <div
         ref={panelRef}
         role="alertdialog"

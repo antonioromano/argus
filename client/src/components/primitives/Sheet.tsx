@@ -3,6 +3,7 @@ import { useCallback, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { IconButton } from './IconButton.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 
 interface SheetProps {
   title?: string;
@@ -43,6 +44,10 @@ export function Sheet({
 
   if (!isOpen) return null;
 
+  // Sheet stays mounted across isOpen flips (see the early return above), so a
+  // top-level useOverlaySuppression call would suppress forever from first
+  // mount. SuppressWhileMounted is rendered only in this branch below, so it
+  // truly mounts/unmounts along with isOpen.
   return (
     <div
       onClick={attemptClose}
@@ -58,6 +63,7 @@ export function Sheet({
         animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
       }}
     >
+      <SuppressWhileMounted target="all" />
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}

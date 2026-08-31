@@ -4,6 +4,7 @@ import type { ChangeBlock } from './changeBlocks.js';
 import { Tooltip } from '../../../components/primitives/index.js';
 import { RevertConfirmCard } from './ConfirmRevert.js';
 import { useSkipRevertConfirm } from '../../../hooks/useSkipRevertConfirm.js';
+import { SuppressWhileMounted } from '../../../hooks/useOverlaySuppression.js';
 
 interface BlockGutterCellProps {
   block: ChangeBlock | null;
@@ -113,6 +114,10 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
         </button>
       </Tooltip>
       {pendingRevert && popupAnchor && (
+        // BlockGutterCell itself stays mounted for the life of the diff row
+        // — only pendingRevert/popupAnchor toggle this popup — so
+        // SuppressWhileMounted is rendered in this branch to pick up the
+        // popup's real mount/unmount lifetime.
         <div
           ref={popupRef}
           role="dialog"
@@ -132,6 +137,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
             width: 220,
           }}
         >
+          <SuppressWhileMounted target={() => popupRef.current?.getBoundingClientRect() ?? null} />
           <RevertConfirmCard
             busy={busy}
             skip={skipConfirm}

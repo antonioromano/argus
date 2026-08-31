@@ -6,6 +6,7 @@ import type { WorktreeMergePreviewResponse, MergePreviewFile, SessionInfo } from
 import { LoadingState, EmptyState, Button, IconButton } from '../../components/primitives/index.js';
 import { SplitDiff } from './SplitDiff.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 import { useRef } from 'react';
 
 type MergeFlowPhase =
@@ -52,6 +53,9 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
   const panelRef = useRef<HTMLDivElement>(null);
   const isLocked = mergeFlow.phase === 'merging';
   useFocusTrap({ isOpen: true, panelRef, onEscape: isLocked ? undefined : onClose });
+  // The caller only mounts MergePreviewSheet while mergeFlow is non-null, so
+  // this component's own mount lifetime is its visible lifetime.
+  useOverlaySuppression('all');
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [localTarget, setLocalTarget] = useState<string | null>(null);

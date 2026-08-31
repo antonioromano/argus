@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 
 export interface ContextMenuItem {
   id: string;
@@ -33,6 +34,10 @@ const MENU_W = 200;
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
+
+  // Callers only ever mount ContextMenu while it's actually shown, so this
+  // component's own mount lifetime is its visible lifetime.
+  useOverlaySuppression(() => ref.current?.getBoundingClientRect() ?? null);
 
   // Clamp inside the viewport once the real height is known.
   useLayoutEffect(() => {

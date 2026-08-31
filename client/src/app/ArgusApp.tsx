@@ -45,6 +45,12 @@ import { useMosaicVisibility } from './state/useMosaicVisibility.js';
 import { useWindows } from '../hooks/useWindows.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
+import { setSuppressionTransport } from '../hooks/nativeOverlayRegistry.js';
+
+interface NativeTerminalSuppressionBridge {
+  suppress: (sessionId: string) => void;
+  unsuppress: (sessionId: string) => void;
+}
 
 export default function ArgusApp() {
   // Pause infinite background animations (waiting pulses, sweeps, marquee, landing
@@ -117,6 +123,21 @@ function DesktopRoot() {
   useEffect(() => {
     document.documentElement.classList.add('is-electron');
     return () => { document.documentElement.classList.remove('is-electron'); };
+  }, []);
+
+  // Wire the overlay-suppression registry to the native-terminal IPC bridge,
+  // once, for the app's lifetime. A child NSWindow always paints above its
+  // parent's web content, so a DOM surface (modal, menu, tooltip...) that
+  // covers a native terminal overlay must hide it for as long as it's shown —
+  // see useOverlaySuppression. `electronNativeTerminal` is only defined inside
+  // Electron (absent in dev:web/jsdom); with the native-terminal flag unset it
+  // is still always exposed, but suppress/unsuppress are no-ops all the way
+  // down (NativeTerminalHost.hide/show short-circuit on a null addon), so no
+  // extra guard is needed beyond "does the bridge exist at all".
+  useEffect(() => {
+    const api = (window as Window & { electronNativeTerminal?: NativeTerminalSuppressionBridge }).electronNativeTerminal;
+    if (!api) return;
+    setSuppressionTransport({ hide: api.suppress, show: api.unsuppress });
   }, []);
 
   if (!authChecked) {

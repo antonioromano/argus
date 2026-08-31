@@ -70,6 +70,12 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   detach: (sessionId: string): void => {
     ipcRenderer.send('native-term:detach', { sessionId });
   },
+  suppress: (sessionId: string): void => {
+    ipcRenderer.send('native-term:suppress', { sessionId });
+  },
+  unsuppress: (sessionId: string): void => {
+    ipcRenderer.send('native-term:unsuppress', { sessionId });
+  },
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {

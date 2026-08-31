@@ -635,6 +635,19 @@ async function main() {
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
+  // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
+  // A child NSWindow always paints above the parent's web content, so a DOM
+  // surface (modal, menu, tooltip...) that would render above a native
+  // terminal must hide it for the duration. hide/show are no-ops when the
+  // addon never loaded (flag unset), same as every other NativeTerminalHost
+  // call — safe to wire unconditionally.
+  ipcMain.on('native-term:suppress', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.hide(sessionId);
+  });
+  ipcMain.on('native-term:unsuppress', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.show(sessionId);
+  });
+
   // Native message box — used by the renderer for confirmations (delete, close session, etc.)
   ipcMain.handle('dialog:showMessageBox', async (event, opts: Electron.MessageBoxOptions) => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
