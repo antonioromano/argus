@@ -322,10 +322,22 @@ all unreachable with the Phase 1 flags off:
   exits or is deleted; cleanup relies entirely on the React unmount path. It
   works today but is implicit — needs a direct test.
 
-**Alt-screen seeding.** `getReplaySnapshot` is narrowed to `{data}`, so
-`alternate`/`appMouse`/`sgr` are not seeded. A native overlay attached to a
-session already in an alt-screen app (vim, htop) opens garbled until the next
-full repaint. Widen the seed when Phase 2 makes attach common.
+**~~Alt-screen seeding.~~ WITHDRAWN 2026-08-31 — the premise was false.**
+Phase 1's final review inferred, from `HostDeps` narrowing the replay frame to
+`{data}`, that a native overlay attached mid-alt-screen would open garbled. That
+inference was never checked against the source and is wrong.
+`SessionManager.getReplaySnapshot` (`SessionManager.ts:1204`) builds the frame as
+`'\x1b[?1049l\x1b[2J\x1b[3J\x1b[H' + session.mirror.serialize()` — it always
+leaves the alternate screen and clears first, and `serialize()` re-emits the
+buffer switch itself when the session is on the alt screen. The frame is
+self-normalizing, and feeding it verbatim (what the code already did, and what
+`socket/handler.ts` does for every web client) is correct.
+
+Phase 2 briefly implemented an `\x1b[?1049h` prefix per this item; review caught
+that it was cancelled by the frame's own leading `1049l` and it was reverted. A
+regression test now asserts verbatim pass-through using a realistic frame. The
+lesson worth keeping: a review finding derived from a type signature is a
+hypothesis, not a defect, until someone reads the producer.
 
 **Phase 3 — product surface.** `terminalEngine` in the schema, Create/Clone
 pickers, Settings default, menu-accelerator migration for the five bindings,
