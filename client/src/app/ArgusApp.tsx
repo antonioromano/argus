@@ -11,7 +11,7 @@ import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
-import { clearScrollback } from '../hooks/useTerminal.js';
+import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine } from '@argus/shared';
@@ -241,12 +241,26 @@ function DesktopInner() {
   const [mosaicFocusedId, setMosaicFocusedId] = useState<string | null>(null);
   const activeTerminalId = app.view === 'focus' ? app.activeSessionId : mosaicFocusedId;
 
-  // Session whose in-terminal search bar is open (null = none).
+  // Session whose in-terminal search bar is open (null = none). For an xterm
+  // tile this is the whole story — it's what TerminalSearchBar renders off.
+  // For a native tile it still matters (it's what tells that tile's
+  // find-bar-closing effect "you're no longer the target" — see
+  // TerminalShellNativeHole), but it does NOT gate opening: SwiftTerm's own
+  // find bar can be dismissed from inside its own window with no callback
+  // back here, so a same-session repeat Cmd+F must reach the native side
+  // even though this state value doesn't change. That's why both callbacks
+  // below call openNativeFindBar directly and unconditionally, rather than
+  // relying on searchSessionId changing to drive an effect.
   const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
   const openTerminalSearch = useCallback(() => {
-    setSearchSessionId((cur) => activeTerminalId ?? cur);
+    if (!activeTerminalId) return;
+    setSearchSessionId(activeTerminalId);
+    openNativeFindBar(activeTerminalId);
   }, [activeTerminalId]);
-  const openTerminalSearchFor = useCallback((id: string) => setSearchSessionId(id), []);
+  const openTerminalSearchFor = useCallback((id: string) => {
+    setSearchSessionId(id);
+    openNativeFindBar(id);
+  }, []);
   const closeTerminalSearch = useCallback(() => setSearchSessionId(null), []);
 
   // Whether closing a shell shows the confirm modal (off → close immediately).

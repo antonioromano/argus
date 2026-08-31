@@ -22,12 +22,13 @@ const XTERM_SEARCH_DECORATIONS = {
 };
 
 /** The slice of the native-terminal preload bridge this shell drives directly
- *  to toggle SwiftTerm's OWN find bar (open/close are plain control actions
- *  on an already-attached overlay — see electron/src/main.ts's
- *  native-term:open-find-bar/close-find-bar handlers — unlike attach/detach
- *  they need no window-scoping). */
-interface NativeFindBarBridge {
-  openFindBar(sessionId: string): void;
+ *  to CLOSE SwiftTerm's OWN find bar (a plain control action on an
+ *  already-attached overlay — see electron/src/main.ts's
+ *  native-term:close-find-bar handler — unlike attach/detach it needs no
+ *  window-scoping). Opening deliberately does NOT go through this component
+ *  — see the doc comment on the effect below and on
+ *  useTerminal.ts's openNativeFindBar. */
+interface NativeFindBarCloseBridge {
   closeFindBar(sessionId: string): void;
 }
 
@@ -86,25 +87,40 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // the z-order problem by living inside the window that's already on top:
   // no suppression, no reflow, matches stay visible. Disclosed trade-off:
   // its box looks different from the xterm path's TerminalSearchBar (no
-  // shared visual chrome between engines for search specifically), and a
-  // close triggered from INSIDE that bar (its own X button / Escape while
-  // the native window has focus) is invisible to this effect — SwiftTerm's
-  // find bar is a private type with no exposed "did close" callback, so
-  // only a JS-initiated close (this effect's `else` branch, e.g. Cmd+F
-  // moving to a different tile) is guaranteed to also clear the search
-  // highlight; an Escape typed directly into the native bar hides it via
-  // SwiftTerm's own (unexported) path, which does not.
+  // shared visual chrome between engines for search specifically).
+  //
+  // OPENING deliberately does NOT live here. An earlier version of this
+  // effect called `bridge.openFindBar` on `searchOpen` flipping true — but
+  // SwiftTerm's find bar can be dismissed from INSIDE its own window (its
+  // own Escape/close button) with no callback back to JS, so `searchOpen`
+  // (React state) can go stale: it stays `true` even after the native bar
+  // has actually closed. Gating the open call on that prop's dependency
+  // array meant a second Cmd+F on the SAME tile — the very next thing a user
+  // does after Escaping out of the bar — was silently swallowed, since the
+  // prop never changed and the effect never re-ran. ArgusApp.tsx's search
+  // action (openTerminalSearch/openTerminalSearchFor) now calls
+  // useTerminal.ts's openNativeFindBar directly and unconditionally on every
+  // invocation instead, so a repeat request always reaches the native side
+  // regardless of what this prop currently says.
+  //
+  // CLOSING stays here, keyed on `searchOpen` — that direction has no
+  // equivalent staleness problem: `searchOpen` going false is always a real,
+  // JS-driven transition (an explicit close, or a different session becoming
+  // the search target), and it's also the only path that clears the search
+  // highlight — an Escape typed directly into the native bar hides it via
+  // SwiftTerm's own (unexported) path, which does not clear the highlight.
   useEffect(() => {
-    const bridge = (window as Window & { electronNativeTerminal?: NativeFindBarBridge }).electronNativeTerminal;
-    if (searchOpen) bridge?.openFindBar(session.id);
-    else bridge?.closeFindBar(session.id);
+    if (searchOpen) return;
+    (window as Window & { electronNativeTerminal?: NativeFindBarCloseBridge })
+      .electronNativeTerminal?.closeFindBar(session.id);
   }, [searchOpen, session.id]);
 
   // Unmounting the tile (session closed, engine switched) must not leave a
   // find bar open on an overlay id that could be reused later.
   useEffect(() => {
     return () => {
-      (window as Window & { electronNativeTerminal?: NativeFindBarBridge }).electronNativeTerminal?.closeFindBar(session.id);
+      (window as Window & { electronNativeTerminal?: NativeFindBarCloseBridge })
+        .electronNativeTerminal?.closeFindBar(session.id);
     };
   }, [session.id]);
 

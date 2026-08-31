@@ -114,6 +114,37 @@ export function clearScrollback(socket: TypedSocket, sessionId: string): void {
     .electronNativeTerminal?.clearScrollback(sessionId);
 }
 
+interface NativeFindBarBridge {
+  openFindBar(sessionId: string): void;
+}
+
+// Opens SwiftTerm's own find bar for a native tile (OverlayController.
+// openFindBar). Exported so ArgusApp.tsx's search action — shared by the
+// window-keydown 'terminal-search' case and the menu:terminal-search
+// accelerator (openTerminalSearch/openTerminalSearchFor) — can call it
+// directly and UNCONDITIONALLY on every invocation, never gated on whether
+// React's searchOpen/searchSessionId state actually changed value.
+//
+// That gating is exactly the bug this works around: SwiftTerm's find bar can
+// be dismissed from INSIDE its own window (its own Escape/close button) with
+// no callback back to JS — see OverlayController.closeFindBar's doc comment
+// — so if opening only ran off a searchOpen false->true transition (a React
+// effect keyed on that prop), a second Cmd+F on the SAME tile after such a
+// dismissal would be a no-op: the prop never changed, so the effect never
+// re-fired, silently killing the shortcut for that tile until the user
+// switched away and back. Calling this unconditionally on every search
+// action closes that gap.
+//
+// Safe to call for every search action regardless of engine: like
+// clearScrollback above, NativeTerminalHost no-ops for a session with no
+// attached overlay, and SwiftTerm's own show-find-interface action is
+// idempotent — a repeat call just re-shows/refocuses the existing bar rather
+// than duplicating it.
+export function openNativeFindBar(sessionId: string): void {
+  (window as Window & { electronNativeTerminal?: NativeFindBarBridge })
+    .electronNativeTerminal?.openFindBar(sessionId);
+}
+
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
   options: UseTerminalOptions,

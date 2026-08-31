@@ -26,10 +26,12 @@ interface TerminalSearchBarProps {
 
 /**
  * Browser-style find bar scoped to one terminal. Highlights matches, cycles
- * next/prev. Forwards its root element so a caller whose engine sits behind a
- * native overlay (which always paints above the DOM) can measure this box's
- * own rect and suppress just the overlay it covers — see
- * TerminalShellNativeHole in TerminalShell.tsx.
+ * next/prev. Only ever used by the xterm.js path now (a native tile drives
+ * SwiftTerm's own find bar instead — see TerminalShellNativeHole in
+ * TerminalShell.tsx). Forwards its root element as a general affordance for
+ * a caller that needs to measure or position relative to this box; no
+ * current caller uses it (it did, briefly, for a native-overlay-suppression
+ * measurement that this task's reversal removed).
  */
 export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarProps>(function TerminalSearchBar({ engine, onClose }, ref) {
   const [query, setQuery] = useState('');

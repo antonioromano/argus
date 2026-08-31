@@ -141,7 +141,7 @@ describe('TerminalSearchBar', () => {
     unmount();
   });
 
-  it('forwards a ref to the root element, for callers that need to measure it', () => {
+  it('forwards a ref to the root element (no current caller uses it — see the component doc comment)', () => {
     const { engine } = fakeEngine();
     const ref = { current: null as HTMLDivElement | null };
     const { unmount } = mount(<TerminalSearchBar ref={ref} engine={engine} onClose={() => {}} />);
