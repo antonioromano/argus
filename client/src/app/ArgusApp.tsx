@@ -11,6 +11,7 @@ import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
+import { clearScrollback } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine } from '@argus/shared';
@@ -290,12 +291,58 @@ function DesktopInner() {
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
   const openCreateRef = useRef(openCreate);
   useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
+  // The five actions below act on "the focused shell" — same target as the
+  // window-keydown switch cases further down (open-diff/open-files/open-shell/
+  // terminal-search) and useTerminal's own clear-terminal keydown case. Each is
+  // extracted into its own stable callback so the Electron menu accelerator and
+  // the renderer keydown path invoke the exact same function — never two copies
+  // of the same body that could drift apart.
+  const openDiffForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'diff', sessionId: activeTerminalId }));
+  }, [activeTerminalId, guardForeign, app]);
+  const openFilesForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId }));
+  }, [activeTerminalId, guardForeign, app]);
+  const openShellForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => {
+      app.openSession(activeTerminalId);
+      app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
+    });
+  }, [activeTerminalId, guardForeign, app]);
+  // Clear scrollback for the focused shell. Native tiles have no buffer-clear
+  // implementation yet (Task 6) — this reaches the session:clear-buffer server
+  // event via the same clearScrollback() useTerminal exports for its own
+  // keydown case, but there is no local terminal.write('\x1b[3J') here for
+  // instant feedback: that optimization only makes sense against a specific
+  // xterm instance, which is exactly what a native tile doesn't have.
+  const clearFocusedTerminalScrollback = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => clearScrollback(socket, activeTerminalId));
+  }, [activeTerminalId, guardForeign, socket]);
+  const openDiffForFocusedRef = useRef(openDiffForFocused);
+  useEffect(() => { openDiffForFocusedRef.current = openDiffForFocused; }, [openDiffForFocused]);
+  const openFilesForFocusedRef = useRef(openFilesForFocused);
+  useEffect(() => { openFilesForFocusedRef.current = openFilesForFocused; }, [openFilesForFocused]);
+  const openShellForFocusedRef = useRef(openShellForFocused);
+  useEffect(() => { openShellForFocusedRef.current = openShellForFocused; }, [openShellForFocused]);
+  const clearFocusedTerminalScrollbackRef = useRef(clearFocusedTerminalScrollback);
+  useEffect(() => { clearFocusedTerminalScrollbackRef.current = clearFocusedTerminalScrollback; }, [clearFocusedTerminalScrollback]);
+  const openTerminalSearchRef = useRef(openTerminalSearch);
+  useEffect(() => { openTerminalSearchRef.current = openTerminalSearch; }, [openTerminalSearch]);
   useEffect(() => {
     const bridge = window.electronApp;
     if (!bridge) return;
     const offClose = bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
     const offNew = bridge.onMenu('menu:new-session', () => openCreateRef.current());
-    return () => { offClose(); offNew(); };
+    const offDiff = bridge.onMenu('menu:open-diff', () => openDiffForFocusedRef.current());
+    const offFiles = bridge.onMenu('menu:open-files', () => openFilesForFocusedRef.current());
+    const offShell = bridge.onMenu('menu:open-shell', () => openShellForFocusedRef.current());
+    const offSearch = bridge.onMenu('menu:terminal-search', () => openTerminalSearchRef.current());
+    const offClear = bridge.onMenu('menu:clear-terminal', () => clearFocusedTerminalScrollbackRef.current());
+    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -439,20 +486,17 @@ function DesktopInner() {
         case 'open-diff':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'diff', sessionId: activeTerminalId }));
+          openDiffForFocused();
           break;
         case 'open-files':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId }));
+          openFilesForFocused();
           break;
         case 'open-shell':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => {
-            app.openSession(activeTerminalId);
-            app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
-          });
+          openShellForFocused();
           break;
         default:
           break;
@@ -460,7 +504,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, guardForeign]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId

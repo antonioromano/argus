@@ -89,6 +89,16 @@ const LIGHT_THEME = {
   brightWhite: '#343b58',
 };
 
+// Server-side half of "clear scrollback": purges the mirror's history and
+// broadcasts an authoritative frame so the rows stay gone across joins and
+// resyncs. Exported so the menu:clear-terminal path (ArgusApp.tsx, for when a
+// native tile holds key focus and this hook's own keydown handler below never
+// sees the keystroke) emits the identical event rather than a hand-copied one
+// that could drift from this one.
+export function clearScrollback(socket: TypedSocket, sessionId: string): void {
+  socket.emit('session:clear-buffer', sessionId);
+}
+
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
   options: UseTerminalOptions,
@@ -389,7 +399,7 @@ export function useTerminal(
       if (comboMatches(event, binds['clear-terminal'])) {
         if (event.type === 'keydown') {
           terminal.write('\x1b[3J');
-          socket.emit('session:clear-buffer', sessionId);
+          clearScrollback(socket, sessionId);
         }
         return false;
       }

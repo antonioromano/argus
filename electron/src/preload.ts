@@ -34,6 +34,11 @@ const MENU_CHANNELS = [
   'menu:open-settings',
   'menu:toggle-palette',
   'menu:toggle-theme',
+  'menu:open-diff',
+  'menu:open-files',
+  'menu:open-shell',
+  'menu:terminal-search',
+  'menu:clear-terminal',
 ] as const;
 type MenuChannel = typeof MENU_CHANNELS[number];
 

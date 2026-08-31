@@ -492,6 +492,43 @@ function buildAppMenu(): Menu {
         accelerator: 'CmdOrCtrl+Shift+L',
         click: () => sendMenuEvent('menu:toggle-theme'),
       },
+      { type: 'separator' },
+      // These five were renderer-only keydown handlers. A native terminal
+      // overlay is a child NSWindow that takes key focus, so the renderer never
+      // sees their keydown — as app-menu accelerators they fire regardless of
+      // which view has focus.
+      //
+      // KNOWN LIMITATION, pre-existing: accelerators here are static, while
+      // client/src/keyboard/registry.ts holds the user-rebindable defaults. A
+      // user who rebinds one in Settings will not see the menu update. The four
+      // existing menu items (mod+n, mod+w, mod+k, mod+,) already behave this
+      // way; making menus config-driven is a separate change.
+      {
+        label: 'Diff for Focused Shell',
+        accelerator: 'CmdOrCtrl+D',
+        click: () => sendMenuEvent('menu:open-diff'),
+      },
+      {
+        label: 'Files for Focused Shell',
+        accelerator: 'CmdOrCtrl+E',
+        click: () => sendMenuEvent('menu:open-files'),
+      },
+      {
+        label: 'Terminal for Focused Shell',
+        accelerator: 'CmdOrCtrl+T',
+        click: () => sendMenuEvent('menu:open-shell'),
+      },
+      {
+        label: 'Search in Terminal',
+        accelerator: 'CmdOrCtrl+F',
+        click: () => sendMenuEvent('menu:terminal-search'),
+      },
+      {
+        label: 'Clear Scrollback',
+        accelerator: 'CmdOrCtrl+L',
+        click: () => sendMenuEvent('menu:clear-terminal'),
+      },
+      { type: 'separator' },
       { role: 'reload' },
       { role: 'forceReload' },
       { type: 'separator' },
