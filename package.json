@@ -22,10 +22,10 @@
     "dev:web": "PORT=5401 DATA_DIR=data-dev ARGUS_TMUX_SOCKET=argus-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
     "build:electron": "tsc -p electron/tsconfig.json",
-    "build:native": "swift build -c release --package-path native/ArgusTerminal && node-gyp rebuild --directory=native/addon --target=$(node -p \"require('electron/package.json').version\") --dist-url=https://electronjs.org/headers",
+    "build:native": "node scripts/build-native.mjs",
     "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && make -C daemon build && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
+    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npm run build:native && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",

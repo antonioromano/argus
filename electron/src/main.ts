@@ -250,12 +250,40 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // createRequire gives us a scoped `require` for that one load.
 const nativeRequire = createRequire(import.meta.url);
 
+/**
+ * Resolve the bundled native-terminal addon, in priority order:
+ *   1. the packaged .app (extraResources → native-terminal/<arch>/argus_native_terminal.node)
+ *   2. repo-relative electron/resources/native-terminal/<arch> (staged by
+ *      `npm run build:native`, same layout electron-builder later bundles)
+ * Named by process.arch (arm64 / x64) — mirrors resolveDaemonBin.ts and
+ * PtyManager's tmux-<arch> resolution, and matching binding.gyp's packaged
+ * @loader_path rpath: the dylib is staged right next to the .node file in
+ * both locations.
+ */
+function resolveNativeTerminalAddonPath(): string | null {
+  const name = 'argus_native_terminal.node';
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath) {
+    const bundled = join(resourcesPath, 'native-terminal', process.arch, name);
+    if (existsSync(bundled)) return bundled;
+  }
+  // Dev: repo_root/electron/resources/native-terminal/<arch> (this file lives
+  // two levels under the repo root: electron/{src,dist}).
+  const repo = join(__dirname, '../resources/native-terminal', process.arch, name);
+  return existsSync(repo) ? repo : null;
+}
+
 /** Phase 1 is opt-in. A missing or broken addon must degrade to web, never throw. */
 function loadNativeTerminalAddon(): NativeTerminalAddon | null {
   if (process.env.ARGUS_NATIVE_TERM !== '1' || process.platform !== 'darwin') return null;
+  const addonPath = resolveNativeTerminalAddonPath();
+  if (!addonPath) {
+    console.warn('[native-term] addon not found, using xterm.js');
+    return null;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return nativeRequire('../../native/addon/build/Release/argus_native_terminal.node');
+    return nativeRequire(addonPath);
   } catch (err) {
     console.warn('[native-term] addon unavailable, using xterm.js:', err);
     return null;
