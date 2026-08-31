@@ -800,6 +800,7 @@ function DesktopInner() {
               waitingStyle={config?.mosaicWaitingStyle ?? 'breathing'}
               quickAction={config?.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
+              defaultTerminalEngine={config?.defaultTerminalEngine}
             />
           )}
 
@@ -813,6 +814,7 @@ function DesktopInner() {
               filter={filter}
               onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
+              defaultTerminalEngine={config?.defaultTerminalEngine}
               isForeign={windowsApi.isForeign}
               foreignLabel={foreignLabel}
               onBack={app.exitFocus}

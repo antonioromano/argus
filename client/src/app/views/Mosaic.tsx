@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { SessionInfo, MosaicWaitingStyle, TileQuickAction, TileRunningIndicator } from '@argus/shared';
+import type { SessionInfo, MosaicWaitingStyle, TileQuickAction, TileRunningIndicator, TerminalEngine } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
@@ -38,7 +38,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
 import { formatCombo } from '../../keyboard/combo.js';
-import { useNativeEngine } from '../../hooks/useNativeEngine.js';
+import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -98,6 +98,8 @@ interface MosaicProps {
   quickAction?: TileQuickAction;
   /** Progress hairline under the header while running (default: hairline). */
   runningIndicator?: TileRunningIndicator;
+  /** App-wide fallback when a session has no stored engine preference. */
+  defaultTerminalEngine?: TerminalEngine;
 }
 
 const MAX_TILES = 12;
@@ -105,11 +107,14 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
-  // Resolved once here (not per-tile) so every tile agrees and the decision
-  // stays a stable boolean — a fresh per-tile hook call could resolve async
-  // availability at different times and momentarily disagree across tiles.
-  const nativeEngine = useNativeEngine();
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', defaultTerminalEngine }: MosaicProps) {
+  // Availability is resolved once here (not per-tile) so every tile agrees
+  // while the async probe is in flight — a fresh per-tile hook call could
+  // resolve availability at different times and momentarily disagree across
+  // tiles. The per-session decision on top of that goes through
+  // resolveTerminalEngine at each tile below, so tiles CAN legitimately
+  // render different engines once availability itself has settled.
+  const nativeAvailable = useNativeTerminalAvailable();
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -408,7 +413,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   isNotified={notifiedTileId === s.id}
                   quickAction={quickAction}
                   runningIndicator={runningIndicator}
-                  nativeEngine={nativeEngine}
+                  nativeEngine={resolveTerminalEngine(s.terminalEngine, defaultTerminalEngine, nativeAvailable)}
                 />
               ))}
             </div>
@@ -494,9 +499,10 @@ type MosaicTileSharedProps = {
   /** Pinned header action + running-progress treatment, both from config. */
   quickAction: TileQuickAction;
   runningIndicator: TileRunningIndicator;
-  /** Native terminal engine decision (see useNativeEngine), resolved once by
-   *  the Mosaic root and threaded down as a stable boolean so it can't bust
-   *  MosaicTile's memo. */
+  /** Native terminal engine decision for THIS session (see
+   *  resolveTerminalEngine) — availability is resolved once by the Mosaic
+   *  root, but the outcome is per-session. Still a plain boolean, so it
+   *  compares by value and can't bust MosaicTile's memo. */
   nativeEngine: boolean;
 };
 

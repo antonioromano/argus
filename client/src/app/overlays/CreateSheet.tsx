@@ -739,7 +739,7 @@ export function CreateSheet({
           </div>
         </Field>
 
-        <Field label="Terminal engine" hint="native is macOS-only and falls back to Web everywhere else">
+        <Field label="Terminal engine" hint="native is macOS-only, and falls back to Web everywhere else — including a mac where the native addon fails to load">
           <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
             {([['web', 'Web'], ['native', 'Native (macOS)']] as const).map(([val, label]) => (
               <button
