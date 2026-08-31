@@ -1,6 +1,7 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { atomicWrite } from '../utils/atomicWrite.js';
+import type { TerminalEngine } from '@argus/shared';
 
 export interface PersistedSession {
   id: string;
@@ -11,6 +12,7 @@ export interface PersistedSession {
   flags: string[];
   worktreePath?: string;
   worktreeBranch?: string;
+  terminalEngine?: TerminalEngine;
 }
 
 export class SessionStore {
@@ -36,6 +38,7 @@ export class SessionStore {
         flags: s.flags || [],
         worktreePath: s.worktreePath,
         worktreeBranch: s.worktreeBranch,
+        terminalEngine: s.terminalEngine,
       }));
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {

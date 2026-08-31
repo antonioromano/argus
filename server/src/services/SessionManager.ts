@@ -13,6 +13,7 @@ import type {
   AgentSignal,
   ClientToServerEvents,
   ServerToClientEvents,
+  TerminalEngine,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
@@ -63,6 +64,10 @@ interface ManagedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
+  /** Per-session terminal implementation preference; undefined = never chose
+   *  (renderer falls back to the app default). Normalized at the boundary via
+   *  normalizeTerminalEngine — never stores an unvalidated value. */
+  terminalEngine?: TerminalEngine;
   /** Native-signal arbitration (plan 2026-07-22-001): when the last native
    *  signal arrived, the state it reported, and the states this session's
    *  adapter covers. While fresh, the arbiter suppresses contradicting
@@ -456,7 +461,7 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false): Promise<SessionInfo> {
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine): Promise<SessionInfo> {
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -600,6 +605,7 @@ export class SessionManager {
       nativeCoverage: inj ? new Set(inj.coverage) : undefined,
       worktreePath,
       worktreeBranch,
+      terminalEngine: this.normalizeTerminalEngine(terminalEngine),
       tmuxName,
       persistent,
       suppressDonePromotion: attachExisting,
@@ -1509,7 +1515,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine);
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1539,7 +1545,14 @@ export class SessionManager {
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
       lastPrompt: session.lastPrompt,
+      terminalEngine: session.terminalEngine,
     };
+  }
+
+  /** Accept only the two known values. Anything else becomes undefined so the
+   *  renderer falls back to the app default rather than persisting garbage. */
+  private normalizeTerminalEngine(value: unknown): TerminalEngine | undefined {
+    return value === 'web' || value === 'native' ? value : undefined;
   }
 
   /**
@@ -1589,6 +1602,7 @@ export class SessionManager {
         flags: s.flags,
         worktreePath: s.worktreePath,
         worktreeBranch: s.worktreeBranch,
+        terminalEngine: s.terminalEngine,
       }));
       await this.store.save(data);
     });
