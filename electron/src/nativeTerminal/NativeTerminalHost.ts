@@ -88,12 +88,7 @@ export class NativeTerminalHost {
       // unregister it — it stays reachable via setRect/show/hide/detach.
       try {
         const snap = this.deps.getReplaySnapshot(sessionId);
-        if (snap) {
-          // Enter the alternate buffer BEFORE the seed when the session is in
-          // one, so the frame lands where the agent actually drew it.
-          const prefix = snap.alternate ? '\x1b[?1049h' : '';
-          this.addon.feed(id, Buffer.from(prefix + snap.data, 'utf8'));
-        }
+        if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
       } catch (err) {
         console.error('[native-term] replay seed failed for', sessionId, err);
       }
