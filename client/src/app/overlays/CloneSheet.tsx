@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
+import type { AgentDefinition, AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
 import { Copy, Check, GitBranch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { Toggle } from '../../components/primitives/index.js';
@@ -25,8 +25,9 @@ interface CloneSheetProps {
   config: AppConfig | null;
   folderPath: string;
   currentAgentType?: string;
+  currentTerminalEngine?: TerminalEngine;
   onClose: () => void;
-  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => Promise<void>;
+  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -34,11 +35,18 @@ export function CloneSheet({
   config,
   folderPath,
   currentAgentType,
+  currentTerminalEngine,
   onClose,
   onClone,
   onSaveFlag,
 }: CloneSheetProps) {
   const [agentId, setAgentId] = useState<string>(currentAgentType ?? config?.defaultAgent ?? 'claude');
+  // A clone inherits the SOURCE session's engine first — cloning a native session
+  // and silently getting a web one back would be surprising — falling back to the
+  // app default, then 'web', only when the source never had a preference.
+  const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(
+    currentTerminalEngine ?? config?.defaultTerminalEngine ?? 'web',
+  );
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +103,7 @@ export function CloneSheet({
     try {
       const flags = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       const branch = (isGitRepo && useWorktree) ? branchName.trim() : undefined;
-      await onClone(folderPath, agentId, flags, branch || undefined);
+      await onClone(folderPath, agentId, flags, branch || undefined, terminalEngine);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
@@ -276,6 +284,32 @@ export function CloneSheet({
                 </button>
               );
             })}
+          </div>
+        </Field>
+
+        <Field label="Terminal engine" hint="native is macOS-only and falls back to Web everywhere else">
+          <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+            {([['web', 'Web'], ['native', 'Native (macOS)']] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setTerminalEngine(val)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  padding: '6px var(--s-3)',
+                  background: terminalEngine === val ? 'var(--accent-bg)' : 'var(--bg-1)',
+                  border: `1px solid ${terminalEngine === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                  borderRadius: 'var(--r-2)',
+                  fontSize: 'var(--t-sm)',
+                  color: terminalEngine === val ? 'var(--accent)' : 'var(--fg-1)',
+                  textAlign: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </Field>
 

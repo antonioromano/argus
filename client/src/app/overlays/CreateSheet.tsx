@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
+import type { AgentDefinition, AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -21,7 +21,7 @@ interface CreateSheetProps {
   config: AppConfig | null;
   initialFolderPath?: string | null;
   onClose: () => void;
-  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => Promise<void>;
+  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -79,6 +79,7 @@ export function CreateSheet({
   const [folderPath, setFolderPath] = useState(effectiveInitialFolder);
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState<string>(config?.defaultAgent ?? 'claude');
+  const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(config?.defaultTerminalEngine ?? 'web');
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [creating, setCreating] = useState(false);
@@ -317,7 +318,7 @@ export function CreateSheet({
     setError(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined);
+      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');
     } finally {
@@ -735,6 +736,32 @@ export function CreateSheet({
                 </button>
               );
             })}
+          </div>
+        </Field>
+
+        <Field label="Terminal engine" hint="native is macOS-only and falls back to Web everywhere else">
+          <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+            {([['web', 'Web'], ['native', 'Native (macOS)']] as const).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => setTerminalEngine(val)}
+                style={{
+                  all: 'unset',
+                  cursor: 'pointer',
+                  padding: '6px var(--s-3)',
+                  background: terminalEngine === val ? 'var(--accent-bg)' : 'var(--bg-1)',
+                  border: `1px solid ${terminalEngine === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                  borderRadius: 'var(--r-2)',
+                  fontSize: 'var(--t-sm)',
+                  color: terminalEngine === val ? 'var(--accent)' : 'var(--fg-1)',
+                  textAlign: 'center',
+                  boxSizing: 'border-box',
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </Field>
 

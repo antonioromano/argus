@@ -13,7 +13,7 @@ import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse } from '@argus/shared';
+import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
@@ -480,8 +480,8 @@ function DesktopInner() {
     }
   };
 
-  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
-    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
+  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => {
+    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine);
     await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
@@ -489,8 +489,8 @@ function DesktopInner() {
     if (app.view === 'focus') app.openSession(created.id);
   };
 
-  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
-    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
+  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine) => {
+    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch, undefined, terminalEngine);
     await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
@@ -669,7 +669,7 @@ function DesktopInner() {
     canMarkDone: (s: SessionInfo) => s.status === 'idle',
     onMerge: handleMerge,
     canMerge: (s: SessionInfo) => !!s.worktreePath && mergeFlow?.session.id !== s.id,
-    onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType }),
+    onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine }),
     onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
     onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
     onFocusTerminal: (id: string) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }),
@@ -785,7 +785,7 @@ function DesktopInner() {
               showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
-              onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
+              onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
               onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
               onFocusExplorer={(id) => app.openMaximized({ kind: 'explorer', sessionId: id })}
@@ -827,7 +827,7 @@ function DesktopInner() {
               onOpenFileInEditor={(filePath, lineNumber) =>
                 app.openMaximized({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber })}
               onRestore={app.dismissMaximized}
-              onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
+              onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType, terminalEngine: activeSession.terminalEngine })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
               onDumpDiagnostics={() => void handleDumpDiagnostics(activeSession)}
@@ -858,6 +858,7 @@ function DesktopInner() {
             config={config}
             folderPath={app.overlay.folderPath}
             currentAgentType={app.overlay.agentType}
+            currentTerminalEngine={app.overlay.terminalEngine}
             onClose={app.closeOverlay}
             onClone={handleClone}
             onSaveFlag={handleSaveFlag}
