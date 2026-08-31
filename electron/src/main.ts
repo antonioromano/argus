@@ -598,6 +598,22 @@ async function main() {
     getReplaySnapshot: (id: string) => sm.getReplaySnapshot(id),
   });
 
+  // A session that exits or is deleted must drop its overlay immediately rather
+  // than waiting for React to unmount the tile — with Mosaic there can be many.
+  // onSessionDeleted is a single assignable property that server/src/index.ts
+  // already sets (to clear the window-registry assignment) — capture and call
+  // through rather than overwrite it.
+  const priorOnSessionDeleted = sm.onSessionDeleted as ((id: string) => void) | undefined;
+  sm.onSessionDeleted = (id: string) => {
+    try {
+      nativeTerminal!.detach(id);
+      untrackNativeTermSession(id);
+    } catch (err) {
+      console.error('[native-term] detach on session delete failed for', id, err);
+    }
+    priorOnSessionDeleted?.(id);
+  };
+
   ipcMain.on('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return;

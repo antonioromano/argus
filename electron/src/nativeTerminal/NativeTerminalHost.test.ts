@@ -256,3 +256,14 @@ test('a throwing addon.feed does not propagate out of the onOutput subscriber', 
   assert.doesNotThrow(() => emitOutput('s1', 'abc'));
   assert.ok(calls.includes('feed:1:abc'));
 });
+
+test('detach is idempotent and safe for a session that already exited', () => {
+  // Session exit and tile unmount can both fire; neither must throw or
+  // double-destroy.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.detach('s1');
+  host.detach('s1');
+  assert.equal(calls.filter((c) => c.startsWith('destroy:')).length, 1);
+});
