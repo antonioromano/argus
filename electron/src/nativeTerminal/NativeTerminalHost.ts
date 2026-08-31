@@ -68,8 +68,15 @@ export class NativeTerminalHost {
     return this.addon !== null;
   }
 
-  attach(sessionId: string, parentHandle: Buffer, rect: Rect): void {
-    if (!this.addon) return;
+  /**
+   * Returns whether an overlay is live for this session afterward — true
+   * even if a post-create call below (seed/setFrame/show) failed, since the
+   * overlay rollback decision keeps it registered in that case. Only a
+   * missing addon or a failed create() yields false, telling the caller
+   * there is no overlay to show and it should fall back to xterm.js.
+   */
+  attach(sessionId: string, parentHandle: Buffer, rect: Rect): boolean {
+    if (!this.addon) return false;
     let id = this.bySession.get(sessionId);
     if (id === undefined) {
       try {
@@ -77,7 +84,7 @@ export class NativeTerminalHost {
       } catch (err) {
         // create() failed — no window exists, so no map entry must be made.
         console.error('[native-term] create failed for', sessionId, err);
-        return;
+        return false;
       }
       this.bySession.set(sessionId, id);
       this.byOverlay.set(id, sessionId);
@@ -116,6 +123,7 @@ export class NativeTerminalHost {
     } catch (err) {
       console.error('[native-term] setFrame/show failed for', sessionId, err);
     }
+    return true;
   }
 
   setRect(sessionId: string, rect: Rect): void {

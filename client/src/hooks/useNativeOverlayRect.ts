@@ -4,7 +4,7 @@ interface NativeOverlayRect { x: number; y: number; width: number; height: numbe
 
 interface NativeTerminalBridge {
   available: () => Promise<boolean>;
-  attach: (sessionId: string, rect: NativeOverlayRect) => void;
+  attach: (sessionId: string, rect: NativeOverlayRect) => Promise<boolean>;
   setRect: (sessionId: string, rect: NativeOverlayRect) => void;
   detach: (sessionId: string) => void;
 }
@@ -17,8 +17,14 @@ interface NativeTerminalBridge {
  *
  * Completely inert when `enabled` is false — no IPC, no observers, no
  * listeners — so the xterm.js path (Phase 1 default) is untouched.
+ *
+ * `attach` is decided globally, once, from an availability check — but
+ * `create()` can still fail for one particular session (e.g. the native
+ * window budget is exhausted). When main reports that failure, `onFailure`
+ * is called so the caller can degrade that one session to xterm.js instead
+ * of leaving a permanently blank hole.
  */
-export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
+export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFailure?: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   const lastRectKey = useRef<string>('');
 
@@ -27,6 +33,8 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
     const api = (window as Window & { electronNativeTerminal?: NativeTerminalBridge }).electronNativeTerminal;
     const el = ref.current;
     if (!api || !el) return;
+
+    let cancelled = false;
 
     const measure = (): NativeOverlayRect => {
       const r = el.getBoundingClientRect();
@@ -43,27 +51,39 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean) {
       api.setRect(sessionId, rect);
     };
 
+    let ro: ResizeObserver | null = null;
     const initialRect = measure();
-    api.attach(sessionId, initialRect);
-    // Seed with the rect we just attached with — not '' — so the first
-    // ResizeObserver callback after attach doesn't immediately re-send an
-    // identical rect through setRect (redundant IPC).
-    lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
+    void api.attach(sessionId, initialRect).then((ok) => {
+      // The effect may have already been cleaned up (unmount, or `enabled`
+      // flipped) by the time main replies — a stale resolution must not
+      // install observers/listeners for a hole that's already gone, nor
+      // fire onFailure for a session the caller has moved on from.
+      if (cancelled) return;
+      if (!ok) {
+        onFailure?.();
+        return;
+      }
+      // Seed with the rect we just attached with — not '' — so the first
+      // ResizeObserver callback after attach doesn't immediately re-send an
+      // identical rect through setRect (redundant IPC).
+      lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
 
-    // Guard like the rest of the codebase (see Sessions.tsx) — jsdom under
-    // Vitest has no ResizeObserver; attach/detach still work without it.
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(report) : null;
-    ro?.observe(el);
-    window.addEventListener('resize', report);
-    window.addEventListener('scroll', report, true);
+      // Guard like the rest of the codebase (see Sessions.tsx) — jsdom under
+      // Vitest has no ResizeObserver; attach/detach still work without it.
+      ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(report) : null;
+      ro?.observe(el);
+      window.addEventListener('resize', report);
+      window.addEventListener('scroll', report, true);
+    });
 
     return () => {
+      cancelled = true;
       ro?.disconnect();
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
       api.detach(sessionId);
     };
-  }, [sessionId, enabled]);
+  }, [sessionId, enabled, onFailure]);
 
   return ref;
 }

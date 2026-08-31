@@ -62,9 +62,8 @@ interface NativeTerminalRect { x: number; y: number; width: number; height: numb
 
 contextBridge.exposeInMainWorld('electronNativeTerminal', {
   available: (): Promise<boolean> => ipcRenderer.invoke('native-term:available'),
-  attach: (sessionId: string, rect: NativeTerminalRect): void => {
-    ipcRenderer.send('native-term:attach', { sessionId, rect });
-  },
+  attach: (sessionId: string, rect: NativeTerminalRect): Promise<boolean> =>
+    ipcRenderer.invoke('native-term:attach', { sessionId, rect }),
   setRect: (sessionId: string, rect: NativeTerminalRect): void => {
     ipcRenderer.send('native-term:rect', { sessionId, rect });
   },

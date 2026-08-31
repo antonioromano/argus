@@ -4,15 +4,16 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useNativeOverlayRect } from './useNativeOverlayRect.js';
 
-const api = { attach: vi.fn(), setRect: vi.fn(), detach: vi.fn(), available: vi.fn() };
+const api = { attach: vi.fn().mockResolvedValue(true), setRect: vi.fn(), detach: vi.fn(), available: vi.fn() };
 beforeEach(() => {
   vi.clearAllMocks();
+  api.attach.mockResolvedValue(true);
   (window as any).electronNativeTerminal = api;
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
-function Probe({ enabled }: { enabled: boolean }) {
-  const ref = useNativeOverlayRect('s1', enabled);
+function Probe({ enabled, onFailure }: { enabled: boolean; onFailure?: () => void }) {
+  const ref = useNativeOverlayRect('s1', enabled, onFailure);
   return <div ref={ref} data-testid="hole" />;
 }
 
@@ -44,6 +45,28 @@ describe('useNativeOverlayRect', () => {
     act(() => root.render(<Probe enabled />));
     act(() => root.unmount());
     expect(api.detach).toHaveBeenCalledWith('s1');
+  });
+
+  it('calls onFailure when the main process reports attach failed', async () => {
+    api.attach.mockResolvedValueOnce(false);
+    const onFailure = vi.fn();
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled onFailure={onFailure} />); });
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it('does not call onFailure when attach succeeds', async () => {
+    api.attach.mockResolvedValueOnce(true);
+    const onFailure = vi.fn();
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled onFailure={onFailure} />); });
+    expect(onFailure).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
   });
 });
 
@@ -99,11 +122,11 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
   });
 
-  it('reports a geometry change via setRect', () => {
+  it('reports a geometry change via setRect', async () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const root = createRoot(c);
-    act(() => root.render(<Probe enabled />));
+    await act(async () => { root.render(<Probe enabled />); });
     expect(FakeResizeObserver.instances).toHaveLength(1);
 
     currentRect = { x: 40, y: 60, width: 500, height: 250 };
@@ -113,11 +136,11 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
   });
 
-  it('dedupes: an unchanged rect does not re-report', () => {
+  it('dedupes: an unchanged rect does not re-report', async () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const root = createRoot(c);
-    act(() => root.render(<Probe enabled />));
+    await act(async () => { root.render(<Probe enabled />); });
 
     // First real change reports once.
     currentRect = { x: 40, y: 60, width: 500, height: 250 };
@@ -134,11 +157,11 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
   });
 
-  it('the first callback after attach does not immediately re-send the attach rect', () => {
+  it('the first callback after attach does not immediately re-send the attach rect', async () => {
     const c = document.createElement('div');
     document.body.appendChild(c);
     const root = createRoot(c);
-    act(() => root.render(<Probe enabled />));
+    await act(async () => { root.render(<Probe enabled />); });
 
     // No geometry change — currentRect is exactly what attach() already saw.
     act(() => FakeResizeObserver.instances[0].trigger());

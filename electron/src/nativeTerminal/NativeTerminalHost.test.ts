@@ -267,3 +267,31 @@ test('detach is idempotent and safe for a session that already exited', () => {
   host.detach('s1');
   assert.equal(calls.filter((c) => c.startsWith('destroy:')).length, 1);
 });
+
+// --- attach() result: lets the caller fall back to xterm.js --------------
+
+test('attach reports failure when create throws', () => {
+  const { addon } = fakeAddon();
+  addon.create = () => { throw new Error('no window'); };
+  const { host } = harness(addon);
+  assert.equal(host.attach('s1', HANDLE, RECT), false);
+});
+
+test('attach reports success on the happy path and on reuse', () => {
+  const { addon } = fakeAddon();
+  const { host } = harness(addon);
+  assert.equal(host.attach('s1', HANDLE, RECT), true);
+  assert.equal(host.attach('s1', HANDLE, RECT), true);
+});
+
+test('attach reports failure when the addon is unavailable', () => {
+  const { host } = harness(null);
+  assert.equal(host.attach('s1', HANDLE, RECT), false);
+});
+
+test('attach reports success even when a post-create call fails — the overlay is still live', () => {
+  const { addon, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  failNext.setFrame = true;
+  assert.equal(host.attach('s1', HANDLE, RECT), true);
+});

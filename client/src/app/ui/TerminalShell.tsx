@@ -45,8 +45,14 @@ interface TerminalShellProps {
  * calling useTerminal — that would leave xterm mounted underneath, or skip
  * its teardown, depending on render order.
  */
-function TerminalShellNativeHole({ sessionId }: { sessionId: string }) {
-  const holeRef = useNativeOverlayRect(sessionId, true);
+function TerminalShellNativeHole(props: TerminalShellProps) {
+  // `useNative` is a global, once-decided flag — but attach() can still fail
+  // for one particular session (e.g. the addon returns without a usable
+  // window). Falling back to xterm.js here, rather than leaving a permanently
+  // blank transparent hole, is what makes that failure recoverable.
+  const [failed, setFailed] = useState(false);
+  const holeRef = useNativeOverlayRect(props.session.id, !failed, () => setFailed(true));
+  if (failed) return <TerminalShellXterm {...props} />;
   return <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent' }} />;
 }
 
@@ -182,7 +188,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
  */
 function TerminalShellRouter(props: TerminalShellProps) {
   if (props.useNative) {
-    return <TerminalShellNativeHole sessionId={props.session.id} />;
+    return <TerminalShellNativeHole {...props} />;
   }
   return <TerminalShellXterm {...props} />;
 }

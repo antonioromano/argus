@@ -614,11 +614,17 @@ async function main() {
     priorOnSessionDeleted?.(id);
   };
 
-  ipcMain.on('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+  // invoke (not send): the renderer must know whether an overlay is actually
+  // live so it can fall back to xterm.js when attach fails instead of being
+  // left staring at a permanently blank transparent hole.
+  ipcMain.handle('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
-    if (!win) return;
-    nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
-    trackNativeTermAttach(sessionId, win);
+    if (!win) return false;
+    const ok = nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
+    // Tracked only on success — bookkeeping for an overlay that was never
+    // actually created would be pure leak.
+    if (ok) trackNativeTermAttach(sessionId, win);
+    return ok;
   });
   ipcMain.on('native-term:rect', (_e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     nativeTerminal!.setRect(sessionId, rect);
