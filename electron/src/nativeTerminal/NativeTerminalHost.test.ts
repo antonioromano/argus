@@ -1,29 +1,42 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { NativeTerminalHost } from './NativeTerminalHost.js';
-import type { NativeTerminalAddon } from './types.js';
+import type { HostDeps, NativeTerminalAddon } from './types.js';
 
 function fakeAddon() {
   const calls: string[] = [];
   let next = 1;
   let inputCb: ((id: number, d: Buffer) => void) | undefined;
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
+  // Set a flag to true to make the *next* call to that method throw once,
+  // then auto-reset — lets a test inject a single fault mid-sequence.
+  const failNext: Partial<Record<'create' | 'feed' | 'setFrame', boolean>> = {};
   const addon: NativeTerminalAddon = {
-    create: () => { calls.push(`create:${next}`); return next++; },
-    setFrame: (id, x, y, w, h) => calls.push(`setFrame:${id}:${x},${y},${w},${h}`),
+    create: () => {
+      calls.push(`create:${next}`);
+      if (failNext.create) { failNext.create = false; throw new Error('create failed'); }
+      return next++;
+    },
+    setFrame: (id, x, y, w, h) => {
+      calls.push(`setFrame:${id}:${x},${y},${w},${h}`);
+      if (failNext.setFrame) { failNext.setFrame = false; throw new Error('setFrame failed'); }
+    },
     show: (id) => calls.push(`show:${id}`),
     hide: (id) => calls.push(`hide:${id}`),
     destroy: (id) => calls.push(`destroy:${id}`),
-    feed: (id, d) => calls.push(`feed:${id}:${d.toString()}`),
+    feed: (id, d) => {
+      calls.push(`feed:${id}:${d.toString()}`);
+      if (failNext.feed) { failNext.feed = false; throw new Error('feed failed'); }
+    },
     clearScrollback: (id) => calls.push(`clear:${id}`),
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
   };
-  return { addon, calls, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
+  return { addon, calls, failNext, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r) };
 }
 
-function harness(addonOrNull: NativeTerminalAddon | null) {
+function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
   const wrote: Array<[string, string]> = [];
   const resized: Array<[string, number, number]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
@@ -33,6 +46,7 @@ function harness(addonOrNull: NativeTerminalAddon | null) {
     writeToSession: (id, d) => wrote.push([id, d]),
     resizeSession: (id, c, r) => resized.push([id, c, r]),
     getReplaySnapshot: () => ({ data: 'REPLAY' }),
+    ...overrides,
   });
   return { host, wrote, resized, emitOutput: (id: string, d: string) => emit?.(id, d) };
 }
@@ -122,4 +136,57 @@ test('attaching twice reuses the existing overlay', () => {
   host.attach('s1', HANDLE, { x: 1, y: 2, width: 9, height: 9 });
   assert.equal(calls.filter((c) => c.startsWith('create:')).length, 1);
   assert.ok(calls.includes('setFrame:1:1,2,9,9'));
+});
+
+// --- JS/native boundary guards -------------------------------------------
+// Every call across the boundary must degrade rather than throw: a failure
+// from the addon must not leave bySession/byOverlay inconsistent, and a
+// failure from a HostDeps callback invoked off a native dispatch must not
+// escape into that dispatch.
+
+test('an addon whose create() throws leaves no half-registered overlay, and a later attach can still succeed', () => {
+  const { addon, calls, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  failNext.create = true;
+  host.attach('s1', HANDLE, RECT);                 // must not throw
+  assert.ok(!calls.some((c) => c.startsWith('setFrame:')), 'must not configure a non-existent overlay');
+  host.detach('s1');                               // nothing registered — must not call destroy
+  assert.ok(!calls.some((c) => c.startsWith('destroy:')));
+  host.attach('s1', HANDLE, RECT);                 // retry succeeds cleanly
+  assert.ok(calls.includes('create:1'));
+  assert.ok(calls.includes('setFrame:1:10,20,300,200'));
+});
+
+test('a setFrame failure after a successful create keeps the overlay registered', () => {
+  const { addon, calls, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  failNext.setFrame = true;
+  host.attach('s1', HANDLE, RECT);                 // create succeeds, setFrame throws — must not throw out
+  assert.ok(calls.includes('create:1'));
+  calls.length = 0;
+  host.show('s1');                                 // overlay still reachable — no re-create needed
+  assert.deepEqual(calls, ['show:1']);
+});
+
+test('a throwing writeToSession does not propagate out of the onInput callback', () => {
+  const { addon, fireInput } = fakeAddon();
+  const { host } = harness(addon, { writeToSession: () => { throw new Error('session gone'); } });
+  host.attach('s1', HANDLE, RECT);
+  assert.doesNotThrow(() => fireInput(1, 'ls\r'));
+});
+
+test('a throwing resizeSession does not propagate out of the onResize callback', () => {
+  const { addon, fireResize } = fakeAddon();
+  const { host } = harness(addon, { resizeSession: () => { throw new Error('session gone'); } });
+  host.attach('s1', HANDLE, RECT);
+  assert.doesNotThrow(() => fireResize(1, 120, 40));
+});
+
+test('a throwing addon.feed does not propagate out of the onOutput subscriber', () => {
+  const { addon, calls, failNext } = fakeAddon();
+  const { host, emitOutput } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  failNext.feed = true;
+  assert.doesNotThrow(() => emitOutput('s1', 'abc'));
+  assert.ok(calls.includes('feed:1:abc'));
 });
