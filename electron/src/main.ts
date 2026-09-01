@@ -273,9 +273,19 @@ function resolveNativeTerminalAddonPath(): string | null {
   return existsSync(repo) ? repo : null;
 }
 
-/** Phase 1 is opt-in. A missing or broken addon must degrade to web, never throw. */
+/**
+ * Loads the native terminal addon. A missing or broken addon must degrade to
+ * web, never throw — the renderer's availability probe reads the result of
+ * this and falls back for every session when it is null.
+ *
+ * No longer behind ARGUS_NATIVE_TERM: the engine is chosen in Settings
+ * ("Terminal engine") and per session in the Create/Clone sheets, so the
+ * build flag would only have been a second, invisible switch capable of
+ * overriding what the UI says. Availability is still gated on macOS, since
+ * the addon is the only implementation there is.
+ */
 function loadNativeTerminalAddon(): NativeTerminalAddon | null {
-  if (process.env.ARGUS_NATIVE_TERM !== '1' || process.platform !== 'darwin') return null;
+  if (process.platform !== 'darwin') return null;
   const addonPath = resolveNativeTerminalAddonPath();
   if (!addonPath) {
     console.warn('[native-term] addon not found, using xterm.js');
@@ -719,7 +729,7 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const server = await import('../../server/dist/index.js') as any;
 
-  // Native terminal overlay (Phase 1, opt-in via ARGUS_NATIVE_TERM). The host
+  // Native terminal overlay. The host
   // is inert (isAvailable() === false, every call a no-op) when the addon
   // didn't load, so wiring it unconditionally is safe with the flag unset.
   const sm = server.getSessionManager();

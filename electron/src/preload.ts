@@ -67,7 +67,7 @@ contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
 
-// Native terminal overlay bridge (Phase 1, opt-in via ARGUS_NATIVE_TERM). A
+// Native terminal overlay bridge. A
 // new flat namespace, matching the existing electronFiles / electronDialog /
 // electronApp convention — there is no `window.argus` object in this codebase.
 interface NativeTerminalRect { x: number; y: number; width: number; height: number }
