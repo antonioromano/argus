@@ -817,6 +817,11 @@ async function main() {
     nativeTerminal!.setTheme(sessionId, theme);
   });
 
+  // Unfocused-tile scrim. Same fire-and-forget shape as set-theme above.
+  ipcMain.on('native-term:set-dimmed', (_e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
+    nativeTerminal!.setDimmed(sessionId, dimmed, isDark);
+  });
+
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
   // A child NSWindow always paints above the parent's web content, so a DOM
   // surface (modal, menu, tooltip...) that would render above a native

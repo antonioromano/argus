@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises';
 import type { AppConfig } from '@argus/shared';
 import { atomicWrite } from '../utils/atomicWrite.js';
 
-const DEFAULT_CONFIG: AppConfig = {
+export const DEFAULT_CONFIG: AppConfig = {
   defaultAgent: 'claude',
   customAgents: [],
   agentFlags: {},

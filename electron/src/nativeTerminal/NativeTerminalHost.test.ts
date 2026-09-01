@@ -27,6 +27,9 @@ function fakeAddon() {
       calls.push(`setTheme:${id}:${bg},${fg},${cursor},${ansi.length}`);
       if (failNext.setTheme) { failNext.setTheme = false; throw new Error('setTheme failed'); }
     },
+    setDimmed: (id, dimmed, isDark) => {
+      calls.push(`setDimmed:${id}:${dimmed},${isDark}`);
+    },
     reparent: (id) => {
       calls.push(`reparent:${id}`);
       if (failNext.reparent) { failNext.reparent = false; throw new Error('reparent failed'); }
@@ -250,7 +253,9 @@ test('a setFrame failure after a successful create keeps the overlay registered'
   assert.ok(calls.includes('create:1'));
   calls.length = 0;
   host.show('s1');                                 // overlay still reachable — no re-create needed
-  assert.deepEqual(calls, ['show:1']);
+  // show() re-applies the cached rect before revealing, which here also
+  // repairs the frame the throwing attach-time setFrame never managed to set.
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
 });
 
 test('a throwing writeToSession does not propagate out of the onInput callback', () => {
@@ -670,4 +675,50 @@ test('a throwing openExternal does not propagate out of the onOpenLink callback'
   host.attach('s1', HANDLE, RECT);
 
   assert.doesNotThrow(() => fireOpenLink(1, 'https://example.com'));
+});
+
+test('setDimmed delegates to the addon with the resolved overlay id', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+
+  host.setDimmed('s1', true, false);
+
+  assert.deepEqual(calls, ['setDimmed:1:true,false']);
+});
+
+test('setDimmed on an unattached session is a no-op that does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+
+  assert.doesNotThrow(() => host.setDimmed('nope', true, true));
+  assert.deepEqual(calls, []);
+});
+
+test('show re-applies the cached rect before revealing', () => {
+  // An overlay hidden for a modal can be revealed into a window that moved
+  // while it was out of sight, so the reveal must re-derive its frame.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.hide('s1');
+  calls.length = 0;
+
+  host.show('s1');
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
+});
+
+test('show still reveals when there is no cached rect to re-apply', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.detach('s1');
+  calls.length = 0;
+
+  // Nothing attached: show must stay inert rather than resurrect anything.
+  host.show('s1');
+
+  assert.deepEqual(calls, []);
 });

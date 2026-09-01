@@ -30,6 +30,15 @@ final class KeyableWindow: NSWindow {
   }
 }
 
+/// A scrim that never takes a click. A plain NSView subview would sit in front
+/// of the terminal in the hit-test chain and swallow every mouse event —
+/// selection, link clicks, scroll — so the tile would look right and stop
+/// responding. Returning nil from hitTest passes events straight through, the
+/// AppKit equivalent of the DOM scrim's `pointer-events: none`.
+final class PassthroughView: NSView {
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// A SwiftTerm view in a borderless child NSWindow, driven entirely from
 /// outside. Deliberately dumb: it owns no process and makes no decisions —
 /// all policy lives in NativeTerminalHost (TypeScript), where it is testable.
@@ -46,6 +55,12 @@ final class KeyableWindow: NSWindow {
 
   private let terminalView: TerminalView
   private var window: NSWindow?
+  /// Translucent scrim shown over the terminal while its tile is unfocused.
+  /// Lives INSIDE the overlay's own window: the equivalent DOM element the
+  /// xterm path uses (`.argus-tile-overlay`) renders behind a child NSWindow
+  /// and would be invisible — the same z-order constraint that moved search
+  /// into SwiftTerm's own find bar.
+  private var dimView: NSView?
 
   @objc public init(width: CGFloat, height: CGFloat) {
     terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -204,6 +219,33 @@ final class KeyableWindow: NSWindow {
   public func debugBackgroundColor() -> NSColor { terminalView.nativeBackgroundColor }
   public func debugForegroundColor() -> NSColor { terminalView.nativeForegroundColor }
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
+
+  /// Matches `.argus-tile-overlay` in index.css, which is what an unfocused
+  /// xterm tile is painted with. Without it the two engines disagree about
+  /// what an unfocused tile looks like: measured against a real screenshot,
+  /// an unfocused xterm tile renders #e7e7e6 while a native one stayed at the
+  /// theme's #f5f5f5, because the scrim — not the theme — is the difference.
+  @objc public func setDimmed(_ dimmed: Bool, isDark: Bool) {
+    guard dimmed else {
+      dimView?.removeFromSuperview()
+      dimView = nil
+      return
+    }
+    let scrim: NSColor = isDark
+      ? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.13)
+      : NSColor(srgbRed: 20.0 / 255.0, green: 15.0 / 255.0, blue: 8.0 / 255.0, alpha: 0.06)
+    if let existing = dimView {
+      existing.layer?.backgroundColor = scrim.cgColor
+      existing.frame = terminalView.bounds
+      return
+    }
+    let v = PassthroughView(frame: terminalView.bounds)
+    v.wantsLayer = true
+    v.layer?.backgroundColor = scrim.cgColor
+    v.autoresizingMask = [.width, .height]
+    terminalView.addSubview(v)
+    dimView = v
+  }
 
   @objc public func show() { window?.orderFront(nil) }
   @objc public func hide() { window?.orderOut(nil) }

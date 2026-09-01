@@ -39,6 +39,12 @@ interface NativeThemeBridge {
   setTheme(sessionId: string, theme: NativeTerminalTheme): void;
 }
 
+/** The slice of the native-terminal preload bridge that paints the
+ *  unfocused-tile scrim inside the overlay's own window. */
+interface NativeDimBridge {
+  setDimmed?(sessionId: string, dimmed: boolean, isDark: boolean): void;
+}
+
 /** The slice of the native-terminal preload bridge that reports key-window
  *  transitions on overlays. Optional at the call site: an older preload (or a
  *  non-Electron client) simply never reports, and the tile stays unfocused
@@ -82,7 +88,7 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, theme, searchOpen = false } = props;
+  const { session, theme, searchOpen = false, focused } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
@@ -107,6 +113,19 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     (window as Window & { electronNativeTerminal?: NativeThemeBridge })
       .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme));
   }, [session.id, theme, attachGeneration]);
+
+  // The xterm path dims an unfocused tile with a DOM element inside its own
+  // container (`.argus-tile-overlay`). A native tile cannot: a child NSWindow
+  // paints above the web contents, so that element would be invisible. Drive
+  // the equivalent scrim inside the overlay's window instead, from the same
+  // `focused === false` condition, so the two engines agree about what an
+  // unfocused tile looks like. Re-runs on attachGeneration for the same reason
+  // the theme effect does — attach is async, so a scrim applied before the
+  // overlay exists would be lost.
+  useEffect(() => {
+    (window as Window & { electronNativeTerminal?: NativeDimBridge })
+      .electronNativeTerminal?.setDimmed?.(session.id, focused === false, theme === 'dark');
+  }, [session.id, focused, theme, attachGeneration]);
 
   // mod+f for a native tile toggles SwiftTerm's OWN find bar
   // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the

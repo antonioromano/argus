@@ -122,6 +122,23 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
   return Napi::Number::New(env, id);
 }
 
+// setDimmed(id, dimmed, isDark) — paints the unfocused-tile scrim the xterm
+// path draws with `.argus-tile-overlay`. Validated like the other setters.
+Napi::Value SetDimmed(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 3 || !info[1].IsBoolean() || !info[2].IsBoolean()) {
+    Napi::TypeError::New(env, "setDimmed(id, dimmed, isDark) requires two booleans")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) {
+    [c setDimmed:info[1].As<Napi::Boolean>().Value()
+          isDark:info[2].As<Napi::Boolean>().Value()];
+  }
+  return env.Undefined();
+}
+
 Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   // `.As<Napi::Number>()` performs no runtime check. Under
@@ -307,6 +324,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("closeFindBar", Napi::Function::New(env, CloseFindBar));
   exports.Set("onInput", Napi::Function::New(env, OnInput));
   exports.Set("onResize", Napi::Function::New(env, OnResize));
+  exports.Set("setDimmed", Napi::Function::New(env, SetDimmed));
   exports.Set("onFocus", Napi::Function::New(env, OnFocus));
   exports.Set("onOpenLink", Napi::Function::New(env, OnOpenLink));
   return exports;

@@ -83,6 +83,9 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   setTheme: (sessionId: string, theme: NativeTerminalTheme): void => {
     ipcRenderer.send('native-term:set-theme', { sessionId, theme });
   },
+  setDimmed: (sessionId: string, dimmed: boolean, isDark: boolean): void => {
+    ipcRenderer.send('native-term:set-dimmed', { sessionId, dimmed, isDark });
+  },
   detach: (sessionId: string): void => {
     ipcRenderer.send('native-term:detach', { sessionId });
   },

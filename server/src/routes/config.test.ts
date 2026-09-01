@@ -6,7 +6,7 @@ import { join } from 'path';
 import express from 'express';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import { ConfigStore } from '../persistence/ConfigStore.js';
+import { ConfigStore, DEFAULT_CONFIG } from '../persistence/ConfigStore.js';
 import { createConfigRoutes } from './config.js';
 
 // Integration test for PUT/GET /api/config: spins a real express app over a
@@ -193,7 +193,22 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     tileQuickAction: 'files',
     tileRunningIndicator: 'off',
     quickActionPromptedAt: '0.23.0',
+    defaultTerminalEngine: 'native',
   };
+
+  // The list above used to be maintained by hand against a comment, and
+  // `defaultTerminalEngine` was added to AppConfig without being added here —
+  // so this test passed while PUT silently dropped the field and the Settings
+  // engine picker looked unclickable. DEFAULT_CONFIG is runtime data covering
+  // every key, so cross-check against it and the omission becomes a failure
+  // rather than a comment nobody reads.
+  const uncovered = Object.keys(DEFAULT_CONFIG).filter((k) => !(k in nonDefault));
+  assert.deepEqual(
+    uncovered,
+    [],
+    `AppConfig grew without this test covering it: ${uncovered.join(', ')}. `
+      + 'Add one non-default valid value per new field above.',
+  );
 
   const { body } = await put(nonDefault);
   const loaded = await get();

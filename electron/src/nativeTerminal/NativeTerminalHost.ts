@@ -151,6 +151,23 @@ export class NativeTerminalHost {
     return true;
   }
 
+  /**
+   * Paints (or clears) the unfocused-tile scrim. The xterm path draws this as
+   * a DOM element inside its own container; a native tile cannot, because a
+   * child NSWindow paints above the web contents, so the scrim has to live in
+   * the overlay's own window. Same values either way — see
+   * OverlayController.setDimmed.
+   */
+  setDimmed(sessionId: string, dimmed: boolean, isDark: boolean): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.setDimmed(id, dimmed, isDark);
+    } catch (err) {
+      console.error('[native-term] setDimmed failed for', sessionId, err);
+    }
+  }
+
   setRect(sessionId: string, rect: Rect): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
@@ -302,6 +319,15 @@ export class NativeTerminalHost {
     if (id === undefined) return;
     if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
+      // Re-apply the cached rect before revealing. An overlay is hidden for a
+      // modal, palette or popover, and the parent window can move or resize
+      // while it is out of sight — the conversion setFrame performs is against
+      // the parent's live frame, so whatever position it had on the way out is
+      // not necessarily right on the way back in. Cheap and idempotent, and it
+      // makes unsuppress self-correcting rather than trusting that nothing
+      // moved.
+      const rect = this.rectBySession.get(sessionId);
+      if (rect) this.addon?.setFrame(id, rect.x, rect.y, rect.width, rect.height);
       this.addon?.show(id);
     } catch (err) {
       console.error('[native-term] show failed for', sessionId, err);
