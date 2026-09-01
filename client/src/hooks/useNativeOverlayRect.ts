@@ -74,8 +74,22 @@ export function useNativeOverlayRect(
       return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
     };
 
-    const report = () => {
+    // Temporary, paired with the host's ARGUS_NATIVE_TERM_DEBUG tracing: the
+    // renderer's own view of the hole is the half that cannot be inferred from
+    // main's logs. Enable from devtools with
+    // `localStorage.argusNativeTermDebug = '1'` and reload.
+    const debug = (() => {
+      try { return localStorage.getItem('argusNativeTermDebug') === '1'; } catch { return false; }
+    })();
+
+    const report = (reason?: unknown) => {
       const rect = measure();
+      if (debug) {
+        const kind = Array.isArray(reason) && reason[0] && 'isIntersecting' in (reason[0] as object)
+          ? 'intersection' : 'resize/scroll';
+        console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind, rect,
+          'usable=', rect.width >= 40 && rect.height >= 40);
+      }
       // A hole too small to be a real terminal is not a frame to apply — it
       // means the tile is not on screen: mid-mount, inside a display:none
       // container, or behind a maximized workbench (Cmd+E / Cmd+D). Two

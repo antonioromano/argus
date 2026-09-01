@@ -40,6 +40,18 @@ function isUsableFrame(rect: Rect): boolean {
   return rect.width >= MIN_FRAME_PT && rect.height >= MIN_FRAME_PT;
 }
 
+/**
+ * Temporary geometry tracing, on with ARGUS_NATIVE_TERM_DEBUG=1. Every
+ * "misplaced overlay" report so far has been diagnosed by reading the code and
+ * been wrong at least once, because the interesting question — what the
+ * renderer actually measured, and what the host decided in response — is
+ * invisible from the outside. Logs only decisions, not every frame.
+ */
+const DEBUG = process.env.ARGUS_NATIVE_TERM_DEBUG === '1';
+function trace(...args: unknown[]): void {
+  if (DEBUG) console.log('[native-term:trace]', ...args);
+}
+
 export class NativeTerminalHost {
   private readonly addon: NativeTerminalAddon | null;
   private readonly deps: HostDeps;
@@ -230,9 +242,11 @@ export class NativeTerminalHost {
     // would float it over unrelated UI at its last known coordinates. Hide it
     // and keep the last good rect for when the hole comes back.
     if (!isUsableFrame(rect)) {
+      trace('setRect UNUSABLE', sessionId.slice(0, 8), rect, '-> hole hidden');
       this.setHoleVisible(sessionId, false);
       return;
     }
+    trace('setRect', sessionId.slice(0, 8), rect);
     this.rectBySession.set(sessionId, rect);
     if (this.holeVisible.get(sessionId) !== true) {
       // A visibility transition: applyVisibility sets the frame on the way in,
@@ -272,6 +286,11 @@ export class NativeTerminalHost {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
     const shouldShow = (this.holeVisible.get(sessionId) ?? false) && !this.suppressed.has(sessionId);
+    trace('visibility', sessionId.slice(0, 8),
+      'hole=', this.holeVisible.get(sessionId) ?? false,
+      'suppressed=', this.suppressed.has(sessionId),
+      'shown=', this.shown.has(sessionId),
+      '-> want', shouldShow);
     if (shouldShow === this.shown.has(sessionId)) return;
     if (!shouldShow) {
       this.shown.delete(sessionId);
