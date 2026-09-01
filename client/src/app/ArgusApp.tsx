@@ -43,6 +43,7 @@ import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
 import { useWindows } from '../hooks/useWindows.js';
+import { insertBefore } from '../utils/reorder.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 
@@ -278,6 +279,13 @@ function DesktopInner() {
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
+
+  /** Reposition an ungrouped session in the global order, for a drop onto a row
+   *  in the sidebar's Others bucket. Others has no membership array of its own,
+   *  so its order is the global one — the same list the focus-view strip uses. */
+  const reorderSessionBefore = useCallback((sessionId: string, beforeId: string | null) => {
+    reorderSession(insertBefore(orderedSessions.map((s) => s.id), sessionId, beforeId));
+  }, [orderedSessions, reorderSession]);
   const mosaicSessions = useMemo(() => getMosaicOrderedSessions(sessions), [sessions, getMosaicOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
   const grouped = groups.groupedSessions(orderedSessions);
@@ -712,6 +720,7 @@ function DesktopInner() {
               activeGroupId={activeGroupId}
               isDark={isDark}
               onAssign={groups.assign}
+              onReorderOthers={reorderSessionBefore}
               onToggleCollapsed={groups.toggleCollapsed}
               onFilterGroup={(id) => { setActiveGroupId(id); app.exitFocus(); }}
               onCreateGroup={(name) => groups.createGroup(name)}
