@@ -43,8 +43,8 @@ func TestRingSingleLargeWriteKeepsTail(t *testing.T) {
 
 func TestRingWraparoundThenLargeWrite(t *testing.T) {
 	r := newRing(5)
-	r.write([]byte("xyz"))          // partial
-	r.write([]byte("1234567"))      // large → keeps trailing 5
+	r.write([]byte("xyz"))     // partial
+	r.write([]byte("1234567")) // large → keeps trailing 5
 	if got := r.snapshot(); !bytes.Equal(got, []byte("34567")) {
 		t.Fatalf("got %q, want %q", got, "34567")
 	}
@@ -53,5 +53,32 @@ func TestRingWraparoundThenLargeWrite(t *testing.T) {
 func TestRingEmpty(t *testing.T) {
 	if got := newRing(8).snapshot(); len(got) != 0 {
 		t.Fatalf("empty ring snapshot should be empty, got %q", got)
+	}
+}
+
+// from is what lets attach replay a ring in paced chunks: the producer keeps
+// writing between chunks, so a position must survive its bytes being evicted.
+func TestRingFromResumesAndClampsToOldest(t *testing.T) {
+	r := newRing(8)
+	r.write([]byte("abcdefgh"))
+
+	mark := r.oldest()
+	chunk, next := r.from(mark, 3)
+	if string(chunk) != "abc" {
+		t.Fatalf("first chunk = %q, want \"abc\"", chunk)
+	}
+
+	// The producer laps the reader: "abcdefgh" -> ring now holds "ijklmnop".
+	r.write([]byte("ijklmnop"))
+	chunk, next = r.from(next, 4)
+	if string(chunk) != "ijkl" {
+		t.Fatalf("after eviction chunk = %q, want the oldest bytes still held (\"ijkl\")", chunk)
+	}
+	chunk, next = r.from(next, 99)
+	if string(chunk) != "mnop" {
+		t.Fatalf("tail chunk = %q, want \"mnop\"", chunk)
+	}
+	if chunk, _ = r.from(next, 99); len(chunk) != 0 {
+		t.Fatalf("caught up, but from returned %q", chunk)
 	}
 }
