@@ -36,9 +36,11 @@ export class DaemonBackend implements PtyBackend {
     console.log(`[argusd] re-attaching ${this.ptys.size} session(s) after reconnect`);
     for (const sessionId of this.ptys.keys()) {
       // Wipe the mirror first: attach replays the session's whole ring, which
-      // overlaps whatever we already had.
-      this.resyncCb?.(sessionId);
-      this.client.attach(sessionId);
+      // overlaps whatever we already had. The client sends these attaches one at
+      // a time, so the wipe is deferred to the moment each one actually goes out
+      // — wiping every mirror here would blank sessions still waiting their turn
+      // for minutes, showing the user the very emptiness this pacing prevents.
+      this.client.attach(sessionId, () => this.resyncCb?.(sessionId));
     }
   }
 
