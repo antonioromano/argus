@@ -78,13 +78,16 @@ export function useNativeOverlayRect(
     // renderer's own view of the hole is the half that cannot be inferred from
     // main's logs. Enable from devtools with
     // `localStorage.argusNativeTermDebug = '1'` and reload.
-    const debug = (() => {
+    // Read per call, not once: main sets this flag after did-finish-load, which
+    // can be after this effect has already run. Temporary debug code, and the
+    // reports it guards are not hot enough for the localStorage hit to matter.
+    const isDebug = () => {
       try { return localStorage.getItem('argusNativeTermDebug') === '1'; } catch { return false; }
-    })();
+    };
 
     const report = (reason?: unknown) => {
       const rect = measure();
-      if (debug) {
+      if (isDebug()) {
         const kind = Array.isArray(reason) && reason[0] && 'isIntersecting' in (reason[0] as object)
           ? 'intersection' : 'resize/scroll';
         console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind, rect,

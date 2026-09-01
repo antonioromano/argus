@@ -180,6 +180,23 @@ export function createAppWindow(windowId: string): BrowserWindow {
   const port = process.env.ARGUS_PORT || '5757';
   win.loadURL(`http://127.0.0.1:${port}/?windowId=${windowId}`);
 
+  // With native-terminal tracing on, forward the renderer's own trace lines to
+  // the terminal. The renderer half of the geometry story (what it measured
+  // for a hole) is only visible in the devtools console, and Argus wires no
+  // devtools accelerator — so without this the two halves cannot be read
+  // together. Filtered to the trace tag: this is not a general console mirror.
+  if (process.env.ARGUS_NATIVE_TERM_DEBUG === '1') {
+    win.webContents.on('console-message', (_e, _level, message) => {
+      if (message.startsWith('[native-term:trace]')) console.log('[renderer]', message);
+    });
+    win.webContents.once('did-finish-load', () => {
+      // Saves the user a devtools round-trip to set the localStorage flag.
+      void win.webContents.executeJavaScript(
+        "try { localStorage.setItem('argusNativeTermDebug', '1'); } catch {}",
+      );
+    });
+  }
+
   // Re-apply the tracked whole-app zoom on every load — webContents resets zoom
   // to 0 on reload/route change otherwise. Unconditional so a 0 (100%) level is
   // honoured too, and always the *current* tracked value, never a stale snapshot.
