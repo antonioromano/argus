@@ -76,14 +76,26 @@ export function useNativeOverlayRect(
 
     const report = () => {
       const rect = measure();
-      // Never report a hole too small to be a real terminal. Native is the
-      // resize authority, so such a rect would drive the pty to ~2 columns and
-      // make the agent reflow its whole transcript — permanently, since the
-      // reflowed text is already in the scrollback. A tile mid-mount, or one
-      // inside a display:none container, measures 0x0 here. Main guards this
-      // too (MIN_FRAME_PT); doing it here as well keeps lastRectKey from being
-      // poisoned with a size that will never be applied.
-      if (rect.width < 40 || rect.height < 40) return;
+      // A hole too small to be a real terminal is not a frame to apply — it
+      // means the tile is not on screen: mid-mount, inside a display:none
+      // container, or behind a maximized workbench (Cmd+E / Cmd+D). Two
+      // separate things go wrong if this is reported as a position.
+      //
+      // Native is the resize authority, so the rect would drive the pty to
+      // ~2 columns and make the agent reflow its entire transcript —
+      // permanently, since that text lands in the scrollback. And the overlay
+      // is its own NSWindow, so simply skipping the update leaves it floating
+      // over unrelated UI (even outside the Argus window) at whatever
+      // coordinates it last had.
+      //
+      // So report it as what it is — the hole is gone — and let main hide the
+      // overlay until a real rect comes back. `lastRectKey` is deliberately
+      // NOT updated: the next usable rect must be sent even if it equals the
+      // last one we applied, since the overlay needs re-showing.
+      if (rect.width < 40 || rect.height < 40) {
+        api.setRect(sessionId, rect);
+        return;
+      }
       // Skip identical rects: layout effects fire on plenty of triggers that
       // don't move the hole, and each IPC hop is pure waste.
       const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;
@@ -92,6 +104,12 @@ export function useNativeOverlayRect(
       api.setRect(sessionId, rect);
       registerOverlay(sessionId, rect);
     };
+
+    // A tile can be hidden without its size changing and without unmounting —
+    // a maximized workbench sets display:none on an ancestor, and
+    // ResizeObserver does not fire for that on every engine. IntersectionObserver
+    // does, and it is also what catches a tile scrolled out of the viewport.
+    let io: IntersectionObserver | null = null;
 
     let ro: ResizeObserver | null = null;
     const initialRect = measure();
@@ -116,6 +134,8 @@ export function useNativeOverlayRect(
       // Vitest has no ResizeObserver; attach/detach still work without it.
       ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(report) : null;
       ro?.observe(el);
+      io = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(report) : null;
+      io?.observe(el);
       window.addEventListener('resize', report);
       window.addEventListener('scroll', report, true);
     });
@@ -123,6 +143,7 @@ export function useNativeOverlayRect(
     return () => {
       cancelled = true;
       ro?.disconnect();
+      io?.disconnect();
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
       api.detach(sessionId);

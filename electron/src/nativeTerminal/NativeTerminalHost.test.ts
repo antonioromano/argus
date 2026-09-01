@@ -245,17 +245,21 @@ test('an addon whose create() throws leaves no half-registered overlay, and a la
   assert.ok(calls.includes('setFrame:1:10,20,300,200'));
 });
 
-test('a setFrame failure after a successful create keeps the overlay registered', () => {
+test('a setFrame failure during attach still leaves a shown, registered overlay', () => {
+  // A frame failure must not strand the session invisible: setFrame and show
+  // are guarded separately so the overlay is still revealed, and a later
+  // setRect can repair its position.
   const { addon, calls, failNext } = fakeAddon();
   const { host } = harness(addon);
   failNext.setFrame = true;
   host.attach('s1', HANDLE, RECT);                 // create succeeds, setFrame throws — must not throw out
   assert.ok(calls.includes('create:1'));
+  assert.ok(calls.includes('show:1'), `must still be shown, got ${calls.join(',')}`);
   calls.length = 0;
-  host.show('s1');                                 // overlay still reachable — no re-create needed
-  // show() re-applies the cached rect before revealing, which here also
-  // repairs the frame the throwing attach-time setFrame never managed to set.
-  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
+
+  host.setRect('s1', { x: 7, y: 8, width: 500, height: 400 });
+
+  assert.deepEqual(calls, ['setFrame:1:7,8,500,400'], 'the overlay is still reachable and repositionable');
 });
 
 test('a throwing writeToSession does not propagate out of the onInput callback', () => {
@@ -723,43 +727,8 @@ test('show still reveals when there is no cached rect to re-apply', () => {
   assert.deepEqual(calls, []);
 });
 
-test('a degenerate rect never reaches the view — it would reflow the pty to 2 columns', () => {
-  // Swift clamps to >= 1pt, so a 0-wide hole becomes a 1pt view, SwiftTerm
-  // derives ~2 columns from it, and native being the resize authority pushes
-  // that to the pty. The agent's reflowed transcript is then permanent.
-  const { addon, calls } = fakeAddon();
-  const { host } = harness(addon);
-  host.attach('s1', HANDLE, RECT);
-  calls.length = 0;
 
-  host.setRect('s1', { x: 10, y: 20, width: 0, height: 0 });
 
-  assert.deepEqual(calls, []);
-});
-
-test('a degenerate attach rect still creates the overlay but sets no frame', () => {
-  const { addon, calls } = fakeAddon();
-  const { host } = harness(addon);
-
-  const ok = host.attach('s1', HANDLE, { x: 0, y: 0, width: 0, height: 0 });
-
-  assert.equal(ok, true, 'the overlay must still exist and be reachable');
-  assert.ok(calls.includes('create:1'));
-  assert.ok(calls.includes('show:1'));
-  assert.ok(!calls.some((c) => c.startsWith('setFrame:')), `no frame may be applied, got ${calls.join(',')}`);
-});
-
-test('a degenerate rect does not evict the last good cached frame', () => {
-  const { addon, calls } = fakeAddon();
-  const { host } = harness(addon);
-  host.attach('s1', HANDLE, RECT);
-  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
-  calls.length = 0;
-
-  host.resyncParent(HANDLE);
-
-  assert.deepEqual(calls, ['setFrame:1:10,20,300,200'], 'must replay the last usable rect');
-});
 
 test('a frame at the minimum usable size is applied', () => {
   const { addon, calls } = fakeAddon();
@@ -770,4 +739,122 @@ test('a frame at the minimum usable size is applied', () => {
   host.setRect('s1', { x: 1, y: 2, width: 40, height: 40 });
 
   assert.deepEqual(calls, ['setFrame:1:1,2,40,40']);
+});
+
+test('an overlay whose hole goes off screen is hidden, not left floating', () => {
+  // The overlay is its own NSWindow: skipping the update would leave it
+  // painting over unrelated UI at its last coordinates (observed with Cmd+E,
+  // which maximizes the workbench and hides the tile without unmounting it).
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+
+  assert.deepEqual(calls, ['hide:1']);
+});
+
+test('the overlay comes back when its hole returns, at the rect it returns with', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+
+  host.setRect('s1', { x: 5, y: 6, width: 700, height: 500 });
+
+  assert.deepEqual(calls, ['setFrame:1:5,6,700,500', 'show:1']);
+});
+
+test('the same rect returning after a hide still re-shows the overlay', () => {
+  // The renderer does not update lastRectKey for an off-screen hole precisely
+  // so this case reaches us — hiding and returning unchanged is the common
+  // shape (open a maximized workbench, close it again).
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+
+  host.setRect('s1', RECT);
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
+});
+
+test('closing a modal does not reveal an overlay whose tile is off screen', () => {
+  // The two conditions are independent: unsuppressing must not override the
+  // fact that there is nowhere on screen for this overlay to be.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });   // tile hidden
+  host.hide('s1');                                            // modal opens
+  calls.length = 0;
+
+  host.show('s1');                                            // modal closes
+
+  assert.deepEqual(calls, [], 'must stay hidden — the hole is still gone');
+});
+
+test('a tile becoming visible does not punch through an open modal', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.hide('s1');                                            // modal opens
+  calls.length = 0;
+
+  host.setRect('s1', { x: 5, y: 6, width: 700, height: 500 });
+
+  assert.ok(!calls.includes('show:1'), `must stay suppressed, got ${calls.join(',')}`);
+});
+
+test('both conditions satisfied reveals exactly once', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  host.hide('s1');
+  calls.length = 0;
+
+  host.setRect('s1', RECT);   // hole back, still suppressed
+  host.show('s1');            // modal closes
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
+});
+
+test('resyncParent repositions visible overlays but never reveals a hidden one', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.attach('s2', HANDLE, { x: 400, y: 20, width: 300, height: 200 });
+  host.setRect('s2', { x: 0, y: 0, width: 0, height: 0 });   // s2's tile hidden
+  calls.length = 0;
+
+  host.resyncParent(HANDLE);
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200']);
+});
+
+test('attaching with a hole that is not laid out yet does not flash the overlay', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+
+  host.attach('s1', HANDLE, { x: 0, y: 0, width: 0, height: 0 });
+
+  assert.ok(!calls.includes('show:1'), `must not show at construction size, got ${calls.join(',')}`);
+  assert.ok(calls.includes('create:1'));
+});
+
+test('suppression is idempotent — a repeat hide does not stack', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.hide('s1');
+  calls.length = 0;
+
+  host.hide('s1');
+  host.show('s1');
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
 });
