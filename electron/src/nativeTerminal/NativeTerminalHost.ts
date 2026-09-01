@@ -56,6 +56,15 @@ export class NativeTerminalHost {
       }
     });
 
+    this.addon.onFocus((id, focused) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (sessionId) this.deps.notifyFocus(sessionId, focused);
+      } catch (err) {
+        console.error('[native-term] notifyFocus failed for overlay', id, err);
+      }
+    });
+
     // Native is the resize authority whenever an overlay exists (spec §2).
     this.addon.onResize((id, cols, rows) => {
       try {

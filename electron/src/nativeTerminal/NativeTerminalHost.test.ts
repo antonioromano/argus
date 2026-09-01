@@ -8,6 +8,7 @@ function fakeAddon() {
   let next = 1;
   let inputCb: ((id: number, d: Buffer) => void) | undefined;
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
+  let focusCb: ((id: number, focused: boolean) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
@@ -44,24 +45,28 @@ function fakeAddon() {
     closeFindBar: (id) => calls.push(`closeFindBar:${id}`),
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
+    onFocus: (cb) => { focusCb = cb; },
   };
   return { addon, calls, failNext, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
-           fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r) };
+           fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
+           fireFocus: (i: number, f: boolean) => focusCb!(i, f) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
   const wrote: Array<[string, string]> = [];
   const resized: Array<[string, number, number]> = [];
+  const focused: Array<[string, boolean]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
   const host = new NativeTerminalHost({
     addon: addonOrNull,
     onOutput: (cb) => { emit = cb; return () => { emit = undefined; }; },
     writeToSession: (id, d) => wrote.push([id, d]),
     resizeSession: (id, c, r) => resized.push([id, c, r]),
+    notifyFocus: (id, f) => focused.push([id, f]),
     getReplaySnapshot: () => ({ data: 'REPLAY' }),
     ...overrides,
   });
-  return { host, wrote, resized, emitOutput: (id: string, d: string) => emit?.(id, d) };
+  return { host, wrote, resized, focused, emitOutput: (id: string, d: string) => emit?.(id, d) };
 }
 
 const HANDLE = Buffer.alloc(8);
@@ -563,4 +568,48 @@ test('a throwing setFrame during resync does not stop the remaining overlays', (
 test('resyncParent with no addon is inert', () => {
   const { host } = harness(null);
   assert.doesNotThrow(() => host.resyncParent(Buffer.alloc(8, 1)));
+});
+
+test('a native key-window transition is reported for the owning session', () => {
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireFocus(1, true);
+  fireFocus(1, false);
+
+  assert.deepEqual(focused, [['s1', true], ['s1', false]]);
+});
+
+test('a focus event for an unknown overlay id is ignored', () => {
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireFocus(99, true);
+
+  assert.deepEqual(focused, []);
+});
+
+test('a detached overlay reports no further focus changes', () => {
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.detach('s1');
+
+  fireFocus(1, true);
+
+  assert.deepEqual(focused, []);
+});
+
+test('a throwing notifyFocus does not propagate out of the onFocus callback', () => {
+  // Same contract as onInput/onResize: this runs off a native dispatch with no
+  // JS stack for an exception to unwind into.
+  const { addon, fireFocus } = fakeAddon();
+  const { host } = harness(addon, {
+    notifyFocus: () => { throw new Error('renderer gone'); },
+  });
+  host.attach('s1', HANDLE, RECT);
+
+  assert.doesNotThrow(() => fireFocus(1, true));
 });

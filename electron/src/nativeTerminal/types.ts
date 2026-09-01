@@ -31,6 +31,7 @@ export interface NativeTerminalAddon {
   closeFindBar(id: number): void;
   onInput(cb: (id: number, data: Buffer) => void): void;
   onResize(cb: (id: number, cols: number, rows: number) => void): void;
+  onFocus(cb: (id: number, focused: boolean) => void): void;
 }
 
 export interface HostDeps {
@@ -38,6 +39,13 @@ export interface HostDeps {
   onOutput(cb: (sessionId: string, data: string) => void): () => void;
   writeToSession(id: string, data: string): void;
   resizeSession(id: string, cols: number, rows: number): void;
+  /**
+   * Reports that a native overlay's window became (or stopped being) the key
+   * window. A click on a native tile goes to the child NSWindow, never to the
+   * web contents, so without this the renderer's focus tracking — which every
+   * "for the focused shell" command reads — can never see a native tile.
+   */
+  notifyFocus(id: string, focused: boolean): void;
   // SessionManager's frame is self-normalizing — `data` always leads with its
   // own buffer-switch/clear prefix (`\x1b[?1049l...`) and `serialize()`
   // re-emits `?1049h` itself when the session is on the alt screen (see

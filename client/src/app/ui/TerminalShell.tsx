@@ -39,6 +39,14 @@ interface NativeThemeBridge {
   setTheme(sessionId: string, theme: NativeTerminalTheme): void;
 }
 
+/** The slice of the native-terminal preload bridge that reports key-window
+ *  transitions on overlays. Optional at the call site: an older preload (or a
+ *  non-Electron client) simply never reports, and the tile stays unfocused
+ *  rather than throwing. */
+interface NativeFocusBridge {
+  onFocus?(cb: (sessionId: string, focused: boolean) => void): () => void;
+}
+
 interface TerminalShellProps {
   session: SessionInfo;
   socket: TypedSocket;
@@ -149,9 +157,61 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     };
   }, [session.id]);
 
+  // Clicking a native tile puts the click into the child NSWindow — the web
+  // contents never sees it, so the DOM focus/blur events the xterm.js path
+  // relies on simply never fire here. Without this bridge a native tile can
+  // never become the app's focused tile, which silently breaks every command
+  // that acts on "the focused shell": Cmd+T (open shell), Cmd+D (diff),
+  // Cmd+E (files), Cmd+L (clear), Cmd+F (search), plus the tile's own focus
+  // ring and the unfocused dim.
+  //
+  // Mirrored into a ref for the same reason as onFailure/onAttached above:
+  // callers build `onFocusChange` inline, so depending on it directly would
+  // resubscribe on every render.
+  const onFocusChangeRef = useRef(props.onFocusChange);
+  useEffect(() => {
+    onFocusChangeRef.current = props.onFocusChange;
+  });
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeFocusBridge })
+      .electronNativeTerminal;
+    if (!bridge?.onFocus) return;
+    return bridge.onFocus((id, isFocused) => {
+      if (id !== session.id) return;
+      onFocusChangeRef.current?.(isFocused);
+    });
+  }, [session.id]);
+
   if (failed) return <TerminalShellXterm {...props} />;
+  const { status, framed = true } = props;
+  const st = status ?? session.status;
+  const edge = STATUS_COLORS[st];
+  // The overlay is an opaque child NSWindow covering exactly the hole, so any
+  // chrome has to live OUTSIDE that rect to be visible at all. Border, radius
+  // and the waiting glow sit on this wrapper and survive; the hole is inset by
+  // the same padding the xterm path uses, which is what leaves room for them.
+  // (The unfocused dim and drag-over overlays that the xterm path draws INSIDE
+  // its container have no native equivalent — they would render behind the
+  // overlay — so they are deliberately not reproduced here.)
   return (
-    <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent', position: 'relative' }} />
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        background: 'transparent',
+        border: framed ? `1px solid ${edge}` : 'none',
+        borderRadius: framed ? 'var(--r-2)' : 0,
+        boxShadow: framed && st === 'waiting'
+          ? `0 0 0 1px ${edge}, 0 0 18px var(--accent-glow)`
+          : 'none',
+        padding: '8px 14px 0px 14px',
+        position: 'relative',
+        transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
+      }}
+    >
+      <div ref={holeRef} style={{ flex: 1, minHeight: 0, background: 'transparent', position: 'relative' }} />
+    </div>
   );
 }
 

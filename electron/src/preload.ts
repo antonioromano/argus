@@ -103,6 +103,19 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   clearScrollback: (sessionId: string): void => {
     ipcRenderer.send('native-term:clear-scrollback', { sessionId });
   },
+  /**
+   * Subscribes to key-window transitions on native overlays. A click on a
+   * native tile lands in the child NSWindow and never reaches the web
+   * contents, so this is the renderer's ONLY way to learn that a native tile
+   * is the focused one — which is what every "for the focused shell" command
+   * (Cmd+T/D/E/L, and the tile focus ring) reads.
+   */
+  onFocus: (cb: (sessionId: string, focused: boolean) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; focused: boolean }) =>
+      cb(payload.sessionId, payload.focused);
+    ipcRenderer.on('native-term:focus', listener);
+    return () => ipcRenderer.off('native-term:focus', listener);
+  },
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {

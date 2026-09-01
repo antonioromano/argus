@@ -9,6 +9,25 @@ import SwiftTerm
 final class KeyableWindow: NSWindow {
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
+
+  /// Reports key-window transitions so the renderer can learn that a native
+  /// tile is the focused one. Clicking a native tile puts the click into THIS
+  /// window, not the web contents, so React's focus tracking — which every
+  /// "for the focused shell" command reads — would otherwise never fire for
+  /// a native tile at all. Overriding becomeKey/resignKey rather than
+  /// observing NSWindow.didBecomeKeyNotification keeps the lifetime tied to
+  /// the window itself, with no observer to unregister.
+  var onKeyChange: ((Bool) -> Void)?
+
+  override func becomeKey() {
+    super.becomeKey()
+    onKeyChange?(true)
+  }
+
+  override func resignKey() {
+    super.resignKey()
+    onKeyChange?(false)
+  }
 }
 
 /// A SwiftTerm view in a borderless child NSWindow, driven entirely from
@@ -18,6 +37,8 @@ final class KeyableWindow: NSWindow {
   // Block properties, not Swift closures over [UInt8] — those do not bridge.
   @objc public var onInput: ((NSData) -> Void)?
   @objc public var onResize: ((Int, Int) -> Void)?
+  /// `true` when this overlay's window became key, `false` when it resigned.
+  @objc public var onFocus: ((Bool) -> Void)?
 
   private let terminalView: TerminalView
   private var window: NSWindow?
@@ -43,6 +64,12 @@ final class KeyableWindow: NSWindow {
     w.isOpaque = true
     w.hasShadow = false
     w.ignoresMouseEvents = false
+    // Read through the controller's own property at call time (rather than
+    // capturing it) so a later `onFocus =` assignment — the ObjC++ layer sets
+    // it after init — is picked up, and so clearing it to nil on destroy
+    // genuinely stops delivery. `self` is unowned-safe here: the window is
+    // torn down in destroy(), before the controller can go away.
+    w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
     parent.addChildWindow(w, ordered: .above)
     window = w
   }

@@ -716,6 +716,17 @@ async function main() {
     writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
     resizeSession: (id: string, c: number, r: number) => sm.resizeSession(id, c, r),
     getReplaySnapshot: (id: string) => sm.getReplaySnapshot(id),
+    // Route the key-window transition to the window that actually hosts this
+    // session's overlay, not to every renderer: two Argus windows each track
+    // their own focused tile, and broadcasting would let one window's click
+    // steal the other's focus state.
+    notifyFocus: (id: string, focused: boolean) => {
+      const winId = sessionToWindowId.get(id);
+      if (winId === undefined) return;
+      const win = BrowserWindow.fromId(winId);
+      if (!win || win.isDestroyed()) return;
+      win.webContents.send('native-term:focus', { sessionId: id, focused });
+    },
   });
 
   // A session that exits or is deleted must drop its overlay immediately rather

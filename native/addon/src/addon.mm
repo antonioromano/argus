@@ -22,8 +22,10 @@ uint32_t g_nextId = 1;
 // Both are created unreferenced so the addon never keeps the loop alive.
 Napi::ThreadSafeFunction g_inputTsfn;
 Napi::ThreadSafeFunction g_resizeTsfn;
+Napi::ThreadSafeFunction g_focusTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
+bool g_hasFocusTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -95,6 +97,14 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
       cb.Call({Napi::Number::New(env, id),
                Napi::Number::New(env, static_cast<double>(cols)),
                Napi::Number::New(env, static_cast<double>(rows))});
+    });
+  }];
+
+  [c setOnFocus:^(BOOL focused) {
+    if (!g_hasFocusTsfn) return;
+    bool isFocused = focused ? true : false;
+    g_focusTsfn.BlockingCall([id, isFocused](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id), Napi::Boolean::New(env, isFocused)});
     });
   }];
 
@@ -247,6 +257,7 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     // Drop the callbacks first: nothing should reach JS for a dead id.
     [c setOnInput:nil];
     [c setOnResize:nil];
+    [c setOnFocus:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -260,6 +271,10 @@ Napi::Value OnInput(const Napi::CallbackInfo& info) {
 
 Napi::Value OnResize(const Napi::CallbackInfo& info) {
   InstallTsfn(info, "argusResize", &g_resizeTsfn, &g_hasResizeTsfn);
+  return info.Env().Undefined();
+}
+Napi::Value OnFocus(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusFocus", &g_focusTsfn, &g_hasFocusTsfn);
   return info.Env().Undefined();
 }
 
@@ -277,6 +292,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("closeFindBar", Napi::Function::New(env, CloseFindBar));
   exports.Set("onInput", Napi::Function::New(env, OnInput));
   exports.Set("onResize", Napi::Function::New(env, OnResize));
+  exports.Set("onFocus", Napi::Function::New(env, OnFocus));
   return exports;
 }
 
