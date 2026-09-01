@@ -39,10 +39,32 @@ const addonOutput = path.join(addonDir, 'build/Release/argus_native_terminal.nod
 const outRoot = path.join(repoRoot, 'electron/resources/native-terminal');
 
 // Node arch name -> Swift's `--arch` value (differs only for x64/x86_64).
-const ARCHES = [
+const ALL_ARCHES = [
   { nodeArch: 'arm64', swiftArch: 'arm64' },
   { nodeArch: 'x64', swiftArch: 'x86_64' },
 ];
+
+// `--arch=<a>` (repeatable) limits the build. Packaging needs both arches, but
+// `npm run dev` only ever dlopens the host's, and a cross-arch build it cannot
+// load costs ~90s per launch. Unknown names are a hard error, not a silent
+// no-op, so a typo can never quietly stage zero artifacts.
+const requested = process.argv
+  .slice(2)
+  .filter((a) => a.startsWith('--arch='))
+  .map((a) => a.slice('--arch='.length));
+
+for (const a of requested) {
+  if (!ALL_ARCHES.some((x) => x.nodeArch === a)) {
+    console.error(
+      `[build-native] unknown --arch=${a} (expected ${ALL_ARCHES.map((x) => x.nodeArch).join(' or ')})`,
+    );
+    process.exit(1);
+  }
+}
+
+const ARCHES = requested.length
+  ? ALL_ARCHES.filter((x) => requested.includes(x.nodeArch))
+  : ALL_ARCHES;
 
 const electronVersion = execFileSync(
   'node',
