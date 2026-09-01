@@ -24,6 +24,9 @@ export class NativeTerminalHost {
   private readonly bySession = new Map<string, number>();
   private readonly byOverlay = new Map<number, string>();
   private readonly parentBySession = new Map<string, string>();
+  // Last viewport rect reported for each session, kept so resyncParent() can
+  // re-derive the overlay's screen frame after the parent window moves.
+  private readonly rectBySession = new Map<string, Rect>();
   private unsubscribe?: () => void;
 
   constructor(deps: HostDeps) {
@@ -117,6 +120,7 @@ export class NativeTerminalHost {
         }
       }
     }
+    this.rectBySession.set(sessionId, rect);
     try {
       this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
       this.addon.show(id);
@@ -129,6 +133,7 @@ export class NativeTerminalHost {
   setRect(sessionId: string, rect: Rect): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    this.rectBySession.set(sessionId, rect);
     try {
       this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
     } catch (err) {
@@ -229,6 +234,48 @@ export class NativeTerminalHost {
     return this.parentBySession.get(sessionId) === parentHandle.toString('base64');
   }
 
+  /**
+   * Re-applies every overlay's frame for one parent window. Call this
+   * whenever that window's own frame changes on screen.
+   *
+   * The renderer reports the hole in VIEWPORT coordinates, and Swift converts
+   * them against the parent's live content rect — so the overlay's screen
+   * frame is a function of two inputs, and the renderer only ever notices
+   * changes to one of them. Move an Argus window (a window manager like
+   * Spectacle, a drag, a display change) and the viewport rects are all
+   * still identical, so no ResizeObserver fires and no setRect arrives,
+   * while the conversion those old rects were computed against has changed
+   * underneath them.
+   *
+   * AppKit's own child-window follow does not cover this: `addChildWindow`
+   * preserves the child's offset from the parent's frame ORIGIN (bottom-left
+   * in AppKit), whereas the hole is anchored to the top-left of the content
+   * area. The two agree only while the parent's height is unchanged, so any
+   * resize — and any move that lands with a resize — leaves the overlay off
+   * by the height delta until something re-pushes the frame.
+   *
+   * Re-pushing the cached rect makes the position a pure function of both
+   * inputs again, re-evaluated whenever either moves. Cheap and idempotent:
+   * the conversion runs against the parent's current frame, so it is
+   * self-correcting no matter how many transient frames a resize animation
+   * emits.
+   */
+  resyncParent(parentHandle: Buffer): void {
+    if (!this.addon) return;
+    const parentKey = parentHandle.toString('base64');
+    for (const [sessionId, key] of this.parentBySession) {
+      if (key !== parentKey) continue;
+      const id = this.bySession.get(sessionId);
+      const rect = this.rectBySession.get(sessionId);
+      if (id === undefined || !rect) continue;
+      try {
+        this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
+      } catch (err) {
+        console.error('[native-term] resync setFrame failed for', sessionId, err);
+      }
+    }
+  }
+
   show(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined) return;
@@ -274,6 +321,7 @@ export class NativeTerminalHost {
     this.bySession.delete(sessionId);
     this.byOverlay.delete(id);
     this.parentBySession.delete(sessionId);
+    this.rectBySession.delete(sessionId);
     return true;
   }
 

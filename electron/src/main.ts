@@ -322,6 +322,28 @@ function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
 
   if (windowsWithCloseListener.has(winId)) return;
   windowsWithCloseListener.add(winId);
+
+  // An overlay's screen frame is derived from two things: the hole's viewport
+  // rect (which the renderer reports) and the parent window's own position on
+  // screen (which it does not). Move this window without resizing it — a
+  // window manager like Spectacle, a title-bar drag, a display change — and
+  // every viewport rect is still byte-identical, so no ResizeObserver fires
+  // and the overlay is left converted against a frame the window no longer
+  // has. Resizing is worse than a no-op: AppKit's child-window follow keeps
+  // the overlay's offset from the parent's bottom-left origin while the hole
+  // is anchored to the top of the content area, so the overlay slides by the
+  // height delta on its own. Re-push on every frame change and both cases
+  // collapse into one cheap, idempotent correction.
+  // Listed one by one rather than looped: BrowserWindow.on is a union of
+  // per-event overloads, so a union-typed event name matches none of them.
+  const resync = () => nativeTerminal?.resyncParent(win.getNativeWindowHandle());
+  win.on('move', resync);
+  win.on('moved', resync);
+  win.on('resize', resync);
+  win.on('resized', resync);
+  win.on('enter-full-screen', resync);
+  win.on('leave-full-screen', resync);
+
   win.once('closed', () => {
     const orphaned = windowIdToSessions.get(winId);
     windowIdToSessions.delete(winId);

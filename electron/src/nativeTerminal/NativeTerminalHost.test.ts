@@ -474,3 +474,93 @@ test('setTheme with no addon is inert', () => {
   const { host } = harness(null);
   assert.doesNotThrow(() => host.setTheme('s1', THEME));
 });
+
+test('resyncParent re-pushes the last rect for every overlay on that window', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  host.attach('s1', winA, RECT);
+  host.attach('s2', winA, { x: 400, y: 20, width: 300, height: 200 });
+  calls.length = 0;
+
+  host.resyncParent(winA);
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'setFrame:2:400,20,300,200']);
+});
+
+test('resyncParent uses the latest rect reported via setRect, not the attach rect', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  host.attach('s1', winA, RECT);
+  host.setRect('s1', { x: 1, y: 2, width: 3, height: 4 });
+  calls.length = 0;
+
+  host.resyncParent(winA);
+
+  assert.deepEqual(calls, ['setFrame:1:1,2,3,4']);
+});
+
+test('resyncParent only touches overlays whose parent is that window', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s2', winB, { x: 400, y: 20, width: 300, height: 200 });
+  calls.length = 0;
+
+  host.resyncParent(winB);
+
+  assert.deepEqual(calls, ['setFrame:2:400,20,300,200'], 'must not move the other window’s overlay');
+});
+
+test('resyncParent follows an overlay that reparented to another window', () => {
+  // The move A->B updates parentBySession; a later frame change on A must not
+  // drag the overlay B now owns, and one on B must.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);
+  calls.length = 0;
+
+  host.resyncParent(winA);
+  assert.deepEqual(calls, [], 'the old parent must no longer own this overlay');
+
+  host.resyncParent(winB);
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200']);
+});
+
+test('resyncParent skips a detached session — no stale rect is replayed', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  host.attach('s1', winA, RECT);
+  host.detach('s1');
+  calls.length = 0;
+
+  host.resyncParent(winA);
+
+  assert.deepEqual(calls, []);
+});
+
+test('a throwing setFrame during resync does not stop the remaining overlays', () => {
+  const { addon, calls, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  host.attach('s1', winA, RECT);
+  host.attach('s2', winA, { x: 400, y: 20, width: 300, height: 200 });
+  calls.length = 0;
+
+  failNext.setFrame = true;
+  host.resyncParent(winA);
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'setFrame:2:400,20,300,200']);
+});
+
+test('resyncParent with no addon is inert', () => {
+  const { host } = harness(null);
+  assert.doesNotThrow(() => host.resyncParent(Buffer.alloc(8, 1)));
+});
