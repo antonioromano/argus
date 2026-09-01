@@ -521,6 +521,8 @@ body {
 /* === SIDEBAR === */
 .argus-sidebar {
   flex-shrink: 0;
+  /* Anchors the drag handle on the right edge (see Sidebar.tsx). */
+  position: relative;
   background: var(--bg-1);
   border-right: 1px solid var(--line-2);
   display: flex;
