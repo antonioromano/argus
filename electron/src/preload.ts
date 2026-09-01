@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('electronShell', {
 // new flat namespace, matching the existing electronFiles / electronDialog /
 // electronApp convention — there is no `window.argus` object in this codebase.
 interface NativeTerminalRect { x: number; y: number; width: number; height: number }
+interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
 
 contextBridge.exposeInMainWorld('electronNativeTerminal', {
   available: (): Promise<boolean> => ipcRenderer.invoke('native-term:available'),
@@ -78,6 +79,9 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
     ipcRenderer.invoke('native-term:attach', { sessionId, rect }),
   setRect: (sessionId: string, rect: NativeTerminalRect): void => {
     ipcRenderer.send('native-term:rect', { sessionId, rect });
+  },
+  setTheme: (sessionId: string, theme: NativeTerminalTheme): void => {
+    ipcRenderer.send('native-term:set-theme', { sessionId, theme });
   },
   detach: (sessionId: string): void => {
     ipcRenderer.send('native-term:detach', { sessionId });

@@ -18,6 +18,7 @@ const api = {
   detach: vi.fn(),
   openFindBar: vi.fn(),
   closeFindBar: vi.fn(),
+  setTheme: vi.fn(),
 };
 
 beforeEach(() => {

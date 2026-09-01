@@ -24,8 +24,19 @@ interface NativeTerminalBridge {
  * window budget is exhausted). When main reports that failure, `onFailure`
  * is called so the caller can degrade that one session to xterm.js instead
  * of leaving a permanently blank hole.
+ *
+ * `onAttached`, when supplied, fires once a real overlay exists (right after
+ * a successful `attach()` — the same branch that calls `registerOverlay`).
+ * Callers use it to apply state that only makes sense once there's a native
+ * window to apply it to (e.g. TerminalShellNativeHole re-running its theme
+ * effect) without having to duplicate this hook's own attach bookkeeping.
  */
-export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFailure?: () => void) {
+export function useNativeOverlayRect(
+  sessionId: string,
+  enabled: boolean,
+  onFailure?: () => void,
+  onAttached?: () => void,
+) {
   const ref = useRef<HTMLDivElement>(null);
   const lastRectKey = useRef<string>('');
 
@@ -41,6 +52,13 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
   const onFailureRef = useRef(onFailure);
   useEffect(() => {
     onFailureRef.current = onFailure;
+  });
+  // Same reasoning as onFailureRef above, and for the same caller — kept as
+  // a ref so a fresh `onAttached` identity on every render doesn't churn
+  // this effect's dependency array.
+  const onAttachedRef = useRef(onAttached);
+  useEffect(() => {
+    onAttachedRef.current = onAttached;
   });
 
   useEffect(() => {
@@ -84,6 +102,7 @@ export function useNativeOverlayRect(sessionId: string, enabled: boolean, onFail
       // identical rect through setRect (redundant IPC).
       lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
       registerOverlay(sessionId, initialRect);
+      onAttachedRef.current?.();
 
       // Guard like the rest of the codebase (see Sessions.tsx) — jsdom under
       // Vitest has no ResizeObserver; attach/detach still work without it.

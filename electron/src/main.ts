@@ -7,7 +7,7 @@ import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
-import type { NativeTerminalAddon } from './nativeTerminal/types.js';
+import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
@@ -760,6 +760,14 @@ async function main() {
   });
   ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.clearScrollback(sessionId);
+  });
+
+  // Theme apply — not window-scoped, same reasoning as find-bar/clear-scrollback
+  // above: a plain control action on an already-attached overlay, fired by the
+  // renderer both right after a successful attach and on every light/dark
+  // toggle (TerminalShellNativeHole), so it's fire-and-forget like those.
+  ipcMain.on('native-term:set-theme', (_e, { sessionId, theme }: { sessionId: string; theme: Theme }) => {
+    nativeTerminal!.setTheme(sessionId, theme);
   });
 
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).

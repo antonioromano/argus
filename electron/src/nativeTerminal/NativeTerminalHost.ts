@@ -1,4 +1,4 @@
-import type { HostDeps, NativeTerminalAddon, Rect } from './types.js';
+import type { HostDeps, NativeTerminalAddon, Rect, Theme } from './types.js';
 
 /**
  * Owns every native terminal overlay. The native view is a CLIENT of
@@ -133,6 +133,26 @@ export class NativeTerminalHost {
       this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
     } catch (err) {
       console.error('[native-term] setFrame failed for', sessionId, err);
+    }
+  }
+
+  /**
+   * Applies Argus's terminal theme to this overlay — background, foreground,
+   * cursor, and (when SwiftTerm accepts a full palette) the 16 ANSI colors.
+   * The renderer calls this both right after a successful attach and on
+   * every light/dark toggle (see TerminalShellNativeHole), so this is a
+   * plain apply-now action, not lifecycle state the host needs to remember:
+   * a no-op here for a session with no attached overlay is correct (the
+   * renderer's post-attach call is what actually paints the theme once the
+   * overlay exists), not a dropped update.
+   */
+  setTheme(sessionId: string, theme: Theme): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.setTheme(id, theme.background, theme.foreground, theme.cursor, theme.ansi);
+    } catch (err) {
+      console.error('[native-term] setTheme failed for', sessionId, err);
     }
   }
 

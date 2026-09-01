@@ -89,6 +89,36 @@ const LIGHT_THEME = {
   brightWhite: '#343b58',
 };
 
+/** Shape of the SwiftTerm-side theme payload (mirrors preload's NativeTerminalTheme). */
+export interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
+
+// ANSI order matches xterm's own convention: black, red, green, yellow, blue,
+// magenta, cyan, white, then the bright variants — the same order SwiftTerm's
+// `installColors(_:)` expects (see OverlayController.setTheme).
+function toNativeTheme(t: typeof DARK_THEME): NativeTerminalTheme {
+  return {
+    background: t.background,
+    foreground: t.foreground,
+    cursor: t.cursor,
+    ansi: [
+      t.black, t.red, t.green, t.yellow, t.blue, t.magenta, t.cyan, t.white,
+      t.brightBlack, t.brightRed, t.brightGreen, t.brightYellow, t.brightBlue, t.brightMagenta, t.brightCyan, t.brightWhite,
+    ],
+  };
+}
+
+// Native-overlay counterpart of DARK_THEME/LIGHT_THEME above, derived from
+// the SAME values rather than hand-copied ones so the xterm.js and SwiftTerm
+// paths can never visually drift apart.
+const NATIVE_DARK_THEME = toNativeTheme(DARK_THEME);
+const NATIVE_LIGHT_THEME = toNativeTheme(LIGHT_THEME);
+
+/** Native-terminal counterpart of the `theme` prop useTerminal takes — used by
+ *  TerminalShellNativeHole to build the payload for electronNativeTerminal.setTheme. */
+export function nativeThemeFor(theme: 'dark' | 'light'): NativeTerminalTheme {
+  return theme === 'dark' ? NATIVE_DARK_THEME : NATIVE_LIGHT_THEME;
+}
+
 /** The slice of the native-terminal preload bridge this module drives directly. */
 interface NativeClearScrollbackBridge {
   clearScrollback(sessionId: string): void;

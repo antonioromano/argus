@@ -132,6 +132,43 @@ Napi::Value SetFrame(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+// setTheme(id, background, foreground, cursor, ansi[]) — background/
+// foreground/cursor are "#rrggbb" strings, ansi is the 16 ANSI colors in
+// xterm order (see OverlayController.setTheme's doc comment). Validated the
+// same way Create/SetFrame are: `.As<T>()` performs no runtime check, so
+// every argument's actual JS type is confirmed before any of it is read.
+Napi::Value SetTheme(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 5 || !info[0].IsNumber() || !info[1].IsString() ||
+      !info[2].IsString() || !info[3].IsString() || !info[4].IsArray()) {
+    Napi::TypeError::New(env,
+        "setTheme(id, background, foreground, cursor, ansi[]) requires "
+        "(number, string, string, string, string[])")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  Napi::Array ansiArr = info[4].As<Napi::Array>();
+  NSMutableArray<NSString*>* ansi = [NSMutableArray arrayWithCapacity:ansiArr.Length()];
+  for (uint32_t i = 0; i < ansiArr.Length(); ++i) {
+    Napi::Value v = ansiArr.Get(i);
+    if (!v.IsString()) {
+      Napi::TypeError::New(env, "setTheme ansi[] must contain only strings")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    [ansi addObject:[NSString stringWithUTF8String:v.As<Napi::String>().Utf8Value().c_str()]];
+  }
+
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) {
+    NSString* bg = [NSString stringWithUTF8String:info[1].As<Napi::String>().Utf8Value().c_str()];
+    NSString* fg = [NSString stringWithUTF8String:info[2].As<Napi::String>().Utf8Value().c_str()];
+    NSString* cursor = [NSString stringWithUTF8String:info[3].As<Napi::String>().Utf8Value().c_str()];
+    [c setThemeWithBackgroundHex:bg foregroundHex:fg cursorHex:cursor ansiHex:ansi];
+  }
+  return env.Undefined();
+}
+
 Napi::Value Reparent(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 2 || !info[1].IsBuffer()) {
@@ -229,6 +266,7 @@ Napi::Value OnResize(const Napi::CallbackInfo& info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
+  exports.Set("setTheme", Napi::Function::New(env, SetTheme));
   exports.Set("reparent", Napi::Function::New(env, Reparent));
   exports.Set("show", Napi::Function::New(env, Show));
   exports.Set("hide", Napi::Function::New(env, Hide));

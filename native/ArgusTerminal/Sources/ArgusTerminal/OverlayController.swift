@@ -64,12 +64,98 @@ final class KeyableWindow: NSWindow {
     terminalView.feed(byteArray: bytes[...])
   }
 
-  /// Frame in SCREEN coordinates; the caller converts from the tile rect.
+  /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
+  /// transparent "hole", exactly as `useNativeOverlayRect.ts` measures them
+  /// with `getBoundingClientRect()`:
+  ///   - origin is the top-left of the renderer's web content (below any
+  ///     title bar), NOT the top-left of the screen or of the parent
+  ///     NSWindow's frame.
+  ///   - y increases DOWNWARD.
+  ///   - units are CSS px, which on macOS are AppKit points (both are
+  ///     "logical"/un-scaled; Retina scaling is a backing-store concern
+  ///     window/view geometry never deals in).
+  ///
+  /// AppKit screen coordinates (what `NSWindow.setFrame` takes) are the
+  /// opposite on both axes: origin is the bottom-left of the screen, y
+  /// increases UPWARD. Converting therefore needs two things this method
+  /// used to skip entirely: adding the parent's own on-screen position, and
+  /// flipping the Y axis around the parent's content area.
+  ///
+  /// The reference point is the parent's CONTENT rect
+  /// (`contentRect(forFrameRect:)`), not its frame rect: the frame rect
+  /// includes the title bar, but the renderer's y=0 is the top of the web
+  /// content, which sits BELOW the title bar. Using the frame rect here
+  /// would shift every overlay up by the title bar's height.
+  ///
+  /// Worked example: a parent window whose content rect is
+  /// (x: 100, y: 200, width: 1000, height: 700) in screen coordinates
+  /// (so its content spans screen y ∈ [200, 900]), and a viewport rect of
+  /// (x: 40, y: 60, width: 300, height: 150) — 40px in from the left edge of
+  /// the web content, 60px down from its top:
+  ///   childX = 100 + 40                     = 140
+  ///   childY = 900 - 60 - 150 = (200+700) - 60 - 150 = 690
+  /// i.e. the child window's screen frame is (140, 690, 300, 150). Note the
+  /// flip: a LARGER viewport y (further down the page) produces a SMALLER
+  /// screen y (further down the screen, since screen y grows upward) — got
+  /// exactly backwards, this was Bug 1 (the overlay rendered vertically
+  /// inverted relative to its tile).
+  ///
+  /// A missing `window` (no `attach()` yet) or missing `window.parent`
+  /// leaves nothing to convert against; `x`/`y` are used as-is so the
+  /// terminal grid still resizes correctly (`terminalView.frame` below,
+  /// which drives `sizeChanged`/`onResize`) even before a window exists.
   @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
-    let r = NSRect(x: x, y: y, width: max(1, width), height: max(1, height))
-    terminalView.frame = NSRect(origin: .zero, size: r.size)
-    window?.setFrame(r, display: true)
+    let w = max(1, width)
+    let h = max(1, height)
+    terminalView.frame = NSRect(origin: .zero, size: NSSize(width: w, height: h))
+    guard let win = window else { return }
+    guard let parent = win.parent else {
+      win.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+      return
+    }
+    let parentContent = parent.contentRect(forFrameRect: parent.frame)
+    let screenX = parentContent.minX + x
+    let screenY = parentContent.maxY - y - h
+    win.setFrame(NSRect(x: screenX, y: screenY, width: w, height: h), display: true)
   }
+
+  // Test seam: the child window's current SCREEN-coordinate frame, after
+  // setFrame's conversion. `.zero` when there is no window yet (mirrors
+  // debugWindowNumber's -1-for-absent convention).
+  public func debugFrame() -> NSRect { window?.frame ?? .zero }
+
+  /// Applies Argus's terminal theme to this overlay. `backgroundHex`/
+  /// `foregroundHex`/`cursorHex` are "#rrggbb" strings; `ansiHex` is the 16
+  /// ANSI colors in xterm order (black, red, green, yellow, blue, magenta,
+  /// cyan, white, then the bright variants) — SwiftTerm's
+  /// `TerminalView.installColors(_:)` requires exactly 16 or it no-ops, so a
+  /// mismatched count here is treated the same way (silently skipped) rather
+  /// than partially applying a palette.
+  ///
+  /// Malformed hex strings for background/foreground/cursor are ignored
+  /// individually (each keeps its previous color) rather than aborting the
+  /// whole call — a single bad value from JS should not also block the two
+  /// good ones next to it.
+  ///
+  /// SwiftTerm's own NSColor<->Color conversion helpers
+  /// (`NSColor.getTerminalColor()`, `NSColor.make(color:)` in
+  /// MacExtensions.swift) are internal to the SwiftTerm module and not
+  /// visible here, so this file has its own small hex parser and
+  /// `Color`-conversion helper below instead of depending on them.
+  @objc public func setTheme(backgroundHex: String, foregroundHex: String, cursorHex: String, ansiHex: [String]) {
+    if let bg = NSColor(argusHex: backgroundHex) { terminalView.nativeBackgroundColor = bg }
+    if let fg = NSColor(argusHex: foregroundHex) { terminalView.nativeForegroundColor = fg }
+    if let cursor = NSColor(argusHex: cursorHex) { terminalView.caretColor = cursor }
+    guard ansiHex.count == 16 else { return }
+    let ansiColors = ansiHex.compactMap { NSColor(argusHex: $0)?.argusTerminalColor() }
+    guard ansiColors.count == 16 else { return }
+    terminalView.installColors(ansiColors)
+  }
+
+  // Test seams — read back what setTheme actually applied.
+  public func debugBackgroundColor() -> NSColor { terminalView.nativeBackgroundColor }
+  public func debugForegroundColor() -> NSColor { terminalView.nativeForegroundColor }
+  public func debugCursorColor() -> NSColor { terminalView.caretColor }
 
   @objc public func show() { window?.orderFront(nil) }
   @objc public func hide() { window?.orderOut(nil) }
@@ -160,4 +246,36 @@ final class KeyableWindow: NSWindow {
   public func clipboardCopy(source: TerminalView, content: Data) {}
   public func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
   public func bell(source: TerminalView) {}
+}
+
+/// Own hex <-> color helpers for `setTheme`, deliberately independent of
+/// SwiftTerm's internal (module-private) `NSColor.getTerminalColor()` /
+/// `NSColor.make(color:)` — see `setTheme`'s doc comment.
+private extension NSColor {
+  /// Parses a "#rrggbb" (or "rrggbb") string. Returns nil for anything else
+  /// — an unrecognized value is treated the same as "no color supplied" by
+  /// every call site, which keeps the previous color rather than applying a
+  /// crash or a garbage default.
+  convenience init?(argusHex hex: String) {
+    var s = hex
+    if s.hasPrefix("#") { s.removeFirst() }
+    guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+    let r = CGFloat((v >> 16) & 0xFF) / 255.0
+    let g = CGFloat((v >> 8) & 0xFF) / 255.0
+    let b = CGFloat(v & 0xFF) / 255.0
+    self.init(srgbRed: r, green: g, blue: b, alpha: 1.0)
+  }
+
+  /// Converts to SwiftTerm's `Color` (16-bit-per-channel RGB) for
+  /// `installColors(_:)`. Mirrors the clamping in SwiftTerm's own (private)
+  /// `getTerminalColor()` — extended-sRGB round-trips can push components
+  /// slightly outside 0...1, and the UInt16 conversion below would trap on
+  /// that instead of clamping.
+  func argusTerminalColor() -> Color {
+    guard let c = usingColorSpace(.sRGB) else { return Color(red: 0, green: 0, blue: 0) }
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    c.getRed(&r, green: &g, blue: &b, alpha: &a)
+    func clamp(_ v: CGFloat) -> CGFloat { min(max(v, 0), 1) }
+    return Color(red: UInt16(clamp(r) * 65535), green: UInt16(clamp(g) * 65535), blue: UInt16(clamp(b) * 65535))
+  }
 }

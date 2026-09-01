@@ -10,7 +10,7 @@ function fakeAddon() {
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
-  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'reparent' | 'openFindBar', boolean>> = {};
+  const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: () => {
       calls.push(`create:${next}`);
@@ -20,6 +20,10 @@ function fakeAddon() {
     setFrame: (id, x, y, w, h) => {
       calls.push(`setFrame:${id}:${x},${y},${w},${h}`);
       if (failNext.setFrame) { failNext.setFrame = false; throw new Error('setFrame failed'); }
+    },
+    setTheme: (id, bg, fg, cursor, ansi) => {
+      calls.push(`setTheme:${id}:${bg},${fg},${cursor},${ansi.length}`);
+      if (failNext.setTheme) { failNext.setTheme = false; throw new Error('setTheme failed'); }
     },
     reparent: (id) => {
       calls.push(`reparent:${id}`);
@@ -439,4 +443,34 @@ test('clearScrollback delegates to the addon', () => {
   host.attach('s1', HANDLE, RECT);
   host.clearScrollback('s1');
   assert.ok(calls.includes('clear:1'));
+});
+
+const THEME = { background: '#1a1b26', foreground: '#c0caf5', cursor: '#c0caf5', ansi: Array(16).fill('#000000') };
+
+test('setTheme on an unattached session is a no-op that does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  assert.doesNotThrow(() => host.setTheme('never-attached', THEME));
+  assert.equal(calls.length, 0);
+});
+
+test('setTheme delegates to the addon with the resolved overlay id', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setTheme('s1', THEME);
+  assert.ok(calls.includes('setTheme:1:#1a1b26,#c0caf5,#c0caf5,16'));
+});
+
+test('a throwing addon.setTheme does not propagate', () => {
+  const { addon, failNext } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  failNext.setTheme = true;
+  assert.doesNotThrow(() => host.setTheme('s1', THEME));
+});
+
+test('setTheme with no addon is inert', () => {
+  const { host } = harness(null);
+  assert.doesNotThrow(() => host.setTheme('s1', THEME));
 });

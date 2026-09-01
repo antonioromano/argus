@@ -3,7 +3,8 @@ import type { SessionInfo, SessionStatus } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { ISearchOptions } from '@xterm/addon-search';
-import { useTerminal } from '../../hooks/useTerminal.js';
+import { useTerminal, nativeThemeFor } from '../../hooks/useTerminal.js';
+import type { NativeTerminalTheme } from '../../hooks/useTerminal.js';
 import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
@@ -30,6 +31,12 @@ const XTERM_SEARCH_DECORATIONS = {
  *  useTerminal.ts's openNativeFindBar. */
 interface NativeFindBarCloseBridge {
   closeFindBar(sessionId: string): void;
+}
+
+/** The slice of the native-terminal preload bridge this shell drives to keep
+ *  a native overlay's colors in sync with Argus's own terminal theme. */
+interface NativeThemeBridge {
+  setTheme(sessionId: string, theme: NativeTerminalTheme): void;
 }
 
 interface TerminalShellProps {
@@ -67,13 +74,31 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, searchOpen = false } = props;
+  const { session, theme, searchOpen = false } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
   // blank transparent hole, is what makes that failure recoverable.
   const [failed, setFailed] = useState(false);
-  const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true));
+  // Bumped by useNativeOverlayRect's onAttached once a real overlay exists,
+  // so the theme effect below re-fires and paints it — see that effect's
+  // doc comment for why attach alone isn't already covered by the [theme]
+  // dependency.
+  const [attachGeneration, setAttachGeneration] = useState(0);
+  const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true), () => setAttachGeneration((n) => n + 1));
+
+  // Applies Argus's terminal theme (the SAME colors useTerminal.ts's xterm.js
+  // path uses — see nativeThemeFor) to the native overlay. Runs on two
+  // triggers: `theme` changing (the app's light/dark toggle must repaint an
+  // ALREADY-live overlay, not just a newly attached one) and `attachGeneration`
+  // bumping (attach() is async — this effect can run, and no-op via
+  // NativeTerminalHost.setTheme's own guard, before an overlay exists at all;
+  // the bump re-fires it once one does, so a fresh SwiftTerm view is never
+  // left painted in SwiftTerm's own black-background defaults).
+  useEffect(() => {
+    (window as Window & { electronNativeTerminal?: NativeThemeBridge })
+      .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme));
+  }, [session.id, theme, attachGeneration]);
 
   // mod+f for a native tile toggles SwiftTerm's OWN find bar
   // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the

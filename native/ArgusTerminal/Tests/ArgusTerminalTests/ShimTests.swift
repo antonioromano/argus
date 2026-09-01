@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import ArgusTerminal
 
@@ -108,5 +109,107 @@ final class ShimTests: XCTestCase {
     c.openFindBar()
     c.openFindBar()
     XCTAssertTrue(c.debugFindBarVisible())
+  }
+
+  // MARK: - setFrame coordinate conversion (Bug 1)
+
+  func testSetFrameConvertsViewportRectToScreenCoordinatesAgainstNonOriginParent() {
+    // The parent window is deliberately NOT at the screen origin. An
+    // origin-only test would pass even with the `parentContent.minX`/
+    // `parentContent.maxY` offset missing entirely (0 + x == x by
+    // coincidence), which is exactly the bug this guards against.
+    let parent = NSWindow(contentRect: NSRect(x: 300, y: 150, width: 1000, height: 700),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    let c = OverlayController(width: 200, height: 100)
+    c.attach(to: parent)
+
+    // Viewport rect: 40px in from the left edge of the web content, 60px
+    // down from its top (e.g. a tile whose header occupies the top 60px).
+    c.setFrame(x: 40, y: 60, width: 300, height: 200)
+
+    let parentContent = parent.contentRect(forFrameRect: parent.frame)
+    let expected = NSRect(x: parentContent.minX + 40,
+                          y: parentContent.maxY - 60 - 200,
+                          width: 300, height: 200)
+    let got = c.debugFrame()
+    XCTAssertEqual(got.origin.x, expected.origin.x, accuracy: 0.5)
+    XCTAssertEqual(got.origin.y, expected.origin.y, accuracy: 0.5)
+    XCTAssertEqual(got.size.width, expected.size.width, accuracy: 0.5)
+    XCTAssertEqual(got.size.height, expected.size.height, accuracy: 0.5)
+  }
+
+  func testSetFrameYAxisIsFlippedNotJustOffset() {
+    // A viewport rect flush with the top of the content (y: 0) must land at
+    // the TOP of the parent's screen-coordinate content rect (maxY - height),
+    // not the bottom (minY) — proving the flip direction, not just that some
+    // offset was added.
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                          styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    let c = OverlayController(width: 100, height: 50)
+    c.attach(to: parent)
+
+    c.setFrame(x: 0, y: 0, width: 100, height: 50)
+
+    let parentContent = parent.contentRect(forFrameRect: parent.frame)
+    let got = c.debugFrame()
+    XCTAssertEqual(got.origin.y, parentContent.maxY - 50, accuracy: 0.5)
+    XCTAssertNotEqual(got.origin.y, parentContent.minY, "a viewport y of 0 must map near the TOP of the parent, not the bottom")
+  }
+
+  func testSetFrameWithNoParentStillResizesTheGrid() {
+    // setFrame is called (for grid sizing) before attach() in some paths —
+    // must not crash, and the terminal grid must still resize.
+    let c = OverlayController(width: 800, height: 480)
+    var reported: (Int, Int)?
+    c.onResize = { cols, rows in reported = (cols, rows) }
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    XCTAssertNotNil(reported)
+  }
+
+  // MARK: - setTheme (Bug 2)
+
+  func testSetThemeAppliesBackgroundForegroundAndCursor() {
+    let c = OverlayController(width: 400, height: 200)
+    c.setTheme(backgroundHex: "#1a1b26", foregroundHex: "#c0caf5", cursorHex: "#ff0000",
+              ansiHex: Array(repeating: "#000000", count: 16))
+
+    XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#1a1b26")
+    XCTAssertEqual(c.debugForegroundColor().argusHexString(), "#c0caf5")
+    XCTAssertEqual(c.debugCursorColor().argusHexString(), "#ff0000")
+  }
+
+  func testSetThemeIgnoresMalformedHexAndKeepsThePreviousColor() {
+    let c = OverlayController(width: 400, height: 200)
+    c.setTheme(backgroundHex: "#111111", foregroundHex: "#222222", cursorHex: "#333333",
+              ansiHex: Array(repeating: "#000000", count: 16))
+    // A malformed background must not clobber the good value set above, and
+    // must not stop the (valid) foreground/cursor in the same call from applying.
+    c.setTheme(backgroundHex: "not-a-color", foregroundHex: "#444444", cursorHex: "#555555",
+              ansiHex: Array(repeating: "#000000", count: 16))
+
+    XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#111111")
+    XCTAssertEqual(c.debugForegroundColor().argusHexString(), "#444444")
+    XCTAssertEqual(c.debugCursorColor().argusHexString(), "#555555")
+  }
+
+  func testSetThemeWithWrongAnsiCountSkipsThePaletteButStillAppliesTheRest() {
+    let c = OverlayController(width: 400, height: 200)
+    // Only 3 entries instead of 16 — must not crash, and background/
+    // foreground/cursor (independent of the palette) must still apply.
+    c.setTheme(backgroundHex: "#0f0f0f", foregroundHex: "#e0e0e0", cursorHex: "#e0e0e0",
+              ansiHex: ["#000000", "#ffffff"])
+    XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#0f0f0f")
+  }
+}
+
+private extension NSColor {
+  /// Test-only round-trip helper: renders back to "#rrggbb" so assertions can
+  /// compare against the hex strings the tests fed into `setTheme`.
+  func argusHexString() -> String {
+    guard let c = usingColorSpace(.sRGB) else { return "#000000" }
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    c.getRed(&r, green: &g, blue: &b, alpha: &a)
+    func byte(_ v: CGFloat) -> Int { Int((v * 255).rounded()) }
+    return String(format: "#%02x%02x%02x", byte(r), byte(g), byte(b))
   }
 }
