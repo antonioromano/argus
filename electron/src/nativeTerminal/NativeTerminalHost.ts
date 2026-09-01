@@ -65,6 +65,18 @@ export class NativeTerminalHost {
       }
     });
 
+    // The overlay id is looked up only to prove the link came from a live
+    // overlay; the URL itself is untrusted terminal output, so the allowlist
+    // that vets it lives in the caller (main.ts), shared with the xterm path.
+    this.addon.onOpenLink((id, url) => {
+      try {
+        if (!this.byOverlay.has(id)) return;
+        this.deps.openExternal(url);
+      } catch (err) {
+        console.error('[native-term] openExternal failed for overlay', id, err);
+      }
+    });
+
     // Native is the resize authority whenever an overlay exists (spec §2).
     this.addon.onResize((id, cols, rows) => {
       try {

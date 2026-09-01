@@ -23,9 +23,11 @@ uint32_t g_nextId = 1;
 Napi::ThreadSafeFunction g_inputTsfn;
 Napi::ThreadSafeFunction g_resizeTsfn;
 Napi::ThreadSafeFunction g_focusTsfn;
+Napi::ThreadSafeFunction g_openLinkTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
 bool g_hasFocusTsfn = false;
+bool g_hasOpenLinkTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -105,6 +107,14 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     bool isFocused = focused ? true : false;
     g_focusTsfn.BlockingCall([id, isFocused](Napi::Env env, Napi::Function cb) {
       cb.Call({Napi::Number::New(env, id), Napi::Boolean::New(env, isFocused)});
+    });
+  }];
+
+  [c setOnOpenLink:^(NSString* link) {
+    if (!g_hasOpenLinkTsfn) return;
+    std::string url(link.UTF8String ? link.UTF8String : "");
+    g_openLinkTsfn.BlockingCall([id, url](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id), Napi::String::New(env, url)});
     });
   }];
 
@@ -258,6 +268,7 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     [c setOnInput:nil];
     [c setOnResize:nil];
     [c setOnFocus:nil];
+    [c setOnOpenLink:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -277,6 +288,10 @@ Napi::Value OnFocus(const Napi::CallbackInfo& info) {
   InstallTsfn(info, "argusFocus", &g_focusTsfn, &g_hasFocusTsfn);
   return info.Env().Undefined();
 }
+Napi::Value OnOpenLink(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusOpenLink", &g_openLinkTsfn, &g_hasOpenLinkTsfn);
+  return info.Env().Undefined();
+}
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
@@ -293,6 +308,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("onInput", Napi::Function::New(env, OnInput));
   exports.Set("onResize", Napi::Function::New(env, OnResize));
   exports.Set("onFocus", Napi::Function::New(env, OnFocus));
+  exports.Set("onOpenLink", Napi::Function::New(env, OnOpenLink));
   return exports;
 }
 

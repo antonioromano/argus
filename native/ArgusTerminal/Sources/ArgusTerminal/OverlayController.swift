@@ -37,6 +37,10 @@ final class KeyableWindow: NSWindow {
   // Block properties, not Swift closures over [UInt8] — those do not bridge.
   @objc public var onInput: ((NSData) -> Void)?
   @objc public var onResize: ((Int, Int) -> Void)?
+  /// A link the user activated in the terminal (an OSC 8 hyperlink, or a
+  /// plain URL SwiftTerm detected by regex). Routed to JS rather than opened
+  /// here — see `requestOpenLink` below.
+  @objc public var onOpenLink: ((NSString) -> Void)?
   /// `true` when this overlay's window became key, `false` when it resigned.
   @objc public var onFocus: ((Bool) -> Void)?
 
@@ -47,6 +51,13 @@ final class KeyableWindow: NSWindow {
     terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     super.init()
     terminalView.terminalDelegate = self
+    // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
+    // highlighted while Command is held, and only Command-click opens it.
+    // Argus's xterm.js path opens links on an ordinary click (see
+    // terminalLinks.ts's link provider), so the two engines would disagree
+    // about the same transcript. `.hover` matches xterm: underline on hover,
+    // open on click.
+    terminalView.linkHighlightMode = .hover
   }
 
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
@@ -80,6 +91,16 @@ final class KeyableWindow: NSWindow {
     guard let w = window else { return }
     w.parent?.removeChildWindow(w)
     parent.addChildWindow(w, ordered: .above)
+  }
+
+  /// Overrides SwiftTerm's default, which hands the link straight to
+  /// `NSWorkspace.shared.open`. That would bypass the scheme allowlist every
+  /// other Argus link path goes through (main.ts's `shell:openExternal`
+  /// permits only http(s) and mailto), so a transcript could emit an OSC 8
+  /// hyperlink with any scheme at all and a single click would launch it.
+  /// Routing to JS keeps one allowlist for both engines.
+  public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+    onOpenLink?(link as NSString)
   }
 
   // Test seams — not @objc, so invisible across the ObjC++ boundary.

@@ -9,6 +9,7 @@ function fakeAddon() {
   let inputCb: ((id: number, d: Buffer) => void) | undefined;
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   let focusCb: ((id: number, focused: boolean) => void) | undefined;
+  let openLinkCb: ((id: number, url: string) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
@@ -46,16 +47,19 @@ function fakeAddon() {
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
     onFocus: (cb) => { focusCb = cb; },
+    onOpenLink: (cb) => { openLinkCb = cb; },
   };
   return { addon, calls, failNext, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
-           fireFocus: (i: number, f: boolean) => focusCb!(i, f) };
+           fireFocus: (i: number, f: boolean) => focusCb!(i, f),
+           fireOpenLink: (i: number, u: string) => openLinkCb!(i, u) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
   const wrote: Array<[string, string]> = [];
   const resized: Array<[string, number, number]> = [];
   const focused: Array<[string, boolean]> = [];
+  const opened: string[] = [];
   let emit: ((id: string, data: string) => void) | undefined;
   const host = new NativeTerminalHost({
     addon: addonOrNull,
@@ -63,10 +67,11 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     writeToSession: (id, d) => wrote.push([id, d]),
     resizeSession: (id, c, r) => resized.push([id, c, r]),
     notifyFocus: (id, f) => focused.push([id, f]),
+    openExternal: (u) => opened.push(u),
     getReplaySnapshot: () => ({ data: 'REPLAY' }),
     ...overrides,
   });
-  return { host, wrote, resized, focused, emitOutput: (id: string, d: string) => emit?.(id, d) };
+  return { host, wrote, resized, focused, opened, emitOutput: (id: string, d: string) => emit?.(id, d) };
 }
 
 const HANDLE = Buffer.alloc(8);
@@ -612,4 +617,57 @@ test('a throwing notifyFocus does not propagate out of the onFocus callback', ()
   host.attach('s1', HANDLE, RECT);
 
   assert.doesNotThrow(() => fireFocus(1, true));
+});
+
+test('a link activated in a native overlay is handed to the caller to open', () => {
+  const { addon, fireOpenLink } = fakeAddon();
+  const { host, opened } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireOpenLink(1, 'https://github.com/rbly-internal/api-product/pull/206');
+
+  assert.deepEqual(opened, ['https://github.com/rbly-internal/api-product/pull/206']);
+});
+
+test('a link from an unknown overlay id is ignored', () => {
+  const { addon, fireOpenLink } = fakeAddon();
+  const { host, opened } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireOpenLink(99, 'https://example.com');
+
+  assert.deepEqual(opened, []);
+});
+
+test('a detached overlay opens no further links', () => {
+  const { addon, fireOpenLink } = fakeAddon();
+  const { host, opened } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.detach('s1');
+
+  fireOpenLink(1, 'https://example.com');
+
+  assert.deepEqual(opened, []);
+});
+
+test('the host does not vet the URL itself — the allowlist is the caller\'s', () => {
+  // Deliberate: main.ts owns one allowlist shared with the xterm path, so the
+  // host must forward verbatim rather than grow a second, drifting copy.
+  const { addon, fireOpenLink } = fakeAddon();
+  const { host, opened } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireOpenLink(1, 'file:///etc/passwd');
+
+  assert.deepEqual(opened, ['file:///etc/passwd']);
+});
+
+test('a throwing openExternal does not propagate out of the onOpenLink callback', () => {
+  const { addon, fireOpenLink } = fakeAddon();
+  const { host } = harness(addon, {
+    openExternal: () => { throw new Error('nope'); },
+  });
+  host.attach('s1', HANDLE, RECT);
+
+  assert.doesNotThrow(() => fireOpenLink(1, 'https://example.com'));
 });

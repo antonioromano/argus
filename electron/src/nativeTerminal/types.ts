@@ -32,6 +32,7 @@ export interface NativeTerminalAddon {
   onInput(cb: (id: number, data: Buffer) => void): void;
   onResize(cb: (id: number, cols: number, rows: number) => void): void;
   onFocus(cb: (id: number, focused: boolean) => void): void;
+  onOpenLink(cb: (id: number, url: string) => void): void;
 }
 
 export interface HostDeps {
@@ -46,6 +47,13 @@ export interface HostDeps {
    * "for the focused shell" command reads — can never see a native tile.
    */
   notifyFocus(id: string, focused: boolean): void;
+  /**
+   * Opens a link the user activated inside a native terminal. Deliberately
+   * routed out to the caller rather than opened in Swift: SwiftTerm's default
+   * `requestOpenLink` calls NSWorkspace directly, which would bypass the
+   * scheme allowlist every other Argus link path goes through.
+   */
+  openExternal(url: string): void;
   // SessionManager's frame is self-normalizing — `data` always leads with its
   // own buffer-switch/clear prefix (`\x1b[?1049l...`) and `serialize()`
   // re-emits `?1049h` itself when the session is on the alt screen (see

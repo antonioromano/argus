@@ -306,6 +306,19 @@ const windowIdToSessions = new Map<number, Set<string>>();
 // (attach can fire repeatedly, e.g. on every resize-driven re-attach).
 const windowsWithCloseListener = new Set<number>();
 
+/**
+ * The single gate every Argus-opened URL passes through, whichever terminal
+ * engine surfaced it. Terminal output is untrusted: a transcript can print an
+ * OSC 8 hyperlink with any scheme it likes, so only http(s) and mailto are
+ * handed to the OS.
+ *
+ * Anchored on `//` after http(s) — a bare `/^https?:/` would also match
+ * `https:evil`, which is not a web URL and would let a crafted string through.
+ */
+function openExternalAllowlisted(url: string): void {
+  if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
+}
+
 function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
   const winId = win.id;
   const prevWinId = sessionToWindowId.get(sessionId);
@@ -720,6 +733,7 @@ async function main() {
     // session's overlay, not to every renderer: two Argus windows each track
     // their own focused tile, and broadcasting would let one window's click
     // steal the other's focus state.
+    openExternal: (url: string) => openExternalAllowlisted(url),
     notifyFocus: (id: string, focused: boolean) => {
       const winId = sessionToWindowId.get(id);
       if (winId === undefined) return;
@@ -826,11 +840,10 @@ async function main() {
     return dialog.showMessageBox(win!, opts);
   });
 
-  // Open URLs in the system default browser (called from WebLinksAddon click handler).
+  // Open URLs in the system default browser (called from the xterm link
+  // provider's click handler, and from a native overlay's requestOpenLink).
   ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    // Anchor to `//` after http(s) — `https:` alone (no slashes) would also
-    // match a bare `/^https?:/`, letting a crafted `https:evil` string through.
-    if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
+    openExternalAllowlisted(url);
   });
 
   // Relaunch to apply a startup-only setting (e.g. the pty backend switch).
