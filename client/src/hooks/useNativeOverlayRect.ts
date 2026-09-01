@@ -76,6 +76,14 @@ export function useNativeOverlayRect(
 
     const report = () => {
       const rect = measure();
+      // Never report a hole too small to be a real terminal. Native is the
+      // resize authority, so such a rect would drive the pty to ~2 columns and
+      // make the agent reflow its whole transcript — permanently, since the
+      // reflowed text is already in the scrollback. A tile mid-mount, or one
+      // inside a display:none container, measures 0x0 here. Main guards this
+      // too (MIN_FRAME_PT); doing it here as well keeps lastRectKey from being
+      // poisoned with a size that will never be applied.
+      if (rect.width < 40 || rect.height < 40) return;
       // Skip identical rects: layout effects fire on plenty of triggers that
       // don't move the hole, and each IPC hop is pure waste.
       const key = `${rect.x},${rect.y},${rect.width},${rect.height}`;

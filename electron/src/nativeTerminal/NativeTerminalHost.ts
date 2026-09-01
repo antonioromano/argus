@@ -18,6 +18,28 @@ import type { HostDeps, NativeTerminalAddon, Rect, Theme } from './types.js';
  * failure partway through attach() could leave bySession/byOverlay out of
  * sync with each other.
  */
+/**
+ * Smallest frame worth applying to an overlay, in points.
+ *
+ * A degenerate rect is not harmless. Swift clamps width/height to >= 1, so a
+ * 0-wide hole becomes a 1pt view, SwiftTerm computes ~2 columns from it, and —
+ * because native is the resize authority — that 2-column geometry is pushed
+ * all the way to the pty. The agent then reflows its ENTIRE transcript to two
+ * characters per line, and since that text is already in the scrollback,
+ * resizing back does not undo it.
+ *
+ * The renderer legitimately measures such rects: a tile mid-mount, or one
+ * whose container is display:none, reports 0x0 through getBoundingClientRect.
+ * At a typical cell of ~7x15pt, 40x40 cannot produce a usable terminal under
+ * any font size, so anything smaller is a transient layout state rather than a
+ * size a user asked for — drop it and keep the last good frame.
+ */
+const MIN_FRAME_PT = 40;
+
+function isUsableFrame(rect: Rect): boolean {
+  return rect.width >= MIN_FRAME_PT && rect.height >= MIN_FRAME_PT;
+}
+
 export class NativeTerminalHost {
   private readonly addon: NativeTerminalAddon | null;
   private readonly deps: HostDeps;
@@ -141,9 +163,13 @@ export class NativeTerminalHost {
         }
       }
     }
-    this.rectBySession.set(sessionId, rect);
+    // A degenerate attach rect must not reach the view (see MIN_FRAME_PT).
+    // The overlay is still created and shown — it keeps the size it was
+    // constructed with until the renderer reports a real rect.
+    const usable = isUsableFrame(rect);
+    if (usable) this.rectBySession.set(sessionId, rect);
     try {
-      this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
+      if (usable) this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
       this.addon.show(id);
     } catch (err) {
       console.error('[native-term] setFrame/show failed for', sessionId, err);
@@ -171,6 +197,9 @@ export class NativeTerminalHost {
   setRect(sessionId: string, rect: Rect): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    // Keep the last good frame rather than caching a degenerate one, so a
+    // later resync/show restores a usable geometry instead of replaying 0x0.
+    if (!isUsableFrame(rect)) return;
     this.rectBySession.set(sessionId, rect);
     try {
       this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);

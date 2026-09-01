@@ -175,9 +175,9 @@ test('attaching twice reuses the existing overlay', () => {
   const { addon, calls } = fakeAddon();
   const { host } = harness(addon);
   host.attach('s1', HANDLE, RECT);
-  host.attach('s1', HANDLE, { x: 1, y: 2, width: 9, height: 9 });
+  host.attach('s1', HANDLE, { x: 1, y: 2, width: 90, height: 90 });
   assert.equal(calls.filter((c) => c.startsWith('create:')).length, 1);
-  assert.ok(calls.includes('setFrame:1:1,2,9,9'));
+  assert.ok(calls.includes('setFrame:1:1,2,90,90'));
 });
 
 test('attaching a session to a different window reparents its overlay', () => {
@@ -508,12 +508,12 @@ test('resyncParent uses the latest rect reported via setRect, not the attach rec
   const { host } = harness(addon);
   const winA = Buffer.alloc(8, 1);
   host.attach('s1', winA, RECT);
-  host.setRect('s1', { x: 1, y: 2, width: 3, height: 4 });
+  host.setRect('s1', { x: 1, y: 2, width: 300, height: 400 });
   calls.length = 0;
 
   host.resyncParent(winA);
 
-  assert.deepEqual(calls, ['setFrame:1:1,2,3,4']);
+  assert.deepEqual(calls, ['setFrame:1:1,2,300,400']);
 });
 
 test('resyncParent only touches overlays whose parent is that window', () => {
@@ -721,4 +721,53 @@ test('show still reveals when there is no cached rect to re-apply', () => {
   host.show('s1');
 
   assert.deepEqual(calls, []);
+});
+
+test('a degenerate rect never reaches the view — it would reflow the pty to 2 columns', () => {
+  // Swift clamps to >= 1pt, so a 0-wide hole becomes a 1pt view, SwiftTerm
+  // derives ~2 columns from it, and native being the resize authority pushes
+  // that to the pty. The agent's reflowed transcript is then permanent.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+
+  host.setRect('s1', { x: 10, y: 20, width: 0, height: 0 });
+
+  assert.deepEqual(calls, []);
+});
+
+test('a degenerate attach rect still creates the overlay but sets no frame', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+
+  const ok = host.attach('s1', HANDLE, { x: 0, y: 0, width: 0, height: 0 });
+
+  assert.equal(ok, true, 'the overlay must still exist and be reachable');
+  assert.ok(calls.includes('create:1'));
+  assert.ok(calls.includes('show:1'));
+  assert.ok(!calls.some((c) => c.startsWith('setFrame:')), `no frame may be applied, got ${calls.join(',')}`);
+});
+
+test('a degenerate rect does not evict the last good cached frame', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+
+  host.resyncParent(HANDLE);
+
+  assert.deepEqual(calls, ['setFrame:1:10,20,300,200'], 'must replay the last usable rect');
+});
+
+test('a frame at the minimum usable size is applied', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+
+  host.setRect('s1', { x: 1, y: 2, width: 40, height: 40 });
+
+  assert.deepEqual(calls, ['setFrame:1:1,2,40,40']);
 });
