@@ -138,6 +138,49 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugFrame().origin.y, content.maxY - 20 - 150, accuracy: 0.5)
   }
 
+  /// Ordering proved unreliable for taking a window off screen (see hide()'s
+  /// comment), so alpha is what actually hides it — and an invisible window
+  /// must not be able to take clicks or keyboard focus either.
+  func testHideMakesTheWindowTransparentClickThroughAndNotKeyable() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+
+    c.hide()
+
+    XCTAssertEqual(c.debugAlpha(), 0)
+    XCTAssertTrue(c.debugIgnoresMouseEvents())
+    XCTAssertFalse(c.debugCanBecomeKey(), "an invisible overlay must not swallow keystrokes")
+  }
+
+  func testShowRestoresOpacityClicksAndKeyability() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.hide()
+
+    c.show()
+
+    XCTAssertEqual(c.debugAlpha(), 1)
+    XCTAssertFalse(c.debugIgnoresMouseEvents())
+    XCTAssertTrue(c.debugCanBecomeKey())
+  }
+
+  func testDestroyClosesTheWindowAndReleasesTheReference() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    XCTAssertNotEqual(c.debugWindowNumber(), -1)
+
+    c.destroy()
+
+    XCTAssertEqual(c.debugWindowNumber(), -1, "the controller must drop its window")
+    XCTAssertFalse(parent.childWindows?.isEmpty == false, "and the parent must not still list it")
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)

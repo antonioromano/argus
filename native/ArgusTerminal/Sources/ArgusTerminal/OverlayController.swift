@@ -7,7 +7,11 @@ import SwiftTerm
 /// `NSWindow(styleMask: [.borderless])` reported `canBecomeKey: false`.
 /// `canBecomeMain` stays false so the Electron window remains the main window.
 final class KeyableWindow: NSWindow {
-  override var canBecomeKey: Bool { true }
+  /// Cleared while the overlay is hidden. A hidden overlay is kept on screen
+  /// at alpha 0 (see OverlayController.hide), and an invisible window that can
+  /// still become key would swallow keystrokes with nowhere to show them.
+  var allowsKey = true
+  override var canBecomeKey: Bool { allowsKey }
   override var canBecomeMain: Bool { false }
 
   /// Reports key-window transitions so the renderer can learn that a native
@@ -127,6 +131,9 @@ final class PassthroughView: NSView {
     w.isOpaque = true
     w.hasShadow = false
     w.ignoresMouseEvents = false
+    // destroy() calls close(); with the default (true) AppKit would also
+    // release the window, and ARC releasing it a second time is a crash.
+    w.isReleasedWhenClosed = false
     // Read through the controller's own property at call time (rather than
     // capturing it) so a later `onFocus =` assignment — the ObjC++ layer sets
     // it after init — is picked up, and so clearing it to nil on destroy
@@ -229,6 +236,9 @@ final class PassthroughView: NSView {
   // setFrame's conversion. `.zero` when there is no window yet (mirrors
   // debugWindowNumber's -1-for-absent convention).
   public func debugFrame() -> NSRect { window?.frame ?? .zero }
+  public func debugAlpha() -> CGFloat { window?.alphaValue ?? -1 }
+  public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
+  public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
 
   /// Applies Argus's terminal theme to this overlay. `backgroundHex`/
   /// `foregroundHex`/`cursorHex` are "#rrggbb" strings; `ansiHex` is the 16
@@ -300,6 +310,9 @@ final class PassthroughView: NSView {
     if w.parent == nil, let p = parentWindow {
       p.addChildWindow(w, ordered: .above)
     }
+    w.alphaValue = 1
+    w.ignoresMouseEvents = false
+    (w as? KeyableWindow)?.allowsKey = true
     w.orderFront(nil)
   }
 
@@ -314,10 +327,27 @@ final class PassthroughView: NSView {
     hiddenByHost = true
     guard let w = window else { return }
     otrace("hide #\(w.windowNumber) BEFORE visible=\(w.isVisible) parent=\(w.parent?.windowNumber ?? -1)")
+    // Measured (CGWindowListCopyWindowInfo, 2026-09-02): after
+    // removeChildWindow + orderOut, AppKit reported isVisible == false while
+    // the window server still listed this window on screen at its old bounds
+    // — and that is exactly what the user saw. Ordering is therefore not
+    // something this code can rely on to take a window off screen. Alpha is:
+    // the compositor enforces it regardless of ordering state. The window is
+    // also made click-through and refused key status, so an invisible overlay
+    // can neither eat clicks nor swallow keystrokes. The ordering calls stay
+    // as belt-and-braces and to keep it out of the parent's child list.
+    w.alphaValue = 0
+    w.ignoresMouseEvents = true
+    (w as? KeyableWindow)?.allowsKey = false
+    if w.isKeyWindow { parentWindow?.makeKey() }
     w.parent?.removeChildWindow(w)
     w.orderOut(nil)
-    otrace("hide #\(w.windowNumber) AFTER  visible=\(w.isVisible) parent=\(w.parent?.windowNumber ?? -1)")
+    otrace("hide #\(w.windowNumber) AFTER  visible=\(w.isVisible) alpha=\(w.alphaValue) parent=\(w.parent?.windowNumber ?? -1)")
     dumpOnScreenWindows("after hide")
+    // The synchronous dump can race the window server; a second look settles it.
+    if overlayDebug {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dumpOnScreenWindows("300ms after hide") }
+    }
   }
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
@@ -383,9 +413,23 @@ final class PassthroughView: NSView {
   }
 
   @objc public func destroy() {
-    window?.parent?.removeChildWindow(window!)
-    window?.orderOut(nil)
+    guard let w = window else { return }
+    otrace("destroy #\(w.windowNumber)")
+    // Same finding as hide(): orderOut alone left destroyed windows painted on
+    // screen — each tile remount created a new window and the old one's ghost
+    // stayed behind. close() actually tears the window down at the window
+    // server; alpha 0 covers the frame until it does. The content view is
+    // detached so SwiftTerm's view is not left owned by a dying window.
+    w.alphaValue = 0
+    w.ignoresMouseEvents = true
+    w.parent?.removeChildWindow(w)
+    w.orderOut(nil)
+    w.contentView = nil
+    w.close()
     window = nil
+    if overlayDebug {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dumpOnScreenWindows("300ms after destroy") }
+    }
   }
 
   // Test seams — never called in production.
