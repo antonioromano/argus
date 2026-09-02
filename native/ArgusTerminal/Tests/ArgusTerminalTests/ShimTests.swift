@@ -438,6 +438,18 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(NSColor(cgColor: container!)?.argusRGBA(), want, "and the container the view sits in")
   }
 
+  /// SwiftTerm's scroll indicator draws its own track and reserves width the
+  /// grid never paints — measured as two extra greys down the right edge of a
+  /// tile. It is non-interactive anyway, and xterm tiles show no scrollbar.
+  func testTheScrollIndicatorIsHidden() {
+    let c = OverlayController(width: 200, height: 100)
+
+    XCTAssertEqual(c.debugVisibleScrollerCount(), 0, "no scroller may be visible on init")
+
+    c.setFrame(x: 0, y: 0, width: 300, height: 200)
+    XCTAssertEqual(c.debugVisibleScrollerCount(), 0, "and it must not come back on a resize")
+  }
+
   func testSetThemeIgnoresMalformedHexAndKeepsThePreviousColor() {
     let c = OverlayController(width: 400, height: 200)
     c.setTheme(backgroundHex: "#111111", foregroundHex: "#222222", cursorHex: "#333333",

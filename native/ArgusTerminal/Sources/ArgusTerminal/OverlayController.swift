@@ -144,6 +144,7 @@ final class PassthroughView: NSView {
     terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     super.init()
     terminalView.terminalDelegate = self
+    hideScroller()
     // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
     // highlighted while Command is held, and only Command-click opens it.
     // Argus's xterm.js path opens links on an ordinary click (see
@@ -293,6 +294,10 @@ final class PassthroughView: NSView {
   @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
     let w = max(1, width)
     let h = max(1, height)
+    // Before resizing: the grid's width depends on whether the scroller is
+    // hidden, and SwiftTerm can re-create it (setupScroller runs on init and
+    // on a scrollerStyle change). Cheap — a no-op once it is already hidden.
+    hideScroller()
     terminalView.frame.size = NSSize(width: w, height: h)
     guard let win = window else { return }
     guard let parent = win.parent ?? parentWindow else {
@@ -334,6 +339,28 @@ final class PassthroughView: NSView {
     otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
            "parentFrame=\(parent.frame) parentContent=\(parentContent)",
            "full=\(full) -> window=\(win.frame) viewOrigin=\(terminalView.frame.origin)")
+  }
+
+  /// Hides SwiftTerm's scroll indicator.
+  ///
+  /// It is added unconditionally as a subview of the terminal view, in
+  /// `.overlay` style and with `isEnabled = false` — a non-interactive
+  /// indicator. Two problems: it draws its own track, and while visible
+  /// SwiftTerm reserves `scrollerWidth` that the character grid never paints.
+  /// Measured off a screenshot: the right edge of a tile showed the terminal's
+  /// #f5f5f5 plus a 249 and a 241 grey, which is the scroller and its reserved
+  /// gutter, not the background behind the view. Hiding it takes
+  /// `reservedScrollerWidth` to 0, so the grid uses the full width.
+  ///
+  /// No loss of function: it is already non-interactive, scrolling happens by
+  /// wheel and keyboard, and Argus's xterm tiles show no scrollbar either — so
+  /// this is also what makes the two engines match.
+  ///
+  /// `scroller` is private to SwiftTerm, hence the subview walk.
+  private func hideScroller() {
+    for v in terminalView.subviews {
+      if let s = v as? NSScroller, !s.isHidden { s.isHidden = true }
+    }
   }
 
   /// Puts the overlay back where setFrame last put it, if something else moved
@@ -423,6 +450,9 @@ final class PassthroughView: NSView {
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
   public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
   public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
+  public func debugVisibleScrollerCount() -> Int {
+    terminalView.subviews.filter { ($0 as? NSScroller)?.isHidden == false }.count
+  }
 
   /// Matches `.argus-tile-overlay` in index.css, which is what an unfocused
   /// xterm tile is painted with. Without it the two engines disagree about
