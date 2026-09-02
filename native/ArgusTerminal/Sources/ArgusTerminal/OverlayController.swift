@@ -53,9 +53,12 @@ final class KeyableWindow: NSWindow {
   override func isAccessibilityElement() -> Bool { false }
 }
 
-/// Temporary AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same
-/// switch as the host's). The JS-side trace proved the host and this class are
-/// being asked to hide correctly; what it cannot see is whether AppKit agrees.
+/// AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same switch the
+/// TypeScript host reads). Kept: the JS-side trace can only show what this
+/// class was ASKED to do. Twice the answer was that AppKit and the window
+/// server disagreed with each other — a window reporting isVisible == false
+/// while still being painted, and a window painted before anything asked for
+/// it — and only dumpOnScreenWindows below could show that.
 private let overlayDebug = ProcessInfo.processInfo.environment["ARGUS_NATIVE_TERM_DEBUG"] == "1"
 
 private func otrace(_ items: Any...) {
@@ -472,10 +475,6 @@ final class PassthroughView: NSView {
     // its content, so show() has nothing to repair.
     otrace("hide #\(w.windowNumber) AFTER  alpha=\(w.alphaValue) parent=\(w.parent?.windowNumber ?? -1)")
     dumpOnScreenWindows("after hide")
-    // The synchronous dump can race the window server; a second look settles it.
-    if overlayDebug {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dumpOnScreenWindows("300ms after hide") }
-    }
   }
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
@@ -557,9 +556,6 @@ final class PassthroughView: NSView {
     w.contentView = nil
     w.close()
     window = nil
-    if overlayDebug {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { dumpOnScreenWindows("300ms after destroy") }
-    }
   }
 
   // Test seams — never called in production.

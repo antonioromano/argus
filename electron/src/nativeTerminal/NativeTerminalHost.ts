@@ -41,11 +41,15 @@ function isUsableFrame(rect: Rect): boolean {
 }
 
 /**
- * Temporary geometry tracing, on with ARGUS_NATIVE_TERM_DEBUG=1. Every
- * "misplaced overlay" report so far has been diagnosed by reading the code and
- * been wrong at least once, because the interesting question — what the
- * renderer actually measured, and what the host decided in response — is
- * invisible from the outside. Logs only decisions, not every frame.
+ * Geometry tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the Swift shim reads the
+ * same variable, and window.ts mirrors the renderer's trace lines to stdout).
+ *
+ * Kept, not temporary. Overlay geometry bugs are invisible from the outside —
+ * the decision the host made, the rect the renderer measured, and what the
+ * window server actually painted are three different things, and during
+ * development they disagreed in every combination. Reading the code instead
+ * produced a wrong diagnosis four times; this produced the right one every
+ * time. Logs decisions, not frames.
  */
 const DEBUG = process.env.ARGUS_NATIVE_TERM_DEBUG === '1';
 function trace(...args: unknown[]): void {

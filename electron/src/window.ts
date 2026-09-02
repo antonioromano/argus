@@ -186,8 +186,10 @@ export function createAppWindow(windowId: string): BrowserWindow {
   // devtools accelerator — so without this the two halves cannot be read
   // together. Filtered to the trace tag: this is not a general console mirror.
   if (process.env.ARGUS_NATIVE_TERM_DEBUG === '1') {
-    win.webContents.on('console-message', (_e, _level, message) => {
-      if (message.startsWith('[native-term:trace]')) console.log('[renderer]', message);
+    win.webContents.on('console-message', (e) => {
+      // Event-object form: the positional (event, level, message, ...) overload
+      // is deprecated and warns on every load.
+      if (e.message.startsWith('[native-term:trace]')) console.log('[renderer]', e.message);
     });
     win.webContents.once('did-finish-load', () => {
       // Saves the user a devtools round-trip to set the localStorage flag.

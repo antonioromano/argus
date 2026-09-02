@@ -87,8 +87,8 @@ export function useNativeOverlayRect(
     // main's logs. Enable from devtools with
     // `localStorage.argusNativeTermDebug = '1'` and reload.
     // Read per call, not once: main sets this flag after did-finish-load, which
-    // can be after this effect has already run. Temporary debug code, and the
-    // reports it guards are not hot enough for the localStorage hit to matter.
+    // can be after this effect has already run. The reports it guards are not
+    // hot enough for the localStorage hit to matter.
     const isDebug = () => {
       try { return localStorage.getItem('argusNativeTermDebug') === '1'; } catch { return false; }
     };
@@ -102,18 +102,6 @@ export function useNativeOverlayRect(
         // "[object Object]", which loses the only numbers worth logging.
         console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind,
           JSON.stringify(rect), 'usable=', rect.width >= 40 && rect.height >= 40);
-        // Where does the hole's bottom land relative to the boxes around it?
-        // Each ancestor: tag.class, its bottom edge, and whether it clips.
-        const chain: string[] = [];
-        let a: HTMLElement | null = el.parentElement;
-        for (let i = 0; a && i < 5; i++, a = a.parentElement) {
-          const r = a.getBoundingClientRect();
-          const ov = getComputedStyle(a).overflow;
-          const cls = typeof a.className === 'string' && a.className ? '.' + a.className.split(' ')[0] : '';
-          chain.push(`${a.tagName.toLowerCase()}${cls} bottom=${Math.round(r.bottom)} h=${Math.round(r.height)} ov=${ov}`);
-        }
-        console.log('[native-term:trace] hole bottom=', Math.round(rect.y + rect.height),
-          'viewport=', document.documentElement.clientHeight, '| ancestors:', chain.join(' > '));
       }
       // A hole too small to be a real terminal is not a frame to apply — it
       // means the tile is not on screen: mid-mount, inside a display:none
