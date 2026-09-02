@@ -201,6 +201,74 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugAlpha(), 1)
   }
 
+  /// The measured case: a hole reported 3pt taller than the parent's content
+  /// area. The browser clips the DOM tile; the window must be clipped the same
+  /// way — while the terminal keeps its full logical size so cols/rows do not
+  /// change (native is the resize authority).
+  func testSetFrameClipsAHoleHangingBelowTheContentArea() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 800, height: 600),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    let content = parent.contentRect(forFrameRect: parent.frame)
+
+    // y=20 from the top, 583 tall -> bottom at viewport y=603, 3pt past 600.
+    c.setFrame(x: 10, y: 20, width: 300, height: 583)
+
+    let win = c.debugFrame()
+    XCTAssertEqual(win.minY, content.minY, accuracy: 0.5, "window bottom must stop at the content bottom")
+    XCTAssertEqual(win.height, 580, accuracy: 0.5, "3pt of overhang cropped")
+    let view = c.debugTerminalViewFrame()
+    XCTAssertEqual(view.height, 583, accuracy: 0.5, "the terminal keeps its full logical height")
+    XCTAssertEqual(view.origin.y, -3, accuracy: 0.5, "and is shifted so its bottom 3pt fall outside the window")
+    XCTAssertEqual(c.debugAlpha(), 1)
+  }
+
+  func testSetFrameClipsAHoleOffTheRightEdge() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+
+    // A stale rect from before a Spectacle shrink: x=700 in an 800-wide window.
+    c.setFrame(x: 700, y: 20, width: 300, height: 200)
+
+    let win = c.debugFrame()
+    XCTAssertEqual(win.maxX, 800, accuracy: 0.5, "must not paint past the window's right edge")
+    XCTAssertEqual(win.width, 100, accuracy: 0.5)
+    XCTAssertEqual(c.debugTerminalViewFrame().width, 300, accuracy: 0.5, "logical width unchanged")
+    XCTAssertEqual(c.debugTerminalViewFrame().origin.x, 0, accuracy: 0.5, "left edge is inside, no x offset")
+  }
+
+  func testAHoleEntirelyOutsideTheParentIsNotPainted() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    XCTAssertEqual(c.debugAlpha(), 1)
+
+    c.setFrame(x: 1043, y: 20, width: 453, height: 300)   // the Spectacle case, verbatim
+    XCTAssertEqual(c.debugAlpha(), 0, "nothing of it is inside the window")
+
+    c.setFrame(x: 10, y: 20, width: 300, height: 200)
+    XCTAssertEqual(c.debugAlpha(), 1, "and it comes back once the hole is inside again")
+  }
+
+  func testClippedOutDoesNotOverrideAHostHide() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.hide()
+
+    c.setFrame(x: 10, y: 20, width: 300, height: 200)   // inside, but host says hidden
+
+    XCTAssertEqual(c.debugAlpha(), 0, "a frame inside the parent must not reveal a host-hidden overlay")
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)

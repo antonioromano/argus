@@ -225,6 +225,7 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
           ? `0 0 0 1px ${edge}, 0 0 18px var(--accent-glow)`
           : 'none',
         padding: '8px 14px 0px 14px',
+        overflow: 'hidden',
         position: 'relative',
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',
       }}

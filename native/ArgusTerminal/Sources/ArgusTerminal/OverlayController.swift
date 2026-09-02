@@ -106,6 +106,15 @@ final class PassthroughView: NSView {
   /// and would be invisible — the same z-order constraint that moved search
   /// into SwiftTerm's own find bar.
   private var dimView: NSView?
+  /// The window's content view. The terminal view sits inside it and may be
+  /// offset so that only the portion of the hole that is actually inside the
+  /// parent's content area is shown — see setFrame.
+  private let clipView = NSView()
+  /// True when setFrame found the hole entirely outside the parent's content
+  /// area. Independent of hiddenByHost: the host decides whether the tile is
+  /// logically visible, this decides whether any of it is physically inside
+  /// the window it belongs to. Both must be false for the overlay to paint.
+  private var clippedOut = false
 
   @objc public init(width: CGFloat, height: CGFloat) {
     terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -131,7 +140,15 @@ final class PassthroughView: NSView {
     }
     let w = KeyableWindow(contentRect: terminalView.frame,
                           styleMask: [.borderless], backing: .buffered, defer: false)
-    w.contentView = terminalView
+    // The terminal view is NOT the content view: setFrame crops the window to
+    // the part of the hole inside the parent and offsets the terminal view
+    // inside this container so the visible portion lines up — the same thing
+    // the browser does to the DOM tile when it overflows the viewport.
+    clipView.frame = terminalView.frame
+    clipView.wantsLayer = true
+    terminalView.frame.origin = .zero
+    clipView.addSubview(terminalView)
+    w.contentView = clipView
     w.isOpaque = true
     w.hasShadow = false
     w.ignoresMouseEvents = false
@@ -235,7 +252,7 @@ final class PassthroughView: NSView {
   @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
     let w = max(1, width)
     let h = max(1, height)
-    terminalView.frame = NSRect(origin: .zero, size: NSSize(width: w, height: h))
+    terminalView.frame.size = NSSize(width: w, height: h)
     guard let win = window else { return }
     guard let parent = win.parent ?? parentWindow else {
       win.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
@@ -244,16 +261,52 @@ final class PassthroughView: NSView {
     let parentContent = parent.contentRect(forFrameRect: parent.frame)
     let screenX = parentContent.minX + x
     let screenY = parentContent.maxY - y - h
-    win.setFrame(NSRect(x: screenX, y: screenY, width: w, height: h), display: true)
+    let full = NSRect(x: screenX, y: screenY, width: w, height: h)
+    // Clip to the parent's content area. A DOM tile that overflows the viewport
+    // is cropped by the browser; a child NSWindow is cropped by nothing, so
+    // without this the overlay paints past the window's edge — measured: a
+    // hole reported 3pt taller than the content area poked out of the bottom,
+    // and a stale viewport rect re-pushed after a Spectacle re-tile painted a
+    // whole tile outside the app. The terminal view keeps its FULL logical
+    // size (native is the resize authority — cropping must not change
+    // cols/rows); only the window shrinks, and the view is offset inside it so
+    // the visible part stays aligned with the hole.
+    let visible = full.intersection(parentContent)
+    if visible.isNull || visible.width < 1 || visible.height < 1 {
+      clippedOut = true
+      applyOpacity()
+      otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
+             "parentContent=\(parentContent) -> fully outside, clipped out")
+      return
+    }
+    clippedOut = false
+    win.setFrame(visible, display: true)
+    // AppKit is y-up: a hole hanging below the content area has full.minY <
+    // visible.minY, so the view's origin goes negative and its bottom rows
+    // fall outside the (cropped) window — exactly the rows the DOM would clip.
+    terminalView.frame.origin = NSPoint(x: full.minX - visible.minX, y: full.minY - visible.minY)
+    applyOpacity()
     otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
            "parentFrame=\(parent.frame) parentContent=\(parentContent)",
-           "-> screen=\(win.frame) parentIsChildParent=\(win.parent === parent)")
+           "full=\(full) -> window=\(win.frame) viewOrigin=\(terminalView.frame.origin)")
+  }
+
+  /// Single writer for the window's alpha: painted only when the host wants it
+  /// shown AND some of it is inside the parent. show()/hide() and setFrame all
+  /// funnel here so the two conditions can never disagree.
+  private func applyOpacity() {
+    guard let w = window else { return }
+    let visible = !hiddenByHost && !clippedOut
+    w.alphaValue = visible ? 1 : 0
+    w.ignoresMouseEvents = !visible
+    (w as? KeyableWindow)?.allowsKey = visible
   }
 
   // Test seam: the child window's current SCREEN-coordinate frame, after
   // setFrame's conversion. `.zero` when there is no window yet (mirrors
   // debugWindowNumber's -1-for-absent convention).
   public func debugFrame() -> NSRect { window?.frame ?? .zero }
+  public func debugTerminalViewFrame() -> NSRect { terminalView.frame }
   public func debugAlpha() -> CGFloat { window?.alphaValue ?? -1 }
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
@@ -328,9 +381,7 @@ final class PassthroughView: NSView {
     if w.parent == nil, let p = parentWindow {
       p.addChildWindow(w, ordered: .above)
     }
-    w.alphaValue = 1
-    w.ignoresMouseEvents = false
-    (w as? KeyableWindow)?.allowsKey = true
+    applyOpacity()
     w.orderFront(nil)
   }
 
@@ -353,9 +404,7 @@ final class PassthroughView: NSView {
     // the compositor enforces it regardless of ordering state. The window is
     // also made click-through and refused key status, so an invisible overlay
     // can neither eat clicks nor swallow keystrokes.
-    w.alphaValue = 0
-    w.ignoresMouseEvents = true
-    (w as? KeyableWindow)?.allowsKey = false
+    applyOpacity()
     if w.isKeyWindow { parentWindow?.makeKey() }
     // Deliberately NOT ordered out or detached. Ordering was measured to be
     // unreliable here, and detaching bought nothing once alpha does the hiding
