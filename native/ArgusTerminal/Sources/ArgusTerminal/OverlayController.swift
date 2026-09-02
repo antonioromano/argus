@@ -137,6 +137,40 @@ final class PassthroughView: NSView {
   /// logically visible, this decides whether any of it is physically inside
   /// the window it belongs to. Both must be false for the overlay to paint.
   private var clippedOut = false
+  /// The colours currently applied, and the starting point of the next fade.
+  /// nil until the first setTheme.
+  private var palette: Palette?
+  /// In-flight theme crossfade, invalidated when a new theme arrives or the
+  /// overlay is destroyed.
+  private var themeAnimation: Timer?
+  /// Where an in-flight crossfade is heading, so it can be completed early.
+  private var pendingPalette: Palette?
+
+  /// One terminal colour scheme. Blends component-wise in sRGB — good enough
+  /// for a 360ms crossfade between two deliberately-chosen palettes, and it
+  /// avoids the grey midpoint a naive blend through a different colour space
+  /// can produce.
+  private struct Palette {
+    let background: NSColor
+    let foreground: NSColor
+    let cursor: NSColor
+    let ansi: [NSColor]
+
+    func blended(towards other: Palette, t: CGFloat) -> Palette {
+      Palette(
+        background: background.argusBlend(to: other.background, t: t),
+        foreground: foreground.argusBlend(to: other.foreground, t: t),
+        cursor: cursor.argusBlend(to: other.cursor, t: t),
+        // zip stops at the shorter side, which would silently shrink the
+        // palette; a length mismatch only happens before the first full
+        // palette, where the target's own colours are the right answer.
+        ansi: ansi.count == other.ansi.count
+          ? zip(ansi, other.ansi).map { $0.argusBlend(to: $1, t: t) }
+          : other.ansi,
+      )
+    }
+  }
+
   /// didMove/didResize observers on the overlay window, removed on destroy.
   private var frameObservers: [NSObjectProtocol] = []
 
@@ -424,24 +458,99 @@ final class PassthroughView: NSView {
   /// visible here, so this file has its own small hex parser and
   /// `Color`-conversion helper below instead of depending on them.
   @objc public func setTheme(backgroundHex: String, foregroundHex: String, cursorHex: String, ansiHex: [String]) {
-    if let bg = NSColor(argusHex: backgroundHex) {
-      terminalView.nativeBackgroundColor = bg
-      // Everything BEHIND the terminal view gets the same colour. SwiftTerm
-      // paints whole cells and reserves width for its scroller, so a few
-      // points along the right and bottom edges are never painted by the grid
-      // — and those showed the container layer and the window's default grey,
-      // measured as three different backgrounds in one tile. The xterm path
-      // solves the same sub-cell gutter by painting its container (see
-      // useTerminal.ts's termBg); this is that, one layer down.
-      window?.backgroundColor = bg
-      clipView.layer?.backgroundColor = bg.cgColor
+    // Per component: an unparseable value keeps the colour that is already
+    // applied, rather than rejecting the whole theme. A crossfade needs a
+    // complete palette on both ends, so "keep" means "carry the current value
+    // into the target" — which is also the documented behaviour from before
+    // fading existed (a malformed hex is a no-op for that one colour, and a
+    // wrong-length ansi array still lets background/foreground/cursor
+    // through).
+    let current = palette ?? Palette(
+      background: terminalView.nativeBackgroundColor,
+      foreground: terminalView.nativeForegroundColor,
+      cursor: terminalView.caretColor,
+      ansi: [],
+    )
+    let parsedAnsi = ansiHex.compactMap { NSColor(argusHex: $0) }
+    let target = Palette(
+      background: NSColor(argusHex: backgroundHex) ?? current.background,
+      foreground: NSColor(argusHex: foregroundHex) ?? current.foreground,
+      cursor: NSColor(argusHex: cursorHex) ?? current.cursor,
+      ansi: parsedAnsi.count == 16 ? parsedAnsi : current.ansi,
+    )
+
+    themeAnimation?.invalidate()
+    themeAnimation = nil
+    pendingPalette = nil
+
+    // First theme (attach): apply at once. There is nothing to fade from, and
+    // fading in would show SwiftTerm's own defaults for a third of a second.
+    guard let from = palette else {
+      apply(target)
+      palette = target
+      pendingPalette = nil
+      return
     }
-    if let fg = NSColor(argusHex: foregroundHex) { terminalView.nativeForegroundColor = fg }
-    if let cursor = NSColor(argusHex: cursorHex) { terminalView.caretColor = cursor }
-    guard ansiHex.count == 16 else { return }
-    let ansiColors = ansiHex.compactMap { NSColor(argusHex: $0)?.argusTerminalColor() }
-    guard ansiColors.count == 16 else { return }
-    terminalView.installColors(ansiColors)
+    pendingPalette = target
+
+    // Argus crossfades the whole root through the View Transitions API over
+    // --dur-slow with --ease-std (tokens.css). A child NSWindow cannot take
+    // part in a DOM view transition, so it interpolates its own colours over
+    // the same duration and curve — otherwise the terminal snaps to the new
+    // theme while everything around it fades, which is exactly what it did.
+    let start = Date()
+    themeAnimation = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] timer in
+      guard let self else { timer.invalidate(); return }
+      let linear = min(1, Date().timeIntervalSince(start) / Self.themeFadeDuration)
+      self.apply(from.blended(towards: target, t: Self.themeEase(CGFloat(linear))))
+      if linear >= 1 {
+        timer.invalidate()
+        self.themeAnimation = nil
+        // Land exactly on the target: the eased value reaches 1.0 but the
+        // blend is float arithmetic, and the palette is what the next fade
+        // starts from.
+        self.apply(target)
+        self.palette = target
+        self.pendingPalette = nil
+      }
+    }
+  }
+
+  /// Matches `--dur-slow` in tokens.css, the duration of Argus's own theme
+  /// crossfade.
+  private static let themeFadeDuration: TimeInterval = 0.36
+
+  /// `--ease-std` — cubic-bezier(.22, .61, .36, 1). Solves x(s) = t for s by
+  /// bisection (the curve is monotonic in x, and 20 steps is well past
+  /// sub-pixel accuracy for a colour), then evaluates y(s).
+  private static func themeEase(_ t: CGFloat) -> CGFloat {
+    func bezier(_ a: CGFloat, _ b: CGFloat, _ s: CGFloat) -> CGFloat {
+      let u = 1 - s
+      return 3 * u * u * s * a + 3 * u * s * s * b + s * s * s
+    }
+    var lo: CGFloat = 0, hi: CGFloat = 1
+    for _ in 0..<20 {
+      let mid = (lo + hi) / 2
+      if bezier(0.22, 0.36, mid) < t { lo = mid } else { hi = mid }
+    }
+    return bezier(0.61, 1.0, (lo + hi) / 2)
+  }
+
+  private func apply(_ p: Palette) {
+    terminalView.nativeBackgroundColor = p.background
+    terminalView.nativeForegroundColor = p.foreground
+    terminalView.caretColor = p.cursor
+    // Everything BEHIND the terminal view gets the background too. SwiftTerm
+    // paints whole cells, so a sub-cell strip along the bottom is never
+    // painted by the grid — and that showed the container layer and the
+    // window's default grey. The xterm path solves the same gutter by
+    // painting its container (see useTerminal.ts's termBg); this is that, one
+    // layer down.
+    window?.backgroundColor = p.background
+    clipView.layer?.backgroundColor = p.background.cgColor
+    // Empty only before the first full palette has arrived; installColors with
+    // a short array would be rejected by SwiftTerm anyway.
+    if p.ansi.count == 16 { terminalView.installColors(p.ansi.map { $0.argusTerminalColor() }) }
   }
 
   // Test seams — read back what setTheme actually applied.
@@ -450,6 +559,17 @@ final class PassthroughView: NSView {
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
   public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
   public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
+  public func debugThemeAnimating() -> Bool { themeAnimation != nil }
+  /// Completes an in-flight theme crossfade at once. A test asserting the end
+  /// state should not have to wait 360ms of wall clock for it.
+  public func debugFinishThemeFade() {
+    guard let target = pendingPalette else { return }
+    themeAnimation?.invalidate()
+    themeAnimation = nil
+    apply(target)
+    palette = target
+    pendingPalette = nil
+  }
   public func debugVisibleScrollerCount() -> Int {
     terminalView.subviews.filter { ($0 as? NSScroller)?.isHidden == false }.count
   }
@@ -598,6 +718,8 @@ final class PassthroughView: NSView {
     w.ignoresMouseEvents = true
     w.parent?.removeChildWindow(w)
     w.orderOut(nil)
+    themeAnimation?.invalidate()
+    themeAnimation = nil
     for o in frameObservers { NotificationCenter.default.removeObserver(o) }
     frameObservers = []
     w.contentView = nil
@@ -642,6 +764,19 @@ private extension NSColor {
   /// — an unrecognized value is treated the same as "no color supplied" by
   /// every call site, which keeps the previous color rather than applying a
   /// crash or a garbage default.
+  /// Component-wise sRGB blend. Returns self when either colour cannot be
+  /// converted, which keeps a fade a no-op rather than a flash of black.
+  func argusBlend(to other: NSColor, t: CGFloat) -> NSColor {
+    guard let a = usingColorSpace(.sRGB), let b = other.usingColorSpace(.sRGB) else { return self }
+    let k = max(0, min(1, t))
+    return NSColor(
+      srgbRed: a.redComponent + (b.redComponent - a.redComponent) * k,
+      green: a.greenComponent + (b.greenComponent - a.greenComponent) * k,
+      blue: a.blueComponent + (b.blueComponent - a.blueComponent) * k,
+      alpha: a.alphaComponent + (b.alphaComponent - a.alphaComponent) * k,
+    )
+  }
+
   convenience init?(argusHex hex: String) {
     var s = hex
     if s.hasPrefix("#") { s.removeFirst() }
