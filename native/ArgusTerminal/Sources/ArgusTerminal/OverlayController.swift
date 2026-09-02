@@ -30,6 +30,36 @@ final class KeyableWindow: NSWindow {
   }
 }
 
+/// Temporary AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same
+/// switch as the host's). The JS-side trace proved the host and this class are
+/// being asked to hide correctly; what it cannot see is whether AppKit agrees.
+private let overlayDebug = ProcessInfo.processInfo.environment["ARGUS_NATIVE_TERM_DEBUG"] == "1"
+
+private func otrace(_ items: Any...) {
+  guard overlayDebug else { return }
+  let line = items.map { "\($0)" }.joined(separator: " ")
+  FileHandle.standardError.write(("[native-term:appkit] " + line + "\n").data(using: .utf8)!)
+}
+
+/// Every on-screen window belonging to this process, from the window server's
+/// point of view — the ground truth for "is something still painted". Layer 0
+/// only, so menus/tooltips do not clutter it.
+private func dumpOnScreenWindows(_ label: String) {
+  guard overlayDebug else { return }
+  let pid = ProcessInfo.processInfo.processIdentifier
+  guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+    as? [[String: Any]] else { return }
+  let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid }
+  otrace("on-screen windows (\(label)): \(mine.count)")
+  for w in mine {
+    let num = w[kCGWindowNumber as String] as? Int ?? -1
+    let layer = w[kCGWindowLayer as String] as? Int ?? -1
+    let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    let name = w[kCGWindowName as String] as? String ?? ""
+    otrace("  #\(num) layer=\(layer) bounds=\(bounds) name='\(name)'")
+  }
+}
+
 /// A scrim that never takes a click. A plain NSView subview would sit in front
 /// of the terminal in the hit-test chain and swallow every mouse event —
 /// selection, link clicks, scroll — so the tile would look right and stop
@@ -107,6 +137,7 @@ final class PassthroughView: NSView {
     hiddenByHost = false
     parent.addChildWindow(w, ordered: .above)
     window = w
+    otrace("attach created #\(w.windowNumber) parent=#\(parent.windowNumber)")
   }
 
   /// Move an existing overlay to a different parent window. Argus supports
@@ -262,6 +293,7 @@ final class PassthroughView: NSView {
   @objc public func show() {
     hiddenByHost = false
     guard let w = window else { return }
+    otrace("show #\(w.windowNumber) wasVisible=\(w.isVisible) hadParent=\(w.parent != nil)")
     // hide() detached this from its parent (see below), so re-establish the
     // relationship before ordering in — otherwise it becomes an independent
     // window that no longer follows the parent or sits above its content.
@@ -281,8 +313,11 @@ final class PassthroughView: NSView {
   @objc public func hide() {
     hiddenByHost = true
     guard let w = window else { return }
+    otrace("hide #\(w.windowNumber) BEFORE visible=\(w.isVisible) parent=\(w.parent?.windowNumber ?? -1)")
     w.parent?.removeChildWindow(w)
     w.orderOut(nil)
+    otrace("hide #\(w.windowNumber) AFTER  visible=\(w.isVisible) parent=\(w.parent?.windowNumber ?? -1)")
+    dumpOnScreenWindows("after hide")
   }
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
