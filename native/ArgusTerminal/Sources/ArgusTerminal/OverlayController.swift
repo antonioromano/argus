@@ -32,6 +32,25 @@ final class KeyableWindow: NSWindow {
     super.resignKey()
     onKeyChange?(false)
   }
+
+  /// The frame OverlayController last applied. An external mover (a window
+  /// manager, or anything driving the Accessibility API) that changes this
+  /// window's frame is undone on the next frame-change notification.
+  var appliedFrame: NSRect?
+  /// Set while the controller itself is calling setFrame, so its own change is
+  /// not mistaken for an external one.
+  var applyingFrame = false
+
+  /// Hide the overlay from the Accessibility API. Window managers (Spectacle,
+  /// Rectangle, macOS's own window commands) act on an app's AX focused
+  /// window, and this window becomes key whenever a native tile is clicked —
+  /// so "center window" centered the TERMINAL rather than Argus, which is
+  /// exactly what a manageable window is supposed to do. It is an
+  /// implementation detail of a tile, not a window a user should be able to
+  /// target, so it declines to be one. `canBecomeKey` is untouched: keyboard
+  /// focus is how SwiftTerm receives input.
+  override func accessibilityRole() -> NSAccessibility.Role? { nil }
+  override func isAccessibilityElement() -> Bool { false }
 }
 
 /// Temporary AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same
@@ -115,6 +134,8 @@ final class PassthroughView: NSView {
   /// logically visible, this decides whether any of it is physically inside
   /// the window it belongs to. Both must be false for the overlay to paint.
   private var clippedOut = false
+  /// didMove/didResize observers on the overlay window, removed on destroy.
+  private var frameObservers: [NSObjectProtocol] = []
 
   @objc public init(width: CGFloat, height: CGFloat) {
     terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
@@ -172,10 +193,23 @@ final class PassthroughView: NSView {
     w.alphaValue = 0
     w.ignoresMouseEvents = true
     w.allowsKey = false
+    w.isExcludedFromWindowsMenu = true
     parentWindow = parent
     hiddenByHost = true
     parent.addChildWindow(w, ordered: .above)
     window = w
+    // Undo any frame change this class did not make. A window manager can
+    // move or resize the overlay directly (see accessibilityRole above for
+    // why it is reachable at all); the hole in the web contents has not
+    // moved, so the only correct response is to put it back.
+    frameObservers = [
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didMoveNotification, object: w, queue: .main
+      ) { [weak self] _ in self?.restoreAppliedFrameIfMovedExternally() },
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didResizeNotification, object: w, queue: .main
+      ) { [weak self] _ in self?.restoreAppliedFrameIfMovedExternally() },
+    ]
     otrace("attach created #\(w.windowNumber) parent=#\(parent.windowNumber)")
   }
 
@@ -280,7 +314,11 @@ final class PassthroughView: NSView {
       return
     }
     clippedOut = false
+    let keyable = win as? KeyableWindow
+    keyable?.appliedFrame = visible
+    keyable?.applyingFrame = true
     win.setFrame(visible, display: true)
+    keyable?.applyingFrame = false
     // AppKit is y-up: a hole hanging below the content area has full.minY <
     // visible.minY, so the view's origin goes negative and its bottom rows
     // fall outside the (cropped) window — exactly the rows the DOM would clip.
@@ -289,6 +327,19 @@ final class PassthroughView: NSView {
     otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
            "parentFrame=\(parent.frame) parentContent=\(parentContent)",
            "full=\(full) -> window=\(win.frame) viewOrigin=\(terminalView.frame.origin)")
+  }
+
+  /// Puts the overlay back where setFrame last put it, if something else moved
+  /// it. Idempotent by construction: the restore sets the frame to the value
+  /// it compares against, so the notification it triggers finds them equal and
+  /// stops.
+  private func restoreAppliedFrameIfMovedExternally() {
+    guard let w = window as? KeyableWindow, !w.applyingFrame,
+          let want = w.appliedFrame, w.frame != want else { return }
+    otrace("external frame change on #\(w.windowNumber): \(w.frame) -> restoring \(want)")
+    w.applyingFrame = true
+    w.setFrame(want, display: true)
+    w.applyingFrame = false
   }
 
   /// Single writer for the window's alpha: painted only when the host wants it
@@ -310,6 +361,15 @@ final class PassthroughView: NSView {
   public func debugAlpha() -> CGFloat { window?.alphaValue ?? -1 }
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
+  public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
+  public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }
+  /// Moves the window the way an external window manager would, then runs the
+  /// same restore path the didMove notification drives (notifications do not
+  /// deliver synchronously in a unit test).
+  public func debugSimulateExternalMove(to rect: NSRect) {
+    window?.setFrame(rect, display: false)
+    restoreAppliedFrameIfMovedExternally()
+  }
 
   /// Applies Argus's terminal theme to this overlay. `backgroundHex`/
   /// `foregroundHex`/`cursorHex` are "#rrggbb" strings; `ansiHex` is the 16
@@ -492,6 +552,8 @@ final class PassthroughView: NSView {
     w.ignoresMouseEvents = true
     w.parent?.removeChildWindow(w)
     w.orderOut(nil)
+    for o in frameObservers { NotificationCenter.default.removeObserver(o) }
+    frameObservers = []
     w.contentView = nil
     w.close()
     window = nil

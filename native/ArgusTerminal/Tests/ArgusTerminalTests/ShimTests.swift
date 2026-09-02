@@ -269,6 +269,47 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugAlpha(), 0, "a frame inside the parent must not reveal a host-hidden overlay")
   }
 
+  /// Window managers act on an app's AX focused window, and the overlay
+  /// becomes key whenever a native tile is clicked — so Spectacle's "center
+  /// window" centered the terminal instead of Argus. The overlay declines to
+  /// be an accessibility element so no window manager can target it.
+  func testTheOverlayIsInvisibleToTheAccessibilityAPI() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+
+    XCTAssertFalse(c.debugIsAccessibilityElement(), "must not be a targetable AX element")
+    XCTAssertNil(c.debugAccessibilityRole(), "and must report no window role")
+  }
+
+  /// Keyboard focus is how SwiftTerm receives input, so hiding from the AX API
+  /// must not have cost that.
+  func testHidingFromAccessibilityKeepsKeyEligibility() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+
+    XCTAssertTrue(c.debugCanBecomeKey())
+  }
+
+  func testAnExternalFrameChangeIsUndone() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    c.setFrame(x: 10, y: 20, width: 300, height: 200)
+    let applied = c.debugFrame()
+
+    // What a window manager does: move the window directly.
+    c.debugSimulateExternalMove(to: NSRect(x: 400, y: 400, width: 300, height: 200))
+
+    XCTAssertEqual(c.debugFrame(), applied, "the overlay must return to the hole it belongs to")
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)
