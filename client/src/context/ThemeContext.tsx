@@ -1,15 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ThemeContext, type Theme, type ThemeMode } from './theme-context.js';
 
-/**
- * Dispatched on `window` when the theme view transition actually starts
- * animating — not when the theme value changes. Surfaces exist that cannot
- * join a DOM view transition and must crossfade themselves in step with it;
- * see the native terminal overlay in TerminalShell.
- */
-export const THEME_TRANSITION_START = 'argus:theme-transition-start';
 
 // --- Helpers ---
 
@@ -53,86 +45,36 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener('change', handler);
   }, [mode]);
 
-  // True between starting a view transition and its `ready` resolving, so the
-  // effect below leaves the announcement to the transition rather than firing
-  // early.
-  const transitionPending = useRef(false);
-
   // Apply resolved theme to the DOM
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     // Keep body font in sync for non-token consumers (e.g. xterm default text colour)
     document.body.style.fontFamily =
       'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)';
-    // Every theme change that is NOT animated announces itself here: the
-    // no-view-transition fallback below, and an OS appearance change, which
-    // updates `theme` through systemIsDark without going through setMode. The
-    // cue has to fire for those too or a native terminal overlay — which
-    // listens for it instead of watching the theme value — would keep the old
-    // colours indefinitely.
-    if (!transitionPending.current) {
-      window.dispatchEvent(new Event(THEME_TRANSITION_START));
-    }
   }, [theme]);
 
   const setMode = useCallback((m: ThemeMode) => {
-    const apply = () => {
-      setModeState(m);
-      localStorage.setItem('theme-mode', m);
-    };
-    if (!document.startViewTransition) { apply(); return; }
-    transitionPending.current = true;
-    // Temporary: the native overlay's crossfade was visibly out of step with
-    // the app's, so measure when each phase actually happens rather than
-    // trusting the spec's ordering.
-    const t0 = performance.now();
-    const mark = (label: string) => {
-      try {
-        if (localStorage.getItem('argusNativeTermDebug') === '1') {
-          console.log(`[native-term:trace] theme ${label} +${Math.round(performance.now() - t0)}ms`);
-        }
-      } catch { /* storage unavailable */ }
-    };
-    const transition = document.startViewTransition(() => {
-      mark('callback (DOM updated)');
-      flushSync(apply);
+    // Instant, and suppressed while it happens. Argus used to crossfade the
+    // whole root through the View Transitions API, but a native terminal
+    // overlay is a child NSWindow and cannot be part of a DOM snapshot — its
+    // own crossfade was independent of the app's and visibly out of step no
+    // matter what it was cued off. On top of that, element-level colour
+    // transitions kept running after the view transition ended, so the app
+    // appeared to fade twice. Switching with no animation anywhere is the one
+    // arrangement that cannot be out of sync.
+    //
+    // `data-theme-switching` disables transitions and animations for the swap
+    // (see tokens.css); two frames of it, because the attribute and the theme
+    // change must both be in the same style recalculation as the paint that
+    // applies them.
+    document.documentElement.dataset.themeSwitching = '';
+    setModeState(m);
+    localStorage.setItem('theme-mode', m);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        delete document.documentElement.dataset.themeSwitching;
+      });
     });
-    void transition.finished.then(() => mark('finished'), () => mark('finished (rejected)'));
-    // A native terminal overlay is a child NSWindow and cannot take part in a
-    // DOM view transition, so it runs its own crossfade (OverlayController's
-    // setTheme). It must not start on the theme VALUE changing: the API
-    // snapshots the old frame first and only begins animating once `ready`
-    // resolves, so the overlay faded a frame or two ahead of the rest of the
-    // app and the two were visibly out of step. Announce the real start
-    // instead. Fire-and-forget: `ready` rejects if the transition is skipped,
-    // which is not an error here — nothing is animating, so nothing needs the
-    // cue.
-    void transition.ready.then(
-      () => {
-        mark('ready -> dispatching cue');
-        try {
-          if (localStorage.getItem('argusNativeTermDebug') === '1') {
-            // Ground truth for what the DOM is actually animating, and for how
-            // long — the pseudo-element animations the UA created.
-            for (const a of document.getAnimations()) {
-              const eff = a.effect as KeyframeEffect | null;
-              const pseudo = eff?.pseudoElement ?? '';
-              if (!pseudo.startsWith('::view-transition')) continue;
-              const t = eff!.getTiming();
-              console.log('[native-term:trace] theme anim', pseudo,
-                'delay=', t.delay, 'duration=', t.duration, 'easing=', t.easing);
-            }
-          }
-        } catch { /* storage unavailable */ }
-        transitionPending.current = false;
-        window.dispatchEvent(new Event(THEME_TRANSITION_START));
-      },
-      () => {
-        // Skipped transition: nothing animates, so the cue is due now.
-        transitionPending.current = false;
-        window.dispatchEvent(new Event(THEME_TRANSITION_START));
-      },
-    );
   }, []);
 
   // Backwards-compat toggle: flips between dark and light explicitly,

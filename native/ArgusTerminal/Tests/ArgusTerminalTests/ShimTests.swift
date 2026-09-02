@@ -450,27 +450,15 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugVisibleScrollerCount(), 0, "and it must not come back on a resize")
   }
 
-  /// Argus crossfades the whole root through the View Transitions API, which a
-  /// child NSWindow cannot join — so the terminal snapped to the new theme
-  /// while everything around it faded. It interpolates its own colours
-  /// instead, but the FIRST theme must still land instantly or a fresh tile
-  /// shows SwiftTerm's defaults for a third of a second.
-  func testTheFirstThemeIsAppliedInstantly() {
-    let c = OverlayController(width: 200, height: 100)
-    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    c.attach(to: parent)
 
-    c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58",
-               ansiHex: Array(repeating: "#000000", count: 16))
 
-    XCTAssertFalse(c.debugThemeAnimating(), "nothing to fade from")
-    let v: CGFloat = 245.0 / 255.0
-    XCTAssertEqual(c.debugBackgroundColor().argusRGBA(),
-                   NSColor(srgbRed: v, green: v, blue: v, alpha: 1).argusRGBA())
-  }
 
-  func testASubsequentThemeCrossfadesRatherThanSnapping() {
+
+  /// Argus switches theme instantly — no view transition, no colour
+  /// transitions. The overlay must too: a child NSWindow is not part of a DOM
+  /// snapshot, so any animation here is independent of the app's and was
+  /// visibly out of step with it.
+  func testAThemeChangeIsAppliedInstantly() {
     let c = OverlayController(width: 200, height: 100)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
@@ -479,55 +467,11 @@ final class ShimTests: XCTestCase {
     c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58", ansiHex: ansi)
 
     c.setTheme(backgroundHex: "#1a1b26", foregroundHex: "#c0caf5", cursorHex: "#c0caf5", ansiHex: ansi)
-
-    XCTAssertTrue(c.debugThemeAnimating(), "a theme change with a previous theme must fade")
-    // Mid-fade the background is neither the old nor the new value.
-    let light = NSColor(srgbRed: 245.0 / 255, green: 245.0 / 255, blue: 245.0 / 255, alpha: 1).argusRGBA()
-    let dark = NSColor(srgbRed: 26.0 / 255, green: 27.0 / 255, blue: 38.0 / 255, alpha: 1).argusRGBA()
-    let now = c.debugBackgroundColor().argusRGBA()
-    XCTAssertEqual(now, light, "the fade starts from the old colour, it does not jump")
-    XCTAssertNotEqual(now, dark)
-  }
-
-  func testAThemeChangeMidFadeReplacesTheRunningFade() {
-    let c = OverlayController(width: 200, height: 100)
-    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    c.attach(to: parent)
-    let ansi = Array(repeating: "#000000", count: 16)
-    c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58", ansiHex: ansi)
-    c.setTheme(backgroundHex: "#1a1b26", foregroundHex: "#c0caf5", cursorHex: "#c0caf5", ansiHex: ansi)
-
-    // Toggling back before the first fade finished must not leave two timers
-    // fighting over the same colours.
-    c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58", ansiHex: ansi)
-
-    XCTAssertTrue(c.debugThemeAnimating())
-
-    // And it lands on the colour of the LAST call, not the one it was
-    // previously heading towards.
-    c.debugFinishThemeFade()
-    let light = NSColor(srgbRed: 245.0 / 255, green: 245.0 / 255, blue: 245.0 / 255, alpha: 1)
-    XCTAssertEqual(c.debugBackgroundColor().argusRGBA(), light.argusRGBA())
-    XCTAssertFalse(c.debugThemeAnimating())
-  }
-
-  func testAFadeLandsExactlyOnTheTargetPalette() {
-    let c = OverlayController(width: 200, height: 100)
-    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
-                          styleMask: [.titled], backing: .buffered, defer: false)
-    c.attach(to: parent)
-    let ansi = Array(repeating: "#000000", count: 16)
-    c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58", ansiHex: ansi)
-    c.setTheme(backgroundHex: "#1a1b26", foregroundHex: "#c0caf5", cursorHex: "#c0caf5", ansiHex: ansi)
-
-    c.debugFinishThemeFade()
 
     XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#1a1b26")
     XCTAssertEqual(c.debugForegroundColor().argusHexString(), "#c0caf5")
     XCTAssertEqual(c.debugCursorColor().argusHexString(), "#c0caf5")
-    // The window and container behind the grid must land there too, or the
-    // sub-cell gutter keeps the old theme's colour.
+    // And behind the grid, or the sub-cell gutter keeps the old colour.
     XCTAssertEqual(c.debugWindowBackgroundColor()?.argusHexString(), "#1a1b26")
   }
 
@@ -539,8 +483,6 @@ final class ShimTests: XCTestCase {
     // must not stop the (valid) foreground/cursor in the same call from applying.
     c.setTheme(backgroundHex: "not-a-color", foregroundHex: "#444444", cursorHex: "#555555",
               ansiHex: Array(repeating: "#000000", count: 16))
-    // A theme change with a previous theme crossfades, so assert the end state.
-    c.debugFinishThemeFade()
 
     XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#111111")
     XCTAssertEqual(c.debugForegroundColor().argusHexString(), "#444444")

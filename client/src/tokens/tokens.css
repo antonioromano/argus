@@ -349,22 +349,26 @@ body {
   100% { background-position: -200% 0; }
 }
 
-/* ===== THEME TRANSITION (View Transitions API) ===== */
-::view-transition-old(root) {
-  animation: argus-theme-out var(--dur-slow) var(--ease-std);
-  mix-blend-mode: normal;
+/* ===== THEME SWITCH =====
+   Instant, with everything held still for the swap.
+
+   Argus used to crossfade the whole root through the View Transitions API. A
+   native terminal overlay is a child NSWindow, so it is not part of a DOM
+   snapshot and had to run its own crossfade — which was independent of the
+   app's and visibly out of step no matter what it was cued off (measured:
+   ready at +18ms, finished at +510ms, for a nominal 360ms animation). Worse,
+   element-level colour transitions kept running after the view transition
+   ended, so the app appeared to fade twice.
+
+   Suppressing transitions for the swap is what makes it instant everywhere at
+   once: without this, every `transition: background/color` below would animate
+   the change on its own schedule. Set by ThemeContext for two frames. */
+[data-theme-switching] *,
+[data-theme-switching] *::before,
+[data-theme-switching] *::after {
+  transition: none !important;
+  animation: none !important;
 }
-::view-transition-new(root) {
-  animation: argus-theme-in var(--dur-slow) var(--ease-std);
-  mix-blend-mode: normal;
-}
-@keyframes argus-theme-out {
-  from { opacity: 1; }
-  to   { opacity: 0; }
-}
-@keyframes argus-theme-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
 }
 
 /* Window hidden in tray — freeze all looping animations so they stop repainting
@@ -383,8 +387,6 @@ body.argus-bg-idle *::after {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
-  ::view-transition-old(root),
-  ::view-transition-new(root) { animation: none; }
 }
 
 /* H3 — Global focus-visible ring (only keyboard focus, not mouse) */

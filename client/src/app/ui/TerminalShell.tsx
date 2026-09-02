@@ -11,7 +11,6 @@ import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
 import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
-import { THEME_TRANSITION_START } from '../../context/ThemeContext.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -105,42 +104,21 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // Applies Argus's terminal theme (the SAME colors useTerminal.ts's xterm.js
   // path uses — see nativeThemeFor) to the native overlay.
   //
-  // Deliberately NOT keyed on `theme`. The overlay is a child NSWindow, so it
-  // cannot join the DOM view transition Argus toggles the theme with and runs
-  // its own crossfade instead (OverlayController.setTheme). The View
-  // Transitions API snapshots the old frame before it animates, so the theme
-  // VALUE changes a frame or two before the app's fade actually starts —
-  // keying on it made the terminal fade first and the rest of the app follow.
-  // ThemeContext announces the real start; that is the cue.
+  // Runs on two triggers: `theme` changing (the app's light/dark toggle must
+  // repaint an ALREADY-live overlay, not just a newly attached one) and
+  // `attachGeneration` bumping (attach() is async — this effect can run, and
+  // no-op via NativeTerminalHost.setTheme's own guard, before an overlay
+  // exists at all; the bump re-fires it once one does, so a fresh SwiftTerm
+  // view is never left painted in SwiftTerm's own black-background defaults).
   //
-  // `attachGeneration` is still a trigger: attach() is async, so this can run
-  // (and no-op via NativeTerminalHost.setTheme's own guard) before an overlay
-  // exists. The bump re-fires it once one does, so a fresh SwiftTerm view is
-  // never left painted in SwiftTerm's own black-background defaults. That
-  // path applies the CURRENT theme immediately, which is correct — a newly
-  // attached overlay has nothing to fade from.
-  // Mirrored in an effect, not during render — same latest-ref pattern as
-  // onFailure/onAttached above, so the listener below reads the current theme
-  // without re-subscribing on every toggle.
-  const themeRef = useRef(theme);
+  // Keying on the value is correct now that the switch is instant everywhere
+  // (see ThemeContext). It was not while the app crossfaded: the value changes
+  // before a view transition starts animating, so the overlay — which cannot
+  // join that transition — ran ahead of it.
   useEffect(() => {
-    themeRef.current = theme;
-  });
-  useEffect(() => {
-    const apply = () => {
-      try {
-        if (localStorage.getItem('argusNativeTermDebug') === '1') {
-          console.log('[native-term:trace] native setTheme ->', themeRef.current,
-            'at', Math.round(performance.now()));
-        }
-      } catch { /* storage unavailable */ }
-      (window as Window & { electronNativeTerminal?: NativeThemeBridge })
-        .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(themeRef.current));
-    };
-    apply();
-    window.addEventListener(THEME_TRANSITION_START, apply);
-    return () => window.removeEventListener(THEME_TRANSITION_START, apply);
-  }, [session.id, attachGeneration]);
+    (window as Window & { electronNativeTerminal?: NativeThemeBridge })
+      .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme));
+  }, [session.id, theme, attachGeneration]);
 
   // The xterm path dims an unfocused tile with a DOM element inside its own
   // container (`.argus-tile-overlay`). A native tile cannot: a child NSWindow
