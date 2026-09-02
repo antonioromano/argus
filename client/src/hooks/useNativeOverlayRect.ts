@@ -90,8 +90,10 @@ export function useNativeOverlayRect(
       if (isDebug()) {
         const kind = Array.isArray(reason) && reason[0] && 'isIntersecting' in (reason[0] as object)
           ? 'intersection' : 'resize/scroll';
-        console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind, rect,
-          'usable=', rect.width >= 40 && rect.height >= 40);
+        // Stringified: console-message forwarding to main flattens objects to
+        // "[object Object]", which loses the only numbers worth logging.
+        console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind,
+          JSON.stringify(rect), 'usable=', rect.width >= 40 && rect.height >= 40);
       }
       // A hole too small to be a real terminal is not a frame to apply — it
       // means the tile is not on screen: mid-mount, inside a display:none
