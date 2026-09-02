@@ -72,6 +72,72 @@ final class ShimTests: XCTestCase {
                    "the old parent must no longer own the child")
   }
 
+  /// `orderOut` alone does not keep a child window hidden — AppKit re-orders a
+  /// parent's childWindows in whenever the parent is ordered front, which made
+  /// a hidden overlay reappear at its stale frame on the next app activation.
+  func testHideDetachesFromTheParentSoActivationCannotResurrectIt() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    XCTAssertEqual(c.debugParentWindowNumber(), parent.windowNumber)
+
+    c.hide()
+
+    XCTAssertFalse(parent.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
+                   "a hidden overlay must not remain in the parent's childWindows")
+    parent.orderFront(nil)
+    XCTAssertFalse(parent.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
+                   "ordering the parent front must not resurrect it")
+  }
+
+  func testShowReattachesToTheParentAfterHide() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.hide()
+
+    c.show()
+
+    XCTAssertEqual(c.debugParentWindowNumber(), parent.windowNumber,
+                   "show must restore the parent relationship, not leave a free-floating window")
+  }
+
+  func testReparentWhileHiddenDoesNotRevealTheOverlay() {
+    let c = OverlayController(width: 200, height: 100)
+    let a = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    let b = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                     styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: a)
+    c.hide()
+
+    c.reparent(to: b)
+
+    XCTAssertFalse(b.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
+                   "moving a hidden session between windows must not show its overlay")
+    c.show()
+    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber, "and show must use the NEW parent")
+  }
+
+  /// setFrame converts against the parent's content rect, and a hidden overlay
+  /// has no `window.parent` to read it from — without the tracked reference it
+  /// would silently treat viewport coordinates as screen coordinates.
+  func testSetFrameStillConvertsWhileHidden() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 500, y: 400, width: 800, height: 600),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.hide()
+
+    c.setFrame(x: 10, y: 20, width: 300, height: 150)
+
+    let content = parent.contentRect(forFrameRect: parent.frame)
+    XCTAssertEqual(c.debugFrame().origin.x, content.minX + 10, accuracy: 0.5)
+    XCTAssertEqual(c.debugFrame().origin.y, content.maxY - 20 - 150, accuracy: 0.5)
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)

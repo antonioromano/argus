@@ -55,6 +55,13 @@ final class PassthroughView: NSView {
 
   private let terminalView: TerminalView
   private var window: NSWindow?
+  /// The parent to (re-)attach to. Tracked separately from `window.parent`
+  /// because hiding detaches the child, and both setFrame's coordinate
+  /// conversion and show() still need to know where it belongs.
+  private weak var parentWindow: NSWindow?
+  /// Whether hide() has been called and not yet undone by show(). Kept so a
+  /// reparent while hidden updates the target without revealing the overlay.
+  private var hiddenByHost = false
   /// Translucent scrim shown over the terminal while its tile is unfocused.
   /// Lives INSIDE the overlay's own window: the equivalent DOM element the
   /// xterm path uses (`.argus-tile-overlay`) renders behind a child NSWindow
@@ -96,6 +103,8 @@ final class PassthroughView: NSView {
     // genuinely stops delivery. `self` is unowned-safe here: the window is
     // torn down in destroy(), before the controller can go away.
     w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
+    parentWindow = parent
+    hiddenByHost = false
     parent.addChildWindow(w, ordered: .above)
     window = w
   }
@@ -103,9 +112,12 @@ final class PassthroughView: NSView {
   /// Move an existing overlay to a different parent window. Argus supports
   /// multiple windows and a session can move between them.
   @objc public func reparent(to parent: NSWindow) {
+    parentWindow = parent
     guard let w = window else { return }
     w.parent?.removeChildWindow(w)
-    parent.addChildWindow(w, ordered: .above)
+    // Re-adding a child window orders it in, so a hidden overlay must stay
+    // detached here or moving its session between windows would reveal it.
+    if !hiddenByHost { parent.addChildWindow(w, ordered: .above) }
   }
 
   /// Overrides SwiftTerm's default, which hands the link straight to
@@ -172,7 +184,7 @@ final class PassthroughView: NSView {
     let h = max(1, height)
     terminalView.frame = NSRect(origin: .zero, size: NSSize(width: w, height: h))
     guard let win = window else { return }
-    guard let parent = win.parent else {
+    guard let parent = win.parent ?? parentWindow else {
       win.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
       return
     }
@@ -247,8 +259,31 @@ final class PassthroughView: NSView {
     dimView = v
   }
 
-  @objc public func show() { window?.orderFront(nil) }
-  @objc public func hide() { window?.orderOut(nil) }
+  @objc public func show() {
+    hiddenByHost = false
+    guard let w = window else { return }
+    // hide() detached this from its parent (see below), so re-establish the
+    // relationship before ordering in — otherwise it becomes an independent
+    // window that no longer follows the parent or sits above its content.
+    if w.parent == nil, let p = parentWindow {
+      p.addChildWindow(w, ordered: .above)
+    }
+    w.orderFront(nil)
+  }
+
+  /// Removing the child from its parent is load-bearing, not tidiness.
+  /// `orderOut` alone does NOT keep a child window hidden: AppKit re-orders a
+  /// parent's childWindows back in whenever the parent is ordered front, so an
+  /// overlay hidden while its tile was off screen reappeared — at its stale
+  /// frame — the next time Argus was activated, clicked, or switched to.
+  /// destroy() already did this; hide() did not, which is why the host's
+  /// visibility state and what was actually on screen could disagree.
+  @objc public func hide() {
+    hiddenByHost = true
+    guard let w = window else { return }
+    w.parent?.removeChildWindow(w)
+    w.orderOut(nil)
+  }
   @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
 
   /// Search forward or backward for `term`, selecting and scrolling the match
