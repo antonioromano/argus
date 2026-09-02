@@ -71,7 +71,15 @@ export function useNativeOverlayRect(
 
     const measure = (): NativeOverlayRect => {
       const r = el.getBoundingClientRect();
-      return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) };
+      // Round INWARD, edge by edge. Rounding x/y and width/height separately
+      // let the overlay's far edges land up to 1px past the hole (y=137.5 and
+      // h=716.5 both round up), which put it on top of the tile's bottom
+      // border. Ceil the near edges, floor the far ones: the overlay is always
+      // contained by the hole, and the sub-pixel sliver it leaves shows the
+      // tile background, which is the same colour as the terminal's.
+      const x = Math.ceil(r.left);
+      const y = Math.ceil(r.top);
+      return { x, y, width: Math.max(0, Math.floor(r.right) - x), height: Math.max(0, Math.floor(r.bottom) - y) };
     };
 
     // Temporary, paired with the host's ARGUS_NATIVE_TERM_DEBUG tracing: the

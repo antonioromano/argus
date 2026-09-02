@@ -224,7 +224,12 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
         boxShadow: framed && st === 'waiting'
           ? `0 0 0 1px ${edge}, 0 0 18px var(--accent-glow)`
           : 'none',
-        padding: '8px 14px 0px 14px',
+        // Bottom padding is deliberately NOT the xterm path's 0. The overlay is
+        // a rectangular window with square corners that the frame's 4px
+        // border-radius cannot clip, so without an inset it sits on the bottom
+        // border and pokes into the rounded corners. 8px matches the top and
+        // keeps the overlay clear of both.
+        padding: '8px 14px 8px 14px',
         overflow: 'hidden',
         position: 'relative',
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',

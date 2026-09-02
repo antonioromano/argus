@@ -140,8 +140,14 @@ describe('useNativeOverlayRect — reported geometry', () => {
   beforeEach(() => {
     currentRect = { x: 10, y: 20, width: 300.6, height: 150.4 };
     HTMLDivElement.prototype.getBoundingClientRect = function (this: HTMLDivElement) {
-      // Only the probed hole element matters for these tests.
-      return { ...currentRect } as DOMRect;
+      // Only the probed hole element matters for these tests. Derive the edge
+      // properties the way a real DOMRect does — the hook rounds edge by edge.
+      const r = currentRect;
+      return {
+        ...r,
+        left: r.x, top: r.y, right: r.x + r.width, bottom: r.y + r.height,
+        toJSON() { return this; },
+      } as DOMRect;
     };
     FakeResizeObserver.instances = [];
     (globalThis as any).ResizeObserver = FakeResizeObserver;
@@ -152,12 +158,15 @@ describe('useNativeOverlayRect — reported geometry', () => {
     (globalThis as any).ResizeObserver = originalRO;
   });
 
-  it('attaches with the actual measured rect, rounded', () => {
+  it('attaches with the actual measured rect, rounded inward edge by edge', () => {
+    // 300.6 wide from x=10 has its right edge at 310.6 -> floored to 310 -> 300
+    // wide, NOT 301: the overlay must never extend past the hole, or it lands
+    // on the tile's bottom border.
     const c = document.createElement('div');
     document.body.appendChild(c);
     const root = createRoot(c);
     act(() => root.render(<Probe enabled />));
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 301, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
     act(() => root.unmount());
   });
 
@@ -277,7 +286,7 @@ describe('useNativeOverlayRect — reported geometry', () => {
     const root = createRoot(c);
     act(() => root.render(<Probe enabled />));
 
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 301, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
 
     act(() => root.unmount());
     Object.defineProperty(window, 'scrollX', { value: originalScrollX, configurable: true });
@@ -300,7 +309,7 @@ describe('useNativeOverlayRect — reported geometry', () => {
     await act(async () => { root.render(<Probe enabled />); });
 
     // attach() saw the ORIGINAL rect and is still pending.
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 301, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
     expect(api.setRect).not.toHaveBeenCalled();
 
     // The hole moves while attach() is in flight — nothing is observing yet.
