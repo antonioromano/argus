@@ -140,8 +140,19 @@ final class PassthroughView: NSView {
     // genuinely stops delivery. `self` is unowned-safe here: the window is
     // torn down in destroy(), before the controller can go away.
     w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
+    // Start HIDDEN. addChildWindow on a visible parent orders the child in at
+    // once, so without this every overlay is on screen from the moment it is
+    // created — at its 800x480 construction size, at the default origin. The
+    // host's state machine assumes a fresh overlay is not shown, so when its
+    // first decision is "don't show" (a tile mid-mount, or behind a maximized
+    // workbench) there is no transition and hide() is never called. Measured:
+    // that is exactly the stray 800x480 window seen bottom-left of the screen.
+    // Only show() reveals an overlay; nothing else may.
+    w.alphaValue = 0
+    w.ignoresMouseEvents = true
+    w.allowsKey = false
     parentWindow = parent
-    hiddenByHost = false
+    hiddenByHost = true
     parent.addChildWindow(w, ordered: .above)
     window = w
     otrace("attach created #\(w.windowNumber) parent=#\(parent.windowNumber)")
@@ -153,9 +164,9 @@ final class PassthroughView: NSView {
     parentWindow = parent
     guard let w = window else { return }
     w.parent?.removeChildWindow(w)
-    // Re-adding a child window orders it in, so a hidden overlay must stay
-    // detached here or moving its session between windows would reveal it.
-    if !hiddenByHost { parent.addChildWindow(w, ordered: .above) }
+    // Re-adding orders the child in, which is harmless: a hidden overlay is
+    // hidden by alpha (see hide()), not by ordering, so it stays invisible.
+    parent.addChildWindow(w, ordered: .above)
   }
 
   /// Overrides SwiftTerm's default, which hands the link straight to
@@ -304,9 +315,9 @@ final class PassthroughView: NSView {
     hiddenByHost = false
     guard let w = window else { return }
     otrace("show #\(w.windowNumber) wasVisible=\(w.isVisible) hadParent=\(w.parent != nil)")
-    // hide() detached this from its parent (see below), so re-establish the
-    // relationship before ordering in — otherwise it becomes an independent
-    // window that no longer follows the parent or sits above its content.
+    // Normally still a child (hide() no longer detaches), but re-establish the
+    // relationship if anything dropped it — an independent window would neither
+    // follow the parent nor sit above its content.
     if w.parent == nil, let p = parentWindow {
       p.addChildWindow(w, ordered: .above)
     }
@@ -334,15 +345,16 @@ final class PassthroughView: NSView {
     // something this code can rely on to take a window off screen. Alpha is:
     // the compositor enforces it regardless of ordering state. The window is
     // also made click-through and refused key status, so an invisible overlay
-    // can neither eat clicks nor swallow keystrokes. The ordering calls stay
-    // as belt-and-braces and to keep it out of the parent's child list.
+    // can neither eat clicks nor swallow keystrokes.
     w.alphaValue = 0
     w.ignoresMouseEvents = true
     (w as? KeyableWindow)?.allowsKey = false
     if w.isKeyWindow { parentWindow?.makeKey() }
-    w.parent?.removeChildWindow(w)
-    w.orderOut(nil)
-    otrace("hide #\(w.windowNumber) AFTER  visible=\(w.isVisible) alpha=\(w.alphaValue) parent=\(w.parent?.windowNumber ?? -1)")
+    // Deliberately NOT ordered out or detached. Ordering was measured to be
+    // unreliable here, and detaching bought nothing once alpha does the hiding
+    // — while staying a child keeps the overlay following the parent and above
+    // its content, so show() has nothing to repair.
+    otrace("hide #\(w.windowNumber) AFTER  alpha=\(w.alphaValue) parent=\(w.parent?.windowNumber ?? -1)")
     dumpOnScreenWindows("after hide")
     // The synchronous dump can race the window server; a second look settles it.
     if overlayDebug {

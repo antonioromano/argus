@@ -72,26 +72,27 @@ final class ShimTests: XCTestCase {
                    "the old parent must no longer own the child")
   }
 
-  /// `orderOut` alone does not keep a child window hidden — AppKit re-orders a
-  /// parent's childWindows in whenever the parent is ordered front, which made
-  /// a hidden overlay reappear at its stale frame on the next app activation.
-  func testHideDetachesFromTheParentSoActivationCannotResurrectIt() {
+  /// AppKit re-orders a parent's childWindows in whenever the parent is
+  /// ordered front, and ordering a former child out proved unreliable at the
+  /// window-server level. Hiding is therefore done by alpha, which no
+  /// re-ordering can undo — and the overlay stays a child so it keeps
+  /// following the parent.
+  func testHideSurvivesTheParentBeingOrderedFront() {
     let c = OverlayController(width: 200, height: 100)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
-    XCTAssertEqual(c.debugParentWindowNumber(), parent.windowNumber)
+    c.show()
+    XCTAssertEqual(c.debugAlpha(), 1)
 
     c.hide()
-
-    XCTAssertFalse(parent.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
-                   "a hidden overlay must not remain in the parent's childWindows")
     parent.orderFront(nil)
-    XCTAssertFalse(parent.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
-                   "ordering the parent front must not resurrect it")
+
+    XCTAssertEqual(c.debugAlpha(), 0, "ordering the parent front must not make it visible")
+    XCTAssertEqual(c.debugParentWindowNumber(), parent.windowNumber, "and it stays a child")
   }
 
-  func testShowReattachesToTheParentAfterHide() {
+  func testShowKeepsTheParentRelationship() {
     let c = OverlayController(width: 200, height: 100)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
@@ -101,7 +102,7 @@ final class ShimTests: XCTestCase {
     c.show()
 
     XCTAssertEqual(c.debugParentWindowNumber(), parent.windowNumber,
-                   "show must restore the parent relationship, not leave a free-floating window")
+                   "show must never leave a free-floating window")
   }
 
   func testReparentWhileHiddenDoesNotRevealTheOverlay() {
@@ -115,10 +116,11 @@ final class ShimTests: XCTestCase {
 
     c.reparent(to: b)
 
-    XCTAssertFalse(b.childWindows?.contains(where: { $0.windowNumber == c.debugWindowNumber() }) ?? false,
-                   "moving a hidden session between windows must not show its overlay")
+    XCTAssertEqual(c.debugAlpha(), 0, "moving a hidden session between windows must not show its overlay")
+    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber, "but it must now belong to the NEW parent")
     c.show()
-    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber, "and show must use the NEW parent")
+    XCTAssertEqual(c.debugAlpha(), 1)
+    XCTAssertEqual(c.debugParentWindowNumber(), b.windowNumber)
   }
 
   /// setFrame converts against the parent's content rect, and a hidden overlay
@@ -179,6 +181,24 @@ final class ShimTests: XCTestCase {
 
     XCTAssertEqual(c.debugWindowNumber(), -1, "the controller must drop its window")
     XCTAssertFalse(parent.childWindows?.isEmpty == false, "and the parent must not still list it")
+  }
+
+  /// addChildWindow orders the child in immediately, so an overlay that did
+  /// not start hidden was on screen from creation at its construction size —
+  /// and the host, believing a fresh overlay is not shown, never hid it.
+  func testAFreshOverlayIsNotVisibleUntilShown() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+
+    c.attach(to: parent)
+
+    XCTAssertEqual(c.debugAlpha(), 0, "must not be painted before show()")
+    XCTAssertTrue(c.debugIgnoresMouseEvents())
+    XCTAssertFalse(c.debugCanBecomeKey())
+
+    c.show()
+    XCTAssertEqual(c.debugAlpha(), 1)
   }
 
   func testSearchFindsFedText() {
