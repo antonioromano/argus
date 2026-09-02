@@ -1,7 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 import { ThemeContext, type Theme, type ThemeMode } from './theme-context.js';
+
+/**
+ * Dispatched on `window` when the theme view transition actually starts
+ * animating — not when the theme value changes. Surfaces exist that cannot
+ * join a DOM view transition and must crossfade themselves in step with it;
+ * see the native terminal overlay in TerminalShell.
+ */
+export const THEME_TRANSITION_START = 'argus:theme-transition-start';
 
 // --- Helpers ---
 
@@ -45,12 +53,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener('change', handler);
   }, [mode]);
 
+  // True between starting a view transition and its `ready` resolving, so the
+  // effect below leaves the announcement to the transition rather than firing
+  // early.
+  const transitionPending = useRef(false);
+
   // Apply resolved theme to the DOM
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     // Keep body font in sync for non-token consumers (e.g. xterm default text colour)
     document.body.style.fontFamily =
       'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)';
+    // Every theme change that is NOT animated announces itself here: the
+    // no-view-transition fallback below, and an OS appearance change, which
+    // updates `theme` through systemIsDark without going through setMode. The
+    // cue has to fire for those too or a native terminal overlay — which
+    // listens for it instead of watching the theme value — would keep the old
+    // colours indefinitely.
+    if (!transitionPending.current) {
+      window.dispatchEvent(new Event(THEME_TRANSITION_START));
+    }
   }, [theme]);
 
   const setMode = useCallback((m: ThemeMode) => {
@@ -59,7 +81,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('theme-mode', m);
     };
     if (!document.startViewTransition) { apply(); return; }
-    document.startViewTransition(() => flushSync(apply));
+    transitionPending.current = true;
+    const transition = document.startViewTransition(() => flushSync(apply));
+    // A native terminal overlay is a child NSWindow and cannot take part in a
+    // DOM view transition, so it runs its own crossfade (OverlayController's
+    // setTheme). It must not start on the theme VALUE changing: the API
+    // snapshots the old frame first and only begins animating once `ready`
+    // resolves, so the overlay faded a frame or two ahead of the rest of the
+    // app and the two were visibly out of step. Announce the real start
+    // instead. Fire-and-forget: `ready` rejects if the transition is skipped,
+    // which is not an error here — nothing is animating, so nothing needs the
+    // cue.
+    void transition.ready.then(
+      () => {
+        transitionPending.current = false;
+        window.dispatchEvent(new Event(THEME_TRANSITION_START));
+      },
+      () => {
+        // Skipped transition: nothing animates, so the cue is due now.
+        transitionPending.current = false;
+        window.dispatchEvent(new Event(THEME_TRANSITION_START));
+      },
+    );
   }, []);
 
   // Backwards-compat toggle: flips between dark and light explicitly,
