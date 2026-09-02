@@ -369,7 +369,6 @@ body {
   transition: none !important;
   animation: none !important;
 }
-}
 
 /* Window hidden in tray — freeze all looping animations so they stop repainting
    on the CPU while no one is watching. Toggled by ArgusApp on visibilitychange. */
