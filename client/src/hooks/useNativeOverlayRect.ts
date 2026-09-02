@@ -94,6 +94,18 @@ export function useNativeOverlayRect(
         // "[object Object]", which loses the only numbers worth logging.
         console.log('[native-term:trace] measure', sessionId.slice(0, 8), kind,
           JSON.stringify(rect), 'usable=', rect.width >= 40 && rect.height >= 40);
+        // Where does the hole's bottom land relative to the boxes around it?
+        // Each ancestor: tag.class, its bottom edge, and whether it clips.
+        const chain: string[] = [];
+        let a: HTMLElement | null = el.parentElement;
+        for (let i = 0; a && i < 5; i++, a = a.parentElement) {
+          const r = a.getBoundingClientRect();
+          const ov = getComputedStyle(a).overflow;
+          const cls = typeof a.className === 'string' && a.className ? '.' + a.className.split(' ')[0] : '';
+          chain.push(`${a.tagName.toLowerCase()}${cls} bottom=${Math.round(r.bottom)} h=${Math.round(r.height)} ov=${ov}`);
+        }
+        console.log('[native-term:trace] hole bottom=', Math.round(rect.y + rect.height),
+          'viewport=', document.documentElement.clientHeight, '| ancestors:', chain.join(' > '));
       }
       // A hole too small to be a real terminal is not a frame to apply — it
       // means the tile is not on screen: mid-mount, inside a display:none
