@@ -858,3 +858,40 @@ test('suppression is idempotent — a repeat hide does not stack', () => {
 
   assert.deepEqual(calls, ['setFrame:1:10,20,300,200', 'show:1']);
 });
+
+test('a re-attach does not resurrect an overlay whose tile is hidden', () => {
+  // The tile remounting (or its session moving between windows) measures at
+  // mount time, which during a maximized workbench briefly reads as a
+  // full-size hole. Trusting that rect showed the overlay on top of the
+  // workbench — the Cmd+E / Cmd+D report.
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 70, y: 121, width: 1316, height: 0 });   // maximized
+  calls.length = 0;
+
+  host.attach('s1', HANDLE, RECT);   // remount, stale full-size measurement
+
+  assert.ok(!calls.includes('show:1'), `must stay hidden, got ${calls.join(',')}`);
+});
+
+test('a re-attach does not clear an active suppression', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.hide('s1');                   // modal open
+  calls.length = 0;
+
+  host.attach('s1', HANDLE, RECT);
+
+  assert.ok(!calls.includes('show:1'), `must stay suppressed, got ${calls.join(',')}`);
+});
+
+test('a first attach still shows the overlay', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+
+  host.attach('s1', HANDLE, RECT);
+
+  assert.ok(calls.includes('show:1'));
+});

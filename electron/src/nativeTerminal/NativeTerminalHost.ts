@@ -150,6 +150,7 @@ export class NativeTerminalHost {
   attach(sessionId: string, parentHandle: Buffer, rect: Rect): boolean {
     if (!this.addon) return false;
     let id = this.bySession.get(sessionId);
+    const isNew = id === undefined;
     if (id === undefined) {
       try {
         id = this.addon.create(parentHandle);
@@ -194,15 +195,24 @@ export class NativeTerminalHost {
     // constructed with until the renderer reports a real rect.
     const usable = isUsableFrame(rect);
     if (usable) this.rectBySession.set(sessionId, rect);
-    this.holeVisible.set(sessionId, usable);
-    this.suppressed.delete(sessionId);
+    // Only a FIRST attach may decide visibility from its own rect. A
+    // re-attach — the tile remounting, or its session moving between windows —
+    // measures at mount time, which during a maximized workbench briefly reads
+    // as a full-size hole; trusting it resurrected the overlay on top of the
+    // workbench. The renderer re-reports immediately either way, so leaving
+    // the existing state alone loses nothing and cannot flash.
+    if (isNew) {
+      this.holeVisible.set(sessionId, usable);
+      this.suppressed.delete(sessionId);
+    }
     // Attaching with an unusable hole (a tile mid-mount) must not flash the
     // overlay at its construction size — it stays hidden until a real rect
     // arrives via setRect. applyVisibility owns the frame and the show, and
     // guards its own native calls, so a failure in either leaves the overlay
     // registered and recoverable rather than half-applied.
     const wasShown = this.shown.has(sessionId);
-    this.applyVisibility(sessionId);
+    trace('attach', sessionId.slice(0, 8), rect, 'usable=', usable);
+    this.applyVisibility(sessionId, 'attach');
     // A re-attach of an already-visible overlay is a reposition (the same
     // session re-reporting, or moving between windows). applyVisibility saw no
     // transition and so set no frame — do it here.
@@ -243,7 +253,7 @@ export class NativeTerminalHost {
     // and keep the last good rect for when the hole comes back.
     if (!isUsableFrame(rect)) {
       trace('setRect UNUSABLE', sessionId.slice(0, 8), rect, '-> hole hidden');
-      this.setHoleVisible(sessionId, false);
+      this.setHoleVisible(sessionId, false, 'setRect(unusable)');
       return;
     }
     trace('setRect', sessionId.slice(0, 8), rect);
@@ -251,7 +261,7 @@ export class NativeTerminalHost {
     if (this.holeVisible.get(sessionId) !== true) {
       // A visibility transition: applyVisibility sets the frame on the way in,
       // so setting it here too would just emit a redundant native call.
-      this.setHoleVisible(sessionId, true);
+      this.setHoleVisible(sessionId, true, 'setRect(usable)');
       return;
     }
     // Already visible — but a suppressed overlay is off screen, so only update
@@ -270,10 +280,10 @@ export class NativeTerminalHost {
    * that knows, and the overlay is a separate window that will happily keep
    * painting over the rest of the app if nobody tells it.
    */
-  setHoleVisible(sessionId: string, visible: boolean): void {
+  setHoleVisible(sessionId: string, visible: boolean, reason = 'setHoleVisible'): void {
     if (this.holeVisible.get(sessionId) === visible) return;
     this.holeVisible.set(sessionId, visible);
-    this.applyVisibility(sessionId);
+    this.applyVisibility(sessionId, reason);
   }
 
   /**
@@ -282,11 +292,11 @@ export class NativeTerminalHost {
    * calling addon.show/hide directly, so the two independent conditions can
    * never disagree about the result.
    */
-  private applyVisibility(sessionId: string): void {
+  private applyVisibility(sessionId: string, reason = '?'): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
     const shouldShow = (this.holeVisible.get(sessionId) ?? false) && !this.suppressed.has(sessionId);
-    trace('visibility', sessionId.slice(0, 8),
+    trace('visibility', sessionId.slice(0, 8), 'via', reason,
       'hole=', this.holeVisible.get(sessionId) ?? false,
       'suppressed=', this.suppressed.has(sessionId),
       'shown=', this.shown.has(sessionId),
@@ -467,7 +477,7 @@ export class NativeTerminalHost {
     if (this.bySession.get(sessionId) === undefined) return;
     if (!this.isCurrentParent(sessionId, parentHandle)) return;
     if (!this.suppressed.delete(sessionId)) return;
-    this.applyVisibility(sessionId);
+    this.applyVisibility(sessionId, 'unsuppress');
   }
 
   /** Suppresses this overlay (a modal/palette opened). */
@@ -476,7 +486,7 @@ export class NativeTerminalHost {
     if (!this.isCurrentParent(sessionId, parentHandle)) return;
     if (this.suppressed.has(sessionId)) return;
     this.suppressed.add(sessionId);
-    this.applyVisibility(sessionId);
+    this.applyVisibility(sessionId, 'suppress');
   }
 
   /**

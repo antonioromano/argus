@@ -181,30 +181,37 @@ describe('useNativeOverlayRect — reported geometry', () => {
     const root = createRoot(c);
     await act(async () => { root.render(<Probe enabled />); });
 
-    // First real change reports once.
-    currentRect = { x: 40, y: 60, width: 500, height: 250 };
+    // The first observation after attach always reports — see the test below
+    // for why it must. That is call 1.
     act(() => FakeResizeObserver.instances[0].trigger());
     expect(api.setRect).toHaveBeenCalledTimes(1);
+
+    // A real change reports again.
+    currentRect = { x: 40, y: 60, width: 500, height: 250 };
+    act(() => FakeResizeObserver.instances[0].trigger());
+    expect(api.setRect).toHaveBeenCalledTimes(2);
 
     // Firing again with the SAME rect must not re-send it.
     act(() => FakeResizeObserver.instances[0].trigger());
-    expect(api.setRect).toHaveBeenCalledTimes(1);
-
-    // Also: the callback right after attach (no change at all) must not fire,
-    // proving the fix for the seed-with-'' bug (attach's own rect must not
-    // be immediately re-sent through setRect).
+    expect(api.setRect).toHaveBeenCalledTimes(2);
     act(() => root.unmount());
   });
 
-  it('the first callback after attach does not immediately re-send the attach rect', async () => {
+  it('the first callback after attach reports, even with no geometry change', async () => {
+    // Inverted deliberately. Main no longer lets a re-attach decide visibility
+    // from its own mount-time rect (that measurement reads as a full-size hole
+    // during a maximized workbench, and resurrected the overlay on top of it).
+    // The renderer's first observation is now what establishes visibility, so
+    // seeding lastRectKey from the attach rect would let that observation be
+    // deduped away — leaving the overlay hidden with nothing scheduled to
+    // reveal it. One redundant setRect on mount is the whole cost.
     const c = document.createElement('div');
     document.body.appendChild(c);
     const root = createRoot(c);
     await act(async () => { root.render(<Probe enabled />); });
 
-    // No geometry change — currentRect is exactly what attach() already saw.
     act(() => FakeResizeObserver.instances[0].trigger());
-    expect(api.setRect).not.toHaveBeenCalled();
+    expect(api.setRect).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
   });
 

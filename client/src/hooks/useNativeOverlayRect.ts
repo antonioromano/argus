@@ -142,10 +142,13 @@ export function useNativeOverlayRect(
         onFailureRef.current?.();
         return;
       }
-      // Seed with the rect we just attached with — not '' — so the first
-      // ResizeObserver callback after attach doesn't immediately re-send an
-      // identical rect through setRect (redundant IPC).
-      lastRectKey.current = `${initialRect.x},${initialRect.y},${initialRect.width},${initialRect.height}`;
+      // Deliberately NOT seeded from initialRect. Main no longer lets a
+      // re-attach decide visibility from its own mount-time rect, so the
+      // renderer's first observation is what establishes it — and seeding
+      // would let that observation be deduped away, leaving the overlay
+      // hidden with nothing scheduled to reveal it. One redundant setRect on
+      // mount is the whole cost.
+      lastRectKey.current = '';
       registerOverlay(sessionId, initialRect);
       onAttachedRef.current?.();
 
