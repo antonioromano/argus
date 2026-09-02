@@ -128,6 +128,12 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   });
   useEffect(() => {
     const apply = () => {
+      try {
+        if (localStorage.getItem('argusNativeTermDebug') === '1') {
+          console.log('[native-term:trace] native setTheme ->', themeRef.current,
+            'at', Math.round(performance.now()));
+        }
+      } catch { /* storage unavailable */ }
       (window as Window & { electronNativeTerminal?: NativeThemeBridge })
         .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(themeRef.current));
     };

@@ -82,7 +82,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
     if (!document.startViewTransition) { apply(); return; }
     transitionPending.current = true;
-    const transition = document.startViewTransition(() => flushSync(apply));
+    // Temporary: the native overlay's crossfade was visibly out of step with
+    // the app's, so measure when each phase actually happens rather than
+    // trusting the spec's ordering.
+    const t0 = performance.now();
+    const mark = (label: string) => {
+      try {
+        if (localStorage.getItem('argusNativeTermDebug') === '1') {
+          console.log(`[native-term:trace] theme ${label} +${Math.round(performance.now() - t0)}ms`);
+        }
+      } catch { /* storage unavailable */ }
+    };
+    const transition = document.startViewTransition(() => {
+      mark('callback (DOM updated)');
+      flushSync(apply);
+    });
+    void transition.finished.then(() => mark('finished'), () => mark('finished (rejected)'));
     // A native terminal overlay is a child NSWindow and cannot take part in a
     // DOM view transition, so it runs its own crossfade (OverlayController's
     // setTheme). It must not start on the theme VALUE changing: the API
@@ -94,6 +109,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // cue.
     void transition.ready.then(
       () => {
+        mark('ready -> dispatching cue');
         transitionPending.current = false;
         window.dispatchEvent(new Event(THEME_TRANSITION_START));
       },
