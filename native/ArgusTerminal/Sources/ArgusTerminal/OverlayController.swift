@@ -170,6 +170,10 @@ final class PassthroughView: NSView {
     // the browser does to the DOM tile when it overflows the viewport.
     clipView.frame = terminalView.frame
     clipView.wantsLayer = true
+    // Until setTheme arrives, match SwiftTerm's own default background rather
+    // than leaving the window's grey to flash through the gutter.
+    clipView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
+    w.backgroundColor = terminalView.nativeBackgroundColor
     terminalView.frame.origin = .zero
     clipView.addSubview(terminalView)
     w.contentView = clipView
@@ -393,7 +397,18 @@ final class PassthroughView: NSView {
   /// visible here, so this file has its own small hex parser and
   /// `Color`-conversion helper below instead of depending on them.
   @objc public func setTheme(backgroundHex: String, foregroundHex: String, cursorHex: String, ansiHex: [String]) {
-    if let bg = NSColor(argusHex: backgroundHex) { terminalView.nativeBackgroundColor = bg }
+    if let bg = NSColor(argusHex: backgroundHex) {
+      terminalView.nativeBackgroundColor = bg
+      // Everything BEHIND the terminal view gets the same colour. SwiftTerm
+      // paints whole cells and reserves width for its scroller, so a few
+      // points along the right and bottom edges are never painted by the grid
+      // — and those showed the container layer and the window's default grey,
+      // measured as three different backgrounds in one tile. The xterm path
+      // solves the same sub-cell gutter by painting its container (see
+      // useTerminal.ts's termBg); this is that, one layer down.
+      window?.backgroundColor = bg
+      clipView.layer?.backgroundColor = bg.cgColor
+    }
     if let fg = NSColor(argusHex: foregroundHex) { terminalView.nativeForegroundColor = fg }
     if let cursor = NSColor(argusHex: cursorHex) { terminalView.caretColor = cursor }
     guard ansiHex.count == 16 else { return }
@@ -406,6 +421,8 @@ final class PassthroughView: NSView {
   public func debugBackgroundColor() -> NSColor { terminalView.nativeBackgroundColor }
   public func debugForegroundColor() -> NSColor { terminalView.nativeForegroundColor }
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
+  public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
+  public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
 
   /// Matches `.argus-tile-overlay` in index.css, which is what an unfocused
   /// xterm tile is painted with. Without it the two engines disagree about
@@ -581,6 +598,15 @@ final class PassthroughView: NSView {
 /// Own hex <-> color helpers for `setTheme`, deliberately independent of
 /// SwiftTerm's internal (module-private) `NSColor.getTerminalColor()` /
 /// `NSColor.make(color:)` — see `setTheme`'s doc comment.
+/// Test seam. Component tuple in sRGB: direct NSColor equality compares colour
+/// space too, which makes an otherwise-identical colour compare unequal.
+public extension NSColor {
+  func argusRGBA() -> [CGFloat] {
+    guard let c = usingColorSpace(.sRGB) else { return [] }
+    return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
+  }
+}
+
 private extension NSColor {
   /// Parses a "#rrggbb" (or "rrggbb") string. Returns nil for anything else
   /// — an unrecognized value is treated the same as "no color supplied" by

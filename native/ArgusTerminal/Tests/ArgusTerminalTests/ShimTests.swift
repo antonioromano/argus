@@ -416,6 +416,28 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugCursorColor().argusHexString(), "#ff0000")
   }
 
+  /// SwiftTerm paints whole cells and reserves scroller width, so a few points
+  /// along the right and bottom are never painted by the grid. Whatever is
+  /// behind must be the same colour or those points read as a different
+  /// background — measured as three greys in one tile.
+  func testSetThemePaintsTheWindowAndContainerBehindTheGrid() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+
+    c.setTheme(backgroundHex: "#f5f5f5", foregroundHex: "#343b58", cursorHex: "#343b58",
+               ansiHex: Array(repeating: "#000000", count: 16))
+
+    let v: CGFloat = 245.0 / 255.0
+    let want = NSColor(srgbRed: v, green: v, blue: v, alpha: 1).argusRGBA()
+    XCTAssertEqual(c.debugBackgroundColor().argusRGBA(), want, "the grid's own background")
+    XCTAssertEqual(c.debugWindowBackgroundColor()?.argusRGBA(), want, "and the window behind it")
+    let container = c.debugContainerBackgroundColor()
+    XCTAssertNotNil(container)
+    XCTAssertEqual(NSColor(cgColor: container!)?.argusRGBA(), want, "and the container the view sits in")
+  }
+
   func testSetThemeIgnoresMalformedHexAndKeepsThePreviousColor() {
     let c = OverlayController(width: 400, height: 200)
     c.setTheme(backgroundHex: "#111111", foregroundHex: "#222222", cursorHex: "#333333",
