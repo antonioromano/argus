@@ -215,6 +215,54 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
   });
 
+  it('re-measures when a CSS animation on an ancestor ends — a pure translation fires no observer', async () => {
+    // .argus-tile fades in from translateY(4px). The hole was captured
+    // mid-animation and then the tile moved 4px without changing size, so
+    // ResizeObserver never fired and the overlay sat 4px low for good.
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+    act(() => FakeResizeObserver.instances[0].trigger());   // establishes the initial rect
+    api.setRect.mockClear();
+
+    // The tile settles 4px higher; its size is unchanged, so no RO callback.
+    currentRect = { x: 10, y: 16, width: 300, height: 200 };
+    act(() => { document.body.dispatchEvent(new Event('animationend', { bubbles: true })); });
+
+    expect(api.setRect).toHaveBeenCalledWith('s1', { x: 10, y: 16, width: 300, height: 200 });
+    act(() => root.unmount());
+  });
+
+  it('re-measures when a CSS transition on an ancestor ends — dnd-kit reorders move tiles this way', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+    act(() => FakeResizeObserver.instances[0].trigger());
+    api.setRect.mockClear();
+
+    currentRect = { x: 400, y: 20, width: 300, height: 200 };
+    act(() => { document.body.dispatchEvent(new Event('transitionend', { bubbles: true })); });
+
+    expect(api.setRect).toHaveBeenCalledWith('s1', { x: 400, y: 20, width: 300, height: 200 });
+    act(() => root.unmount());
+  });
+
+  it('an animation that moved nothing costs no IPC', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+    act(() => FakeResizeObserver.instances[0].trigger());
+    api.setRect.mockClear();
+
+    act(() => { document.body.dispatchEvent(new Event('animationend', { bubbles: true })); });
+
+    expect(api.setRect).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
   it('reports coordinates as viewport-relative — no scroll arithmetic added', () => {
     // Main adds the window's own content-bounds origin; if this hook also
     // added scroll offsets, the overlay would be double-counted and visibly

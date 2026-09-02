@@ -172,6 +172,18 @@ export function useNativeOverlayRect(
       io?.observe(el);
       window.addEventListener('resize', report);
       window.addEventListener('scroll', report, true);
+      // A CSS animation or transition on ANY ancestor can move the hole
+      // without resizing it — and a pure translation fires neither
+      // ResizeObserver nor IntersectionObserver. Measured: .argus-tile fades
+      // in from translateY(4px), the hole was captured mid-animation, and the
+      // overlay then sat 4px low for the tile's whole life, hanging past its
+      // bottom border. dnd-kit's reorder transitions have the same shape.
+      // Both events bubble, so listening at the document covers every
+      // ancestor; report() dedupes, so a finished animation that moved
+      // nothing costs no IPC.
+      document.addEventListener('animationend', report, true);
+      document.addEventListener('animationcancel', report, true);
+      document.addEventListener('transitionend', report, true);
     });
 
     return () => {
@@ -180,6 +192,9 @@ export function useNativeOverlayRect(
       io?.disconnect();
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
+      document.removeEventListener('animationend', report, true);
+      document.removeEventListener('animationcancel', report, true);
+      document.removeEventListener('transitionend', report, true);
       api.detach(sessionId);
       unregisterOverlay(sessionId);
     };
