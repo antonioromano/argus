@@ -359,7 +359,13 @@ function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
   // collapse into one cheap, idempotent correction.
   // Listed one by one rather than looped: BrowserWindow.on is a union of
   // per-event overloads, so a union-typed event name matches none of them.
-  const resync = () => nativeTerminal?.resyncParent(win.getNativeWindowHandle());
+  const resync = () => {
+    if (process.env.ARGUS_NATIVE_TERM_DEBUG === '1') {
+      const b = win.getBounds();
+      console.log('[native-term:trace] window frame event', win.id, `${b.x},${b.y} ${b.width}x${b.height}`);
+    }
+    nativeTerminal?.resyncParent(win.getNativeWindowHandle());
+  };
   win.on('move', resync);
   win.on('moved', resync);
   win.on('resize', resync);

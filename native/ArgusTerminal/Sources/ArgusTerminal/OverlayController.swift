@@ -245,6 +245,9 @@ final class PassthroughView: NSView {
     let screenX = parentContent.minX + x
     let screenY = parentContent.maxY - y - h
     win.setFrame(NSRect(x: screenX, y: screenY, width: w, height: h), display: true)
+    otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
+           "parentFrame=\(parent.frame) parentContent=\(parentContent)",
+           "-> screen=\(win.frame) parentIsChildParent=\(win.parent === parent)")
   }
 
   // Test seam: the child window's current SCREEN-coordinate frame, after

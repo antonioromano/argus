@@ -453,6 +453,8 @@ export class NativeTerminalHost {
   resyncParent(parentHandle: Buffer): void {
     if (!this.addon) return;
     const parentKey = parentHandle.toString('base64');
+    trace('resyncParent', parentKey.slice(0, 12), 'sessions=',
+      [...this.parentBySession.entries()].filter(([, k]) => k === parentKey).map(([s]) => s.slice(0, 8)));
     for (const [sessionId, key] of this.parentBySession) {
       if (key !== parentKey) continue;
       const id = this.bySession.get(sessionId);
