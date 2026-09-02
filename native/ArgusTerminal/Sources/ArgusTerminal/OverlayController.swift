@@ -60,7 +60,11 @@ private func dumpOnScreenWindows(_ label: String) {
     let layer = w[kCGWindowLayer as String] as? Int ?? -1
     let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
     let name = w[kCGWindowName as String] as? String ?? ""
-    otrace("  #\(num) layer=\(layer) bounds=\(bounds) name='\(name)'")
+    // optionOnScreenOnly filters by ORDERING, not opacity — an alpha-0 window
+    // is still listed. The window server's own alpha reading is what says
+    // whether anything is actually painted.
+    let alpha = w[kCGWindowAlpha as String] as? Double ?? -1
+    otrace("  #\(num) layer=\(layer) alpha=\(alpha) bounds=\(bounds) name='\(name)'")
   }
 }
 
