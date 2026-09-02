@@ -110,6 +110,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     void transition.ready.then(
       () => {
         mark('ready -> dispatching cue');
+        try {
+          if (localStorage.getItem('argusNativeTermDebug') === '1') {
+            // Ground truth for what the DOM is actually animating, and for how
+            // long — the pseudo-element animations the UA created.
+            for (const a of document.getAnimations()) {
+              const eff = a.effect as KeyframeEffect | null;
+              const pseudo = eff?.pseudoElement ?? '';
+              if (!pseudo.startsWith('::view-transition')) continue;
+              const t = eff!.getTiming();
+              console.log('[native-term:trace] theme anim', pseudo,
+                'delay=', t.delay, 'duration=', t.duration, 'easing=', t.easing);
+            }
+          }
+        } catch { /* storage unavailable */ }
         transitionPending.current = false;
         window.dispatchEvent(new Event(THEME_TRANSITION_START));
       },
