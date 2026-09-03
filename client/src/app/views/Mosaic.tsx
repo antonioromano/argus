@@ -202,7 +202,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
-  const handleXtermBlur = useCallback(() => setFocusedId(null), []);
+  // Deliberately does NOT clear the selection. A blur is not evidence that no
+  // tile is selected — it also fires when the app deactivates, and when a
+  // native terminal overlay (a child NSWindow) takes key focus, which happens
+  // moments after clicking back onto an xterm tile and made the selection
+  // flash on and then drop straight back off. The selection changes when
+  // something else CLAIMS it; until then the last claim stands, and the
+  // window-level dim already covers the case where the app is inactive.
+  const handleXtermBlur = useCallback(() => {}, []);
   const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
