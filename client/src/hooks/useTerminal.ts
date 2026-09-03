@@ -318,6 +318,22 @@ export function useTerminal(
     xtermTextarea?.addEventListener('focus', onXtermFocus);
     xtermTextarea?.addEventListener('blur', onXtermBlur);
 
+    // Element focus events alone are not enough. A native terminal overlay is
+    // a child NSWindow: clicking one takes key focus away from the web
+    // contents, but this textarea REMAINS document.activeElement — element
+    // focus never moved, so no blur fires here. Clicking back onto this tile
+    // makes the window key again and, because the element still holds focus,
+    // Chromium fires no new focus event either. Nothing would ever tell the
+    // mosaic which tile the user returned to, and the selection stayed on the
+    // native tile indefinitely.
+    //
+    // Re-assert on window focus, guarded on actually holding it so the other
+    // tiles stay quiet.
+    const onWindowFocus = () => {
+      if (document.activeElement === xtermTextarea) onFocusChangeRef.current?.(true);
+    };
+    window.addEventListener('focus', onWindowFocus);
+
     // Copy: substitute xterm's own getSelection() into the clipboard. The DOM
     // renderer paints each buffer row as a separate element, so Chromium's
     // native selection serializer joins rows with spaces — multi-line commands
@@ -594,6 +610,7 @@ export function useTerminal(
       document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
+      window.removeEventListener('focus', onWindowFocus);
       container.removeEventListener('copy', handleCopy);
       disposeMouse();
       scrollDisposable.dispose();
