@@ -43,8 +43,18 @@ interface UseTerminalOptions {
   suspendResize?: boolean;
 }
 
+// Backgrounds are --bg-2 (the tile card), NOT Tokyo Night's own. The terminal
+// sits inside that card with only padding between them, so anything else shows
+// as a seam: measured, the app page is #f4f1eb (warm) against Tokyo Night's
+// #f5f5f5 (neutral) — identical lightness, different hue, which reads as a dead
+// patch rather than as a lighter or darker surface. The rest of the palette is
+// still Tokyo Night.
+//
+// Kept in sync by hand with tokens.css (--bg-2) and with TerminalShell's
+// `termBg`. The native overlay derives from these via toNativeTheme, so both
+// engines move together.
 const DARK_THEME = {
-  background: '#1a1b26',
+  background: '#191b20',
   foreground: '#c0caf5',
   cursor: '#c0caf5',
   selectionBackground: '#33467c',
@@ -67,7 +77,7 @@ const DARK_THEME = {
 };
 
 const LIGHT_THEME = {
-  background: '#f5f5f5',
+  background: '#ffffff',
   foreground: '#343b58',
   cursor: '#343b58',
   selectionBackground: '#b4d5fe',

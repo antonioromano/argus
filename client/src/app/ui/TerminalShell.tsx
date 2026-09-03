@@ -332,8 +332,10 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   const edge = STATUS_COLORS[st];
   // Match xterm's own theme background so the sub-row gutter left by FitAddon's
   // whole-cell rounding (most visible at the bottom) blends in instead of
-  // showing as a dark band.
-  const termBg = theme === 'dark' ? '#1a1b26' : '#f5f5f5';
+  // showing as a dark band. Same values as DARK_THEME/LIGHT_THEME in
+  // useTerminal.ts, which are themselves --bg-2 — the tile card the terminal
+  // sits in.
+  const termBg = theme === 'dark' ? '#191b20' : '#ffffff';
 
   return (
     <div
