@@ -127,6 +127,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
+  // Session whose NATIVE overlay currently holds key focus, or null.
+  //
+  // A native terminal is a child NSWindow, so clicking one makes IT the key
+  // window and Argus's web contents fires `blur` — which cleared focusedId and
+  // set windowFocused false, dimming every tile including the one being typed
+  // in. The app has not lost focus at all; a different window of it has gained
+  // it. This is the only way the renderer can tell those two apart.
+  const [nativeFocusedId, setNativeFocusedId] = useState<string | null>(null);
   // Tile just restored from the minimized row — its terminal should grab
   // keyboard focus on mount. Cleared once the xterm reports focus.
   const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
@@ -277,6 +285,22 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     };
   }, []);
 
+  // Key-window transitions on native overlays. Subscribed once here rather than
+  // per tile because the answer is global: at most one overlay holds key, and
+  // whether ANY does decides whether the app counts as focused.
+  useEffect(() => {
+    const bridge = (window as Window & {
+      electronNativeTerminal?: { onFocus?(cb: (id: string, focused: boolean) => void): () => void };
+    }).electronNativeTerminal;
+    if (!bridge?.onFocus) return;
+    return bridge.onFocus((id, focused) => {
+      // Clear only on the overlay that actually lost it: focus moving between
+      // two native tiles delivers the new one's `true` before the old one's
+      // `false`, and an unguarded clear would drop the wrong id.
+      setNativeFocusedId((cur) => (focused ? id : cur === id ? null : cur));
+    });
+  }, []);
+
   useEffect(() => {
     if (!focusedId) return;
     const s = sessions.find((s) => s.id === focusedId);
@@ -285,7 +309,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
 
   // Report the focused tile up so Cmd+W / Cmd+F can target the active terminal.
   // A minimized tile renders no terminal, so a focused tile is always an active one.
-  useEffect(() => { onActiveTerminalChange?.(focusedId); }, [focusedId, onActiveTerminalChange]);
+  useEffect(() => {
+    onActiveTerminalChange?.(nativeFocusedId ?? focusedId);
+  }, [nativeFocusedId, focusedId, onActiveTerminalChange]);
 
   if (sessions.length === 0) {
     return (
@@ -317,9 +343,17 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Fill the grid: uniform when the count tiles cleanly, stretched partial rows otherwise.
   const layout = mosaicLayout(activeTiles.length);
   const minTileIds = minTiles.map((s) => s.id);
-  // Only count focus when an *active* tile is focused — minimized chips are exempt
-  const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
-    ? focusedId
+  // A native overlay holding key means the app is focused, whatever the web
+  // contents thinks — see nativeFocusedId.
+  const appFocused = windowFocused || nativeFocusedId !== null;
+
+  // Only count focus when an *active* tile is focused — minimized chips are
+  // exempt. A native overlay's own focus wins: `blur` clears focusedId as the
+  // overlay takes over, so it is the only remaining record of which tile the
+  // user is in.
+  const effectiveFocusedId = nativeFocusedId ?? focusedId;
+  const activeFocusedId = (effectiveFocusedId && activeTiles.some((t) => t.id === effectiveFocusedId))
+    ? effectiveFocusedId
     : null;
 
   const draggingSession = activeTileId ? sessions.find((s) => s.id === activeTileId) ?? null : null;
@@ -384,7 +418,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   theme={theme}
                   groupColor={groupColorOf?.(s.id) ?? null}
                   isFocused={activeFocusedId === s.id}
-                  windowFocused={windowFocused}
+                  windowFocused={appFocused}
                   onXtermFocus={handleXtermFocus}
                   onXtermBlur={handleXtermBlur}
                   autoFocus={restoreFocusId === s.id}
