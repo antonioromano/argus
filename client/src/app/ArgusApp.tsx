@@ -236,6 +236,15 @@ function DesktopInner() {
   // Resolved keyboard shortcuts (registry defaults + user overrides from config).
   const shortcuts = useShortcuts(config?.keyboardShortcuts);
 
+  // Mirror them into the Electron app menu. The menu items are what deliver
+  // these shortcuts to a native terminal tile — its overlay is a child
+  // NSWindow, so the keydown handler below never sees the keystroke — and
+  // hardcoded accelerators there would ignore a rebind. Main rebuilds the menu
+  // only when something actually changed.
+  useEffect(() => {
+    window.electronApp?.setMenuShortcuts?.(shortcuts.resolved);
+  }, [shortcuts.resolved]);
+
   // Which terminal is "active" for Cmd+W / Cmd+F: the focused mosaic tile on the
   // dashboard, or the open session in focus view. Mosaic reports its focused tile up.
   const [mosaicFocusedId, setMosaicFocusedId] = useState<string | null>(null);

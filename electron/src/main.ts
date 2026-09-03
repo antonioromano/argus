@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
+import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
@@ -522,7 +523,7 @@ function buildAppMenu(): Menu {
       { type: 'separator' },
       {
         label: 'Settings…',
-        accelerator: 'CmdOrCtrl+,',
+        accelerator: menuAccelerator('open-settings'),
         click: () => sendMenuEvent('menu:open-settings'),
       },
       { type: 'separator' },
@@ -555,12 +556,12 @@ function buildAppMenu(): Menu {
       { type: 'separator' },
       {
         label: 'New Session',
-        accelerator: 'CmdOrCtrl+N',
+        accelerator: menuAccelerator('new-session'),
         click: () => sendMenuEvent('menu:new-session'),
       },
       {
         label: 'Close Session',
-        accelerator: 'CmdOrCtrl+W',
+        accelerator: menuAccelerator('close-shell'),
         click: () => sendMenuEvent('menu:close-session'),
       },
     ],
@@ -586,7 +587,7 @@ function buildAppMenu(): Menu {
     submenu: [
       {
         label: 'Toggle Find & Jump',
-        accelerator: 'CmdOrCtrl+K',
+        accelerator: menuAccelerator('command-palette'),
         click: () => sendMenuEvent('menu:toggle-palette'),
       },
       { type: 'separator' },
@@ -601,11 +602,12 @@ function buildAppMenu(): Menu {
       // sees their keydown — as app-menu accelerators they fire regardless of
       // which view has focus.
       //
-      // KNOWN LIMITATION, pre-existing: accelerators here are static, while
-      // client/src/keyboard/registry.ts holds the user-rebindable defaults. A
-      // user who rebinds one in Settings will not see the menu update. The four
-      // existing menu items (mod+n, mod+w, mod+k, mod+,) already behave this
-      // way; making menus config-driven is a separate change.
+      // Their accelerators come from menuShortcuts.ts, which the renderer keeps
+      // in sync with the resolved bindings in AppConfig.keyboardShortcuts — so
+      // rebinding one in Settings moves it here too, and keeps working inside a
+      // native tile. A binding the menu cannot express (no Cmd/Ctrl/Alt) falls
+      // back to its default; the renderer keydown path still honours it, which
+      // means it works in web tiles only.
       //
       // `id` is set on the four that collide with Monaco's own default
       // keybindings (see menuAcceleratorGating.ts) so applyMenuAcceleratorGating
@@ -614,30 +616,30 @@ function buildAppMenu(): Menu {
       {
         id: 'menu:open-diff',
         label: 'Diff for Focused Shell',
-        accelerator: 'CmdOrCtrl+D',
+        accelerator: menuAccelerator('open-diff'),
         click: () => sendMenuEvent('menu:open-diff'),
       },
       {
         id: 'menu:open-files',
         label: 'Files for Focused Shell',
-        accelerator: 'CmdOrCtrl+E',
+        accelerator: menuAccelerator('open-files'),
         click: () => sendMenuEvent('menu:open-files'),
       },
       {
         label: 'Terminal for Focused Shell',
-        accelerator: 'CmdOrCtrl+T',
+        accelerator: menuAccelerator('open-shell'),
         click: () => sendMenuEvent('menu:open-shell'),
       },
       {
         id: 'menu:terminal-search',
         label: 'Search in Terminal',
-        accelerator: 'CmdOrCtrl+F',
+        accelerator: menuAccelerator('terminal-search'),
         click: () => sendMenuEvent('menu:terminal-search'),
       },
       {
         id: 'menu:clear-terminal',
         label: 'Clear Scrollback',
-        accelerator: 'CmdOrCtrl+L',
+        accelerator: menuAccelerator('clear-terminal'),
         click: () => sendMenuEvent('menu:clear-terminal'),
       },
       { type: 'separator' },
@@ -1084,6 +1086,16 @@ async function main() {
   // a renderer must not be able to name an arbitrary window. Also re-applied
   // on every OS window-focus change, since which window's belief is
   // authoritative can change without either window reporting anything new.
+  // Renderer -> main: the resolved keyboard bindings. Rebuild the menu only on
+  // a real change — setApplicationMenu recreates every item, which drops the
+  // enabled/disabled state applyMenuAcceleratorGating owns, so it is re-applied
+  // immediately after.
+  ipcMain.on('menu:set-shortcuts', (_e, shortcuts: Record<string, string>) => {
+    if (!setMenuShortcuts(shortcuts ?? {})) return;
+    Menu.setApplicationMenu(buildAppMenu());
+    applyMenuAcceleratorGating();
+  });
+
   ipcMain.on('editor-focus:changed', (e, focused: boolean) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (win) editorFocusByWindow.set(win, focused === true);

@@ -28,6 +28,12 @@ export interface ElectronAppBridge {
    *  four menu accelerators that collide with Monaco's own default keybindings
    *  (Cmd+D/E/F/L) exactly while the keystroke needs to reach Monaco instead. */
   setEditorFocused(focused: boolean): void;
+  /** Push the resolved keyboard bindings to main so the app-menu accelerators
+   *  that mirror them follow a rebind. Those accelerators are the only route a
+   *  shortcut has into a native terminal tile, whose child NSWindow takes key
+   *  focus away from the renderer. Optional: an older preload simply never
+   *  learns about a rebind, exactly as before this existed. */
+  setMenuShortcuts?(shortcuts: Record<string, string>): void;
 }
 
 export interface ElectronNotificationsBridge {

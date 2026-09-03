@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld('electronApp', {
   setEditorFocused: (focused: boolean) => {
     ipcRenderer.send('editor-focus:changed', focused);
   },
+  // Renderer -> main: the resolved keyboard bindings, so the app-menu
+  // accelerators that mirror them follow a rebind. Those accelerators are the
+  // only way the shortcut reaches a native terminal tile, whose child NSWindow
+  // takes key focus away from the renderer — see electron/src/menuShortcuts.ts.
+  setMenuShortcuts: (shortcuts: Record<string, string>) => {
+    ipcRenderer.send('menu:set-shortcuts', shortcuts);
+  },
 });
 
 contextBridge.exposeInMainWorld('electronShell', {
