@@ -23,6 +23,27 @@ final class KeyableWindow: NSWindow {
   /// the window itself, with no observer to unregister.
   var onKeyChange: ((Bool) -> Void)?
 
+  override func sendEvent(_ event: NSEvent) {
+    if event.type == .keyDown, KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
+      handler()
+      return
+    }
+    super.sendEvent(event)
+  }
+
+  /// Shift and Return with no other modifier. Both Return keys count, matching
+  /// the xterm path, which compares on `key === 'enter'` and so covers the
+  /// numeric keypad too. Command/Control/Option must be absent: those are
+  /// other bindings, and swallowing them here would break them silently.
+  static func isShiftReturn(_ event: NSEvent) -> Bool {
+    let kReturn: UInt16 = 36
+    let kKeypadEnter: UInt16 = 76
+    guard event.keyCode == kReturn || event.keyCode == kKeypadEnter else { return false }
+    let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    return f.contains(.shift)
+      && !f.contains(.command) && !f.contains(.control) && !f.contains(.option)
+  }
+
   override func becomeKey() {
     super.becomeKey()
     onKeyChange?(true)
@@ -36,6 +57,20 @@ final class KeyableWindow: NSWindow {
   /// The frame OverlayController last applied. An external mover (a window
   /// manager, or anything driving the Accessibility API) that changes this
   /// window's frame is undone on the next frame-change notification.
+  /// Called instead of delivering Shift+Return to the terminal.
+  ///
+  /// Shift+Enter is not a terminal capability: Argus TRANSLATES it to ESC CR
+  /// because that is what Claude Code reads as "insert a newline" rather than
+  /// "submit". The xterm path does this in its custom key handler
+  /// (useTerminal.ts, shortcut id `terminal-newline`, fixed to shift+enter);
+  /// without the same translation here SwiftTerm sent a bare CR and the agent
+  /// submitted the prompt instead.
+  ///
+  /// Intercepted at the window rather than in a TerminalView subclass:
+  /// SwiftTerm's keyDown is `public`, not `open`, so it cannot be overridden
+  /// from outside the module. sendEvent sees the event before any view.
+  var onShiftEnter: (() -> Void)?
+
   var appliedFrame: NSRect?
   /// Set while the controller itself is calling setFrame, so its own change is
   /// not mistaken for an external one.
@@ -203,6 +238,11 @@ final class PassthroughView: NSView {
     // genuinely stops delivery. `self` is unowned-safe here: the window is
     // torn down in destroy(), before the controller can go away.
     w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
+    // ESC CR through the same callback typed characters take, so it reaches the
+    // session exactly as SwiftTerm's own input does.
+    w.onShiftEnter = { [weak self] in
+      self?.onInput?(Data([0x1b, 0x0d]) as NSData)
+    }
     // Start HIDDEN. addChildWindow on a visible parent orders the child in at
     // once, so without this every overlay is on screen from the moment it is
     // created — at its 800x480 construction size, at the default origin. The
@@ -487,6 +527,17 @@ final class PassthroughView: NSView {
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
   public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
   public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
+  /// Sends a real key event through the overlay's window, so a test exercises
+  /// the same sendEvent path AppKit uses rather than the predicate alone.
+  public func debugSendKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
+    guard let w = window else { return }
+    guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                                   timestamp: 0, windowNumber: w.windowNumber, context: nil,
+                                   characters: "\r", charactersIgnoringModifiers: "\r",
+                                   isARepeat: false, keyCode: keyCode) else { return }
+    w.sendEvent(e)
+  }
+
   public func debugDimAlpha() -> CGFloat {
     guard let c = dimView?.layer?.backgroundColor, let ns = NSColor(cgColor: c) else { return -1 }
     return ns.alphaComponent

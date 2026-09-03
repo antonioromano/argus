@@ -331,6 +331,54 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugDimAlpha(), -1, "and clearing it removes the scrim entirely")
   }
 
+  /// Shift+Enter is not a terminal capability — Argus translates it to ESC CR
+  /// so Claude Code inserts a newline instead of submitting. The xterm path
+  /// does this in its own key handler; without the same translation here
+  /// SwiftTerm sent a bare CR and the prompt was submitted.
+  func testShiftReturnSendsEscapeCarriageReturn() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    var sent: [[UInt8]] = []
+    c.onInput = { data in sent.append([UInt8](data as Data)) }
+
+    c.debugSendKey(keyCode: 36, flags: [.shift])
+
+    XCTAssertEqual(sent, [[0x1b, 0x0d]], "ESC CR, the sequence the xterm path sends")
+  }
+
+  func testKeypadShiftEnterAlsoSendsIt() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    var sent: [[UInt8]] = []
+    c.onInput = { data in sent.append([UInt8](data as Data)) }
+
+    c.debugSendKey(keyCode: 76, flags: [.shift])
+
+    XCTAssertEqual(sent, [[0x1b, 0x0d]], "the xterm path matches on key === 'enter', which covers the keypad")
+  }
+
+  /// Plain Return must still submit, and other modifier combinations belong to
+  /// other bindings — swallowing them here would break them silently.
+  func testOtherReturnCombinationsAreNotIntercepted() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    var sent: [[UInt8]] = []
+    c.onInput = { data in sent.append([UInt8](data as Data)) }
+
+    c.debugSendKey(keyCode: 36, flags: [])                    // plain Return
+    c.debugSendKey(keyCode: 36, flags: [.shift, .command])    // Cmd+Shift+Return
+    c.debugSendKey(keyCode: 36, flags: [.shift, .option])     // Opt+Shift+Return
+    c.debugSendKey(keyCode: 36, flags: [.shift, .control])    // Ctrl+Shift+Return
+
+    XCTAssertEqual(sent, [], "none of these are the newline binding")
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)
