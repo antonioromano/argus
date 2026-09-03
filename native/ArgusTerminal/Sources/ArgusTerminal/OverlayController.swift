@@ -487,15 +487,20 @@ final class PassthroughView: NSView {
   public func debugCursorColor() -> NSColor { terminalView.caretColor }
   public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
   public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
+  public func debugDimAlpha() -> CGFloat {
+    guard let c = dimView?.layer?.backgroundColor, let ns = NSColor(cgColor: c) else { return -1 }
+    return ns.alphaComponent
+  }
   public func debugVisibleScrollerCount() -> Int {
     terminalView.subviews.filter { ($0 as? NSScroller)?.isHidden == false }.count
   }
 
-  /// Matches `.argus-tile-overlay` in index.css, which is what an unfocused
-  /// xterm tile is painted with. Without it the two engines disagree about
-  /// what an unfocused tile looks like: measured against a real screenshot,
-  /// an unfocused xterm tile renders #e7e7e6 while a native one stayed at the
-  /// theme's #f5f5f5, because the scrim — not the theme — is the difference.
+  /// Matches `.argus-tile-overlay` in index.css — the scrim every tile that is
+  /// not selected carries, and the only signal of which tile IS selected.
+  /// Values are paired by hand: 0.22 dark / 0.13 light. If they drift, a
+  /// native tile stops matching its neighbours, which is exactly what
+  /// happened before this existed (measured: an unfocused xterm tile rendered
+  /// #e7e7e6 while a native one stayed at the theme's #f5f5f5).
   @objc public func setDimmed(_ dimmed: Bool, isDark: Bool) {
     guard dimmed else {
       dimView?.removeFromSuperview()
@@ -503,8 +508,8 @@ final class PassthroughView: NSView {
       return
     }
     let scrim: NSColor = isDark
-      ? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.13)
-      : NSColor(srgbRed: 20.0 / 255.0, green: 15.0 / 255.0, blue: 8.0 / 255.0, alpha: 0.06)
+      ? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.22)
+      : NSColor(srgbRed: 20.0 / 255.0, green: 15.0 / 255.0, blue: 8.0 / 255.0, alpha: 0.13)
     if let existing = dimView {
       existing.layer?.backgroundColor = scrim.cgColor
       existing.frame = terminalView.bounds

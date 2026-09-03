@@ -310,6 +310,27 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugFrame(), applied, "the overlay must return to the hole it belongs to")
   }
 
+  /// The scrim's alpha is paired BY HAND with `.argus-tile-overlay` in
+  /// index.css. It is the only signal of which tile is selected, so a drift
+  /// makes native tiles stop matching their neighbours — which is exactly
+  /// what happened before the native scrim existed. Pinned here; if these
+  /// fail, index.css changed and this must follow (or vice versa).
+  func testDimScrimAlphaMatchesTheStylesheet() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+
+    c.setDimmed(true, isDark: true)
+    XCTAssertEqual(c.debugDimAlpha(), 0.22, accuracy: 0.001, "dark: rgba(0, 0, 0, 0.22)")
+
+    c.setDimmed(true, isDark: false)
+    XCTAssertEqual(c.debugDimAlpha(), 0.13, accuracy: 0.001, "light: rgba(20, 15, 8, 0.13)")
+
+    c.setDimmed(false, isDark: false)
+    XCTAssertEqual(c.debugDimAlpha(), -1, "and clearing it removes the scrim entirely")
+  }
+
   func testSearchFindsFedText() {
     let c = OverlayController(width: 400, height: 200)
     c.feed(data: Data("alpha beta gamma\r\n".utf8) as NSData)
