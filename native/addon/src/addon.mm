@@ -24,10 +24,14 @@ Napi::ThreadSafeFunction g_inputTsfn;
 Napi::ThreadSafeFunction g_resizeTsfn;
 Napi::ThreadSafeFunction g_focusTsfn;
 Napi::ThreadSafeFunction g_openLinkTsfn;
+Napi::ThreadSafeFunction g_dropTsfn;
+Napi::ThreadSafeFunction g_bellTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
 bool g_hasFocusTsfn = false;
 bool g_hasOpenLinkTsfn = false;
+bool g_hasDropTsfn = false;
+bool g_hasBellTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -115,6 +119,28 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     std::string url(link.UTF8String ? link.UTF8String : "");
     g_openLinkTsfn.BlockingCall([id, url](Napi::Env env, Napi::Function cb) {
       cb.Call({Napi::Number::New(env, id), Napi::String::New(env, url)});
+    });
+  }];
+
+  [c setOnBell:^{
+    if (!g_hasBellTsfn) return;
+    g_bellTsfn.BlockingCall([id](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id)});
+    });
+  }];
+
+  [c setOnDropPaths:^(NSArray* paths) {
+    if (!g_hasDropTsfn) return;
+    std::vector<std::string> out;
+    for (NSString* p in paths) {
+      if ([p isKindOfClass:[NSString class]] && p.UTF8String) out.push_back(p.UTF8String);
+    }
+    g_dropTsfn.BlockingCall([id, out](Napi::Env env, Napi::Function cb) {
+      Napi::Array arr = Napi::Array::New(env, out.size());
+      for (size_t i = 0; i < out.size(); i++) {
+        arr.Set(static_cast<uint32_t>(i), Napi::String::New(env, out[i]));
+      }
+      cb.Call({Napi::Number::New(env, id), arr});
     });
   }];
 
@@ -253,6 +279,12 @@ Napi::Value Hide(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+Napi::Value FocusOverlay(const Napi::CallbackInfo& info) {
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) [c focusTerminal];
+  return info.Env().Undefined();
+}
+
 Napi::Value ClearScrollback(const Napi::CallbackInfo& info) {
   OverlayController* c = Lookup(info, nullptr);
   if (c) [c clearScrollback];
@@ -286,6 +318,8 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     [c setOnResize:nil];
     [c setOnFocus:nil];
     [c setOnOpenLink:nil];
+    [c setOnDropPaths:nil];
+    [c setOnBell:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -309,6 +343,14 @@ Napi::Value OnOpenLink(const Napi::CallbackInfo& info) {
   InstallTsfn(info, "argusOpenLink", &g_openLinkTsfn, &g_hasOpenLinkTsfn);
   return info.Env().Undefined();
 }
+Napi::Value OnBell(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusBell", &g_bellTsfn, &g_hasBellTsfn);
+  return info.Env().Undefined();
+}
+Napi::Value OnDropPaths(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusDropPaths", &g_dropTsfn, &g_hasDropTsfn);
+  return info.Env().Undefined();
+}
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
@@ -319,6 +361,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("hide", Napi::Function::New(env, Hide));
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   exports.Set("feed", Napi::Function::New(env, Feed));
+  exports.Set("focusOverlay", Napi::Function::New(env, FocusOverlay));
   exports.Set("clearScrollback", Napi::Function::New(env, ClearScrollback));
   exports.Set("openFindBar", Napi::Function::New(env, OpenFindBar));
   exports.Set("closeFindBar", Napi::Function::New(env, CloseFindBar));
@@ -327,6 +370,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("setDimmed", Napi::Function::New(env, SetDimmed));
   exports.Set("onFocus", Napi::Function::New(env, OnFocus));
   exports.Set("onOpenLink", Napi::Function::New(env, OnOpenLink));
+  exports.Set("onDropPaths", Napi::Function::New(env, OnDropPaths));
+  exports.Set("onBell", Napi::Function::New(env, OnBell));
   return exports;
 }
 

@@ -103,6 +103,9 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   closeFindBar: (sessionId: string): void => {
     ipcRenderer.send('native-term:close-find-bar', { sessionId });
   },
+  focusTerminal: (sessionId: string): void => {
+    ipcRenderer.send('native-term:focus', { sessionId });
+  },
   clearScrollback: (sessionId: string): void => {
     ipcRenderer.send('native-term:clear-scrollback', { sessionId });
   },
@@ -113,6 +116,19 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
    * is the focused one — which is what every "for the focused shell" command
    * (Cmd+T/D/E/L, and the tile focus ring) reads.
    */
+  /** Terminal bell on a native terminal; the renderer flashes the tile. */
+  onBell: (cb: (sessionId: string) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string }) => cb(payload.sessionId);
+    ipcRenderer.on('native-term:bell', listener);
+    return () => ipcRenderer.off('native-term:bell', listener);
+  },
+  /** File paths dropped onto a native terminal; the renderer formats and sends them. */
+  onDropPaths: (cb: (sessionId: string, paths: string[]) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; paths: string[] }) =>
+      cb(payload.sessionId, payload.paths);
+    ipcRenderer.on('native-term:drop-paths', listener);
+    return () => ipcRenderer.off('native-term:drop-paths', listener);
+  },
   onFocus: (cb: (sessionId: string, focused: boolean) => void): (() => void) => {
     const listener = (_e: unknown, payload: { sessionId: string; focused: boolean }) =>
       cb(payload.sessionId, payload.focused);

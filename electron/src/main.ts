@@ -750,6 +750,20 @@ async function main() {
     // their own focused tile, and broadcasting would let one window's click
     // steal the other's focus state.
     openExternal: (url: string) => openExternalAllowlisted(url),
+    notifyBell: (id: string) => {
+      const winId = sessionToWindowId.get(id);
+      if (winId === undefined) return;
+      const win = BrowserWindow.fromId(winId);
+      if (!win || win.isDestroyed()) return;
+      win.webContents.send('native-term:bell', { sessionId: id });
+    },
+    notifyDropPaths: (id: string, paths: string[]) => {
+      const winId = sessionToWindowId.get(id);
+      if (winId === undefined) return;
+      const win = BrowserWindow.fromId(winId);
+      if (!win || win.isDestroyed()) return;
+      win.webContents.send('native-term:drop-paths', { sessionId: id, paths });
+    },
     notifyFocus: (id: string, focused: boolean) => {
       const winId = sessionToWindowId.get(id);
       if (winId === undefined) return;
@@ -821,6 +835,10 @@ async function main() {
   ipcMain.on('native-term:close-find-bar', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.closeFindBar(sessionId);
   });
+  ipcMain.on('native-term:focus', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.focusOverlay(sessionId);
+  });
+
   ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.clearScrollback(sessionId);
   });

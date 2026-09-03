@@ -28,12 +28,15 @@ export interface NativeTerminalAddon {
   destroy(id: number): void;
   feed(id: number, data: Buffer): void;
   clearScrollback(id: number): void;
+  focusOverlay(id: number): void;
   openFindBar(id: number): void;
   closeFindBar(id: number): void;
   onInput(cb: (id: number, data: Buffer) => void): void;
   onResize(cb: (id: number, cols: number, rows: number) => void): void;
   onFocus(cb: (id: number, focused: boolean) => void): void;
   onOpenLink(cb: (id: number, url: string) => void): void;
+  onDropPaths(cb: (id: number, paths: string[]) => void): void;
+  onBell(cb: (id: number) => void): void;
 }
 
 export interface HostDeps {
@@ -48,6 +51,15 @@ export interface HostDeps {
    * "for the focused shell" command reads — can never see a native tile.
    */
   notifyFocus(id: string, focused: boolean): void;
+  /**
+   * File paths dropped onto a native terminal. Forwarded to the renderer,
+   * which formats them with pathFormat.ts and writes them to the session —
+   * the same path an xterm tile's drop takes. Quoting rules are not
+   * reimplemented here.
+   */
+  notifyDropPaths(id: string, paths: string[]): void;
+  /** Terminal bell on a native overlay; the renderer flashes the tile. */
+  notifyBell(id: string): void;
   /**
    * Opens a link the user activated inside a native terminal. Deliberately
    * routed out to the caller rather than opened in Swift: SwiftTerm's default

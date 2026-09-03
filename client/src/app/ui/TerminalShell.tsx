@@ -41,6 +41,12 @@ interface NativeThemeBridge {
 
 /** The slice of the native-terminal preload bridge that paints the
  *  unfocused-tile scrim inside the overlay's own window. */
+/** The slice of the native-terminal preload bridge that gives an overlay
+ *  keyboard focus — the native answer to focusing xterm's textarea. */
+interface NativeFocusRequestBridge {
+  focusTerminal?(sessionId: string): void;
+}
+
 interface NativeDimBridge {
   setDimmed?(sessionId: string, dimmed: boolean, isDark: boolean): void;
 }
@@ -51,6 +57,21 @@ interface NativeDimBridge {
  *  rather than throwing. */
 interface NativeFocusBridge {
   onFocus?(cb: (sessionId: string, focused: boolean) => void): () => void;
+}
+
+/** The slice of the native-terminal preload bridge that reports files dropped
+ *  onto an overlay. The overlay is an opaque child window, so React's own
+ *  onDrop on the hole never sees the drop — AppKit does, and forwards the raw
+ *  paths here. Formatting stays in formatPathsForPty so both engines quote
+ *  identically. */
+interface NativeDropBridge {
+  onDropPaths?(cb: (sessionId: string, paths: string[]) => void): () => void;
+}
+
+/** The slice of the native-terminal preload bridge that reports the terminal
+ *  bell, so a native tile can flash like an xterm one. */
+interface NativeBellBridge {
+  onBell?(cb: (sessionId: string) => void): () => void;
 }
 
 interface TerminalShellProps {
@@ -99,7 +120,7 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, theme, searchOpen = false, focused, dimmed } = props;
+  const { session, theme, searchOpen = false, focused, dimmed, autoFocus = false, requestFocusToken } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
@@ -147,6 +168,21 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     (window as Window & { electronNativeTerminal?: NativeDimBridge })
       .electronNativeTerminal?.setDimmed?.(session.id, isDimmed, theme === 'dark');
   }, [session.id, isDimmed, theme, attachGeneration]);
+
+  // Keyboard focus on request — the native counterpart of useTerminal's
+  // autoFocus and requestFocusToken, which only ever reached xterm. A
+  // notification click and restoring a minimized tile both go through these,
+  // and for a native tile both silently did nothing: the tile came forward
+  // with the cursor still wherever it was.
+  //
+  // attachGeneration is a dependency for the same reason the theme effect
+  // needs it — on first mount this can run before the overlay exists, and the
+  // bump re-fires it once it does, which is what makes autoFocus work at all.
+  useEffect(() => {
+    if (!autoFocus && requestFocusToken === undefined) return;
+    (window as Window & { electronNativeTerminal?: NativeFocusRequestBridge })
+      .electronNativeTerminal?.focusTerminal?.(session.id);
+  }, [session.id, autoFocus, requestFocusToken, attachGeneration]);
 
   // mod+f for a native tile toggles SwiftTerm's OWN find bar
   // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the
@@ -222,6 +258,47 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     });
   }, [session.id]);
 
+  // Visual bell. Flashes the same class the xterm path uses; on both engines
+  // the terminal itself paints over the middle, so what actually shows is the
+  // gutter inside the frame.
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeBellBridge })
+      .electronNativeTerminal;
+    if (!bridge?.onBell) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = bridge.onBell((id) => {
+      if (id !== session.id) return;
+      const el = frameRef.current;
+      if (!el) return;
+      el.classList.remove('terminal-bell-flash');
+      // Force reflow to retrigger the animation.
+      void el.offsetWidth;
+      el.classList.add('terminal-bell-flash');
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => el.classList.remove('terminal-bell-flash'), 200);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe?.();
+    };
+  }, [session.id]);
+
+  // Files dropped onto the overlay. Same destination as the xterm path's
+  // handleDrop: formatPathsForPty then session:input.
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeDropBridge })
+      .electronNativeTerminal;
+    if (!bridge?.onDropPaths) return;
+    return bridge.onDropPaths((id, paths) => {
+      if (id !== session.id) return;
+      const data = formatPathsForPty(paths);
+      if (data) props.socket.emit('session:input', { sessionId: session.id, data });
+    });
+    // props.socket is the singleton WS client; reading it off props here keeps
+    // this effect out of the render-time destructuring above.
+  }, [session.id, props.socket]);
+
   if (failed) return <TerminalShellXterm {...props} />;
   const { status, framed = true } = props;
   const st = status ?? session.status;
@@ -235,6 +312,7 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // overlay — so they are deliberately not reproduced here.)
   return (
     <div
+      ref={frameRef}
       style={{
         flex: 1,
         minHeight: 0,

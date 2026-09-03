@@ -10,6 +10,8 @@ function fakeAddon() {
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
   let focusCb: ((id: number, focused: boolean) => void) | undefined;
   let openLinkCb: ((id: number, url: string) => void) | undefined;
+  let dropCb: ((id: number, paths: string[]) => void) | undefined;
+  let bellCb: ((id: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
@@ -42,6 +44,7 @@ function fakeAddon() {
       if (failNext.feed) { failNext.feed = false; throw new Error('feed failed'); }
     },
     clearScrollback: (id) => calls.push(`clear:${id}`),
+    focusOverlay: (id) => calls.push(`focusOverlay:${id}`),
     openFindBar: (id) => {
       calls.push(`openFindBar:${id}`);
       if (failNext.openFindBar) { failNext.openFindBar = false; throw new Error('openFindBar failed'); }
@@ -51,11 +54,15 @@ function fakeAddon() {
     onResize: (cb) => { resizeCb = cb; },
     onFocus: (cb) => { focusCb = cb; },
     onOpenLink: (cb) => { openLinkCb = cb; },
+    onDropPaths: (cb) => { dropCb = cb; },
+    onBell: (cb) => { bellCb = cb; },
   };
   return { addon, calls, failNext, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
            fireFocus: (i: number, f: boolean) => focusCb!(i, f),
-           fireOpenLink: (i: number, u: string) => openLinkCb!(i, u) };
+           fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
+           fireDrop: (i: number, p: string[]) => dropCb!(i, p),
+           fireBell: (i: number) => bellCb!(i) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
@@ -63,6 +70,8 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
   const resized: Array<[string, number, number]> = [];
   const focused: Array<[string, boolean]> = [];
   const opened: string[] = [];
+  const dropped: Array<[string, string[]]> = [];
+  const bells: string[] = [];
   let emit: ((id: string, data: string) => void) | undefined;
   const host = new NativeTerminalHost({
     addon: addonOrNull,
@@ -71,10 +80,12 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     resizeSession: (id, c, r) => resized.push([id, c, r]),
     notifyFocus: (id, f) => focused.push([id, f]),
     openExternal: (u) => opened.push(u),
+    notifyDropPaths: (id, paths) => dropped.push([id, paths]),
+    notifyBell: (id) => bells.push(id),
     getReplaySnapshot: () => ({ data: 'REPLAY' }),
     ...overrides,
   });
-  return { host, wrote, resized, focused, opened, emitOutput: (id: string, d: string) => emit?.(id, d) };
+  return { host, wrote, resized, focused, opened, dropped, bells, emitOutput: (id: string, d: string) => emit?.(id, d) };
 }
 
 const HANDLE = Buffer.alloc(8);
@@ -894,4 +905,83 @@ test('a first attach still shows the overlay', () => {
   host.attach('s1', HANDLE, RECT);
 
   assert.ok(calls.includes('show:1'));
+});
+
+test('focusOverlay delegates to the addon with the resolved overlay id', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+
+  host.focusOverlay('s1');
+
+  assert.deepEqual(calls, ['focusOverlay:1']);
+});
+
+test('focusOverlay on an unattached session is a no-op that does not throw', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+
+  assert.doesNotThrow(() => host.focusOverlay('nope'));
+  assert.deepEqual(calls, []);
+});
+
+test('dropped paths are forwarded for the owning session', () => {
+  const { addon, fireDrop } = fakeAddon();
+  const { host, dropped } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireDrop(1, ['/tmp/a.txt', '/tmp/b b.txt']);
+
+  assert.deepEqual(dropped, [['s1', ['/tmp/a.txt', '/tmp/b b.txt']]]);
+});
+
+test('an empty drop is not forwarded', () => {
+  const { addon, fireDrop } = fakeAddon();
+  const { host, dropped } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireDrop(1, []);
+
+  assert.deepEqual(dropped, []);
+});
+
+test('a drop on an unknown overlay id is ignored', () => {
+  const { addon, fireDrop } = fakeAddon();
+  const { host, dropped } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireDrop(99, ['/tmp/a.txt']);
+
+  assert.deepEqual(dropped, []);
+});
+
+test('a throwing notifyDropPaths does not propagate out of the callback', () => {
+  const { addon, fireDrop } = fakeAddon();
+  const { host } = harness(addon, {
+    notifyDropPaths: () => { throw new Error('renderer gone'); },
+  });
+  host.attach('s1', HANDLE, RECT);
+
+  assert.doesNotThrow(() => fireDrop(1, ['/tmp/a.txt']));
+});
+
+test('a bell is reported for the owning session', () => {
+  const { addon, fireBell } = fakeAddon();
+  const { host, bells } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireBell(1);
+
+  assert.deepEqual(bells, ['s1']);
+});
+
+test('a bell on an unknown overlay id is ignored', () => {
+  const { addon, fireBell } = fakeAddon();
+  const { host, bells } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+
+  fireBell(99);
+
+  assert.deepEqual(bells, []);
 });

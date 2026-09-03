@@ -129,6 +129,24 @@ export class NativeTerminalHost {
       }
     });
 
+    this.addon.onBell((id) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (sessionId) this.deps.notifyBell(sessionId);
+      } catch (err) {
+        console.error('[native-term] notifyBell failed for overlay', id, err);
+      }
+    });
+
+    this.addon.onDropPaths((id, paths) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (sessionId && paths.length) this.deps.notifyDropPaths(sessionId, paths);
+      } catch (err) {
+        console.error('[native-term] notifyDropPaths failed for overlay', id, err);
+      }
+    });
+
     // Native is the resize authority whenever an overlay exists (spec §2).
     this.addon.onResize((id, cols, rows) => {
       try {
@@ -244,6 +262,21 @@ export class NativeTerminalHost {
       this.addon.setDimmed(id, dimmed, isDark);
     } catch (err) {
       console.error('[native-term] setDimmed failed for', sessionId, err);
+    }
+  }
+
+  /**
+   * Gives this session's overlay keyboard focus. Used where the xterm path
+   * focuses its textarea — a notification click, or restoring a minimized
+   * tile — which a native tile could not answer at all.
+   */
+  focusOverlay(sessionId: string): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    try {
+      this.addon.focusOverlay(id);
+    } catch (err) {
+      console.error('[native-term] focusOverlay failed for', sessionId, err);
     }
   }
 

@@ -134,6 +134,43 @@ final class PassthroughView: NSView {
   override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+/// SwiftTerm's terminal view, plus file-path drops.
+///
+/// Dropping a file or folder onto an xterm tile types its quoted path into the
+/// prompt (TerminalShell's onDrop + formatPathsForPty). A native tile is a
+/// child NSWindow that sits ABOVE the web contents, so the DOM drop target
+/// never saw the drag and the gesture did nothing at all.
+///
+/// SwiftTerm implements no NSDraggingDestination methods, so these are free to
+/// override. The paths are handed to JS rather than formatted here: quoting
+/// rules live in pathFormat.ts and must not be reimplemented in a second
+/// language where they can drift.
+final class DropAwareTerminalView: TerminalView {
+  var onDropPaths: (([String]) -> Void)?
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    return paths(from: sender).isEmpty ? [] : .copy
+  }
+
+  override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    return paths(from: sender).isEmpty ? [] : .copy
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    let p = paths(from: sender)
+    guard !p.isEmpty else { return false }
+    onDropPaths?(p)
+    return true
+  }
+
+  private func paths(from sender: NSDraggingInfo) -> [String] {
+    let opts: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+    guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                           options: opts) as? [URL] else { return [] }
+    return urls.map { $0.path }
+  }
+}
+
 /// A SwiftTerm view in a borderless child NSWindow, driven entirely from
 /// outside. Deliberately dumb: it owns no process and makes no decisions —
 /// all policy lives in NativeTerminalHost (TypeScript), where it is testable.
@@ -141,6 +178,10 @@ final class PassthroughView: NSView {
   // Block properties, not Swift closures over [UInt8] — those do not bridge.
   @objc public var onInput: ((NSData) -> Void)?
   @objc public var onResize: ((Int, Int) -> Void)?
+  /// File paths dropped onto the terminal. Formatted and sent by the renderer
+  /// (pathFormat.ts), the same way an xterm tile handles a drop.
+  @objc public var onDropPaths: ((NSArray) -> Void)?
+
   /// A link the user activated in the terminal (an OSC 8 hyperlink, or a
   /// plain URL SwiftTerm detected by regex). Routed to JS rather than opened
   /// here — see `requestOpenLink` below.
@@ -148,7 +189,11 @@ final class PassthroughView: NSView {
   /// `true` when this overlay's window became key, `false` when it resigned.
   @objc public var onFocus: ((Bool) -> Void)?
 
-  private let terminalView: TerminalView
+  /// Terminal bell (BEL / `\a`). The host flashes the tile, matching what
+  /// xterm.js's `onBell` drives on the web engine.
+  @objc public var onBell: (() -> Void)?
+
+  private let terminalView: DropAwareTerminalView
   private var window: NSWindow?
   /// The parent to (re-)attach to. Tracked separately from `window.parent`
   /// because hiding detaches the child, and both setFrame's coordinate
@@ -189,9 +234,13 @@ final class PassthroughView: NSView {
   private var frameObservers: [NSObjectProtocol] = []
 
   @objc public init(width: CGFloat, height: CGFloat) {
-    terminalView = TerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    terminalView = DropAwareTerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    terminalView.registerForDraggedTypes([.fileURL])
     super.init()
     terminalView.terminalDelegate = self
+    terminalView.onDropPaths = { [weak self] paths in
+      self?.onDropPaths?(paths as NSArray)
+    }
     hideScroller()
     // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
     // highlighted while Command is held, and only Command-click opens it.
@@ -574,6 +623,18 @@ final class PassthroughView: NSView {
     dimView = v
   }
 
+  /// Gives this overlay keyboard focus.
+  ///
+  /// The xterm path focuses its textarea when a notification is clicked or a
+  /// minimized tile is restored (useTerminal's requestFocusToken / autoFocus).
+  /// A native tile had no equivalent, so both silently did nothing — the tile
+  /// came to the front with the cursor still in whatever was focused before.
+  @objc public func focusTerminal() {
+    guard let w = window, !hiddenByHost, !clippedOut else { return }
+    w.makeKeyAndOrderFront(nil)
+    w.makeFirstResponder(terminalView)
+  }
+
   @objc public func show() {
     hiddenByHost = false
     guard let w = window else { return }
@@ -715,7 +776,9 @@ final class PassthroughView: NSView {
   public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
   public func clipboardCopy(source: TerminalView, content: Data) {}
   public func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
-  public func bell(source: TerminalView) {}
+  public func bell(source: TerminalView) {
+    onBell?()
+  }
 }
 
 /// Own hex <-> color helpers for `setTheme`, deliberately independent of
