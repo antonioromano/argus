@@ -78,6 +78,17 @@ interface TerminalShellProps {
   suspendResize?: boolean;
   /** Render a transparent hole for a native terminal overlay instead of mounting xterm.js. Phase 1, Focus view only. */
   useNative?: boolean;
+  /**
+   * Whether the tile is currently dimmed by `.argus-tile-overlay`.
+   *
+   * A native overlay is a child NSWindow: the DOM scrim renders behind it and
+   * cannot dim it, so it paints an equivalent scrim inside its own window and
+   * needs to know exactly when. It cannot infer it — `focused` is the
+   * TERMINAL's focus, while the tile dims on `!isFocused || !windowFocused`,
+   * so the whole app losing focus dimmed every tile and left the overlay
+   * bright. Mosaic passes its own condition; callers that never dim omit it.
+   */
+  dimmed?: boolean;
 }
 
 /**
@@ -88,7 +99,7 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, theme, searchOpen = false, focused } = props;
+  const { session, theme, searchOpen = false, focused, dimmed } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
@@ -120,6 +131,10 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
       .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme));
   }, [session.id, theme, attachGeneration]);
 
+  // `dimmed` when the caller tracks it (Mosaic), otherwise fall back to the
+  // terminal's own focus — which is all the Focus view has.
+  const isDimmed = dimmed ?? focused === false;
+
   // The xterm path dims an unfocused tile with a DOM element inside its own
   // container (`.argus-tile-overlay`). A native tile cannot: a child NSWindow
   // paints above the web contents, so that element would be invisible. Drive
@@ -130,8 +145,8 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // overlay exists would be lost.
   useEffect(() => {
     (window as Window & { electronNativeTerminal?: NativeDimBridge })
-      .electronNativeTerminal?.setDimmed?.(session.id, focused === false, theme === 'dark');
-  }, [session.id, focused, theme, attachGeneration]);
+      .electronNativeTerminal?.setDimmed?.(session.id, isDimmed, theme === 'dark');
+  }, [session.id, isDimmed, theme, attachGeneration]);
 
   // mod+f for a native tile toggles SwiftTerm's OWN find bar
   // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the
