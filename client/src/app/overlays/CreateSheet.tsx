@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
-import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
+import { Play, Check, GitBranch, ChevronDown, Folder, X, AlertTriangle } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
@@ -16,6 +16,8 @@ import {
   AlertSheet,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
+import { EngineChoice } from '../ui/EngineChoice.js';
+import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
 
 interface CreateSheetProps {
   config: AppConfig | null;
@@ -739,29 +741,23 @@ export function CreateSheet({
           </div>
         </Field>
 
-        <Field label="Terminal engine" hint="native is macOS-only, and falls back to Web everywhere else — including a mac where the native addon fails to load">
-          <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
-            {([['web', 'Web'], ['native', 'Native (macOS)']] as const).map(([val, label]) => (
-              <button
-                key={val}
-                type="button"
-                onClick={() => setTerminalEngine(val)}
-                style={{
-                  all: 'unset',
-                  cursor: 'pointer',
-                  padding: '6px var(--s-3)',
-                  background: terminalEngine === val ? 'var(--accent-bg)' : 'var(--bg-1)',
-                  border: `1px solid ${terminalEngine === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                  borderRadius: 'var(--r-2)',
-                  fontSize: 'var(--t-sm)',
-                  color: terminalEngine === val ? 'var(--accent)' : 'var(--fg-1)',
-                  textAlign: 'center',
-                  boxSizing: 'border-box',
-                }}
-              >
-                {label}
-              </button>
-            ))}
+        <Field label="Terminal engine">
+          <EngineChoice value={terminalEngine} onChange={setTerminalEngine} />
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 'var(--s-2)',
+              padding: '9px 11px',
+              borderRadius: 'var(--r-2)',
+              background: 'var(--warn-bg)',
+              border: '1px solid color-mix(in srgb, var(--warn) 44%, transparent)',
+              fontSize: 'var(--t-xs)',
+              lineHeight: 1.5,
+            }}
+          >
+            <AlertTriangle size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{ENGINE_NOTE_CREATE}</span>
           </div>
         </Field>
 

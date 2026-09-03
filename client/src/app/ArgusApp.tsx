@@ -949,6 +949,7 @@ function DesktopInner() {
             status={updateStatus}
             progress={updateProgress}
             failure={updateFailure}
+            sessions={sessions}
             onResetState={resetUpdateState}
             onClose={app.closeOverlay}
           />

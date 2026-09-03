@@ -399,7 +399,7 @@ let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 let getExitSessionsOnQuit: (() => boolean) | null = null;
 let getConfirmExitOnQuit: (() => boolean) | null = null;
 let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
-let getActiveSessionSummaries: (() => { name: string; status: string }[]) | null = null;
+let getActiveSessionSummaries: (() => { name: string; status: string; terminalEngine?: string }[]) | null = null;
 
 // Window-registry entry points, captured from the in-process server in main().
 interface WindowRegistryStateLike {
@@ -1105,7 +1105,7 @@ async function main() {
   getExitSessionsOnQuit = server.getExitSessionsOnQuit as () => boolean;
   getConfirmExitOnQuit = server.getConfirmExitOnQuit as () => boolean;
   setConfirmExitOnQuit = server.setConfirmExitOnQuit as (v: boolean) => Promise<void>;
-  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string }[];
+  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string; terminalEngine?: string }[];
 
   hostCreateWindowFn = server.hostCreateWindow as () => Promise<void>;
   hostDeleteWindowFn = server.hostDeleteWindow as (id: string) => Promise<void>;
@@ -1311,13 +1311,21 @@ app.on('before-quit', (e) => {
     const sessions = getActiveSessionSummaries?.() ?? [];
     if (sessions.length === 0) { proceed(); return; }
 
-    const names = sessions.slice(0, 10).map((s) => `• ${s.name}`).join('\n');
+    // Engine is labelled per shell so the list matches what the Create sheet and
+    // Settings call them. It does NOT change the outcome — stop-all terminates
+    // every shell regardless of how it was drawn — so the label is
+    // identification, not a warning.
+    const label = (s: { name: string; terminalEngine?: string }) =>
+      s.terminalEngine === 'native' ? `• ${s.name}  (Advanced)` : `• ${s.name}`;
+    const names = sessions.slice(0, 10).map(label).join('\n');
     const extra = sessions.length > 10 ? `\n…and ${sessions.length - 10} more` : '';
     const opts = {
       type: 'warning' as const,
       title: 'Exit all sessions?',
-      message: `Quitting will stop ${sessions.length} Claude session${sessions.length === 1 ? '' : 's'}.`,
-      detail: `These sessions will be terminated and cannot be resumed:\n\n${names}${extra}`,
+      message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
+      detail:
+        `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
+        + 'Turn off "Exit sessions on quit" in Settings → General to keep them running instead.',
       buttons: ['Cancel', 'Exit all sessions'],
       defaultId: 1,
       cancelId: 0,

@@ -128,13 +128,14 @@ export async function setConfirmExitOnQuit(value: boolean): Promise<void> {
   applyConfig(updated);
   await configStore.save(updated);
 }
-// Name + status for every live (non-exited) session — used to populate the
-// "exit all sessions" confirmation dialog.
-export function getActiveSessionSummaries(): { name: string; status: string }[] {
+// Name, status and engine for every live (non-exited) session — used to
+// populate the "exit all sessions" confirmation dialog, which labels each one
+// so it is clear what is about to be stopped.
+export function getActiveSessionSummaries(): { name: string; status: string; terminalEngine?: string }[] {
   return sessionManager
     .getAllSessions()
     .filter((s) => s.status !== 'exited')
-    .map((s) => ({ name: s.name, status: s.status }));
+    .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine }));
 }
 const agentRegistry = new AgentRegistry();
 
