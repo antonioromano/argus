@@ -103,6 +103,36 @@ export interface AppConfig {
   defaultTerminalEngine?: TerminalEngine;
 }
 
+/** Every AppConfig key with its shipped default. The single source of truth for
+ *  both the server store (a partial file is merged over this) and the settings
+ *  UI, which diffs live config against it to mark modified values. */
+export const DEFAULT_CONFIG: AppConfig = {
+  defaultAgent: 'claude',
+  customAgents: [],
+  agentFlags: {},
+  notificationsEnabled: false,
+  notifyOnWaiting: true,
+  notifyOnDone: false,
+  notificationSound: false,
+  showClock: false,
+  clockShowSeconds: false,
+  othersFolderName: 'Others',
+  preventSleepWhileRunning: false,
+  confirmCloseShell: true,
+  exitSessionsOnQuit: false,
+  confirmExitOnQuit: true,
+  keyboardShortcuts: {},
+  uiFontSize: 14,
+  codeFontSize: 13,
+  mosaicWaitingStyle: 'breathing',
+  debugToolsEnabled: false,
+  ptyBackend: 'auto',
+  tileQuickAction: 'diff',
+  tileRunningIndicator: 'hairline',
+  quickActionPromptedAt: '',
+  defaultTerminalEngine: 'web',
+};
+
 export interface AgentStatus {
   agent: AgentDefinition;
   installed: boolean;

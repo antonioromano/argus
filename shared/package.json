@@ -2,6 +2,7 @@
   "name": "@argus/shared",
   "version": "0.23.0",
   "private": true,
+  "type": "module",
   "main": "src/types.ts",
   "types": "src/types.ts",
   "scripts": {

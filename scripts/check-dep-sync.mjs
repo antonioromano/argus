@@ -13,7 +13,8 @@
 // at RUNTIME: the asar ships `shared/dist/` at a path no bare specifier can
 // resolve (there is no `node_modules/@argus/shared` inside it), so `import type`
 // erases fine while a value import kills the app at launch. Check 2 enforces
-// that, and check 3 keeps the constants duplicated across the boundary in sync.
+// that, and check 3 keeps the values duplicated across the boundary in sync —
+// scalars (SESSION_NAME_MAX) and object literals (DEFAULT_CONFIG) alike.
 //
 // Run: `npm run check:deps` (wired into CI and package:mac).
 
@@ -93,7 +94,7 @@ if (offenders.length > 0) {
 console.log(`✔ dep-sync: ${PACKAGED_TREES.join(' + ')} import no workspace package at runtime`);
 
 // ---------------------------------------------------------------------------
-// Check 3: constants duplicated across the server/shared boundary agree.
+// Check 3: values duplicated across the server/shared boundary agree.
 // ---------------------------------------------------------------------------
 
 /** Read `export const NAME = <number | 'string'>` out of a TS source file. */
@@ -124,3 +125,84 @@ if (drifted.length > 0) {
 }
 
 console.log(`✔ dep-sync: ${DUPLICATED_CONSTS.length} cross-boundary constant(s) in sync`);
+
+/**
+ * Read `export const NAME[: Type] = { … }` out of a TS source file and return
+ * its top-level entries as sorted `key: value` strings.
+ *
+ * Braces are balanced rather than regex-matched so a nested object or array
+ * value cannot end the literal early, and entries are split at depth 0 for the
+ * same reason. Sorted, so a re-ordered copy is not reported as drift — only a
+ * key or a value actually differing is.
+ */
+function objectEntries(file, name) {
+  const src = readFileSync(path.join(repoRoot, file), 'utf8');
+  const start = src.search(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{`));
+  if (start === -1) return null;
+
+  const open = src.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) { end = i; break; }
+  }
+  if (end === -1) return null;
+
+  const body = src.slice(open + 1, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')   // block comments
+    .replace(/\/\/[^\n]*/g, '');          // line comments
+
+  const entries = [];
+  let buf = '';
+  depth = 0;
+  for (const ch of body) {
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) { entries.push(buf); buf = ''; continue; }
+    buf += ch;
+  }
+  entries.push(buf);
+
+  return entries
+    .map((e) => e.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .sort();
+}
+
+const DUPLICATED_OBJECTS = [
+  { name: 'DEFAULT_CONFIG', shared: 'shared/src/types.ts', server: 'server/src/persistence/ConfigStore.ts' },
+];
+
+const objectDrift = [];
+for (const o of DUPLICATED_OBJECTS) {
+  const a = objectEntries(o.shared, o.name);
+  const b = objectEntries(o.server, o.name);
+  if (!a || !b) {
+    objectDrift.push(`${o.name}: not found in ${!a ? o.shared : o.server}`);
+    continue;
+  }
+  const onlyShared = a.filter((e) => !b.includes(e));
+  const onlyServer = b.filter((e) => !a.includes(e));
+  if (onlyShared.length > 0 || onlyServer.length > 0) {
+    objectDrift.push(
+      `${o.name}:\n` +
+        onlyShared.map((e) => `        only in ${o.shared}:  ${e}`).join('\n') +
+        (onlyShared.length && onlyServer.length ? '\n' : '') +
+        onlyServer.map((e) => `        only in ${o.server}:  ${e}`).join('\n'),
+    );
+  }
+}
+
+if (objectDrift.length > 0) {
+  console.error('✖ dep-sync: object duplicated across the server/shared boundary has drifted:');
+  for (const d of objectDrift) console.error(`    ${d}`);
+  console.error(
+    '\n  The server keeps its own DEFAULT_CONFIG literal because server code may not\n' +
+      '  import a value from @argus/shared; the renderer diffs live config against the\n' +
+      '  shared copy to mark modified settings. Edit both, or Settings mismarks values.',
+  );
+  process.exit(1);
+}
+
+console.log(`✔ dep-sync: ${DUPLICATED_OBJECTS.length} cross-boundary object(s) in sync`);

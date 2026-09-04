@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X, AlertTriangle } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -18,6 +18,7 @@ import {
 import { api } from '../../services/api.js';
 import { EngineChoice } from '../ui/EngineChoice.js';
 import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
+import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
 interface CreateSheetProps {
   config: AppConfig | null;
@@ -52,12 +53,6 @@ function relativeTime(ms: number): string {
   if (diff < 604_800_000) return `${Math.floor(diff / 86_400_000)}d ago`;
   return `${Math.floor(diff / 604_800_000)}w ago`;
 }
-
-const BUILTIN_AGENTS: AgentDefinition[] = [
-  { id: 'claude', name: 'Claude Code', command: 'claude', builtin: true },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
-  { id: 'codex',  name: 'Codex',  command: 'codex',  builtin: true },
-];
 
 export function CreateSheet({
   config,

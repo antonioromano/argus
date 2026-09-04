@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
 import { Copy, Check, GitBranch, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { Toggle } from '../../components/primitives/index.js';
@@ -16,12 +16,7 @@ import {
 } from '../../components/primitives/index.js';
 import { EngineChoice } from '../ui/EngineChoice.js';
 import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
-
-const BUILTIN: AgentDefinition[] = [
-  { id: 'claude', name: 'Claude Code', command: 'claude', builtin: true },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
-  { id: 'codex', name: 'Codex', command: 'codex', builtin: true },
-];
+import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
 interface CloneSheetProps {
   config: AppConfig | null;
@@ -68,7 +63,7 @@ export function CloneSheet({
   const [initialBranch] = useState(branchName);
   const submitRef = useRef<() => void>(() => {});
 
-  const agents = config ? [...BUILTIN, ...config.customAgents] : BUILTIN;
+  const agents = config ? [...BUILTIN_AGENTS, ...config.customAgents] : BUILTIN_AGENTS;
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
 
