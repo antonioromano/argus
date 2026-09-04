@@ -115,3 +115,94 @@ test('a session that never goes quiet still leaves the reseed window', async () 
     'output must reach clients again after the cap',
   );
 });
+
+// ---------------------------------------------------------------------------
+// Reseed must not cost the user their scrollback.
+//
+// The reseed used to open by wiping the mirror, on the theory that the ring
+// replay would rebuild it. It does not: the agent repaints its UI in place, so
+// replaying a 2MB byte tail into an EMPTY screen yields about one screen of
+// rows — those same cursor moves originally landed on a screen that had already
+// scrolled, and that state is gone. A session idle at reseed time then never
+// refills, and sits shallow for the rest of its life (observed: 128 rows).
+//
+// So the mirror is kept and the overlap is removed afterwards instead, the same
+// trade the width-change dedup makes: no confident match means no action, so the
+// worst case is a visible duplicate, never missing history.
+// ---------------------------------------------------------------------------
+
+/** Feed n numbered lines wide enough to clear MIN_DEDUP_CHARS when matched. */
+async function feedLines(f: Fixture, prefix: string, n: number): Promise<void> {
+  for (let i = 0; i < n; i++) f.feed(`${prefix} line ${i} ${'-'.repeat(40)}\r\n`);
+  await f.session.mirror.afterWrite();
+}
+
+test('a reseed keeps the scrollback it had instead of wiping it', async () => {
+  const f = fixture('r6');
+  await feedLines(f, 'history', 40);
+  const before = f.session.mirror.totalRows();
+  assert.ok(before > 30, 'fixture should have real history to lose');
+
+  f.sm.beginResync('r6');
+  f.feed('current screen\r\n');
+  await sleep(400);
+  await f.session.mirror.afterWrite();
+
+  assert.ok(
+    f.session.mirror.totalRows() >= before,
+    `reseed destroyed scrollback: ${before} rows before, ${f.session.mirror.totalRows()} after`,
+  );
+  const rows = f.session.mirror.readRows(0, f.session.mirror.totalRows()).join('\n');
+  assert.ok(rows.includes('history line 0'), 'the oldest pre-reseed row must survive');
+});
+
+test('a reseed drops the tail the replay reprints, so history is not doubled', async () => {
+  const f = fixture('r7');
+  await feedLines(f, 'history', 30);
+  const before = f.session.mirror.totalRows();
+
+  // The ring replay reprints the transcript it already sent, then the live tail.
+  f.sm.beginResync('r7');
+  await feedLines(f, 'history', 30);
+  f.feed(`fresh output ${'-'.repeat(40)}\r\n`);
+  await sleep(400);
+  await f.session.mirror.afterWrite();
+
+  const total = f.session.mirror.totalRows();
+  assert.ok(
+    total < before + 25,
+    `the reprinted copy was kept: ${before} rows before, ${total} after a 30-line reprint`,
+  );
+  const rows = f.session.mirror.readRows(0, total).join('\n');
+  assert.ok(rows.includes('history line 0'), 'history itself must remain');
+  assert.ok(rows.includes('fresh output'), 'output after the reprint must remain');
+});
+
+test('a reseed with nothing matching removes nothing at all', async () => {
+  const f = fixture('r8');
+  await feedLines(f, 'history', 30);
+  const before = f.session.mirror.totalRows();
+
+  f.sm.beginResync('r8');
+  f.feed(`unrelated screen ${'-'.repeat(40)}\r\n`);
+  await sleep(400);
+  await f.session.mirror.afterWrite();
+
+  const rows = f.session.mirror.readRows(0, f.session.mirror.totalRows()).join('\n');
+  assert.ok(rows.includes('history line 0'), 'no match must mean no deletion');
+  assert.ok(rows.includes('history line 29'), 'including the rows nearest the boundary');
+  assert.ok(f.session.mirror.totalRows() > before, 'and the new screen is still appended');
+});
+
+test('a reseed still ends with exactly one frame after deduping', async () => {
+  const f = fixture('r9');
+  await feedLines(f, 'history', 30);
+
+  f.sm.beginResync('r9');
+  await feedLines(f, 'history', 30);
+  await sleep(400);
+
+  const replays = f.emits.filter((e) => e.event === 'session:replay');
+  assert.equal(replays.length, 1, 'the dedup must not add a second frame');
+  assert.equal(replays[0]!.payload.reason, 'refresh');
+});

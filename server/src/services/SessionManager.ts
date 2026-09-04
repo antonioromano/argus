@@ -106,6 +106,12 @@ interface ManagedSession {
    */
   trimBoundary?: number;
   /**
+   * Row count the mirror held when a reseed started — the line between the
+   * history we already had and the backend's replay of it. Consumed by
+   * finishResync to delete whatever the replay reprints.
+   */
+  resyncBoundary?: number;
+  /**
    * True when the user has sent input (or created/restarted the session) since it
    * was last idle. Gates done-promotion: prevents internal terminal refreshes from
    * producing a spurious idle→running→done cycle.
@@ -1266,13 +1272,26 @@ export class SessionManager {
    * replayed one, and clients must not receive the replay as *new* output —
    * that would paste the whole transcript a second time into their terminals.
    *
-   * So: wipe the mirror, withhold client emission, and once the burst goes
-   * quiet send one authoritative frame instead.
+   * The second is handled by withholding emission and closing with one
+   * authoritative frame. The first used to be handled by wiping the mirror
+   * here, which was a bad trade: the replay does NOT rebuild what the wipe
+   * destroyed. The agent repaints its UI in place, so replaying the daemon's
+   * byte tail into an empty screen yields roughly one screen of rows — those
+   * cursor moves originally landed on a screen that had already scrolled, and
+   * that state is gone with the wipe. A session idle at reseed time never
+   * refilled and stayed shallow for life (observed: 128 rows).
+   *
+   * So the mirror is kept and the overlap is removed afterwards instead
+   * (finishResync), the same trade the width-change dedup makes: no confident
+   * match means no action, so the worst case is a duplicate screen the user can
+   * see, never history that silently went missing.
    */
   beginResync(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
-    // Anything buffered belongs to the pre-drop stream the replay supersedes.
+    // Buffered bytes are already in the mirror (StateDetector.feed writes it);
+    // dropping them here only keeps clients from being sent output that the
+    // closing frame covers anyway.
     session.pendingOutput = '';
     if (session.flushTimer) {
       clearTimeout(session.flushTimer);
@@ -1281,7 +1300,20 @@ export class SessionManager {
     session.outputBuffer = '';
     session.resyncing = true;
     session.resyncDeadline = Date.now() + SessionManager.RESYNC_MAX_MS;
-    void session.mirror?.reset();
+    // Everything up to here is pre-drop history; the replay appends after it.
+    //
+    // Minus the last row, which the replay will overwrite: it is a byte stream
+    // landing wherever the cursor is, so the row under the cursor gets
+    // repainted and belongs to the replay. Counting it as history splits the
+    // duplicate across the boundary, and then no suffix of the history matches
+    // a prefix of the replay — the dedup finds nothing and both copies stay.
+    // Erring low is the safe direction: it moves at most one row out of the
+    // deletable range, and nothing after the boundary is ever deleted.
+    //
+    // Read synchronously, as the resize boundary is: a queued write landing
+    // after this can only shift the boundary by a row or two, and a boundary
+    // that is slightly off makes the dedup match less, never delete more.
+    session.resyncBoundary = Math.max(0, (session.mirror?.totalRows() ?? 0) - 1);
     this.armResyncSettle(session);
   }
 
@@ -1308,7 +1340,24 @@ export class SessionManager {
     if (!session.resyncing) return;
     session.resyncing = false;
     session.resyncDeadline = undefined;
-    void this.broadcastResyncFrame(session.id);
+    // Chained on the trim queue so a reseed dedup and a width-change dedup can
+    // never interleave their rebuild+broadcast pairs.
+    this.chainTrim(session, () => this.finishResync(session.id));
+  }
+
+  /**
+   * Close a reseed: delete the history the replay reprinted, then send the one
+   * frame the withheld clients have been waiting for. The frame goes out
+   * whether or not anything was deduped — clients received nothing during the
+   * window, so it is their only way back to a correct screen.
+   */
+  private async finishResync(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    const boundary = session.resyncBoundary;
+    session.resyncBoundary = undefined;
+    if (boundary !== undefined) await this.dedupeAtBoundary(session, boundary);
+    await this.broadcastResyncFrame(id);
   }
 
   private async broadcastResyncFrame(id: string): Promise<void> {
@@ -1420,35 +1469,55 @@ export class SessionManager {
    */
   private async dedupeScrollback(id: string): Promise<void> {
     const session = this.sessions.get(id);
-    const mirror = session?.mirror;
     const boundary = session?.trimBoundary;
-    if (!session || !mirror || boundary === undefined) return;
+    if (!session || boundary === undefined) return;
     session.trimBoundary = undefined;
 
+    if (!(await this.dedupeAtBoundary(session, boundary))) return;
+    const frame = this.getReplaySnapshot(id);
+    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
+    // rather than have its viewport yanked to the bottom.
+    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+  }
+
+  /**
+   * Delete the rows after `boundary` that merely reprint the rows before it, and
+   * nothing else. Shared by the two situations that produce such a reprint: a
+   * width change (the agent redraws its transcript for the new columns) and a
+   * backend reseed (the daemon replays its ring). Both used to answer the
+   * duplicate with an all-or-nothing purge of the scrollback; both now match the
+   * duplicate instead, so when nothing matches confidently nothing is removed
+   * and the worst outcome is a visible duplicate rather than lost history.
+   *
+   * Returns whether it actually rebuilt the mirror, leaving the caller to decide
+   * how to tell clients (the resize path broadcasts only on a change; a reseed
+   * owes its clients a frame either way).
+   */
+  private async dedupeAtBoundary(session: ManagedSession, boundary: number): Promise<boolean> {
+    const mirror = session.mirror;
+    if (!mirror) return false;
+
     // Pending bytes are part of the repaint we are measuring.
-    this.flushOutput(id);
+    this.flushOutput(session.id);
     await mirror.afterWrite();
 
     // Saturated scrollback evicts its oldest row on every scroll, so `boundary`
     // no longer points at the content it was taken from. Guessing here could
     // delete live output; skipping only leaves the duplicate visible.
-    if (mirror.scrollbackFull()) return;
+    if (mirror.scrollbackFull()) return false;
 
     const total = mirror.totalRows();
-    if (boundary >= total) return; // the agent printed nothing after the resize
+    if (boundary >= total) return false; // nothing was printed after the boundary
 
     const range = findStaleRowRange(
       mirror.readRows(0, boundary),
       mirror.readRows(boundary, total),
       MIN_DEDUP_CHARS,
     );
-    if (!range) return;
+    if (!range) return false;
 
     await mirror.rebuildWithout(range.start, range.end);
-    const frame = this.getReplaySnapshot(id);
-    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
-    // rather than have its viewport yanked to the bottom.
-    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+    return true;
   }
 
   /**
