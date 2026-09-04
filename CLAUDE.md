@@ -18,19 +18,31 @@ npm run dev
 # Package a signed macOS .dmg
 npm run package:mac
 
-# Build all workspaces (shared → server → client → electron)
+# THE local gate — run this before committing. Everything CI checks, in one command.
+npm run verify      # lint → build:all (incl. check:deps) → test
+
+# Build all workspaces (check:deps → shared → server → client → electron)
 npm run build:all
+
+# Packaging guard on its own (runs inside build:all; see Key Details)
+npm run check:deps
 
 # Lint (client only)
 npm run lint -w client
 
 # Test (server uses node:test, client uses Vitest)
-npm test            # runs server + client
+npm test            # runs server + client + electron
 npm test -w server
 npm test -w client
 ```
 
-CI (`.github/workflows/ci.yml`) runs `lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
+**`npm run verify` is the pre-commit gate.** Lint + build + test alone are *not* sufficient: the packaging
+invariants (root-dep bundling, no runtime `@argus/*` imports, cross-boundary constants in sync) live in
+`check:deps`, and violating one produces green tests and a **DMG that crashes at launch** — that is how
+v0.21.0, v0.21.1 and v0.22.5 shipped broken. `check:deps` now runs first inside `build:all`, so `npm run dev`
+catches it too.
+
+CI (`.github/workflows/ci.yml`) runs `check:deps → lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
 
 The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) still exists for fast hot-reload iteration on UI changes, but Electron is the only supported client surface. The browser `<header>` and `window.confirm` fallback have been removed.
 
