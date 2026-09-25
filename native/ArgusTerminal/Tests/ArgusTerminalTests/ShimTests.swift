@@ -578,6 +578,21 @@ final class ShimTests: XCTestCase {
               ansiHex: ["#000000", "#ffffff"])
     XCTAssertEqual(c.debugBackgroundColor().argusHexString(), "#0f0f0f")
   }
+
+  /// tmux runs with `mouse on`, so every session's stream (and replay seed)
+  /// enables mouse reporting on the outer terminal. The xterm path swallows
+  /// those modes so a plain drag selects text and the wheel scrolls history;
+  /// the native view must do the same, or selection and scrollback are lost.
+  func testMouseReportingIsOffSoDragSelectsAndWheelScrolls() {
+    let c = OverlayController(width: 800, height: 480)
+    XCTAssertFalse(c.debugAllowsMouseReporting())
+  }
+
+  func testReportingStaysOffAfterTheStreamEnablesMouseModes() {
+    let c = OverlayController(width: 800, height: 480)
+    c.feed(data: Data("\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1006h".utf8) as NSData)
+    XCTAssertFalse(c.debugAllowsMouseReporting())
+  }
 }
 
 private extension NSColor {

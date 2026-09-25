@@ -249,6 +249,16 @@ final class DropAwareTerminalView: TerminalView {
     // about the same transcript. `.hover` matches xterm: underline on hover,
     // open on click.
     terminalView.linkHighlightMode = .hover
+    // tmux runs with `mouse on`, which enables mouse reporting (1000/1002/1006)
+    // on the outer terminal for EVERY session — measured on tmux 3.6b even for
+    // a bare `sh` — and the replay seed re-emits those modes. SwiftTerm honours
+    // them by default, so a plain drag became a mouse report instead of a
+    // selection and the wheel never reached SwiftTerm's own scrollback. The
+    // xterm path swallows the same modes (terminalMouse.ts) for exactly this
+    // reason; this is the native equivalent. Wheel forwarding to mouse apps is
+    // not reproduced: xterm only forwards on the alternate screen, which the
+    // outer terminal never enters with tmux's smcup stripped.
+    terminalView.allowMouseReporting = false
   }
 
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
@@ -506,6 +516,7 @@ final class DropAwareTerminalView: TerminalView {
   public func debugAlpha() -> CGFloat { window?.alphaValue ?? -1 }
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
+  public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
   public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
   public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }
   /// Moves the window the way an external window manager would, then runs the
