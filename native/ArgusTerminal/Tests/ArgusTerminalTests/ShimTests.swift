@@ -302,9 +302,9 @@ final class ShimTests: XCTestCase {
     XCTAssertTrue(c.debugAccessibilityParent() as AnyObject? === parent.contentView)
   }
 
-  /// Keyboard focus is how SwiftTerm receives input, so hiding from the AX API
-  /// must not have cost that.
-  func testHidingFromAccessibilityKeepsKeyEligibility() {
+  /// Keyboard focus is how SwiftTerm receives input, so presenting the
+  /// overlay to the AX API as a group rather than a window must not cost that.
+  func testTheAccessibilityGroupKeepsKeyEligibility() {
     let c = OverlayController(width: 200, height: 100)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)

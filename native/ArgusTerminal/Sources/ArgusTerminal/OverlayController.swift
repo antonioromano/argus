@@ -334,10 +334,11 @@ final class DropAwareTerminalView: TerminalView {
     hiddenByHost = true
     parent.addChildWindow(w, ordered: .above)
     window = w
-    // Undo any frame change this class did not make. A window manager can
-    // move or resize the overlay directly (see accessibilityRole above for
-    // why it is reachable at all); the hole in the web contents has not
-    // moved, so the only correct response is to put it back.
+    // Undo any frame change this class did not make. The overlay presents to
+    // the AX API as a group, not a window, but a window manager can still
+    // reach it through the key window and move or resize it directly; the
+    // hole in the web contents has not moved, so the only correct response
+    // is to put it back.
     frameObservers = [
       NotificationCenter.default.addObserver(
         forName: NSWindow.didMoveNotification, object: w, queue: .main
