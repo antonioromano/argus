@@ -528,6 +528,18 @@ final class DropAwareTerminalView: TerminalView {
     }
   }
 
+  /// Runs on the overlay's own didMove/didResize. Two branches:
+  ///  - the parent's content rect differs from the one the last setFrame
+  ///    converted against (the parent moved or resized): re-derive the frame
+  ///    from the cached viewport rect against where the parent is now;
+  ///  - otherwise, if the window is not at the frame setFrame applied (a window
+  ///    manager moved it), put it back.
+  /// Neither loops. The frame this triggers fires didMove/didResize again, but
+  /// `applyingFrame` is set around every setFrame this class makes, so that
+  /// re-entry returns at the guard; and setFrame records `lastParentContent`
+  /// before calling `win.setFrame`, so even a notification delivered after the
+  /// flag clears sees the parent unchanged and falls to the second branch,
+  /// where the window already matches `appliedFrame`.
   private func restoreAppliedFrameIfMovedExternally() {
     guard let w = window as? KeyableWindow, !w.applyingFrame else { return }
     // The parent moved (drag, window manager, display change): re-derive from

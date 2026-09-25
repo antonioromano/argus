@@ -88,7 +88,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: native/ArgusTerminal/.build
-          key: spm-${{ runner.os }}-${{ hashFiles('native/ArgusTerminal/Package.resolved') }}
+          key: spm-${{ runner.os }}-${{ env.ImageVersion }}-${{ hashFiles('native/ArgusTerminal/Package.resolved') }}
 
       - name: Install dependencies
         run: npm ci
