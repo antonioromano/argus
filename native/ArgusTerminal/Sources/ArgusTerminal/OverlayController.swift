@@ -24,7 +24,8 @@ final class KeyableWindow: NSWindow {
   var onKeyChange: ((Bool) -> Void)?
 
   override func sendEvent(_ event: NSEvent) {
-    if event.type == .keyDown, KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
+    if event.type == .keyDown, KeyableWindow.isShiftReturn(event),
+       !(isComposingText?() ?? false), let handler = onShiftEnter {
       handler()
       return
     }
@@ -70,6 +71,11 @@ final class KeyableWindow: NSWindow {
   /// SwiftTerm's keyDown is `public`, not `open`, so it cannot be overridden
   /// from outside the module. sendEvent sees the event before any view.
   var onShiftEnter: (() -> Void)?
+
+  /// True while the input method holds uncommitted (marked) text. Shift+Return
+  /// then belongs to the IME — it confirms the composition — so it must not be
+  /// translated to ESC CR.
+  var isComposingText: (() -> Bool)?
 
   var appliedFrame: NSRect?
   /// Set while the controller itself is calling setFrame, so its own change is
@@ -259,6 +265,9 @@ final class DropAwareTerminalView: TerminalView {
     // not reproduced: xterm only forwards on the alternate screen, which the
     // outer terminal never enters with tmux's smcup stripped.
     terminalView.allowMouseReporting = false
+    // Option must type the characters non-US layouts put on it (@ # [ ] { }
+    // on Italian). xterm runs with macOptionIsMeta: false; match it.
+    terminalView.optionAsMetaKey = false
   }
 
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
@@ -302,6 +311,7 @@ final class DropAwareTerminalView: TerminalView {
     w.onShiftEnter = { [weak self] in
       self?.onInput?(Data([0x1b, 0x0d]) as NSData)
     }
+    w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
     // Start HIDDEN. addChildWindow on a visible parent orders the child in at
     // once, so without this every overlay is on screen from the moment it is
     // created — at its 800x480 construction size, at the default origin. The
@@ -363,6 +373,15 @@ final class DropAwareTerminalView: TerminalView {
     terminalView.feed(byteArray: bytes[...])
   }
 
+  /// The grid SwiftTerm has computed for the view's current size. Updated
+  /// synchronously by `setFrame` (the frame setter recomputes cols/rows), so
+  /// the host can read it straight after applying a frame — `onResize` only
+  /// reaches JS later, through a thread-safe-function hop. The host uses it to
+  /// size the pty before rendering the replay seed, so the seed is serialized
+  /// for the width it is about to be parsed at.
+  @objc public var gridCols: Int { terminalView.getTerminal().cols }
+  @objc public var gridRows: Int { terminalView.getTerminal().rows }
+
   /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
   /// transparent "hole", exactly as `useNativeOverlayRect.ts` measures them
   /// with `getBoundingClientRect()`:
@@ -403,15 +422,6 @@ final class DropAwareTerminalView: TerminalView {
   /// leaves nothing to convert against; `x`/`y` are used as-is so the
   /// terminal grid still resizes correctly (`terminalView.frame` below,
   /// which drives `sizeChanged`/`onResize`) even before a window exists.
-  /// The grid SwiftTerm has computed for the view's current size. Updated
-  /// synchronously by `setFrame` (the frame setter recomputes cols/rows), so
-  /// the host can read it straight after applying a frame — `onResize` only
-  /// reaches JS later, through a thread-safe-function hop. The host uses it to
-  /// size the pty before rendering the replay seed, so the seed is serialized
-  /// for the width it is about to be parsed at.
-  @objc public var gridCols: Int { terminalView.getTerminal().cols }
-  @objc public var gridRows: Int { terminalView.getTerminal().rows }
-
   @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
     let w = max(1, width)
     let h = max(1, height)
@@ -517,6 +527,11 @@ final class DropAwareTerminalView: TerminalView {
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
   public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
+  public func debugOptionAsMeta() -> Bool { terminalView.optionAsMetaKey }
+  public func debugSetMarkedText(_ text: String) {
+    terminalView.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+  }
   public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
   public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }
   /// Moves the window the way an external window manager would, then runs the
@@ -794,6 +809,9 @@ final class DropAwareTerminalView: TerminalView {
   public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
   public func scrolled(source: TerminalView, position: Double) {}
   public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+  /// OSC 52 clipboard writes are ignored on purpose. The xterm path has no
+  /// clipboard addon either, so terminal output cannot overwrite the user's
+  /// clipboard in either engine; copying is a local selection + ⌘C.
   public func clipboardCopy(source: TerminalView, content: Data) {}
   public func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
   public func bell(source: TerminalView) {

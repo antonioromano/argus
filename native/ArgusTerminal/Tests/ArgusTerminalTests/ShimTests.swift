@@ -593,6 +593,45 @@ final class ShimTests: XCTestCase {
     c.feed(data: Data("\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1006h".utf8) as NSData)
     XCTAssertFalse(c.debugAllowsMouseReporting())
   }
+
+  /// On non-US layouts Option types real characters (Italian: @ = ⌥ò,
+  /// # = ⌥à, [ ] = ⌥è ⌥+). As Meta, SwiftTerm sent ESC + letter instead, which
+  /// broke Claude's @file mentions. xterm runs with macOptionIsMeta: false.
+  func testOptionTypesCharactersInsteadOfActingAsMeta() {
+    let c = OverlayController(width: 800, height: 480)
+    XCTAssertFalse(c.debugOptionAsMeta())
+  }
+
+  /// Shift+Enter confirms an IME composition (Japanese, Chinese). Translating
+  /// it to ESC CR mid-composition would throw the composition away.
+  func testShiftEnterDuringCompositionIsLeftToTheInputMethod() {
+    let c = OverlayController(width: 400, height: 240)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    c.debugSetMarkedText("にほ")
+
+    c.debugSendKey(keyCode: 36, flags: .shift)
+
+    XCTAssertFalse(sent.contains(Data([0x1b, 0x0d])), "no ESC CR while composing")
+  }
+
+  func testShiftEnterWithoutCompositionStillSendsEscCr() {
+    let c = OverlayController(width: 400, height: 240)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+
+    c.debugSendKey(keyCode: 36, flags: .shift)
+
+    XCTAssertEqual(sent, [Data([0x1b, 0x0d])])
+  }
 }
 
 private extension NSColor {
