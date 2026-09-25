@@ -206,3 +206,62 @@ test('a reseed still ends with exactly one frame after deduping', async () => {
   assert.equal(replays.length, 1, 'the dedup must not add a second frame');
   assert.equal(replays[0]!.payload.reason, 'refresh');
 });
+
+// The native overlay host follows onOutput, and a reseed withholds exactly that
+// stream. The closing frame is the only delivery of what arrived meanwhile, so
+// in-process viewers must receive it too, not just the socket room.
+test('the frame that closes a reseed also reaches in-process replay subscribers', async () => {
+  const f = fixture('r-sub');
+  const frames: Array<[string, string]> = [];
+  f.sm.onReplay((id, data) => frames.push([id, data]));
+
+  f.sm.beginResync('r-sub');
+  f.feed('arrived during the reseed\r\n');
+  await sleep(400);
+
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0]![0], 'r-sub');
+  assert.match(frames[0]![1], /arrived during the reseed/);
+});
+
+test('a throwing replay subscriber does not stop the socket frame', async () => {
+  const f = fixture('r-throw');
+  f.sm.onReplay(() => { throw new Error('boom'); });
+
+  f.sm.beginResync('r-throw');
+  f.feed('x\r\n');
+  await sleep(400);
+
+  assert.equal(f.emits.filter((e) => e.event === 'session:replay').length, 1);
+});
+
+test('a width change mid-reseed drops the reseed boundary rather than trusting a reflowed index', () => {
+  const f = fixture('r-width');
+  f.session.cols = 80;
+  f.session.rows = 24;
+  f.session.pty = { resize: () => {} };
+  f.session.stateDetector = { resize: () => {}, feed: () => {}, msSinceLastFeed: () => 10_000 };
+
+  f.sm.beginResync('r-width');
+  assert.notEqual(f.session.resyncBoundary, undefined);
+  f.sm.resizeSession('r-width', 60, 24);
+
+  assert.equal(f.session.resyncBoundary, undefined);
+  clearTimeout(f.session.trimTimer);
+  clearTimeout(f.session.resyncSettleTimer);
+});
+
+test('a dedup moves the other pending boundary with the rows it pointed at', () => {
+  const f = fixture('r-shift');
+  const shift = (f.sm as any).shiftBoundariesAfterRemoval.bind(f.sm);
+
+  f.session.resyncBoundary = 50;   // after the deleted range
+  f.session.trimBoundary = 12;     // inside it
+  shift(f.session, 10, 20);
+  assert.equal(f.session.resyncBoundary, 40);
+  assert.equal(f.session.trimBoundary, 10);
+
+  f.session.resyncBoundary = 5;    // before it
+  shift(f.session, 10, 20);
+  assert.equal(f.session.resyncBoundary, 5);
+});

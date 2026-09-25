@@ -387,6 +387,15 @@ function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
   });
 }
 
+/** Sends to the window that hosts this session's native overlay, if any. */
+function sendToNativeTermWindow(sessionId: string, channel: string, payload: unknown): void {
+  const winId = sessionToWindowId.get(sessionId);
+  if (winId === undefined) return;
+  const win = BrowserWindow.fromId(winId);
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send(channel, payload);
+}
+
 function untrackNativeTermSession(sessionId: string): void {
   const winId = sessionToWindowId.get(sessionId);
   if (winId === undefined) return;
@@ -494,6 +503,11 @@ function sendMenuEvent(channel: string): void {
 // window (see menuAcceleratorGating.ts). Keyed on the BrowserWindow itself —
 // a WeakMap needs no explicit cleanup when a window closes.
 const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
+// Sessions whose native overlay window is currently key. While one is, the
+// keystrokes go to that overlay, not to Monaco, so the editor-focus belief
+// must not keep the colliding accelerators disabled: Monaco reports no blur
+// when a child NSWindow takes key status, so that belief would stay true.
+const nativeKeySessions = new Set<string>();
 
 // Re-derive and apply enabled/disabled for the four Monaco-colliding menu
 // items from whichever window is resolved the same way sendMenuEvent resolves
@@ -504,7 +518,9 @@ const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
 // window sent anything new.
 function applyMenuAcceleratorGating(): void {
   const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
-  const editorFocused = win ? editorFocusByWindow.get(win) : undefined;
+  const editorFocused = nativeKeySessions.size > 0
+    ? false
+    : win ? editorFocusByWindow.get(win) : undefined;
   const enabled = shouldCollidingAcceleratorsBeEnabled(editorFocused);
   const menu = Menu.getApplicationMenu();
   for (const channel of COLLIDING_MENU_CHANNELS) {
@@ -744,6 +760,9 @@ async function main() {
   nativeTerminal = new NativeTerminalHost({
     addon: loadNativeTerminalAddon(),
     onOutput: (cb: (sessionId: string, data: string) => void) => sm.onOutput(cb),
+    onReplay: (cb: (sessionId: string, data: string) => void) => sm.onReplay(cb),
+    flushOutput: (id: string) => sm.flushOutput(id),
+    setViewing: (id: string, viewing: boolean) => sm.setNativeViewer(id, viewing),
     writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
     resizeSession: (id: string, c: number, r: number) => sm.resizeSession(id, c, r),
     getReplaySnapshot: (id: string) => sm.getReplaySnapshot(id),
@@ -752,26 +771,14 @@ async function main() {
     // their own focused tile, and broadcasting would let one window's click
     // steal the other's focus state.
     openExternal: (url: string) => openExternalAllowlisted(url),
-    notifyBell: (id: string) => {
-      const winId = sessionToWindowId.get(id);
-      if (winId === undefined) return;
-      const win = BrowserWindow.fromId(winId);
-      if (!win || win.isDestroyed()) return;
-      win.webContents.send('native-term:bell', { sessionId: id });
-    },
-    notifyDropPaths: (id: string, paths: string[]) => {
-      const winId = sessionToWindowId.get(id);
-      if (winId === undefined) return;
-      const win = BrowserWindow.fromId(winId);
-      if (!win || win.isDestroyed()) return;
-      win.webContents.send('native-term:drop-paths', { sessionId: id, paths });
-    },
+    notifyBell: (id: string) => sendToNativeTermWindow(id, 'native-term:bell', { sessionId: id }),
+    notifyDropPaths: (id: string, paths: string[]) =>
+      sendToNativeTermWindow(id, 'native-term:drop-paths', { sessionId: id, paths }),
     notifyFocus: (id: string, focused: boolean) => {
-      const winId = sessionToWindowId.get(id);
-      if (winId === undefined) return;
-      const win = BrowserWindow.fromId(winId);
-      if (!win || win.isDestroyed()) return;
-      win.webContents.send('native-term:focus', { sessionId: id, focused });
+      if (focused) nativeKeySessions.add(id);
+      else nativeKeySessions.delete(id);
+      applyMenuAcceleratorGating();
+      sendToNativeTermWindow(id, 'native-term:focus', { sessionId: id, focused });
     },
   });
 
@@ -803,8 +810,12 @@ async function main() {
     if (ok) trackNativeTermAttach(sessionId, win);
     return ok;
   });
-  ipcMain.on('native-term:rect', (_e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
-    nativeTerminal!.setRect(sessionId, rect);
+  // Scoped to the requesting window like detach below: when a session moves
+  // windows, the tile it left collapses before it unmounts, and its 0x0 report
+  // would otherwise hide the overlay the new window now owns.
+  ipcMain.on('native-term:rect', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setRect(sessionId, rect, win?.getNativeWindowHandle());
   });
   // Renderer-initiated detach must be scoped to the window making the
   // request: a session can move to a new window (attach's reparent branch),
@@ -823,39 +834,47 @@ async function main() {
   });
   ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
 
-  // Find bar / clear-scrollback — not window-scoped like detach/hide/show:
-  // these are ordinary control actions on an already-attached overlay, not
-  // lifecycle transitions that move ownership between windows, so there is
-  // nothing for a stale requesting window to race against (setRect above is
-  // unscoped for the same reason). open/close take no search term — the
-  // renderer only toggles SwiftTerm's own find bar (see task-6's reversal;
-  // NativeTerminalHost.openFindBar's doc comment), so both are fire-and-forget
-  // like clear-scrollback rather than the old search handler's request/reply.
-  ipcMain.on('native-term:open-find-bar', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.openFindBar(sessionId);
+  // Find bar / focus — window-scoped too: the tile a session left behind in
+  // its old window closes the find bar on unmount, and must not close the one
+  // the new window has open. open/close take no search term — the renderer
+  // only toggles SwiftTerm's own find bar (see NativeTerminalHost.openFindBar),
+  // so both are fire-and-forget.
+  ipcMain.on('native-term:open-find-bar', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.openFindBar(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:close-find-bar', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.closeFindBar(sessionId);
+  ipcMain.on('native-term:close-find-bar', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.closeFindBar(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:focus', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.focusOverlay(sessionId);
+  ipcMain.on('native-term:focus', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.focusOverlay(sessionId, win?.getNativeWindowHandle());
+  });
+  // A layout divider drag holds back the overlay's pty resizes (the xterm
+  // path's suspendResize), so only the size the drag ends at reaches the agent.
+  ipcMain.on('native-term:set-resize-suspended', (e, { sessionId, suspended }: { sessionId: string; suspended: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setResizeSuspended(sessionId, suspended === true, win?.getNativeWindowHandle());
   });
 
   ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.clearScrollback(sessionId);
   });
 
-  // Theme apply — not window-scoped, same reasoning as find-bar/clear-scrollback
-  // above: a plain control action on an already-attached overlay, fired by the
+  // Theme apply — not window-scoped: every window applies the same theme, so a
+  // stale window's call is indistinguishable from the owner's. Fired by the
   // renderer both right after a successful attach and on every light/dark
-  // toggle (TerminalShellNativeHole), so it's fire-and-forget like those.
+  // toggle (TerminalShellNativeHole).
   ipcMain.on('native-term:set-theme', (_e, { sessionId, theme }: { sessionId: string; theme: Theme }) => {
     nativeTerminal!.setTheme(sessionId, theme);
   });
 
-  // Unfocused-tile scrim. Same fire-and-forget shape as set-theme above.
-  ipcMain.on('native-term:set-dimmed', (_e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
-    nativeTerminal!.setDimmed(sessionId, dimmed, isDark);
+  // Unfocused-tile scrim. Window-scoped: dimming depends on which window the
+  // tile is focused in, so a stale window's opinion must not win.
+  ipcMain.on('native-term:set-dimmed', (e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setDimmed(sessionId, dimmed, isDark, win?.getNativeWindowHandle());
   });
 
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
@@ -1301,7 +1320,7 @@ app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
 
-  // "Quit & Stop All" (explicit menu item) sets the flag; the General setting
+  // "Quit & Stop All" (explicit menu item) sets the flag; the Confirmations setting
   // makes plain Cmd+Q terminate everything too. Either one means stop-all.
   const explicitStopAll = getStopAllOnQuit();
   const settingStopAll = getExitSessionsOnQuit?.() ?? false;
@@ -1355,7 +1374,7 @@ app.on('before-quit', (e) => {
       message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
       detail:
         `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
-        + 'Turn off "Exit sessions on quit" in Settings → General to keep them running instead.',
+        + 'Turn off "Exit sessions on quit" in Settings → Confirmations to keep them running instead.',
       buttons: ['Cancel', 'Exit all sessions'],
       defaultId: 1,
       cancelId: 0,

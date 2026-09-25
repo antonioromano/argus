@@ -113,6 +113,9 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   focusTerminal: (sessionId: string): void => {
     ipcRenderer.send('native-term:focus', { sessionId });
   },
+  setResizeSuspended: (sessionId: string, suspended: boolean): void => {
+    ipcRenderer.send('native-term:set-resize-suspended', { sessionId, suspended });
+  },
   clearScrollback: (sessionId: string): void => {
     ipcRenderer.send('native-term:clear-scrollback', { sessionId });
   },

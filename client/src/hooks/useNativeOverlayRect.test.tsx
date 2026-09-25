@@ -258,6 +258,49 @@ describe('useNativeOverlayRect — reported geometry', () => {
     act(() => root.unmount());
   });
 
+  it('the same rect coming back after the hole was hidden is reported again, so the overlay re-shows', async () => {
+    // Cmd+E maximizes the workbench: the tile goes display:none and measures
+    // 0x0, which main answers by hiding the overlay. Closing the workbench puts
+    // the tile back at exactly the rect it had — deduping that against the
+    // last usable rect left the overlay hidden for good.
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+    act(() => FakeResizeObserver.instances[0].trigger());
+    const shown = { x: 10, y: 20, width: 300, height: 150 };
+    expect(api.setRect).toHaveBeenLastCalledWith('s1', shown);
+
+    currentRect = { x: 0, y: 0, width: 0, height: 0 };
+    act(() => FakeResizeObserver.instances[0].trigger());
+    expect(api.setRect).toHaveBeenLastCalledWith('s1', { x: 0, y: 0, width: 0, height: 0 });
+
+    api.setRect.mockClear();
+    currentRect = { x: 10, y: 20, width: 300, height: 150 };
+    act(() => FakeResizeObserver.instances[0].trigger());
+    expect(api.setRect).toHaveBeenCalledWith('s1', shown);
+    act(() => root.unmount());
+  });
+
+  it('motion ending on an element outside the hole\'s ancestry is not measured', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const sibling = document.createElement('button');
+    document.body.appendChild(sibling);
+    const root = createRoot(c);
+    await act(async () => { root.render(<Probe enabled />); });
+    act(() => FakeResizeObserver.instances[0].trigger());
+    api.setRect.mockClear();
+
+    // Even if the hole had moved, an unrelated hover transition cannot be why.
+    currentRect = { x: 400, y: 20, width: 300, height: 200 };
+    act(() => { sibling.dispatchEvent(new Event('transitionend', { bubbles: true })); });
+
+    expect(api.setRect).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    sibling.remove();
+  });
+
   it('an animation that moved nothing costs no IPC', async () => {
     const c = document.createElement('div');
     document.body.appendChild(c);

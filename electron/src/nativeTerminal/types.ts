@@ -27,6 +27,10 @@ export interface NativeTerminalAddon {
   hide(id: number): void;
   destroy(id: number): void;
   feed(id: number, data: Buffer): void;
+  /** The grid the overlay's last setFrame produced, read synchronously
+   *  (onResize reports the same numbers, but asynchronously). Undefined for an
+   *  unknown id. */
+  gridSize(id: number): { cols: number; rows: number } | undefined;
   clearScrollback(id: number): void;
   focusOverlay(id: number): void;
   openFindBar(id: number): void;
@@ -42,6 +46,26 @@ export interface NativeTerminalAddon {
 export interface HostDeps {
   addon: NativeTerminalAddon | null;   // null => unavailable, fall back to web
   onOutput(cb: (sessionId: string, data: string) => void): () => void;
+  /**
+   * Full replacement frames — the ones a socket room receives as an
+   * unsolicited `session:replay` (the end of a backend reseed, a width-change
+   * dedup, a scrollback purge). Each one supersedes what the view shows, and
+   * a reseed's frame also carries output that was withheld from `onOutput`
+   * while it ran, so a view that only listens to `onOutput` drifts.
+   */
+  onReplay(cb: (sessionId: string, data: string) => void): () => void;
+  /**
+   * Emit the session's coalesced pending output now. Must run before a replay
+   * snapshot is taken for a new viewer: pending bytes are already in the
+   * mirror, so a later flush would deliver them a second time.
+   */
+  flushOutput(id: string): void;
+  /**
+   * Reports whether a native overlay is watching this session. A native view
+   * never joins a socket room, so without this the server's idle-geometry
+   * gate treats a natively viewed session as unwatched and shrinks its pty.
+   */
+  setViewing(id: string, viewing: boolean): void;
   writeToSession(id: string, data: string): void;
   resizeSession(id: string, cols: number, rows: number): void;
   /**

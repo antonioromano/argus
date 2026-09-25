@@ -116,10 +116,12 @@ export function useNativeOverlayRect(
       // coordinates it last had.
       //
       // So report it as what it is — the hole is gone — and let main hide the
-      // overlay until a real rect comes back. `lastRectKey` is deliberately
-      // NOT updated: the next usable rect must be sent even if it equals the
-      // last one we applied, since the overlay needs re-showing.
+      // overlay until a real rect comes back. `lastRectKey` is cleared: the
+      // next usable rect must be sent even if it equals the last one applied,
+      // since that is what re-shows the overlay (closing a maximized
+      // workbench restores the tile to exactly where it was).
       if (rect.width < 40 || rect.height < 40) {
+        lastRectKey.current = '';
         api.setRect(sessionId, rect);
         return;
       }
@@ -139,6 +141,13 @@ export function useNativeOverlayRect(
     let io: IntersectionObserver | null = null;
 
     let ro: ResizeObserver | null = null;
+    // Only motion on the hole itself or one of its ancestors can move it.
+    // Every native tile listens at the document, and each report() forces a
+    // layout read, so an unrelated button's hover transition must not cost
+    // every tile a measurement.
+    const onAncestorMotionEnd = (e: Event) => {
+      if (e.target instanceof Node && e.target.contains(el)) report();
+    };
     const initialRect = measure();
     void api.attach(sessionId, initialRect).then((ok) => {
       // The effect may have already been cleaned up (unmount, or `enabled`
@@ -177,9 +186,9 @@ export function useNativeOverlayRect(
       // Both events bubble, so listening at the document covers every
       // ancestor; report() dedupes, so a finished animation that moved
       // nothing costs no IPC.
-      document.addEventListener('animationend', report, true);
-      document.addEventListener('animationcancel', report, true);
-      document.addEventListener('transitionend', report, true);
+      document.addEventListener('animationend', onAncestorMotionEnd, true);
+      document.addEventListener('animationcancel', onAncestorMotionEnd, true);
+      document.addEventListener('transitionend', onAncestorMotionEnd, true);
     });
 
     return () => {
@@ -188,9 +197,9 @@ export function useNativeOverlayRect(
       io?.disconnect();
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
-      document.removeEventListener('animationend', report, true);
-      document.removeEventListener('animationcancel', report, true);
-      document.removeEventListener('transitionend', report, true);
+      document.removeEventListener('animationend', onAncestorMotionEnd, true);
+      document.removeEventListener('animationcancel', onAncestorMotionEnd, true);
+      document.removeEventListener('transitionend', onAncestorMotionEnd, true);
       api.detach(sessionId);
       unregisterOverlay(sessionId);
     };

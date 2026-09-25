@@ -14,6 +14,8 @@ function fakeAddon() {
   let bellCb: ((id: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
+  // What gridSize() reports — the grid the last setFrame produced.
+  let grid: { cols: number; rows: number } | undefined = { cols: 100, rows: 30 };
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: () => {
@@ -43,6 +45,10 @@ function fakeAddon() {
       calls.push(`feed:${id}:${d.toString()}`);
       if (failNext.feed) { failNext.feed = false; throw new Error('feed failed'); }
     },
+    gridSize: (id) => {
+      calls.push(`gridSize:${id}`);
+      return grid;
+    },
     clearScrollback: (id) => calls.push(`clear:${id}`),
     focusOverlay: (id) => calls.push(`focusOverlay:${id}`),
     openFindBar: (id) => {
@@ -57,7 +63,7 @@ function fakeAddon() {
     onDropPaths: (cb) => { dropCb = cb; },
     onBell: (cb) => { bellCb = cb; },
   };
-  return { addon, calls, failNext, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
+  return { addon, calls, failNext, setGrid: (g: typeof grid) => { grid = g; }, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
            fireFocus: (i: number, f: boolean) => focusCb!(i, f),
            fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
@@ -72,20 +78,28 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
   const opened: string[] = [];
   const dropped: Array<[string, string[]]> = [];
   const bells: string[] = [];
+  const order: string[] = [];
+  const viewing: Array<[string, boolean]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
+  let emitReplay: ((id: string, data: string) => void) | undefined;
   const host = new NativeTerminalHost({
     addon: addonOrNull,
     onOutput: (cb) => { emit = cb; return () => { emit = undefined; }; },
+    onReplay: (cb) => { emitReplay = cb; return () => { emitReplay = undefined; }; },
+    flushOutput: (id) => order.push(`flush:${id}`),
+    setViewing: (id, v) => viewing.push([id, v]),
     writeToSession: (id, d) => wrote.push([id, d]),
-    resizeSession: (id, c, r) => resized.push([id, c, r]),
+    resizeSession: (id, c, r) => { resized.push([id, c, r]); order.push(`resize:${id}:${c}x${r}`); },
     notifyFocus: (id, f) => focused.push([id, f]),
     openExternal: (u) => opened.push(u),
     notifyDropPaths: (id, paths) => dropped.push([id, paths]),
     notifyBell: (id) => bells.push(id),
-    getReplaySnapshot: () => ({ data: 'REPLAY' }),
+    getReplaySnapshot: (id) => { order.push(`snapshot:${id}`); return { data: 'REPLAY' }; },
     ...overrides,
   });
-  return { host, wrote, resized, focused, opened, dropped, bells, emitOutput: (id: string, d: string) => emit?.(id, d) };
+  return { host, wrote, resized, focused, opened, dropped, bells, order, viewing,
+           emitOutput: (id: string, d: string) => emit?.(id, d),
+           emitReplay: (id: string, d: string) => emitReplay?.(id, d) };
 }
 
 const HANDLE = Buffer.alloc(8);
@@ -147,6 +161,7 @@ test('native resize drives the pty — native is the resize authority', () => {
   const { addon, fireResize } = fakeAddon();
   const { host, resized } = harness(addon);
   host.attach('s1', HANDLE, RECT);
+  resized.length = 0;   // the attach seed sizes the pty first (tested below)
   fireResize(1, 120, 40);
   assert.deepEqual(resized, [['s1', 120, 40]]);
 });
@@ -984,4 +999,117 @@ test('a bell on an unknown overlay id is ignored', () => {
   fireBell(99);
 
   assert.deepEqual(bells, []);
+});
+
+// ── Review fixes: seed timing, replay frames, focus, resize suspension ──
+
+test('the seed sizes the pty to the overlay grid, flushes, then snapshots — in that order', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, order } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1']);
+  // The frame is applied before the seed is fed, so SwiftTerm parses the seed
+  // at the width it was serialized for, and the seed lands before show.
+  const frame = calls.indexOf('setFrame:1:10,20,300,200');
+  const feed = calls.indexOf('feed:1:REPLAY');
+  const show = calls.indexOf('show:1');
+  assert.ok(frame >= 0 && frame < feed && feed < show, calls.join(','));
+});
+
+test('output flushed while seeding is not fed a second time', () => {
+  const { addon, calls } = fakeAddon();
+  let emit: ((id: string, d: string) => void) | undefined;
+  const { host } = harness(addon, {
+    onOutput: (cb) => { emit = cb; return () => {}; },
+    // The flush delivers pending bytes that the snapshot also contains.
+    flushOutput: (id) => emit?.(id, 'PENDING'),
+  });
+  host.attach('s1', HANDLE, RECT);
+  assert.ok(!calls.includes('feed:1:PENDING'), calls.join(','));
+  emit?.('s1', 'LIVE');
+  assert.ok(calls.includes('feed:1:LIVE'));
+});
+
+test('an overlay attached with no usable hole is not seeded until it gets one', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, emitOutput } = harness(addon);
+  host.attach('s1', HANDLE, { x: 0, y: 0, width: 0, height: 0 });
+  emitOutput('s1', 'EARLY');
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+  host.setRect('s1', RECT);
+  assert.ok(calls.includes('feed:1:REPLAY'));
+});
+
+test('replacement frames reach a seeded overlay', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, emitReplay } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  emitReplay('s1', 'FRAME');
+  assert.ok(calls.includes('feed:1:FRAME'));
+});
+
+test('attach and detach report the native viewer to the server', () => {
+  const { addon } = fakeAddon();
+  const { host, viewing } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.attach('s1', HANDLE, RECT);   // a re-attach is not a second viewer
+  host.detach('s1');
+  assert.deepEqual(viewing, [['s1', true], ['s1', false]]);
+});
+
+test('detaching an overlay that holds key focus reports the focus lost', () => {
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireFocus(1, true);
+  host.detach('s1');
+  assert.deepEqual(focused, [['s1', true], ['s1', false]]);
+});
+
+test('detaching an unfocused overlay reports nothing', () => {
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireFocus(1, true);
+  fireFocus(1, false);
+  host.detach('s1');
+  assert.deepEqual(focused, [['s1', true], ['s1', false]]);
+});
+
+test('resizes are held while suspended and only the last one is applied on release', () => {
+  const { addon, fireResize } = fakeAddon();
+  const { host, resized } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  resized.length = 0;
+  host.setResizeSuspended('s1', true);
+  fireResize(1, 90, 30);
+  fireResize(1, 80, 30);
+  assert.deepEqual(resized, []);
+  host.setResizeSuspended('s1', false);
+  assert.deepEqual(resized, [['s1', 80, 30]]);
+});
+
+test('releasing a suspension with no resize in between applies nothing', () => {
+  const { addon } = fakeAddon();
+  const { host, resized } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  resized.length = 0;
+  host.setResizeSuspended('s1', true);
+  host.setResizeSuspended('s1', false);
+  assert.deepEqual(resized, []);
+});
+
+test('a rect from a window that is no longer the parent is ignored', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT);
+  host.attach('s1', winB, RECT);   // moved to window B
+  calls.length = 0;
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 }, winA);   // A's tile collapsing
+  host.closeFindBar('s1', winA);
+  assert.equal(calls.length, 0, calls.join(','));
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 }, winB);
+  assert.ok(calls.includes('hide:1'));
 });

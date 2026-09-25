@@ -393,6 +393,15 @@ final class DropAwareTerminalView: TerminalView {
   /// leaves nothing to convert against; `x`/`y` are used as-is so the
   /// terminal grid still resizes correctly (`terminalView.frame` below,
   /// which drives `sizeChanged`/`onResize`) even before a window exists.
+  /// The grid SwiftTerm has computed for the view's current size. Updated
+  /// synchronously by `setFrame` (the frame setter recomputes cols/rows), so
+  /// the host can read it straight after applying a frame — `onResize` only
+  /// reaches JS later, through a thread-safe-function hop. The host uses it to
+  /// size the pty before rendering the replay seed, so the seed is serialized
+  /// for the width it is about to be parsed at.
+  @objc public var gridCols: Int { terminalView.getTerminal().cols }
+  @objc public var gridRows: Int { terminalView.getTerminal().rows }
+
   @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
     let w = max(1, width)
     let h = max(1, height)

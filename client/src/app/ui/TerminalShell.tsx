@@ -47,6 +47,12 @@ interface NativeFocusRequestBridge {
   focusTerminal?(sessionId: string): void;
 }
 
+/** The slice of the native-terminal preload bridge that holds back an
+ *  overlay's pty resizes during a divider drag. */
+interface NativeResizeSuspendBridge {
+  setResizeSuspended?(sessionId: string, suspended: boolean): void;
+}
+
 interface NativeDimBridge {
   setDimmed?(sessionId: string, dimmed: boolean, isDark: boolean): void;
 }
@@ -120,7 +126,7 @@ interface TerminalShellProps {
  * its teardown, depending on render order.
  */
 function TerminalShellNativeHole(props: TerminalShellProps) {
-  const { session, theme, searchOpen = false, focused, dimmed, autoFocus = false, requestFocusToken } = props;
+  const { session, theme, searchOpen = false, focused, dimmed, autoFocus = false, requestFocusToken, suspendResize = false } = props;
   // `useNative` is a global, once-decided flag — but attach() can still fail
   // for one particular session (e.g. the addon returns without a usable
   // window). Falling back to xterm.js here, rather than leaving a permanently
@@ -178,11 +184,26 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // attachGeneration is a dependency for the same reason the theme effect
   // needs it — on first mount this can run before the overlay exists, and the
   // bump re-fires it once it does, which is what makes autoFocus work at all.
+  //
+  // A token of 0 is "never requested" — Mosaic and Focus pass a counter that
+  // starts there — so only a positive token asks for focus, as in useTerminal.
+  // Treating 0 as a request made every native tile grab key focus on mount.
   useEffect(() => {
-    if (!autoFocus && requestFocusToken === undefined) return;
+    if (!autoFocus && !requestFocusToken) return;
     (window as Window & { electronNativeTerminal?: NativeFocusRequestBridge })
       .electronNativeTerminal?.focusTerminal?.(session.id);
   }, [session.id, autoFocus, requestFocusToken, attachGeneration]);
+
+  // Divider drags: SwiftTerm is the resize authority, so without this every
+  // intermediate width of the drag reached the pty and the agent reprinted its
+  // transcript for each one. Main holds the resizes and applies the last on
+  // release, the same thing useTerminal's suspendResize does for xterm.
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeResizeSuspendBridge }).electronNativeTerminal;
+    if (!suspendResize) return;
+    bridge?.setResizeSuspended?.(session.id, true);
+    return () => bridge?.setResizeSuspended?.(session.id, false);
+  }, [session.id, suspendResize]);
 
   // mod+f for a native tile toggles SwiftTerm's OWN find bar
   // (TerminalFindBarView, embedded as a subview of the SAME NSWindow the

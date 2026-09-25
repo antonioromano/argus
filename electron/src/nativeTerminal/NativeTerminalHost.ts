@@ -79,23 +79,41 @@ export class NativeTerminalHost {
   // is still hidden), and an overlay must not be re-hidden or re-shown for
   // that.
   private readonly shown = new Set<string>();
-  private unsubscribe?: () => void;
+  // Overlays that have received their replay seed. Output is only fed after
+  // the seed: the seed is a full frame that supersedes anything before it,
+  // and it is deferred until the overlay has a real frame (see seed()).
+  private readonly seeded = new Set<string>();
+  // Sessions whose overlay window is currently key, so a detach can report
+  // the focus it takes away (destroy silences onFocus before closing).
+  private readonly focused = new Set<string>();
+  // Divider drags hold back pty resizes, as the xterm path does: SwiftTerm
+  // still reflows locally on every frame, but only the size the drag ends at
+  // reaches the agent. Otherwise every intermediate width makes it reprint
+  // its transcript, and SwiftTerm's scrollback keeps every copy.
+  private readonly resizeSuspended = new Set<string>();
+  private readonly pendingResize = new Map<string, { cols: number; rows: number }>();
+  private readonly unsubscribers: Array<() => void> = [];
 
   constructor(deps: HostDeps) {
     this.deps = deps;
     this.addon = deps.addon;
     if (!this.addon) return;
 
-    this.unsubscribe = deps.onOutput((sessionId, data) => {
+    // Live output and replacement frames reach the view the same way: fed
+    // verbatim. A replacement frame leads with its own clear prefix, so it
+    // needs no special handling here — it only has to arrive at all.
+    const feedLive = (sessionId: string, data: string) => {
       const id = this.bySession.get(sessionId);
       if (id === undefined) return;               // not shown natively — ignore
+      if (!this.seeded.has(sessionId)) return;    // the seed will cover it
       try {
         this.addon!.feed(id, Buffer.from(data, 'utf8'));
       } catch (err) {
         // A failing feed here must not take down SessionManager's flush loop.
         console.error('[native-term] feed failed for', sessionId, err);
       }
-    });
+    };
+    this.unsubscribers.push(deps.onOutput(feedLive), deps.onReplay(feedLive));
 
     this.addon.onInput((id, data) => {
       try {
@@ -111,7 +129,10 @@ export class NativeTerminalHost {
     this.addon.onFocus((id, focused) => {
       try {
         const sessionId = this.byOverlay.get(id);
-        if (sessionId) this.deps.notifyFocus(sessionId, focused);
+        if (!sessionId) return;
+        if (focused) this.focused.add(sessionId);
+        else this.focused.delete(sessionId);
+        this.deps.notifyFocus(sessionId, focused);
       } catch (err) {
         console.error('[native-term] notifyFocus failed for overlay', id, err);
       }
@@ -151,7 +172,12 @@ export class NativeTerminalHost {
     this.addon.onResize((id, cols, rows) => {
       try {
         const sessionId = this.byOverlay.get(id);
-        if (sessionId) this.deps.resizeSession(sessionId, cols, rows);
+        if (!sessionId) return;
+        if (this.resizeSuspended.has(sessionId)) {
+          this.pendingResize.set(sessionId, { cols, rows });
+          return;
+        }
+        this.deps.resizeSession(sessionId, cols, rows);
       } catch (err) {
         console.error('[native-term] resizeSession failed for overlay', id, err);
       }
@@ -184,17 +210,16 @@ export class NativeTerminalHost {
       this.bySession.set(sessionId, id);
       this.byOverlay.set(id, sessionId);
       this.parentBySession.set(sessionId, parentHandle.toString('base64'));
-      // Seed with the same replay frame a joining socket gets, so the native
-      // view opens on the current screen instead of an empty one. Best-effort:
-      // once create() has succeeded the overlay is a real native window, and
-      // losing track of its id here would leak it (the native side has no
-      // double-attach guard to fall back on), so a failure below does not
-      // unregister it — it stays reachable via setRect/show/hide/detach.
+      // The seed is NOT fed here: the overlay is still at its construction
+      // size, so a frame rendered for the session's width would be parsed at
+      // the wrong column count and reflowed into SwiftTerm's scrollback.
+      // applyVisibility seeds once a real frame is applied (see seed()).
+      // A native view never joins the socket room; tell the server it is
+      // being watched so the idle-geometry gate leaves its pty alone.
       try {
-        const snap = this.deps.getReplaySnapshot(sessionId);
-        if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
+        this.deps.setViewing(sessionId, true);
       } catch (err) {
-        console.error('[native-term] replay seed failed for', sessionId, err);
+        console.error('[native-term] setViewing failed for', sessionId, err);
       }
     } else {
       // A session can move between Argus windows; the overlay must follow it.
@@ -255,9 +280,10 @@ export class NativeTerminalHost {
    * the overlay's own window. Same values either way — see
    * OverlayController.setDimmed.
    */
-  setDimmed(sessionId: string, dimmed: boolean, isDark: boolean): void {
+  setDimmed(sessionId: string, dimmed: boolean, isDark: boolean, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon.setDimmed(id, dimmed, isDark);
     } catch (err) {
@@ -270,9 +296,10 @@ export class NativeTerminalHost {
    * focuses its textarea — a notification click, or restoring a minimized
    * tile — which a native tile could not answer at all.
    */
-  focusOverlay(sessionId: string): void {
+  focusOverlay(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon.focusOverlay(id);
     } catch (err) {
@@ -280,9 +307,12 @@ export class NativeTerminalHost {
     }
   }
 
-  setRect(sessionId: string, rect: Rect): void {
+  setRect(sessionId: string, rect: Rect, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    // A session that moved windows leaves a tile collapsing in the old one,
+    // and its 0x0 report would otherwise hide the overlay the new window owns.
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     // An unusable rect is not just a frame to skip — it means the hole is not
     // on screen at all (a tile behind a maximized workbench, a collapsed pane,
     // a tile mid-mount). The overlay is its own NSWindow, so leaving it shown
@@ -360,11 +390,76 @@ export class NativeTerminalHost {
         console.error('[native-term] setFrame failed for', sessionId, err);
       }
     }
+    // Before show, so the overlay never appears empty.
+    this.seed(sessionId, id);
     this.shown.add(sessionId);
     try {
       this.addon.show(id);
     } catch (err) {
       console.error('[native-term] show failed for', sessionId, err);
+    }
+  }
+
+  /**
+   * Feeds the overlay the same replay frame a joining socket gets, once, so
+   * the native view opens on the current screen instead of an empty one.
+   *
+   * Runs after the overlay's first real frame, not at create: the frame is
+   * serialized at the mirror's width, and SwiftTerm parses it at its own. So
+   * the pty (and with it the mirror) is first sized to the grid the frame just
+   * produced — read synchronously, since onResize would only arrive after the
+   * seed. The later onResize then finds the size already applied and is a
+   * no-op server-side.
+   *
+   * Pending output is flushed before the snapshot, as the socket join handler
+   * does: those bytes are already in the mirror, and the flush reaches the
+   * output subscriber while this overlay is still unseeded, so it is dropped
+   * rather than painted twice.
+   *
+   * Best-effort throughout: once create() has succeeded the overlay is a real
+   * native window, and a failure here must not unregister it — it stays
+   * reachable via setRect/show/hide/detach.
+   */
+  private seed(sessionId: string, id: number): void {
+    if (this.seeded.has(sessionId) || !this.addon) return;
+    try {
+      const size = this.addon.gridSize(id);
+      if (size) this.deps.resizeSession(sessionId, size.cols, size.rows);
+    } catch (err) {
+      console.error('[native-term] pre-seed resize failed for', sessionId, err);
+    }
+    try {
+      // Still unseeded here, so the output subscriber drops what this flushes.
+      this.deps.flushOutput(sessionId);
+      const snap = this.deps.getReplaySnapshot(sessionId);
+      if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
+    } catch (err) {
+      console.error('[native-term] replay seed failed for', sessionId, err);
+    } finally {
+      // Marked even on failure: live output on a bad seed beats a blank view.
+      this.seeded.add(sessionId);
+    }
+  }
+
+  /**
+   * Holds back (or releases) this overlay's pty resizes while a layout divider
+   * is dragged. On release the last size SwiftTerm reported is applied once.
+   */
+  setResizeSuspended(sessionId: string, suspended: boolean, parentHandle?: Buffer): void {
+    if (this.bySession.get(sessionId) === undefined) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
+    if (suspended) {
+      this.resizeSuspended.add(sessionId);
+      return;
+    }
+    if (!this.resizeSuspended.delete(sessionId)) return;
+    const pending = this.pendingResize.get(sessionId);
+    this.pendingResize.delete(sessionId);
+    if (!pending) return;
+    try {
+      this.deps.resizeSession(sessionId, pending.cols, pending.rows);
+    } catch (err) {
+      console.error('[native-term] resizeSession failed for', sessionId, err);
     }
   }
 
@@ -397,9 +492,10 @@ export class NativeTerminalHost {
    * or when the addon call throws, matching every other native call's
    * degrade-rather-than-throw contract.
    */
-  openFindBar(sessionId: string): void {
+  openFindBar(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon.openFindBar(id);
     } catch (err) {
@@ -408,9 +504,10 @@ export class NativeTerminalHost {
   }
 
   /** Closes the native find bar and clears its search highlight/selection. */
-  closeFindBar(sessionId: string): void {
+  closeFindBar(sessionId: string, parentHandle?: Buffer): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
     try {
       this.addon.closeFindBar(id);
     } catch (err) {
@@ -490,8 +587,12 @@ export class NativeTerminalHost {
   resyncParent(parentHandle: Buffer): void {
     if (!this.addon) return;
     const parentKey = parentHandle.toString('base64');
-    trace('resyncParent', parentKey.slice(0, 12), 'sessions=',
-      [...this.parentBySession.entries()].filter(([, k]) => k === parentKey).map(([s]) => s.slice(0, 8)));
+    // Guarded at the call site: this runs on every window move event, and the
+    // arguments cost a map walk even when trace() would discard them.
+    if (DEBUG) {
+      trace('resyncParent', parentKey.slice(0, 12), 'sessions=',
+        [...this.parentBySession.entries()].filter(([, k]) => k === parentKey).map(([s]) => s.slice(0, 8)));
+    }
     for (const [sessionId, key] of this.parentBySession) {
       if (key !== parentKey) continue;
       const id = this.bySession.get(sessionId);
@@ -540,6 +641,16 @@ export class NativeTerminalHost {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return true;
     if (!this.isCurrentParent(sessionId, parentHandle)) return false;
+    // destroy() silences onFocus before closing the window, so the resignKey
+    // that follows reaches nobody. Report the lost focus here, or the
+    // renderer keeps believing a native tile holds key focus for good.
+    if (this.focused.delete(sessionId)) {
+      try {
+        this.deps.notifyFocus(sessionId, false);
+      } catch (err) {
+        console.error('[native-term] notifyFocus failed for', sessionId, err);
+      }
+    }
     try {
       this.addon.destroy(id);
     } catch (err) {
@@ -555,11 +666,19 @@ export class NativeTerminalHost {
     this.holeVisible.delete(sessionId);
     this.suppressed.delete(sessionId);
     this.shown.delete(sessionId);
+    this.seeded.delete(sessionId);
+    this.resizeSuspended.delete(sessionId);
+    this.pendingResize.delete(sessionId);
+    try {
+      this.deps.setViewing(sessionId, false);
+    } catch (err) {
+      console.error('[native-term] setViewing failed for', sessionId, err);
+    }
     return true;
   }
 
   dispose(): void {
     for (const sessionId of [...this.bySession.keys()]) this.detach(sessionId);
-    this.unsubscribe?.();
+    for (const unsubscribe of this.unsubscribers) unsubscribe();
   }
 }

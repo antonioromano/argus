@@ -91,3 +91,52 @@ test('applyIdleGeometry is a no-op for an unknown session', () => {
   const sm = new SessionManager(os.tmpdir(), fakeConfig);
   assert.doesNotThrow(() => sm.applyIdleGeometry('nope'));
 });
+
+// A native overlay (Electron main, in-process) never joins the socket room, so
+// the idle-geometry gate has to be told about it — otherwise a session viewed
+// natively reads as unwatched and gets its pty shrunk under the live view.
+test('a natively viewed session is not given the idle geometry', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const calls = withSizedSession(sm, 'sess-native', 100, 14);
+  sm.setNativeViewer('sess-native', true);
+
+  sm.applyIdleGeometry('sess-native');
+
+  assert.deepEqual(calls.pty, [], 'the native view is still at its real height');
+});
+
+test('a native viewer arriving cancels a pending idle resize, and one cannot be scheduled while it watches', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withSizedSession(sm, 'sess-native-2', 100, 14);
+  const gate = (sm as any).idleGeometry;
+  const scheduled: string[] = [];
+  const cancelled: string[] = [];
+  gate.schedule = (id: string) => scheduled.push(id);
+  gate.cancel = (id: string) => cancelled.push(id);
+
+  sm.setNativeViewer('sess-native-2', true);
+  sm.scheduleIdleGeometry('sess-native-2');
+
+  assert.deepEqual(cancelled, ['sess-native-2']);
+  assert.deepEqual(scheduled, []);
+});
+
+test('the last native viewer leaving an empty room arms the idle resize; a room with sockets does not', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withSizedSession(sm, 'sess-empty', 100, 14);
+  withSizedSession(sm, 'sess-busy', 100, 14);
+  const rooms = new Map([['sess-busy', new Set(['socket-1'])]]);
+  (sm as any).io = { sockets: { adapter: { rooms } } };
+  const gate = (sm as any).idleGeometry;
+  const scheduled: string[] = [];
+  gate.schedule = (id: string) => scheduled.push(id);
+  gate.cancel = () => {};
+
+  sm.setNativeViewer('sess-empty', true);
+  sm.setNativeViewer('sess-busy', true);
+  sm.setNativeViewer('sess-empty', false);
+  sm.setNativeViewer('sess-busy', false);
+  sm.setNativeViewer('sess-empty', false);   // a repeat is not a second departure
+
+  assert.deepEqual(scheduled, ['sess-empty']);
+});

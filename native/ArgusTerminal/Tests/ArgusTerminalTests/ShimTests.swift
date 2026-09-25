@@ -18,6 +18,18 @@ final class ShimTests: XCTestCase {
     XCTAssertLessThan(reported!.0, 98)   // narrower than the 800px grid
   }
 
+  /// The host reads the grid straight after setFrame to size the replay seed,
+  /// so it must already match what onResize reports — no deferral.
+  func testGridSizeIsCurrentImmediatelyAfterSetFrame() {
+    let c = OverlayController(width: 800, height: 480)
+    var reported: (Int, Int)?
+    c.onResize = { cols, rows in reported = (cols, rows) }
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    XCTAssertNotNil(reported)
+    XCTAssertEqual(c.gridCols, reported!.0)
+    XCTAssertEqual(c.gridRows, reported!.1)
+  }
+
   func testUserInputReachesTheCallback() {
     let c = OverlayController(width: 800, height: 480)
     var got = Data()

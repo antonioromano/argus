@@ -1,0 +1,76 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- window/global test shims for the electron bridge + React act environment */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { TerminalShell } from './TerminalShell.js';
+import type { SessionInfo } from '@argus/shared';
+import type { Socket } from 'socket.io-client';
+
+const api = {
+  available: vi.fn().mockResolvedValue(true),
+  attach: vi.fn().mockResolvedValue(true),
+  setRect: vi.fn(),
+  detach: vi.fn(),
+  closeFindBar: vi.fn(),
+  setTheme: vi.fn(),
+  focusTerminal: vi.fn(),
+  setResizeSuspended: vi.fn(),
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.attach.mockResolvedValue(true);
+  (window as any).electronNativeTerminal = api;
+  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+const session = { id: 's1', status: 'idle' } as unknown as SessionInfo;
+const socket = {} as Socket<any, any>;
+
+function mount() {
+  const c = document.createElement('div');
+  document.body.appendChild(c);
+  return createRoot(c);
+}
+
+describe('TerminalShellNativeHole — focus requests', () => {
+  // Mosaic and Focus pass a counter that starts at 0. Treating 0 as a request
+  // made every native tile take key focus on mount (and again once attached),
+  // stealing it from whatever the user was typing in.
+  it('a token of 0 is not a focus request', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative requestFocusToken={0} />); });
+    expect(api.focusTerminal).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
+  it('a bumped token focuses the overlay', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative requestFocusToken={0} />); });
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative requestFocusToken={1} />); });
+    expect(api.focusTerminal).toHaveBeenCalledWith('s1');
+    await act(async () => root.unmount());
+  });
+
+  it('autoFocus still focuses on mount', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative autoFocus requestFocusToken={0} />); });
+    expect(api.focusTerminal).toHaveBeenCalledWith('s1');
+    await act(async () => root.unmount());
+  });
+});
+
+describe('TerminalShellNativeHole — divider drags', () => {
+  it('holds the overlay\'s pty resizes for the duration of a drag', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative />); });
+    expect(api.setResizeSuspended).not.toHaveBeenCalled();
+
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative suspendResize />); });
+    expect(api.setResizeSuspended).toHaveBeenLastCalledWith('s1', true);
+
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative suspendResize={false} />); });
+    expect(api.setResizeSuspended).toHaveBeenLastCalledWith('s1', false);
+    await act(async () => root.unmount());
+  });
+});

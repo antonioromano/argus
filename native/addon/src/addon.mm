@@ -309,11 +309,26 @@ Napi::Value CloseFindBar(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+// Synchronous read of the grid the last setFrame produced. onResize carries
+// the same numbers, but only after a thread-safe-function hop back to the JS
+// loop — too late for the host, which needs them to size the replay seed.
+Napi::Value GridSize(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  OverlayController* c = Lookup(info, nullptr);
+  if (!c) return env.Undefined();
+  Napi::Object size = Napi::Object::New(env);
+  size.Set("cols", Napi::Number::New(env, static_cast<double>(c.gridCols)));
+  size.Set("rows", Napi::Number::New(env, static_cast<double>(c.gridRows)));
+  return size;
+}
+
 Napi::Value Destroy(const Napi::CallbackInfo& info) {
   uint32_t id = 0;
   OverlayController* c = Lookup(info, &id);
   if (c) {
-    // Drop the callbacks first: nothing should reach JS for a dead id.
+    // Drop the callbacks first: nothing should reach JS for a dead id. The
+    // host reports the lost key focus itself (NativeTerminalHost.detach), so
+    // silencing onFocus here cannot strand the renderer's focus state.
     [c setOnInput:nil];
     [c setOnResize:nil];
     [c setOnFocus:nil];
@@ -361,6 +376,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("hide", Napi::Function::New(env, Hide));
   exports.Set("destroy", Napi::Function::New(env, Destroy));
   exports.Set("feed", Napi::Function::New(env, Feed));
+  exports.Set("gridSize", Napi::Function::New(env, GridSize));
   exports.Set("focusOverlay", Napi::Function::New(env, FocusOverlay));
   exports.Set("clearScrollback", Napi::Function::New(env, ClearScrollback));
   exports.Set("openFindBar", Napi::Function::New(env, OpenFindBar));
