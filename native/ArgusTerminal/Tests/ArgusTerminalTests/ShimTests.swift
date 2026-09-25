@@ -330,6 +330,27 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugFrame(), applied, "the overlay must return to the hole it belongs to")
   }
 
+  /// When the parent moves, AppKit carries the child along and posts didMove.
+  /// Restoring the last applied SCREEN frame then snaps the overlay back to
+  /// where the parent used to be; the frame must be re-derived from the
+  /// viewport rect against the parent's new position.
+  func testAParentMoveReDerivesTheFrameRatherThanSnappingBack() {
+    let c = OverlayController(width: 200, height: 100)
+    let parent = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    c.setFrame(x: 10, y: 20, width: 300, height: 150)
+
+    parent.setFrameOrigin(NSPoint(x: 400, y: 300))
+    // What AppKit's child-follow would do, then the didMove-driven restore.
+    c.debugSimulateExternalMove(to: c.debugFrame().offsetBy(dx: 300, dy: 200))
+
+    let content = parent.contentRect(forFrameRect: parent.frame)
+    XCTAssertEqual(c.debugFrame().origin.x, content.minX + 10, accuracy: 0.5)
+    XCTAssertEqual(c.debugFrame().origin.y, content.maxY - 20 - 150, accuracy: 0.5)
+  }
+
   /// The scrim's alpha is paired BY HAND with `.argus-tile-overlay` in
   /// index.css. It is the only signal of which tile is selected, so a drift
   /// makes native tiles stop matching their neighbours — which is exactly

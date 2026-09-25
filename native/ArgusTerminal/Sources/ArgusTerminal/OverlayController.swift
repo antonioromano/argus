@@ -239,6 +239,12 @@ final class DropAwareTerminalView: TerminalView {
   /// didMove/didResize observers on the overlay window, removed on destroy.
   private var frameObservers: [NSObjectProtocol] = []
 
+  /// The viewport rect setFrame last converted, and the parent content rect it
+  /// was converted against. If the parent has moved since, a frame change on
+  /// this window is AppKit carrying the child along, not an external mover.
+  private var lastViewport: NSRect?
+  private var lastParentContent: NSRect?
+
   @objc public init(width: CGFloat, height: CGFloat) {
     terminalView = DropAwareTerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
     terminalView.registerForDraggedTypes([.fileURL])
@@ -451,6 +457,8 @@ final class DropAwareTerminalView: TerminalView {
       return
     }
     let parentContent = parent.contentRect(forFrameRect: parent.frame)
+    lastViewport = NSRect(x: x, y: y, width: w, height: h)
+    lastParentContent = parentContent
     let screenX = parentContent.minX + x
     let screenY = parentContent.maxY - y - h
     let full = NSRect(x: screenX, y: screenY, width: w, height: h)
@@ -509,13 +517,17 @@ final class DropAwareTerminalView: TerminalView {
     }
   }
 
-  /// Puts the overlay back where setFrame last put it, if something else moved
-  /// it. Idempotent by construction: the restore sets the frame to the value
-  /// it compares against, so the notification it triggers finds them equal and
-  /// stops.
   private func restoreAppliedFrameIfMovedExternally() {
-    guard let w = window as? KeyableWindow, !w.applyingFrame,
-          let want = w.appliedFrame, w.frame != want else { return }
+    guard let w = window as? KeyableWindow, !w.applyingFrame else { return }
+    // The parent moved (drag, window manager, display change): re-derive from
+    // the viewport rect against where the parent is NOW. Restoring the old
+    // screen frame would fight AppKit's child-follow until resyncParent lands.
+    if let vp = lastViewport, let parent = w.parent ?? parentWindow,
+       parent.contentRect(forFrameRect: parent.frame) != lastParentContent {
+      setFrame(x: vp.minX, y: vp.minY, width: vp.width, height: vp.height)
+      return
+    }
+    guard let want = w.appliedFrame, w.frame != want else { return }
     otrace("external frame change on #\(w.windowNumber): \(w.frame) -> restoring \(want)")
     w.applyingFrame = true
     w.setFrame(want, display: true)
