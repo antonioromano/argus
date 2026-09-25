@@ -18,7 +18,7 @@ export interface Theme {
 /** The N-API surface. Declared as an interface so tests inject a fake and the
  *  host's logic is testable without building any native code. */
 export interface NativeTerminalAddon {
-  create(parentHandle: Buffer): number;
+  create(parentHandle: Buffer, scrollback: number): number;
   setFrame(id: number, x: number, y: number, w: number, h: number): void;
   setTheme(id: number, background: string, foreground: string, cursor: string, ansi: string[]): void;
   setDimmed(id: number, dimmed: boolean, isDark: boolean): void;

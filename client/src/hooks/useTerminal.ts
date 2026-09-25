@@ -13,6 +13,7 @@ import { ResizeEmitGate } from './resizeGate.js';
 import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
+import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -251,7 +252,7 @@ export function useTerminal(
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
-      scrollback: 5000,
+      scrollback: TERMINAL_SCROLLBACK,
       scrollSensitivity: 3,
       fastScrollSensitivity: 10,
       // Option composes special chars (@ [ ] { } on non-US Mac layouts) instead of

@@ -1,4 +1,5 @@
 import type { HostDeps, NativeTerminalAddon, Rect, Theme } from './types.js';
+import { TERMINAL_SCROLLBACK } from './constants.js';
 
 /**
  * Owns every native terminal overlay. The native view is a CLIENT of
@@ -201,7 +202,7 @@ export class NativeTerminalHost {
     const isNew = id === undefined;
     if (id === undefined) {
       try {
-        id = this.addon.create(parentHandle);
+        id = this.addon.create(parentHandle, TERMINAL_SCROLLBACK);
       } catch (err) {
         // create() failed — no window exists, so no map entry must be made.
         console.error('[native-term] create failed for', sessionId, err);

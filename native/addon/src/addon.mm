@@ -82,8 +82,16 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
 
+  // Optional second argument: scrollback depth. Validated like setFrame's
+  // geometry — an unchecked As<Number>() on a non-number is UB here.
+  int scrollback = 0;
+  if (info.Length() >= 2 && info[1].IsNumber()) {
+    scrollback = info[1].As<Napi::Number>().Int32Value();
+  }
+
   uint32_t id = g_nextId++;
   OverlayController* c = [[OverlayController alloc] initWithWidth:800 height:480];
+  if (scrollback > 0) [c setScrollback:scrollback];
   // attach: has no double-call guard on the Swift side — call it exactly once
   // per controller, here, and never again.
   [c attachTo:parent];

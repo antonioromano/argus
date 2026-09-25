@@ -5,6 +5,7 @@ import type { HostDeps, NativeTerminalAddon } from './types.js';
 
 function fakeAddon() {
   const calls: string[] = [];
+  const createdWith: number[] = [];
   let next = 1;
   let inputCb: ((id: number, d: Buffer) => void) | undefined;
   let resizeCb: ((id: number, c: number, r: number) => void) | undefined;
@@ -18,8 +19,9 @@ function fakeAddon() {
   let grid: { cols: number; rows: number } | undefined = { cols: 100, rows: 30 };
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
   const addon: NativeTerminalAddon = {
-    create: () => {
+    create: (_handle, scrollback) => {
       calls.push(`create:${next}`);
+      createdWith.push(scrollback);
       if (failNext.create) { failNext.create = false; throw new Error('create failed'); }
       return next++;
     },
@@ -63,7 +65,7 @@ function fakeAddon() {
     onDropPaths: (cb) => { dropCb = cb; },
     onBell: (cb) => { bellCb = cb; },
   };
-  return { addon, calls, failNext, setGrid: (g: typeof grid) => { grid = g; }, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
+  return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; }, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
            fireFocus: (i: number, f: boolean) => focusCb!(i, f),
            fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
@@ -112,6 +114,13 @@ test('attach creates an overlay and seeds it with the replay frame', () => {
   assert.ok(calls.includes('create:1'));
   assert.ok(calls.includes('feed:1:REPLAY'), `expected replay seed, got ${calls.join(',')}`);
   assert.ok(calls.includes('setFrame:1:10,20,300,200'));
+});
+
+test('overlays are created with the same scrollback depth as xterm tiles', () => {
+  const { addon, createdWith } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  assert.deepEqual(createdWith, [5000]);
 });
 
 test('the replay frame is fed verbatim — it already self-normalizes the buffer state', () => {

@@ -38,6 +38,14 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(String(decoding: got, as: UTF8.self), "ls -la\r")
   }
 
+  /// SwiftTerm defaults to 500 lines; xterm keeps 5000, and the replay seed
+  /// carries the mirror's full history — anything past the limit is dropped.
+  func testScrollbackCanBeRaisedToMatchXterm() {
+    let c = OverlayController(width: 800, height: 480)
+    c.setScrollback(5000)
+    XCTAssertEqual(c.debugScrollbackLimit(), 5000)
+  }
+
   func testOverlayWindowCanBecomeKey() {
     // Without this the overlay accepts no keyboard input at all. Regression
     // guard: a plain borderless NSWindow returns false here.

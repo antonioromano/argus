@@ -382,6 +382,12 @@ final class DropAwareTerminalView: TerminalView {
   @objc public var gridCols: Int { terminalView.getTerminal().cols }
   @objc public var gridRows: Int { terminalView.getTerminal().rows }
 
+  /// Lines of history SwiftTerm keeps. The host passes xterm's depth at create
+  /// time so both engines hold the same history.
+  @objc public func setScrollback(_ lines: Int) {
+    terminalView.getTerminal().changeScrollback(lines)
+  }
+
   /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
   /// transparent "hole", exactly as `useNativeOverlayRect.ts` measures them
   /// with `getBoundingClientRect()`:
@@ -799,6 +805,7 @@ final class DropAwareTerminalView: TerminalView {
     terminalView.getTerminal().getLine(row: row)?.translateToString(trimRight: true) ?? ""
   }
   public func simulateInput(_ text: String) { terminalView.send(txt: text) }
+  public func debugScrollbackLimit() -> Int { terminalView.getTerminal().options.scrollback }
 
   // MARK: TerminalViewDelegate
   public func send(source: TerminalView, data: ArraySlice<UInt8>) {
