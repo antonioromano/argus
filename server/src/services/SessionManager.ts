@@ -270,6 +270,9 @@ export class SessionManager {
   /** Sessions a native overlay is watching. Such a viewer never joins the
    *  socket room, so the idle-geometry gate must ask here as well. */
   private nativeViewers = new Set<string>();
+  /** The size each native viewer last asked for — restored when a socket
+   *  viewer (a phone) that overrode it leaves; see scheduleIdleGeometry. */
+  private nativeSize = new Map<string, { cols: number; rows: number }>();
   private gitService: GitService | null = null;
   private gitDirtyMap = new Map<string, boolean>();
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
@@ -1582,7 +1585,14 @@ export class SessionManager {
    * session at once, right in the middle of a reconnect. See IdleGeometryGate.
    */
   scheduleIdleGeometry(id: string): void {
-    // A native overlay is a viewer the socket room cannot see.
+    // The room emptied, but a native overlay may still be watching. Give the
+    // pty back the size it asked for (a departing phone may have shrunk it)
+    // rather than the idle geometry.
+    const native = this.nativeSize.get(id);
+    if (native) {
+      this.resizeSession(id, native.cols, native.rows);
+      return;
+    }
     if (this.nativeViewers.has(id)) return;
     this.idleGeometry.schedule(id);
   }
@@ -1600,9 +1610,20 @@ export class SessionManager {
       return;
     }
     if (!this.nativeViewers.delete(id)) return;
+    this.nativeSize.delete(id);
     if (!this.sessions.has(id)) return;
     const roomSize = this.io?.sockets.adapter.rooms.get(id)?.size ?? 0;
     if (roomSize === 0) this.scheduleIdleGeometry(id);
+  }
+
+  /**
+   * A native overlay's resize. Recorded as well as applied: a phone can size
+   * the pty down while it watches, and when it leaves the native view — whose
+   * own size never changed — has no reason to report again.
+   */
+  resizeFromNative(id: string, cols: number, rows: number): void {
+    this.nativeSize.set(id, { cols, rows });
+    this.resizeSession(id, cols, rows);
   }
 
   /** A viewer is watching again (join, or a fresh size report). */

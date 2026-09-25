@@ -140,3 +140,52 @@ test('the last native viewer leaving an empty room arms the idle resize; a room 
 
   assert.deepEqual(scheduled, ['sess-empty']);
 });
+
+// The phone is sized in (smallest mobile viewer wins), but on leaving there are
+// no socket dimensions left — and the native view, whose size never changed,
+// never reports again. The server has to remember what native asked for.
+test('the last socket leaving a natively viewed session restores the native size', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const calls = withSizedSession(sm, 'sess-phone', 120, 40);
+  sm.setNativeViewer('sess-phone', true);
+  sm.resizeFromNative('sess-phone', 120, 40);
+  sm.resizeSession('sess-phone', 50, 30);   // phone joined
+  calls.pty.length = 0;
+
+  sm.scheduleIdleGeometry('sess-phone');    // phone left, no socket dims
+
+  assert.deepEqual(calls.pty, [{ cols: 120, rows: 40 }]);
+  clearTimeout((sm as any).sessions.get('sess-phone').trimTimer);
+});
+
+test('the restored size is the latest one native reported', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const calls = withSizedSession(sm, 'sess-phone-2', 120, 40);
+  sm.setNativeViewer('sess-phone-2', true);
+  sm.resizeFromNative('sess-phone-2', 120, 40);
+  sm.resizeSession('sess-phone-2', 50, 30);   // phone joined
+  sm.resizeFromNative('sess-phone-2', 140, 44); // user resized the tile meanwhile
+  sm.resizeSession('sess-phone-2', 50, 30);   // phone re-asserts
+  calls.pty.length = 0;
+
+  sm.scheduleIdleGeometry('sess-phone-2');
+
+  assert.deepEqual(calls.pty, [{ cols: 140, rows: 44 }]);
+  clearTimeout((sm as any).sessions.get('sess-phone-2').trimTimer);
+});
+
+test('once the native viewer is gone its size is forgotten', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withSizedSession(sm, 'sess-gone', 120, 14);
+  (sm as any).io = { sockets: { adapter: { rooms: new Map() } } };
+  const gate = (sm as any).idleGeometry;
+  const scheduled: string[] = [];
+  gate.schedule = (id: string) => scheduled.push(id);
+  gate.cancel = () => {};
+  sm.setNativeViewer('sess-gone', true);
+  sm.resizeFromNative('sess-gone', 120, 14);
+  sm.setNativeViewer('sess-gone', false);   // arms the idle resize (empty room)
+
+  assert.deepEqual(scheduled, ['sess-gone']);
+  assert.equal((sm as any).nativeSize.has('sess-gone'), false);
+});

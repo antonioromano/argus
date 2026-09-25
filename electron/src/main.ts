@@ -774,7 +774,7 @@ async function main() {
     flushOutput: (id: string) => sm.flushOutput(id),
     setViewing: (id: string, viewing: boolean) => sm.setNativeViewer(id, viewing),
     writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
-    resizeSession: (id: string, c: number, r: number) => sm.resizeSession(id, c, r),
+    resizeSession: (id: string, c: number, r: number) => sm.resizeFromNative(id, c, r),
     getReplaySnapshot: (id: string) => sm.getReplaySnapshot(id),
     // Route the key-window transition to the window that actually hosts this
     // session's overlay, not to every renderer: two Argus windows each track
