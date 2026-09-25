@@ -670,6 +670,56 @@ final class ShimTests: XCTestCase {
     c.setFontSize(26)
     XCTAssertLessThan(c.gridCols, colsAt13)
   }
+
+  /// SwiftTerm's font setter always resizes (reporting via onResize) and
+  /// soft-resets the terminal, even for the size it already has. The host
+  /// re-sends the same size after every attach, so re-applying it would reset
+  /// modes the seed just set — e.g. show a cursor the agent hid.
+  func testSettingTheCurrentFontSizeIsANoOp() {
+    let c = OverlayController(width: 800, height: 480)
+    c.setFrame(x: 0, y: 0, width: 800, height: 480)
+    c.setFontSize(15)
+    let cols = c.gridCols, rows = c.gridRows
+    c.feed(data: Data("\u{1b}[?25l".utf8) as NSData)
+    var reported = false
+    c.onResize = { _, _ in reported = true }
+
+    c.setFontSize(15)
+
+    XCTAssertFalse(reported)
+    XCTAssertEqual(c.gridCols, cols)
+    XCTAssertEqual(c.gridRows, rows)
+    XCTAssertTrue(cursorIsHidden(c), "a no-op must not soft-reset the terminal")
+  }
+
+  /// DECTCEM state via DECRQM (`CSI ? 25 $ p` -> `CSI ? 25 ; 2 $ y` when
+  /// reset): SwiftTerm keeps `cursorHidden` internal, so ask the terminal.
+  private func cursorIsHidden(_ c: OverlayController) -> Bool {
+    var reply = Data()
+    let saved = c.onInput
+    c.onInput = { reply.append($0 as Data) }
+    c.feed(data: Data("\u{1b}[?25$p".utf8) as NSData)
+    c.onInput = saved
+    return String(decoding: reply, as: UTF8.self).contains("?25;2$y")
+  }
+
+  func testNonFiniteOrNonPositiveFontSizesAreIgnored() {
+    let c = OverlayController(width: 800, height: 480)
+    c.setFrame(x: 0, y: 0, width: 800, height: 480)
+    let before = c.debugFontPointSize()
+    for bad: CGFloat in [0, -3, .nan, .infinity, -.infinity] {
+      c.setFontSize(bad)
+      XCTAssertEqual(c.debugFontPointSize(), before, "\(bad)")
+    }
+  }
+
+  func testFontSizeIsClampedToASaneRange() {
+    let c = OverlayController(width: 800, height: 480)
+    c.setFontSize(1)
+    XCTAssertEqual(c.debugFontPointSize(), 6)
+    c.setFontSize(500)
+    XCTAssertEqual(c.debugFontPointSize(), 72)
+  }
 }
 
 private extension NSColor {

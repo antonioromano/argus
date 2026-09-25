@@ -17,6 +17,12 @@ function fakeAddon() {
   // then auto-reset — lets a test inject a single fault mid-sequence.
   // What gridSize() reports — the grid the last setFrame produced.
   let grid: { cols: number; rows: number } | undefined = { cols: 100, rows: 30 };
+  let gridThrows = false;
+  // When set, setFontSize behaves like SwiftTerm's font setter: it changes the
+  // grid and reports it through onResize (synchronously here; for real it
+  // arrives later through a thread-safe function, which the host must treat
+  // the same way).
+  let fontGrid: { cols: number; rows: number } | undefined;
   const failNext: Partial<Record<'create' | 'feed' | 'setFrame' | 'setTheme' | 'reparent' | 'openFindBar', boolean>> = {};
   const addon: NativeTerminalAddon = {
     create: (_handle, scrollback) => {
@@ -49,6 +55,7 @@ function fakeAddon() {
     },
     gridSize: (id) => {
       calls.push(`gridSize:${id}`);
+      if (gridThrows) throw new Error('gridSize failed');
       return grid;
     },
     clearScrollback: (id) => calls.push(`clear:${id}`),
@@ -58,7 +65,13 @@ function fakeAddon() {
       if (failNext.openFindBar) { failNext.openFindBar = false; throw new Error('openFindBar failed'); }
     },
     closeFindBar: (id) => calls.push(`closeFindBar:${id}`),
-    setFontSize: (id, size) => calls.push(`setFontSize:${id}:${size}`),
+    setFontSize: (id, size) => {
+      calls.push(`setFontSize:${id}:${size}`);
+      if (fontGrid) {
+        grid = fontGrid;
+        resizeCb?.(id, fontGrid.cols, fontGrid.rows);
+      }
+    },
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
     onFocus: (cb) => { focusCb = cb; },
@@ -66,7 +79,10 @@ function fakeAddon() {
     onDropPaths: (cb) => { dropCb = cb; },
     onBell: (cb) => { bellCb = cb; },
   };
-  return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; }, fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
+  return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; },
+           setGridThrows: (t: boolean) => { gridThrows = t; },
+           setFontGrid: (g: typeof fontGrid) => { fontGrid = g; },
+           fireInput: (i: number, s: string) => inputCb!(i, Buffer.from(s)),
            fireResize: (i: number, c: number, r: number) => resizeCb!(i, c, r),
            fireFocus: (i: number, f: boolean) => focusCb!(i, f),
            fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
@@ -168,10 +184,11 @@ test('user input is routed back to the right session', () => {
 });
 
 test('native resize drives the pty — native is the resize authority', () => {
-  const { addon, fireResize } = fakeAddon();
+  const { addon, fireResize, setGrid } = fakeAddon();
   const { host, resized } = harness(addon);
   host.attach('s1', HANDLE, RECT);
   resized.length = 0;   // the attach seed sizes the pty first (tested below)
+  setGrid({ cols: 120, rows: 40 });   // the report is for the view's current grid
   fireResize(1, 120, 40);
   assert.deepEqual(resized, [['s1', 120, 40]]);
 });
@@ -306,9 +323,10 @@ test('a throwing writeToSession does not propagate out of the onInput callback',
 });
 
 test('a throwing resizeSession does not propagate out of the onResize callback', () => {
-  const { addon, fireResize } = fakeAddon();
+  const { addon, fireResize, setGrid } = fakeAddon();
   const { host } = harness(addon, { resizeSession: () => { throw new Error('session gone'); } });
   host.attach('s1', HANDLE, RECT);
+  setGrid({ cols: 120, rows: 40 });   // current, so it reaches resizeSession
   assert.doesNotThrow(() => fireResize(1, 120, 40));
 });
 
@@ -1087,12 +1105,15 @@ test('detaching an unfocused overlay reports nothing', () => {
 });
 
 test('resizes are held while suspended and only the last one is applied on release', () => {
-  const { addon, fireResize } = fakeAddon();
+  const { addon, fireResize, setGrid } = fakeAddon();
   const { host, resized } = harness(addon);
   host.attach('s1', HANDLE, RECT);
   resized.length = 0;
   host.setResizeSuspended('s1', true);
+  // Each report is current when it arrives, as during a live divider drag.
+  setGrid({ cols: 90, rows: 30 });
   fireResize(1, 90, 30);
+  setGrid({ cols: 80, rows: 30 });
   fireResize(1, 80, 30);
   assert.deepEqual(resized, []);
   host.setResizeSuspended('s1', false);
@@ -1126,7 +1147,8 @@ test('setFontSize applies to an attached overlay and ignores nonsense', () => {
   host.setFontSize('s1', 16);
   host.setFontSize('s1', 0);
   host.setFontSize('s1', Number.NaN);
-  assert.deepEqual(calls, ['setFontSize:1:16']);
+  // (A real change also re-seeds — covered separately below.)
+  assert.deepEqual(calls.filter((c) => c.startsWith('setFontSize:')), ['setFontSize:1:16']);
 });
 
 test('zoom scales frames and font from CSS px to points', () => {
@@ -1172,4 +1194,116 @@ test('a rect from a window that is no longer the parent is ignored', () => {
   assert.equal(calls.length, 0, calls.join(','));
   host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 }, winB);
   assert.ok(calls.includes('hide:1'));
+});
+
+// ── Final review: stale resize reports, font re-seed, attach font guard ──
+
+test('a resize report for a grid that is no longer current is not forwarded', () => {
+  // SwiftTerm reports asynchronously; by the time a report lands the view may
+  // already be at another size (seed() sized the pty to it synchronously).
+  const { addon, fireResize } = fakeAddon();
+  const { host, resized } = harness(addon);
+  host.attach('s1', HANDLE, RECT);                    // grid is 100x30
+  resized.length = 0;
+  fireResize(1, 120, 40);                             // superseded report
+  assert.deepEqual(resized, []);
+});
+
+test('a resize report is still forwarded when the grid cannot be read', () => {
+  const { addon, fireResize, setGridThrows } = fakeAddon();
+  const { host, resized } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  resized.length = 0;
+  setGridThrows(true);
+  fireResize(1, 120, 40);
+  assert.deepEqual(resized, [['s1', 120, 40]]);
+});
+
+test('a resize report for a hidden overlay is not forwarded', () => {
+  const { addon, fireResize, setGrid } = fakeAddon();
+  const { host, resized } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });   // tile off screen
+  resized.length = 0;
+  setGrid({ cols: 120, rows: 40 });
+  fireResize(1, 120, 40);
+  assert.deepEqual(resized, []);
+});
+
+test('a resize report for an unseeded overlay is not forwarded — seed() sizes the pty', () => {
+  // The font pushed at attach resizes the construction-size grid and reports
+  // it before the first frame; only the seed's own resize may reach the pty.
+  const { addon, setFontGrid } = fakeAddon();
+  const { host, resized } = harness(addon);
+  setFontGrid({ cols: 90, rows: 28 });
+  host.attach('s1', HANDLE, RECT, 15);
+  assert.deepEqual(resized, [['s1', 90, 28]], 'only the seed resize');
+});
+
+test('an unchanged font size makes no native call and does not re-seed', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, order } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 15);
+  calls.length = 0;
+  order.length = 0;
+  host.setFontSize('s1', 15);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(order, []);
+});
+
+test('a font change on a shown overlay re-seeds it after the font is applied', () => {
+  // SwiftTerm soft-resets on a font change (cursor visibility, SGR, modes),
+  // so the screen has to be rebuilt from the replay frame.
+  const { addon, calls } = fakeAddon();
+  const { host, order } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 15);
+  calls.length = 0;
+  order.length = 0;
+  host.setFontSize('s1', 16);
+  assert.deepEqual(calls, ['setFontSize:1:16', 'gridSize:1', 'feed:1:REPLAY']);
+  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1']);
+});
+
+test('a font change on a hidden overlay defers the re-seed until it is shown', () => {
+  const { addon, calls } = fakeAddon();
+  const { host, emitOutput } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 15);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+  host.setFontSize('s1', 16);
+  emitOutput('s1', 'WHILE-HIDDEN');                  // covered by the reveal seed
+  assert.deepEqual(calls, ['setFontSize:1:16']);
+  host.setRect('s1', RECT);
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+  assert.ok(!calls.includes('feed:1:WHILE-HIDDEN'), calls.join(','));
+});
+
+test('a zoom change on a shown overlay pushes font, then frame, then re-seeds', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 10);
+  calls.length = 0;
+  host.setZoom(HANDLE, 1.5);
+  assert.deepEqual(calls, ['setFontSize:1:15', 'setFrame:1:15,30,450,300', 'gridSize:1', 'feed:1:REPLAY']);
+});
+
+test('a zoom change leaves a hidden overlay unseeded until it is revealed', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 10);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+  host.setZoom(HANDLE, 1.5);
+  assert.deepEqual(calls, ['setFontSize:1:15']);
+  host.setRect('s1', RECT);
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+});
+
+test('attach ignores a non-finite font size from the renderer', () => {
+  for (const bad of [Infinity, Number.NaN]) {
+    const { addon, calls } = fakeAddon();
+    const { host } = harness(addon);
+    host.attach('s1', HANDLE, RECT, bad);
+    assert.ok(!calls.some((c) => c.startsWith('setFontSize:')), `${bad}: ${calls.join(',')}`);
+  }
 });

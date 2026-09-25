@@ -180,6 +180,10 @@ export class NativeTerminalHost {
       try {
         const sessionId = this.byOverlay.get(id);
         if (!sessionId) return;
+        if (this.isStaleResize(sessionId, id, cols, rows)) {
+          trace('resize DROPPED', sessionId.slice(0, 8), `${cols}x${rows}`);
+          return;
+        }
         if (this.resizeSuspended.has(sessionId)) {
           this.pendingResize.set(sessionId, { cols, rows });
           return;
@@ -189,6 +193,31 @@ export class NativeTerminalHost {
         console.error('[native-term] resizeSession failed for overlay', id, err);
       }
     });
+  }
+
+  /**
+   * Whether a native resize report must not reach the pty. Reports arrive
+   * asynchronously (a thread-safe function), so one can describe a grid the
+   * view has already left — SwiftTerm's font setter reports the grid at the
+   * OLD frame, and the next setFrame reports again. Forwarding those in order
+   * after seed() has already sized the pty resizes it twice more, and every
+   * width change makes the agent repaint its transcript. Dropped when:
+   *  - the overlay is unseeded: seed() sizes the pty itself from gridSize;
+   *  - the overlay is hidden: a hidden overlay does not drive the pty, and
+   *    the seed on reveal sizes it;
+   *  - the report no longer matches the view's current grid (superseded).
+   * An unreadable grid is not a reason to drop — native stays the authority.
+   */
+  private isStaleResize(sessionId: string, id: number, cols: number, rows: number): boolean {
+    if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return true;
+    let current: { cols: number; rows: number } | undefined;
+    try {
+      current = this.addon!.gridSize(id);
+    } catch (err) {
+      console.error('[native-term] gridSize failed for', sessionId, err);
+      return false;
+    }
+    return current !== undefined && (current.cols !== cols || current.rows !== rows);
   }
 
   isAvailable(): boolean {
@@ -219,7 +248,8 @@ export class NativeTerminalHost {
       this.parentBySession.set(sessionId, parentHandle.toString('base64'));
       // Before the first frame/seed: the seed is laid out for the grid this
       // font produces, so applying it later would reflow the seed.
-      if (fontSize !== undefined && fontSize > 0) {
+      // Renderer-supplied: validated like setFontSize (trust boundary).
+      if (typeof fontSize === 'number' && Number.isFinite(fontSize) && fontSize > 0) {
         this.fontSizeBySession.set(sessionId, fontSize);
         this.pushFontSize(sessionId, id);
       }
@@ -389,8 +419,9 @@ export class NativeTerminalHost {
     // session would be stuck invisible with no way back.
     const rect = this.rectBySession.get(sessionId);
     if (rect) this.pushFrame(sessionId, id, rect);
-    // Before show, so the overlay never appears empty.
-    this.seed(sessionId, id);
+    // Before show, so the overlay never appears empty. Only once: a seed is a
+    // full frame, and after it live output keeps the view current.
+    if (!this.seeded.has(sessionId)) this.seed(sessionId, id);
     this.shown.add(sessionId);
     try {
       this.addon.show(id);
@@ -414,14 +445,29 @@ export class NativeTerminalHost {
     }
   }
 
-  private pushFontSize(sessionId: string, id: number): void {
+  /** Returns whether a font size was pushed at all (one is known). */
+  private pushFontSize(sessionId: string, id: number): boolean {
     const px = this.fontSizeBySession.get(sessionId);
-    if (px === undefined) return;
+    if (px === undefined) return false;
     try {
       this.addon!.setFontSize(id, px * this.zoomFor(sessionId));
     } catch (err) {
       console.error('[native-term] setFontSize failed for', sessionId, err);
     }
+    return true;
+  }
+
+  /**
+   * After a real font change on an attached overlay. SwiftTerm's font setter
+   * soft-resets the terminal (cursor visibility, SGR, scroll region, modes),
+   * so the screen the seed built — e.g. an agent's hidden cursor — is gone.
+   * A shown overlay is re-seeded now; a hidden one is marked unseeded so the
+   * reveal seeds it (its live output is dropped meanwhile, which the reveal
+   * seed covers).
+   */
+  private reseedAfterFontChange(sessionId: string, id: number): void {
+    if (this.shown.has(sessionId)) this.seed(sessionId, id);
+    else this.seeded.delete(sessionId);
   }
 
   /**
@@ -443,9 +489,12 @@ export class NativeTerminalHost {
    * Best-effort throughout: once create() has succeeded the overlay is a real
    * native window, and a failure here must not unregister it — it stays
    * reachable via setRect/show/hide/detach.
+   *
+   * Unconditional: callers decide whether a seed is due (applyVisibility on
+   * the first reveal, reseedAfterFontChange after a soft reset).
    */
   private seed(sessionId: string, id: number): void {
-    if (this.seeded.has(sessionId) || !this.addon) return;
+    if (!this.addon) return;
     try {
       const size = this.addon.gridSize(id);
       if (size) this.deps.resizeSession(sessionId, size.cols, size.rows);
@@ -493,8 +542,12 @@ export class NativeTerminalHost {
     if (id === undefined || !this.addon) return;
     if (!this.isCurrentParent(sessionId, parentHandle)) return;
     if (!Number.isFinite(px) || px <= 0) return;
+    // The renderer re-sends the same size after every attach; a redundant
+    // push would soft-reset a freshly seeded terminal for nothing.
+    if (this.fontSizeBySession.get(sessionId) === px) return;
     this.fontSizeBySession.set(sessionId, px);
     this.pushFontSize(sessionId, id);
+    this.reseedAfterFontChange(sessionId, id);
   }
 
   /**
@@ -512,9 +565,11 @@ export class NativeTerminalHost {
       if (k !== key) continue;
       const id = this.bySession.get(sessionId);
       if (id === undefined) continue;
-      this.pushFontSize(sessionId, id);
+      const fontChanged = this.pushFontSize(sessionId, id);
       const rect = this.rectBySession.get(sessionId);
       if (rect && this.shown.has(sessionId)) this.pushFrame(sessionId, id, rect);
+      // After the frame, so the re-seed reads the grid the final frame produced.
+      if (fontChanged) this.reseedAfterFontChange(sessionId, id);
     }
   }
 

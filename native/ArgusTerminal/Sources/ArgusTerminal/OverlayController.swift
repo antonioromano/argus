@@ -399,9 +399,18 @@ final class DropAwareTerminalView: TerminalView {
   /// zoom). SF Mono via the system monospace font — what xterm's
   /// `"SF Mono", ui-monospace` resolves to. Changing it recomputes the grid,
   /// and sizeChanged reports the new cols/rows like any resize.
+  ///
+  /// Only a real change is applied. SwiftTerm's font setter always runs
+  /// `resize(cols:rows:)`, which reports the grid AND soft-resets the terminal
+  /// (cursor visibility, SGR, scroll region, modes) — even for the size it
+  /// already has. Re-applying the current size would undo the modes the
+  /// host's replay seed just set. Nonsense is ignored and extremes are clamped
+  /// (NSFont does not accept a non-finite size).
   @objc public func setFontSize(_ size: CGFloat) {
-    guard size > 0 else { return }
-    terminalView.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    guard size.isFinite, size > 0 else { return }
+    let clamped = min(max(size, 6), 72)
+    guard terminalView.font.pointSize != clamped else { return }
+    terminalView.font = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
   }
 
   /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
@@ -824,6 +833,7 @@ final class DropAwareTerminalView: TerminalView {
   }
 
   // Test seams — never called in production.
+  public func debugFontPointSize() -> CGFloat { terminalView.font.pointSize }
   public func debugRow(_ row: Int) -> String {
     terminalView.getTerminal().getLine(row: row)?.translateToString(trimRight: true) ?? ""
   }
