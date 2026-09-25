@@ -82,16 +82,15 @@ final class KeyableWindow: NSWindow {
   /// not mistaken for an external one.
   var applyingFrame = false
 
-  /// Hide the overlay from the Accessibility API. Window managers (Spectacle,
-  /// Rectangle, macOS's own window commands) act on an app's AX focused
-  /// window, and this window becomes key whenever a native tile is clicked —
-  /// so "center window" centered the TERMINAL rather than Argus, which is
-  /// exactly what a manageable window is supposed to do. It is an
-  /// implementation detail of a tile, not a window a user should be able to
-  /// target, so it declines to be one. `canBecomeKey` is untouched: keyboard
-  /// focus is how SwiftTerm receives input.
-  override func accessibilityRole() -> NSAccessibility.Role? { nil }
-  override func isAccessibilityElement() -> Bool { false }
+  /// Presented to the AX API as a GROUP inside the Argus window, not a window.
+  /// Window managers (Spectacle, Rectangle, macOS window commands) act on the
+  /// app's AXWindow elements — as a window, this overlay was what "center
+  /// window" centered. As a group whose parent is the Argus content view,
+  /// VoiceOver still reaches the terminal through the Argus window.
+  weak var accessibilityHost: NSView?
+  override func accessibilityRole() -> NSAccessibility.Role? { .group }
+  override func isAccessibilityElement() -> Bool { true }
+  override func accessibilityParent() -> Any? { accessibilityHost }
 }
 
 /// AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same switch the
@@ -331,6 +330,7 @@ final class DropAwareTerminalView: TerminalView {
     w.allowsKey = false
     w.isExcludedFromWindowsMenu = true
     parentWindow = parent
+    w.accessibilityHost = parent.contentView
     hiddenByHost = true
     parent.addChildWindow(w, ordered: .above)
     window = w
@@ -354,6 +354,7 @@ final class DropAwareTerminalView: TerminalView {
   @objc public func reparent(to parent: NSWindow) {
     parentWindow = parent
     guard let w = window else { return }
+    (window as? KeyableWindow)?.accessibilityHost = parent.contentView
     w.parent?.removeChildWindow(w)
     // Re-adding orders the child in, which is harmless: a hidden overlay is
     // hidden by alpha (see hide()), not by ordering, so it stays invisible.
@@ -561,6 +562,7 @@ final class DropAwareTerminalView: TerminalView {
   }
   public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
   public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }
+  public func debugAccessibilityParent() -> Any? { window?.accessibilityParent() }
   /// Moves the window the way an external window manager would, then runs the
   /// same restore path the didMove notification drives (notifications do not
   /// deliver synchronously in a unit test).

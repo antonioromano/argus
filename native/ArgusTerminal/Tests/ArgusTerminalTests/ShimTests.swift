@@ -289,18 +289,17 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugAlpha(), 0, "a frame inside the parent must not reveal a host-hidden overlay")
   }
 
-  /// Window managers act on an app's AX focused window, and the overlay
-  /// becomes key whenever a native tile is clicked — so Spectacle's "center
-  /// window" centered the terminal instead of Argus. The overlay declines to
-  /// be an accessibility element so no window manager can target it.
-  func testTheOverlayIsInvisibleToTheAccessibilityAPI() {
+  /// Not a window to the AX API (window managers act on AXWindow elements),
+  /// but a group whose parent is the Argus window's content — so VoiceOver
+  /// reaches SwiftTerm's own accessibility support through the Argus window.
+  func testTheOverlayIsAGroupInsideItsParentNotAWindow() {
     let c = OverlayController(width: 200, height: 100)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
-
-    XCTAssertFalse(c.debugIsAccessibilityElement(), "must not be a targetable AX element")
-    XCTAssertNil(c.debugAccessibilityRole(), "and must report no window role")
+    XCTAssertEqual(c.debugAccessibilityRole(), .group)
+    XCTAssertTrue(c.debugIsAccessibilityElement())
+    XCTAssertTrue(c.debugAccessibilityParent() as AnyObject? === parent.contentView)
   }
 
   /// Keyboard focus is how SwiftTerm receives input, so hiding from the AX API
