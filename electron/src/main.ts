@@ -529,16 +529,6 @@ function applyMenuAcceleratorGating(): void {
   }
 }
 
-/** Zooms the focused window and tells its native overlays, whose frames and
- *  fonts are scaled by the zoom factor (see NativeTerminalHost.setZoom). */
-function setZoomLevelAndSyncNative(level: number): void {
-  setZoomLevelForFocused(level);
-  const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
-  if (win && !win.isDestroyed()) {
-    nativeTerminal?.setZoom(win.getNativeWindowHandle(), win.webContents.getZoomFactor());
-  }
-}
-
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
 
@@ -675,9 +665,9 @@ function buildAppMenu(): Menu {
       // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
       // Custom click handlers (not built-in roles) so every change routes through
       // setZoomLevel and keeps the tracked level in sync — survives reload.
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelAndSyncNative(0) },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelAndSyncNative(getZoomLevelForFocused() + 0.5) },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelAndSyncNative(getZoomLevelForFocused() - 0.5) },
+      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelForFocused(0) },
+      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5) },
+      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5) },
       { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
@@ -829,6 +819,8 @@ async function main() {
   // would otherwise hide the overlay the new window now owns.
   ipcMain.on('native-term:rect', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
+    // Zoom is read here because every zoom change (menu, load restore, sibling propagation) reflows the hole and re-reports; setZoom no-ops when unchanged.
+    if (win) nativeTerminal!.setZoom(win.getNativeWindowHandle(), win.webContents.getZoomFactor());
     nativeTerminal!.setRect(sessionId, rect, win?.getNativeWindowHandle());
   });
   // Renderer-initiated detach must be scoped to the window making the
