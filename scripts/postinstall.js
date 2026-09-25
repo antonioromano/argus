@@ -1,6 +1,7 @@
 import { chmod } from 'fs/promises';
 import { platform, arch } from 'os';
 import { join } from 'path';
+import { patchXtermHeadless } from './patch-xterm-headless.mjs';
 
 const PREBUILD_DIRS = {
   'darwin-arm64': 'darwin-arm64',
@@ -21,6 +22,12 @@ async function run() {
     }
   } else if (platform() === 'linux') {
     console.log('node-pty: compiled from source on Linux (no prebuilt needed)');
+  }
+
+  try {
+    await patchXtermHeadless();
+  } catch (err) {
+    console.warn(`@xterm/headless: could not apply patch — ${err.message}`);
   }
 }
 
