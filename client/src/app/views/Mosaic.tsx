@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { SessionInfo, MosaicWaitingStyle, TileQuickAction, TileRunningIndicator } from '@argus/shared';
+import type { SessionInfo, MosaicWaitingStyle, MosaicOrientation, TileQuickAction, TileRunningIndicator } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
@@ -97,6 +97,8 @@ interface MosaicProps {
   quickAction?: TileQuickAction;
   /** Progress hairline under the header while running (default: hairline). */
   runningIndicator?: TileRunningIndicator;
+  /** Side by side columns ('horizontal') or stacked rows ('vertical') (default: horizontal). */
+  orientation?: MosaicOrientation;
 }
 
 const MAX_TILES = 12;
@@ -104,7 +106,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal' }: MosaicProps) {
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -305,7 +307,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const activeTiles = tiles.filter((s) => !isMinimized(s.id, groupFilterIds, activeGroupId));
   const activeTileIds = activeTiles.map((s) => s.id);
   // Fill the grid: uniform when the count tiles cleanly, stretched partial rows otherwise.
+  // Stacked ('vertical') is the same layout transposed: balanced rows, row-major flow,
+  // shorter rows get wider tiles.
   const layout = mosaicLayout(activeTiles.length);
+  const stacked = orientation === 'vertical';
   const minTileIds = minTiles.map((s) => s.id);
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
@@ -359,16 +364,17 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
               className="argus-mosaic"
               data-waiting-style={waitingStyle}
               style={{
-                gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`,
-                gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
-                gridAutoFlow: 'column',
+                gridTemplateColumns: `repeat(${stacked ? layout.rows : layout.cols}, minmax(0, 1fr))`,
+                gridTemplateRows: `repeat(${stacked ? layout.cols : layout.rows}, minmax(0, 1fr))`,
+                gridAutoFlow: stacked ? 'row' : 'column',
               }}
             >
               {activeTiles.map((s, i) => (
                 <SortableMosaicTile
                   key={s.id}
                   idx={i}
-                  rowSpan={layout.rowSpans[i]}
+                  span={layout.rowSpans[i]}
+                  stacked={stacked}
                   session={s}
                   socket={socket}
                   theme={theme}
@@ -444,8 +450,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
 
 type MosaicTileSharedProps = {
   idx: number;
-  /** Number of grid row tracks this tile spans (fills leftover space vertically). */
-  rowSpan: number;
+  /** Number of grid tracks this tile spans along the flow axis (rows, or columns when stacked). */
+  span: number;
+  /** Stacked layout: tiles flow row-major and `span` covers column tracks. */
+  stacked: boolean;
   session: SessionInfo;
   socket: TypedSocket;
   theme: 'dark' | 'light';
@@ -507,7 +515,10 @@ function SortableMosaicTile(props: MosaicTileSharedProps) {
   };
 
   return (
-    <div ref={setNodeRef} style={{ ...style, minWidth: 0, gridRow: `span ${props.rowSpan}` }}>
+    <div
+      ref={setNodeRef}
+      style={{ ...style, minWidth: 0, [props.stacked ? 'gridColumn' : 'gridRow']: `span ${props.span}` }}
+    >
       <MosaicTile
         {...props}
         dragHandleListeners={listeners}

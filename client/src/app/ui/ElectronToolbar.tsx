@@ -1,6 +1,6 @@
-import { Globe, Sun, Moon, Settings, ArrowUp } from 'lucide-react';
+import { Globe, Sun, Moon, Settings, ArrowUp, Columns2, Rows2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import type { KeepAwakeStatus } from '@argus/shared';
+import type { KeepAwakeStatus, MosaicOrientation } from '@argus/shared';
 import { Tooltip } from '../../components/primitives/index.js';
 import { KeepAwakeButton } from './KeepAwakeButton.js';
 
@@ -39,6 +39,9 @@ interface ElectronToolbarProps {
   onOpenSettings: () => void;
   onToggleTheme: () => void;
   onOpenRemote: () => void;
+  /** Current mosaic arrangement; the button flips it. Omit to hide the button. */
+  mosaicOrientation?: MosaicOrientation;
+  onToggleMosaicOrientation?: () => void;
   isDark: boolean;
   ngrokConnected: boolean;
   updateAvailable?: boolean;
@@ -71,6 +74,8 @@ export function ElectronToolbar({
   onOpenSettings,
   onToggleTheme,
   onOpenRemote,
+  mosaicOrientation,
+  onToggleMosaicOrientation,
   isDark,
   ngrokConnected,
   updateAvailable,
@@ -152,6 +157,17 @@ export function ElectronToolbar({
             )}
           </button>
         </Tooltip>
+
+        {mosaicOrientation && onToggleMosaicOrientation && (
+          <Tooltip content={mosaicOrientation === 'vertical' ? 'Arrange shells side by side' : 'Stack shells vertically'}>
+            <button onClick={onToggleMosaicOrientation} style={iconBtn()}>
+              {/* Icon shows the layout you switch TO, like the theme toggle. */}
+              {mosaicOrientation === 'vertical'
+                ? <Columns2 size={13} strokeWidth={1.6} />
+                : <Rows2 size={13} strokeWidth={1.6} />}
+            </button>
+          </Tooltip>
+        )}
 
         <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
           <button onClick={onToggleTheme} style={iconBtn()}>

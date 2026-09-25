@@ -621,6 +621,10 @@ function DesktopInner() {
         onOpenSettings={() => app.openOverlay({ kind: 'settings' })}
         onToggleTheme={toggleTheme}
         onOpenRemote={() => app.openOverlay({ kind: 'settings', initialTab: 'remote' })}
+        mosaicOrientation={app.view === 'dashboard' ? (config?.mosaicOrientation ?? 'horizontal') : undefined}
+        onToggleMosaicOrientation={() => void updateConfig({
+          mosaicOrientation: config?.mosaicOrientation === 'vertical' ? 'horizontal' : 'vertical',
+        })}
         isDark={isDark}
         ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
         updateAvailable={updateStatus?.hasUpdate}
@@ -788,6 +792,7 @@ function DesktopInner() {
               waitingStyle={config?.mosaicWaitingStyle ?? 'breathing'}
               quickAction={config?.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
+              orientation={config?.mosaicOrientation ?? 'horizontal'}
             />
           )}
 
