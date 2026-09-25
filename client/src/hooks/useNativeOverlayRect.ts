@@ -5,7 +5,7 @@ interface NativeOverlayRect { x: number; y: number; width: number; height: numbe
 
 interface NativeTerminalBridge {
   available: () => Promise<boolean>;
-  attach: (sessionId: string, rect: NativeOverlayRect) => Promise<boolean>;
+  attach: (sessionId: string, rect: NativeOverlayRect, fontSize?: number) => Promise<boolean>;
   setRect: (sessionId: string, rect: NativeOverlayRect) => void;
   detach: (sessionId: string) => void;
 }
@@ -36,6 +36,7 @@ export function useNativeOverlayRect(
   enabled: boolean,
   onFailure?: () => void,
   onAttached?: () => void,
+  fontSize?: number,
 ) {
   const ref = useRef<HTMLDivElement>(null);
   const lastRectKey = useRef<string>('');
@@ -59,6 +60,12 @@ export function useNativeOverlayRect(
   const onAttachedRef = useRef(onAttached);
   useEffect(() => {
     onAttachedRef.current = onAttached;
+  });
+  // Read at attach time only; later changes go through setFontSize (see
+  // TerminalShellNativeHole), not a re-attach.
+  const fontSizeRef = useRef(fontSize);
+  useEffect(() => {
+    fontSizeRef.current = fontSize;
   });
 
   useEffect(() => {
@@ -149,7 +156,7 @@ export function useNativeOverlayRect(
       if (e.target instanceof Node && e.target.contains(el)) report();
     };
     const initialRect = measure();
-    void api.attach(sessionId, initialRect).then((ok) => {
+    void api.attach(sessionId, initialRect, fontSizeRef.current).then((ok) => {
       // The effect may have already been cleaned up (unmount, or `enabled`
       // flipped) by the time main replies — a stale resolution must not
       // install observers/listeners for a hole that's already gone, nor

@@ -388,6 +388,15 @@ final class DropAwareTerminalView: TerminalView {
     terminalView.getTerminal().changeScrollback(lines)
   }
 
+  /// Argus's code font size, in points (the host has already applied page
+  /// zoom). SF Mono via the system monospace font — what xterm's
+  /// `"SF Mono", ui-monospace` resolves to. Changing it recomputes the grid,
+  /// and sizeChanged reports the new cols/rows like any resize.
+  @objc public func setFontSize(_ size: CGFloat) {
+    guard size > 0 else { return }
+    terminalView.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+  }
+
   /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
   /// transparent "hole", exactly as `useNativeOverlayRect.ts` measures them
   /// with `getBoundingClientRect()`:

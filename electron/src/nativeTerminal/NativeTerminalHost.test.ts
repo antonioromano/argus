@@ -58,6 +58,7 @@ function fakeAddon() {
       if (failNext.openFindBar) { failNext.openFindBar = false; throw new Error('openFindBar failed'); }
     },
     closeFindBar: (id) => calls.push(`closeFindBar:${id}`),
+    setFontSize: (id, size) => calls.push(`setFontSize:${id}:${size}`),
     onInput: (cb) => { inputCb = cb; },
     onResize: (cb) => { resizeCb = cb; },
     onFocus: (cb) => { focusCb = cb; },
@@ -1106,6 +1107,56 @@ test('releasing a suspension with no resize in between applies nothing', () => {
   host.setResizeSuspended('s1', true);
   host.setResizeSuspended('s1', false);
   assert.deepEqual(resized, []);
+});
+
+test('attach applies the font size before seeding, so the seed matches the final grid', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 15);
+  const font = calls.indexOf('setFontSize:1:15');
+  const seed = calls.indexOf('gridSize:1');
+  assert.ok(font >= 0 && font < seed, calls.join(','));
+});
+
+test('setFontSize applies to an attached overlay and ignores nonsense', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  host.setFontSize('s1', 16);
+  host.setFontSize('s1', 0);
+  host.setFontSize('s1', Number.NaN);
+  assert.deepEqual(calls, ['setFontSize:1:16']);
+});
+
+test('zoom scales frames and font from CSS px to points', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT, 10);
+  calls.length = 0;
+  host.setZoom(HANDLE, 1.5);
+  assert.ok(calls.includes('setFontSize:1:15'), calls.join(','));
+  assert.ok(calls.includes('setFrame:1:15,30,450,300'), calls.join(','));
+});
+
+test('attach after setZoom scales the first frame and font', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  host.setZoom(HANDLE, 2);
+  host.attach('s1', HANDLE, RECT, 10);
+  assert.ok(calls.includes('setFontSize:1:20'), calls.join(','));
+  assert.ok(calls.includes('setFrame:1:20,40,600,400'), calls.join(','));
+});
+
+test('zoom on one window leaves overlays on another alone', () => {
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon);
+  const winA = Buffer.alloc(8, 1);
+  const winB = Buffer.alloc(8, 2);
+  host.attach('s1', winA, RECT, 10);
+  calls.length = 0;
+  host.setZoom(winB, 2);
+  assert.equal(calls.length, 0, calls.join(','));
 });
 
 test('a rect from a window that is no longer the parent is ignored', () => {

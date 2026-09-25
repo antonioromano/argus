@@ -640,6 +640,16 @@ final class ShimTests: XCTestCase {
 
     XCTAssertEqual(sent, [Data([0x1b, 0x0d])])
   }
+
+  /// The font must follow Argus's code font size; SwiftTerm's default is 13pt
+  /// regardless of the setting. A bigger font means fewer columns.
+  func testFontSizeChangesTheGrid() {
+    let c = OverlayController(width: 800, height: 480)
+    c.setFrame(x: 0, y: 0, width: 800, height: 480)
+    let colsAt13 = c.gridCols
+    c.setFontSize(26)
+    XCTAssertLessThan(c.gridCols, colsAt13)
+  }
 }
 
 private extension NSColor {

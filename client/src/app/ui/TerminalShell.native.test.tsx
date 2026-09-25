@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { TerminalShell } from './TerminalShell.js';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
+import { FontSettingsContext } from '../../context/font-settings-context.js';
 
 const api = {
   available: vi.fn().mockResolvedValue(true),
@@ -15,6 +16,7 @@ const api = {
   setTheme: vi.fn(),
   focusTerminal: vi.fn(),
   setResizeSuspended: vi.fn(),
+  setFontSize: vi.fn(),
 };
 
 beforeEach(() => {
@@ -71,6 +73,21 @@ describe('TerminalShellNativeHole — divider drags', () => {
 
     await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative suspendResize={false} />); });
     expect(api.setResizeSuspended).toHaveBeenLastCalledWith('s1', false);
+    await act(async () => root.unmount());
+  });
+});
+
+describe('TerminalShellNativeHole — code font size', () => {
+  it('follows the code font size setting', async () => {
+    const root = mount();
+    const tile = (size: number) => (
+      <FontSettingsContext.Provider value={{ uiFontSize: 14, codeFontSize: size }}>
+        <TerminalShell session={session} socket={socket} theme="dark" useNative />
+      </FontSettingsContext.Provider>
+    );
+    await act(async () => { root.render(tile(13)); });
+    await act(async () => { root.render(tile(17)); });
+    expect(api.setFontSize).toHaveBeenLastCalledWith('s1', 17);
     await act(async () => root.unmount());
   });
 });

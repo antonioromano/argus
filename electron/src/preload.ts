@@ -82,8 +82,8 @@ interface NativeTerminalTheme { background: string; foreground: string; cursor: 
 
 contextBridge.exposeInMainWorld('electronNativeTerminal', {
   available: (): Promise<boolean> => ipcRenderer.invoke('native-term:available'),
-  attach: (sessionId: string, rect: NativeTerminalRect): Promise<boolean> =>
-    ipcRenderer.invoke('native-term:attach', { sessionId, rect }),
+  attach: (sessionId: string, rect: NativeTerminalRect, fontSize?: number): Promise<boolean> =>
+    ipcRenderer.invoke('native-term:attach', { sessionId, rect, fontSize }),
   setRect: (sessionId: string, rect: NativeTerminalRect): void => {
     ipcRenderer.send('native-term:rect', { sessionId, rect });
   },
@@ -115,6 +115,9 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
   },
   setResizeSuspended: (sessionId: string, suspended: boolean): void => {
     ipcRenderer.send('native-term:set-resize-suspended', { sessionId, suspended });
+  },
+  setFontSize: (sessionId: string, px: number): void => {
+    ipcRenderer.send('native-term:set-font-size', { sessionId, px });
   },
   clearScrollback: (sessionId: string): void => {
     ipcRenderer.send('native-term:clear-scrollback', { sessionId });

@@ -240,6 +240,17 @@ Napi::Value SetTheme(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+Napi::Value SetFontSize(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "setFontSize(id, size) requires a numeric size").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  OverlayController* c = Lookup(info, nullptr);
+  if (c) [c setFontSize:info[1].As<Napi::Number>().DoubleValue()];
+  return env.Undefined();
+}
+
 Napi::Value Reparent(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 2 || !info[1].IsBuffer()) {
@@ -378,6 +389,7 @@ Napi::Value OnDropPaths(const Napi::CallbackInfo& info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
+  exports.Set("setFontSize", Napi::Function::New(env, SetFontSize));
   exports.Set("setTheme", Napi::Function::New(env, SetTheme));
   exports.Set("reparent", Napi::Function::New(env, Reparent));
   exports.Set("show", Napi::Function::New(env, Show));

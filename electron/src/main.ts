@@ -529,6 +529,16 @@ function applyMenuAcceleratorGating(): void {
   }
 }
 
+/** Zooms the focused window and tells its native overlays, whose frames and
+ *  fonts are scaled by the zoom factor (see NativeTerminalHost.setZoom). */
+function setZoomLevelAndSyncNative(level: number): void {
+  setZoomLevelForFocused(level);
+  const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
+  if (win && !win.isDestroyed()) {
+    nativeTerminal?.setZoom(win.getNativeWindowHandle(), win.webContents.getZoomFactor());
+  }
+}
+
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
 
@@ -665,9 +675,9 @@ function buildAppMenu(): Menu {
       // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
       // Custom click handlers (not built-in roles) so every change routes through
       // setZoomLevel and keeps the tracked level in sync — survives reload.
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelForFocused(0) },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5) },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5) },
+      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelAndSyncNative(0) },
+      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelAndSyncNative(getZoomLevelForFocused() + 0.5) },
+      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelAndSyncNative(getZoomLevelForFocused() - 0.5) },
       { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
@@ -801,10 +811,14 @@ async function main() {
   // invoke (not send): the renderer must know whether an overlay is actually
   // live so it can fall back to xterm.js when attach fails instead of being
   // left staring at a permanently blank transparent hole.
-  ipcMain.handle('native-term:attach', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+  ipcMain.handle('native-term:attach', (e, { sessionId, rect, fontSize }: { sessionId: string; rect: { x: number; y: number; width: number; height: number }; fontSize?: number }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return false;
-    const ok = nativeTerminal!.attach(sessionId, win.getNativeWindowHandle(), rect);
+    const handle = win.getNativeWindowHandle();
+    // Zoom is restored per window on load (window.ts), so it can already be
+    // non-1 here; the host needs it before the first frame.
+    nativeTerminal!.setZoom(handle, win.webContents.getZoomFactor());
+    const ok = nativeTerminal!.attach(sessionId, handle, rect, fontSize);
     // Tracked only on success — bookkeeping for an overlay that was never
     // actually created would be pure leak.
     if (ok) trackNativeTermAttach(sessionId, win);
@@ -875,6 +889,11 @@ async function main() {
   ipcMain.on('native-term:set-dimmed', (e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.setDimmed(sessionId, dimmed, isDark, win?.getNativeWindowHandle());
+  });
+
+  ipcMain.on('native-term:set-font-size', (e, { sessionId, px }: { sessionId: string; px: number }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setFontSize(sessionId, px, win?.getNativeWindowHandle());
   });
 
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).

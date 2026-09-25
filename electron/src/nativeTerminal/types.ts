@@ -20,6 +20,7 @@ export interface Theme {
 export interface NativeTerminalAddon {
   create(parentHandle: Buffer, scrollback: number): number;
   setFrame(id: number, x: number, y: number, w: number, h: number): void;
+  setFontSize(id: number, size: number): void;
   setTheme(id: number, background: string, foreground: string, cursor: string, ansi: string[]): void;
   setDimmed(id: number, dimmed: boolean, isDark: boolean): void;
   reparent(id: number, parentHandle: Buffer): void;

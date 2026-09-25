@@ -6,6 +6,7 @@ import type { ISearchOptions } from '@xterm/addon-search';
 import { useTerminal, nativeThemeFor } from '../../hooks/useTerminal.js';
 import type { NativeTerminalTheme } from '../../hooks/useTerminal.js';
 import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
+import { useFontSettings } from '../../context/font-settings-context.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
@@ -55,6 +56,12 @@ interface NativeResizeSuspendBridge {
 
 interface NativeDimBridge {
   setDimmed?(sessionId: string, dimmed: boolean, isDark: boolean): void;
+}
+
+/** The slice of the native-terminal preload bridge that sets the overlay's
+ *  code font size (CSS px; main applies page zoom). */
+interface NativeFontBridge {
+  setFontSize?(sessionId: string, px: number): void;
 }
 
 /** The slice of the native-terminal preload bridge that reports key-window
@@ -137,7 +144,8 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // doc comment for why attach alone isn't already covered by the [theme]
   // dependency.
   const [attachGeneration, setAttachGeneration] = useState(0);
-  const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true), () => setAttachGeneration((n) => n + 1));
+  const { codeFontSize } = useFontSettings();
+  const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true), () => setAttachGeneration((n) => n + 1), codeFontSize);
 
   // Applies Argus's terminal theme (the SAME colors useTerminal.ts's xterm.js
   // path uses — see nativeThemeFor) to the native overlay.
@@ -174,6 +182,13 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     (window as Window & { electronNativeTerminal?: NativeDimBridge })
       .electronNativeTerminal?.setDimmed?.(session.id, isDimmed, theme === 'dark');
   }, [session.id, isDimmed, theme, attachGeneration]);
+
+  // Code font size — the xterm path reads the same setting (useTerminal's
+  // codeFontSize). Attach already carries the size; this covers changes.
+  useEffect(() => {
+    (window as Window & { electronNativeTerminal?: NativeFontBridge })
+      .electronNativeTerminal?.setFontSize?.(session.id, codeFontSize);
+  }, [session.id, codeFontSize, attachGeneration]);
 
   // Keyboard focus on request — the native counterpart of useTerminal's
   // autoFocus and requestFocusToken, which only ever reached xterm. A

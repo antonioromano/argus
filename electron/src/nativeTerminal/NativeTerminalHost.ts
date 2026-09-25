@@ -93,6 +93,12 @@ export class NativeTerminalHost {
   // its transcript, and SwiftTerm's scrollback keeps every copy.
   private readonly resizeSuspended = new Set<string>();
   private readonly pendingResize = new Map<string, { cols: number; rows: number }>();
+  // Page zoom per parent window, and the code font size per session — both in
+  // the renderer's CSS px. Everything the renderer measures is CSS px, but the
+  // overlay lives in AppKit points; at any zoom other than 1 they differ, so
+  // every frame and font reaches the addon scaled (pushFrame/pushFontSize).
+  private readonly zoomByParent = new Map<string, number>();
+  private readonly fontSizeBySession = new Map<string, number>();
   private readonly unsubscribers: Array<() => void> = [];
 
   constructor(deps: HostDeps) {
@@ -196,7 +202,7 @@ export class NativeTerminalHost {
    * missing addon or a failed create() yields false, telling the caller
    * there is no overlay to show and it should fall back to xterm.js.
    */
-  attach(sessionId: string, parentHandle: Buffer, rect: Rect): boolean {
+  attach(sessionId: string, parentHandle: Buffer, rect: Rect, fontSize?: number): boolean {
     if (!this.addon) return false;
     let id = this.bySession.get(sessionId);
     const isNew = id === undefined;
@@ -211,6 +217,12 @@ export class NativeTerminalHost {
       this.bySession.set(sessionId, id);
       this.byOverlay.set(id, sessionId);
       this.parentBySession.set(sessionId, parentHandle.toString('base64'));
+      // Before the first frame/seed: the seed is laid out for the grid this
+      // font produces, so applying it later would reflow the seed.
+      if (fontSize !== undefined && fontSize > 0) {
+        this.fontSizeBySession.set(sessionId, fontSize);
+        this.pushFontSize(sessionId, id);
+      }
       // The seed is NOT fed here: the overlay is still at its construction
       // size, so a frame rendered for the session's width would be parsed at
       // the wrong column count and reflowed into SwiftTerm's scrollback.
@@ -265,11 +277,7 @@ export class NativeTerminalHost {
     // session re-reporting, or moving between windows). applyVisibility saw no
     // transition and so set no frame — do it here.
     if (usable && wasShown && this.shown.has(sessionId)) {
-      try {
-        this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
-      } catch (err) {
-        console.error('[native-term] setFrame failed for', sessionId, err);
-      }
+      this.pushFrame(sessionId, id, rect);
     }
     return true;
   }
@@ -335,11 +343,7 @@ export class NativeTerminalHost {
     // Already visible — but a suppressed overlay is off screen, so only update
     // the cache and let applyVisibility position it when it is revealed.
     if (this.suppressed.has(sessionId)) return;
-    try {
-      this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
-    } catch (err) {
-      console.error('[native-term] setFrame failed for', sessionId, err);
-    }
+    this.pushFrame(sessionId, id, rect);
   }
 
   /**
@@ -384,13 +388,7 @@ export class NativeTerminalHost {
     // try — a frame failure must not stop the overlay being shown, or the
     // session would be stuck invisible with no way back.
     const rect = this.rectBySession.get(sessionId);
-    if (rect) {
-      try {
-        this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
-      } catch (err) {
-        console.error('[native-term] setFrame failed for', sessionId, err);
-      }
-    }
+    if (rect) this.pushFrame(sessionId, id, rect);
     // Before show, so the overlay never appears empty.
     this.seed(sessionId, id);
     this.shown.add(sessionId);
@@ -398,6 +396,31 @@ export class NativeTerminalHost {
       this.addon.show(id);
     } catch (err) {
       console.error('[native-term] show failed for', sessionId, err);
+    }
+  }
+
+  private zoomFor(sessionId: string): number {
+    const key = this.parentBySession.get(sessionId);
+    return (key !== undefined && this.zoomByParent.get(key)) || 1;
+  }
+
+  /** The single path from a CSS-px rect to the addon: scaled, guarded. */
+  private pushFrame(sessionId: string, id: number, rect: Rect): void {
+    const z = this.zoomFor(sessionId);
+    try {
+      this.addon!.setFrame(id, rect.x * z, rect.y * z, rect.width * z, rect.height * z);
+    } catch (err) {
+      console.error('[native-term] setFrame failed for', sessionId, err);
+    }
+  }
+
+  private pushFontSize(sessionId: string, id: number): void {
+    const px = this.fontSizeBySession.get(sessionId);
+    if (px === undefined) return;
+    try {
+      this.addon!.setFontSize(id, px * this.zoomFor(sessionId));
+    } catch (err) {
+      console.error('[native-term] setFontSize failed for', sessionId, err);
     }
   }
 
@@ -461,6 +484,37 @@ export class NativeTerminalHost {
       this.deps.resizeSession(sessionId, pending.cols, pending.rows);
     } catch (err) {
       console.error('[native-term] resizeSession failed for', sessionId, err);
+    }
+  }
+
+  /** Argus's code font size for this overlay, in CSS px. */
+  setFontSize(sessionId: string, px: number, parentHandle?: Buffer): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    if (!this.isCurrentParent(sessionId, parentHandle)) return;
+    if (!Number.isFinite(px) || px <= 0) return;
+    this.fontSizeBySession.set(sessionId, px);
+    this.pushFontSize(sessionId, id);
+  }
+
+  /**
+   * The page zoom of one parent window changed (or is being reported before
+   * an attach). Re-applies font and frame for every overlay on that window —
+   * the renderer's rects do not necessarily change with zoom, so nothing else
+   * would re-push them.
+   */
+  setZoom(parentHandle: Buffer, factor: number): void {
+    if (!this.addon || !Number.isFinite(factor) || factor <= 0) return;
+    const key = parentHandle.toString('base64');
+    if (this.zoomByParent.get(key) === factor) return;
+    this.zoomByParent.set(key, factor);
+    for (const [sessionId, k] of this.parentBySession) {
+      if (k !== key) continue;
+      const id = this.bySession.get(sessionId);
+      if (id === undefined) continue;
+      this.pushFontSize(sessionId, id);
+      const rect = this.rectBySession.get(sessionId);
+      if (rect && this.shown.has(sessionId)) this.pushFrame(sessionId, id, rect);
     }
   }
 
@@ -602,11 +656,7 @@ export class NativeTerminalHost {
       // Reposition only. A hidden overlay stays hidden — applyVisibility will
       // re-derive its frame when it is legitimately revealed.
       if (!(this.holeVisible.get(sessionId) ?? false) || this.suppressed.has(sessionId)) continue;
-      try {
-        this.addon.setFrame(id, rect.x, rect.y, rect.width, rect.height);
-      } catch (err) {
-        console.error('[native-term] resync setFrame failed for', sessionId, err);
-      }
+      this.pushFrame(sessionId, id, rect);
     }
   }
 
@@ -670,6 +720,7 @@ export class NativeTerminalHost {
     this.seeded.delete(sessionId);
     this.resizeSuspended.delete(sessionId);
     this.pendingResize.delete(sessionId);
+    this.fontSizeBySession.delete(sessionId);
     try {
       this.deps.setViewing(sessionId, false);
     } catch (err) {

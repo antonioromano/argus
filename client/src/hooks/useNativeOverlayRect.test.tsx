@@ -27,6 +27,11 @@ function ProbeWithInlineOnFailure({ tick }: { tick: number }) {
   return <div ref={ref} data-testid="hole" data-tick={tick} />;
 }
 
+function ProbeWithFont({ fontSize }: { fontSize: number }) {
+  const ref = useNativeOverlayRect('s1', true, undefined, undefined, fontSize);
+  return <div ref={ref} data-testid="hole" />;
+}
+
 describe('useNativeOverlayRect', () => {
   it('attaches with the hole rect when enabled', () => {
     const c = document.createElement('div');
@@ -99,6 +104,30 @@ describe('useNativeOverlayRect', () => {
 
     await act(async () => root.unmount());
   });
+
+  it('attach receives the font size, so the first seed is laid out at the right size', async () => {
+    // Awaited (unlike the sync `act()` a couple of the tests above use):
+    // attach() is async, and a bare sync act() here leaves its .then() (and
+    // so this effect's cleanup) unflushed when the test ends, leaking a
+    // document-level listener that a later test could observe.
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<ProbeWithFont fontSize={15} />); });
+    expect(api.attach.mock.calls[0][2]).toBe(15);
+    await act(async () => root.unmount());
+  });
+
+  it('a font size change does not re-attach the overlay', async () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    const root = createRoot(c);
+    await act(async () => { root.render(<ProbeWithFont fontSize={13} />); });
+    await act(async () => { root.render(<ProbeWithFont fontSize={16} />); });
+    expect(api.attach).toHaveBeenCalledTimes(1);
+    expect(api.detach).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
 });
 
 /**
@@ -166,7 +195,7 @@ describe('useNativeOverlayRect — reported geometry', () => {
     document.body.appendChild(c);
     const root = createRoot(c);
     act(() => root.render(<Probe enabled />));
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 }, undefined);
     act(() => root.unmount());
   });
 
@@ -329,7 +358,7 @@ describe('useNativeOverlayRect — reported geometry', () => {
     const root = createRoot(c);
     act(() => root.render(<Probe enabled />));
 
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 }, undefined);
 
     act(() => root.unmount());
     Object.defineProperty(window, 'scrollX', { value: originalScrollX, configurable: true });
@@ -352,7 +381,7 @@ describe('useNativeOverlayRect — reported geometry', () => {
     await act(async () => { root.render(<Probe enabled />); });
 
     // attach() saw the ORIGINAL rect and is still pending.
-    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 });
+    expect(api.attach).toHaveBeenCalledWith('s1', { x: 10, y: 20, width: 300, height: 150 }, undefined);
     expect(api.setRect).not.toHaveBeenCalled();
 
     // The hole moves while attach() is in flight — nothing is observing yet.
