@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: AppConfig = {
   uiFontSize: 14,
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
+  mosaicOrientation: 'horizontal',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',

@@ -471,6 +471,33 @@ export function SettingsOverlay({ config, sessions = [], onClose, onSave, onSave
                     ))}
                   </div>
                 </SettingRow>
+                <SettingRow label="Shell layout" hint="Arrange mosaic shells side by side or stacked one under another">
+                  <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+                    {([['horizontal', 'Side by side'], ['vertical', 'Stacked']] as const).map(([val, label]) => {
+                      const cur = config.mosaicOrientation ?? 'horizontal';
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => onSave({ mosaicOrientation: val })}
+                          style={{
+                            all: 'unset',
+                            cursor: 'pointer',
+                            padding: '6px var(--s-3)',
+                            background: cur === val ? 'var(--accent-bg)' : 'var(--bg-1)',
+                            border: `1px solid ${cur === val ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                            borderRadius: 'var(--r-2)',
+                            fontSize: 'var(--t-sm)',
+                            color: cur === val ? 'var(--accent)' : 'var(--fg-1)',
+                            textAlign: 'center',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </SettingRow>
                 <SettingRow label="Waiting attention" hint="How a shell waiting for input stands out in the mosaic">
                   <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
                     {([['breathing', 'Breathing halo'], ['flag', 'Pulse bar + flag']] as const).map(([val, label]) => {

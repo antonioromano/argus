@@ -105,6 +105,13 @@ test('defaults expose the tile header fields', async () => {
   assert.equal(loaded.quickActionPromptedAt, '');
 });
 
+test('PUT mosaicOrientation persists and rejects unknown values', async () => {
+  assert.equal((await get()).mosaicOrientation, 'horizontal');
+  assert.equal((await put({ mosaicOrientation: 'vertical' })).body.mosaicOrientation, 'vertical');
+  assert.equal((await put({ mosaicOrientation: 'diagonal' })).body.mosaicOrientation, 'vertical');
+  assert.equal((await put({ mosaicOrientation: 'horizontal' })).body.mosaicOrientation, 'horizontal');
+});
+
 test('PUT tileQuickAction persists a valid action (allowlist regression)', async () => {
   const { status, body } = await put({ tileQuickAction: 'files' });
   assert.equal(status, 200);
@@ -188,6 +195,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     uiFontSize: 16,
     codeFontSize: 15,
     mosaicWaitingStyle: 'flag',
+    mosaicOrientation: 'vertical',
     debugToolsEnabled: true,
     ptyBackend: 'tmux',
     tileQuickAction: 'files',
