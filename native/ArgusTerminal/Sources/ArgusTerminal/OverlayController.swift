@@ -24,6 +24,23 @@ final class KeyableWindow: NSWindow {
   var onKeyChange: ((Bool) -> Void)?
 
   override func sendEvent(_ event: NSEvent) {
+    // xterm's scrollOnUserInput: every user keystroke returns a scrolled-up
+    // reader to the bottom, unconditionally. SwiftTerm's own send(data:) calls
+    // ensureCaretIsVisible() instead, which only scrolls when the caret has
+    // actually left the viewport — a reader scrolled up by only a little, with
+    // the cursor sitting mid-screen rather than right at the viewport's edge,
+    // has a caret that is STILL technically visible, so that check does
+    // nothing and the reader was left stranded. Checked and acted on BEFORE
+    // any translation/super below (so it also covers Shift+Enter and the
+    // Option special keys, which return early), and Command is excluded so a
+    // Cmd+ combination (not ordinary typing) does not yank the reader down.
+    // Deliberately not done in the delegate's send(source:data:) — that also
+    // carries terminal-generated replies (e.g. a DECRQM answer), not just user
+    // input, and those must not move the reader's scroll position.
+    if event.type == .keyDown, isTerminalFocused?() ?? true {
+      let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      if !f.contains(.command) { onUserKeyDown?() }
+    }
     if event.type == .keyDown, !(isComposingText?() ?? false), isTerminalFocused?() ?? true {
       if KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
         handler()
@@ -110,6 +127,11 @@ final class KeyableWindow: NSWindow {
   /// Called instead of delivering an Option+special key to SwiftTerm, with the
   /// bytes xterm.js sends for it (see optionKeySequence).
   var onOptionKey: (([UInt8]) -> Void)?
+
+  /// Called for every user keyDown while the terminal is focused (see
+  /// sendEvent's doc comment) so the controller can return a scrolled-up
+  /// reader to the bottom, matching xterm's scrollOnUserInput.
+  var onUserKeyDown: (() -> Void)?
 
   /// Called for every scroll event before SwiftTerm handles it, so the
   /// controller can set the sensitivity for this notch's modifiers.
@@ -415,9 +437,12 @@ final class DropAwareTerminalView: TerminalView {
     // genuinely stops delivery. `self` is unowned-safe here: the window is
     // torn down in destroy(), before the controller can go away.
     w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
-    // Through SwiftTerm's own send(data:), not straight to onInput: that is
-    // where a scrolled-up reader is brought back to the bottom (xterm's
-    // scrollOnUserInput), and it reaches onInput via the delegate anyway.
+    // Through SwiftTerm's own send(data:), not straight to onInput: send(data:)
+    // also runs ensureCaretIsVisible() (a conditional scroll-to-bottom, only
+    // when the caret has left the viewport) and reaches onInput via the
+    // delegate anyway. The unconditional scroll-to-bottom xterm's
+    // scrollOnUserInput needs is handled separately by onUserKeyDown below,
+    // which fires for every user keyDown regardless of which path it takes.
     w.onShiftEnter = { [weak self] in
       self?.terminalView.send(data: [0x1b, 0x0d][...])
     }
@@ -426,6 +451,14 @@ final class DropAwareTerminalView: TerminalView {
     }
     w.onScrollWheel = { [weak self] event in
       self?.prepareScroll(optionDown: event.modifierFlags.contains(.option))
+    }
+    // xterm's scrollOnUserInput: return a scrolled-up reader to the bottom on
+    // every user keystroke, unconditionally — see sendEvent's doc comment for
+    // why SwiftTerm's own ensureCaretIsVisible (inside send(data:), triggered
+    // above) is not enough on its own.
+    w.onUserKeyDown = { [weak self] in
+      guard let v = self?.terminalView, v.canScroll, v.scrollPosition < 1 else { return }
+      v.scroll(toPosition: 1)
     }
     w.onOptionClick = { [weak self] event in
       guard let self else { return }
@@ -759,6 +792,11 @@ final class DropAwareTerminalView: TerminalView {
   public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
   public func debugScrollToTop() { terminalView.scroll(toPosition: 0) }
   public func debugScrollToBottom() { terminalView.scroll(toPosition: 1) }
+  /// Test seam: scrolls up by exactly `lines` from wherever the view
+  /// currently is — unlike `debugScrollToTop`, lets a test put the reader
+  /// only a LITTLE way up, the case a conditional (caret-visibility-based)
+  /// scroll-to-bottom can miss.
+  public func debugScrollUp(lines: Int) { terminalView.scrollUp(lines: lines) }
   public func debugIsScrolledUp() -> Bool { terminalView.canScroll && terminalView.scrollPosition < 1 }
   public func debugOptionAsMeta() -> Bool { terminalView.optionAsMetaKey }
   public func debugSetMarkedText(_ text: String) {
@@ -858,11 +896,13 @@ final class DropAwareTerminalView: TerminalView {
   public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
   /// Sends a real key event through the overlay's window, so a test exercises
   /// the same sendEvent path AppKit uses rather than the predicate alone.
-  public func debugSendKey(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
+  /// `characters` defaults to "\r" (every existing caller is a Return
+  /// variant); pass e.g. "a" to exercise an ordinary keystroke.
+  public func debugSendKey(keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String = "\r") {
     guard let w = window else { return }
     guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
                                    timestamp: 0, windowNumber: w.windowNumber, context: nil,
-                                   characters: "\r", charactersIgnoringModifiers: "\r",
+                                   characters: characters, charactersIgnoringModifiers: characters,
                                    isARepeat: false, keyCode: keyCode) else { return }
     w.sendEvent(e)
   }

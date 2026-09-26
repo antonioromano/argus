@@ -811,6 +811,32 @@ final class ShimTests: XCTestCase {
     XCTAssertFalse(c.debugIsScrolledUp())
   }
 
+  /// Finding 2 (B7 partly unmet): SwiftTerm's own `send(data:)` calls
+  /// `ensureCaretIsVisible()`, which scrolls only when the caret itself has
+  /// left the viewport — not xterm's `scrollOnUserInput`, which scrolls to
+  /// the bottom unconditionally on every user keystroke. A reader scrolled up
+  /// by only a line, with the cursor sitting mid-screen (not at the very
+  /// bottom row) rather than right at the edge of the viewport, has a caret
+  /// that is STILL technically visible, so SwiftTerm's own check does
+  /// nothing and the reader was left stranded just above the bottom.
+  func testAPlainKeystrokeReturnsAReaderScrolledUpOnlyALittleToTheBottom() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    // Move the cursor up mid-screen, away from the bottom row: with the
+    // cursor still at the very last row, ANY upward scroll pushes it out of
+    // the viewport and SwiftTerm's own ensureCaretIsVisible already handles
+    // it — this reproduces the case its conditional check misses.
+    c.feed(data: Data("\u{1b}[5A".utf8) as NSData)
+    c.debugScrollUp(lines: 1)
+    XCTAssertTrue(c.debugIsScrolledUp())
+
+    c.debugSendKey(keyCode: 0, flags: [], characters: "a")   // an ordinary keystroke, no modifiers
+
+    XCTAssertFalse(c.debugIsScrolledUp(), "typing must return the reader to the bottom even when the caret was still technically visible")
+  }
+
   /// A realign frame is screen-only: it must not eat the history a reader may
   /// be scrolled into (xterm's resync frame has no ESC[3J for the same reason).
   func testAScreenOnlyFrameKeepsScrollback() {
