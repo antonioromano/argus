@@ -28,7 +28,7 @@
 // `<arch>` is Node's arch naming (arm64 / x64) — see resolveDaemonBin.ts and
 // PtyManager's tmux-<arch> resolution for the same convention.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -82,6 +82,8 @@ for (const { nodeArch, swiftArch } of ARCHES) {
     { stdio: 'inherit' },
   );
 
+  ensureSwiftHeader(swiftArch);
+
   console.log(`[build-native] node-gyp rebuild --arch=${nodeArch}`);
   execFileSync(
     process.platform === 'win32' ? 'node-gyp.cmd' : 'node-gyp',
@@ -122,3 +124,44 @@ for (const { nodeArch, swiftArch } of ARCHES) {
 }
 
 console.log('\n[build-native] done.');
+
+/**
+ * binding.gyp compiles addon.mm against the ObjC header SwiftPM generates for
+ * the Swift target, and looks for it in `<target>.build/include/` — where
+ * Xcode 26's SwiftPM writes it. Older toolchains (the macos-15 CI runner's
+ * default Xcode 16) put it elsewhere under the same release directory, so the
+ * addon failed with "'ArgusTerminal-Swift.h' file not found" even though the
+ * Swift build succeeded. Find it wherever this SwiftPM put it and copy it to
+ * the path binding.gyp uses; fail loudly, with what was found, if it is absent.
+ */
+function ensureSwiftHeader(swiftArch) {
+  const releaseDir = path.join(swiftPackagePath, '.build', `${swiftArch}-apple-macosx`, 'release');
+  const expectedDir = path.join(releaseDir, 'ArgusTerminal.build', 'include');
+  const expected = path.join(expectedDir, 'ArgusTerminal-Swift.h');
+  if (existsSync(expected)) return;
+
+  const found = [];
+  const walk = (dir, depth) => {
+    if (depth > 6) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full, depth + 1);
+      else if (e.name === 'ArgusTerminal-Swift.h') found.push(full);
+    }
+  };
+  walk(releaseDir, 0);
+
+  if (found.length === 0) {
+    const targetDir = path.join(releaseDir, 'ArgusTerminal.build');
+    const listing = existsSync(targetDir) ? readdirSync(targetDir).join(', ') : '(missing)';
+    throw new Error(
+      `[build-native] ArgusTerminal-Swift.h was not generated under ${releaseDir}. ` +
+      `ArgusTerminal.build contains: ${listing}`,
+    );
+  }
+  console.log(`[build-native] Swift header found at ${found[0]}; copying to ${expected}`);
+  mkdirSync(expectedDir, { recursive: true });
+  copyFileSync(found[0], expected);
+}
