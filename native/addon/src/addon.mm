@@ -79,7 +79,10 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
 
-  NSView* view = *reinterpret_cast<NSView* __unsafe_unretained*>(buf.Data());
+  // The buffer holds a raw NSView* (getNativeWindowHandle). Read it as void*
+  // and bridge: casting char* straight to an ObjC pointer-to-pointer is
+  // rejected under ARC by Xcode 16's clang (Xcode 26 accepts it).
+  NSView* view = (__bridge NSView*)(*reinterpret_cast<void**>(buf.Data()));
   NSWindow* parent = [view window];
   if (parent == nil) {
     Napi::Error::New(env, "parent NSView has no NSWindow").ThrowAsJavaScriptException();
@@ -286,7 +289,7 @@ Napi::Value Reparent(const Napi::CallbackInfo& info) {
   }
   OverlayController* c = Lookup(info, nullptr);
   if (c) {
-    NSView* view = *reinterpret_cast<NSView* __unsafe_unretained*>(buf.Data());
+    NSView* view = (__bridge NSView*)(*reinterpret_cast<void**>(buf.Data()));
     NSWindow* parent = [view window];
     if (parent == nil) {
       Napi::Error::New(env, "parent NSView has no NSWindow").ThrowAsJavaScriptException();
