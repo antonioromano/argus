@@ -43,6 +43,7 @@ export interface NativeTerminalAddon {
   onDropPaths(cb: (id: number, paths: string[]) => void): void;
   onBell(cb: (id: number) => void): void;
   onCopy(cb: (id: number, text: string) => void): void;
+  onScrolledUp(cb: (id: number, scrolledUp: boolean) => void): void;
 }
 
 export interface HostDeps {

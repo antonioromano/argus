@@ -794,6 +794,21 @@ final class ShimTests: XCTestCase {
     XCTAssertFalse(c.debugIsScrolledUp())
   }
 
+  /// The host needs to know when a reader leaves and returns to the bottom, to
+  /// hold back refresh frames meanwhile. Transitions only — not every scroll.
+  func testScrolledUpIsReportedOnTransitionsOnly() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    var reports: [Bool] = []
+    c.onScrolledUp = { reports.append($0) }
+    c.debugScrollToTop()
+    c.debugScrollToTop()
+    c.debugScrollToBottom()
+    XCTAssertEqual(reports, [true, false])
+  }
+
   /// SwiftTerm's find bar puts an `NSSearchField` inside this same window, so
   /// while the user is typing a search term, Option+⌫/←→ (word editing in the
   /// field) must reach the field, not be translated to bytes for the pty.

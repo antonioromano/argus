@@ -27,6 +27,7 @@ Napi::ThreadSafeFunction g_openLinkTsfn;
 Napi::ThreadSafeFunction g_dropTsfn;
 Napi::ThreadSafeFunction g_bellTsfn;
 Napi::ThreadSafeFunction g_copyTsfn;
+Napi::ThreadSafeFunction g_scrolledTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
 bool g_hasFocusTsfn = false;
@@ -34,6 +35,7 @@ bool g_hasOpenLinkTsfn = false;
 bool g_hasDropTsfn = false;
 bool g_hasBellTsfn = false;
 bool g_hasCopyTsfn = false;
+bool g_hasScrolledTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -144,6 +146,14 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     std::string s(text.UTF8String ? text.UTF8String : "");
     g_copyTsfn.BlockingCall([id, s](Napi::Env env, Napi::Function cb) {
       cb.Call({Napi::Number::New(env, id), Napi::String::New(env, s)});
+    });
+  }];
+
+  [c setOnScrolledUp:^(BOOL up) {
+    if (!g_hasScrolledTsfn) return;
+    bool isUp = up ? true : false;
+    g_scrolledTsfn.BlockingCall([id, isUp](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id), Napi::Boolean::New(env, isUp)});
     });
   }];
 
@@ -365,6 +375,7 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     [c setOnDropPaths:nil];
     [c setOnBell:nil];
     [c setOnCopy:nil];
+    [c setOnScrolledUp:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -400,6 +411,10 @@ Napi::Value OnCopy(const Napi::CallbackInfo& info) {
   InstallTsfn(info, "argusCopy", &g_copyTsfn, &g_hasCopyTsfn);
   return info.Env().Undefined();
 }
+Napi::Value OnScrolledUp(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusScrolledUp", &g_scrolledTsfn, &g_hasScrolledTsfn);
+  return info.Env().Undefined();
+}
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
@@ -423,6 +438,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("onOpenLink", Napi::Function::New(env, OnOpenLink));
   exports.Set("onDropPaths", Napi::Function::New(env, OnDropPaths));
   exports.Set("onCopy", Napi::Function::New(env, OnCopy));
+  exports.Set("onScrolledUp", Napi::Function::New(env, OnScrolledUp));
   exports.Set("onBell", Napi::Function::New(env, OnBell));
   return exports;
 }

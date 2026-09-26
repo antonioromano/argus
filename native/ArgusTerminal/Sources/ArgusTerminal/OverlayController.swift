@@ -259,6 +259,12 @@ final class DropAwareTerminalView: TerminalView {
   /// The user's selection, from Edit ▸ Copy / ⌘C. See `DropAwareTerminalView.copy`.
   @objc public var onCopy: ((NSString) -> Void)?
 
+  /// Reports when a reader leaves or returns to the bottom of the scrollback,
+  /// so the host can hold back refresh frames meanwhile (xterm's
+  /// shouldPaintReplay). Fires on transitions only — see `scrolled` below.
+  @objc public var onScrolledUp: ((Bool) -> Void)?
+  private var lastScrolledUp = false
+
   private let terminalView: DropAwareTerminalView
   private var window: NSWindow?
   /// The parent to (re-)attach to. Tracked separately from `window.parent`
@@ -653,6 +659,7 @@ final class DropAwareTerminalView: TerminalView {
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
   public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
   public func debugScrollToTop() { terminalView.scroll(toPosition: 0) }
+  public func debugScrollToBottom() { terminalView.scroll(toPosition: 1) }
   public func debugIsScrolledUp() -> Bool { terminalView.canScroll && terminalView.scrollPosition < 1 }
   public func debugOptionAsMeta() -> Bool { terminalView.optionAsMetaKey }
   public func debugSetMarkedText(_ text: String) {
@@ -955,7 +962,15 @@ final class DropAwareTerminalView: TerminalView {
   public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) { onResize?(newCols, newRows) }
   public func setTerminalTitle(source: TerminalView, title: String) {}
   public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
-  public func scrolled(source: TerminalView, position: Double) {}
+  /// Reports when the reader leaves or returns to the bottom, so the host can
+  /// hold back refresh frames meanwhile (xterm's shouldPaintReplay). Only on a
+  /// transition: this fires for every scrolled line.
+  public func scrolled(source: TerminalView, position: Double) {
+    let up = source.canScroll && position < 1
+    guard up != lastScrolledUp else { return }
+    lastScrolledUp = up
+    onScrolledUp?(up)
+  }
   public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
   /// OSC 52 clipboard writes are ignored on purpose. The xterm path has no
   /// clipboard addon either, so terminal output cannot overwrite the user's

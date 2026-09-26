@@ -14,6 +14,7 @@ function fakeAddon() {
   let dropCb: ((id: number, paths: string[]) => void) | undefined;
   let bellCb: ((id: number) => void) | undefined;
   let copyCb: ((id: number, text: string) => void) | undefined;
+  let scrolledCb: ((id: number, up: boolean) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   // What gridSize() reports — the grid the last setFrame produced.
@@ -80,6 +81,7 @@ function fakeAddon() {
     onDropPaths: (cb) => { dropCb = cb; },
     onBell: (cb) => { bellCb = cb; },
     onCopy: (cb) => { copyCb = cb; },
+    onScrolledUp: (cb) => { scrolledCb = cb; },
   };
   return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; },
            setGridThrows: (t: boolean) => { gridThrows = t; },
@@ -90,7 +92,8 @@ function fakeAddon() {
            fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
            fireDrop: (i: number, p: string[]) => dropCb!(i, p),
            fireBell: (i: number) => bellCb!(i),
-           fireCopy: (i: number, t: string) => copyCb!(i, t) };
+           fireCopy: (i: number, t: string) => copyCb!(i, t),
+           fireScrolledUp: (i: number, up: boolean) => scrolledCb!(i, up) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
@@ -169,6 +172,52 @@ test('session output is fed only to that session overlay', () => {
   emitOutput('s1', 'abc');
   assert.ok(calls.includes('feed:1:abc'));
   assert.ok(!calls.includes('feed:2:abc'));
+});
+
+test('a refresh frame is held back while the reader is scrolled up', () => {
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host, emitReplay } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireScrolledUp(1, true);
+  calls.length = 0;
+  emitReplay('s1', 'FRAME');
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+});
+
+test('live output still reaches a scrolled-up reader', () => {
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host, emitOutput } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireScrolledUp(1, true);
+  emitOutput('s1', 'LIVE');
+  assert.ok(calls.includes('feed:1:LIVE'));
+});
+
+test('returning to the bottom re-seeds exactly once if a refresh was held back', () => {
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host, emitReplay, emitOutput } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireScrolledUp(1, true);
+  emitReplay('s1', 'FRAME1');
+  emitReplay('s1', 'FRAME2');
+  emitOutput('s1', 'LIVE');
+  calls.length = 0;
+  fireScrolledUp(1, false);
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+  calls.length = 0;
+  fireScrolledUp(1, true);
+  fireScrolledUp(1, false);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), 'nothing owed, nothing fed');
+});
+
+test('returning to the bottom with nothing held back feeds nothing', () => {
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireScrolledUp(1, true);
+  calls.length = 0;
+  fireScrolledUp(1, false);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')));
 });
 
 test('output for an unattached session is ignored', () => {

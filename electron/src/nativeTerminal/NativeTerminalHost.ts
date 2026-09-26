@@ -87,6 +87,11 @@ export class NativeTerminalHost {
   // Sessions whose overlay window is currently key, so a detach can report
   // the focus it takes away (destroy silences onFocus before closing).
   private readonly focused = new Set<string>();
+  // Sessions whose reader is currently scrolled up, and sessions with a
+  // refresh frame withheld while that was true (xterm's replayPolicy.ts:
+  // shouldPaintReplay). Cleared, and re-seeded once, on return to the bottom.
+  private readonly scrolledUp = new Set<string>();
+  private readonly refreshOwed = new Set<string>();
   // Divider drags hold back pty resizes, as the xterm path does: SwiftTerm
   // still reflows locally on every frame, but only the size the drag ends at
   // reaches the agent. Otherwise every intermediate width makes it reprint
@@ -120,7 +125,19 @@ export class NativeTerminalHost {
         console.error('[native-term] feed failed for', sessionId, err);
       }
     };
-    this.unsubscribers.push(deps.onOutput(feedLive), deps.onReplay(feedLive));
+    this.unsubscribers.push(
+      deps.onOutput(feedLive),
+      // Replacement frames lead with ESC[3J and reprint everything, which throws
+      // away a scrolled-up reader's place. Hold them back (xterm's
+      // shouldPaintReplay) and re-seed once the reader is back at the bottom.
+      deps.onReplay((sessionId, data) => {
+        if (this.scrolledUp.has(sessionId) && this.seeded.has(sessionId)) {
+          this.refreshOwed.add(sessionId);
+          return;
+        }
+        feedLive(sessionId, data);
+      }),
+    );
 
     this.addon.onInput((id, data) => {
       try {
@@ -172,6 +189,23 @@ export class NativeTerminalHost {
         if (sessionId) this.deps.notifyCopy(sessionId, text);
       } catch (err) {
         console.error('[native-term] notifyCopy failed for overlay', id, err);
+      }
+    });
+
+    this.addon.onScrolledUp((id, up) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (!sessionId) return;
+        if (up) {
+          this.scrolledUp.add(sessionId);
+          return;
+        }
+        this.scrolledUp.delete(sessionId);
+        if (this.refreshOwed.delete(sessionId) && this.shown.has(sessionId)) {
+          this.seed(sessionId, id);
+        }
+      } catch (err) {
+        console.error('[native-term] scrolled-up handling failed for overlay', id, err);
       }
     });
 
@@ -782,6 +816,8 @@ export class NativeTerminalHost {
     this.suppressed.delete(sessionId);
     this.shown.delete(sessionId);
     this.seeded.delete(sessionId);
+    this.scrolledUp.delete(sessionId);
+    this.refreshOwed.delete(sessionId);
     this.resizeSuspended.delete(sessionId);
     this.pendingResize.delete(sessionId);
     this.fontSizeBySession.delete(sessionId);
