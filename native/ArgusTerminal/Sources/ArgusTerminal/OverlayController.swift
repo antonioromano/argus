@@ -34,6 +34,7 @@ final class KeyableWindow: NSWindow {
         return
       }
     }
+    if event.type == .scrollWheel { onScrollWheel?(event) }
     super.sendEvent(event)
   }
 
@@ -98,6 +99,10 @@ final class KeyableWindow: NSWindow {
   /// Called instead of delivering an Option+special key to SwiftTerm, with the
   /// bytes xterm.js sends for it (see optionKeySequence).
   var onOptionKey: (([UInt8]) -> Void)?
+
+  /// Called for every scroll event before SwiftTerm handles it, so the
+  /// controller can set the sensitivity for this notch's modifiers.
+  var onScrollWheel: ((NSEvent) -> Void)?
 
   /// xterm.js's bytes for Option+⌫/fn⌫/←/→/↑/↓ (Keyboard.ts), or nil for any
   /// other key. With optionAsMetaKey off — required so Option+letter types the
@@ -341,7 +346,20 @@ final class DropAwareTerminalView: TerminalView {
     // Option must type the characters non-US layouts put on it (@ # [ ] { }
     // on Italian). xterm runs with macOptionIsMeta: false; match it.
     terminalView.optionAsMetaKey = false
+    terminalView.scrollSensitivity = OverlayController.scrollSensitivity(optionDown: false)
   }
+
+  /// Lines per wheel notch, matching xterm tiles (useTerminal.ts:
+  /// scrollSensitivity 3, fastScrollSensitivity 10 with Option).
+  static func scrollSensitivity(optionDown: Bool) -> CGFloat { optionDown ? 10 : 3 }
+
+  /// Called for every scroll event before SwiftTerm handles it.
+  private func prepareScroll(optionDown: Bool) {
+    terminalView.scrollSensitivity = OverlayController.scrollSensitivity(optionDown: optionDown)
+  }
+
+  public func debugPrepareScroll(optionDown: Bool) { prepareScroll(optionDown: optionDown) }
+  public func debugScrollSensitivity() -> CGFloat { terminalView.scrollSensitivity }
 
   /// Attach as a child of the Electron window. `parent` is the NSWindow behind
   /// BrowserWindow.getNativeWindowHandle().
@@ -387,6 +405,9 @@ final class DropAwareTerminalView: TerminalView {
     }
     w.onOptionKey = { [weak self] bytes in
       self?.terminalView.send(data: bytes[...])
+    }
+    w.onScrollWheel = { [weak self] event in
+      self?.prepareScroll(optionDown: event.modifierFlags.contains(.option))
     }
     w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
     // While SwiftTerm's find bar (or any other subview) holds first

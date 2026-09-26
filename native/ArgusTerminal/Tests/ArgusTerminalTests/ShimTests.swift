@@ -868,6 +868,22 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugFontPointSize(), 72)
   }
 
+  /// xterm tiles scroll 3 lines per notch, 10 with Option held
+  /// (scrollSensitivity / fastScrollSensitivity in useTerminal.ts).
+  func testWheelSensitivityMatchesXterm() {
+    XCTAssertEqual(OverlayController.scrollSensitivity(optionDown: false), 3)
+    XCTAssertEqual(OverlayController.scrollSensitivity(optionDown: true), 10)
+  }
+
+  func testAScrollEventAppliesTheSensitivityForItsModifiers() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.debugPrepareScroll(optionDown: true)
+    XCTAssertEqual(c.debugScrollSensitivity(), 10)
+    c.debugPrepareScroll(optionDown: false)
+    XCTAssertEqual(c.debugScrollSensitivity(), 3)
+  }
+
   /// ⌘C (Edit ▸ Copy sends copy: to the first responder) hands the selection to
   /// the host instead of writing raw rows to the pasteboard.
   func testCopyHandsTheSelectionToTheHost() {
