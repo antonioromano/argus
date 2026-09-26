@@ -833,6 +833,31 @@ final class DropAwareTerminalView: TerminalView {
     w.sendEvent(e)
   }
 
+  /// Sends a real mouse event through the overlay's window, so a test
+  /// exercises the same `sendEvent` path AppKit uses for Option+click rather
+  /// than calling `optionClickSequence` directly. `atViewPoint` is a point in
+  /// the terminal view's own coordinates (matching `optionClickSequence`'s
+  /// parameter); converted to window coordinates because that is what
+  /// `NSEvent.mouseEvent(location:)` expects.
+  public func debugSendMouse(_ type: NSEvent.EventType, atViewPoint p: NSPoint,
+                             flags: NSEvent.ModifierFlags, clickCount: Int, timestamp: TimeInterval) {
+    guard let w = window else { return }
+    let windowPoint = terminalView.convert(p, to: nil)
+    guard let e = NSEvent.mouseEvent(with: type, location: windowPoint, modifierFlags: flags,
+                                     timestamp: timestamp, windowNumber: w.windowNumber, context: nil,
+                                     eventNumber: 0, clickCount: clickCount, pressure: 1) else { return }
+    w.sendEvent(e)
+  }
+
+  /// Sends an already-built event through the overlay's window. Unlike
+  /// `debugSendKey`/`debugSendMouse`, which construct the event themselves,
+  /// this exists for events neither `NSEvent.keyEvent` nor `NSEvent.mouseEvent`
+  /// can synthesize — a scroll-wheel event needs a `CGEvent` (for its wheel
+  /// deltas), wrapped as `NSEvent(cgEvent:)`, which a test builds itself.
+  public func debugSendEvent(_ event: NSEvent) {
+    window?.sendEvent(event)
+  }
+
   public func debugDimAlpha() -> CGFloat {
     guard let c = dimView?.layer?.backgroundColor, let ns = NSColor(cgColor: c) else { return -1 }
     return ns.alphaComponent

@@ -722,6 +722,18 @@ final class ShimTests: XCTestCase {
     return (c, parent)
   }
 
+  /// The centre of grid cell (col, row) in the terminal view's own
+  /// coordinates — the same conversion `optionClickSequence` does in reverse
+  /// (not flipped: y grows upward, so row 0 is at the TOP, near `size.height`).
+  private func cellCenter(_ c: OverlayController, col: Int, row: Int) -> NSPoint {
+    let size = c.debugTerminalViewFrame().size
+    let cellW = size.width / CGFloat(c.gridCols)
+    let cellH = size.height / CGFloat(c.gridRows)
+    let x = (CGFloat(col) + 0.5) * cellW
+    let y = size.height - (CGFloat(row) + 0.5) * cellH
+    return NSPoint(x: x, y: y)
+  }
+
   /// xterm.js sends these for Option+special keys whatever macOptionIsMeta is
   /// (Keyboard.ts). With Option no longer Meta, SwiftTerm dropped them.
   func testOptionSpecialKeysSendXtermSequences() {
@@ -911,6 +923,100 @@ final class ShimTests: XCTestCase {
     c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
     c.debugScrollToTop()
     XCTAssertNil(c.optionClickSequence(atViewPoint: NSPoint(x: 5, y: 5)))
+  }
+
+  /// End-to-end: a real Option mouse-down + mouse-up close together, routed
+  /// through `KeyableWindow.sendEvent` exactly as AppKit would deliver them,
+  /// must produce the arrow-key bytes for the clicked cell — not just
+  /// `optionClickSequence` computed correctly in isolation.
+  func testOptionClickSendsMoveSequenceViaRealMouseEvents() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)   // cursor at x=5, y=0
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = cellCenter(c, col: 1, row: 0)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.1)
+
+    XCTAssertEqual(sent, [Data(String(repeating: "\u{1b}[D", count: 4).utf8)],
+                  "cursor at x=5 to target col 1: 4 × ←")
+  }
+
+  func testOptionClickDoesNothingIfHeldTooLong() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = cellCenter(c, col: 1, row: 0)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.6)
+
+    XCTAssertEqual(sent, [], "more than 500ms between down and up is a drag/hold, not a click")
+  }
+
+  func testOptionClickDoesNothingOnADoubleClick() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = cellCenter(c, col: 1, row: 0)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 2, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 2, timestamp: 0.1)
+
+    XCTAssertEqual(sent, [], "a double-click is not a plain Option+click")
+  }
+
+  func testOptionClickDoesNothingIfOptionWasNotHeldOnMouseDown() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = cellCenter(c, col: 1, row: 0)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.1)
+
+    XCTAssertEqual(sent, [], "Option must be held on mouse-down, not just at mouse-up")
+  }
+
+  /// End-to-end for Task 5: a real `.scrollWheel` event, built from a `CGEvent`
+  /// (the only way to get a wheel delta onto a synthetic `NSEvent`) so the
+  /// modifier-reading branch in `KeyableWindow.sendEvent` is what sets the
+  /// sensitivity, not a direct call to `debugPrepareScroll`.
+  func testOptionWheelSetsFastSensitivityViaARealScrollEvent() {
+    let (c, parent) = attachedController()
+    _ = parent
+
+    guard let optionCG = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: 3, wheel2: 0, wheel3: 0) else {
+      XCTFail("could not synthesize a scroll CGEvent in this test environment")
+      return
+    }
+    optionCG.flags = .maskAlternate
+    guard let optionScroll = NSEvent(cgEvent: optionCG) else {
+      XCTFail("could not wrap the CGEvent as an NSEvent")
+      return
+    }
+    c.debugSendEvent(optionScroll)
+    XCTAssertEqual(c.debugScrollSensitivity(), 10)
+
+    guard let plainCG = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: 3, wheel2: 0, wheel3: 0),
+          let plainScroll = NSEvent(cgEvent: plainCG) else {
+      XCTFail("could not synthesize the second scroll CGEvent")
+      return
+    }
+    c.debugSendEvent(plainScroll)
+    XCTAssertEqual(c.debugScrollSensitivity(), 3)
   }
 
   /// ⌘C (Edit ▸ Copy sends copy: to the first responder) hands the selection to
