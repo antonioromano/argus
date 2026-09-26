@@ -53,6 +53,10 @@ const (
 	// A single socket write that can't complete in this long means the consumer
 	// is wedged, not busy.
 	writeTimeout = 15 * time.Second
+	// How often a paced write re-checks for outbox room. Coarse on purpose: this
+	// runs on the control path, where a couple of milliseconds of latency per
+	// chunk is invisible next to the socket write it is waiting for.
+	outboxPollInterval = 2 * time.Millisecond
 )
 
 var errOutboxFull = errors.New("outbox full — consumer not draining")
@@ -149,6 +153,61 @@ func (c *framedConn) enqueue(buf []byte) error {
 		c.drop()
 		return errOutboxFull
 	}
+}
+
+// enqueueWait hands a frame to the writer, WAITING for outbox room instead of
+// declaring the consumer dead when the outbox is full.
+//
+// The non-blocking enqueue above is right for live output: a consumer that has
+// stopped draining must not cost unbounded memory, and a session read loop must
+// never block. Attach replay is the opposite case. It is a bounded, one-shot
+// backlog that the consumer *needs* — dropping it leaves a restored terminal
+// permanently blank — and it is produced on the connection's control goroutine,
+// where waiting costs nothing but this consumer's own throughput. Waiting turns
+// "consumer is behind" into backpressure rather than a dropped connection.
+//
+// The timeout still distinguishes slow from gone: a consumer that frees no room
+// at all within it is wedged, and we drop it exactly as before.
+func (c *framedConn) enqueueWait(buf []byte, timeout time.Duration) error {
+	if c.q == nil {
+		return c.enqueue(buf)
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		select {
+		case <-c.dead:
+			return errOutboxFull
+		default:
+		}
+		if c.queued.Load()+int64(len(buf)) <= maxOutboxBytes {
+			select {
+			case c.q <- buf:
+				c.queued.Add(int64(len(buf)))
+				return nil
+			default:
+			}
+		}
+		if time.Now().After(deadline) {
+			c.drop()
+			return errOutboxFull
+		}
+		time.Sleep(outboxPollInterval)
+	}
+}
+
+// writeDataPaced is writeData for backlog replay: same frame, paced enqueue.
+func (c *framedConn) writeDataPaced(id string, data []byte, timeout time.Duration) error {
+	if len(id) > 255 {
+		return fmt.Errorf("session id too long: %d", len(id))
+	}
+	body := make([]byte, 0, 2+len(id)+len(data))
+	body = append(body, kindData, byte(len(id)))
+	body = append(body, id...)
+	body = append(body, data...)
+	buf := make([]byte, 4+len(body))
+	binary.BigEndian.PutUint32(buf[:4], uint32(len(body)))
+	copy(buf[4:], body)
+	return c.enqueueWait(buf, timeout)
 }
 
 func (c *framedConn) writeControl(ctl control) error {

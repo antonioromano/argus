@@ -157,6 +157,14 @@ export function installSelectableMouse(
     // seeded scrollback).
     if (!state.appMouse || !sendInput || terminal.buffer.active.type !== 'alternate') return;
 
+    // Never while the button is down. A wheel here reaches the app, which
+    // repaints the alternate screen under a selection anchored to those same
+    // cells: the highlight stays put while different text slides beneath it, so
+    // the drag ends up selecting a range the user never saw. Suppressing it
+    // costs nothing — scrolling mid-drag could not extend the selection anyway,
+    // since the alternate screen has no scrollback to extend into.
+    if (tracking) { e.preventDefault(); return; }
+
     e.preventDefault();
     wheelAcc += e.deltaY;
     let reports = Math.trunc(wheelAcc / WHEEL_STEP);

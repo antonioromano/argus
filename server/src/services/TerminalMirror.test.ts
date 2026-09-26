@@ -186,6 +186,50 @@ test('clearScrollback on a mirror with no history leaves the screen untouched', 
   m.dispose();
 });
 
+// @xterm/headless 6.0.0 throws from its write timer on ED 1 with the cursor in
+// the bottom-right corner — an uncaughtException that exits the server. Guarded
+// by scripts/patch-xterm-headless.mjs (postinstall) until a stable release ships
+// the upstream fix; this fails if the patch didn't apply.
+test('ED 1 with the cursor in the bottom-right corner erases the screen without crashing', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('above\r\nmore text');
+  let crash: Error | null = null;
+  const onCrash = (err: Error) => { crash = err; };
+  process.on('uncaughtException', onCrash);
+  try {
+    // A parser throw leaves xterm's write queue stuck, so the feed never settles:
+    // race it so the failure is the crash, not a test timeout.
+    await Promise.race([
+      m.feed('\x1b[999;999H\x1b[1J'),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+  } finally {
+    process.off('uncaughtException', onCrash);
+  }
+  assert.equal(crash, null, `xterm threw: ${String(crash)}`);
+  assert.ok(!m.readRows(0, m.totalRows()).some((r) => r.includes('above') || r.includes('more text')), 'screen is erased');
+  m.dispose();
+});
+
+// Same patch, second guard: `print` on a cursor row missing from the buffer
+// ("reading 'setCellFromCodepoint'"). No known input reaches it on 6.0.0, so
+// force the state through xterm internals.
+test('printing with the cursor row missing from the buffer does not crash', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('ready\r'); // column 0: the first touch of the row is setCellFromCodepoint, as in the field crash
+  (m.term as unknown as { _core: { buffer: { y: number } } })._core.buffer.y = ROWS + 5;
+  let crash: Error | null = null;
+  const onCrash = (err: Error) => { crash = err; };
+  process.on('uncaughtException', onCrash);
+  try {
+    await Promise.race([m.feed('x'), new Promise((resolve) => setTimeout(resolve, 1000))]);
+  } finally {
+    process.off('uncaughtException', onCrash);
+  }
+  assert.equal(crash, null, `xterm threw: ${String(crash)}`);
+  m.dispose();
+});
+
 // ---------------------------------------------------------------------------
 // Mode-append scanner (Q4 gap fix) — serialize omits ?1006h and ?25; the mirror
 // tracks DECSET/DECRST and re-emits them.

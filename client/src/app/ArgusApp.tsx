@@ -44,6 +44,7 @@ import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
 import { useWindows } from '../hooks/useWindows.js';
+import { insertBefore } from '../utils/reorder.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 import { setSuppressionTransport } from '../hooks/nativeOverlayRegistry.js';
@@ -369,6 +370,13 @@ function DesktopInner() {
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
+
+  /** Reposition an ungrouped session in the global order, for a drop onto a row
+   *  in the sidebar's Others bucket. Others has no membership array of its own,
+   *  so its order is the global one — the same list the focus-view strip uses. */
+  const reorderSessionBefore = useCallback((sessionId: string, beforeId: string | null) => {
+    reorderSession(insertBefore(orderedSessions.map((s) => s.id), sessionId, beforeId));
+  }, [orderedSessions, reorderSession]);
   const mosaicSessions = useMemo(() => getMosaicOrderedSessions(sessions), [sessions, getMosaicOrderedSessions]);
   const counts = useMemo(() => deriveCounts(orderedSessions), [orderedSessions]);
   const grouped = groups.groupedSessions(orderedSessions);
@@ -701,6 +709,10 @@ function DesktopInner() {
         onOpenSettings={() => app.openOverlay({ kind: 'settings' })}
         onToggleTheme={toggleTheme}
         onOpenRemote={() => app.openOverlay({ kind: 'settings', initialTab: 'remote' })}
+        mosaicOrientation={app.view === 'dashboard' ? (config?.mosaicOrientation ?? 'horizontal') : undefined}
+        onToggleMosaicOrientation={() => void updateConfig({
+          mosaicOrientation: config?.mosaicOrientation === 'vertical' ? 'horizontal' : 'vertical',
+        })}
         isDark={isDark}
         ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
         updateAvailable={updateStatus?.hasUpdate}
@@ -800,6 +812,7 @@ function DesktopInner() {
               activeGroupId={activeGroupId}
               isDark={isDark}
               onAssign={groups.assign}
+              onReorderOthers={reorderSessionBefore}
               onToggleCollapsed={groups.toggleCollapsed}
               onFilterGroup={(id) => { setActiveGroupId(id); app.exitFocus(); }}
               onCreateGroup={(name) => groups.createGroup(name)}
@@ -867,6 +880,7 @@ function DesktopInner() {
               waitingStyle={config?.mosaicWaitingStyle ?? 'breathing'}
               quickAction={config?.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
+              orientation={config?.mosaicOrientation ?? 'horizontal'}
               defaultTerminalEngine={config?.defaultTerminalEngine}
             />
           )}

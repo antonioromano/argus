@@ -68,8 +68,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Theme & motion',
     group: 'Appearance',
     icon: SlidersHorizontal,
-    keys: ['mosaicWaitingStyle'],
-    keywords: ['theme', 'dark', 'light', 'system', 'appearance', 'waiting', 'attention', 'halo', 'breathing', 'pulse', 'flag', 'mosaic'],
+    keys: ['mosaicOrientation', 'mosaicWaitingStyle'],
+    keywords: ['theme', 'dark', 'light', 'system', 'appearance', 'waiting', 'attention', 'halo', 'breathing', 'pulse', 'flag', 'mosaic', 'layout', 'stacked', 'vertical', 'horizontal', 'side by side'],
   },
   {
     id: 'typography',
@@ -266,6 +266,7 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'uiFontSize',
   'codeFontSize',
   'mosaicWaitingStyle',
+  'mosaicOrientation',
   'debugToolsEnabled',
   'ptyBackend',
   'tileQuickAction',

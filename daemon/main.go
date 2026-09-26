@@ -17,6 +17,20 @@ import (
 
 const idleTimeout = 5 * time.Minute
 
+const (
+	// Bytes of backlog per replay frame. Small enough that a slow consumer frees
+	// outbox room between chunks, large enough not to add per-frame overhead to
+	// a multi-megabyte ring.
+	replayChunkBytes = 256 << 10
+	// How long a single replay chunk waits for outbox room before the consumer
+	// counts as wedged rather than slow.
+	replayWriteTimeout = 30 * time.Second
+	// Ceiling on one session's replay. Only a session producing output faster
+	// than the consumer drains it can reach this; past it the backlog stops
+	// being a backlog.
+	replayMaxDuration = 30 * time.Second
+)
+
 type daemon struct {
 	socketPath string
 	pidPath    string
@@ -197,16 +211,7 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 			_ = fc.writeControl(control{Op: "error", ID: c.ID, Msg: "no such session"})
 			return
 		}
-		// Hold the session lock so the read loop can't interleave a live frame
-		// between the backlog and the subscribe — the client gets ring-then-live
-		// in order.
-		s.mu.Lock()
-		snap := s.ring.snapshot()
-		if len(snap) > 0 {
-			_ = fc.writeData(s.id, snap)
-		}
-		s.subscribed = true
-		s.mu.Unlock()
+		replayAndSubscribe(fc, s)
 
 	case "write":
 		d.mu.Lock()
@@ -249,6 +254,55 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 	case "ping":
 		_ = fc.writeControl(control{Op: "pong", Version: protocolVersion})
 	}
+}
+
+// replayAndSubscribe hands one session's backlog to the client and then puts it
+// back on the live stream.
+//
+// Runs on the connection's read goroutine, so it also serialises the restore
+// burst: an app restart attaches every session at once, and replaying them one
+// at a time is what keeps their combined backlog (sessions x 2MB ring) from
+// being enqueued in a single lump the outbox can only answer by dropping the
+// connection — which used to leave every restored terminal blank.
+//
+// The session lock is never held across a write. Live output is suppressed for
+// the duration (the read loop keeps filling the ring, and the loop below picks
+// those bytes up), so the client still sees one ordered stream, and the handoff
+// back to live happens under the same lock the read loop takes.
+func replayAndSubscribe(fc *framedConn, s *session) {
+	s.mu.Lock()
+	s.subscribed = false
+	mark := s.ring.oldest()
+	s.mu.Unlock()
+
+	deadline := time.Now().Add(replayMaxDuration)
+	for {
+		s.mu.Lock()
+		chunk, next := s.ring.from(mark, replayChunkBytes)
+		if len(chunk) == 0 {
+			s.subscribed = true // caught up; live frames resume in order
+			s.mu.Unlock()
+			break
+		}
+		if time.Now().After(deadline) {
+			// A session producing faster than the consumer reads would keep this
+			// loop running forever, holding up every other attach behind it. Cut
+			// over to the live path: send what we have the ordinary (droppable)
+			// way and let the outbox rules apply from here.
+			_ = fc.writeData(s.id, chunk)
+			s.subscribed = true
+			s.mu.Unlock()
+			break
+		}
+		s.mu.Unlock()
+		if err := fc.writeDataPaced(s.id, chunk, replayWriteTimeout); err != nil {
+			return // consumer is gone; the connection is already closed
+		}
+		mark = next
+	}
+	// The ack is the client's cue that this session's backlog is complete, so it
+	// can attach the next one. Sent even for an empty ring.
+	_ = fc.writeControl(control{Op: "attached", ID: s.id})
 }
 
 // readLoop pumps one session's pty output into its ring and (when subscribed) to

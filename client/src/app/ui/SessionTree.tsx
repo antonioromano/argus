@@ -9,6 +9,7 @@ import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from './sessionMenuContext.js';
 import { SessionRenameInput } from './SessionRenameInput.js';
+import { insertionPoint } from '../../utils/reorder.js';
 
 const OTHERS = '__others__';
 
@@ -20,7 +21,11 @@ interface SessionTreeProps {
   grouped: GroupedSessions;
   activeGroupId: string | null;
   isDark: boolean;
-  onAssign: (sessionId: string, groupId: string | null) => void;
+  onAssign: (sessionId: string, groupId: string | null, beforeId?: string | null) => void;
+  /** Reposition an ungrouped session in the global session order. Others has no
+   *  sessionIds array of its own — its order is the global one, shared with the
+   *  focus-view strip — so its reorder goes through the caller. */
+  onReorderOthers: (sessionId: string, beforeId: string | null) => void;
   onToggleCollapsed: (id: string) => void;
   onFilterGroup: (id: string | null) => void;
   onCreateGroup: (name: string) => void;
@@ -40,13 +45,14 @@ interface SessionTreeProps {
 
 export function SessionTree({
   grouped, activeGroupId, isDark,
-  onAssign, onToggleCollapsed, onFilterGroup, onCreateGroup,
+  onAssign, onReorderOthers, onToggleCollapsed, onFilterGroup, onCreateGroup,
   onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers,
   onOpenSession, onToggleFavorite, onSpawnFromFavorite, isFavorite, onToggleFavoritesCollapsed,
   othersFolderName = 'Others',
 }: SessionTreeProps) {
   const dragId = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [leafDrop, setLeafDrop] = useState<{ id: string; edge: 'top' | 'bottom' } | null>(null);
   const [creating, setCreating] = useState(false);
   const [othersCollapsed, setOthersCollapsed] = useState(false);
 
@@ -54,7 +60,33 @@ export function SessionTree({
     if (dragId.current) onAssign(dragId.current, groupId);
     dragId.current = null;
     setDropTarget(null);
+    setLeafDrop(null);
   };
+
+  /**
+   * Drop onto a row rather than onto the group: the session lands at that exact
+   * position instead of at the end. Dragging in from another group moves and
+   * positions in one gesture, which is why this is not a separate reorder path.
+   */
+  const handleLeafDrop = (groupId: string | null, ids: string[], targetId: string) => {
+    const edge = leafDrop?.edge ?? 'top';
+    const dragged = dragId.current;
+    dragId.current = null;
+    setLeafDrop(null);
+    setDropTarget(null);
+    if (!dragged || dragged === targetId) return;
+
+    const beforeId = insertionPoint(ids, targetId, edge);
+
+    if (groupId) { onAssign(dragged, groupId, beforeId); return; }
+    // Others is the absence of a group, so the move is two steps: leave whatever
+    // group it was in, then take a position in the global order.
+    onAssign(dragged, null);
+    onReorderOthers(dragged, beforeId);
+  };
+
+  const onLeafDragOver = (sessionId: string, edge: 'top' | 'bottom') => setLeafDrop({ id: sessionId, edge });
+  const onLeafDragLeave = (sessionId: string) => setLeafDrop((d) => (d?.id === sessionId ? null : d));
 
   const starColor = isDark ? STAR_COLOR_DARK : STAR_COLOR_LIGHT;
 
@@ -70,6 +102,10 @@ export function SessionTree({
           onDragLeaveGroup={() => setDropTarget((t) => (t === FAVORITES_GROUP_ID ? null : t))}
           onDrop={() => handleDrop(FAVORITES_GROUP_ID)}
           onDragStartLeaf={(id) => { dragId.current = id; }}
+          leafDrop={leafDrop}
+          onLeafDragOver={onLeafDragOver}
+          onLeafDragLeave={onLeafDragLeave}
+          onLeafDrop={(targetId) => handleLeafDrop(FAVORITES_GROUP_ID, grouped.favorites!.items.map((i) => i.id), targetId)}
           onChevron={onToggleFavoritesCollapsed}
           onOpenSession={onOpenSession}
           onSpawnFromFavorite={onSpawnFromFavorite}
@@ -91,6 +127,10 @@ export function SessionTree({
           onDragLeaveGroup={() => setDropTarget((t) => (t === group.id ? null : t))}
           onDrop={() => handleDrop(group.id)}
           onDragStartLeaf={(id) => { dragId.current = id; }}
+          leafDrop={leafDrop}
+          onLeafDragOver={onLeafDragOver}
+          onLeafDragLeave={onLeafDragLeave}
+          onLeafDrop={(targetId) => handleLeafDrop(group.id, sessions.map((x) => x.id), targetId)}
           onChevron={() => onToggleCollapsed(group.id)}
           onFilter={() => onFilterGroup(activeGroupId === group.id ? null : group.id)}
           onRename={(name) => onRenameGroup(group.id, name)}
@@ -121,6 +161,10 @@ export function SessionTree({
         onDragLeaveGroup={() => setDropTarget((t) => (t === OTHERS ? null : t))}
         onDrop={() => handleDrop(null)}
         onDragStartLeaf={(id) => { dragId.current = id; }}
+        leafDrop={leafDrop}
+        onLeafDragOver={onLeafDragOver}
+        onLeafDragLeave={onLeafDragLeave}
+        onLeafDrop={(targetId) => handleLeafDrop(null, grouped.others.map((x) => x.id), targetId)}
         onOpenSession={onOpenSession}
         onToggleFavorite={onToggleFavorite}
         isFavorite={isFavorite}
@@ -146,6 +190,7 @@ export function SessionTree({
 function FavoritesNode({
   favorites, dropping, starColor,
   onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
+  leafDrop, onLeafDragOver, onLeafDragLeave, onLeafDrop,
   onChevron, onOpenSession, onSpawnFromFavorite, onToggleFavorite, isFavorite,
 }: {
   favorites: GroupedSessions['favorites'] & object;
@@ -155,6 +200,10 @@ function FavoritesNode({
   onDragLeaveGroup: () => void;
   onDrop: () => void;
   onDragStartLeaf: (id: string) => void;
+  leafDrop: { id: string; edge: 'top' | 'bottom' } | null;
+  onLeafDragOver: (sessionId: string, edge: 'top' | 'bottom') => void;
+  onLeafDragLeave: (sessionId: string) => void;
+  onLeafDrop: (targetSessionId: string) => void;
   onChevron: () => void;
   onOpenSession: (id: string) => void;
   onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
@@ -215,6 +264,12 @@ function FavoritesNode({
         return (
           <Leaf
             key={item.id}
+            drag={{
+              edge: leafDrop?.id === item.id ? leafDrop.edge : null,
+              onOver: (edge) => onLeafDragOver(item.id, edge),
+              onLeave: () => onLeafDragLeave(item.id),
+              onDrop: () => onLeafDrop(item.id),
+            }}
             session={item}
             starColor={starColor}
             dimmed={isExited}
@@ -233,6 +288,7 @@ function FavoritesNode({
 function GroupNode({
   group, sessions, active, dropping, isDark, starColor,
   onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
+  leafDrop, onLeafDragOver, onLeafDragLeave, onLeafDrop,
   onChevron, onFilter, onRename, onSetColor, onDelete, onKill, onOpenSession,
   onToggleFavorite, isFavorite,
 }: {
@@ -246,6 +302,10 @@ function GroupNode({
   onDragLeaveGroup: () => void;
   onDrop: () => void;
   onDragStartLeaf: (id: string) => void;
+  leafDrop: { id: string; edge: 'top' | 'bottom' } | null;
+  onLeafDragOver: (sessionId: string, edge: 'top' | 'bottom') => void;
+  onLeafDragLeave: (sessionId: string) => void;
+  onLeafDrop: (targetSessionId: string) => void;
   onChevron: () => void;
   onFilter: () => void;
   onRename: (name: string) => void;
@@ -349,6 +409,12 @@ function GroupNode({
       {!group.collapsed && sessions.map((s) => (
         <Leaf
           key={s.id}
+          drag={{
+            edge: leafDrop?.id === s.id ? leafDrop.edge : null,
+            onOver: (edge) => onLeafDragOver(s.id, edge),
+            onLeave: () => onLeafDragLeave(s.id),
+            onDrop: () => onLeafDrop(s.id),
+          }}
           session={s}
           starColor={starColor}
           isFavorite={isFavorite(s.id)}
@@ -365,6 +431,7 @@ function GroupNode({
 function OthersNode({
   sessions, color, isDark, starColor, collapsed, dropping, active, name,
   onChevron, onSetColor, onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf, onOpenSession,
+  leafDrop, onLeafDragOver, onLeafDragLeave, onLeafDrop,
   onFilter, onKill, onToggleFavorite, isFavorite,
 }: {
   sessions: SessionInfo[];
@@ -381,6 +448,10 @@ function OthersNode({
   onDragLeaveGroup: () => void;
   onDrop: () => void;
   onDragStartLeaf: (id: string) => void;
+  leafDrop: { id: string; edge: 'top' | 'bottom' } | null;
+  onLeafDragOver: (sessionId: string, edge: 'top' | 'bottom') => void;
+  onLeafDragLeave: (sessionId: string) => void;
+  onLeafDrop: (targetSessionId: string) => void;
   onOpenSession: (id: string) => void;
   onFilter: () => void;
   onKill: () => void;
@@ -458,6 +529,12 @@ function OthersNode({
       {!collapsed && sessions.map((s) => (
         <Leaf
           key={s.id}
+          drag={{
+            edge: leafDrop?.id === s.id ? leafDrop.edge : null,
+            onOver: (edge) => onLeafDragOver(s.id, edge),
+            onLeave: () => onLeafDragLeave(s.id),
+            onDrop: () => onLeafDrop(s.id),
+          }}
           session={s}
           starColor={starColor}
           isFavorite={isFavorite(s.id)}
@@ -471,8 +548,20 @@ function OthersNode({
 }
 
 /* ---------- leaf ---------- */
+
+/** Per-row drop state. Bundled so the three node types thread one prop instead
+ *  of four, and so a row that cannot be a drop target simply omits it. */
+export interface LeafDrag {
+  /** Which edge to draw the insertion line on, or null when this row is not the
+   *  current target. */
+  edge: 'top' | 'bottom' | null;
+  onOver: (edge: 'top' | 'bottom') => void;
+  onLeave: () => void;
+  onDrop: () => void;
+}
+
 function Leaf({
-  session, starColor, isFavorite, dimmed = false, onDragStart, onOpen, onToggleFavorite,
+  session, starColor, isFavorite, dimmed = false, onDragStart, onOpen, onToggleFavorite, drag,
 }: {
   session: SessionInfo;
   starColor: string;
@@ -481,6 +570,7 @@ function Leaf({
   onDragStart: () => void;
   onOpen: () => void;
   onToggleFavorite: () => void;
+  drag?: LeafDrag;
 }) {
   const [hover, setHover] = useState(false);
   const sessionMenu = useSessionMenu();
@@ -494,6 +584,16 @@ function Leaf({
         tabIndex={0}
         aria-label={`Open ${label}`}
         onDragStart={onDragStart}
+        onDragOver={drag && ((e) => {
+          e.preventDefault();
+          // Keep the group underneath from also claiming the drop: a row target
+          // is more specific, and both highlighting at once reads as ambiguous.
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          drag.onOver(e.clientY - r.top < r.height / 2 ? 'top' : 'bottom');
+        })}
+        onDragLeave={drag && (() => drag.onLeave())}
+        onDrop={drag && ((e) => { e.preventDefault(); e.stopPropagation(); drag.onDrop(); })}
         onContextMenu={(e) => sessionMenu.openMenu(session, e, 'tree')}
         onClick={onOpen}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
@@ -506,6 +606,11 @@ function Leaf({
           padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
           cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: dimmed ? 0.55 : 1,
+          // Inset rather than a real border: a border would resize the row and
+          // shove the list around under the cursor mid-drag.
+          boxShadow: drag?.edge === 'top' ? 'inset 0 2px 0 var(--accent)'
+            : drag?.edge === 'bottom' ? 'inset 0 -2px 0 var(--accent)'
+            : undefined,
         }}
       >
         <StatusDot status={session.status} size={6} decorative />

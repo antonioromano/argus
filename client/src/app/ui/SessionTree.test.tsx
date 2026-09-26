@@ -26,6 +26,7 @@ function render() {
           activeGroupId={null}
           isDark
           onAssign={vi.fn()}
+          onReorderOthers={vi.fn()}
           onToggleCollapsed={onToggleCollapsed}
           onFilterGroup={vi.fn()}
           onCreateGroup={vi.fn()}

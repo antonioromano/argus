@@ -1,11 +1,31 @@
-import { useState, useRef, Fragment } from 'react';
+import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
 import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd, StatusDot, Tooltip } from '../../components/primitives/index.js';
+import { ResizeDivider } from '../../components/ResizeDivider.js';
 
 const COLLAPSE_KEY = 'argus-sidebar-collapsed';
+const WIDTH_KEY = 'argus-sidebar-width';
+
+// Expanded width is a dragged, persisted value. The bounds are the useful range
+// rather than arbitrary: below the minimum the session tree's nested rows start
+// eliding folder names to nothing, and past the maximum the sidebar is taking
+// space from the terminals it exists to navigate.
+const WIDTH_MIN = 190;
+const WIDTH_MAX = 460;
+const WIDTH_DEFAULT = 220;
+
+function readStoredWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(WIDTH_KEY));
+    if (!Number.isFinite(n) || n === 0) return WIDTH_DEFAULT;
+    return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, n));
+  } catch {
+    return WIDTH_DEFAULT;
+  }
+}
 const EASE_IN  = 'cubic-bezier(.4,0,1,1)';   // expand: slow start so icons visibly travel
 const EASE_IO  = 'cubic-bezier(.4,0,.6,1)';   // collapse: symmetric, not too snappy
 
@@ -33,6 +53,9 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
   });
   const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
+  const [width, setWidth] = useState<number>(readStoredWidth);
+  const [resizing, setResizing] = useState(false);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const treeRef  = useRef<HTMLDivElement>(null);
   const vboxRef  = useRef<HTMLDivElement>(null);
@@ -172,6 +195,37 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     else doCollapse();
   };
 
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    setResizing(true);
+  }, [width]);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      // Left-hand rail: dragging right widens it.
+      const next = drag.startWidth + (e.clientX - drag.startX);
+      setWidth(Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, next)));
+    };
+    const onUp = () => { setResizing(false); dragRef.current = null; };
+    const prevCursor = document.body.style.cursor;
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prevCursor;
+    };
+  }, [resizing]);
+
+  useEffect(() => {
+    try { localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* ignore */ }
+  }, [width]);
+
   const pilot: Item[] = [
     { id: 'sessions', icon: SquareTerminal, label: 'Shells', count: counts.total, highlight: !!counts.waiting },
     { id: 'palette',  icon: Search,         label: 'Find & Jump', kbd: '⌘K' },
@@ -186,6 +240,11 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       className="argus-sidebar"
       data-collapsed={collapsed || undefined}
       data-animating={animating ?? undefined}
+      // Collapsed width stays in CSS, so leaving it unset here lets the
+      // collapse/expand transition run exactly as before. Dragging suppresses
+      // that same transition, or every mousemove would animate 180ms behind the
+      // cursor.
+      style={collapsed ? undefined : { width, transition: resizing ? 'none' : undefined }}
     >
       <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         <button
@@ -243,6 +302,27 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
             <StatusDot status={ngrokConnected ? 'running' : 'idle'} size={8} />
           </Tooltip>
           <span className="eyebrow num argus-sidebar-version-txt" style={{ flex: 1 }}>v{version}</span>
+        </div>
+      )}
+
+      {/* Drag handle. Absolutely positioned on the right edge rather than added
+          as a flex sibling in ArgusApp, so the app shell's layout is untouched
+          and the handle disappears with the sidebar when it collapses. */}
+      {!collapsed && (
+        <div
+          onDoubleClick={() => setWidth(WIDTH_DEFAULT)}
+          title="Drag to resize · double-click to reset"
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            right: 0,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            zIndex: 1,
+          }}
+        >
+          <ResizeDivider isDragging={resizing} onMouseDown={onResizeStart} />
         </div>
       )}
     </aside>

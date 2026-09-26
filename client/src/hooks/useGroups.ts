@@ -3,6 +3,7 @@ import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { api } from '../services/api.js';
 import { DEFAULT_GROUP_COLOR, OTHERS_DEFAULT_COLOR } from '../constants/groupColors.js';
+import { insertBefore } from '../utils/reorder.js';
 
 // Reserved entry that only carries the Others bucket's color (never holds membership).
 export const OTHERS_GROUP_ID = '__others__';
@@ -90,8 +91,13 @@ export function useGroups() {
     });
   }, [commit]);
 
-  // Single-membership: drop the session from every group, then add to target (null = Others).
-  const assign = useCallback((sessionId: string, groupId: string | null) => {
+  /**
+   * Single-membership: drop the session from every group, then add to target
+   * (null = Others). `beforeId` places it directly above that session; omitted
+   * or unknown, it lands at the end — which is what a drop on the group header
+   * rather than on a row means.
+   */
+  const assign = useCallback((sessionId: string, groupId: string | null, beforeId?: string | null) => {
     setGroups((prev) => {
       const next = prev.map((g) => ({
         ...g,
@@ -99,7 +105,7 @@ export function useGroups() {
       }));
       if (groupId) {
         const target = next.find((g) => g.id === groupId);
-        if (target) target.sessionIds = [...target.sessionIds, sessionId];
+        if (target) target.sessionIds = insertBefore(target.sessionIds, sessionId, beforeId ?? null);
       }
       commit(next);
       return next;

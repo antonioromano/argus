@@ -3,6 +3,9 @@ export type SessionStatus = 'waiting' | 'running' | 'idle' | 'done' | 'exited';
 // How a waiting-for-input shell stands out in the mosaic grid.
 export type MosaicWaitingStyle = 'breathing' | 'flag';
 
+// How mosaic tiles are arranged: side by side in columns, or stacked in rows.
+export type MosaicOrientation = 'horizontal' | 'vertical';
+
 export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
 export type AgentType = BuiltinAgentId | string;
 
@@ -85,6 +88,7 @@ export interface AppConfig {
   uiFontSize?: number;   // base font size (px) for the interface chrome (default: 14)
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
+  mosaicOrientation?: MosaicOrientation; // side by side ('horizontal') or stacked ('vertical') mosaic tiles (default: horizontal)
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
@@ -125,6 +129,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   uiFontSize: 14,
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
+  mosaicOrientation: 'horizontal',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',
