@@ -279,10 +279,17 @@ export class NativeTerminalHost {
    * full frame there (no scrollback to protect), and feeding that would
    * full-redraw a live TUI (vim/less/htop) on every resize or settle — xterm's
    * own resync never re-aligns on the alt screen either (replayPolicy.ts).
+   *
+   * Also skipped while a divider drag suspends this session's resizes: a
+   * realign scheduled just before the drag started (from the resize that
+   * preceded it) must not fire mid-drag and full-redraw the view out from
+   * under it — setResizeSuspended's release path already schedules its own
+   * realign for the size the drag ends at, so this one is redundant at best.
    */
   private realign(sessionId: string): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
+    if (this.resizeSuspended.has(sessionId)) return;
     if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return;
     try {
       this.deps.flushOutput(sessionId);
@@ -601,7 +608,12 @@ export class NativeTerminalHost {
       console.error('[native-term] pre-seed resize failed for', sessionId, err);
     }
     try {
-      // Still unseeded here, so the output subscriber drops what this flushes.
+      // True for the FIRST seed: this overlay is not yet in `seeded`, so
+      // feedLive's `if (!this.seeded.has(sessionId)) return;` drops whatever
+      // this flush emits. A RE-seed (font change, return-to-bottom) finds the
+      // overlay already seeded, so the flushed bytes ARE fed here this time —
+      // but the full-frame snapshot fed right after supersedes them, so
+      // nothing is lost or double-painted either way.
       this.deps.flushOutput(sessionId);
       const snap = this.deps.getReplaySnapshot(sessionId);
       if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
@@ -881,7 +893,11 @@ export class NativeTerminalHost {
     const realignTimer = this.realignTimers.get(sessionId);
     if (realignTimer) clearTimeout(realignTimer);
     this.realignTimers.delete(sessionId);
-    this.lastStatus.delete(sessionId);
+    // lastStatus is deliberately NOT cleared here. onStatus's subscription
+    // tracks every session regardless of whether it currently has an overlay
+    // (a re-attach must still see the run it started under), and a session
+    // that re-attaches mid-run needs `prev === 'running'` to still be true
+    // when the run settles, or the settle realign is silently lost.
     try {
       this.deps.setViewing(sessionId, false);
     } catch (err) {

@@ -1108,13 +1108,23 @@ test('a copy from an overlay is forwarded for its session', () => {
   assert.deepEqual(copies, [['s1', 'raw\ntext']]);
 });
 
-test('a copy from an unknown overlay is ignored, and a throwing notifyCopy does not escape', () => {
+test('a copy from an unknown overlay is ignored', () => {
+  // A RECORDING notifyCopy (the harness default), not a throwing one: with a
+  // throwing notifyCopy, copies would stay [] for id 1 (a KNOWN overlay) too,
+  // since the throw is swallowed either way — that assertion never actually
+  // proved the unknown id was the reason nothing was recorded.
   const { addon, fireCopy } = fakeAddon();
-  const { host, copies } = harness(addon, { notifyCopy: () => { throw new Error('boom'); } });
+  const { host, copies } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireCopy(99, 'x');
+  assert.deepEqual(copies, []);
+});
+
+test('a throwing notifyCopy does not escape the native callback', () => {
+  const { addon, fireCopy } = fakeAddon();
+  const { host } = harness(addon, { notifyCopy: () => { throw new Error('boom'); } });
   host.attach('s1', HANDLE, RECT);
   assert.doesNotThrow(() => fireCopy(1, 'x'));
-  assert.doesNotThrow(() => fireCopy(99, 'x'));
-  assert.deepEqual(copies, []);
 });
 
 // ── Review fixes: seed timing, replay frames, focus, resize suspension ──
@@ -1432,6 +1442,25 @@ test('a realign is skipped on the alternate buffer — a full-redraw would flick
   assert.ok(!calls.includes('feed:1:SCREEN'), calls.join(','));
 });
 
+test('a settle realign survives a detach/re-attach mid-run', (t) => {
+  // Finding 5: detach() used to delete lastStatus, so after a re-attach
+  // during a run, the running -> waiting transition saw `prev === undefined`
+  // (not 'running') and never scheduled the realign at all. The subscription
+  // to onStatus is never torn down per-session, so there is no reason
+  // lastStatus needs to be either.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls } = fakeAddon();
+  const { host, emitStatus } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  emitStatus('s1', 'running');
+  host.detach('s1');
+  host.attach('s1', HANDLE, RECT);   // a new overlay id (2) for the same session
+  calls.length = 0;
+  emitStatus('s1', 'waiting');
+  t.mock.timers.tick(450);
+  assert.equal(calls.filter((c) => c === 'feed:2:SCREEN').length, 1, calls.join(','));
+});
+
 test('output settling (running → waiting/done) realigns after 450 ms', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { addon, calls } = fakeAddon();
@@ -1454,6 +1483,24 @@ test('other status transitions do not realign', (t) => {
   emitStatus('s1', 'waiting');
   t.mock.timers.tick(1000);
   assert.ok(!calls.includes('feed:1:SCREEN'));
+});
+
+test('a realign scheduled before a divider drag starts is skipped while suspended', (t) => {
+  // Finding 6: realign() did not check resizeSuspended, so a realign already
+  // scheduled (e.g. from a resize just before the drag started) could still
+  // fire and feed a full-redraw frame WHILE the drag is live — release()
+  // already schedules its own realign for the size the drag ends at, so this
+  // one must be dropped, not raced against it.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls, fireResize, setGrid } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  setGrid({ cols: 90, rows: 30 });
+  fireResize(1, 90, 30);           // schedules a realign 120ms out
+  host.setResizeSuspended('s1', true);   // the divider drag starts before it fires
+  t.mock.timers.tick(120);
+  assert.ok(!calls.includes('feed:1:SCREEN'), calls.join(','));
 });
 
 test('a realign that comes due after the overlay was hidden or detached feeds nothing', (t) => {
