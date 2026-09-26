@@ -12,6 +12,7 @@ import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
 import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
+import { terminalSelectionToClipboard } from '../../hooks/terminalCopy.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -85,6 +86,12 @@ interface NativeDropBridge {
  *  bell, so a native tile can flash like an xterm one. */
 interface NativeBellBridge {
   onBell?(cb: (sessionId: string) => void): () => void;
+}
+
+/** The slice of the native-terminal preload bridge that formats copies. */
+interface NativeCopyBridge {
+  onCopy?(cb: (sessionId: string, text: string) => void): () => void;
+  writeClipboard?(text: string): void;
 }
 
 interface TerminalShellProps {
@@ -334,6 +341,18 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
     // props.socket is the singleton WS client; reading it off props here keeps
     // this effect out of the render-time destructuring above.
   }, [session.id, props.socket]);
+
+  // Copy: main already put the raw selection on the clipboard; replace it with
+  // the text an xterm tile would copy (gutter stripped, agent-wrapped rows
+  // rejoined — see terminalCopy.ts).
+  useEffect(() => {
+    const bridge = (window as Window & { electronNativeTerminal?: NativeCopyBridge }).electronNativeTerminal;
+    if (!bridge?.onCopy) return;
+    return bridge.onCopy((id, text) => {
+      if (id !== session.id) return;
+      bridge.writeClipboard?.(terminalSelectionToClipboard(text));
+    });
+  }, [session.id]);
 
   if (failed) return <TerminalShellXterm {...props} />;
   const { status, framed = true } = props;

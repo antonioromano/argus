@@ -42,6 +42,7 @@ export interface NativeTerminalAddon {
   onOpenLink(cb: (id: number, url: string) => void): void;
   onDropPaths(cb: (id: number, paths: string[]) => void): void;
   onBell(cb: (id: number) => void): void;
+  onCopy(cb: (id: number, text: string) => void): void;
 }
 
 export interface HostDeps {
@@ -85,6 +86,12 @@ export interface HostDeps {
   notifyDropPaths(id: string, paths: string[]): void;
   /** Terminal bell on a native overlay; the renderer flashes the tile. */
   notifyBell(id: string): void;
+  /**
+   * Text the user copied from a native terminal. Forwarded so the renderer can
+   * format it with terminalSelectionToClipboard — the same text an xterm tile
+   * copies — rather than reimplementing that in main.
+   */
+  notifyCopy(id: string, text: string): void;
   /**
    * Opens a link the user activated inside a native terminal. Deliberately
    * routed out to the caller rather than opened in Swift: SwiftTerm's default

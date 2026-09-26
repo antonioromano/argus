@@ -166,6 +166,15 @@ export class NativeTerminalHost {
       }
     });
 
+    this.addon.onCopy((id, text) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (sessionId) this.deps.notifyCopy(sessionId, text);
+      } catch (err) {
+        console.error('[native-term] notifyCopy failed for overlay', id, err);
+      }
+    });
+
     this.addon.onDropPaths((id, paths) => {
       try {
         const sessionId = this.byOverlay.get(id);

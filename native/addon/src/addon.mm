@@ -26,12 +26,14 @@ Napi::ThreadSafeFunction g_focusTsfn;
 Napi::ThreadSafeFunction g_openLinkTsfn;
 Napi::ThreadSafeFunction g_dropTsfn;
 Napi::ThreadSafeFunction g_bellTsfn;
+Napi::ThreadSafeFunction g_copyTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
 bool g_hasFocusTsfn = false;
 bool g_hasOpenLinkTsfn = false;
 bool g_hasDropTsfn = false;
 bool g_hasBellTsfn = false;
+bool g_hasCopyTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -134,6 +136,14 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     if (!g_hasBellTsfn) return;
     g_bellTsfn.BlockingCall([id](Napi::Env env, Napi::Function cb) {
       cb.Call({Napi::Number::New(env, id)});
+    });
+  }];
+
+  [c setOnCopy:^(NSString* text) {
+    if (!g_hasCopyTsfn) return;
+    std::string s(text.UTF8String ? text.UTF8String : "");
+    g_copyTsfn.BlockingCall([id, s](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id), Napi::String::New(env, s)});
     });
   }];
 
@@ -354,6 +364,7 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     [c setOnOpenLink:nil];
     [c setOnDropPaths:nil];
     [c setOnBell:nil];
+    [c setOnCopy:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -385,6 +396,10 @@ Napi::Value OnDropPaths(const Napi::CallbackInfo& info) {
   InstallTsfn(info, "argusDropPaths", &g_dropTsfn, &g_hasDropTsfn);
   return info.Env().Undefined();
 }
+Napi::Value OnCopy(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusCopy", &g_copyTsfn, &g_hasCopyTsfn);
+  return info.Env().Undefined();
+}
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
@@ -407,6 +422,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("onFocus", Napi::Function::New(env, OnFocus));
   exports.Set("onOpenLink", Napi::Function::New(env, OnOpenLink));
   exports.Set("onDropPaths", Napi::Function::New(env, OnDropPaths));
+  exports.Set("onCopy", Napi::Function::New(env, OnCopy));
   exports.Set("onBell", Napi::Function::New(env, OnBell));
   return exports;
 }

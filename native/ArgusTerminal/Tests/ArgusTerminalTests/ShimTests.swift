@@ -840,6 +840,20 @@ final class ShimTests: XCTestCase {
     c.setFontSize(500)
     XCTAssertEqual(c.debugFontPointSize(), 72)
   }
+
+  /// ⌘C (Edit ▸ Copy sends copy: to the first responder) hands the selection to
+  /// the host instead of writing raw rows to the pasteboard.
+  func testCopyHandsTheSelectionToTheHost() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello world".utf8) as NSData)
+    var copied: [String] = []
+    c.onCopy = { copied.append($0 as String) }
+    c.debugSelectAllAndCopy()
+    XCTAssertEqual(copied.count, 1)
+    XCTAssertTrue(copied[0].contains("hello world"))
+  }
 }
 
 private extension NSColor {

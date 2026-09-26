@@ -6,6 +6,9 @@ import { TerminalShell } from './TerminalShell.js';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { FontSettingsContext } from '../../context/font-settings-context.js';
+import { terminalSelectionToClipboard } from '../../hooks/terminalCopy.js';
+
+let copyListener: ((sessionId: string, text: string) => void) | undefined;
 
 const api = {
   available: vi.fn().mockResolvedValue(true),
@@ -17,6 +20,8 @@ const api = {
   focusTerminal: vi.fn(),
   setResizeSuspended: vi.fn(),
   setFontSize: vi.fn(),
+  onCopy: vi.fn((cb: (sessionId: string, text: string) => void) => { copyListener = cb; return () => { copyListener = undefined; }; }),
+  writeClipboard: vi.fn(),
 };
 
 beforeEach(() => {
@@ -88,6 +93,27 @@ describe('TerminalShellNativeHole — code font size', () => {
     await act(async () => { root.render(tile(13)); });
     await act(async () => { root.render(tile(17)); });
     expect(api.setFontSize).toHaveBeenLastCalledWith('s1', 17);
+    await act(async () => root.unmount());
+  });
+});
+
+describe('TerminalShellNativeHole — copy', () => {
+  it('formats a native copy exactly as an xterm tile would', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative />); });
+    // Gutter-indented rows the agent wrapped at 30 columns.
+    const raw = '  The quick brown fox jumps over\n  the lazy dog.';
+    copyListener?.('s1', raw);
+    expect(api.writeClipboard).toHaveBeenCalledWith(terminalSelectionToClipboard(raw));
+    expect(api.writeClipboard.mock.calls[0][0]).not.toContain('\n');
+    await act(async () => root.unmount());
+  });
+
+  it('ignores copies for other sessions', async () => {
+    const root = mount();
+    await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative />); });
+    copyListener?.('other', 'x');
+    expect(api.writeClipboard).not.toHaveBeenCalled();
     await act(async () => root.unmount());
   });
 });

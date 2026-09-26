@@ -13,6 +13,7 @@ function fakeAddon() {
   let openLinkCb: ((id: number, url: string) => void) | undefined;
   let dropCb: ((id: number, paths: string[]) => void) | undefined;
   let bellCb: ((id: number) => void) | undefined;
+  let copyCb: ((id: number, text: string) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   // What gridSize() reports — the grid the last setFrame produced.
@@ -78,6 +79,7 @@ function fakeAddon() {
     onOpenLink: (cb) => { openLinkCb = cb; },
     onDropPaths: (cb) => { dropCb = cb; },
     onBell: (cb) => { bellCb = cb; },
+    onCopy: (cb) => { copyCb = cb; },
   };
   return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; },
            setGridThrows: (t: boolean) => { gridThrows = t; },
@@ -87,7 +89,8 @@ function fakeAddon() {
            fireFocus: (i: number, f: boolean) => focusCb!(i, f),
            fireOpenLink: (i: number, u: string) => openLinkCb!(i, u),
            fireDrop: (i: number, p: string[]) => dropCb!(i, p),
-           fireBell: (i: number) => bellCb!(i) };
+           fireBell: (i: number) => bellCb!(i),
+           fireCopy: (i: number, t: string) => copyCb!(i, t) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
@@ -97,6 +100,7 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
   const opened: string[] = [];
   const dropped: Array<[string, string[]]> = [];
   const bells: string[] = [];
+  const copies: Array<[string, string]> = [];
   const order: string[] = [];
   const viewing: Array<[string, boolean]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
@@ -113,10 +117,11 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     openExternal: (u) => opened.push(u),
     notifyDropPaths: (id, paths) => dropped.push([id, paths]),
     notifyBell: (id) => bells.push(id),
+    notifyCopy: (id, text) => copies.push([id, text]),
     getReplaySnapshot: (id) => { order.push(`snapshot:${id}`); return { data: 'REPLAY' }; },
     ...overrides,
   });
-  return { host, wrote, resized, focused, opened, dropped, bells, order, viewing,
+  return { host, wrote, resized, focused, opened, dropped, bells, copies, order, viewing,
            emitOutput: (id: string, d: string) => emit?.(id, d),
            emitReplay: (id: string, d: string) => emitReplay?.(id, d) };
 }
@@ -1027,6 +1032,23 @@ test('a bell on an unknown overlay id is ignored', () => {
   fireBell(99);
 
   assert.deepEqual(bells, []);
+});
+
+test('a copy from an overlay is forwarded for its session', () => {
+  const { addon, fireCopy } = fakeAddon();
+  const { host, copies } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireCopy(1, 'raw\ntext');
+  assert.deepEqual(copies, [['s1', 'raw\ntext']]);
+});
+
+test('a copy from an unknown overlay is ignored, and a throwing notifyCopy does not escape', () => {
+  const { addon, fireCopy } = fakeAddon();
+  const { host, copies } = harness(addon, { notifyCopy: () => { throw new Error('boom'); } });
+  host.attach('s1', HANDLE, RECT);
+  assert.doesNotThrow(() => fireCopy(1, 'x'));
+  assert.doesNotThrow(() => fireCopy(99, 'x'));
+  assert.deepEqual(copies, []);
 });
 
 // ── Review fixes: seed timing, replay frames, focus, resize suspension ──

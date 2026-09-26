@@ -148,6 +148,15 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
     ipcRenderer.on('native-term:focus', listener);
     return () => ipcRenderer.off('native-term:focus', listener);
   },
+  onCopy: (cb: (sessionId: string, text: string) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; text: string }) =>
+      cb(payload.sessionId, payload.text);
+    ipcRenderer.on('native-term:copy', listener);
+    return () => ipcRenderer.off('native-term:copy', listener);
+  },
+  writeClipboard: (text: string): void => {
+    ipcRenderer.send('native-term:write-clipboard', { text });
+  },
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {

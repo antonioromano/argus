@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
+import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification, clipboard } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
@@ -772,6 +772,13 @@ async function main() {
     // steal the other's focus state.
     openExternal: (url: string) => openExternalAllowlisted(url),
     notifyBell: (id: string) => sendToNativeTermWindow(id, 'native-term:bell', { sessionId: id }),
+    // Raw text first, so ⌘C always puts something on the clipboard even when no
+    // renderer answers (window reloading). The owning renderer then replaces it
+    // with the formatted text (native-term:write-clipboard).
+    notifyCopy: (id: string, text: string) => {
+      clipboard.writeText(text);
+      sendToNativeTermWindow(id, 'native-term:copy', { sessionId: id, text });
+    },
     notifyDropPaths: (id: string, paths: string[]) =>
       sendToNativeTermWindow(id, 'native-term:drop-paths', { sessionId: id, paths }),
     notifyFocus: (id: string, focused: boolean) => {
@@ -866,6 +873,10 @@ async function main() {
 
   ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
     nativeTerminal!.clearScrollback(sessionId);
+  });
+
+  ipcMain.on('native-term:write-clipboard', (_e, { text }: { text: unknown }) => {
+    if (typeof text === 'string' && text.length <= 10_000_000) clipboard.writeText(text);
   });
 
   // Theme apply — not window-scoped: every window applies the same theme, so a

@@ -197,6 +197,20 @@ final class PassthroughView: NSView {
 final class DropAwareTerminalView: TerminalView {
   var onDropPaths: (([String]) -> Void)?
 
+  /// Edit ▸ Copy / ⌘C. Hands the selection to the host rather than writing raw
+  /// rows: the agent wraps and gutters its own output, and the text a user
+  /// expects is rebuilt by the renderer's terminalSelectionToClipboard — the
+  /// same function the xterm path uses. Without a handler, SwiftTerm's copy.
+  var onCopyText: ((String) -> Void)?
+
+  override func copy(_ sender: Any) {
+    guard let text = getSelection(), !text.isEmpty, let handler = onCopyText else {
+      super.copy(sender)
+      return
+    }
+    handler(text)
+  }
+
   override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
     return paths(from: sender).isEmpty ? [] : .copy
   }
@@ -241,6 +255,9 @@ final class DropAwareTerminalView: TerminalView {
   /// Terminal bell (BEL / `\a`). The host flashes the tile, matching what
   /// xterm.js's `onBell` drives on the web engine.
   @objc public var onBell: (() -> Void)?
+
+  /// The user's selection, from Edit ▸ Copy / ⌘C. See `DropAwareTerminalView.copy`.
+  @objc public var onCopy: ((NSString) -> Void)?
 
   private let terminalView: DropAwareTerminalView
   private var window: NSWindow?
@@ -296,6 +313,7 @@ final class DropAwareTerminalView: TerminalView {
     terminalView.onDropPaths = { [weak self] paths in
       self?.onDropPaths?(paths as NSArray)
     }
+    terminalView.onCopyText = { [weak self] text in self?.onCopy?(text as NSString) }
     hideScroller()
     // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
     // highlighted while Command is held, and only Command-click opens it.
@@ -894,6 +912,13 @@ final class DropAwareTerminalView: TerminalView {
   // externally-visible signal of its presence/visibility.
   public func debugFindBarVisible() -> Bool {
     terminalView.subviews.first(where: { $0 is NSVisualEffectView })?.isHidden == false
+  }
+
+  /// Test seam: selects everything and copies it, exercising the same
+  /// `copy(_:)` override AppKit invokes for ⌘C / Edit ▸ Copy.
+  public func debugSelectAllAndCopy() {
+    terminalView.selectAll(nil)
+    terminalView.copy(NSMenuItem())
   }
 
   @objc public func destroy() {
