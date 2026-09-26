@@ -1414,6 +1414,24 @@ test('a forwarded native resize is followed by one screen-only realign', (t) => 
   assert.equal(calls.filter((c) => c === 'feed:1:SCREEN').length, 1, calls.join(','));
 });
 
+test('a realign is skipped on the alternate buffer — a full-redraw would flicker a live TUI', (t) => {
+  // getReplaySnapshot degrades a 'screen' request to a full frame on the alt
+  // buffer (no scrollback to protect there) and flags it `alternate: true`;
+  // the host must recognize that flag and feed nothing, exactly as xterm's
+  // own resync never re-aligns on the alt screen (replayPolicy.ts).
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls, fireResize, setGrid } = fakeAddon();
+  const { host } = harness(addon, {
+    getReplaySnapshot: (_id, flavor) => (flavor === 'screen' ? { data: 'SCREEN', alternate: true } : { data: 'REPLAY' }),
+  });
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  setGrid({ cols: 90, rows: 30 });
+  fireResize(1, 90, 30);
+  t.mock.timers.tick(120);
+  assert.ok(!calls.includes('feed:1:SCREEN'), calls.join(','));
+});
+
 test('output settling (running → waiting/done) realigns after 450 ms', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { addon, calls } = fakeAddon();

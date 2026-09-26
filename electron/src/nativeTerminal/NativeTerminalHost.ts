@@ -273,7 +273,13 @@ export class NativeTerminalHost {
     }, delayMs));
   }
 
-  /** Feed a screen-only frame: realigns the visible screen, leaves history. */
+  /**
+   * Feed a screen-only frame: realigns the visible screen, leaves history.
+   * Skipped on the alternate buffer: a 'screen' flavor request degrades to a
+   * full frame there (no scrollback to protect), and feeding that would
+   * full-redraw a live TUI (vim/less/htop) on every resize or settle — xterm's
+   * own resync never re-aligns on the alt screen either (replayPolicy.ts).
+   */
   private realign(sessionId: string): void {
     const id = this.bySession.get(sessionId);
     if (id === undefined || !this.addon) return;
@@ -281,7 +287,8 @@ export class NativeTerminalHost {
     try {
       this.deps.flushOutput(sessionId);
       const snap = this.deps.getReplaySnapshot(sessionId, 'screen');
-      if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
+      if (!snap || snap.alternate) return;
+      this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
     } catch (err) {
       console.error('[native-term] realign failed for', sessionId, err);
     }

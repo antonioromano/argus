@@ -110,5 +110,12 @@ export interface HostDeps {
   // re-emits `?1049h` itself when the session is on the alt screen (see
   // SessionManager.getReplaySnapshot's doc comment). The host has nothing to
   // branch on here and must feed this verbatim.
-  getReplaySnapshot(id: string, flavor?: 'full' | 'screen'): { data: string } | undefined;
+  //
+  // `alternate` mirrors SessionReplayFrame's own flag: a 'screen' flavor
+  // request degrades to a full frame server-side when the session is on the
+  // alternate buffer (no scrollback to protect there), so a realign must skip
+  // feeding it — xterm's own resync never re-aligns on the alt screen either
+  // (replayPolicy.ts's shouldRequestResync), and feeding this one would
+  // full-redraw a live TUI (vim/less/htop) on every resize or settle.
+  getReplaySnapshot(id: string, flavor?: 'full' | 'screen'): { data: string; alternate?: boolean } | undefined;
 }
