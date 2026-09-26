@@ -134,7 +134,7 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
         }}
       >
         <Info size={14} strokeWidth={1.8} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
-        <span>Change it any time in <b>Settings → General → Shell header</b>. <Kbd>⌘,</Kbd></span>
+        <span>Change it any time in <b>Settings → Shell header</b>. <Kbd>⌘,</Kbd></span>
       </div>
     </Sheet>
   );

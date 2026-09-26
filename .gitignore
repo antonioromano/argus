@@ -39,5 +39,15 @@ docs/plans/
 electron/resources/argusd/argusd-arm64
 electron/resources/argusd/argusd-x64
 
+# native terminal engine addon + dylib (built via `npm run build:native` /
+# scripts/build-native.mjs in CI/packaging)
+electron/resources/native-terminal/
+
 # Go build output (default `go build` in daemon/ emits ./daemon)
 daemon/daemon
+
+# SwiftPM build artifacts (native/ArgusTerminal)
+.build/
+
+# node-gyp output for the native terminal addon (native/addon)
+native/addon/build/

@@ -9,6 +9,12 @@ export type MosaicOrientation = 'horizontal' | 'vertical';
 export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
 export type AgentType = BuiltinAgentId | string;
 
+/** Which terminal implementation renders a session. `web` (xterm.js) is the
+ *  default and the universal fallback; `native` is a macOS-only preference that
+ *  silently degrades to `web` on mobile, off-Electron, off-macOS, or if the
+ *  native addon fails to load. */
+export type TerminalEngine = 'web' | 'native';
+
 /** Native lifecycle states an agent CLI can report (subset of SessionStatus).
  *  'done'/'exited' are Argus-level promotions, never reported natively. */
 export type AgentSignalState = 'running' | 'waiting' | 'idle';
@@ -97,7 +103,40 @@ export interface AppConfig {
   // next launch. A version string (not a bool) so a future release can re-ask
   // without a config migration.
   quickActionPromptedAt?: string;
+  // App-wide default for sessions with no per-session terminalEngine choice.
+  defaultTerminalEngine?: TerminalEngine;
 }
+
+/** Every AppConfig key with its shipped default. The single source of truth for
+ *  both the server store (a partial file is merged over this) and the settings
+ *  UI, which diffs live config against it to mark modified values. */
+export const DEFAULT_CONFIG: AppConfig = {
+  defaultAgent: 'claude',
+  customAgents: [],
+  agentFlags: {},
+  notificationsEnabled: false,
+  notifyOnWaiting: true,
+  notifyOnDone: false,
+  notificationSound: false,
+  showClock: false,
+  clockShowSeconds: false,
+  othersFolderName: 'Others',
+  preventSleepWhileRunning: false,
+  confirmCloseShell: true,
+  exitSessionsOnQuit: false,
+  confirmExitOnQuit: true,
+  keyboardShortcuts: {},
+  uiFontSize: 14,
+  codeFontSize: 13,
+  mosaicWaitingStyle: 'breathing',
+  mosaicOrientation: 'horizontal',
+  debugToolsEnabled: false,
+  ptyBackend: 'auto',
+  tileQuickAction: 'diff',
+  tileRunningIndicator: 'hairline',
+  quickActionPromptedAt: '',
+  defaultTerminalEngine: 'web',
+};
 
 export interface AgentStatus {
   agent: AgentDefinition;
@@ -121,6 +160,9 @@ export interface SessionInfo {
   worktreePath?: string;    // set for worktree sessions; equals folderPath
   worktreeBranch?: string;  // branch name this worktree is on
   lastPrompt?: string;      // extracted prompt text when status === 'waiting'; used by notifications
+  /** Per-session terminal implementation preference. undefined = never chose;
+   *  the renderer resolves the app default (see AppConfig.defaultTerminalEngine). */
+  terminalEngine?: TerminalEngine;
 }
 
 export interface CreateSessionRequest {
@@ -130,6 +172,7 @@ export interface CreateSessionRequest {
   flags?: string[];  // resolved flag value strings to append to command
   worktreeBranch?: string;  // if set, create a git worktree on this branch
   worktreeBase?: string;    // base branch/commit for the new branch (default: HEAD)
+  terminalEngine?: TerminalEngine;
 }
 
 export interface CreateSessionResponse extends SessionInfo {}

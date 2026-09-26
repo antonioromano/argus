@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
-import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
+import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import { Play, Check, GitBranch, ChevronDown, Folder, X, AlertTriangle } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
@@ -16,12 +16,15 @@ import {
   AlertSheet,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
+import { EngineChoice } from '../ui/EngineChoice.js';
+import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
+import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
 interface CreateSheetProps {
   config: AppConfig | null;
   initialFolderPath?: string | null;
   onClose: () => void;
-  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => Promise<void>;
+  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -51,12 +54,6 @@ function relativeTime(ms: number): string {
   return `${Math.floor(diff / 604_800_000)}w ago`;
 }
 
-const BUILTIN_AGENTS: AgentDefinition[] = [
-  { id: 'claude', name: 'Claude Code', command: 'claude', builtin: true },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
-  { id: 'codex',  name: 'Codex',  command: 'codex',  builtin: true },
-];
-
 export function CreateSheet({
   config,
   initialFolderPath,
@@ -79,6 +76,7 @@ export function CreateSheet({
   const [folderPath, setFolderPath] = useState(effectiveInitialFolder);
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState<string>(config?.defaultAgent ?? 'claude');
+  const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(config?.defaultTerminalEngine ?? 'web');
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [creating, setCreating] = useState(false);
@@ -317,7 +315,7 @@ export function CreateSheet({
     setError(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined);
+      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');
     } finally {
@@ -735,6 +733,26 @@ export function CreateSheet({
                 </button>
               );
             })}
+          </div>
+        </Field>
+
+        <Field label="Terminal engine">
+          <EngineChoice value={terminalEngine} onChange={setTerminalEngine} />
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 'var(--s-2)',
+              padding: '9px 11px',
+              borderRadius: 'var(--r-2)',
+              background: 'var(--warn-bg)',
+              border: '1px solid color-mix(in srgb, var(--warn) 44%, transparent)',
+              fontSize: 'var(--t-xs)',
+              lineHeight: 1.5,
+            }}
+          >
+            <AlertTriangle size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{ENGINE_NOTE_CREATE}</span>
           </div>
         </Field>
 

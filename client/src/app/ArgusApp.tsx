@@ -11,9 +11,10 @@ import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
+import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse } from '@argus/shared';
+import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
@@ -46,6 +47,12 @@ import { useWindows } from '../hooks/useWindows.js';
 import { insertBefore } from '../utils/reorder.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
+import { setSuppressionTransport } from '../hooks/nativeOverlayRegistry.js';
+
+interface NativeTerminalSuppressionBridge {
+  suppress: (sessionId: string) => void;
+  unsuppress: (sessionId: string) => void;
+}
 
 export default function ArgusApp() {
   // Pause infinite background animations (waiting pulses, sweeps, marquee, landing
@@ -118,6 +125,21 @@ function DesktopRoot() {
   useEffect(() => {
     document.documentElement.classList.add('is-electron');
     return () => { document.documentElement.classList.remove('is-electron'); };
+  }, []);
+
+  // Wire the overlay-suppression registry to the native-terminal IPC bridge,
+  // once, for the app's lifetime. A child NSWindow always paints above its
+  // parent's web content, so a DOM surface (modal, menu, tooltip...) that
+  // covers a native terminal overlay must hide it for as long as it's shown —
+  // see useOverlaySuppression. `electronNativeTerminal` is only defined inside
+  // Electron (absent in dev:web/jsdom); with the native-terminal flag unset it
+  // is still always exposed, but suppress/unsuppress are no-ops all the way
+  // down (NativeTerminalHost.hide/show short-circuit on a null addon), so no
+  // extra guard is needed beyond "does the bridge exist at all".
+  useEffect(() => {
+    const api = (window as Window & { electronNativeTerminal?: NativeTerminalSuppressionBridge }).electronNativeTerminal;
+    if (!api) return;
+    setSuppressionTransport({ hide: api.suppress, show: api.unsuppress });
   }, []);
 
   if (!authChecked) {
@@ -215,17 +237,40 @@ function DesktopInner() {
   // Resolved keyboard shortcuts (registry defaults + user overrides from config).
   const shortcuts = useShortcuts(config?.keyboardShortcuts);
 
+  // Mirror them into the Electron app menu. The menu items are what deliver
+  // these shortcuts to a native terminal tile — its overlay is a child
+  // NSWindow, so the keydown handler below never sees the keystroke — and
+  // hardcoded accelerators there would ignore a rebind. Main rebuilds the menu
+  // only when something actually changed.
+  useEffect(() => {
+    window.electronApp?.setMenuShortcuts?.(shortcuts.resolved);
+  }, [shortcuts.resolved]);
+
   // Which terminal is "active" for Cmd+W / Cmd+F: the focused mosaic tile on the
   // dashboard, or the open session in focus view. Mosaic reports its focused tile up.
   const [mosaicFocusedId, setMosaicFocusedId] = useState<string | null>(null);
   const activeTerminalId = app.view === 'focus' ? app.activeSessionId : mosaicFocusedId;
 
-  // Session whose in-terminal search bar is open (null = none).
+  // Session whose in-terminal search bar is open (null = none). For an xterm
+  // tile this is the whole story — it's what TerminalSearchBar renders off.
+  // For a native tile it still matters (it's what tells that tile's
+  // find-bar-closing effect "you're no longer the target" — see
+  // TerminalShellNativeHole), but it does NOT gate opening: SwiftTerm's own
+  // find bar can be dismissed from inside its own window with no callback
+  // back here, so a same-session repeat Cmd+F must reach the native side
+  // even though this state value doesn't change. That's why both callbacks
+  // below call openNativeFindBar directly and unconditionally, rather than
+  // relying on searchSessionId changing to drive an effect.
   const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
   const openTerminalSearch = useCallback(() => {
-    setSearchSessionId((cur) => activeTerminalId ?? cur);
+    if (!activeTerminalId) return;
+    setSearchSessionId(activeTerminalId);
+    openNativeFindBar(activeTerminalId);
   }, [activeTerminalId]);
-  const openTerminalSearchFor = useCallback((id: string) => setSearchSessionId(id), []);
+  const openTerminalSearchFor = useCallback((id: string) => {
+    setSearchSessionId(id);
+    openNativeFindBar(id);
+  }, []);
   const closeTerminalSearch = useCallback(() => setSearchSessionId(null), []);
 
   // Whether closing a shell shows the confirm modal (off → close immediately).
@@ -270,12 +315,58 @@ function DesktopInner() {
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
   const openCreateRef = useRef(openCreate);
   useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
+  // The five actions below act on "the focused shell" — same target as the
+  // window-keydown switch cases further down (open-diff/open-files/open-shell/
+  // terminal-search) and useTerminal's own clear-terminal keydown case. Each is
+  // extracted into its own stable callback so the Electron menu accelerator and
+  // the renderer keydown path invoke the exact same function — never two copies
+  // of the same body that could drift apart.
+  const openDiffForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'diff', sessionId: activeTerminalId }));
+  }, [activeTerminalId, guardForeign, app]);
+  const openFilesForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId }));
+  }, [activeTerminalId, guardForeign, app]);
+  const openShellForFocused = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => {
+      app.openSession(activeTerminalId);
+      app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
+    });
+  }, [activeTerminalId, guardForeign, app]);
+  // Clear scrollback for the focused shell. Native tiles have no buffer-clear
+  // implementation yet (Task 6) — this reaches the session:clear-buffer server
+  // event via the same clearScrollback() useTerminal exports for its own
+  // keydown case, but there is no local terminal.write('\x1b[3J') here for
+  // instant feedback: that optimization only makes sense against a specific
+  // xterm instance, which is exactly what a native tile doesn't have.
+  const clearFocusedTerminalScrollback = useCallback(() => {
+    if (!activeTerminalId) return;
+    guardForeign(activeTerminalId, () => clearScrollback(socket, activeTerminalId));
+  }, [activeTerminalId, guardForeign, socket]);
+  const openDiffForFocusedRef = useRef(openDiffForFocused);
+  useEffect(() => { openDiffForFocusedRef.current = openDiffForFocused; }, [openDiffForFocused]);
+  const openFilesForFocusedRef = useRef(openFilesForFocused);
+  useEffect(() => { openFilesForFocusedRef.current = openFilesForFocused; }, [openFilesForFocused]);
+  const openShellForFocusedRef = useRef(openShellForFocused);
+  useEffect(() => { openShellForFocusedRef.current = openShellForFocused; }, [openShellForFocused]);
+  const clearFocusedTerminalScrollbackRef = useRef(clearFocusedTerminalScrollback);
+  useEffect(() => { clearFocusedTerminalScrollbackRef.current = clearFocusedTerminalScrollback; }, [clearFocusedTerminalScrollback]);
+  const openTerminalSearchRef = useRef(openTerminalSearch);
+  useEffect(() => { openTerminalSearchRef.current = openTerminalSearch; }, [openTerminalSearch]);
   useEffect(() => {
     const bridge = window.electronApp;
     if (!bridge) return;
     const offClose = bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
     const offNew = bridge.onMenu('menu:new-session', () => openCreateRef.current());
-    return () => { offClose(); offNew(); };
+    const offDiff = bridge.onMenu('menu:open-diff', () => openDiffForFocusedRef.current());
+    const offFiles = bridge.onMenu('menu:open-files', () => openFilesForFocusedRef.current());
+    const offShell = bridge.onMenu('menu:open-shell', () => openShellForFocusedRef.current());
+    const offSearch = bridge.onMenu('menu:terminal-search', () => openTerminalSearchRef.current());
+    const offClear = bridge.onMenu('menu:clear-terminal', () => clearFocusedTerminalScrollbackRef.current());
+    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -426,20 +517,17 @@ function DesktopInner() {
         case 'open-diff':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'diff', sessionId: activeTerminalId }));
+          openDiffForFocused();
           break;
         case 'open-files':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => app.openMaximized({ kind: 'explorer', sessionId: activeTerminalId }));
+          openFilesForFocused();
           break;
         case 'open-shell':
           if (isTyping || !activeTerminalId) return;
           e.preventDefault();
-          guardForeign(activeTerminalId, () => {
-            app.openSession(activeTerminalId);
-            app.openSidePanel({ kind: 'terminal', sessionId: activeTerminalId });
-          });
+          openShellForFocused();
           break;
         default:
           break;
@@ -447,7 +535,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, guardForeign]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -467,8 +555,8 @@ function DesktopInner() {
     }
   };
 
-  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => {
-    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase);
+  const handleCreate = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => {
+    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine);
     await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
@@ -476,8 +564,8 @@ function DesktopInner() {
     if (app.view === 'focus') app.openSession(created.id);
   };
 
-  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => {
-    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch);
+  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine) => {
+    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch, undefined, terminalEngine);
     await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
@@ -660,7 +748,7 @@ function DesktopInner() {
     canMarkDone: (s: SessionInfo) => s.status === 'idle',
     onMerge: handleMerge,
     canMerge: (s: SessionInfo) => !!s.worktreePath && mergeFlow?.session.id !== s.id,
-    onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType }),
+    onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine }),
     onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
     onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
     onFocusTerminal: (id: string) => guardForeign(id, () => { app.openSession(id); app.openSidePanel({ kind: 'terminal', sessionId: id }); }),
@@ -777,7 +865,7 @@ function DesktopInner() {
               showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
-              onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType })}
+              onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
               onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
               onFocusExplorer={(id) => app.openMaximized({ kind: 'explorer', sessionId: id })}
@@ -793,6 +881,7 @@ function DesktopInner() {
               quickAction={config?.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION}
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
+              defaultTerminalEngine={config?.defaultTerminalEngine}
             />
           )}
 
@@ -806,6 +895,7 @@ function DesktopInner() {
               filter={filter}
               onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
+              defaultTerminalEngine={config?.defaultTerminalEngine}
               isForeign={windowsApi.isForeign}
               foreignLabel={foreignLabel}
               onBack={app.exitFocus}
@@ -820,7 +910,7 @@ function DesktopInner() {
               onOpenFileInEditor={(filePath, lineNumber) =>
                 app.openMaximized({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber })}
               onRestore={app.dismissMaximized}
-              onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType })}
+              onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType, terminalEngine: activeSession.terminalEngine })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
               onDumpDiagnostics={() => void handleDumpDiagnostics(activeSession)}
@@ -851,6 +941,7 @@ function DesktopInner() {
             config={config}
             folderPath={app.overlay.folderPath}
             currentAgentType={app.overlay.agentType}
+            currentTerminalEngine={app.overlay.terminalEngine}
             onClose={app.closeOverlay}
             onClone={handleClone}
             onSaveFlag={handleSaveFlag}
@@ -881,6 +972,7 @@ function DesktopInner() {
             status={updateStatus}
             progress={updateProgress}
             failure={updateFailure}
+            sessions={sessions}
             onResetState={resetUpdateState}
             onClose={app.closeOverlay}
           />

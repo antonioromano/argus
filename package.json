@@ -17,14 +17,17 @@
     "sync-versions": "node scripts/sync-versions.mjs",
     "check:deps": "node scripts/check-dep-sync.mjs",
     "lint": "npm run lint -w client",
-    "test": "npm test -w server && npm test -w client",
+    "test": "npm test -w server && npm test -w client && npm run test:electron",
+    "verify": "npm run lint && npm run build:all && npm test",
+    "test:electron": "npm run build:electron && node --test 'electron/dist/**/*.test.js'",
     "dev": "npm run electron:dev",
     "dev:web": "PORT=5401 DATA_DIR=data-dev ARGUS_TMUX_SOCKET=argus-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
     "build:electron": "tsc -p electron/tsconfig.json",
-    "build:all": "npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
-    "electron:dev": "npm run build:all && make -C daemon build && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
+    "build:native": "node scripts/build-native.mjs",
+    "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
+    "electron:dev": "npm run build:all && make -C daemon build && npm run build:native -- --arch=$(node -p process.arch) && ARGUS_PORT=5403 electron .",
+    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npm run build:native && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",
@@ -43,6 +46,8 @@
     "concurrently": "^9.1.0",
     "electron": "^42.0.0",
     "electron-builder": "^25.0.0",
+    "node-addon-api": "^8.9.2",
+    "node-gyp": "^11.5.0",
     "typescript": "^5.7.0",
     "vite": "^8.0.16",
     "vitest": "^4.1.8"

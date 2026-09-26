@@ -1,20 +1,23 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { UpdateStatus, UpdateProgress } from '@argus/shared';
+import type { UpdateStatus, UpdateProgress, SessionInfo } from '@argus/shared';
 import { ArrowRight, AlertTriangle, Info } from 'lucide-react';
 import { Sheet, Button, Kbd } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
+import { ENGINE_SHORT, ENGINE_NOTE_UPDATE } from '../ui/terminalEngineCopy.js';
 import type { UpdateFailure } from '../../hooks/useUpdate.js';
 
 interface UpdateSheetProps {
   status: UpdateStatus;
   progress: UpdateProgress | null;
   failure: UpdateFailure | null;
+  /** Live sessions, so the sheet can name the ones drawn with the native engine. */
+  sessions?: SessionInfo[];
   onResetState: () => void;
   onClose: () => void;
 }
 
-export function UpdateSheet({ status, progress, failure, onResetState, onClose }: UpdateSheetProps) {
+export function UpdateSheet({ status, progress, failure, sessions = [], onResetState, onClose }: UpdateSheetProps) {
   // `submitting` = HTTP apply in flight (fast). `started` = download began and
   // socket progress events now drive the bar. Terminal outcomes arrive as props:
   // `failure` (incl. up-to-date) or, on success, the app quits + relaunches.
@@ -24,6 +27,12 @@ export function UpdateSheet({ status, progress, failure, onResetState, onClose }
 
   // While the download/install runs the app is on its way out — lock the sheet.
   // A failure unlocks it so the user can retry or close.
+  // Named in the sheet because an update carries exactly one engine-specific
+  // risk: the new build's native component may fail to load, in which case
+  // these render as Universal. The shells themselves are unaffected — they run
+  // in the daemon and are restored either way.
+  const advanced = sessions.filter((sn) => sn.terminalEngine === 'native');
+
   const inFlight = (started || !!progress) && !failure;
   const showProgress = inFlight;
 
@@ -100,9 +109,69 @@ export function UpdateSheet({ status, progress, failure, onResetState, onClose }
 
         {!showProgress && !failure && (
           <>
-            <Notice kind="warn" icon={AlertTriangle}>
-              Argus will close and all active sessions will end — but only once the new version has finished downloading. It relaunches automatically.
+            <Notice kind="info">
+              Argus closes and relaunches once the download finishes. Your shells keep running and
+              come back automatically — the agents run in a background daemon, not in the app.
             </Notice>
+            {advanced.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    border: '1px solid var(--line-2)',
+                    borderRadius: 'var(--r-2)',
+                    overflow: 'hidden',
+                    marginBottom: 'var(--s-2)',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '6px 11px',
+                      background: 'var(--bg-1)',
+                      borderBottom: '1px solid var(--line-1)',
+                      fontSize: 10,
+                      textTransform: 'uppercase',
+                      letterSpacing: '.07em',
+                      color: 'var(--fg-3)',
+                    }}
+                  >
+                    {ENGINE_SHORT.native} shells · {advanced.length} of {sessions.length}
+                  </div>
+                  {advanced.slice(0, 8).map((sn) => (
+                    <div
+                      key={sn.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '7px 11px',
+                        borderBottom: '1px solid var(--line-1)',
+                        fontSize: 'var(--t-sm)',
+                      }}
+                    >
+                      <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>{sn.name}</span>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: '1px 6px',
+                          borderRadius: 3,
+                          color: 'var(--accent)',
+                          border: '1px solid var(--accent-edge)',
+                          background: 'var(--accent-bg)',
+                        }}
+                      >
+                        {ENGINE_SHORT.native}
+                      </span>
+                    </div>
+                  ))}
+                  {advanced.length > 8 && (
+                    <div style={{ padding: '7px 11px', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+                      …and {advanced.length - 8} more
+                    </div>
+                  )}
+                </div>
+                <Notice kind="warn" icon={AlertTriangle}>{ENGINE_NOTE_UPDATE}</Notice>
+              </div>
+            )}
             <Notice kind="info">
               Installed via Homebrew (<code className="mono">brew upgrade --cask argus</code>). Requires Homebrew on your PATH.
             </Notice>

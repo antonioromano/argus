@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
+import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 
 interface OverlayProps {
   onClose: () => void;
@@ -18,6 +19,10 @@ interface OverlayProps {
 export function Overlay({ onClose, children, align = 'center', label = 'Dialog', dialog = true }: OverlayProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   useFocusTrap({ isOpen: dialog, panelRef, onEscape: dialog ? onClose : undefined });
+  // Overlay is only ever rendered while its dialog is actually open (callers
+  // conditionally mount it), so a plain top-level call is correct here — no
+  // isOpen-gating wrapper needed.
+  useOverlaySuppression('all');
 
   return (
     <div

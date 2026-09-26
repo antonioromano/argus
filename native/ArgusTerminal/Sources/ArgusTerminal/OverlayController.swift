@@ -1,0 +1,1236 @@
+import AppKit
+import SwiftTerm
+
+/// A borderless NSWindow returns `canBecomeKey == false` by default, so it can
+/// never take keyboard focus and the terminal inside it receives nothing. This
+/// override is load-bearing — verified during Gate B, where a plain
+/// `NSWindow(styleMask: [.borderless])` reported `canBecomeKey: false`.
+/// `canBecomeMain` stays false so the Electron window remains the main window.
+final class KeyableWindow: NSWindow {
+  /// Cleared while the overlay is hidden. A hidden overlay is kept on screen
+  /// at alpha 0 (see OverlayController.hide), and an invisible window that can
+  /// still become key would swallow keystrokes with nowhere to show them.
+  var allowsKey = true
+  override var canBecomeKey: Bool { allowsKey }
+  override var canBecomeMain: Bool { false }
+
+  /// Reports key-window transitions so the renderer can learn that a native
+  /// tile is the focused one. Clicking a native tile puts the click into THIS
+  /// window, not the web contents, so React's focus tracking — which every
+  /// "for the focused shell" command reads — would otherwise never fire for
+  /// a native tile at all. Overriding becomeKey/resignKey rather than
+  /// observing NSWindow.didBecomeKeyNotification keeps the lifetime tied to
+  /// the window itself, with no observer to unregister.
+  var onKeyChange: ((Bool) -> Void)?
+
+  override func sendEvent(_ event: NSEvent) {
+    // xterm's scrollOnUserInput: every user keystroke returns a scrolled-up
+    // reader to the bottom, unconditionally. SwiftTerm's own send(data:) calls
+    // ensureCaretIsVisible() instead, which only scrolls when the caret has
+    // actually left the viewport — a reader scrolled up by only a little, with
+    // the cursor sitting mid-screen rather than right at the viewport's edge,
+    // has a caret that is STILL technically visible, so that check does
+    // nothing and the reader was left stranded. Checked and acted on BEFORE
+    // any translation/super below (so it also covers Shift+Enter and the
+    // Option special keys, which return early), and Command is excluded so a
+    // Cmd+ combination (not ordinary typing) does not yank the reader down.
+    // Deliberately not done in the delegate's send(source:data:) — that also
+    // carries terminal-generated replies (e.g. a DECRQM answer), not just user
+    // input, and those must not move the reader's scroll position.
+    if event.type == .keyDown, isTerminalFocused?() ?? true {
+      let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      if !f.contains(.command) { onUserKeyDown?() }
+    }
+    if event.type == .keyDown, !(isComposingText?() ?? false), isTerminalFocused?() ?? true {
+      if KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
+        handler()
+        return
+      }
+      if let bytes = KeyableWindow.optionKeySequence(event), let handler = onOptionKey {
+        handler(bytes)
+        return
+      }
+    }
+    if event.type == .scrollWheel { onScrollWheel?(event) }
+    if event.type == .leftMouseDown {
+      let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      optionDownAt = (f == .option && event.clickCount == 1) ? event.timestamp : nil
+    } else if event.type == .leftMouseUp, let down = optionDownAt {
+      optionDownAt = nil
+      if event.timestamp - down < 0.5 {
+        super.sendEvent(event)            // let SwiftTerm finish its click first
+        onOptionClick?(event)
+        return
+      }
+    }
+    super.sendEvent(event)
+  }
+
+  /// Shift and Return with no other modifier. Both Return keys count, matching
+  /// the xterm path, which compares on `key === 'enter'` and so covers the
+  /// numeric keypad too. Command/Control/Option must be absent: those are
+  /// other bindings, and swallowing them here would break them silently.
+  static func isShiftReturn(_ event: NSEvent) -> Bool {
+    let kReturn: UInt16 = 36
+    let kKeypadEnter: UInt16 = 76
+    guard event.keyCode == kReturn || event.keyCode == kKeypadEnter else { return false }
+    let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    return f.contains(.shift)
+      && !f.contains(.command) && !f.contains(.control) && !f.contains(.option)
+  }
+
+  override func becomeKey() {
+    super.becomeKey()
+    onKeyChange?(true)
+  }
+
+  override func resignKey() {
+    super.resignKey()
+    onKeyChange?(false)
+  }
+
+  /// The frame OverlayController last applied. An external mover (a window
+  /// manager, or anything driving the Accessibility API) that changes this
+  /// window's frame is undone on the next frame-change notification.
+  /// Called instead of delivering Shift+Return to the terminal.
+  ///
+  /// Shift+Enter is not a terminal capability: Argus TRANSLATES it to ESC CR
+  /// because that is what Claude Code reads as "insert a newline" rather than
+  /// "submit". The xterm path does this in its custom key handler
+  /// (useTerminal.ts, shortcut id `terminal-newline`, fixed to shift+enter);
+  /// without the same translation here SwiftTerm sent a bare CR and the agent
+  /// submitted the prompt instead.
+  ///
+  /// Intercepted at the window rather than in a TerminalView subclass:
+  /// SwiftTerm's keyDown is `public`, not `open`, so it cannot be overridden
+  /// from outside the module. sendEvent sees the event before any view.
+  var onShiftEnter: (() -> Void)?
+
+  /// True while the input method holds uncommitted (marked) text. Shift+Return
+  /// then belongs to the IME — it confirms the composition — so it must not be
+  /// translated to ESC CR.
+  var isComposingText: (() -> Bool)?
+
+  /// True when the terminal view itself is this window's first responder.
+  /// SwiftTerm's find bar (`TerminalFindBarView`) is an `NSVisualEffectView`
+  /// containing an `NSSearchField`, added as a subview of `terminalView` —
+  /// i.e. inside this same window — so while the user is typing a search
+  /// term, `sendEvent` was still intercepting Shift+Return and the Option
+  /// special keys at window level regardless of which view actually had
+  /// focus: Option+⌫/Option+←→ (word editing in the search field) got
+  /// swallowed and their bytes went to the pty instead, and Shift+Return sent
+  /// ESC CR to the agent instead of reaching the field. Defaults to `true`
+  /// (translate) if never wired, so a host that does not set this callback
+  /// keeps the pre-existing behaviour.
+  var isTerminalFocused: (() -> Bool)?
+
+  /// Called instead of delivering an Option+special key to SwiftTerm, with the
+  /// bytes xterm.js sends for it (see optionKeySequence).
+  var onOptionKey: (([UInt8]) -> Void)?
+
+  /// Called for every user keyDown while the terminal is focused (see
+  /// sendEvent's doc comment) so the controller can return a scrolled-up
+  /// reader to the bottom, matching xterm's scrollOnUserInput.
+  var onUserKeyDown: (() -> Void)?
+
+  /// Called for every scroll event before SwiftTerm handles it, so the
+  /// controller can set the sensitivity for this notch's modifiers.
+  var onScrollWheel: ((NSEvent) -> Void)?
+
+  /// Option+click to move the cursor (xterm's altClickMovesCursor): a mouse-up
+  /// within 500 ms of an Option mouse-down, with no selection made, asks the
+  /// controller for the arrow keys to send. Events still reach SwiftTerm, so
+  /// Option+drag selects as before.
+  var onOptionClick: ((NSEvent) -> Void)?
+  private var optionDownAt: TimeInterval?
+
+  /// xterm.js's bytes for Option+⌫/fn⌫/←/→/↑/↓ (Keyboard.ts), or nil for any
+  /// other key. With optionAsMetaKey off — required so Option+letter types the
+  /// characters non-US layouts put there — SwiftTerm sends these keys through
+  /// interpretKeyEvents, and its doCommand has no case for deleteWordBackward:
+  /// or moveWordLeft:, so they were silently dropped. Exactly Option: Command,
+  /// Control or Shift alongside it is another binding. Arrow keys also carry
+  /// .function and .numericPad, which say nothing about the user's modifiers.
+  static func optionKeySequence(_ event: NSEvent) -> [UInt8]? {
+    let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      .subtracting([.function, .numericPad, .capsLock])
+    guard f == .option else { return nil }
+    switch event.keyCode {
+    case 51: return [0x1b, 0x7f]                        // ⌫
+    case 117: return Array("\u{1b}[3;3~".utf8)           // forward delete
+    case 123: return Array("\u{1b}b".utf8)               // ←
+    case 124: return Array("\u{1b}f".utf8)               // →
+    case 126: return Array("\u{1b}[1;3A".utf8)           // ↑
+    case 125: return Array("\u{1b}[1;3B".utf8)           // ↓
+    default: return nil
+    }
+  }
+
+  var appliedFrame: NSRect?
+  /// Set while the controller itself is calling setFrame, so its own change is
+  /// not mistaken for an external one.
+  var applyingFrame = false
+
+  /// Presented to the AX API as a GROUP inside the Argus window, not a window.
+  /// Window managers (Spectacle, Rectangle, macOS window commands) act on the
+  /// app's AXWindow elements — as a window, this overlay was what "center
+  /// window" centered. As a group whose parent is the Argus content view,
+  /// VoiceOver still reaches the terminal through the Argus window.
+  weak var accessibilityHost: NSView?
+  override func accessibilityRole() -> NSAccessibility.Role? { .group }
+  override func isAccessibilityElement() -> Bool { true }
+  override func accessibilityParent() -> Any? { accessibilityHost }
+}
+
+/// AppKit-level tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the same switch the
+/// TypeScript host reads). Kept: the JS-side trace can only show what this
+/// class was ASKED to do. Twice the answer was that AppKit and the window
+/// server disagreed with each other — a window reporting isVisible == false
+/// while still being painted, and a window painted before anything asked for
+/// it — and only dumpOnScreenWindows below could show that.
+private let overlayDebug = ProcessInfo.processInfo.environment["ARGUS_NATIVE_TERM_DEBUG"] == "1"
+
+private func otrace(_ items: Any...) {
+  guard overlayDebug else { return }
+  let line = items.map { "\($0)" }.joined(separator: " ")
+  FileHandle.standardError.write(("[native-term:appkit] " + line + "\n").data(using: .utf8)!)
+}
+
+/// Every on-screen window belonging to this process, from the window server's
+/// point of view — the ground truth for "is something still painted". Layer 0
+/// only, so menus/tooltips do not clutter it.
+private func dumpOnScreenWindows(_ label: String) {
+  guard overlayDebug else { return }
+  let pid = ProcessInfo.processInfo.processIdentifier
+  guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+    as? [[String: Any]] else { return }
+  let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid }
+  otrace("on-screen windows (\(label)): \(mine.count)")
+  for w in mine {
+    let num = w[kCGWindowNumber as String] as? Int ?? -1
+    let layer = w[kCGWindowLayer as String] as? Int ?? -1
+    let bounds = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    let name = w[kCGWindowName as String] as? String ?? ""
+    // optionOnScreenOnly filters by ORDERING, not opacity — an alpha-0 window
+    // is still listed. The window server's own alpha reading is what says
+    // whether anything is actually painted.
+    let alpha = w[kCGWindowAlpha as String] as? Double ?? -1
+    otrace("  #\(num) layer=\(layer) alpha=\(alpha) bounds=\(bounds) name='\(name)'")
+  }
+}
+
+/// A scrim that never takes a click. A plain NSView subview would sit in front
+/// of the terminal in the hit-test chain and swallow every mouse event —
+/// selection, link clicks, scroll — so the tile would look right and stop
+/// responding. Returning nil from hitTest passes events straight through, the
+/// AppKit equivalent of the DOM scrim's `pointer-events: none`.
+final class PassthroughView: NSView {
+  override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// SwiftTerm's terminal view, plus file-path drops.
+///
+/// Dropping a file or folder onto an xterm tile types its quoted path into the
+/// prompt (TerminalShell's onDrop + formatPathsForPty). A native tile is a
+/// child NSWindow that sits ABOVE the web contents, so the DOM drop target
+/// never saw the drag and the gesture did nothing at all.
+///
+/// SwiftTerm implements no NSDraggingDestination methods, so these are free to
+/// override. The paths are handed to JS rather than formatted here: quoting
+/// rules live in pathFormat.ts and must not be reimplemented in a second
+/// language where they can drift.
+final class DropAwareTerminalView: TerminalView {
+  var onDropPaths: (([String]) -> Void)?
+
+  /// Edit ▸ Copy / ⌘C. Hands the selection to the host rather than writing raw
+  /// rows: the agent wraps and gutters its own output, and the text a user
+  /// expects is rebuilt by the renderer's terminalSelectionToClipboard — the
+  /// same function the xterm path uses. Without a handler, SwiftTerm's copy.
+  var onCopyText: ((String) -> Void)?
+
+  override func copy(_ sender: Any) {
+    // Only fall back to SwiftTerm's own (raw-row) copy when nobody is wired to
+    // handle it at all — the OverlayController case always sets this. With a
+    // handler present, an empty selection must do NOTHING: SwiftTerm's own
+    // `copy:` clears the pasteboard unconditionally before writing the
+    // (empty) selection, so `super.copy` here would empty whatever the user
+    // had copied moments before ⌘C landed on an unselected terminal tile.
+    guard let handler = onCopyText else {
+      super.copy(sender)
+      return
+    }
+    guard let text = getSelection(), !text.isEmpty else { return }
+    handler(text)
+  }
+
+  override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    return paths(from: sender).isEmpty ? [] : .copy
+  }
+
+  override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    return paths(from: sender).isEmpty ? [] : .copy
+  }
+
+  override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    let p = paths(from: sender)
+    guard !p.isEmpty else { return false }
+    onDropPaths?(p)
+    return true
+  }
+
+  private func paths(from sender: NSDraggingInfo) -> [String] {
+    let opts: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+    guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                           options: opts) as? [URL] else { return [] }
+    return urls.map { $0.path }
+  }
+}
+
+/// A SwiftTerm view in a borderless child NSWindow, driven entirely from
+/// outside. Deliberately dumb: it owns no process and makes no decisions —
+/// all policy lives in NativeTerminalHost (TypeScript), where it is testable.
+@objc public final class OverlayController: NSObject, TerminalViewDelegate {
+  // Block properties, not Swift closures over [UInt8] — those do not bridge.
+  @objc public var onInput: ((NSData) -> Void)?
+  @objc public var onResize: ((Int, Int) -> Void)?
+  /// File paths dropped onto the terminal. Formatted and sent by the renderer
+  /// (pathFormat.ts), the same way an xterm tile handles a drop.
+  @objc public var onDropPaths: ((NSArray) -> Void)?
+
+  /// A link the user activated in the terminal (an OSC 8 hyperlink, or a
+  /// plain URL SwiftTerm detected by regex). Routed to JS rather than opened
+  /// here — see `requestOpenLink` below.
+  @objc public var onOpenLink: ((NSString) -> Void)?
+  /// `true` when this overlay's window became key, `false` when it resigned.
+  @objc public var onFocus: ((Bool) -> Void)?
+
+  /// Terminal bell (BEL / `\a`). The host flashes the tile, matching what
+  /// xterm.js's `onBell` drives on the web engine.
+  @objc public var onBell: (() -> Void)?
+
+  /// The user's selection, from Edit ▸ Copy / ⌘C. See `DropAwareTerminalView.copy`.
+  @objc public var onCopy: ((NSString) -> Void)?
+
+  /// Reports when a reader leaves or returns to the bottom of the scrollback,
+  /// so the host can hold back refresh frames meanwhile (xterm's
+  /// shouldPaintReplay). Fires on transitions only — see `scrolled` below.
+  @objc public var onScrolledUp: ((Bool) -> Void)?
+  private var lastScrolledUp = false
+
+  private let terminalView: DropAwareTerminalView
+  private var window: NSWindow?
+  /// The parent to (re-)attach to. Tracked separately from `window.parent`
+  /// because hiding detaches the child, and both setFrame's coordinate
+  /// conversion and show() still need to know where it belongs.
+  private weak var parentWindow: NSWindow?
+  /// Whether hide() has been called and not yet undone by show(). Kept so a
+  /// reparent while hidden updates the target without revealing the overlay.
+  private var hiddenByHost = false
+  /// Translucent scrim shown over the terminal while its tile is unfocused.
+  /// Lives INSIDE the overlay's own window: the equivalent DOM element the
+  /// xterm path uses (`.argus-tile-overlay`) renders behind a child NSWindow
+  /// and would be invisible — the same z-order constraint that moved search
+  /// into SwiftTerm's own find bar.
+  private var dimView: NSView?
+  /// The window's content view. The terminal view sits inside it and may be
+  /// offset so that only the portion of the hole that is actually inside the
+  /// parent's content area is shown — see setFrame.
+  private let clipView = NSView()
+  /// True when setFrame found the hole entirely outside the parent's content
+  /// area. Independent of hiddenByHost: the host decides whether the tile is
+  /// logically visible, this decides whether any of it is physically inside
+  /// the window it belongs to. Both must be false for the overlay to paint.
+  private var clippedOut = false
+  /// The colours currently applied, and the starting point of the next fade.
+  /// nil until the first setTheme.
+  private var palette: Palette?
+
+  /// One terminal colour scheme, so an unparseable component can carry the
+  /// currently-applied value forward.
+  private struct Palette {
+    let background: NSColor
+    let foreground: NSColor
+    let cursor: NSColor
+    let ansi: [NSColor]
+  }
+
+  /// didMove/didResize observers on the overlay window, removed on destroy.
+  private var frameObservers: [NSObjectProtocol] = []
+
+  /// The viewport rect setFrame last converted, and the parent content rect it
+  /// was converted against. If the parent has moved since, a frame change on
+  /// this window is AppKit carrying the child along, not an external mover.
+  private var lastViewport: NSRect?
+  private var lastParentContent: NSRect?
+
+  @objc public init(width: CGFloat, height: CGFloat) {
+    terminalView = DropAwareTerminalView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+    terminalView.registerForDraggedTypes([.fileURL])
+    super.init()
+    terminalView.terminalDelegate = self
+    terminalView.onDropPaths = { [weak self] paths in
+      self?.onDropPaths?(paths as NSArray)
+    }
+    terminalView.onCopyText = { [weak self] text in self?.onCopy?(text as NSString) }
+    hideScroller()
+    // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
+    // highlighted while Command is held, and only Command-click opens it.
+    // Argus's xterm.js path opens links on an ordinary click (see
+    // terminalLinks.ts's link provider), so the two engines would disagree
+    // about the same transcript. `.hover` matches xterm: underline on hover,
+    // open on click.
+    terminalView.linkHighlightMode = .hover
+    // tmux runs with `mouse on`, which enables mouse reporting (1000/1002/1006)
+    // on the outer terminal for EVERY session — measured on tmux 3.6b even for
+    // a bare `sh` — and the replay seed re-emits those modes. SwiftTerm honours
+    // them by default, so a plain drag became a mouse report instead of a
+    // selection and the wheel never reached SwiftTerm's own scrollback. The
+    // xterm path swallows the same modes (terminalMouse.ts) for exactly this
+    // reason; this is the native equivalent. Wheel forwarding to mouse apps is
+    // not reproduced: xterm only forwards on the alternate screen, which the
+    // outer terminal never enters with tmux's smcup stripped.
+    terminalView.allowMouseReporting = false
+    // Option must type the characters non-US layouts put on it (@ # [ ] { }
+    // on Italian). xterm runs with macOptionIsMeta: false; match it.
+    terminalView.optionAsMetaKey = false
+    terminalView.scrollSensitivity = OverlayController.scrollSensitivity(optionDown: false)
+  }
+
+  /// Lines per wheel notch, matching xterm tiles (useTerminal.ts:
+  /// scrollSensitivity 3, fastScrollSensitivity 10 with Option). xterm's own
+  /// Viewport._applyScrollModifier multiplies the wheel delta by BOTH
+  /// fastScrollSensitivity AND scrollSensitivity when the fast-scroll
+  /// modifier (Option) is held — `amount * fastScrollSensitivity *
+  /// scrollSensitivity` — so the Option-held rate is 10 * 3 = 30, not 10.
+  static func scrollSensitivity(optionDown: Bool) -> CGFloat { optionDown ? 30 : 3 }
+
+  /// Called for every scroll event before SwiftTerm handles it.
+  private func prepareScroll(optionDown: Bool) {
+    terminalView.scrollSensitivity = OverlayController.scrollSensitivity(optionDown: optionDown)
+  }
+
+  public func debugPrepareScroll(optionDown: Bool) { prepareScroll(optionDown: optionDown) }
+  public func debugScrollSensitivity() -> CGFloat { terminalView.scrollSensitivity }
+
+  /// Attach as a child of the Electron window. `parent` is the NSWindow behind
+  /// BrowserWindow.getNativeWindowHandle().
+  @objc public func attach(to parent: NSWindow) {
+    // Idempotent: a second attach reparents rather than orphaning the first
+    // window. Without this, the old window leaks with nothing referencing it.
+    if window != nil {
+      reparent(to: parent)
+      return
+    }
+    let w = KeyableWindow(contentRect: terminalView.frame,
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    // The terminal view is NOT the content view: setFrame crops the window to
+    // the part of the hole inside the parent and offsets the terminal view
+    // inside this container so the visible portion lines up — the same thing
+    // the browser does to the DOM tile when it overflows the viewport.
+    clipView.frame = terminalView.frame
+    clipView.wantsLayer = true
+    // Until setTheme arrives, match SwiftTerm's own default background rather
+    // than leaving the window's grey to flash through the gutter.
+    clipView.layer?.backgroundColor = terminalView.nativeBackgroundColor.cgColor
+    w.backgroundColor = terminalView.nativeBackgroundColor
+    terminalView.frame.origin = .zero
+    clipView.addSubview(terminalView)
+    w.contentView = clipView
+    w.isOpaque = true
+    w.hasShadow = false
+    w.ignoresMouseEvents = false
+    // destroy() calls close(); with the default (true) AppKit would also
+    // release the window, and ARC releasing it a second time is a crash.
+    w.isReleasedWhenClosed = false
+    // Read through the controller's own property at call time (rather than
+    // capturing it) so a later `onFocus =` assignment — the ObjC++ layer sets
+    // it after init — is picked up, and so clearing it to nil on destroy
+    // genuinely stops delivery. `self` is unowned-safe here: the window is
+    // torn down in destroy(), before the controller can go away.
+    w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
+    // Through SwiftTerm's own send(data:), not straight to onInput: send(data:)
+    // also runs ensureCaretIsVisible() (a conditional scroll-to-bottom, only
+    // when the caret has left the viewport) and reaches onInput via the
+    // delegate anyway. The unconditional scroll-to-bottom xterm's
+    // scrollOnUserInput needs is handled separately by onUserKeyDown below,
+    // which fires for every user keyDown regardless of which path it takes.
+    w.onShiftEnter = { [weak self] in
+      self?.terminalView.send(data: [0x1b, 0x0d][...])
+    }
+    w.onOptionKey = { [weak self] bytes in
+      self?.terminalView.send(data: bytes[...])
+    }
+    w.onScrollWheel = { [weak self] event in
+      self?.prepareScroll(optionDown: event.modifierFlags.contains(.option))
+    }
+    // xterm's scrollOnUserInput: return a scrolled-up reader to the bottom on
+    // every user keystroke, unconditionally — see sendEvent's doc comment for
+    // why SwiftTerm's own ensureCaretIsVisible (inside send(data:), triggered
+    // above) is not enough on its own.
+    w.onUserKeyDown = { [weak self] in
+      guard let v = self?.terminalView, v.canScroll, v.scrollPosition < 1 else { return }
+      v.scroll(toPosition: 1)
+    }
+    w.onOptionClick = { [weak self] event in
+      guard let self else { return }
+      // A click on the find bar (an NSVisualEffectView/NSSearchField added as
+      // a SUBVIEW of terminalView itself — see debugFindBarVisible's doc
+      // comment) is still geometrically inside terminalView's own frame, so
+      // without this the cursor moved underneath an open find bar instead of
+      // leaving the click to the search field. hitTest's point must be in the
+      // terminal view's SUPERVIEW's coordinate system (Apple's contract for
+      // NSView.hitTest(_:)), and it recurses into subviews on its own, so it
+      // returns the find bar (or a view inside it) rather than terminalView
+      // whenever the point actually lands there.
+      guard let superview = self.terminalView.superview else { return }
+      let pointInSuperview = superview.convert(event.locationInWindow, from: nil)
+      guard self.terminalView.hitTest(pointInSuperview) === self.terminalView else { return }
+      if let sel = self.terminalView.getSelection(), sel.count > 1 { return }   // a drag selected text
+      let p = self.terminalView.convert(event.locationInWindow, from: nil)
+      if let s = self.optionClickSequence(atViewPoint: p), !s.isEmpty {
+        self.terminalView.send(txt: s)
+      }
+    }
+    w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
+    // While SwiftTerm's find bar (or any other subview) holds first
+    // responder, key translation must leave its keys alone — see
+    // isTerminalFocused's doc comment. `[weak w]` rather than capturing `w`
+    // directly: `w` is the window this closure lives on, and this avoids the
+    // window keeping itself alive through the closure it owns.
+    w.isTerminalFocused = { [weak self, weak w] in
+      guard let self, let w else { return false }
+      return w.firstResponder === self.terminalView
+    }
+    // Start HIDDEN. addChildWindow on a visible parent orders the child in at
+    // once, so without this every overlay is on screen from the moment it is
+    // created — at its 800x480 construction size, at the default origin. The
+    // host's state machine assumes a fresh overlay is not shown, so when its
+    // first decision is "don't show" (a tile mid-mount, or behind a maximized
+    // workbench) there is no transition and hide() is never called. Measured:
+    // that is exactly the stray 800x480 window seen bottom-left of the screen.
+    // Only show() reveals an overlay; nothing else may.
+    w.alphaValue = 0
+    w.ignoresMouseEvents = true
+    w.allowsKey = false
+    w.isExcludedFromWindowsMenu = true
+    parentWindow = parent
+    w.accessibilityHost = parent.contentView
+    hiddenByHost = true
+    parent.addChildWindow(w, ordered: .above)
+    window = w
+    // Undo any frame change this class did not make. The overlay presents to
+    // the AX API as a group, not a window, but a window manager can still
+    // reach it through the key window and move or resize it directly; the
+    // hole in the web contents has not moved, so the only correct response
+    // is to put it back.
+    frameObservers = [
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didMoveNotification, object: w, queue: .main
+      ) { [weak self] _ in self?.restoreAppliedFrameIfMovedExternally() },
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didResizeNotification, object: w, queue: .main
+      ) { [weak self] _ in self?.restoreAppliedFrameIfMovedExternally() },
+    ]
+    otrace("attach created #\(w.windowNumber) parent=#\(parent.windowNumber)")
+  }
+
+  /// Move an existing overlay to a different parent window. Argus supports
+  /// multiple windows and a session can move between them.
+  @objc public func reparent(to parent: NSWindow) {
+    parentWindow = parent
+    guard let w = window else { return }
+    (window as? KeyableWindow)?.accessibilityHost = parent.contentView
+    w.parent?.removeChildWindow(w)
+    // Re-adding orders the child in, which is harmless: a hidden overlay is
+    // hidden by alpha (see hide()), not by ordering, so it stays invisible.
+    parent.addChildWindow(w, ordered: .above)
+  }
+
+  /// Overrides SwiftTerm's default, which hands the link straight to
+  /// `NSWorkspace.shared.open`. That would bypass the scheme allowlist every
+  /// other Argus link path goes through (main.ts's `shell:openExternal`
+  /// permits only http(s) and mailto), so a transcript could emit an OSC 8
+  /// hyperlink with any scheme at all and a single click would launch it.
+  /// Routing to JS keeps one allowlist for both engines.
+  public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+    onOpenLink?(link as NSString)
+  }
+
+  /// The true per-cell size SwiftTerm is laying the grid out at, derived from
+  /// its own public `getOptimalFrameSize()` (cellW = rect.width / cols, cellH
+  /// = rect.height / rows — the scroller is hidden, so no reserved width)
+  /// rather than `bounds.size / (cols, rows)`. The view's bounds are the hole
+  /// the host asked for, not necessarily a whole multiple of the cell size —
+  /// dividing bounds by cols/rows instead recovers a cell size that is
+  /// systematically too large by the remainder, and the resulting error
+  /// compounds toward the bottom-right corner (Bug 1: a click on the last row
+  /// or column landed up to a cell short).
+  private func trueCellSize() -> NSSize? {
+    let t = terminalView.getTerminal()
+    guard t.cols > 0, t.rows > 0 else { return nil }
+    let optimal = terminalView.getOptimalFrameSize()
+    guard optimal.width > 0, optimal.height > 0 else { return nil }
+    return NSSize(width: optimal.width / CGFloat(t.cols), height: optimal.height / CGFloat(t.rows))
+  }
+
+  /// Test seam: the cell size `optionClickSequence` actually uses.
+  public func debugCellSize() -> NSSize { trueCellSize() ?? .zero }
+
+  /// The arrow-key sequence that moves the cursor to the cell under `p` (a
+  /// point in the terminal view's coordinates), or nil when xterm would not
+  /// move: scrolled up into history, or no usable geometry.
+  public func optionClickSequence(atViewPoint p: NSPoint) -> String? {
+    let t = terminalView.getTerminal()
+    if terminalView.canScroll && terminalView.scrollPosition < 1 { return nil }
+    guard let cell = trueCellSize() else { return nil }
+    // Mirrors SwiftTerm's own `calculateMouseHit` (MacTerminalView.swift
+    // ~2761) exactly: row is `(frame.height - point.y) / cellHeight`,
+    // unconditionally — `TerminalView` on Mac never overrides `isFlipped`
+    // (it stays the AppKit default, y-up, row 0 at the top), so there is no
+    // isFlipped branch to mirror there either.
+    let col = Int(p.x / cell.width)
+    let row = Int((terminalView.frame.height - p.y) / cell.height)
+    let colValue = min(t.cols - 1, max(0, col))
+    let rowValue = min(t.rows - 1, max(0, row))
+    return MoveToCell.sequence(startX: t.buffer.x, startY: t.buffer.y, targetX: colValue, targetY: rowValue,
+                               cols: t.cols, applicationCursor: t.applicationCursor)
+  }
+
+  // Test seams — not @objc, so invisible across the ObjC++ boundary.
+  public func debugWindowNumber() -> Int { window.map { Int($0.windowNumber) } ?? -1 }
+  public func debugParentWindowNumber() -> Int { window?.parent.map { Int($0.windowNumber) } ?? -1 }
+
+  @objc public func feed(data: NSData) {
+    let bytes = [UInt8](Data(referencing: data))
+    terminalView.feed(byteArray: bytes[...])
+  }
+
+  /// The grid SwiftTerm has computed for the view's current size. Updated
+  /// synchronously by `setFrame` (the frame setter recomputes cols/rows), so
+  /// the host can read it straight after applying a frame — `onResize` only
+  /// reaches JS later, through a thread-safe-function hop. The host uses it to
+  /// size the pty before rendering the replay seed, so the seed is serialized
+  /// for the width it is about to be parsed at.
+  @objc public var gridCols: Int { terminalView.getTerminal().cols }
+  @objc public var gridRows: Int { terminalView.getTerminal().rows }
+
+  /// Lines of history SwiftTerm keeps. The host passes xterm's depth at create
+  /// time so both engines hold the same history.
+  @objc public func setScrollback(_ lines: Int) {
+    terminalView.getTerminal().changeScrollback(lines)
+  }
+
+  /// Argus's code font size, in points (the host has already applied page
+  /// zoom). SF Mono via the system monospace font — what xterm's
+  /// `"SF Mono", ui-monospace` resolves to. Changing it recomputes the grid,
+  /// and sizeChanged reports the new cols/rows like any resize.
+  ///
+  /// Only a real change is applied. SwiftTerm's font setter always runs
+  /// `resize(cols:rows:)`, which reports the grid AND soft-resets the terminal
+  /// (cursor visibility, SGR, scroll region, modes) — even for the size it
+  /// already has. Re-applying the current size would undo the modes the
+  /// host's replay seed just set. Nonsense is ignored and extremes are clamped
+  /// (NSFont does not accept a non-finite size).
+  @objc public func setFontSize(_ size: CGFloat) {
+    guard size.isFinite, size > 0 else { return }
+    let clamped = min(max(size, 6), 72)
+    guard terminalView.font.pointSize != clamped else { return }
+    terminalView.font = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+  }
+
+  /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
+  /// transparent "hole", exactly as `useNativeOverlayRect.ts` measures them
+  /// with `getBoundingClientRect()`:
+  ///   - origin is the top-left of the renderer's web content (below any
+  ///     title bar), NOT the top-left of the screen or of the parent
+  ///     NSWindow's frame.
+  ///   - y increases DOWNWARD.
+  ///   - units are CSS px, which on macOS are AppKit points (both are
+  ///     "logical"/un-scaled; Retina scaling is a backing-store concern
+  ///     window/view geometry never deals in).
+  ///
+  /// AppKit screen coordinates (what `NSWindow.setFrame` takes) are the
+  /// opposite on both axes: origin is the bottom-left of the screen, y
+  /// increases UPWARD. Converting therefore needs two things this method
+  /// used to skip entirely: adding the parent's own on-screen position, and
+  /// flipping the Y axis around the parent's content area.
+  ///
+  /// The reference point is the parent's CONTENT rect
+  /// (`contentRect(forFrameRect:)`), not its frame rect: the frame rect
+  /// includes the title bar, but the renderer's y=0 is the top of the web
+  /// content, which sits BELOW the title bar. Using the frame rect here
+  /// would shift every overlay up by the title bar's height.
+  ///
+  /// Worked example: a parent window whose content rect is
+  /// (x: 100, y: 200, width: 1000, height: 700) in screen coordinates
+  /// (so its content spans screen y ∈ [200, 900]), and a viewport rect of
+  /// (x: 40, y: 60, width: 300, height: 150) — 40px in from the left edge of
+  /// the web content, 60px down from its top:
+  ///   childX = 100 + 40                     = 140
+  ///   childY = 900 - 60 - 150 = (200+700) - 60 - 150 = 690
+  /// i.e. the child window's screen frame is (140, 690, 300, 150). Note the
+  /// flip: a LARGER viewport y (further down the page) produces a SMALLER
+  /// screen y (further down the screen, since screen y grows upward) — got
+  /// exactly backwards, this was Bug 1 (the overlay rendered vertically
+  /// inverted relative to its tile).
+  ///
+  /// A missing `window` (no `attach()` yet) or missing `window.parent`
+  /// leaves nothing to convert against; `x`/`y` are used as-is so the
+  /// terminal grid still resizes correctly (`terminalView.frame` below,
+  /// which drives `sizeChanged`/`onResize`) even before a window exists.
+  @objc public func setFrame(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+    let w = max(1, width)
+    let h = max(1, height)
+    // Before resizing: the grid's width depends on whether the scroller is
+    // hidden, and SwiftTerm can re-create it (setupScroller runs on init and
+    // on a scrollerStyle change). Cheap — a no-op once it is already hidden.
+    hideScroller()
+    terminalView.frame.size = NSSize(width: w, height: h)
+    guard let win = window else { return }
+    guard let parent = win.parent ?? parentWindow else {
+      win.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+      return
+    }
+    let parentContent = parent.contentRect(forFrameRect: parent.frame)
+    lastViewport = NSRect(x: x, y: y, width: w, height: h)
+    lastParentContent = parentContent
+    let screenX = parentContent.minX + x
+    let screenY = parentContent.maxY - y - h
+    let full = NSRect(x: screenX, y: screenY, width: w, height: h)
+    // Clip to the parent's content area. A DOM tile that overflows the viewport
+    // is cropped by the browser; a child NSWindow is cropped by nothing, so
+    // without this the overlay paints past the window's edge — measured: a
+    // hole reported 3pt taller than the content area poked out of the bottom,
+    // and a stale viewport rect re-pushed after a Spectacle re-tile painted a
+    // whole tile outside the app. The terminal view keeps its FULL logical
+    // size (native is the resize authority — cropping must not change
+    // cols/rows); only the window shrinks, and the view is offset inside it so
+    // the visible part stays aligned with the hole.
+    let visible = full.intersection(parentContent)
+    if visible.isNull || visible.width < 1 || visible.height < 1 {
+      clippedOut = true
+      applyOpacity()
+      otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
+             "parentContent=\(parentContent) -> fully outside, clipped out")
+      return
+    }
+    clippedOut = false
+    let keyable = win as? KeyableWindow
+    keyable?.appliedFrame = visible
+    keyable?.applyingFrame = true
+    win.setFrame(visible, display: true)
+    keyable?.applyingFrame = false
+    // AppKit is y-up: a hole hanging below the content area has full.minY <
+    // visible.minY, so the view's origin goes negative and its bottom rows
+    // fall outside the (cropped) window — exactly the rows the DOM would clip.
+    terminalView.frame.origin = NSPoint(x: full.minX - visible.minX, y: full.minY - visible.minY)
+    applyOpacity()
+    otrace("setFrame #\(win.windowNumber) viewport=(\(Int(x)),\(Int(y)),\(Int(w)),\(Int(h)))",
+           "parentFrame=\(parent.frame) parentContent=\(parentContent)",
+           "full=\(full) -> window=\(win.frame) viewOrigin=\(terminalView.frame.origin)")
+  }
+
+  /// Hides SwiftTerm's scroll indicator.
+  ///
+  /// It is added unconditionally as a subview of the terminal view, in
+  /// `.overlay` style and with `isEnabled = false` — a non-interactive
+  /// indicator. Two problems: it draws its own track, and while visible
+  /// SwiftTerm reserves `scrollerWidth` that the character grid never paints.
+  /// Measured off a screenshot: the right edge of a tile showed the terminal's
+  /// #f5f5f5 plus a 249 and a 241 grey, which is the scroller and its reserved
+  /// gutter, not the background behind the view. Hiding it takes
+  /// `reservedScrollerWidth` to 0, so the grid uses the full width.
+  ///
+  /// No loss of function: it is already non-interactive, scrolling happens by
+  /// wheel and keyboard, and Argus's xterm tiles show no scrollbar either — so
+  /// this is also what makes the two engines match.
+  ///
+  /// `scroller` is private to SwiftTerm, hence the subview walk.
+  private func hideScroller() {
+    for v in terminalView.subviews {
+      if let s = v as? NSScroller, !s.isHidden { s.isHidden = true }
+    }
+  }
+
+  /// Runs on the overlay's own didMove/didResize. Two branches:
+  ///  - the parent's content rect differs from the one the last setFrame
+  ///    converted against (the parent moved or resized): re-derive the frame
+  ///    from the cached viewport rect against where the parent is now;
+  ///  - otherwise, if the window is not at the frame setFrame applied (a window
+  ///    manager moved it), put it back.
+  /// Neither loops. The frame this triggers fires didMove/didResize again, but
+  /// `applyingFrame` is set around every setFrame this class makes, so that
+  /// re-entry returns at the guard; and setFrame records `lastParentContent`
+  /// before calling `win.setFrame`, so even a notification delivered after the
+  /// flag clears sees the parent unchanged and falls to the second branch,
+  /// where the window already matches `appliedFrame`.
+  private func restoreAppliedFrameIfMovedExternally() {
+    guard let w = window as? KeyableWindow, !w.applyingFrame else { return }
+    // The parent moved (drag, window manager, display change): re-derive from
+    // the viewport rect against where the parent is NOW. Restoring the old
+    // screen frame would fight AppKit's child-follow until resyncParent lands.
+    if let vp = lastViewport, let parent = w.parent ?? parentWindow,
+       parent.contentRect(forFrameRect: parent.frame) != lastParentContent {
+      setFrame(x: vp.minX, y: vp.minY, width: vp.width, height: vp.height)
+      return
+    }
+    guard let want = w.appliedFrame, w.frame != want else { return }
+    otrace("external frame change on #\(w.windowNumber): \(w.frame) -> restoring \(want)")
+    w.applyingFrame = true
+    w.setFrame(want, display: true)
+    w.applyingFrame = false
+  }
+
+  /// Single writer for the window's alpha: painted only when the host wants it
+  /// shown AND some of it is inside the parent. show()/hide() and setFrame all
+  /// funnel here so the two conditions can never disagree.
+  private func applyOpacity() {
+    guard let w = window else { return }
+    let visible = !hiddenByHost && !clippedOut
+    w.alphaValue = visible ? 1 : 0
+    w.ignoresMouseEvents = !visible
+    (w as? KeyableWindow)?.allowsKey = visible
+  }
+
+  // Test seam: the child window's current SCREEN-coordinate frame, after
+  // setFrame's conversion. `.zero` when there is no window yet (mirrors
+  // debugWindowNumber's -1-for-absent convention).
+  public func debugFrame() -> NSRect { window?.frame ?? .zero }
+  public func debugTerminalViewFrame() -> NSRect { terminalView.frame }
+  public func debugAlpha() -> CGFloat { window?.alphaValue ?? -1 }
+  public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
+  public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
+  public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
+  public func debugScrollToTop() { terminalView.scroll(toPosition: 0) }
+  public func debugScrollToBottom() { terminalView.scroll(toPosition: 1) }
+  /// Test seam: scrolls up by exactly `lines` from wherever the view
+  /// currently is — unlike `debugScrollToTop`, lets a test put the reader
+  /// only a LITTLE way up, the case a conditional (caret-visibility-based)
+  /// scroll-to-bottom can miss.
+  public func debugScrollUp(lines: Int) { terminalView.scrollUp(lines: lines) }
+  public func debugIsScrolledUp() -> Bool { terminalView.canScroll && terminalView.scrollPosition < 1 }
+  public func debugOptionAsMeta() -> Bool { terminalView.optionAsMetaKey }
+  public func debugSetMarkedText(_ text: String) {
+    terminalView.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0),
+                               replacementRange: NSRange(location: NSNotFound, length: 0))
+  }
+  /// Test seam: gives an unrelated text field first responder, standing in
+  /// for SwiftTerm's own find-bar search field (which is not reachable from
+  /// outside the module — see debugFindBarVisible's doc comment). Lets a test
+  /// assert that key translation leaves a focused field alone, matching what
+  /// the find bar needs while the user is typing a search term.
+  public func debugFocusForeignTextField() {
+    guard let w = window else { return }
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+    clipView.addSubview(field)
+    w.makeFirstResponder(field)
+  }
+  public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
+  public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }
+  public func debugAccessibilityParent() -> Any? { window?.accessibilityParent() }
+  /// Moves the window the way an external window manager would, then runs the
+  /// same restore path the didMove notification drives (notifications do not
+  /// deliver synchronously in a unit test).
+  public func debugSimulateExternalMove(to rect: NSRect) {
+    window?.setFrame(rect, display: false)
+    restoreAppliedFrameIfMovedExternally()
+  }
+
+  /// Applies Argus's terminal theme to this overlay. `backgroundHex`/
+  /// `foregroundHex`/`cursorHex` are "#rrggbb" strings; `ansiHex` is the 16
+  /// ANSI colors in xterm order (black, red, green, yellow, blue, magenta,
+  /// cyan, white, then the bright variants) — SwiftTerm's
+  /// `TerminalView.installColors(_:)` requires exactly 16 or it no-ops, so a
+  /// mismatched count here is treated the same way (silently skipped) rather
+  /// than partially applying a palette.
+  ///
+  /// Malformed hex strings for background/foreground/cursor are ignored
+  /// individually (each keeps its previous color) rather than aborting the
+  /// whole call — a single bad value from JS should not also block the two
+  /// good ones next to it.
+  ///
+  /// SwiftTerm's own NSColor<->Color conversion helpers
+  /// (`NSColor.getTerminalColor()`, `NSColor.make(color:)` in
+  /// MacExtensions.swift) are internal to the SwiftTerm module and not
+  /// visible here, so this file has its own small hex parser and
+  /// `Color`-conversion helper below instead of depending on them.
+  @objc public func setTheme(backgroundHex: String, foregroundHex: String, cursorHex: String, ansiHex: [String]) {
+    // Per component: an unparseable value keeps the colour that is already
+    // applied rather than rejecting the whole theme (a malformed hex is a
+    // no-op for that one colour; a wrong-length ansi array still lets
+    // background/foreground/cursor through).
+    let current = palette ?? Palette(
+      background: terminalView.nativeBackgroundColor,
+      foreground: terminalView.nativeForegroundColor,
+      cursor: terminalView.caretColor,
+      ansi: [],
+    )
+    let parsedAnsi = ansiHex.compactMap { NSColor(argusHex: $0) }
+    let target = Palette(
+      background: NSColor(argusHex: backgroundHex) ?? current.background,
+      foreground: NSColor(argusHex: foregroundHex) ?? current.foreground,
+      cursor: NSColor(argusHex: cursorHex) ?? current.cursor,
+      ansi: parsedAnsi.count == 16 ? parsedAnsi : current.ansi,
+    )
+    // Applied at once, deliberately. Argus switches theme instantly — no view
+    // transition, no colour transitions (see tokens.css) — so the overlay
+    // does too. An earlier version crossfaded here to match a DOM view
+    // transition, which could never line up: a child NSWindow is not part of
+    // the DOM snapshot, so the two animations were independent and visibly
+    // out of step. Nothing to synchronise is the only reliable synchronisation.
+    apply(target)
+    palette = target
+  }
+
+  private func apply(_ p: Palette) {
+    terminalView.nativeBackgroundColor = p.background
+    terminalView.nativeForegroundColor = p.foreground
+    terminalView.caretColor = p.cursor
+    // Everything BEHIND the terminal view gets the background too. SwiftTerm
+    // paints whole cells, so a sub-cell strip along the bottom is never
+    // painted by the grid — and that showed the container layer and the
+    // window's default grey. The xterm path solves the same gutter by
+    // painting its container (see useTerminal.ts's termBg); this is that, one
+    // layer down.
+    window?.backgroundColor = p.background
+    clipView.layer?.backgroundColor = p.background.cgColor
+    // Empty only before the first full palette has arrived; installColors with
+    // a short array would be rejected by SwiftTerm anyway.
+    if p.ansi.count == 16 { terminalView.installColors(p.ansi.map { $0.argusTerminalColor() }) }
+  }
+
+  // Test seams — read back what setTheme actually applied.
+  public func debugBackgroundColor() -> NSColor { terminalView.nativeBackgroundColor }
+  public func debugForegroundColor() -> NSColor { terminalView.nativeForegroundColor }
+  public func debugCursorColor() -> NSColor { terminalView.caretColor }
+  public func debugWindowBackgroundColor() -> NSColor? { window?.backgroundColor }
+  public func debugContainerBackgroundColor() -> CGColor? { clipView.layer?.backgroundColor }
+  /// Sends a real key event through the overlay's window, so a test exercises
+  /// the same sendEvent path AppKit uses rather than the predicate alone.
+  /// `characters` defaults to "\r" (every existing caller is a Return
+  /// variant); pass e.g. "a" to exercise an ordinary keystroke.
+  public func debugSendKey(keyCode: UInt16, flags: NSEvent.ModifierFlags, characters: String = "\r") {
+    guard let w = window else { return }
+    guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
+                                   timestamp: 0, windowNumber: w.windowNumber, context: nil,
+                                   characters: characters, charactersIgnoringModifiers: characters,
+                                   isARepeat: false, keyCode: keyCode) else { return }
+    w.sendEvent(e)
+  }
+
+  /// Sends a real mouse event through the overlay's window, so a test
+  /// exercises the same `sendEvent` path AppKit uses for Option+click rather
+  /// than calling `optionClickSequence` directly. `atViewPoint` is a point in
+  /// the terminal view's own coordinates (matching `optionClickSequence`'s
+  /// parameter); converted to window coordinates because that is what
+  /// `NSEvent.mouseEvent(location:)` expects.
+  public func debugSendMouse(_ type: NSEvent.EventType, atViewPoint p: NSPoint,
+                             flags: NSEvent.ModifierFlags, clickCount: Int, timestamp: TimeInterval) {
+    guard let w = window else { return }
+    let windowPoint = terminalView.convert(p, to: nil)
+    guard let e = NSEvent.mouseEvent(with: type, location: windowPoint, modifierFlags: flags,
+                                     timestamp: timestamp, windowNumber: w.windowNumber, context: nil,
+                                     eventNumber: 0, clickCount: clickCount, pressure: 1) else { return }
+    w.sendEvent(e)
+  }
+
+  /// Sends an already-built event through the overlay's window. Unlike
+  /// `debugSendKey`/`debugSendMouse`, which construct the event themselves,
+  /// this exists for events neither `NSEvent.keyEvent` nor `NSEvent.mouseEvent`
+  /// can synthesize — a scroll-wheel event needs a `CGEvent` (for its wheel
+  /// deltas), wrapped as `NSEvent(cgEvent:)`, which a test builds itself.
+  public func debugSendEvent(_ event: NSEvent) {
+    window?.sendEvent(event)
+  }
+
+  public func debugDimAlpha() -> CGFloat {
+    guard let c = dimView?.layer?.backgroundColor, let ns = NSColor(cgColor: c) else { return -1 }
+    return ns.alphaComponent
+  }
+  public func debugVisibleScrollerCount() -> Int {
+    terminalView.subviews.filter { ($0 as? NSScroller)?.isHidden == false }.count
+  }
+
+  /// Matches `.argus-tile-overlay` in index.css — the scrim every tile that is
+  /// not selected carries, and the only signal of which tile IS selected.
+  /// Values are paired by hand: 0.22 dark / 0.13 light. If they drift, a
+  /// native tile stops matching its neighbours, which is exactly what
+  /// happened before this existed (measured: an unfocused xterm tile rendered
+  /// #e7e7e6 while a native one stayed at the theme's #f5f5f5).
+  @objc public func setDimmed(_ dimmed: Bool, isDark: Bool) {
+    guard dimmed else {
+      dimView?.removeFromSuperview()
+      dimView = nil
+      return
+    }
+    let scrim: NSColor = isDark
+      ? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.22)
+      : NSColor(srgbRed: 20.0 / 255.0, green: 15.0 / 255.0, blue: 8.0 / 255.0, alpha: 0.13)
+    if let existing = dimView {
+      existing.layer?.backgroundColor = scrim.cgColor
+      existing.frame = terminalView.bounds
+      return
+    }
+    let v = PassthroughView(frame: terminalView.bounds)
+    v.wantsLayer = true
+    v.layer?.backgroundColor = scrim.cgColor
+    v.autoresizingMask = [.width, .height]
+    terminalView.addSubview(v)
+    dimView = v
+  }
+
+  /// Gives this overlay keyboard focus.
+  ///
+  /// The xterm path focuses its textarea when a notification is clicked or a
+  /// minimized tile is restored (useTerminal's requestFocusToken / autoFocus).
+  /// A native tile had no equivalent, so both silently did nothing — the tile
+  /// came to the front with the cursor still in whatever was focused before.
+  @objc public func focusTerminal() {
+    guard let w = window, !hiddenByHost, !clippedOut else { return }
+    w.makeKeyAndOrderFront(nil)
+    w.makeFirstResponder(terminalView)
+  }
+
+  @objc public func show() {
+    hiddenByHost = false
+    guard let w = window else { return }
+    otrace("show #\(w.windowNumber) wasVisible=\(w.isVisible) hadParent=\(w.parent != nil)")
+    // Normally still a child (hide() no longer detaches), but re-establish the
+    // relationship if anything dropped it — an independent window would neither
+    // follow the parent nor sit above its content.
+    if w.parent == nil, let p = parentWindow {
+      p.addChildWindow(w, ordered: .above)
+    }
+    applyOpacity()
+    w.orderFront(nil)
+  }
+
+  /// Removing the child from its parent is load-bearing, not tidiness.
+  /// `orderOut` alone does NOT keep a child window hidden: AppKit re-orders a
+  /// parent's childWindows back in whenever the parent is ordered front, so an
+  /// overlay hidden while its tile was off screen reappeared — at its stale
+  /// frame — the next time Argus was activated, clicked, or switched to.
+  /// destroy() already did this; hide() did not, which is why the host's
+  /// visibility state and what was actually on screen could disagree.
+  @objc public func hide() {
+    hiddenByHost = true
+    guard let w = window else { return }
+    otrace("hide #\(w.windowNumber) BEFORE visible=\(w.isVisible) parent=\(w.parent?.windowNumber ?? -1)")
+    // Measured (CGWindowListCopyWindowInfo, 2026-09-02): after
+    // removeChildWindow + orderOut, AppKit reported isVisible == false while
+    // the window server still listed this window on screen at its old bounds
+    // — and that is exactly what the user saw. Ordering is therefore not
+    // something this code can rely on to take a window off screen. Alpha is:
+    // the compositor enforces it regardless of ordering state. The window is
+    // also made click-through and refused key status, so an invisible overlay
+    // can neither eat clicks nor swallow keystrokes.
+    applyOpacity()
+    if w.isKeyWindow { parentWindow?.makeKey() }
+    // Deliberately NOT ordered out or detached. Ordering was measured to be
+    // unreliable here, and detaching bought nothing once alpha does the hiding
+    // — while staying a child keeps the overlay following the parent and above
+    // its content, so show() has nothing to repair.
+    otrace("hide #\(w.windowNumber) AFTER  alpha=\(w.alphaValue) parent=\(w.parent?.windowNumber ?? -1)")
+    dumpOnScreenWindows("after hide")
+  }
+  @objc public func clearScrollback() { terminalView.getTerminal().clearScrollback() }
+
+  /// Search forward or backward for `term`, selecting and scrolling the match
+  /// into view. Returns whether a match was found. Drives SwiftTerm's own
+  /// search machinery (TerminalViewSearch.swift's findNext/findPrevious,
+  /// backed by SearchEngine) rather than reimplementing it. Not exposed to
+  /// the addon (see openFindBar/closeFindBar below) — kept as a Swift-level
+  /// seam so ShimTests can drive a search without a visible find bar.
+  @objc public func search(_ term: String, forward: Bool) -> Bool {
+    forward ? terminalView.findNext(term) : terminalView.findPrevious(term)
+  }
+
+  /// Clears the current search selection/highlight. Does not touch scrollback.
+  @objc public func clearSearch() {
+    terminalView.clearSearch()
+  }
+
+  /// Opens SwiftTerm's OWN find bar (TerminalFindBarView, embedded as a
+  /// subview of the terminal view itself) rather than reusing Argus's DOM
+  /// `TerminalSearchBar`. A child NSWindow always paints above the parent's
+  /// web content (Phase 2 Gate A) — a DOM search box over a native tile would
+  /// render invisibly behind it, and the only way around that without
+  /// blanking the tile for the search's duration is to render the box
+  /// *inside* the same NSWindow as the terminal. SwiftTerm already ships
+  /// exactly that; `performTextFinderAction` is its public, `open` entry
+  /// point (the find bar itself — `TerminalFindBarView`/`ensureFindBar()`/
+  /// `showFindBar()` — is private to SwiftTerm's own file, not reachable
+  /// directly). Idempotent: calling this while already open just refocuses
+  /// the search field, which is also the right behavior for a repeated
+  /// Cmd+F.
+  @objc public func openFindBar() {
+    performFindPanelAction(NSTextFinder.Action.showFindInterface)
+  }
+
+  /// Closes SwiftTerm's find bar and clears the search highlight/selection.
+  /// `performTextFinderAction(.hideFindInterface)` alone only hides the bar —
+  /// it does not clear the match state, so `clearSearch()` is called
+  /// explicitly to guarantee closing always leaves no stale highlight behind.
+  @objc public func closeFindBar() {
+    performFindPanelAction(NSTextFinder.Action.hideFindInterface)
+    terminalView.clearSearch()
+  }
+
+  /// `performTextFinderAction(_:)` (and its sibling `performFindPanelAction`)
+  /// only accept an `NSMenuItem` — SwiftTerm reads `.tag`, nothing else off
+  /// it, so a throwaway item with no title/action is enough to drive it from
+  /// outside as if a Find menu item had been clicked.
+  private func performFindPanelAction(_ action: NSTextFinder.Action) {
+    let item = NSMenuItem()
+    item.tag = action.rawValue
+    terminalView.performTextFinderAction(item)
+  }
+
+  // Test seam: SwiftTerm's find bar (`TerminalFindBarView`) is a private type
+  // inside its own module, and `internal` to SwiftTerm even where it isn't
+  // file-private — neither is nameable or reachable from ArgusTerminal. It is
+  // publicly known to be an `NSVisualEffectView` subclass though, and nothing
+  // else `TerminalView` adds as a direct subview is one, so that's the only
+  // externally-visible signal of its presence/visibility.
+  public func debugFindBarVisible() -> Bool {
+    terminalView.subviews.first(where: { $0 is NSVisualEffectView })?.isHidden == false
+  }
+
+  /// Test seam: adds an arbitrary subview inside the terminal view at
+  /// `frame`, standing in for SwiftTerm's own find bar — which does not lay
+  /// out with real geometry in a headless test run, but is, from the
+  /// Option+click hit-test guard's point of view, exactly this: some other
+  /// subview of `terminalView` that a click can land on instead of the
+  /// terminal itself.
+  public func debugAddOverlappingSubview(frame: NSRect) {
+    terminalView.addSubview(NSView(frame: frame))
+  }
+
+  /// Test seam: selects everything and copies it, exercising the same
+  /// `copy(_:)` override AppKit invokes for ⌘C / Edit ▸ Copy.
+  public func debugSelectAllAndCopy() {
+    terminalView.selectAll(nil)
+    terminalView.copy(NSMenuItem())
+  }
+
+  /// Test seam: copies with NO selection made, exercising the same
+  /// `copy(_:)` override for the empty-selection case (Finding 4).
+  public func debugCopyWithoutSelecting() {
+    terminalView.copy(NSMenuItem())
+  }
+
+  @objc public func destroy() {
+    guard let w = window else { return }
+    otrace("destroy #\(w.windowNumber)")
+    // Same finding as hide(): orderOut alone left destroyed windows painted on
+    // screen — each tile remount created a new window and the old one's ghost
+    // stayed behind. close() actually tears the window down at the window
+    // server; alpha 0 covers the frame until it does. The content view is
+    // detached so SwiftTerm's view is not left owned by a dying window.
+    w.alphaValue = 0
+    w.ignoresMouseEvents = true
+    w.parent?.removeChildWindow(w)
+    w.orderOut(nil)
+    for o in frameObservers { NotificationCenter.default.removeObserver(o) }
+    frameObservers = []
+    w.contentView = nil
+    w.close()
+    window = nil
+  }
+
+  // Test seams — never called in production.
+  public func debugFontPointSize() -> CGFloat { terminalView.font.pointSize }
+  public func debugRow(_ row: Int) -> String {
+    terminalView.getTerminal().getLine(row: row)?.translateToString(trimRight: true) ?? ""
+  }
+  public func simulateInput(_ text: String) { terminalView.send(txt: text) }
+  public func debugScrollbackLimit() -> Int { terminalView.getTerminal().options.scrollback }
+  /// Approximates scrollback depth (Buffer's `yBase`, which SwiftTerm keeps
+  /// module-internal) from public surface only: `getScrollInvariantLine(row:)`
+  /// returns nil once `row` walks past the buffer's total line count, so this
+  /// binary-searches that boundary starting from `buffer.totalLinesTrimmed`
+  /// (the one related public accessor). Comparable before/after a feed as long
+  /// as the viewport's row count hasn't changed between the two reads.
+  public func debugScrollbackRows() -> Int {
+    let term = terminalView.getTerminal()
+    let top = term.buffer.totalLinesTrimmed
+    var lo = top
+    var hi = top + 1
+    while term.getScrollInvariantLine(row: hi) != nil {
+      lo = hi
+      hi = top + (hi - top) * 2
+    }
+    while lo + 1 < hi {
+      let mid = lo + (hi - lo) / 2
+      if term.getScrollInvariantLine(row: mid) != nil { lo = mid } else { hi = mid }
+    }
+    return (lo + 1) - top
+  }
+
+  // MARK: TerminalViewDelegate
+  public func send(source: TerminalView, data: ArraySlice<UInt8>) {
+    onInput?(Data(data) as NSData)
+  }
+  public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) { onResize?(newCols, newRows) }
+  public func setTerminalTitle(source: TerminalView, title: String) {}
+  public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+  /// Reports when the reader leaves or returns to the bottom, so the host can
+  /// hold back refresh frames meanwhile (xterm's shouldPaintReplay). Only on a
+  /// transition: this fires for every scrolled line.
+  public func scrolled(source: TerminalView, position: Double) {
+    let up = source.canScroll && position < 1
+    guard up != lastScrolledUp else { return }
+    lastScrolledUp = up
+    onScrolledUp?(up)
+  }
+  public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+  /// OSC 52 clipboard writes are ignored on purpose. The xterm path has no
+  /// clipboard addon either, so terminal output cannot overwrite the user's
+  /// clipboard in either engine; copying is a local selection + ⌘C.
+  public func clipboardCopy(source: TerminalView, content: Data) {}
+  public func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
+  public func bell(source: TerminalView) {
+    onBell?()
+  }
+}
+
+/// Own hex <-> color helpers for `setTheme`, deliberately independent of
+/// SwiftTerm's internal (module-private) `NSColor.getTerminalColor()` /
+/// `NSColor.make(color:)` — see `setTheme`'s doc comment.
+/// Test seam. Component tuple in sRGB: direct NSColor equality compares colour
+/// space too, which makes an otherwise-identical colour compare unequal.
+public extension NSColor {
+  func argusRGBA() -> [CGFloat] {
+    guard let c = usingColorSpace(.sRGB) else { return [] }
+    return [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent]
+  }
+}
+
+private extension NSColor {
+  /// Parses a "#rrggbb" (or "rrggbb") string. Returns nil for anything else
+  /// — an unrecognized value is treated the same as "no color supplied" by
+  /// every call site, which keeps the previous color rather than applying a
+  /// crash or a garbage default.
+  convenience init?(argusHex hex: String) {
+    var s = hex
+    if s.hasPrefix("#") { s.removeFirst() }
+    guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+    let r = CGFloat((v >> 16) & 0xFF) / 255.0
+    let g = CGFloat((v >> 8) & 0xFF) / 255.0
+    let b = CGFloat(v & 0xFF) / 255.0
+    self.init(srgbRed: r, green: g, blue: b, alpha: 1.0)
+  }
+
+  /// Converts to SwiftTerm's `Color` (16-bit-per-channel RGB) for
+  /// `installColors(_:)`. Mirrors the clamping in SwiftTerm's own (private)
+  /// `getTerminalColor()` — extended-sRGB round-trips can push components
+  /// slightly outside 0...1, and the UInt16 conversion below would trap on
+  /// that instead of clamping.
+  func argusTerminalColor() -> Color {
+    guard let c = usingColorSpace(.sRGB) else { return Color(red: 0, green: 0, blue: 0) }
+    var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+    c.getRed(&r, green: &g, blue: &b, alpha: &a)
+    func clamp(_ v: CGFloat) -> CGFloat { min(max(v, 0), 1) }
+    return Color(red: UInt16(clamp(r) * 65535), green: UInt16(clamp(g) * 65535), blue: UInt16(clamp(b) * 65535))
+  }
+}

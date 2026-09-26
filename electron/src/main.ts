@@ -1,10 +1,15 @@
-import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification } from 'electron';
+import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notification, clipboard } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import { createRequire } from 'module';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
+import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
+import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
+import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
@@ -241,13 +246,170 @@ function startPhase2(loginShell: string, logFile: string, lockFile: string): voi
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// This module compiles to ESM ('type: module' at the repo root), but the
+// native addon is a CommonJS .node binding — `import` can't load it directly.
+// createRequire gives us a scoped `require` for that one load.
+const nativeRequire = createRequire(import.meta.url);
+
+/**
+ * Resolve the bundled native-terminal addon, in priority order:
+ *   1. the packaged .app (extraResources → native-terminal/<arch>/argus_native_terminal.node)
+ *   2. repo-relative electron/resources/native-terminal/<arch> (staged by
+ *      `npm run build:native`, same layout electron-builder later bundles)
+ * Named by process.arch (arm64 / x64) — mirrors resolveDaemonBin.ts and
+ * PtyManager's tmux-<arch> resolution, and matching binding.gyp's packaged
+ * @loader_path rpath: the dylib is staged right next to the .node file in
+ * both locations.
+ */
+function resolveNativeTerminalAddonPath(): string | null {
+  const name = 'argus_native_terminal.node';
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  if (resourcesPath) {
+    const bundled = join(resourcesPath, 'native-terminal', process.arch, name);
+    if (existsSync(bundled)) return bundled;
+  }
+  // Dev: repo_root/electron/resources/native-terminal/<arch> (this file lives
+  // two levels under the repo root: electron/{src,dist}).
+  const repo = join(__dirname, '../resources/native-terminal', process.arch, name);
+  return existsSync(repo) ? repo : null;
+}
+
+/**
+ * Loads the native terminal addon. A missing or broken addon must degrade to
+ * web, never throw — the renderer's availability probe reads the result of
+ * this and falls back for every session when it is null.
+ *
+ * No longer behind ARGUS_NATIVE_TERM: the engine is chosen in Settings
+ * ("Terminal engine") and per session in the Create/Clone sheets, so the
+ * build flag would only have been a second, invisible switch capable of
+ * overriding what the UI says. Availability is still gated on macOS, since
+ * the addon is the only implementation there is.
+ */
+function loadNativeTerminalAddon(): NativeTerminalAddon | null {
+  if (process.platform !== 'darwin') return null;
+  const addonPath = resolveNativeTerminalAddonPath();
+  if (!addonPath) {
+    console.warn('[native-term] addon not found, using xterm.js');
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    return nativeRequire(addonPath);
+  } catch (err) {
+    console.warn('[native-term] addon unavailable, using xterm.js:', err);
+    return null;
+  }
+}
+
+let nativeTerminal: NativeTerminalHost | null = null;
+
+// Window-lifecycle bookkeeping for native overlays. NativeTerminalHost itself
+// knows nothing about windows (its API is attach(sessionId, parentHandle, rect));
+// closing a single secondary window is not app quit, so main.ts — where
+// BrowserWindow lifecycle already lives — is what must notice a window going
+// away and detach whatever sessions were shown through it. sessionToWindowId
+// lets a session that gets reattached to a different window cleanly leave its
+// old window's set; windowIdToSessions is what a given window's 'closed'
+// listener walks to detach everything it was hosting.
+const sessionToWindowId = new Map<string, number>();
+const windowIdToSessions = new Map<number, Set<string>>();
+// Guards against stacking multiple 'closed' listeners on the same window
+// (attach can fire repeatedly, e.g. on every resize-driven re-attach).
+const windowsWithCloseListener = new Set<number>();
+
+/**
+ * The single gate every Argus-opened URL passes through, whichever terminal
+ * engine surfaced it. Terminal output is untrusted: a transcript can print an
+ * OSC 8 hyperlink with any scheme it likes, so only http(s) and mailto are
+ * handed to the OS.
+ *
+ * Anchored on `//` after http(s) — a bare `/^https?:/` would also match
+ * `https:evil`, which is not a web URL and would let a crafted string through.
+ */
+function openExternalAllowlisted(url: string): void {
+  if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
+}
+
+function trackNativeTermAttach(sessionId: string, win: BrowserWindow): void {
+  const winId = win.id;
+  const prevWinId = sessionToWindowId.get(sessionId);
+  if (prevWinId !== undefined && prevWinId !== winId) {
+    windowIdToSessions.get(prevWinId)?.delete(sessionId);
+  }
+  sessionToWindowId.set(sessionId, winId);
+  let sessions = windowIdToSessions.get(winId);
+  if (!sessions) {
+    sessions = new Set();
+    windowIdToSessions.set(winId, sessions);
+  }
+  sessions.add(sessionId);
+
+  if (windowsWithCloseListener.has(winId)) return;
+  windowsWithCloseListener.add(winId);
+
+  // An overlay's screen frame is derived from two things: the hole's viewport
+  // rect (which the renderer reports) and the parent window's own position on
+  // screen (which it does not). Move this window without resizing it — a
+  // window manager like Spectacle, a title-bar drag, a display change — and
+  // every viewport rect is still byte-identical, so no ResizeObserver fires
+  // and the overlay is left converted against a frame the window no longer
+  // has. Resizing is worse than a no-op: AppKit's child-window follow keeps
+  // the overlay's offset from the parent's bottom-left origin while the hole
+  // is anchored to the top of the content area, so the overlay slides by the
+  // height delta on its own. Re-push on every frame change and both cases
+  // collapse into one cheap, idempotent correction.
+  // Listed one by one rather than looped: BrowserWindow.on is a union of
+  // per-event overloads, so a union-typed event name matches none of them.
+  const resync = () => {
+    if (process.env.ARGUS_NATIVE_TERM_DEBUG === '1') {
+      const b = win.getBounds();
+      console.log('[native-term:trace] window frame event', win.id, `${b.x},${b.y} ${b.width}x${b.height}`);
+    }
+    nativeTerminal?.resyncParent(win.getNativeWindowHandle());
+  };
+  win.on('move', resync);
+  win.on('moved', resync);
+  win.on('resize', resync);
+  win.on('resized', resync);
+  win.on('enter-full-screen', resync);
+  win.on('leave-full-screen', resync);
+
+  win.once('closed', () => {
+    const orphaned = windowIdToSessions.get(winId);
+    windowIdToSessions.delete(winId);
+    windowsWithCloseListener.delete(winId);
+    if (!orphaned || orphaned.size === 0) return;
+    console.warn(`[native-term] window ${winId} closed with ${orphaned.size} overlay(s) attached — detaching`);
+    for (const sessionId of orphaned) {
+      sessionToWindowId.delete(sessionId);
+      nativeTerminal?.detach(sessionId);
+    }
+  });
+}
+
+/** Sends to the window that hosts this session's native overlay, if any. */
+function sendToNativeTermWindow(sessionId: string, channel: string, payload: unknown): void {
+  const winId = sessionToWindowId.get(sessionId);
+  if (winId === undefined) return;
+  const win = BrowserWindow.fromId(winId);
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send(channel, payload);
+}
+
+function untrackNativeTermSession(sessionId: string): void {
+  const winId = sessionToWindowId.get(sessionId);
+  if (winId === undefined) return;
+  sessionToWindowId.delete(sessionId);
+  windowIdToSessions.get(winId)?.delete(sessionId);
+}
+
 let shutdownServer: (() => Promise<void>) | null = null;
 let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 // Quit-time preference getters, injected from the in-process server module.
 let getExitSessionsOnQuit: (() => boolean) | null = null;
 let getConfirmExitOnQuit: (() => boolean) | null = null;
 let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
-let getActiveSessionSummaries: (() => { name: string; status: string }[]) | null = null;
+let getActiveSessionSummaries: (() => { name: string; status: string; terminalEngine?: string }[]) | null = null;
 
 // Window-registry entry points, captured from the in-process server in main().
 interface WindowRegistryStateLike {
@@ -337,6 +499,36 @@ function sendMenuEvent(channel: string): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel);
 }
 
+// Per-window belief about whether a Monaco editor currently has focus in that
+// window (see menuAcceleratorGating.ts). Keyed on the BrowserWindow itself —
+// a WeakMap needs no explicit cleanup when a window closes.
+const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
+// Sessions whose native overlay window is currently key. While one is, the
+// keystrokes go to that overlay, not to Monaco, so the editor-focus belief
+// must not keep the colliding accelerators disabled: Monaco reports no blur
+// when a child NSWindow takes key status, so that belief would stay true.
+const nativeKeySessions = new Set<string>();
+
+// Re-derive and apply enabled/disabled for the four Monaco-colliding menu
+// items from whichever window is resolved the same way sendMenuEvent resolves
+// its target — that's the only window whose keystrokes can trigger the
+// accelerator-vs-Monaco-keybinding race in the first place. Re-run on every
+// OS window-focus change too, not just on a new editor-focus report: switching
+// windows changes which window's belief is authoritative even though neither
+// window sent anything new.
+function applyMenuAcceleratorGating(): void {
+  const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
+  const editorFocused = nativeKeySessions.size > 0
+    ? false
+    : win ? editorFocusByWindow.get(win) : undefined;
+  const enabled = shouldCollidingAcceleratorsBeEnabled(editorFocused);
+  const menu = Menu.getApplicationMenu();
+  for (const channel of COLLIDING_MENU_CHANNELS) {
+    const item = menu?.getMenuItemById(channel);
+    if (item) item.enabled = enabled;
+  }
+}
+
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
 
@@ -347,7 +539,7 @@ function buildAppMenu(): Menu {
       { type: 'separator' },
       {
         label: 'Settings…',
-        accelerator: 'CmdOrCtrl+,',
+        accelerator: menuAccelerator('open-settings'),
         click: () => sendMenuEvent('menu:open-settings'),
       },
       { type: 'separator' },
@@ -380,12 +572,12 @@ function buildAppMenu(): Menu {
       { type: 'separator' },
       {
         label: 'New Session',
-        accelerator: 'CmdOrCtrl+N',
+        accelerator: menuAccelerator('new-session'),
         click: () => sendMenuEvent('menu:new-session'),
       },
       {
         label: 'Close Session',
-        accelerator: 'CmdOrCtrl+W',
+        accelerator: menuAccelerator('close-shell'),
         click: () => sendMenuEvent('menu:close-session'),
       },
     ],
@@ -411,7 +603,7 @@ function buildAppMenu(): Menu {
     submenu: [
       {
         label: 'Toggle Find & Jump',
-        accelerator: 'CmdOrCtrl+K',
+        accelerator: menuAccelerator('command-palette'),
         click: () => sendMenuEvent('menu:toggle-palette'),
       },
       { type: 'separator' },
@@ -420,6 +612,53 @@ function buildAppMenu(): Menu {
         accelerator: 'CmdOrCtrl+Shift+L',
         click: () => sendMenuEvent('menu:toggle-theme'),
       },
+      { type: 'separator' },
+      // These five were renderer-only keydown handlers. A native terminal
+      // overlay is a child NSWindow that takes key focus, so the renderer never
+      // sees their keydown — as app-menu accelerators they fire regardless of
+      // which view has focus.
+      //
+      // Their accelerators come from menuShortcuts.ts, which the renderer keeps
+      // in sync with the resolved bindings in AppConfig.keyboardShortcuts — so
+      // rebinding one in Settings moves it here too, and keeps working inside a
+      // native tile. A binding the menu cannot express (no Cmd/Ctrl/Alt) falls
+      // back to its default; the renderer keydown path still honours it, which
+      // means it works in web tiles only.
+      //
+      // `id` is set on the four that collide with Monaco's own default
+      // keybindings (see menuAcceleratorGating.ts) so applyMenuAcceleratorGating
+      // can look them up and toggle `.enabled` while an editor has focus.
+      // menu:open-shell (Cmd+T) has no Monaco collision and needs no id.
+      {
+        id: 'menu:open-diff',
+        label: 'Diff for Focused Shell',
+        accelerator: menuAccelerator('open-diff'),
+        click: () => sendMenuEvent('menu:open-diff'),
+      },
+      {
+        id: 'menu:open-files',
+        label: 'Files for Focused Shell',
+        accelerator: menuAccelerator('open-files'),
+        click: () => sendMenuEvent('menu:open-files'),
+      },
+      {
+        label: 'Terminal for Focused Shell',
+        accelerator: menuAccelerator('open-shell'),
+        click: () => sendMenuEvent('menu:open-shell'),
+      },
+      {
+        id: 'menu:terminal-search',
+        label: 'Search in Terminal',
+        accelerator: menuAccelerator('terminal-search'),
+        click: () => sendMenuEvent('menu:terminal-search'),
+      },
+      {
+        id: 'menu:clear-terminal',
+        label: 'Clear Scrollback',
+        accelerator: menuAccelerator('clear-terminal'),
+        click: () => sendMenuEvent('menu:clear-terminal'),
+      },
+      { type: 'separator' },
       { role: 'reload' },
       { role: 'forceReload' },
       { type: 'separator' },
@@ -514,17 +753,180 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const server = await import('../../server/dist/index.js') as any;
 
+  // Native terminal overlay. The host
+  // is inert (isAvailable() === false, every call a no-op) when the addon
+  // didn't load, so wiring it unconditionally is safe with the flag unset.
+  const sm = server.getSessionManager();
+  nativeTerminal = new NativeTerminalHost({
+    addon: loadNativeTerminalAddon(),
+    onOutput: (cb: (sessionId: string, data: string) => void) => sm.onOutput(cb),
+    onReplay: (cb: (sessionId: string, data: string) => void) => sm.onReplay(cb),
+    onStatus: (cb: (sessionId: string, status: string) => void) => sm.onStatus(cb),
+    flushOutput: (id: string) => sm.flushOutput(id),
+    setViewing: (id: string, viewing: boolean) => sm.setNativeViewer(id, viewing),
+    writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
+    resizeSession: (id: string, c: number, r: number) => sm.resizeFromNative(id, c, r),
+    getReplaySnapshot: (id: string, flavor?: 'full' | 'screen') => sm.getReplaySnapshot(id, flavor),
+    // Route the key-window transition to the window that actually hosts this
+    // session's overlay, not to every renderer: two Argus windows each track
+    // their own focused tile, and broadcasting would let one window's click
+    // steal the other's focus state.
+    openExternal: (url: string) => openExternalAllowlisted(url),
+    notifyBell: (id: string) => sendToNativeTermWindow(id, 'native-term:bell', { sessionId: id }),
+    // Raw text first, so ⌘C always puts something on the clipboard even when no
+    // renderer answers (window reloading). The owning renderer then replaces it
+    // with the formatted text (native-term:write-clipboard).
+    notifyCopy: (id: string, text: string) => {
+      clipboard.writeText(text);
+      sendToNativeTermWindow(id, 'native-term:copy', { sessionId: id, text });
+    },
+    notifyDropPaths: (id: string, paths: string[]) =>
+      sendToNativeTermWindow(id, 'native-term:drop-paths', { sessionId: id, paths }),
+    notifyFocus: (id: string, focused: boolean) => {
+      if (focused) nativeKeySessions.add(id);
+      else nativeKeySessions.delete(id);
+      applyMenuAcceleratorGating();
+      sendToNativeTermWindow(id, 'native-term:focus', { sessionId: id, focused });
+    },
+  });
+
+  // A session that exits or is deleted must drop its overlay immediately rather
+  // than waiting for React to unmount the tile — with Mosaic there can be many.
+  // onSessionDeleted is a single assignable property that server/src/index.ts
+  // already sets (to clear the window-registry assignment) — capture and call
+  // through rather than overwrite it.
+  const priorOnSessionDeleted = sm.onSessionDeleted as ((id: string) => void) | undefined;
+  sm.onSessionDeleted = (id: string) => {
+    try {
+      nativeTerminal!.detach(id);
+      untrackNativeTermSession(id);
+    } catch (err) {
+      console.error('[native-term] detach on session delete failed for', id, err);
+    }
+    priorOnSessionDeleted?.(id);
+  };
+
+  // invoke (not send): the renderer must know whether an overlay is actually
+  // live so it can fall back to xterm.js when attach fails instead of being
+  // left staring at a permanently blank transparent hole.
+  ipcMain.handle('native-term:attach', (e, { sessionId, rect, fontSize }: { sessionId: string; rect: { x: number; y: number; width: number; height: number }; fontSize?: number }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return false;
+    const handle = win.getNativeWindowHandle();
+    // Zoom is restored per window on load (window.ts), so it can already be
+    // non-1 here; the host needs it before the first frame.
+    nativeTerminal!.setZoom(handle, win.webContents.getZoomFactor());
+    const ok = nativeTerminal!.attach(sessionId, handle, rect, fontSize);
+    // Tracked only on success — bookkeeping for an overlay that was never
+    // actually created would be pure leak.
+    if (ok) trackNativeTermAttach(sessionId, win);
+    return ok;
+  });
+  // Scoped to the requesting window like detach below: when a session moves
+  // windows, the tile it left collapses before it unmounts, and its 0x0 report
+  // would otherwise hide the overlay the new window now owns.
+  ipcMain.on('native-term:rect', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    // Zoom is read here because every zoom change (menu, load restore, sibling propagation) reflows the hole and re-reports; setZoom no-ops when unchanged.
+    if (win) nativeTerminal!.setZoom(win.getNativeWindowHandle(), win.webContents.getZoomFactor());
+    nativeTerminal!.setRect(sessionId, rect, win?.getNativeWindowHandle());
+  });
+  // Renderer-initiated detach must be scoped to the window making the
+  // request: a session can move to a new window (attach's reparent branch),
+  // and the tile it left behind unmounts on its own independent timing,
+  // firing this same detach afterward. The requesting window is resolved
+  // from e.sender rather than trusted from the payload — a renderer must
+  // not be able to name an arbitrary window — and NativeTerminalHost ignores
+  // the call when that window is no longer the session's current parent.
+  // untrackNativeTermSession must only run when the host actually detached;
+  // otherwise a stale, ignored call would wipe the *new* window's ownership
+  // record out from under it.
+  ipcMain.on('native-term:detach', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const detached = nativeTerminal!.detach(sessionId, win?.getNativeWindowHandle());
+    if (detached) untrackNativeTermSession(sessionId);
+  });
+  ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
+
+  // Find bar / focus — window-scoped too: the tile a session left behind in
+  // its old window closes the find bar on unmount, and must not close the one
+  // the new window has open. open/close take no search term — the renderer
+  // only toggles SwiftTerm's own find bar (see NativeTerminalHost.openFindBar),
+  // so both are fire-and-forget.
+  ipcMain.on('native-term:open-find-bar', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.openFindBar(sessionId, win?.getNativeWindowHandle());
+  });
+  ipcMain.on('native-term:close-find-bar', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.closeFindBar(sessionId, win?.getNativeWindowHandle());
+  });
+  ipcMain.on('native-term:focus', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.focusOverlay(sessionId, win?.getNativeWindowHandle());
+  });
+  // A layout divider drag holds back the overlay's pty resizes (the xterm
+  // path's suspendResize), so only the size the drag ends at reaches the agent.
+  ipcMain.on('native-term:set-resize-suspended', (e, { sessionId, suspended }: { sessionId: string; suspended: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setResizeSuspended(sessionId, suspended === true, win?.getNativeWindowHandle());
+  });
+
+  ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
+    nativeTerminal!.clearScrollback(sessionId);
+  });
+
+  ipcMain.on('native-term:write-clipboard', (_e, { text }: { text: unknown }) => {
+    if (typeof text === 'string' && text.length <= 10_000_000) clipboard.writeText(text);
+  });
+
+  // Theme apply — not window-scoped: every window applies the same theme, so a
+  // stale window's call is indistinguishable from the owner's. Fired by the
+  // renderer both right after a successful attach and on every light/dark
+  // toggle (TerminalShellNativeHole).
+  ipcMain.on('native-term:set-theme', (_e, { sessionId, theme }: { sessionId: string; theme: Theme }) => {
+    nativeTerminal!.setTheme(sessionId, theme);
+  });
+
+  // Unfocused-tile scrim. Window-scoped: dimming depends on which window the
+  // tile is focused in, so a stale window's opinion must not win.
+  ipcMain.on('native-term:set-dimmed', (e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setDimmed(sessionId, dimmed, isDark, win?.getNativeWindowHandle());
+  });
+
+  ipcMain.on('native-term:set-font-size', (e, { sessionId, px }: { sessionId: string; px: number }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.setFontSize(sessionId, px, win?.getNativeWindowHandle());
+  });
+
+  // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
+  // A child NSWindow always paints above the parent's web content, so a DOM
+  // surface (modal, menu, tooltip...) that would render above a native
+  // terminal must hide it for the duration. hide/show are no-ops when the
+  // addon never loaded (flag unset), same as every other NativeTerminalHost
+  // call — safe to wire unconditionally. Scoped to the requesting window for
+  // the same reason as detach above: a stale suppress/unsuppress from a
+  // session's old window must not touch the overlay its new window owns.
+  ipcMain.on('native-term:suppress', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.hide(sessionId, win?.getNativeWindowHandle());
+  });
+  ipcMain.on('native-term:unsuppress', (e, { sessionId }: { sessionId: string }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    nativeTerminal!.show(sessionId, win?.getNativeWindowHandle());
+  });
+
   // Native message box — used by the renderer for confirmations (delete, close session, etc.)
   ipcMain.handle('dialog:showMessageBox', async (event, opts: Electron.MessageBoxOptions) => {
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     return dialog.showMessageBox(win!, opts);
   });
 
-  // Open URLs in the system default browser (called from WebLinksAddon click handler).
+  // Open URLs in the system default browser (called from the xterm link
+  // provider's click handler, and from a native overlay's requestOpenLink).
   ipcMain.handle('shell:openExternal', (_event, url: string) => {
-    // Anchor to `//` after http(s) — `https:` alone (no slashes) would also
-    // match a bare `/^https?:/`, letting a crafted `https:evil` string through.
-    if (/^(https?:\/\/|mailto:)/.test(url)) shell.openExternal(url);
+    openExternalAllowlisted(url);
   });
 
   // Relaunch to apply a startup-only setting (e.g. the pty backend switch).
@@ -719,6 +1121,30 @@ async function main() {
   // Application menu — gives Cmd+N/W/,/K/Shift+L the native menu-bar treatment.
   Menu.setApplicationMenu(buildAppMenu());
 
+  // Renderer reports Monaco editor focus enter/leave so the four colliding
+  // accelerators (menuAcceleratorGating.ts) can be disabled exactly while an
+  // editor would otherwise lose its own Cmd+D/E/F/L to the menu. The
+  // reporting window is resolved from e.sender, not trusted from the payload —
+  // a renderer must not be able to name an arbitrary window. Also re-applied
+  // on every OS window-focus change, since which window's belief is
+  // authoritative can change without either window reporting anything new.
+  // Renderer -> main: the resolved keyboard bindings. Rebuild the menu only on
+  // a real change — setApplicationMenu recreates every item, which drops the
+  // enabled/disabled state applyMenuAcceleratorGating owns, so it is re-applied
+  // immediately after.
+  ipcMain.on('menu:set-shortcuts', (_e, shortcuts: Record<string, string>) => {
+    if (!setMenuShortcuts(shortcuts ?? {})) return;
+    Menu.setApplicationMenu(buildAppMenu());
+    applyMenuAcceleratorGating();
+  });
+
+  ipcMain.on('editor-focus:changed', (e, focused: boolean) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) editorFocusByWindow.set(win, focused === true);
+    applyMenuAcceleratorGating();
+  });
+  app.on('browser-window-focus', () => applyMenuAcceleratorGating());
+
   // Inject native folder-picker dialog so the server can open macOS directory sheets.
   // Serialize concurrent calls: a double-click/held-shortcut in the renderer must not
   // stack two native dialogs — reuse the in-flight promise instead.
@@ -751,7 +1177,7 @@ async function main() {
   getExitSessionsOnQuit = server.getExitSessionsOnQuit as () => boolean;
   getConfirmExitOnQuit = server.getConfirmExitOnQuit as () => boolean;
   setConfirmExitOnQuit = server.setConfirmExitOnQuit as (v: boolean) => Promise<void>;
-  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string }[];
+  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string; terminalEngine?: string }[];
 
   hostCreateWindowFn = server.hostCreateWindow as () => Promise<void>;
   hostDeleteWindowFn = server.hostDeleteWindow as (id: string) => Promise<void>;
@@ -917,7 +1343,7 @@ app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
 
-  // "Quit & Stop All" (explicit menu item) sets the flag; the General setting
+  // "Quit & Stop All" (explicit menu item) sets the flag; the Confirmations setting
   // makes plain Cmd+Q terminate everything too. Either one means stop-all.
   const explicitStopAll = getStopAllOnQuit();
   const settingStopAll = getExitSessionsOnQuit?.() ?? false;
@@ -930,6 +1356,8 @@ app.on('before-quit', (e) => {
     saveAllWindowStates();
     // Signal the window close-handler that this is a real quit, not a hide.
     setAppQuitting(true);
+    // Tear down any native terminal overlays (no-op when the addon never loaded).
+    nativeTerminal?.dispose();
 
     // Default quit detaches (keep-alive); stop-all terminates every agent.
     const chosen = wantStopAll ? shutdownServerStoppingAll : shutdownServer;
@@ -955,13 +1383,21 @@ app.on('before-quit', (e) => {
     const sessions = getActiveSessionSummaries?.() ?? [];
     if (sessions.length === 0) { proceed(); return; }
 
-    const names = sessions.slice(0, 10).map((s) => `• ${s.name}`).join('\n');
+    // Engine is labelled per shell so the list matches what the Create sheet and
+    // Settings call them. It does NOT change the outcome — stop-all terminates
+    // every shell regardless of how it was drawn — so the label is
+    // identification, not a warning.
+    const label = (s: { name: string; terminalEngine?: string }) =>
+      s.terminalEngine === 'native' ? `• ${s.name}  (Advanced)` : `• ${s.name}`;
+    const names = sessions.slice(0, 10).map(label).join('\n');
     const extra = sessions.length > 10 ? `\n…and ${sessions.length - 10} more` : '';
     const opts = {
       type: 'warning' as const,
       title: 'Exit all sessions?',
-      message: `Quitting will stop ${sessions.length} Claude session${sessions.length === 1 ? '' : 's'}.`,
-      detail: `These sessions will be terminated and cannot be resumed:\n\n${names}${extra}`,
+      message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
+      detail:
+        `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
+        + 'Turn off "Exit sessions on quit" in Settings → Confirmations to keep them running instead.',
       buttons: ['Cancel', 'Exit all sessions'],
       defaultId: 1,
       cancelId: 0,

@@ -13,6 +13,7 @@ import type {
   AgentSignal,
   ClientToServerEvents,
   ServerToClientEvents,
+  TerminalEngine,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
@@ -63,6 +64,10 @@ interface ManagedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
+  /** Per-session terminal implementation preference; undefined = never chose
+   *  (renderer falls back to the app default). Normalized at the boundary via
+   *  normalizeTerminalEngine — never stores an unvalidated value. */
+  terminalEngine?: TerminalEngine;
   /** Native-signal arbitration (plan 2026-07-22-001): when the last native
    *  signal arrived, the state it reported, and the states this session's
    *  adapter covers. While fresh, the arbiter suppresses contradicting
@@ -100,6 +105,12 @@ interface ManagedSession {
    * *after* the resize, since narrowing reflows the buffer and moves every index.
    */
   trimBoundary?: number;
+  /**
+   * Row count the mirror held when a reseed started — the line between the
+   * history we already had and the backend's replay of it. Consumed by
+   * finishResync to delete whatever the replay reprints.
+   */
+  resyncBoundary?: number;
   /**
    * True when the user has sent input (or created/restarted the session) since it
    * was last idle. Gates done-promotion: prevents internal terminal refreshes from
@@ -249,6 +260,21 @@ export class SessionManager {
   private store: SessionStore;
   private configStore: ConfigStore;
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
+  /** In-process output subscribers (the native terminal host). Parallel to the
+   *  socket room: same payload, same moment. A subscriber must never be able to
+   *  break socket delivery, so each call is individually guarded. */
+  private outputSubscribers = new Set<(sessionId: string, data: string) => void>();
+  /** In-process subscribers to the unsolicited replacement frames a room gets
+   *  as `session:replay` (see broadcastReplay). Same isolation as above. */
+  private replaySubscribers = new Set<(sessionId: string, data: string) => void>();
+  /** In-process status subscribers (the native terminal host). */
+  private statusSubscribers = new Set<(sessionId: string, status: SessionStatus) => void>();
+  /** Sessions a native overlay is watching. Such a viewer never joins the
+   *  socket room, so the idle-geometry gate must ask here as well. */
+  private nativeViewers = new Set<string>();
+  /** The size each native viewer last asked for — restored when a socket
+   *  viewer (a phone) that overrode it leaves; see scheduleIdleGeometry. */
+  private nativeSize = new Map<string, { cols: number; rows: number }>();
   private gitService: GitService | null = null;
   private gitDirtyMap = new Map<string, boolean>();
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
@@ -452,7 +478,7 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false): Promise<SessionInfo> {
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine): Promise<SessionInfo> {
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -596,6 +622,7 @@ export class SessionManager {
       nativeCoverage: inj ? new Set(inj.coverage) : undefined,
       worktreePath,
       worktreeBranch,
+      terminalEngine: this.normalizeTerminalEngine(terminalEngine),
       tmuxName,
       persistent,
       suppressDonePromotion: attachExisting,
@@ -807,7 +834,7 @@ export class SessionManager {
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
 
-    this.io?.emit('session:status', { sessionId: id, status: 'running' });
+    this.emitStatus({ sessionId: id, status: 'running' });
     return this.toSessionInfo(session);
   }
 
@@ -864,7 +891,7 @@ export class SessionManager {
     } else {
       session.lastPrompt = undefined;
     }
-    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
   /**
@@ -879,7 +906,7 @@ export class SessionManager {
     if (!session || session.status !== 'waiting') return;
     if (session.lastPrompt === text) return;
     session.lastPrompt = text;
-    this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
+    this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
   }
 
   /**
@@ -911,7 +938,7 @@ export class SessionManager {
     session.status = 'done';
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
-    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
+    this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
   }
 
   private nativeIsFresh(session: ManagedSession): boolean {
@@ -999,7 +1026,7 @@ export class SessionManager {
       session.lastPrompt = undefined;
     }
     this.refreshSleepPrevention();
-    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
   /** Client manually promotes an idle session to done. */
@@ -1007,7 +1034,7 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.status !== 'idle') return;
     session.status = 'done';
-    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
     this.persistSessions().catch(console.error);
   }
 
@@ -1023,7 +1050,7 @@ export class SessionManager {
     if (session.status !== 'done') return;
     session.status = 'idle';
     session.hasUserInputSinceIdle = false; // user must send input before next done-promotion
-    this.io?.emit('session:status', { sessionId: id, status: 'idle' });
+    this.emitStatus({ sessionId: id, status: 'idle' });
   }
 
   getSession(id: string): ManagedSession | undefined {
@@ -1160,6 +1187,73 @@ export class SessionManager {
       const data = session.pendingOutput;
       session.pendingOutput = '';
       this.io?.to(id).emit('session:output', { sessionId: id, data });
+      for (const cb of this.outputSubscribers) {
+        try {
+          cb(id, data);
+        } catch (err) {
+          console.error('[SessionManager] output subscriber threw:', err);
+        }
+      }
+    }
+  }
+
+  /**
+   * Subscribe to the same output stream the socket rooms receive, in-process.
+   * Used by the native terminal host (Electron main), which runs the server
+   * in-process and would otherwise need a socket client of its own. Returns
+   * an unsubscribe function.
+   */
+  onOutput(cb: (sessionId: string, data: string) => void): () => void {
+    this.outputSubscribers.add(cb);
+    return () => { this.outputSubscribers.delete(cb); };
+  }
+
+  /**
+   * Subscribe to the unsolicited replacement frames a room receives (the end
+   * of a reseed, a width-change dedup, a scrollback purge). An in-process
+   * viewer that only follows onOutput misses all of them — and a reseed's
+   * frame is the only delivery of the output withheld while it ran.
+   */
+  onReplay(cb: (sessionId: string, data: string) => void): () => void {
+    this.replaySubscribers.add(cb);
+    return () => { this.replaySubscribers.delete(cb); };
+  }
+
+  /**
+   * Subscribe to session status changes (running/waiting/done/idle/exited) the
+   * same way onOutput/onReplay expose their streams — in-process, for the
+   * native terminal host, which has no socket room to join.
+   */
+  onStatus(cb: (sessionId: string, status: SessionStatus) => void): () => void {
+    this.statusSubscribers.add(cb);
+    return () => { this.statusSubscribers.delete(cb); };
+  }
+
+  /** The one place a status change is announced: sockets and in-process subscribers. */
+  private emitStatus(payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+    this.io?.emit('session:status', payload);
+    for (const cb of this.statusSubscribers) {
+      try {
+        cb(payload.sessionId, payload.status);
+      } catch (err) {
+        console.error('[SessionManager] status subscriber threw:', err);
+      }
+    }
+  }
+
+  /**
+   * Send a replacement frame to everyone watching: the socket room and the
+   * in-process subscribers. 'refresh': unsolicited, so a client whose user is
+   * scrolled up may ignore it rather than have its viewport yanked.
+   */
+  private broadcastReplay(id: string, frame: SessionReplayFrame): void {
+    this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+    for (const cb of this.replaySubscribers) {
+      try {
+        cb(id, frame.data);
+      } catch (err) {
+        console.error('[SessionManager] replay subscriber threw:', err);
+      }
     }
   }
 
@@ -1217,7 +1311,7 @@ export class SessionManager {
     const frame = this.getReplaySnapshot(id);
     // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
     // rather than have its viewport yanked to the bottom.
-    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+    if (frame) this.broadcastReplay(id, frame);
   }
 
   /** Quiet window that marks the end of a reseed burst (the daemon's ring
@@ -1238,13 +1332,26 @@ export class SessionManager {
    * replayed one, and clients must not receive the replay as *new* output —
    * that would paste the whole transcript a second time into their terminals.
    *
-   * So: wipe the mirror, withhold client emission, and once the burst goes
-   * quiet send one authoritative frame instead.
+   * The second is handled by withholding emission and closing with one
+   * authoritative frame. The first used to be handled by wiping the mirror
+   * here, which was a bad trade: the replay does NOT rebuild what the wipe
+   * destroyed. The agent repaints its UI in place, so replaying the daemon's
+   * byte tail into an empty screen yields roughly one screen of rows — those
+   * cursor moves originally landed on a screen that had already scrolled, and
+   * that state is gone with the wipe. A session idle at reseed time never
+   * refilled and stayed shallow for life (observed: 128 rows).
+   *
+   * So the mirror is kept and the overlap is removed afterwards instead
+   * (finishResync), the same trade the width-change dedup makes: no confident
+   * match means no action, so the worst case is a duplicate screen the user can
+   * see, never history that silently went missing.
    */
   beginResync(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
-    // Anything buffered belongs to the pre-drop stream the replay supersedes.
+    // Buffered bytes are already in the mirror (StateDetector.feed writes it);
+    // dropping them here only keeps clients from being sent output that the
+    // closing frame covers anyway.
     session.pendingOutput = '';
     if (session.flushTimer) {
       clearTimeout(session.flushTimer);
@@ -1253,7 +1360,20 @@ export class SessionManager {
     session.outputBuffer = '';
     session.resyncing = true;
     session.resyncDeadline = Date.now() + SessionManager.RESYNC_MAX_MS;
-    void session.mirror?.reset();
+    // Everything up to here is pre-drop history; the replay appends after it.
+    //
+    // Minus the last row, which the replay will overwrite: it is a byte stream
+    // landing wherever the cursor is, so the row under the cursor gets
+    // repainted and belongs to the replay. Counting it as history splits the
+    // duplicate across the boundary, and then no suffix of the history matches
+    // a prefix of the replay — the dedup finds nothing and both copies stay.
+    // Erring low is the safe direction: it moves at most one row out of the
+    // deletable range, and nothing after the boundary is ever deleted.
+    //
+    // Read synchronously, as the resize boundary is: a queued write landing
+    // after this can only shift the boundary by a row or two, and a boundary
+    // that is slightly off makes the dedup match less, never delete more.
+    session.resyncBoundary = Math.max(0, (session.mirror?.totalRows() ?? 0) - 1);
     this.armResyncSettle(session);
   }
 
@@ -1280,7 +1400,24 @@ export class SessionManager {
     if (!session.resyncing) return;
     session.resyncing = false;
     session.resyncDeadline = undefined;
-    void this.broadcastResyncFrame(session.id);
+    // Chained on the trim queue so a reseed dedup and a width-change dedup can
+    // never interleave their rebuild+broadcast pairs.
+    this.chainTrim(session, () => this.finishResync(session.id));
+  }
+
+  /**
+   * Close a reseed: delete the history the replay reprinted, then send the one
+   * frame the withheld clients have been waiting for. The frame goes out
+   * whether or not anything was deduped — clients received nothing during the
+   * window, so it is their only way back to a correct screen.
+   */
+  private async finishResync(id: string): Promise<void> {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    const boundary = session.resyncBoundary;
+    session.resyncBoundary = undefined;
+    if (boundary !== undefined) await this.dedupeAtBoundary(session, boundary);
+    await this.broadcastResyncFrame(id);
   }
 
   private async broadcastResyncFrame(id: string): Promise<void> {
@@ -1290,7 +1427,7 @@ export class SessionManager {
     const frame = this.getReplaySnapshot(id);
     // 'refresh', like the scrollback purge: unsolicited, so a client scrolled up
     // in history keeps its viewport and picks the frame up on its next join.
-    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+    if (frame) this.broadcastReplay(id, frame);
   }
 
   writeToSession(id: string, data: string): void {
@@ -1312,7 +1449,7 @@ export class SessionManager {
     // User sent input — exit sticky-done so StateDetector can track the new run.
     if (session.status === 'done') {
       session.status = 'idle';
-      this.io?.emit('session:status', { sessionId: id, status: 'idle' });
+      this.emitStatus({ sessionId: id, status: 'idle' });
     }
     session.pty.write(data);
   }
@@ -1340,6 +1477,11 @@ export class SessionManager {
       // above, which resizes the mirror: narrowing reflows rows, so an index taken
       // before it would point somewhere else entirely.
       session.trimBoundary = session.mirror?.totalRows();
+      // A reseed boundary taken before this resize no longer points where it
+      // did: the reflow moved every row index. Drop it — the reseed then skips
+      // its dedup, and the worst case is a visible duplicate, never a deletion
+      // at the wrong place.
+      if (session.resyncing) session.resyncBoundary = undefined;
       // Deferred only. There is nothing to delete until the agent has actually
       // reprinted, so an immediate pass would find no duplicate and do nothing.
       this.scheduleScrollbackTrim(session);
@@ -1392,35 +1534,72 @@ export class SessionManager {
    */
   private async dedupeScrollback(id: string): Promise<void> {
     const session = this.sessions.get(id);
-    const mirror = session?.mirror;
     const boundary = session?.trimBoundary;
-    if (!session || !mirror || boundary === undefined) return;
+    if (!session || boundary === undefined) return;
     session.trimBoundary = undefined;
 
+    if (!(await this.dedupeAtBoundary(session, boundary))) return;
+    const frame = this.getReplaySnapshot(id);
+    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
+    // rather than have its viewport yanked to the bottom.
+    if (frame) this.broadcastReplay(id, frame);
+  }
+
+  /**
+   * Delete the rows after `boundary` that merely reprint the rows before it, and
+   * nothing else. Shared by the two situations that produce such a reprint: a
+   * width change (the agent redraws its transcript for the new columns) and a
+   * backend reseed (the daemon replays its ring). Both used to answer the
+   * duplicate with an all-or-nothing purge of the scrollback; both now match the
+   * duplicate instead, so when nothing matches confidently nothing is removed
+   * and the worst outcome is a visible duplicate rather than lost history.
+   *
+   * Returns whether it actually rebuilt the mirror, leaving the caller to decide
+   * how to tell clients (the resize path broadcasts only on a change; a reseed
+   * owes its clients a frame either way).
+   */
+  private async dedupeAtBoundary(session: ManagedSession, boundary: number): Promise<boolean> {
+    const mirror = session.mirror;
+    if (!mirror) return false;
+
     // Pending bytes are part of the repaint we are measuring.
-    this.flushOutput(id);
+    this.flushOutput(session.id);
     await mirror.afterWrite();
 
     // Saturated scrollback evicts its oldest row on every scroll, so `boundary`
     // no longer points at the content it was taken from. Guessing here could
     // delete live output; skipping only leaves the duplicate visible.
-    if (mirror.scrollbackFull()) return;
+    if (mirror.scrollbackFull()) return false;
 
     const total = mirror.totalRows();
-    if (boundary >= total) return; // the agent printed nothing after the resize
+    if (boundary >= total) return false; // nothing was printed after the boundary
 
     const range = findStaleRowRange(
       mirror.readRows(0, boundary),
       mirror.readRows(boundary, total),
       MIN_DEDUP_CHARS,
     );
-    if (!range) return;
+    if (!range) return false;
 
     await mirror.rebuildWithout(range.start, range.end);
-    const frame = this.getReplaySnapshot(id);
-    // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
-    // rather than have its viewport yanked to the bottom.
-    if (frame) this.io?.to(id).emit('session:replay', { sessionId: id, ...frame, reason: 'refresh' });
+    this.shiftBoundariesAfterRemoval(session, range.start, range.end);
+    return true;
+  }
+
+  /**
+   * A dedup deleted rows [start, end). The other pending boundary — a reseed's
+   * while a width-change dedup runs, or the reverse — was recorded as a row
+   * index before the deletion, so it must move with the rows it pointed at.
+   * A boundary inside the deleted range lands on its start: erring low only
+   * shrinks what the later dedup may consider history, never what it deletes.
+   */
+  private shiftBoundariesAfterRemoval(session: ManagedSession, start: number, end: number): void {
+    const shift = (b: number | undefined): number | undefined => {
+      if (b === undefined || b <= start) return b;
+      return b >= end ? b - (end - start) : start;
+    };
+    session.resyncBoundary = shift(session.resyncBoundary);
+    session.trimBoundary = shift(session.trimBoundary);
   }
 
   /**
@@ -1430,7 +1609,45 @@ export class SessionManager {
    * session at once, right in the middle of a reconnect. See IdleGeometryGate.
    */
   scheduleIdleGeometry(id: string): void {
+    // The room emptied, but a native overlay may still be watching. Give the
+    // pty back the size it asked for (a departing phone may have shrunk it)
+    // rather than the idle geometry.
+    const native = this.nativeSize.get(id);
+    if (native) {
+      this.resizeSession(id, native.cols, native.rows);
+      return;
+    }
+    if (this.nativeViewers.has(id)) return;
     this.idleGeometry.schedule(id);
+  }
+
+  /**
+   * A native overlay started (or stopped) watching this session. Starting
+   * cancels any pending idle resize, as a socket join does. Stopping arms one
+   * only when no socket is left in the room — a socket viewer still there
+   * keeps the geometry it reported.
+   */
+  setNativeViewer(id: string, viewing: boolean): void {
+    if (viewing) {
+      this.nativeViewers.add(id);
+      this.cancelIdleGeometry(id);
+      return;
+    }
+    if (!this.nativeViewers.delete(id)) return;
+    this.nativeSize.delete(id);
+    if (!this.sessions.has(id)) return;
+    const roomSize = this.io?.sockets.adapter.rooms.get(id)?.size ?? 0;
+    if (roomSize === 0) this.scheduleIdleGeometry(id);
+  }
+
+  /**
+   * A native overlay's resize. Recorded as well as applied: a phone can size
+   * the pty down while it watches, and when it leaves the native view — whose
+   * own size never changed — has no reason to report again.
+   */
+  resizeFromNative(id: string, cols: number, rows: number): void {
+    this.nativeSize.set(id, { cols, rows });
+    this.resizeSession(id, cols, rows);
   }
 
   /** A viewer is watching again (join, or a fresh size report). */
@@ -1450,6 +1667,7 @@ export class SessionManager {
     // Raced with the session going away or a viewer returning between the
     // timer firing and here.
     if (session.status === 'exited') return;
+    if (this.nativeViewers.has(id)) return;
     const cols = session.cols ?? SPAWN_COLS;
     const rows = session.rows ?? SPAWN_ROWS;
     if (rows >= IDLE_MIN_ROWS) return;
@@ -1487,7 +1705,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine);
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1517,7 +1735,14 @@ export class SessionManager {
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
       lastPrompt: session.lastPrompt,
+      terminalEngine: session.terminalEngine,
     };
+  }
+
+  /** Accept only the two known values. Anything else becomes undefined so the
+   *  renderer falls back to the app default rather than persisting garbage. */
+  private normalizeTerminalEngine(value: unknown): TerminalEngine | undefined {
+    return value === 'web' || value === 'native' ? value : undefined;
   }
 
   /**
@@ -1567,6 +1792,7 @@ export class SessionManager {
         flags: s.flags,
         worktreePath: s.worktreePath,
         worktreeBranch: s.worktreeBranch,
+        terminalEngine: s.terminalEngine,
       }));
       await this.store.save(data);
     });

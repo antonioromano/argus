@@ -54,7 +54,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, defaultTerminalEngine } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -113,6 +113,14 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       quickActionPromptedAt: typeof quickActionPromptedAt === 'string'
         ? quickActionPromptedAt
         : current.quickActionPromptedAt,
+      // Validated against the union rather than passed through: this route
+      // builds `updated` from an explicit allowlist, so a key that is merely
+      // present in the request body but missing here is silently dropped —
+      // which is exactly how the Settings engine picker came to look
+      // unclickable (the PUT returned the old value, so the button never lit).
+      defaultTerminalEngine: (defaultTerminalEngine === 'web' || defaultTerminalEngine === 'native')
+        ? defaultTerminalEngine
+        : current.defaultTerminalEngine,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

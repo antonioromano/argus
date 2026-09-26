@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { SessionInfo, MosaicWaitingStyle, MosaicOrientation, TileQuickAction, TileRunningIndicator } from '@argus/shared';
+import type { SessionInfo, MosaicWaitingStyle, MosaicOrientation, TileQuickAction, TileRunningIndicator, TerminalEngine } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
@@ -38,6 +38,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
 import { formatCombo } from '../../keyboard/combo.js';
+import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -97,6 +98,8 @@ interface MosaicProps {
   quickAction?: TileQuickAction;
   /** Progress hairline under the header while running (default: hairline). */
   runningIndicator?: TileRunningIndicator;
+  /** App-wide fallback when a session has no stored engine preference. */
+  defaultTerminalEngine?: TerminalEngine;
   /** Side by side columns ('horizontal') or stacked rows ('vertical') (default: horizontal). */
   orientation?: MosaicOrientation;
 }
@@ -106,7 +109,14 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal' }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine }: MosaicProps) {
+  // Availability is resolved once here (not per-tile) so every tile agrees
+  // while the async probe is in flight — a fresh per-tile hook call could
+  // resolve availability at different times and momentarily disagree across
+  // tiles. The per-session decision on top of that goes through
+  // resolveTerminalEngine at each tile below, so tiles CAN legitimately
+  // render different engines once availability itself has settled.
+  const nativeAvailable = useNativeTerminalAvailable();
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
   const activeTileCount = useMemo(() => {
     const ts = filtered.slice(0, MAX_TILES);
@@ -119,6 +129,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const currentGroup = activeGroupId ?? null;
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [windowFocused, setWindowFocused] = useState(true);
+  // Session whose native overlay holds key focus, or null. Used ONLY to answer
+  // "is the app still active" — never to decide which tile is selected.
+  //
+  // A native terminal is a child NSWindow, so clicking one makes IT the key
+  // window and Argus's web contents fires `blur`. The app has not lost focus;
+  // a different window of it has gained one. Without this the whole mosaic
+  // dimmed, including the tile being typed in.
+  const [nativeKeyId, setNativeKeyId] = useState<string | null>(null);
   // Tile just restored from the minimized row — its terminal should grab
   // keyboard focus on mount. Cleared once the xterm reports focus.
   const [restoreFocusId, setRestoreFocusId] = useState<string | null>(null);
@@ -186,7 +204,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
-  const handleXtermBlur = useCallback(() => setFocusedId(null), []);
+  // Deliberately does NOT clear the selection. A blur is not evidence that no
+  // tile is selected — it also fires when the app deactivates, and when a
+  // native terminal overlay (a child NSWindow) takes key focus, which happens
+  // moments after clicking back onto an xterm tile and made the selection
+  // flash on and then drop straight back off. The selection changes when
+  // something else CLAIMS it; until then the last claim stands, and the
+  // window-level dim already covers the case where the app is inactive.
+  const handleXtermBlur = useCallback(() => {}, []);
   const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
@@ -260,13 +285,41 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
 
   useEffect(() => {
     const onFocus = () => setWindowFocused(true);
-    const onBlur  = () => { setWindowFocused(false); setFocusedId(null); };
+    // Deliberately does not clear focusedId. This fires when a native overlay
+    // takes key focus — a window OF this app — and clearing there deselected
+    // the tile being clicked. When the app really is inactive, appFocused
+    // below already dims everything, so the selection can safely persist and
+    // still be there when the user comes back.
+    const onBlur  = () => setWindowFocused(false);
     window.addEventListener('focus', onFocus);
     window.addEventListener('blur', onBlur);
     return () => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('blur', onBlur);
     };
+  }, []);
+
+  // Key-window transitions on native overlays. Subscribed once here rather than
+  // per tile because the answer is global: at most one overlay holds key, and
+  // whether ANY does decides whether the app counts as focused.
+  useEffect(() => {
+    const bridge = (window as Window & {
+      electronNativeTerminal?: { onFocus?(cb: (id: string, focused: boolean) => void): () => void };
+    }).electronNativeTerminal;
+    if (!bridge?.onFocus) return;
+    return bridge.onFocus((id, focused) => {
+      // Clear only on the overlay that actually lost key: moving between two
+      // native tiles delivers the new one's `true` before the old one's
+      // `false`, and an unguarded clear would drop the wrong id.
+      setNativeKeyId((cur) => (focused ? id : cur === id ? null : cur));
+      // Gaining focus claims the selection through the SAME state an xterm
+      // tile writes, so the two compete on equal terms. Losing it does not
+      // clear: whatever gains focus next sets it, and a lost "unfocused"
+      // event then costs nothing. An earlier version gave the native id
+      // precedence over focusedId, which meant one missed event locked xterm
+      // tiles out of being selected for the rest of the session.
+      if (focused) setFocusedId(id);
+    });
   }, []);
 
   useEffect(() => {
@@ -312,6 +365,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const layout = mosaicLayout(activeTiles.length);
   const stacked = orientation === 'vertical';
   const minTileIds = minTiles.map((s) => s.id);
+  // A native overlay holding key means the app is focused, whatever the web
+  // contents thinks — see nativeKeyId.
+  const appFocused = windowFocused || nativeKeyId !== null;
+
   // Only count focus when an *active* tile is focused — minimized chips are exempt
   const activeFocusedId = (focusedId && activeTiles.some((t) => t.id === focusedId))
     ? focusedId
@@ -380,7 +437,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   theme={theme}
                   groupColor={groupColorOf?.(s.id) ?? null}
                   isFocused={activeFocusedId === s.id}
-                  windowFocused={windowFocused}
+                  windowFocused={appFocused}
                   onXtermFocus={handleXtermFocus}
                   onXtermBlur={handleXtermBlur}
                   autoFocus={restoreFocusId === s.id}
@@ -409,6 +466,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   isNotified={notifiedTileId === s.id}
                   quickAction={quickAction}
                   runningIndicator={runningIndicator}
+                  nativeEngine={resolveTerminalEngine(s.terminalEngine, defaultTerminalEngine, nativeAvailable)}
                 />
               ))}
             </div>
@@ -496,6 +554,11 @@ type MosaicTileSharedProps = {
   /** Pinned header action + running-progress treatment, both from config. */
   quickAction: TileQuickAction;
   runningIndicator: TileRunningIndicator;
+  /** Native terminal engine decision for THIS session (see
+   *  resolveTerminalEngine) — availability is resolved once by the Mosaic
+   *  root, but the outcome is per-session. Still a plain boolean, so it
+   *  compares by value and can't bust MosaicTile's memo. */
+  nativeEngine: boolean;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -625,6 +688,7 @@ function MosaicTileInner({
   onCloseSearch,
   quickAction,
   runningIndicator,
+  nativeEngine,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
@@ -842,7 +906,7 @@ function MosaicTileInner({
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} useNative={nativeEngine} dimmed={!isFocused || !windowFocused} />
         </ErrorBoundary>
       </div>
     </div>

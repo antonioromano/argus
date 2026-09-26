@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionStatus } from '@argus/shared';
+import type { SessionInfo, SessionStatus, TerminalEngine } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -87,8 +87,8 @@ export function useSessions(socket: TypedSocket) {
     };
   }, [socket]);
 
-  const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[], worktreeBranch?: string, worktreeBase?: string) => {
-    const session = await api.createSession({ folderPath, name, agentType, flags, worktreeBranch, worktreeBase });
+  const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => {
+    const session = await api.createSession({ folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine });
     setSessions((prev) => {
       if (prev.some((s) => s.id === session.id)) return prev;
       return [...prev, session];

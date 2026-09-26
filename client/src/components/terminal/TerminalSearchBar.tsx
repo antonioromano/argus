@@ -1,24 +1,39 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
-import type { Terminal } from '@xterm/xterm';
-import type { SearchAddon, ISearchOptions } from '@xterm/addon-search';
+
+/**
+ * Engine-agnostic backing for the search box: xterm.js (its SearchAddon,
+ * decorations and all) and the native SwiftTerm overlay (an async IPC round
+ * trip, no decorations) both implement this so the ONE search UI can drive
+ * either. See TerminalShell.tsx for both adapters.
+ */
+export interface TerminalSearchEngine {
+  /** Run a search. May resolve/reject asynchronously (native); a synchronous
+   *  throw (xterm, bad regex) is also a valid failure signal. */
+  find(term: string, direction: 'next' | 'prev', options: { caseSensitive: boolean; regex: boolean }): Promise<void> | undefined;
+  /** Clear any highlighting/selection for the current search. */
+  clear(): void;
+  /** Subscribe to result-count changes; returns an unsubscribe function. */
+  onResults(cb: (r: { index: number; count: number }) => void): () => void;
+  /** Return keyboard focus to the terminal itself (called on close). */
+  focusTerminal(): void;
+}
 
 interface TerminalSearchBarProps {
-  searchAddonRef: React.RefObject<SearchAddon | null>;
-  terminalRef: React.RefObject<Terminal | null>;
+  engine: TerminalSearchEngine;
   onClose: () => void;
 }
 
-// Decoration colors (must be #RRGGBB). Tokens aren't usable here — xterm paints these directly.
-const DECORATIONS = {
-  matchBackground: '#3d59a1',
-  matchOverviewRuler: '#3d59a1',
-  activeMatchBackground: '#e0af68',
-  activeMatchColorOverviewRuler: '#e0af68',
-};
-
-/** Browser-style find bar scoped to one terminal. Highlights matches, cycles next/prev. */
-export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: TerminalSearchBarProps) {
+/**
+ * Browser-style find bar scoped to one terminal. Highlights matches, cycles
+ * next/prev. Only ever used by the xterm.js path now (a native tile drives
+ * SwiftTerm's own find bar instead — see TerminalShellNativeHole in
+ * TerminalShell.tsx). Forwards its root element as a general affordance for
+ * a caller that needs to measure or position relative to this box; no
+ * current caller uses it (it did, briefly, for a native-overlay-suppression
+ * measurement that this task's reversal removed).
+ */
+export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarProps>(function TerminalSearchBar({ engine, onClose }, ref) {
   const [query, setQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regex, setRegex] = useState(false);
@@ -26,13 +41,11 @@ export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: Term
   const [error, setError] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Subscribe to result-count changes (only fires when decorations are enabled).
+  // Subscribe to result-count changes (xterm: only fires when decorations are
+  // enabled; native: fires once per completed search — see the adapter).
   useEffect(() => {
-    const addon = searchAddonRef.current;
-    if (!addon) return;
-    const sub = addon.onDidChangeResults((r) => setResults({ index: r.resultIndex, count: r.resultCount }));
-    return () => sub.dispose();
-  }, [searchAddonRef]);
+    return engine.onResults((r) => setResults(r));
+  }, [engine]);
 
   // Focus the field when the bar opens.
   useEffect(() => {
@@ -44,24 +57,24 @@ export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: Term
   // effect — so result/error state updates stay out of the render-effect cycle.
   const run = useCallback(
     (term: string, dir: 'next' | 'prev', cs: boolean, rx: boolean) => {
-      const addon = searchAddonRef.current;
-      if (!addon) return;
       if (!term) {
-        addon.clearDecorations();
+        engine.clear();
         setResults({ index: -1, count: 0 });
         setError(false);
         return;
       }
-      const opts: ISearchOptions = { caseSensitive: cs, regex: rx, decorations: DECORATIONS };
       try {
-        if (dir === 'next') addon.findNext(term, { ...opts, incremental: true });
-        else addon.findPrevious(term, opts);
-        setError(false);
+        const outcome = engine.find(term, dir, { caseSensitive: cs, regex: rx });
+        if (outcome) {
+          outcome.then(() => setError(false), () => setError(true));
+        } else {
+          setError(false);
+        }
       } catch {
         setError(true);
       }
     },
-    [searchAddonRef],
+    [engine],
   );
 
   const find = (dir: 'next' | 'prev') => run(query, dir, caseSensitive, regex);
@@ -70,10 +83,10 @@ export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: Term
   const toggleRegex = () => { const v = !regex; setRegex(v); run(query, 'next', caseSensitive, v); };
 
   const close = useCallback(() => {
-    searchAddonRef.current?.clearDecorations();
+    engine.clear();
     onClose();
-    terminalRef.current?.focus();
-  }, [onClose, searchAddonRef, terminalRef]);
+    engine.focusTerminal();
+  }, [onClose, engine]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -124,6 +137,7 @@ export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: Term
 
   return (
     <div
+      ref={ref}
       role="search"
       style={{
         position: 'absolute',
@@ -172,4 +186,4 @@ export function TerminalSearchBar({ searchAddonRef, terminalRef, onClose }: Term
       <button type="button" title="Close (Esc)" onClick={close} style={iconBtn}><X size={14} /></button>
     </div>
   );
-}
+});

@@ -34,6 +34,11 @@ const MENU_CHANNELS = [
   'menu:open-settings',
   'menu:toggle-palette',
   'menu:toggle-theme',
+  'menu:open-diff',
+  'menu:open-files',
+  'menu:open-shell',
+  'menu:terminal-search',
+  'menu:clear-terminal',
 ] as const;
 type MenuChannel = typeof MENU_CHANNELS[number];
 
@@ -49,10 +54,109 @@ contextBridge.exposeInMainWorld('electronApp', {
   relaunch: () => {
     ipcRenderer.send('app:relaunch');
   },
+  // Renderer -> main: is a Monaco editor currently focused? Lets main disable
+  // the four menu accelerators that collide with Monaco's own default
+  // keybindings (Cmd+D/E/F/L) while the keystroke needs to reach Monaco
+  // instead of the menu — see electron/src/menuAcceleratorGating.ts.
+  setEditorFocused: (focused: boolean) => {
+    ipcRenderer.send('editor-focus:changed', focused);
+  },
+  // Renderer -> main: the resolved keyboard bindings, so the app-menu
+  // accelerators that mirror them follow a rebind. Those accelerators are the
+  // only way the shortcut reaches a native terminal tile, whose child NSWindow
+  // takes key focus away from the renderer — see electron/src/menuShortcuts.ts.
+  setMenuShortcuts: (shortcuts: Record<string, string>) => {
+    ipcRenderer.send('menu:set-shortcuts', shortcuts);
+  },
 });
 
 contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+});
+
+// Native terminal overlay bridge. A
+// new flat namespace, matching the existing electronFiles / electronDialog /
+// electronApp convention — there is no `window.argus` object in this codebase.
+interface NativeTerminalRect { x: number; y: number; width: number; height: number }
+interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
+
+contextBridge.exposeInMainWorld('electronNativeTerminal', {
+  available: (): Promise<boolean> => ipcRenderer.invoke('native-term:available'),
+  attach: (sessionId: string, rect: NativeTerminalRect, fontSize?: number): Promise<boolean> =>
+    ipcRenderer.invoke('native-term:attach', { sessionId, rect, fontSize }),
+  setRect: (sessionId: string, rect: NativeTerminalRect): void => {
+    ipcRenderer.send('native-term:rect', { sessionId, rect });
+  },
+  setTheme: (sessionId: string, theme: NativeTerminalTheme): void => {
+    ipcRenderer.send('native-term:set-theme', { sessionId, theme });
+  },
+  setDimmed: (sessionId: string, dimmed: boolean, isDark: boolean): void => {
+    ipcRenderer.send('native-term:set-dimmed', { sessionId, dimmed, isDark });
+  },
+  detach: (sessionId: string): void => {
+    ipcRenderer.send('native-term:detach', { sessionId });
+  },
+  suppress: (sessionId: string): void => {
+    ipcRenderer.send('native-term:suppress', { sessionId });
+  },
+  unsuppress: (sessionId: string): void => {
+    ipcRenderer.send('native-term:unsuppress', { sessionId });
+  },
+  // Opens/closes SwiftTerm's OWN find bar (see task-6's reversal) — no search
+  // term crosses this bridge; the bar itself owns typing/next/prev/options.
+  openFindBar: (sessionId: string): void => {
+    ipcRenderer.send('native-term:open-find-bar', { sessionId });
+  },
+  closeFindBar: (sessionId: string): void => {
+    ipcRenderer.send('native-term:close-find-bar', { sessionId });
+  },
+  focusTerminal: (sessionId: string): void => {
+    ipcRenderer.send('native-term:focus', { sessionId });
+  },
+  setResizeSuspended: (sessionId: string, suspended: boolean): void => {
+    ipcRenderer.send('native-term:set-resize-suspended', { sessionId, suspended });
+  },
+  setFontSize: (sessionId: string, px: number): void => {
+    ipcRenderer.send('native-term:set-font-size', { sessionId, px });
+  },
+  clearScrollback: (sessionId: string): void => {
+    ipcRenderer.send('native-term:clear-scrollback', { sessionId });
+  },
+  /**
+   * Subscribes to key-window transitions on native overlays. A click on a
+   * native tile lands in the child NSWindow and never reaches the web
+   * contents, so this is the renderer's ONLY way to learn that a native tile
+   * is the focused one — which is what every "for the focused shell" command
+   * (Cmd+T/D/E/L, and the tile focus ring) reads.
+   */
+  /** Terminal bell on a native terminal; the renderer flashes the tile. */
+  onBell: (cb: (sessionId: string) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string }) => cb(payload.sessionId);
+    ipcRenderer.on('native-term:bell', listener);
+    return () => ipcRenderer.off('native-term:bell', listener);
+  },
+  /** File paths dropped onto a native terminal; the renderer formats and sends them. */
+  onDropPaths: (cb: (sessionId: string, paths: string[]) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; paths: string[] }) =>
+      cb(payload.sessionId, payload.paths);
+    ipcRenderer.on('native-term:drop-paths', listener);
+    return () => ipcRenderer.off('native-term:drop-paths', listener);
+  },
+  onFocus: (cb: (sessionId: string, focused: boolean) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; focused: boolean }) =>
+      cb(payload.sessionId, payload.focused);
+    ipcRenderer.on('native-term:focus', listener);
+    return () => ipcRenderer.off('native-term:focus', listener);
+  },
+  onCopy: (cb: (sessionId: string, text: string) => void): (() => void) => {
+    const listener = (_e: unknown, payload: { sessionId: string; text: string }) =>
+      cb(payload.sessionId, payload.text);
+    ipcRenderer.on('native-term:copy', listener);
+    return () => ipcRenderer.off('native-term:copy', listener);
+  },
+  writeClipboard: (text: string): void => {
+    ipcRenderer.send('native-term:write-clipboard', { text });
+  },
 });
 
 contextBridge.exposeInMainWorld('electronNotifications', {

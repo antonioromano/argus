@@ -128,13 +128,14 @@ export async function setConfirmExitOnQuit(value: boolean): Promise<void> {
   applyConfig(updated);
   await configStore.save(updated);
 }
-// Name + status for every live (non-exited) session — used to populate the
-// "exit all sessions" confirmation dialog.
-export function getActiveSessionSummaries(): { name: string; status: string }[] {
+// Name, status and engine for every live (non-exited) session — used to
+// populate the "exit all sessions" confirmation dialog, which labels each one
+// so it is clear what is about to be stopped.
+export function getActiveSessionSummaries(): { name: string; status: string; terminalEngine?: string }[] {
   return sessionManager
     .getAllSessions()
     .filter((s) => s.status !== 'exited')
-    .map((s) => ({ name: s.name, status: s.status }));
+    .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine }));
 }
 const agentRegistry = new AgentRegistry();
 
@@ -177,6 +178,12 @@ sessionManager.onSessionDeleted = (id) => {
 const _windowHooks: WindowHostHooks = {};
 export function setWindowHooks(h: WindowHostHooks): void {
   Object.assign(_windowHooks, h);
+}
+/** The in-process SessionManager, for Electron main to wire the native terminal
+ *  host. Main runs the server in-process (electron/src/main.ts:515), so this is
+ *  a direct reference — no socket hop. */
+export function getSessionManager(): SessionManager {
+  return sessionManager;
 }
 export function getWindowRegistryState(): WindowRegistryState {
   return windowRegistry.getState();

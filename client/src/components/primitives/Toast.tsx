@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Check, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 
 export type ToastTone = 'ok' | 'warn' | 'danger';
 
@@ -82,6 +83,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 function ToastView({ item }: { item: ToastItem }) {
   const [visible, setVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Each toast is its own component instance, mounted when it's added to the
+  // list and unmounted when it's removed — a real mount/unmount matching its
+  // on-screen lifetime, unlike ToastProvider which is permanent.
+  useOverlaySuppression(() => ref.current?.getBoundingClientRect() ?? null);
 
   useEffect(() => {
     const inFrame = requestAnimationFrame(() => setVisible(true));
@@ -97,6 +104,7 @@ function ToastView({ item }: { item: ToastItem }) {
 
   return (
     <div
+      ref={ref}
       className="eyebrow"
       style={{
         display: 'inline-flex',

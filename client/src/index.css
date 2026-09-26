@@ -34,6 +34,70 @@
 .setting-row-hint { font-size: var(--t-tiny); color: var(--fg-3); margin-top: 2px; }
 .settings-card-pad { padding: var(--s-4); }
 
+/* ===== Settings sidebar — filter box, group headings, pane rows =====
+   Rows change background on hover only: no border, padding or size change, so
+   nothing in the list shifts under the pointer. */
+.settings-nav-search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: 28px;
+  padding: 0 var(--s-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+}
+.settings-nav-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: var(--t-xs);
+  padding: 0;
+}
+.settings-nav-search input::-webkit-search-cancel-button { display: none; }
+.settings-nav-group {
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eye);
+  color: var(--fg-3);
+  padding: var(--s-3) var(--s-2) var(--s-1);
+}
+.settings-nav-item {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px var(--s-2);
+  margin-bottom: 1px;
+  border-radius: var(--r-2);
+  border-left: 2px solid transparent;
+  font-size: var(--t-sm);
+  color: var(--fg-1);
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.settings-nav-item:hover { background: var(--bg-3); }
+.settings-nav-item.is-active {
+  background: var(--bg-3);
+  color: var(--fg-0);
+  border-left-color: var(--accent);
+}
+.settings-nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
 /* Whole-line highlight for a Monaco row jumped to (search result or cross-file
    go-to-definition): an accent flash that fades back out. The decoration is
    cleared in JS once the animation settles, so no tint lingers. */
@@ -921,16 +985,26 @@ body {
 .argus-chip-window-badge { font-size: 10px; opacity: 0.6; margin-left: 4px; }
 .argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
 
+/* Dims every tile that is not the selected one — the ONLY signal that says
+   which tile is selected, since the selected one carries no mark of its own.
+   Strengthened from .13/.06: the terminal now shares its card's colour
+   (--bg-2), so a tile is one flat surface and a light scrim had no internal
+   edge to read against.
+
+   Paired by hand with OverlayController.setDimmed in the Swift shim. A native
+   terminal is a child NSWindow that this element renders behind and cannot
+   dim, so it paints the same scrim inside its own window — if these two values
+   drift, a native tile stops matching its neighbours. */
 .argus-tile-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.13);
+  background: rgba(0, 0, 0, 0.22);
   pointer-events: none;
   z-index: 2;
   transition: opacity var(--dur-fast);
 }
 [data-theme="light"] .argus-tile-overlay {
-  background: rgba(20, 15, 8, 0.06);
+  background: rgba(20, 15, 8, 0.13);
 }
 
 /* === File drop overlay (TerminalShell drag-over) === */

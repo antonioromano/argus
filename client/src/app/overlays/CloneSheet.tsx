@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
-import { Copy, Check, GitBranch } from 'lucide-react';
+import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import { Copy, Check, GitBranch, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { Toggle } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -14,19 +14,17 @@ import {
   ErrorState,
   AlertSheet,
 } from '../../components/primitives/index.js';
-
-const BUILTIN: AgentDefinition[] = [
-  { id: 'claude', name: 'Claude Code', command: 'claude', builtin: true },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
-  { id: 'codex', name: 'Codex', command: 'codex', builtin: true },
-];
+import { EngineChoice } from '../ui/EngineChoice.js';
+import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
+import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
 interface CloneSheetProps {
   config: AppConfig | null;
   folderPath: string;
   currentAgentType?: string;
+  currentTerminalEngine?: TerminalEngine;
   onClose: () => void;
-  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string) => Promise<void>;
+  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -34,11 +32,18 @@ export function CloneSheet({
   config,
   folderPath,
   currentAgentType,
+  currentTerminalEngine,
   onClose,
   onClone,
   onSaveFlag,
 }: CloneSheetProps) {
   const [agentId, setAgentId] = useState<string>(currentAgentType ?? config?.defaultAgent ?? 'claude');
+  // A clone inherits the SOURCE session's engine first — cloning a native session
+  // and silently getting a web one back would be surprising — falling back to the
+  // app default, then 'web', only when the source never had a preference.
+  const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(
+    currentTerminalEngine ?? config?.defaultTerminalEngine ?? 'web',
+  );
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -58,7 +63,7 @@ export function CloneSheet({
   const [initialBranch] = useState(branchName);
   const submitRef = useRef<() => void>(() => {});
 
-  const agents = config ? [...BUILTIN, ...config.customAgents] : BUILTIN;
+  const agents = config ? [...BUILTIN_AGENTS, ...config.customAgents] : BUILTIN_AGENTS;
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
 
@@ -95,7 +100,7 @@ export function CloneSheet({
     try {
       const flags = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       const branch = (isGitRepo && useWorktree) ? branchName.trim() : undefined;
-      await onClone(folderPath, agentId, flags, branch || undefined);
+      await onClone(folderPath, agentId, flags, branch || undefined, terminalEngine);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
@@ -276,6 +281,26 @@ export function CloneSheet({
                 </button>
               );
             })}
+          </div>
+        </Field>
+
+        <Field label="Terminal engine">
+          <EngineChoice value={terminalEngine} onChange={setTerminalEngine} />
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              marginTop: 'var(--s-2)',
+              padding: '9px 11px',
+              borderRadius: 'var(--r-2)',
+              background: 'var(--warn-bg)',
+              border: '1px solid color-mix(in srgb, var(--warn) 44%, transparent)',
+              fontSize: 'var(--t-xs)',
+              lineHeight: 1.5,
+            }}
+          >
+            <AlertTriangle size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>{ENGINE_NOTE_CREATE}</span>
           </div>
         </Field>
 

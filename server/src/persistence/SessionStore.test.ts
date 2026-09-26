@@ -39,11 +39,11 @@ test('round-trips sessions through save and load', async (t) => {
   await store.save(sample);
   const loaded = await store.load();
 
-  // worktreePath/worktreeBranch are spread back as undefined when absent,
-  // so compare against the normalized expectation the loader produces.
+  // worktreePath/worktreeBranch/terminalEngine are spread back as undefined
+  // when absent, so compare against the normalized expectation the loader produces.
   assert.deepEqual(loaded, [
-    { ...sample[0] },
-    { ...sample[1], worktreePath: undefined, worktreeBranch: undefined },
+    { ...sample[0], terminalEngine: undefined },
+    { ...sample[1], worktreePath: undefined, worktreeBranch: undefined, terminalEngine: undefined },
   ]);
 });
 

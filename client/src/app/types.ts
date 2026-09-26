@@ -1,10 +1,10 @@
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, TerminalEngine } from '@argus/shared';
 
 export type View = 'dashboard' | 'focus';
 
 export type Overlay =
   | { kind: 'create' }
-  | { kind: 'clone'; folderPath: string; agentType?: string }
+  | { kind: 'clone'; folderPath: string; agentType?: string; terminalEngine?: TerminalEngine }
   | { kind: 'palette' }
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }
