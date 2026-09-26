@@ -24,10 +24,15 @@ final class KeyableWindow: NSWindow {
   var onKeyChange: ((Bool) -> Void)?
 
   override func sendEvent(_ event: NSEvent) {
-    if event.type == .keyDown, KeyableWindow.isShiftReturn(event),
-       !(isComposingText?() ?? false), let handler = onShiftEnter {
-      handler()
-      return
+    if event.type == .keyDown, !(isComposingText?() ?? false) {
+      if KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
+        handler()
+        return
+      }
+      if let bytes = KeyableWindow.optionKeySequence(event), let handler = onOptionKey {
+        handler(bytes)
+        return
+      }
     }
     super.sendEvent(event)
   }
@@ -76,6 +81,32 @@ final class KeyableWindow: NSWindow {
   /// then belongs to the IME — it confirms the composition — so it must not be
   /// translated to ESC CR.
   var isComposingText: (() -> Bool)?
+
+  /// Called instead of delivering an Option+special key to SwiftTerm, with the
+  /// bytes xterm.js sends for it (see optionKeySequence).
+  var onOptionKey: (([UInt8]) -> Void)?
+
+  /// xterm.js's bytes for Option+⌫/fn⌫/←/→/↑/↓ (Keyboard.ts), or nil for any
+  /// other key. With optionAsMetaKey off — required so Option+letter types the
+  /// characters non-US layouts put there — SwiftTerm sends these keys through
+  /// interpretKeyEvents, and its doCommand has no case for deleteWordBackward:
+  /// or moveWordLeft:, so they were silently dropped. Exactly Option: Command,
+  /// Control or Shift alongside it is another binding. Arrow keys also carry
+  /// .function and .numericPad, which say nothing about the user's modifiers.
+  static func optionKeySequence(_ event: NSEvent) -> [UInt8]? {
+    let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      .subtracting([.function, .numericPad, .capsLock])
+    guard f == .option else { return nil }
+    switch event.keyCode {
+    case 51: return [0x1b, 0x7f]                        // ⌫
+    case 117: return Array("\u{1b}[3;3~".utf8)           // forward delete
+    case 123: return Array("\u{1b}b".utf8)               // ←
+    case 124: return Array("\u{1b}f".utf8)               // →
+    case 126: return Array("\u{1b}[1;3A".utf8)           // ↑
+    case 125: return Array("\u{1b}[1;3B".utf8)           // ↓
+    default: return nil
+    }
+  }
 
   var appliedFrame: NSRect?
   /// Set while the controller itself is calling setFrame, so its own change is
@@ -311,10 +342,14 @@ final class DropAwareTerminalView: TerminalView {
     // genuinely stops delivery. `self` is unowned-safe here: the window is
     // torn down in destroy(), before the controller can go away.
     w.onKeyChange = { [weak self] isKey in self?.onFocus?(isKey) }
-    // ESC CR through the same callback typed characters take, so it reaches the
-    // session exactly as SwiftTerm's own input does.
+    // Through SwiftTerm's own send(data:), not straight to onInput: that is
+    // where a scrolled-up reader is brought back to the bottom (xterm's
+    // scrollOnUserInput), and it reaches onInput via the delegate anyway.
     w.onShiftEnter = { [weak self] in
-      self?.onInput?(Data([0x1b, 0x0d]) as NSData)
+      self?.terminalView.send(data: [0x1b, 0x0d][...])
+    }
+    w.onOptionKey = { [weak self] bytes in
+      self?.terminalView.send(data: bytes[...])
     }
     w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
     // Start HIDDEN. addChildWindow on a visible parent orders the child in at
@@ -577,6 +612,8 @@ final class DropAwareTerminalView: TerminalView {
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
   public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
+  public func debugScrollToTop() { terminalView.scroll(toPosition: 0) }
+  public func debugIsScrolledUp() -> Bool { terminalView.canScroll && terminalView.scrollPosition < 1 }
   public func debugOptionAsMeta() -> Bool { terminalView.optionAsMetaKey }
   public func debugSetMarkedText(_ text: String) {
     terminalView.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0),

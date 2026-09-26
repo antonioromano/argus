@@ -703,6 +703,87 @@ final class ShimTests: XCTestCase {
     return String(decoding: reply, as: UTF8.self).contains("?25;2$y")
   }
 
+  private func attachedController() -> (OverlayController, NSWindow) {
+    let c = OverlayController(width: 400, height: 240)
+    let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    c.attach(to: parent)
+    c.show()
+    return (c, parent)
+  }
+
+  /// xterm.js sends these for Option+special keys whatever macOptionIsMeta is
+  /// (Keyboard.ts). With Option no longer Meta, SwiftTerm dropped them.
+  func testOptionSpecialKeysSendXtermSequences() {
+    let cases: [(UInt16, [UInt8])] = [
+      (51, [0x1b, 0x7f]),                                   // ⌫  → ESC DEL
+      (117, Array("\u{1b}[3;3~".utf8)),                     // fn⌫ → ESC [3;3~
+      (123, Array("\u{1b}b".utf8)),                         // ←  → ESC b
+      (124, Array("\u{1b}f".utf8)),                         // →  → ESC f
+      (126, Array("\u{1b}[1;3A".utf8)),                     // ↑
+      (125, Array("\u{1b}[1;3B".utf8)),                     // ↓
+    ]
+    for (code, want) in cases {
+      let (c, parent) = attachedController()
+      _ = parent
+      var sent: [Data] = []
+      c.onInput = { sent.append($0 as Data) }
+      // Arrow keys carry .function and .numericPad; the translation must ignore them.
+      let flags: NSEvent.ModifierFlags = [123, 124, 125, 126].contains(code)
+        ? [.option, .function, .numericPad] : [.option]
+      c.debugSendKey(keyCode: code, flags: flags)
+      XCTAssertEqual(sent, [Data(want)], "keyCode \(code)")
+    }
+  }
+
+  /// Review Focus 1: Option+letter must still type what the layout puts there
+  /// (Italian ⌥ò = @). Only the six special keys are translated.
+  func testOptionLetterIsNotIntercepted() {
+    let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.option],
+                             timestamp: 0, windowNumber: 0, context: nil,
+                             characters: "@", charactersIgnoringModifiers: "ò",
+                             isARepeat: false, keyCode: 41)!
+    XCTAssertNil(KeyableWindow.optionKeySequence(e))
+  }
+
+  func testOptionWithCommandOrControlIsNotIntercepted() {
+    for extra: NSEvent.ModifierFlags in [.command, .control, .shift] {
+      let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.option, extra],
+                               timestamp: 0, windowNumber: 0, context: nil,
+                               characters: "", charactersIgnoringModifiers: "",
+                               isARepeat: false, keyCode: 51)!
+      XCTAssertNil(KeyableWindow.optionKeySequence(e), "\(extra)")
+    }
+  }
+
+  /// Review Focus 2: the IME owns keys while composing.
+  func testOptionSpecialKeyDuringCompositionIsLeftToTheInputMethod() {
+    let (c, parent) = attachedController()
+    _ = parent
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    c.debugSetMarkedText("にほ")
+    c.debugSendKey(keyCode: 51, flags: .option)
+    XCTAssertFalse(sent.contains(Data([0x1b, 0x7f])))
+  }
+
+  /// B7: typing scrolls a reader back to the bottom (xterm scrollOnUserInput).
+  /// SwiftTerm does this inside send(data:); Argus's own translations must go
+  /// through it too.
+  func testTranslatedKeysScrollBackToTheBottom() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    c.debugScrollToTop()
+    XCTAssertTrue(c.debugIsScrolledUp())
+    c.debugSendKey(keyCode: 36, flags: .shift)        // Shift+Enter
+    XCTAssertFalse(c.debugIsScrolledUp())
+    c.debugScrollToTop()
+    c.debugSendKey(keyCode: 51, flags: .option)       // Option+⌫
+    XCTAssertFalse(c.debugIsScrolledUp())
+  }
+
   func testNonFiniteOrNonPositiveFontSizesAreIgnored() {
     let c = OverlayController(width: 800, height: 480)
     c.setFrame(x: 0, y: 0, width: 800, height: 480)
