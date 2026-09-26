@@ -954,6 +954,27 @@ final class DropAwareTerminalView: TerminalView {
   }
   public func simulateInput(_ text: String) { terminalView.send(txt: text) }
   public func debugScrollbackLimit() -> Int { terminalView.getTerminal().options.scrollback }
+  /// Approximates scrollback depth (Buffer's `yBase`, which SwiftTerm keeps
+  /// module-internal) from public surface only: `getScrollInvariantLine(row:)`
+  /// returns nil once `row` walks past the buffer's total line count, so this
+  /// binary-searches that boundary starting from `buffer.totalLinesTrimmed`
+  /// (the one related public accessor). Comparable before/after a feed as long
+  /// as the viewport's row count hasn't changed between the two reads.
+  public func debugScrollbackRows() -> Int {
+    let term = terminalView.getTerminal()
+    let top = term.buffer.totalLinesTrimmed
+    var lo = top
+    var hi = top + 1
+    while term.getScrollInvariantLine(row: hi) != nil {
+      lo = hi
+      hi = top + (hi - top) * 2
+    }
+    while lo + 1 < hi {
+      let mid = lo + (hi - lo) / 2
+      if term.getScrollInvariantLine(row: mid) != nil { lo = mid } else { hi = mid }
+    }
+    return (lo + 1) - top
+  }
 
   // MARK: TerminalViewDelegate
   public func send(source: TerminalView, data: ArraySlice<UInt8>) {

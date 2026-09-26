@@ -108,10 +108,12 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
   const viewing: Array<[string, boolean]> = [];
   let emit: ((id: string, data: string) => void) | undefined;
   let emitReplay: ((id: string, data: string) => void) | undefined;
+  let emitStatus: ((id: string, s: string) => void) | undefined;
   const host = new NativeTerminalHost({
     addon: addonOrNull,
     onOutput: (cb) => { emit = cb; return () => { emit = undefined; }; },
     onReplay: (cb) => { emitReplay = cb; return () => { emitReplay = undefined; }; },
+    onStatus: (cb) => { emitStatus = cb; return () => { emitStatus = undefined; }; },
     flushOutput: (id) => order.push(`flush:${id}`),
     setViewing: (id, v) => viewing.push([id, v]),
     writeToSession: (id, d) => wrote.push([id, d]),
@@ -121,12 +123,13 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     notifyDropPaths: (id, paths) => dropped.push([id, paths]),
     notifyBell: (id) => bells.push(id),
     notifyCopy: (id, text) => copies.push([id, text]),
-    getReplaySnapshot: (id) => { order.push(`snapshot:${id}`); return { data: 'REPLAY' }; },
+    getReplaySnapshot: (id, flavor) => { order.push(`snapshot:${id}:${flavor ?? 'full'}`); return { data: flavor === 'screen' ? 'SCREEN' : 'REPLAY' }; },
     ...overrides,
   });
   return { host, wrote, resized, focused, opened, dropped, bells, copies, order, viewing,
            emitOutput: (id: string, d: string) => emit?.(id, d),
-           emitReplay: (id: string, d: string) => emitReplay?.(id, d) };
+           emitReplay: (id: string, d: string) => emitReplay?.(id, d),
+           emitStatus: (id: string, s: string) => emitStatus?.(id, s) };
 }
 
 const HANDLE = Buffer.alloc(8);
@@ -1120,7 +1123,7 @@ test('the seed sizes the pty to the overlay grid, flushes, then snapshots — in
   const { addon, calls } = fakeAddon();
   const { host, order } = harness(addon);
   host.attach('s1', HANDLE, RECT);
-  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1']);
+  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1:full']);
   // The frame is applied before the seed is fed, so SwiftTerm parses the seed
   // at the width it was serialized for, and the seed lands before show.
   const frame = calls.indexOf('setFrame:1:10,20,300,200');
@@ -1346,7 +1349,7 @@ test('a font change on a shown overlay re-seeds it after the font is applied', (
   order.length = 0;
   host.setFontSize('s1', 16);
   assert.deepEqual(calls, ['setFontSize:1:16', 'gridSize:1', 'feed:1:REPLAY']);
-  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1']);
+  assert.deepEqual(order, ['resize:s1:100x30', 'flush:s1', 'snapshot:s1:full']);
 });
 
 test('a font change on a hidden overlay defers the re-seed until it is shown', () => {
@@ -1391,4 +1394,62 @@ test('attach ignores a non-finite font size from the renderer', () => {
     host.attach('s1', HANDLE, RECT, bad);
     assert.ok(!calls.some((c) => c.startsWith('setFontSize:')), `${bad}: ${calls.join(',')}`);
   }
+});
+
+// ── Realign after a resize settles, and after output settles (B4) ──────────
+
+test('a forwarded native resize is followed by one screen-only realign', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls, fireResize, setGrid } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  setGrid({ cols: 90, rows: 30 });
+  fireResize(1, 90, 30);
+  setGrid({ cols: 80, rows: 30 });
+  fireResize(1, 80, 30);          // debounced: one realign for the burst
+  t.mock.timers.tick(119);
+  assert.ok(!calls.includes('feed:1:SCREEN'));
+  t.mock.timers.tick(1);
+  assert.equal(calls.filter((c) => c === 'feed:1:SCREEN').length, 1, calls.join(','));
+});
+
+test('output settling (running → waiting/done) realigns after 450 ms', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls } = fakeAddon();
+  const { host, emitStatus } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  emitStatus('s1', 'running');
+  calls.length = 0;
+  emitStatus('s1', 'waiting');
+  t.mock.timers.tick(450);
+  assert.ok(calls.includes('feed:1:SCREEN'), calls.join(','));
+});
+
+test('other status transitions do not realign', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls } = fakeAddon();
+  const { host, emitStatus } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  emitStatus('s1', 'idle');
+  emitStatus('s1', 'waiting');
+  t.mock.timers.tick(1000);
+  assert.ok(!calls.includes('feed:1:SCREEN'));
+});
+
+test('a realign that comes due after the overlay was hidden or detached feeds nothing', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls, fireResize, setGrid } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.attach('s2', HANDLE, { x: 400, y: 20, width: 300, height: 200 });
+  setGrid({ cols: 90, rows: 30 });
+  fireResize(1, 90, 30);
+  fireResize(2, 90, 30);
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });   // hidden
+  host.detach('s2');
+  calls.length = 0;
+  t.mock.timers.tick(1000);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
 });

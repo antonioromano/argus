@@ -267,6 +267,8 @@ export class SessionManager {
   /** In-process subscribers to the unsolicited replacement frames a room gets
    *  as `session:replay` (see broadcastReplay). Same isolation as above. */
   private replaySubscribers = new Set<(sessionId: string, data: string) => void>();
+  /** In-process status subscribers (the native terminal host). */
+  private statusSubscribers = new Set<(sessionId: string, status: SessionStatus) => void>();
   /** Sessions a native overlay is watching. Such a viewer never joins the
    *  socket room, so the idle-geometry gate must ask here as well. */
   private nativeViewers = new Set<string>();
@@ -832,7 +834,7 @@ export class SessionManager {
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
     });
 
-    this.io?.emit('session:status', { sessionId: id, status: 'running' });
+    this.emitStatus({ sessionId: id, status: 'running' });
     return this.toSessionInfo(session);
   }
 
@@ -889,7 +891,7 @@ export class SessionManager {
     } else {
       session.lastPrompt = undefined;
     }
-    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
   /**
@@ -904,7 +906,7 @@ export class SessionManager {
     if (!session || session.status !== 'waiting') return;
     if (session.lastPrompt === text) return;
     session.lastPrompt = text;
-    this.io?.emit('session:status', { sessionId: id, status: session.status, lastPrompt: text });
+    this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
   }
 
   /**
@@ -936,7 +938,7 @@ export class SessionManager {
     session.status = 'done';
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
-    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: undefined });
+    this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
   }
 
   private nativeIsFresh(session: ManagedSession): boolean {
@@ -1024,7 +1026,7 @@ export class SessionManager {
       session.lastPrompt = undefined;
     }
     this.refreshSleepPrevention();
-    this.io?.emit('session:status', { sessionId: id, status, lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
   /** Client manually promotes an idle session to done. */
@@ -1032,7 +1034,7 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.status !== 'idle') return;
     session.status = 'done';
-    this.io?.emit('session:status', { sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
+    this.emitStatus({ sessionId: id, status: 'done', lastPrompt: session.lastPrompt });
     this.persistSessions().catch(console.error);
   }
 
@@ -1048,7 +1050,7 @@ export class SessionManager {
     if (session.status !== 'done') return;
     session.status = 'idle';
     session.hasUserInputSinceIdle = false; // user must send input before next done-promotion
-    this.io?.emit('session:status', { sessionId: id, status: 'idle' });
+    this.emitStatus({ sessionId: id, status: 'idle' });
   }
 
   getSession(id: string): ManagedSession | undefined {
@@ -1215,6 +1217,28 @@ export class SessionManager {
   onReplay(cb: (sessionId: string, data: string) => void): () => void {
     this.replaySubscribers.add(cb);
     return () => { this.replaySubscribers.delete(cb); };
+  }
+
+  /**
+   * Subscribe to session status changes (running/waiting/done/idle/exited) the
+   * same way onOutput/onReplay expose their streams — in-process, for the
+   * native terminal host, which has no socket room to join.
+   */
+  onStatus(cb: (sessionId: string, status: SessionStatus) => void): () => void {
+    this.statusSubscribers.add(cb);
+    return () => { this.statusSubscribers.delete(cb); };
+  }
+
+  /** The one place a status change is announced: sockets and in-process subscribers. */
+  private emitStatus(payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+    this.io?.emit('session:status', payload);
+    for (const cb of this.statusSubscribers) {
+      try {
+        cb(payload.sessionId, payload.status);
+      } catch (err) {
+        console.error('[SessionManager] status subscriber threw:', err);
+      }
+    }
   }
 
   /**
@@ -1425,7 +1449,7 @@ export class SessionManager {
     // User sent input — exit sticky-done so StateDetector can track the new run.
     if (session.status === 'done') {
       session.status = 'idle';
-      this.io?.emit('session:status', { sessionId: id, status: 'idle' });
+      this.emitStatus({ sessionId: id, status: 'idle' });
     }
     session.pty.write(data);
   }

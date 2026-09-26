@@ -58,6 +58,11 @@ export interface HostDeps {
    */
   onReplay(cb: (sessionId: string, data: string) => void): () => void;
   /**
+   * Session status changes (running/waiting/done/idle/exited). The host
+   * re-aligns a native view when output settles, as the xterm path does.
+   */
+  onStatus(cb: (sessionId: string, status: string) => void): () => void;
+  /**
    * Emit the session's coalesced pending output now. Must run before a replay
    * snapshot is taken for a new viewer: pending bytes are already in the
    * mirror, so a later flush would deliver them a second time.
@@ -105,5 +110,5 @@ export interface HostDeps {
   // re-emits `?1049h` itself when the session is on the alt screen (see
   // SessionManager.getReplaySnapshot's doc comment). The host has nothing to
   // branch on here and must feed this verbatim.
-  getReplaySnapshot(id: string): { data: string } | undefined;
+  getReplaySnapshot(id: string, flavor?: 'full' | 'screen'): { data: string } | undefined;
 }

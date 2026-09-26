@@ -794,6 +794,18 @@ final class ShimTests: XCTestCase {
     XCTAssertFalse(c.debugIsScrolledUp())
   }
 
+  /// A realign frame is screen-only: it must not eat the history a reader may
+  /// be scrolled into (xterm's resync frame has no ESC[3J for the same reason).
+  func testAScreenOnlyFrameKeepsScrollback() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    let before = c.debugScrollbackRows()
+    c.feed(data: Data("\u{1b}[?1049l\u{1b}[2J\u{1b}[Hscreen".utf8) as NSData)
+    XCTAssertEqual(c.debugScrollbackRows(), before)
+  }
+
   /// The host needs to know when a reader leaves and returns to the bottom, to
   /// hold back refresh frames meanwhile. Transitions only — not every scroll.
   func testScrolledUpIsReportedOnTransitionsOnly() {

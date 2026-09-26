@@ -74,3 +74,13 @@ test('no output means no notification', () => {
 
   assert.deepEqual(seen, []);
 });
+
+test('status changes reach in-process subscribers as well as sockets', () => {
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  const seen: Array<[string, string]> = [];
+  const off = sm.onStatus((id, status) => seen.push([id, status]));
+  (sm as any).emitStatus({ sessionId: 's1', status: 'waiting' });
+  off();
+  (sm as any).emitStatus({ sessionId: 's1', status: 'idle' });
+  assert.deepEqual(seen, [['s1', 'waiting']]);
+});

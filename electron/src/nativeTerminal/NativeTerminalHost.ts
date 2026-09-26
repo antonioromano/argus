@@ -41,6 +41,12 @@ function isUsableFrame(rect: Rect): boolean {
   return rect.width >= MIN_FRAME_PT && rect.height >= MIN_FRAME_PT;
 }
 
+/** After a native resize, and after output settles, the xterm path asks for a
+ *  screen-only frame (useTerminal.ts resync(120) / resync(150, 300)) because
+ *  the agent's repaint does not always land where the reflowed grid expects. */
+const REALIGN_AFTER_RESIZE_MS = 120;
+const REALIGN_AFTER_SETTLE_MS = 450;
+
 /**
  * Geometry tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the Swift shim reads the
  * same variable, and window.ts mirrors the renderer's trace lines to stdout).
@@ -105,6 +111,11 @@ export class NativeTerminalHost {
   private readonly zoomByParent = new Map<string, number>();
   private readonly fontSizeBySession = new Map<string, number>();
   private readonly unsubscribers: Array<() => void> = [];
+  // Pending re-align timers per session (resize settle / status settle), and
+  // the last status seen per session so a settle transition (running -> a
+  // quiet state) can be told apart from any other status change.
+  private readonly realignTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lastStatus = new Map<string, string>();
 
   constructor(deps: HostDeps) {
     this.deps = deps;
@@ -136,6 +147,16 @@ export class NativeTerminalHost {
           return;
         }
         feedLive(sessionId, data);
+      }),
+      // A run settling (running -> waiting/done) gets the same screen-only
+      // realign the xterm path schedules after its own output settles — the
+      // agent's repaint does not always land where the reflowed grid expects.
+      deps.onStatus((sessionId, status) => {
+        const prev = this.lastStatus.get(sessionId);
+        this.lastStatus.set(sessionId, status);
+        if (prev === 'running' && (status === 'waiting' || status === 'done') && this.bySession.has(sessionId)) {
+          this.scheduleRealign(sessionId, REALIGN_AFTER_SETTLE_MS);
+        }
       }),
     );
 
@@ -236,10 +257,34 @@ export class NativeTerminalHost {
           return;
         }
         this.deps.resizeSession(sessionId, cols, rows);
+        this.scheduleRealign(sessionId, REALIGN_AFTER_RESIZE_MS);
       } catch (err) {
         console.error('[native-term] resizeSession failed for overlay', id, err);
       }
     });
+  }
+
+  private scheduleRealign(sessionId: string, delayMs: number): void {
+    const prior = this.realignTimers.get(sessionId);
+    if (prior) clearTimeout(prior);
+    this.realignTimers.set(sessionId, setTimeout(() => {
+      this.realignTimers.delete(sessionId);
+      this.realign(sessionId);
+    }, delayMs));
+  }
+
+  /** Feed a screen-only frame: realigns the visible screen, leaves history. */
+  private realign(sessionId: string): void {
+    const id = this.bySession.get(sessionId);
+    if (id === undefined || !this.addon) return;
+    if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return;
+    try {
+      this.deps.flushOutput(sessionId);
+      const snap = this.deps.getReplaySnapshot(sessionId, 'screen');
+      if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
+    } catch (err) {
+      console.error('[native-term] realign failed for', sessionId, err);
+    }
   }
 
   /**
@@ -578,6 +623,7 @@ export class NativeTerminalHost {
     if (!pending) return;
     try {
       this.deps.resizeSession(sessionId, pending.cols, pending.rows);
+      this.scheduleRealign(sessionId, REALIGN_AFTER_RESIZE_MS);
     } catch (err) {
       console.error('[native-term] resizeSession failed for', sessionId, err);
     }
@@ -825,6 +871,10 @@ export class NativeTerminalHost {
     this.resizeSuspended.delete(sessionId);
     this.pendingResize.delete(sessionId);
     this.fontSizeBySession.delete(sessionId);
+    const realignTimer = this.realignTimers.get(sessionId);
+    if (realignTimer) clearTimeout(realignTimer);
+    this.realignTimers.delete(sessionId);
+    this.lastStatus.delete(sessionId);
     try {
       this.deps.setViewing(sessionId, false);
     } catch (err) {
@@ -835,6 +885,8 @@ export class NativeTerminalHost {
 
   dispose(): void {
     for (const sessionId of [...this.bySession.keys()]) this.detach(sessionId);
+    for (const timer of this.realignTimers.values()) clearTimeout(timer);
+    this.realignTimers.clear();
     for (const unsubscribe of this.unsubscribers) unsubscribe();
   }
 }
