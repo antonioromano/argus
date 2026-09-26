@@ -884,6 +884,35 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugScrollSensitivity(), 3)
   }
 
+  /// Port of xterm's normal-buffer moveToCellSequence (MoveToCell.ts): same row
+  /// → that many ←/→; other rows → ←/→ counted across row ends.
+  func testMoveToCellSameRow() {
+    XCTAssertEqual(MoveToCell.sequence(startX: 5, startY: 2, targetX: 1, targetY: 2, cols: 80, applicationCursor: false),
+                   String(repeating: "\u{1b}[D", count: 4))
+    XCTAssertEqual(MoveToCell.sequence(startX: 1, startY: 2, targetX: 4, targetY: 2, cols: 80, applicationCursor: true),
+                   String(repeating: "\u{1b}OC", count: 3))
+  }
+
+  func testMoveToCellAcrossRows() {
+    // Cursor (x=5,y=3), target (x=2,y=1), 10 cols:
+    // colsFromRowEnd(2)=8 + (2-1)*10 + 1 + colsFromRowBeginning(5)=4 → 23 × ←
+    XCTAssertEqual(MoveToCell.sequence(startX: 5, startY: 3, targetX: 2, targetY: 1, cols: 10, applicationCursor: false),
+                   String(repeating: "\u{1b}[D", count: 23))
+    // Cursor (x=2,y=1), target (x=5,y=3): colsFromRowEnd(2)=8 + 10 + 1 + 4 → 23 × →
+    XCTAssertEqual(MoveToCell.sequence(startX: 2, startY: 1, targetX: 5, targetY: 3, cols: 10, applicationCursor: false),
+                   String(repeating: "\u{1b}[C", count: 23))
+  }
+
+  /// No move while scrolled up (xterm requires ybase == ydisp).
+  func testOptionClickDoesNothingWhileScrolledUp() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    c.debugScrollToTop()
+    XCTAssertNil(c.optionClickSequence(atViewPoint: NSPoint(x: 5, y: 5)))
+  }
+
   /// ⌘C (Edit ▸ Copy sends copy: to the first responder) hands the selection to
   /// the host instead of writing raw rows to the pasteboard.
   func testCopyHandsTheSelectionToTheHost() {

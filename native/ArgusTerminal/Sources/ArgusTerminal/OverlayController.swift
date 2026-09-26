@@ -35,6 +35,17 @@ final class KeyableWindow: NSWindow {
       }
     }
     if event.type == .scrollWheel { onScrollWheel?(event) }
+    if event.type == .leftMouseDown {
+      let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      optionDownAt = (f == .option && event.clickCount == 1) ? event.timestamp : nil
+    } else if event.type == .leftMouseUp, let down = optionDownAt {
+      optionDownAt = nil
+      if event.timestamp - down < 0.5 {
+        super.sendEvent(event)            // let SwiftTerm finish its click first
+        onOptionClick?(event)
+        return
+      }
+    }
     super.sendEvent(event)
   }
 
@@ -103,6 +114,13 @@ final class KeyableWindow: NSWindow {
   /// Called for every scroll event before SwiftTerm handles it, so the
   /// controller can set the sensitivity for this notch's modifiers.
   var onScrollWheel: ((NSEvent) -> Void)?
+
+  /// Option+click to move the cursor (xterm's altClickMovesCursor): a mouse-up
+  /// within 500 ms of an Option mouse-down, with no selection made, asks the
+  /// controller for the arrow keys to send. Events still reach SwiftTerm, so
+  /// Option+drag selects as before.
+  var onOptionClick: ((NSEvent) -> Void)?
+  private var optionDownAt: TimeInterval?
 
   /// xterm.js's bytes for Option+⌫/fn⌫/←/→/↑/↓ (Keyboard.ts), or nil for any
   /// other key. With optionAsMetaKey off — required so Option+letter types the
@@ -409,6 +427,14 @@ final class DropAwareTerminalView: TerminalView {
     w.onScrollWheel = { [weak self] event in
       self?.prepareScroll(optionDown: event.modifierFlags.contains(.option))
     }
+    w.onOptionClick = { [weak self] event in
+      guard let self else { return }
+      if let sel = self.terminalView.getSelection(), sel.count > 1 { return }   // a drag selected text
+      let p = self.terminalView.convert(event.locationInWindow, from: nil)
+      if let s = self.optionClickSequence(atViewPoint: p), !s.isEmpty {
+        self.terminalView.send(txt: s)
+      }
+    }
     w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
     // While SwiftTerm's find bar (or any other subview) holds first
     // responder, key translation must leave its keys alone — see
@@ -472,6 +498,24 @@ final class DropAwareTerminalView: TerminalView {
   /// Routing to JS keeps one allowlist for both engines.
   public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
     onOpenLink?(link as NSString)
+  }
+
+  /// The arrow-key sequence that moves the cursor to the cell under `p` (a
+  /// point in the terminal view's coordinates), or nil when xterm would not
+  /// move: scrolled up into history, or no usable geometry.
+  public func optionClickSequence(atViewPoint p: NSPoint) -> String? {
+    let t = terminalView.getTerminal()
+    if terminalView.canScroll && terminalView.scrollPosition < 1 { return nil }
+    let size = terminalView.bounds.size
+    guard t.cols > 0, t.rows > 0, size.width > 0, size.height > 0 else { return nil }
+    let cellW = size.width / CGFloat(t.cols)
+    let cellH = size.height / CGFloat(t.rows)
+    // SwiftTerm's view is not flipped: y grows upward, row 0 is at the top.
+    let y = terminalView.isFlipped ? p.y : size.height - p.y
+    let col = min(t.cols - 1, max(0, Int(p.x / cellW)))
+    let row = min(t.rows - 1, max(0, Int(y / cellH)))
+    return MoveToCell.sequence(startX: t.buffer.x, startY: t.buffer.y, targetX: col, targetY: row,
+                               cols: t.cols, applicationCursor: t.applicationCursor)
   }
 
   // Test seams — not @objc, so invisible across the ObjC++ boundary.
