@@ -24,7 +24,7 @@ final class KeyableWindow: NSWindow {
   var onKeyChange: ((Bool) -> Void)?
 
   override func sendEvent(_ event: NSEvent) {
-    if event.type == .keyDown, !(isComposingText?() ?? false) {
+    if event.type == .keyDown, !(isComposingText?() ?? false), isTerminalFocused?() ?? true {
       if KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
         handler()
         return
@@ -81,6 +81,19 @@ final class KeyableWindow: NSWindow {
   /// then belongs to the IME — it confirms the composition — so it must not be
   /// translated to ESC CR.
   var isComposingText: (() -> Bool)?
+
+  /// True when the terminal view itself is this window's first responder.
+  /// SwiftTerm's find bar (`TerminalFindBarView`) is an `NSVisualEffectView`
+  /// containing an `NSSearchField`, added as a subview of `terminalView` —
+  /// i.e. inside this same window — so while the user is typing a search
+  /// term, `sendEvent` was still intercepting Shift+Return and the Option
+  /// special keys at window level regardless of which view actually had
+  /// focus: Option+⌫/Option+←→ (word editing in the search field) got
+  /// swallowed and their bytes went to the pty instead, and Shift+Return sent
+  /// ESC CR to the agent instead of reaching the field. Defaults to `true`
+  /// (translate) if never wired, so a host that does not set this callback
+  /// keeps the pre-existing behaviour.
+  var isTerminalFocused: (() -> Bool)?
 
   /// Called instead of delivering an Option+special key to SwiftTerm, with the
   /// bytes xterm.js sends for it (see optionKeySequence).
@@ -352,6 +365,15 @@ final class DropAwareTerminalView: TerminalView {
       self?.terminalView.send(data: bytes[...])
     }
     w.isComposingText = { [weak self] in self?.terminalView.hasMarkedText() ?? false }
+    // While SwiftTerm's find bar (or any other subview) holds first
+    // responder, key translation must leave its keys alone — see
+    // isTerminalFocused's doc comment. `[weak w]` rather than capturing `w`
+    // directly: `w` is the window this closure lives on, and this avoids the
+    // window keeping itself alive through the closure it owns.
+    w.isTerminalFocused = { [weak self, weak w] in
+      guard let self, let w else { return false }
+      return w.firstResponder === self.terminalView
+    }
     // Start HIDDEN. addChildWindow on a visible parent orders the child in at
     // once, so without this every overlay is on screen from the moment it is
     // created — at its 800x480 construction size, at the default origin. The
@@ -618,6 +640,17 @@ final class DropAwareTerminalView: TerminalView {
   public func debugSetMarkedText(_ text: String) {
     terminalView.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0),
                                replacementRange: NSRange(location: NSNotFound, length: 0))
+  }
+  /// Test seam: gives an unrelated text field first responder, standing in
+  /// for SwiftTerm's own find-bar search field (which is not reachable from
+  /// outside the module — see debugFindBarVisible's doc comment). Lets a test
+  /// assert that key translation leaves a focused field alone, matching what
+  /// the find bar needs while the user is typing a search term.
+  public func debugFocusForeignTextField() {
+    guard let w = window else { return }
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+    clipView.addSubview(field)
+    w.makeFirstResponder(field)
   }
   public func debugIsAccessibilityElement() -> Bool { window?.isAccessibilityElement() ?? true }
   public func debugAccessibilityRole() -> NSAccessibility.Role? { window?.accessibilityRole() }

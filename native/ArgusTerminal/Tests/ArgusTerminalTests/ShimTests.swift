@@ -380,6 +380,8 @@ final class ShimTests: XCTestCase {
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
+    c.show()
+    c.focusTerminal()
     var sent: [[UInt8]] = []
     c.onInput = { data in sent.append([UInt8](data as Data)) }
 
@@ -393,6 +395,8 @@ final class ShimTests: XCTestCase {
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
+    c.show()
+    c.focusTerminal()
     var sent: [[UInt8]] = []
     c.onInput = { data in sent.append([UInt8](data as Data)) }
 
@@ -653,6 +657,7 @@ final class ShimTests: XCTestCase {
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
     c.show()
+    c.focusTerminal()
     var sent: [Data] = []
     c.onInput = { sent.append($0 as Data) }
 
@@ -703,12 +708,17 @@ final class ShimTests: XCTestCase {
     return String(decoding: reply, as: UTF8.self).contains("?25;2$y")
   }
 
+  /// The terminal view is explicitly made first responder: key translation
+  /// now checks `isTerminalFocused`, and a fresh window's first responder is
+  /// the window itself, not the terminal — so without this every test built
+  /// on top of this helper would silently stop seeing translated keys.
   private func attachedController() -> (OverlayController, NSWindow) {
     let c = OverlayController(width: 400, height: 240)
     let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                           styleMask: [.titled], backing: .buffered, defer: false)
     c.attach(to: parent)
     c.show()
+    c.focusTerminal()
     return (c, parent)
   }
 
@@ -782,6 +792,35 @@ final class ShimTests: XCTestCase {
     c.debugScrollToTop()
     c.debugSendKey(keyCode: 51, flags: .option)       // Option+⌫
     XCTAssertFalse(c.debugIsScrolledUp())
+  }
+
+  /// SwiftTerm's find bar puts an `NSSearchField` inside this same window, so
+  /// while the user is typing a search term, Option+⌫/←→ (word editing in the
+  /// field) must reach the field, not be translated to bytes for the pty.
+  func testOptionSpecialKeyIsLeftToAFocusedTextField() {
+    let (c, parent) = attachedController()
+    _ = parent
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    c.debugFocusForeignTextField()
+
+    c.debugSendKey(keyCode: 51, flags: .option)
+
+    XCTAssertEqual(sent, [], "the focused field owns this key, not the terminal")
+  }
+
+  /// Same as above for Shift+Enter: while a search field has focus, Shift+Enter
+  /// must not be hijacked into ESC CR for the agent.
+  func testShiftReturnIsLeftToAFocusedTextField() {
+    let (c, parent) = attachedController()
+    _ = parent
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    c.debugFocusForeignTextField()
+
+    c.debugSendKey(keyCode: 36, flags: .shift)
+
+    XCTAssertEqual(sent, [], "the focused field owns this key, not the terminal")
   }
 
   func testNonFiniteOrNonPositiveFontSizesAreIgnored() {
