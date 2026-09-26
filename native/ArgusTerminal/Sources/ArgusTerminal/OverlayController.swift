@@ -249,10 +249,17 @@ final class DropAwareTerminalView: TerminalView {
   var onCopyText: ((String) -> Void)?
 
   override func copy(_ sender: Any) {
-    guard let text = getSelection(), !text.isEmpty, let handler = onCopyText else {
+    // Only fall back to SwiftTerm's own (raw-row) copy when nobody is wired to
+    // handle it at all — the OverlayController case always sets this. With a
+    // handler present, an empty selection must do NOTHING: SwiftTerm's own
+    // `copy:` clears the pasteboard unconditionally before writing the
+    // (empty) selection, so `super.copy` here would empty whatever the user
+    // had copied moments before ⌘C landed on an unselected terminal tile.
+    guard let handler = onCopyText else {
       super.copy(sender)
       return
     }
+    guard let text = getSelection(), !text.isEmpty else { return }
     handler(text)
   }
 
@@ -390,8 +397,12 @@ final class DropAwareTerminalView: TerminalView {
   }
 
   /// Lines per wheel notch, matching xterm tiles (useTerminal.ts:
-  /// scrollSensitivity 3, fastScrollSensitivity 10 with Option).
-  static func scrollSensitivity(optionDown: Bool) -> CGFloat { optionDown ? 10 : 3 }
+  /// scrollSensitivity 3, fastScrollSensitivity 10 with Option). xterm's own
+  /// Viewport._applyScrollModifier multiplies the wheel delta by BOTH
+  /// fastScrollSensitivity AND scrollSensitivity when the fast-scroll
+  /// modifier (Option) is held — `amount * fastScrollSensitivity *
+  /// scrollSensitivity` — so the Option-held rate is 10 * 3 = 30, not 10.
+  static func scrollSensitivity(optionDown: Bool) -> CGFloat { optionDown ? 30 : 3 }
 
   /// Called for every scroll event before SwiftTerm handles it.
   private func prepareScroll(optionDown: Bool) {
@@ -1099,6 +1110,12 @@ final class DropAwareTerminalView: TerminalView {
   /// `copy(_:)` override AppKit invokes for ⌘C / Edit ▸ Copy.
   public func debugSelectAllAndCopy() {
     terminalView.selectAll(nil)
+    terminalView.copy(NSMenuItem())
+  }
+
+  /// Test seam: copies with NO selection made, exercising the same
+  /// `copy(_:)` override for the empty-selection case (Finding 4).
+  public func debugCopyWithoutSelecting() {
     terminalView.copy(NSMenuItem())
   }
 

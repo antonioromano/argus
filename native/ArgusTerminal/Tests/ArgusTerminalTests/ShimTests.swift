@@ -911,18 +911,21 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(c.debugFontPointSize(), 72)
   }
 
-  /// xterm tiles scroll 3 lines per notch, 10 with Option held
-  /// (scrollSensitivity / fastScrollSensitivity in useTerminal.ts).
+  /// xterm tiles scroll 3 lines per notch, and with Option held xterm's
+  /// Viewport._applyScrollModifier multiplies the wheel delta by BOTH
+  /// fastScrollSensitivity (10) AND scrollSensitivity (3) — i.e. 30, not just
+  /// fastScrollSensitivity on its own (Viewport.ts:
+  /// `amount * fastScrollSensitivity * scrollSensitivity`).
   func testWheelSensitivityMatchesXterm() {
     XCTAssertEqual(OverlayController.scrollSensitivity(optionDown: false), 3)
-    XCTAssertEqual(OverlayController.scrollSensitivity(optionDown: true), 10)
+    XCTAssertEqual(OverlayController.scrollSensitivity(optionDown: true), 30)
   }
 
   func testAScrollEventAppliesTheSensitivityForItsModifiers() {
     let (c, parent) = attachedController()
     _ = parent
     c.debugPrepareScroll(optionDown: true)
-    XCTAssertEqual(c.debugScrollSensitivity(), 10)
+    XCTAssertEqual(c.debugScrollSensitivity(), 30)
     c.debugPrepareScroll(optionDown: false)
     XCTAssertEqual(c.debugScrollSensitivity(), 3)
   }
@@ -1115,7 +1118,7 @@ final class ShimTests: XCTestCase {
       return
     }
     c.debugSendEvent(optionScroll)
-    XCTAssertEqual(c.debugScrollSensitivity(), 10)
+    XCTAssertEqual(c.debugScrollSensitivity(), 30)
 
     guard let plainCG = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: 3, wheel2: 0, wheel3: 0),
           let plainScroll = NSEvent(cgEvent: plainCG) else {
@@ -1138,6 +1141,27 @@ final class ShimTests: XCTestCase {
     c.debugSelectAllAndCopy()
     XCTAssertEqual(copied.count, 1)
     XCTAssertTrue(copied[0].contains("hello world"))
+  }
+
+  /// Finding 4: SwiftTerm's own `copy:` clears the pasteboard unconditionally
+  /// before writing the (empty) selection, so falling back to `super.copy`
+  /// when there is no selection emptied whatever the user had copied from
+  /// somewhere else, moments before ⌘C landed on an unselected terminal tile.
+  func testCopyWithNoSelectionLeavesTheClipboardAlone() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello world".utf8) as NSData)
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    pasteboard.setString("untouched", forType: .string)
+    var onCopyCalled = false
+    c.onCopy = { _ in onCopyCalled = true }
+
+    c.debugCopyWithoutSelecting()
+
+    XCTAssertEqual(pasteboard.string(forType: .string), "untouched", "the clipboard must not be cleared")
+    XCTAssertFalse(onCopyCalled, "no selection means no copy to hand to the host either")
   }
 }
 
