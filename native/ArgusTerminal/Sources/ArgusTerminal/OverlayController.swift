@@ -429,6 +429,18 @@ final class DropAwareTerminalView: TerminalView {
     }
     w.onOptionClick = { [weak self] event in
       guard let self else { return }
+      // A click on the find bar (an NSVisualEffectView/NSSearchField added as
+      // a SUBVIEW of terminalView itself — see debugFindBarVisible's doc
+      // comment) is still geometrically inside terminalView's own frame, so
+      // without this the cursor moved underneath an open find bar instead of
+      // leaving the click to the search field. hitTest's point must be in the
+      // terminal view's SUPERVIEW's coordinate system (Apple's contract for
+      // NSView.hitTest(_:)), and it recurses into subviews on its own, so it
+      // returns the find bar (or a view inside it) rather than terminalView
+      // whenever the point actually lands there.
+      guard let superview = self.terminalView.superview else { return }
+      let pointInSuperview = superview.convert(event.locationInWindow, from: nil)
+      guard self.terminalView.hitTest(pointInSuperview) === self.terminalView else { return }
       if let sel = self.terminalView.getSelection(), sel.count > 1 { return }   // a drag selected text
       let p = self.terminalView.convert(event.locationInWindow, from: nil)
       if let s = self.optionClickSequence(atViewPoint: p), !s.isEmpty {
@@ -500,21 +512,43 @@ final class DropAwareTerminalView: TerminalView {
     onOpenLink?(link as NSString)
   }
 
+  /// The true per-cell size SwiftTerm is laying the grid out at, derived from
+  /// its own public `getOptimalFrameSize()` (cellW = rect.width / cols, cellH
+  /// = rect.height / rows — the scroller is hidden, so no reserved width)
+  /// rather than `bounds.size / (cols, rows)`. The view's bounds are the hole
+  /// the host asked for, not necessarily a whole multiple of the cell size —
+  /// dividing bounds by cols/rows instead recovers a cell size that is
+  /// systematically too large by the remainder, and the resulting error
+  /// compounds toward the bottom-right corner (Bug 1: a click on the last row
+  /// or column landed up to a cell short).
+  private func trueCellSize() -> NSSize? {
+    let t = terminalView.getTerminal()
+    guard t.cols > 0, t.rows > 0 else { return nil }
+    let optimal = terminalView.getOptimalFrameSize()
+    guard optimal.width > 0, optimal.height > 0 else { return nil }
+    return NSSize(width: optimal.width / CGFloat(t.cols), height: optimal.height / CGFloat(t.rows))
+  }
+
+  /// Test seam: the cell size `optionClickSequence` actually uses.
+  public func debugCellSize() -> NSSize { trueCellSize() ?? .zero }
+
   /// The arrow-key sequence that moves the cursor to the cell under `p` (a
   /// point in the terminal view's coordinates), or nil when xterm would not
   /// move: scrolled up into history, or no usable geometry.
   public func optionClickSequence(atViewPoint p: NSPoint) -> String? {
     let t = terminalView.getTerminal()
     if terminalView.canScroll && terminalView.scrollPosition < 1 { return nil }
-    let size = terminalView.bounds.size
-    guard t.cols > 0, t.rows > 0, size.width > 0, size.height > 0 else { return nil }
-    let cellW = size.width / CGFloat(t.cols)
-    let cellH = size.height / CGFloat(t.rows)
-    // SwiftTerm's view is not flipped: y grows upward, row 0 is at the top.
-    let y = terminalView.isFlipped ? p.y : size.height - p.y
-    let col = min(t.cols - 1, max(0, Int(p.x / cellW)))
-    let row = min(t.rows - 1, max(0, Int(y / cellH)))
-    return MoveToCell.sequence(startX: t.buffer.x, startY: t.buffer.y, targetX: col, targetY: row,
+    guard let cell = trueCellSize() else { return nil }
+    // Mirrors SwiftTerm's own `calculateMouseHit` (MacTerminalView.swift
+    // ~2761) exactly: row is `(frame.height - point.y) / cellHeight`,
+    // unconditionally — `TerminalView` on Mac never overrides `isFlipped`
+    // (it stays the AppKit default, y-up, row 0 at the top), so there is no
+    // isFlipped branch to mirror there either.
+    let col = Int(p.x / cell.width)
+    let row = Int((terminalView.frame.height - p.y) / cell.height)
+    let colValue = min(t.cols - 1, max(0, col))
+    let rowValue = min(t.rows - 1, max(0, row))
+    return MoveToCell.sequence(startX: t.buffer.x, startY: t.buffer.y, targetX: colValue, targetY: rowValue,
                                cols: t.cols, applicationCursor: t.applicationCursor)
   }
 
@@ -1009,6 +1043,16 @@ final class DropAwareTerminalView: TerminalView {
   // externally-visible signal of its presence/visibility.
   public func debugFindBarVisible() -> Bool {
     terminalView.subviews.first(where: { $0 is NSVisualEffectView })?.isHidden == false
+  }
+
+  /// Test seam: adds an arbitrary subview inside the terminal view at
+  /// `frame`, standing in for SwiftTerm's own find bar — which does not lay
+  /// out with real geometry in a headless test run, but is, from the
+  /// Option+click hit-test guard's point of view, exactly this: some other
+  /// subview of `terminalView` that a click can land on instead of the
+  /// terminal itself.
+  public func debugAddOverlappingSubview(frame: NSRect) {
+    terminalView.addSubview(NSView(frame: frame))
   }
 
   /// Test seam: selects everything and copies it, exercising the same

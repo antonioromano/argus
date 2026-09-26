@@ -725,12 +725,17 @@ final class ShimTests: XCTestCase {
   /// The centre of grid cell (col, row) in the terminal view's own
   /// coordinates — the same conversion `optionClickSequence` does in reverse
   /// (not flipped: y grows upward, so row 0 is at the TOP, near `size.height`).
+  ///
+  /// Uses the TRUE cell size (`debugCellSize`, derived from SwiftTerm's own
+  /// `getOptimalFrameSize`), not `bounds.size / cols` — the view's bounds are
+  /// not necessarily an exact multiple of the cell size, and dividing bounds
+  /// by cols/rows recovers a cell size that is systematically too large by
+  /// the remainder, exactly the bug this helper must not reproduce.
   private func cellCenter(_ c: OverlayController, col: Int, row: Int) -> NSPoint {
     let size = c.debugTerminalViewFrame().size
-    let cellW = size.width / CGFloat(c.gridCols)
-    let cellH = size.height / CGFloat(c.gridRows)
-    let x = (CGFloat(col) + 0.5) * cellW
-    let y = size.height - (CGFloat(row) + 0.5) * cellH
+    let cell = c.debugCellSize()
+    let x = (CGFloat(col) + 0.5) * cell.width
+    let y = size.height - (CGFloat(row) + 0.5) * cell.height
     return NSPoint(x: x, y: y)
   }
 
@@ -973,6 +978,82 @@ final class ShimTests: XCTestCase {
     c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 2, timestamp: 0.1)
 
     XCTAssertEqual(sent, [], "a double-click is not a plain Option+click")
+  }
+
+  /// Bug 1: the old `optionClickSequence` derived cell size as
+  /// `bounds/cols, bounds/rows`, which is exact only when the hole happens to
+  /// be a whole multiple of the cell size — otherwise every cell is a hair
+  /// too large, and the error compounds toward the bottom-right corner until
+  /// the last row/column click lands one cell short. 407×487 at the default
+  /// font is not a clean multiple in either dimension (50 cols x 30 rows,
+  /// with a few points left over in both directions).
+  func testOptionClickHitsTheLastRowAndColumnEvenWhenTheHoleIsNotACellMultiple() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 407, height: 487)
+    c.feed(data: Data("x".utf8) as NSData)   // cursor at x=1, y=0
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let lastCol = c.gridCols - 1
+    let lastRow = c.gridRows - 1
+    let p = cellCenter(c, col: lastCol, row: lastRow)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.1)
+
+    let expected = MoveToCell.sequence(startX: 1, startY: 0, targetX: lastCol, targetY: lastRow,
+                                       cols: c.gridCols, applicationCursor: false)
+    XCTAssertEqual(sent, [Data(expected.utf8)], "must land exactly on the last cell, not one short")
+  }
+
+  /// Finding 7: SwiftTerm's find bar is a subview of the terminal view itself
+  /// (see `debugFindBarVisible`'s doc comment) — a click that lands on it is
+  /// still, geometrically, inside the terminal view's frame, so the old
+  /// unconditional Option+click handler moved the cursor underneath an open
+  /// find bar instead of leaving the click to the search field.
+  ///
+  /// The real find bar does not lay out with real geometry in a headless
+  /// test run (`openFindBar()` + `debugFindBarFrame()` reports `.zero` here,
+  /// even though `debugFindBarVisible()` reports it open) — not feasible to
+  /// drive end-to-end, so this exercises the same hit-test guard
+  /// (`terminalView.hitTest` from `terminalView`'s own superview) against a
+  /// stand-in subview at the click point, which is exactly what the find bar
+  /// is from the guard's point of view: some other subview of `terminalView`.
+  func testOptionClickOnASubviewOfTheTerminalViewDoesNothing() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)
+    let overlapping = NSRect(x: 0, y: 0, width: 50, height: 20)
+    c.debugAddOverlappingSubview(frame: overlapping)
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = NSPoint(x: overlapping.midX, y: overlapping.midY)
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.1)
+
+    XCTAssertEqual(sent, [], "a click on a subview of the terminal view must not move the cursor")
+  }
+
+  /// Sanity check alongside the guard test above: a click that misses every
+  /// subview (outside the stand-in's frame) must still move the cursor as
+  /// before — the guard must not swallow ordinary clicks on the terminal
+  /// itself.
+  func testOptionClickOutsideAnOverlappingSubviewStillMovesTheCursor() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello".utf8) as NSData)   // cursor at x=5, y=0
+    c.debugAddOverlappingSubview(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
+    var sent: [Data] = []
+    c.onInput = { sent.append($0 as Data) }
+    let p = cellCenter(c, col: 1, row: 0)   // well clear of the stand-in subview
+
+    c.debugSendMouse(.leftMouseDown, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0)
+    c.debugSendMouse(.leftMouseUp, atViewPoint: p, flags: [.option], clickCount: 1, timestamp: 0.1)
+
+    XCTAssertEqual(sent, [Data(String(repeating: "\u{1b}[D", count: 4).utf8)])
   }
 
   func testOptionClickDoesNothingIfOptionWasNotHeldOnMouseDown() {
