@@ -201,8 +201,12 @@ export class NativeTerminalHost {
           return;
         }
         this.scrolledUp.delete(sessionId);
-        if (this.refreshOwed.delete(sessionId) && this.shown.has(sessionId)) {
-          this.seed(sessionId, id);
+        if (this.refreshOwed.delete(sessionId)) {
+          // Mirrors reseedAfterFontChange: shown re-seeds now, hidden defers to
+          // applyVisibility's reveal seed (live output is dropped while
+          // unseeded, so the reveal seed covers it — nothing is lost).
+          if (this.shown.has(sessionId)) this.seed(sessionId, id);
+          else this.seeded.delete(sessionId);
         }
       } catch (err) {
         console.error('[native-term] scrolled-up handling failed for overlay', id, err);

@@ -220,6 +220,20 @@ test('returning to the bottom with nothing held back feeds nothing', () => {
   assert.ok(!calls.some((c) => c.startsWith('feed:')));
 });
 
+test('a refresh owed on return-to-bottom is not lost if the overlay is hidden at that moment', () => {
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host, emitReplay } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireScrolledUp(1, true);
+  emitReplay('s1', 'FRAME');           // owed while scrolled up
+  host.setRect('s1', { x: 0, y: 0, width: 0, height: 0 });   // hole goes off screen — hides the overlay
+  calls.length = 0;
+  fireScrolledUp(1, false);            // returns to the bottom while still hidden
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+  host.setRect('s1', RECT);            // hole comes back — reveal seeds
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+});
+
 test('output for an unattached session is ignored', () => {
   const { addon, calls } = fakeAddon();
   const { host, emitOutput } = harness(addon);
