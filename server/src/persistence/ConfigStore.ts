@@ -40,6 +40,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   tileRunningIndicator: 'hairline',
   quickActionPromptedAt: '',
   defaultTerminalEngine: 'web',
+  defaultRunMode: 'persistent',
+  confirmQuitDirectSessions: true,
 };
 
 export class ConfigStore {

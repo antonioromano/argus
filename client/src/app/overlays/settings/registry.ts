@@ -124,7 +124,7 @@ export const PANES: readonly PaneDef[] = [
     label: 'Confirmations',
     group: 'Behavior',
     icon: ShieldAlert,
-    keys: ['confirmCloseShell', 'exitSessionsOnQuit', 'confirmExitOnQuit'],
+    keys: ['confirmCloseShell', 'exitSessionsOnQuit', 'confirmExitOnQuit', 'confirmQuitDirectSessions'],
     keywords: ['confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning'],
   },
   {
@@ -148,7 +148,7 @@ export const PANES: readonly PaneDef[] = [
     label: 'Runtime',
     group: 'System',
     icon: Server,
-    keys: ['ptyBackend', 'defaultTerminalEngine'],
+    keys: ['ptyBackend', 'defaultTerminalEngine', 'defaultRunMode'],
     keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web'],
   },
   {
@@ -272,6 +272,8 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'tileQuickAction',
   'tileRunningIndicator',
   'defaultTerminalEngine',
+  'defaultRunMode',
+  'confirmQuitDirectSessions',
 ];
 
 export function resetPatch(): Partial<AppConfig> {

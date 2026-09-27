@@ -54,7 +54,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, defaultTerminalEngine } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -121,6 +121,12 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       defaultTerminalEngine: (defaultTerminalEngine === 'web' || defaultTerminalEngine === 'native')
         ? defaultTerminalEngine
         : current.defaultTerminalEngine,
+      defaultRunMode: (defaultRunMode === 'persistent' || defaultRunMode === 'direct')
+        ? defaultRunMode
+        : current.defaultRunMode,
+      confirmQuitDirectSessions: confirmQuitDirectSessions !== undefined
+        ? !!confirmQuitDirectSessions
+        : current.confirmQuitDirectSessions,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

@@ -202,6 +202,8 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     tileRunningIndicator: 'off',
     quickActionPromptedAt: '0.23.0',
     defaultTerminalEngine: 'native',
+    defaultRunMode: 'direct',
+    confirmQuitDirectSessions: false,
   };
 
   // The list above used to be maintained by hand against a comment, and
@@ -230,4 +232,10 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     else if (stored !== expected) dropped.push(`${key}: stored ${stored}, sent ${expected}`);
   }
   assert.deepEqual(dropped, [], `PUT /api/config dropped or mangled fields:\n  ${dropped.join('\n  ')}`);
+});
+
+test('PUT /api/config rejects an unknown defaultRunMode and keeps the current value', async () => {
+  await put({ defaultRunMode: 'direct' });
+  const { body } = await put({ defaultRunMode: 'sometimes' });
+  assert.equal((body as Record<string, unknown>).defaultRunMode, 'direct');
 });
