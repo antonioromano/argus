@@ -14,6 +14,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   TerminalEngine,
+  RunMode,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
@@ -24,6 +25,7 @@ import { computeSignalToken } from './agentSignals/token.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
+import { DirectBackend } from './ptyBackend/DirectBackend.js';
 import type { PtyBackend } from './ptyBackend/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
@@ -85,6 +87,8 @@ interface ManagedSession {
   rows?: number;
   /** True when the agent runs inside tmux and survives an app quit. */
   persistent: boolean;
+  /** How the agent is hosted; fixed at creation (spec D5). */
+  runMode: RunMode;
   /**
    * Set on tmux reattach: the repaint burst can read as running→idle, which
    * would falsely promote every restored session to 'done'. Swallows exactly
@@ -296,6 +300,8 @@ export class SessionManager {
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
+  /** Direct run mode: plain node-pty, no daemon/tmux, nothing survives a quit. */
+  private directBackend: PtyBackend;
 
   /** Deferred idle-geometry resizes, so a transient viewer loss costs no SIGWINCH. */
   private idleGeometry = new IdleGeometryGate(IDLE_GEOMETRY_DELAY_MS, (id) => this.applyIdleGeometry(id));
@@ -311,6 +317,7 @@ export class SessionManager {
     this.sleepPrevention = sleepPrevention;
     this.ptyManager = new PtyManager(dataDir);
     this.backend = makePtyBackend(this.ptyManager, dataDir);
+    this.directBackend = new DirectBackend(this.ptyManager);
     this.wireBackend();
   }
 
@@ -478,7 +485,7 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine): Promise<SessionInfo> {
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine, runMode?: RunMode, restoreExited = false): Promise<SessionInfo> {
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -525,6 +532,8 @@ export class SessionManager {
     // Resolve agent type: explicit > config default > 'claude'
     const config = await this.configStore.load();
     const resolvedAgentType = agentType || config.defaultAgent || 'claude';
+    const resolvedRunMode = this.normalizeRunMode(runMode, config.defaultRunMode ?? 'persistent');
+    const backend = this.backendFor({ runMode: resolvedRunMode });
 
     // Reject any agentType that doesn't resolve to a registered agent — otherwise
     // `command = agentDef?.command ?? resolvedAgentType` turns an arbitrary string
@@ -575,10 +584,10 @@ export class SessionManager {
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
     // the tmux backend (diagnostics/legacy); the daemon backend keys off id.
-    const persistent = this.backend.isPersistent();
-    const tmuxName = persistent && this.backend.kind === 'tmux' ? tmuxSessionName(id) : undefined;
-    await this.backend.ready?.();
-    const ptyProcess = this.backend.spawn({
+    const persistent = backend.isPersistent();
+    const tmuxName = persistent && backend.kind === 'tmux' ? tmuxSessionName(id) : undefined;
+    await backend.ready?.();
+    const ptyProcess = backend.spawn({
       sessionId: id,
       folderPath: effectiveFolderPath,
       command,
@@ -598,7 +607,7 @@ export class SessionManager {
     // scrollback until new output arrives. The backend seeds it — tmux via one
     // capture-pane feed (queued ahead of the attach-repaint), daemon via the
     // ring the attach already replayed through onData.
-    if (attachExisting) this.backend.seedMirror(id, mirror);
+    if (attachExisting) backend.seedMirror(id, mirror);
     // Restored sessions (existingId set) start neutral, never synthetic 'running':
     // a 'running' baseline makes the first settle look like running→idle and get
     // promoted to a false 'done' on every app/Mac restart. Genuinely new sessions
@@ -625,6 +634,7 @@ export class SessionManager {
       terminalEngine: this.normalizeTerminalEngine(terminalEngine),
       tmuxName,
       persistent,
+      runMode: resolvedRunMode,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -705,8 +715,9 @@ export class SessionManager {
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
-    this.backend.detach(session.pty);   // detach our client (tmux) / stop receiving (daemon)
-    this.backend.stopSession(id);        // actually stop the agent
+    const backend = this.backendFor(session);
+    backend.detach(session.pty);   // detach our client (tmux) / stop receiving (daemon)
+    backend.stopSession(id);        // actually stop the agent
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
@@ -731,14 +742,15 @@ export class SessionManager {
     session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
-    this.backend.detach(session.pty);
+    const backend = this.backendFor(session);
+    backend.detach(session.pty);
     // Discard the surviving conversation so restart is a real restart — and wait
     // for the backend to release the id. The daemon reports the old agent's exit
     // a few ms after the kill, keyed by session id only; spawning the replacement
     // first meant that stale exit landed on the FRESH pty and marked the shell
     // exited, so the restarted terminal looked hung until a second restart.
-    if (this.backend.stopSessionAndWait) await this.backend.stopSessionAndWait(id);
-    else this.backend.stopSession(id);
+    if (backend.stopSessionAndWait) await backend.stopSessionAndWait(id);
+    else backend.stopSession(id);
     this.companionTerminals.kill(id);
 
     // Reset state
@@ -791,8 +803,8 @@ export class SessionManager {
     session.nativeState = undefined;
     const spawnFlags = inj?.flags ?? session.flags;
     const spawnEnv = inj?.env ?? {};
-    await this.backend.ready?.();
-    const ptyProcess = this.backend.spawn({
+    await backend.ready?.();
+    const ptyProcess = backend.spawn({
       sessionId: id,
       folderPath: session.folderPath,
       command,
@@ -1440,7 +1452,7 @@ export class SessionManager {
     // mouse reports as client input); daemon via a plain pty write. Returning
     // early keeps scrolling from tripping hasUserInputSinceIdle / clearing 'done'.
     if (isWheelReport(data)) {
-      this.backend.writeWheel(id, session.pty, data);
+      this.backendFor(session).writeWheel(id, session.pty, data);
       return;
     }
 
@@ -1705,7 +1717,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent');
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1736,6 +1748,7 @@ export class SessionManager {
       worktreeBranch: session.worktreeBranch,
       lastPrompt: session.lastPrompt,
       terminalEngine: session.terminalEngine,
+      runMode: session.runMode,
     };
   }
 
@@ -1743,6 +1756,16 @@ export class SessionManager {
    *  renderer falls back to the app default rather than persisting garbage. */
   private normalizeTerminalEngine(value: unknown): TerminalEngine | undefined {
     return value === 'web' || value === 'native' ? value : undefined;
+  }
+
+  /** The backend hosting this session's agent: direct sessions bypass the
+   *  daemon/tmux; everything else uses the app-wide persistent backend. */
+  private backendFor(s: { runMode?: RunMode }): PtyBackend {
+    return s.runMode === 'direct' ? this.directBackend : this.backend;
+  }
+
+  private normalizeRunMode(value: unknown, fallback: RunMode): RunMode {
+    return value === 'persistent' || value === 'direct' ? value : fallback;
   }
 
   /**
@@ -1759,7 +1782,7 @@ export class SessionManager {
       try {
         session.stateDetector.destroy();
         session.mirror?.dispose();
-        this.backend.detach(session.pty); // detach only; agent survives the quit
+        this.backendFor(session).detach(session.pty); // detach only; agent survives the quit
       } catch {
         // pty may already be dead — continue to next session
       }
@@ -1775,6 +1798,7 @@ export class SessionManager {
    */
   async stopAllAndShutdown(): Promise<void> {
     this.backend.stopAll(); // terminate every agent (tmux: kill server; daemon: kill-all + exit)
+    this.directBackend.stopAll();
     await this.shutdown();
   }
 
@@ -1793,6 +1817,7 @@ export class SessionManager {
         worktreePath: s.worktreePath,
         worktreeBranch: s.worktreeBranch,
         terminalEngine: s.terminalEngine,
+        runMode: s.runMode,
       }));
       await this.store.save(data);
     });

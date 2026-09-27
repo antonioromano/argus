@@ -1,7 +1,7 @@
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { atomicWrite } from '../utils/atomicWrite.js';
-import type { TerminalEngine } from '@argus/shared';
+import type { RunMode, TerminalEngine } from '@argus/shared';
 
 export interface PersistedSession {
   id: string;
@@ -13,6 +13,7 @@ export interface PersistedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   terminalEngine?: TerminalEngine;
+  runMode?: RunMode;
 }
 
 export class SessionStore {
