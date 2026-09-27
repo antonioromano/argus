@@ -39,7 +39,7 @@ final class KeyableWindow: NSWindow {
     // input, and those must not move the reader's scroll position.
     if event.type == .keyDown, isTerminalFocused?() ?? true {
       let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-      if !f.contains(.command) { onUserKeyDown?() }
+      if !f.contains(.command) { onUserKeyDown?(event) }
     }
     if event.type == .keyDown, !(isComposingText?() ?? false), isTerminalFocused?() ?? true {
       if KeyableWindow.isShiftReturn(event), let handler = onShiftEnter {
@@ -131,7 +131,7 @@ final class KeyableWindow: NSWindow {
   /// Called for every user keyDown while the terminal is focused (see
   /// sendEvent's doc comment) so the controller can return a scrolled-up
   /// reader to the bottom, matching xterm's scrollOnUserInput.
-  var onUserKeyDown: (() -> Void)?
+  var onUserKeyDown: ((NSEvent) -> Void)?
 
   /// Called for every scroll event before SwiftTerm handles it, so the
   /// controller can set the sensitivity for this notch's modifiers.
@@ -467,8 +467,16 @@ final class DropAwareTerminalView: TerminalView {
     // every user keystroke, unconditionally — see sendEvent's doc comment for
     // why SwiftTerm's own ensureCaretIsVisible (inside send(data:), triggered
     // above) is not enough on its own.
-    w.onUserKeyDown = { [weak self] in
-      guard let v = self?.terminalView, v.canScroll, v.scrollPosition < 1 else { return }
+    w.onUserKeyDown = { [weak self] event in
+      guard let self else { return }
+      // Except the keys SwiftTerm uses to page its own history: snapping to
+      // the bottom first made a second PageUp land one page up again and sent
+      // every PageDown straight to the bottom.
+      if OverlayController.pagesHistoryLocally(event, applicationCursor: self.terminalView.getTerminal().applicationCursor) {
+        return
+      }
+      let v = self.terminalView
+      guard v.canScroll, v.scrollPosition < 1 else { return }
       v.scroll(toPosition: 1)
     }
     w.onOptionClick = { [weak self] event in
@@ -801,6 +809,18 @@ final class DropAwareTerminalView: TerminalView {
   public func debugIgnoresMouseEvents() -> Bool { window?.ignoresMouseEvents ?? false }
   public func debugCanBecomeKey() -> Bool { window?.canBecomeKey ?? false }
   public func debugAllowsMouseReporting() -> Bool { terminalView.allowMouseReporting }
+  public func debugScrollPosition() -> Double { terminalView.scrollPosition }
+
+  /// True for the keys SwiftTerm handles by paging its own scrollback instead
+  /// of sending them to the pty: unmodified PageUp/PageDown while the app has
+  /// not switched on application-cursor mode (keyDown's isUnmodifiedPageKey
+  /// in SwiftTerm's MacTerminalView). Fn+↑/↓ arrive as the same key codes.
+  static func pagesHistoryLocally(_ event: NSEvent, applicationCursor: Bool) -> Bool {
+    guard event.keyCode == 116 || event.keyCode == 121, !applicationCursor else { return false }
+    let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      .subtracting([.function, .numericPad, .capsLock])
+    return f.isEmpty
+  }
   public func debugScrollToTop() { terminalView.scroll(toPosition: 0) }
   public func debugScrollToBottom() { terminalView.scroll(toPosition: 1) }
   /// Test seam: scrolls up by exactly `lines` from wherever the view

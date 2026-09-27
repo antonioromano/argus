@@ -1163,6 +1163,62 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(pasteboard.string(forType: .string), "untouched", "the clipboard must not be cleared")
     XCTAssertFalse(onCopyCalled, "no selection means no copy to hand to the host either")
   }
+
+  /// SwiftTerm pages its own history on unmodified PageUp/PageDown (outside
+  /// application-cursor mode). The "any keystroke returns to the bottom" hook
+  /// must leave those keys alone, or PageUp snaps back first and PageDown
+  /// always lands at the bottom.
+  func testPageUpAndPageDownPageThroughHistory() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 300).utf8) as NSData)
+    c.debugScrollToBottom()
+    let pageUp = String(Character(UnicodeScalar(NSPageUpFunctionKey)!))
+    let pageDown = String(Character(UnicodeScalar(NSPageDownFunctionKey)!))
+
+    c.debugSendKey(keyCode: 116, flags: [.function], characters: pageUp)
+    let afterOne = c.debugScrollPosition()
+    c.debugSendKey(keyCode: 116, flags: [.function], characters: pageUp)
+    let afterTwo = c.debugScrollPosition()
+    XCTAssertLessThan(afterOne, 1, "first PageUp leaves the bottom")
+    XCTAssertLessThan(afterTwo, afterOne, "second PageUp goes a page further, not back to the bottom first")
+
+    c.debugSendKey(keyCode: 121, flags: [.function], characters: pageDown)
+    let afterDown = c.debugScrollPosition()
+    XCTAssertGreaterThan(afterDown, afterTwo, "PageDown moves down")
+    XCTAssertLessThan(afterDown, 1, "one PageDown from two pages up is not the bottom")
+  }
+
+  /// Only unmodified PageUp/PageDown outside application-cursor mode page
+  /// locally; otherwise SwiftTerm sends the key to the app, and the key counts
+  /// as typing (returns the reader to the bottom).
+  func testOnlyUnmodifiedPageKeysOutsideAppCursorPageLocally() {
+    func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+      NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                       windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+                       isARepeat: false, keyCode: code)!
+    }
+    XCTAssertTrue(OverlayController.pagesHistoryLocally(key(116, [.function]), applicationCursor: false))
+    XCTAssertTrue(OverlayController.pagesHistoryLocally(key(121, [.function]), applicationCursor: false))
+    XCTAssertFalse(OverlayController.pagesHistoryLocally(key(116, [.function]), applicationCursor: true))
+    XCTAssertFalse(OverlayController.pagesHistoryLocally(key(116, [.function, .shift]), applicationCursor: false))
+    XCTAssertFalse(OverlayController.pagesHistoryLocally(key(126, [.function]), applicationCursor: false))
+  }
+
+  /// Any other key still returns a scrolled-up reader to the bottom.
+  func testOtherKeysStillReturnToTheBottomAfterPaging() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 300).utf8) as NSData)
+    c.debugScrollToBottom()
+    let pageUp = String(Character(UnicodeScalar(NSPageUpFunctionKey)!))
+    c.debugSendKey(keyCode: 116, flags: [.function], characters: pageUp)
+    XCTAssertTrue(c.debugIsScrolledUp())
+    c.debugSendKey(keyCode: 0, flags: [], characters: "a")
+    XCTAssertFalse(c.debugIsScrolledUp())
+  }
 }
 
 private extension NSColor {
