@@ -30,6 +30,15 @@ export function ConfirmationsPane({ config, onSave }: PaneProps) {
         >
           <Toggle checked={exitOnQuit} onChange={(v) => onSave({ exitSessionsOnQuit: v })} />
         </SettingRow>
+        <SettingRow
+          label="Confirm quitting with direct sessions"
+          hint="Direct sessions stop when Argus quits. Ask before ⌘Q stops ones that are still running."
+        >
+          <Toggle
+            checked={config.confirmQuitDirectSessions !== false}
+            onChange={(v) => onSave({ confirmQuitDirectSessions: v })}
+          />
+        </SettingRow>
         {/* Only meaningful while Quit actually terminates: with the switch above
             off, ⌘Q detaches and there is nothing to confirm. */}
         {exitOnQuit && (

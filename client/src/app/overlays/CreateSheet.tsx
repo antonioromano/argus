@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X, AlertTriangle } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -17,6 +17,7 @@ import {
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { EngineChoice } from '../ui/EngineChoice.js';
+import { RunModeChoice } from '../ui/RunModeChoice.js';
 import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
@@ -24,7 +25,7 @@ interface CreateSheetProps {
   config: AppConfig | null;
   initialFolderPath?: string | null;
   onClose: () => void;
-  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine) => Promise<void>;
+  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -77,6 +78,7 @@ export function CreateSheet({
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState<string>(config?.defaultAgent ?? 'claude');
   const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(config?.defaultTerminalEngine ?? 'web');
+  const [runMode, setRunMode] = useState<RunMode>(config?.defaultRunMode ?? 'persistent');
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [creating, setCreating] = useState(false);
@@ -315,7 +317,7 @@ export function CreateSheet({
     setError(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine);
+      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');
     } finally {
@@ -734,6 +736,10 @@ export function CreateSheet({
               );
             })}
           </div>
+        </Field>
+
+        <Field label="Run mode">
+          <RunModeChoice value={runMode} onChange={setRunMode} />
         </Field>
 
         <Field label="Terminal engine">

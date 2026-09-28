@@ -261,6 +261,11 @@ export function Focus({
               </span>
             </Tooltip>
             )}
+            {active.runMode === 'direct' && (
+              <Tooltip content="Direct session — stops when Argus quits">
+                <span className="argus-tile-branch">Direct</span>
+              </Tooltip>
+            )}
             {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <div style={{ flex: 1 }} />
             <Button

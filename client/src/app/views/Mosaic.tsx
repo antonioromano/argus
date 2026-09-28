@@ -842,6 +842,11 @@ function MosaicTileInner({
             <span className="argus-tile-branch">{session.worktreeBranch.replace(/^argus\//, '')}</span>
           </Tooltip>
         )}
+        {session.runMode === 'direct' && (
+          <Tooltip content="Direct session — stops when Argus quits">
+            <span className="argus-tile-branch">Direct</span>
+          </Tooltip>
+        )}
         {session.hasGitChanges && (
           <Tooltip content="Uncommitted changes">
             <span className="argus-tile-dirty" />

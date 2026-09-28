@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentFlag, AppConfig, TerminalEngine } from '@argus/shared';
+import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Copy, Check, GitBranch, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { Toggle } from '../../components/primitives/index.js';
@@ -15,6 +15,7 @@ import {
   AlertSheet,
 } from '../../components/primitives/index.js';
 import { EngineChoice } from '../ui/EngineChoice.js';
+import { RunModeChoice } from '../ui/RunModeChoice.js';
 import { ENGINE_NOTE_CREATE } from '../ui/terminalEngineCopy.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
@@ -23,8 +24,9 @@ interface CloneSheetProps {
   folderPath: string;
   currentAgentType?: string;
   currentTerminalEngine?: TerminalEngine;
+  currentRunMode?: RunMode;
   onClose: () => void;
-  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine) => Promise<void>;
+  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -33,6 +35,7 @@ export function CloneSheet({
   folderPath,
   currentAgentType,
   currentTerminalEngine,
+  currentRunMode,
   onClose,
   onClone,
   onSaveFlag,
@@ -43,6 +46,11 @@ export function CloneSheet({
   // app default, then 'web', only when the source never had a preference.
   const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(
     currentTerminalEngine ?? config?.defaultTerminalEngine ?? 'web',
+  );
+  // Same reasoning as terminalEngine: the source's run mode wins, then the app
+  // default, then persistent.
+  const [runMode, setRunMode] = useState<RunMode>(
+    currentRunMode ?? config?.defaultRunMode ?? 'persistent',
   );
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
@@ -100,7 +108,7 @@ export function CloneSheet({
     try {
       const flags = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       const branch = (isGitRepo && useWorktree) ? branchName.trim() : undefined;
-      await onClone(folderPath, agentId, flags, branch || undefined, terminalEngine);
+      await onClone(folderPath, agentId, flags, branch || undefined, terminalEngine, runMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
@@ -282,6 +290,10 @@ export function CloneSheet({
               );
             })}
           </div>
+        </Field>
+
+        <Field label="Run mode">
+          <RunModeChoice value={runMode} onChange={setRunMode} />
         </Field>
 
         <Field label="Terminal engine">

@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
 import { EngineChoice } from '../../../ui/EngineChoice.js';
+import { RunModeChoice } from '../../../ui/RunModeChoice.js';
 import { ENGINE_NOTE_DEFAULT } from '../../../ui/terminalEngineCopy.js';
 import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
 import type { PaneProps } from '../types.js';
@@ -83,6 +84,12 @@ export function RuntimePane({ config, onSave }: PaneProps) {
             {ENGINE_NOTE_DEFAULT}
           </p>
         </div>
+      </Section>
+
+      <Section title="Run mode">
+        <SettingRow label="Default for new sessions" hint="Direct runs the agent like ⌘T and stops it when Argus quits. Persistent survives restarts.">
+          <RunModeChoice value={config.defaultRunMode ?? 'persistent'} onChange={(v) => onSave({ defaultRunMode: v })} />
+        </SettingRow>
       </Section>
     </>
   );

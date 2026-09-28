@@ -125,7 +125,7 @@ export const PANES: readonly PaneDef[] = [
     group: 'Behavior',
     icon: ShieldAlert,
     keys: ['confirmCloseShell', 'exitSessionsOnQuit', 'confirmExitOnQuit', 'confirmQuitDirectSessions'],
-    keywords: ['confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning'],
+    keywords: ['confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning', 'direct'],
   },
   {
     id: 'notifications',
@@ -149,7 +149,7 @@ export const PANES: readonly PaneDef[] = [
     group: 'System',
     icon: Server,
     keys: ['ptyBackend', 'defaultTerminalEngine', 'defaultRunMode'],
-    keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web'],
+    keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent'],
   },
   {
     id: 'power',
