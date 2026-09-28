@@ -580,7 +580,10 @@ function DesktopInner() {
     const src = meta ?? (session ? { folderPath: session.folderPath, name: session.name, agentType: session.agentType, flags: session.flags } : null);
     if (!src) return;
     try {
-      const created = await createSession(src.folderPath, src.name, src.agentType, src.flags);
+      // FavoriteEntryMeta (a ghost favorite with no live session) carries
+      // neither field, so those keep using createSession's defaults — only a
+      // still-live source session's own engine/run mode carries through.
+      const created = await createSession(src.folderPath, src.name, src.agentType, src.flags, undefined, undefined, session?.terminalEngine, session?.runMode);
       await claimForThisWindow(created.id);
       addToRecentFolders(src.folderPath);
       groups.toggleFavorite(created);

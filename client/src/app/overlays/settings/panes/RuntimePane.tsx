@@ -28,7 +28,8 @@ export function RuntimePane({ config, onSave }: PaneProps) {
       type: 'question',
       message: target === 'auto' ? 'Switch to the argusd daemon backend?' : 'Switch to the legacy tmux backend?',
       detail:
-        'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts.',
+        'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts. '
+        + 'Direct sessions stop on restart.',
       buttons: ['Cancel', 'Apply on next launch', 'Restart now'],
       defaultId: 2,
       cancelId: 0,
