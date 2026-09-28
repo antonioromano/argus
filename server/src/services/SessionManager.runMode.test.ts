@@ -12,6 +12,7 @@ const cfg = (defaultRunMode?: 'persistent' | 'direct') => ({
 
 function fakeBackend(kind: string, persistent: boolean) {
   const log: string[] = [];
+  const spawnOpts: any[] = [];
   const pty = () => ({
     pid: 1, cols: 120, rows: 30, process: 'x', handleFlowControl: false,
     onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }),
@@ -19,9 +20,10 @@ function fakeBackend(kind: string, persistent: boolean) {
   });
   return {
     log,
+    spawnOpts,
     b: {
       kind, isPersistent: () => persistent,
-      spawn: (o: any) => { log.push(`spawn:${o.sessionId}`); return pty(); },
+      spawn: (o: any) => { log.push(`spawn:${o.sessionId}`); spawnOpts.push(o); return pty(); },
       seedMirror: () => {}, writeWheel: (id: string) => log.push(`wheel:${id}`),
       detach: () => log.push('detach'), stopSession: (id: string) => log.push(`stop:${id}`),
       stopAll: () => log.push('stopAll'), listSurvivors: async () => new Set<string>(),
@@ -146,4 +148,14 @@ test('a record without runMode restores as persistent, exactly as before', async
   const s = sm.getAllSessions().find((x) => x.id === 'r1')!;
   assert.equal(s.runMode, 'persistent');
   assert.ok(persistent.log.includes('spawn:r1'), persistent.log.join(','));
+});
+
+test('resizing a restored placeholder before Restart makes the fresh agent spawn at that grid', async () => {
+  const { sm, direct } = await restoreWith([rec({ runMode: 'direct' })]);
+  sm.resizeSession('r1', 90, 30);
+  await sm.restartSession('r1');
+  const spawned = direct.spawnOpts.find((o: any) => o.sessionId === 'r1');
+  assert.ok(spawned, direct.log.join(','));
+  assert.equal(spawned.cols, 90);
+  assert.equal(spawned.rows, 30);
 });

@@ -1482,7 +1482,15 @@ export class SessionManager {
   resizeSession(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
-    if (session.status === 'exited') return;
+    if (session.status === 'exited') {
+      // No pty or detector to resize, but an exited placeholder (e.g. a restored
+      // direct session) still needs to remember the tile's grid: restartSession
+      // falls back to session.cols/rows, and the client won't resend the size
+      // after Restart if it's unchanged (ResizeEmitGate drops repeats).
+      session.cols = cols;
+      session.rows = rows;
+      return;
+    }
     // Clients refit on plenty of triggers that don't change the grid (visibility,
     // global terminal:refit, a sibling tile appearing). Re-applying the same size
     // is a no-op at the ioctl (TIOCSWINSZ only signals on an actual change) but it
