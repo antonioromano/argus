@@ -1344,6 +1344,18 @@ function killTmuxServerBestEffort(): void {
   }
 }
 
+// Shows a quit-confirmation dialog attached to the main window when it's actually
+// visible; otherwise the window is hidden (closed to tray/dock) and parenting to it
+// would show the sheet on an invisible window, making ⌘Q appear to do nothing.
+function showQuitDialog(opts: Electron.MessageBoxOptions) {
+  const win = getMainWindow();
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    return dialog.showMessageBox(win, opts);
+  }
+  app.focus({ steal: true });
+  return dialog.showMessageBox(opts);
+}
+
 let quitting = false;
 app.on('before-quit', (e) => {
   if (quitting) return;
@@ -1414,9 +1426,7 @@ app.on('before-quit', (e) => {
       checkboxLabel: "Don't ask again",
       checkboxChecked: false,
     };
-    const win = getMainWindow();
-    const dlg = win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
-    dlg
+    showQuitDialog(opts)
       .then((r) => {
         if (r.response === 0) return; // Cancel — stay open, sessions untouched.
         if (r.checkboxChecked) setConfirmExitOnQuit?.(false).catch(console.error);
@@ -1440,9 +1450,7 @@ app.on('before-quit', (e) => {
       checkboxLabel: "Don't ask again",
       checkboxChecked: false,
     };
-    const win = getMainWindow();
-    const dlg = win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
-    dlg
+    showQuitDialog(opts)
       .then((r) => {
         if (r.response === 0) return; // Cancel — stay open, sessions untouched.
         if (r.checkboxChecked) setConfirmQuitDirectSessions?.(false).catch(console.error);
