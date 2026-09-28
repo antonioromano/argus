@@ -1441,9 +1441,10 @@ app.on('before-quit', (e) => {
     const extra = decision.sessions.length > 10 ? `\n…and ${decision.sessions.length - 10} more` : '';
     const opts = {
       type: 'warning' as const,
-      title: 'Stop direct sessions?',
-      message: `Quitting will stop ${decision.sessions.length} direct session${decision.sessions.length === 1 ? '' : 's'}.`,
-      detail: `Direct sessions run like ⌘T and stop when Argus quits:\n\n${names}${extra}\n\nPersistent sessions keep running in the background.`,
+      title: 'Quit Argus?',
+      // macOS shows `message` as the bold headline; `title` is ignored there.
+      message: `Quit and stop ${decision.sessions.length} session${decision.sessions.length === 1 ? '' : 's'}?`,
+      detail: `These sessions end when Argus quits:\n\n${names}${extra}\n\nThey'll stay in your list with a Restart button. Everything else keeps running.`,
       buttons: ['Cancel', 'Quit'],
       defaultId: 1,
       cancelId: 0,
