@@ -128,14 +128,24 @@ export async function setConfirmExitOnQuit(value: boolean): Promise<void> {
   applyConfig(updated);
   await configStore.save(updated);
 }
-// Name, status and engine for every live (non-exited) session — used to
-// populate the "exit all sessions" confirmation dialog, which labels each one
-// so it is clear what is about to be stopped.
-export function getActiveSessionSummaries(): { name: string; status: string; terminalEngine?: string }[] {
+export function getConfirmQuitDirectSessions(): boolean {
+  return currentConfig?.confirmQuitDirectSessions !== false;
+}
+export async function setConfirmQuitDirectSessions(value: boolean): Promise<void> {
+  const cfg = currentConfig ?? (await configStore.load());
+  const updated = { ...cfg, confirmQuitDirectSessions: value };
+  applyConfig(updated);
+  await configStore.save(updated);
+}
+// Name, status, engine and run mode for every live (non-exited) session — used
+// to populate the "exit all sessions" and "stop direct sessions" quit
+// confirmation dialogs, which label each one so it is clear what is about to
+// be stopped.
+export function getActiveSessionSummaries(): { name: string; status: string; terminalEngine?: string; runMode?: 'persistent' | 'direct' }[] {
   return sessionManager
     .getAllSessions()
     .filter((s) => s.status !== 'exited')
-    .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine }));
+    .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine, runMode: s.runMode ?? 'persistent' }));
 }
 const agentRegistry = new AgentRegistry();
 

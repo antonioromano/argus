@@ -10,6 +10,8 @@ import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { decideQuitConfirmation } from './quitPolicy.js';
+import type { QuitSummary } from './quitPolicy.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
@@ -409,7 +411,9 @@ let shutdownServerStoppingAll: (() => Promise<void>) | null = null;
 let getExitSessionsOnQuit: (() => boolean) | null = null;
 let getConfirmExitOnQuit: (() => boolean) | null = null;
 let setConfirmExitOnQuit: ((v: boolean) => Promise<void>) | null = null;
-let getActiveSessionSummaries: (() => { name: string; status: string; terminalEngine?: string }[]) | null = null;
+let getConfirmQuitDirectSessions: (() => boolean) | null = null;
+let setConfirmQuitDirectSessions: ((v: boolean) => Promise<void>) | null = null;
+let getActiveSessionSummaries: (() => QuitSummary[]) | null = null;
 
 // Window-registry entry points, captured from the in-process server in main().
 interface WindowRegistryStateLike {
@@ -1177,7 +1181,9 @@ async function main() {
   getExitSessionsOnQuit = server.getExitSessionsOnQuit as () => boolean;
   getConfirmExitOnQuit = server.getConfirmExitOnQuit as () => boolean;
   setConfirmExitOnQuit = server.setConfirmExitOnQuit as (v: boolean) => Promise<void>;
-  getActiveSessionSummaries = server.getActiveSessionSummaries as () => { name: string; status: string; terminalEngine?: string }[];
+  getConfirmQuitDirectSessions = server.getConfirmQuitDirectSessions as () => boolean;
+  setConfirmQuitDirectSessions = server.setConfirmQuitDirectSessions as (v: boolean) => Promise<void>;
+  getActiveSessionSummaries = server.getActiveSessionSummaries as () => QuitSummary[];
 
   hostCreateWindowFn = server.hostCreateWindow as () => Promise<void>;
   hostDeleteWindowFn = server.hostDeleteWindow as (id: string) => Promise<void>;
@@ -1376,12 +1382,16 @@ app.on('before-quit', (e) => {
       .finally(() => app.quit());
   };
 
-  // Confirm only when the destructive quit was triggered by the setting (not the
-  // explicit menu item, which is already a deliberate choice) and isn't suppressed.
-  const needsConfirm = settingStopAll && !explicitStopAll && (getConfirmExitOnQuit?.() ?? true);
-  if (needsConfirm) {
-    const sessions = getActiveSessionSummaries?.() ?? [];
-    if (sessions.length === 0) { proceed(); return; }
+  const decision = decideQuitConfirmation({
+    explicitStopAll,
+    exitSessionsOnQuit: settingStopAll,
+    confirmExitOnQuit: getConfirmExitOnQuit?.() ?? true,
+    confirmQuitDirectSessions: getConfirmQuitDirectSessions?.() ?? true,
+    sessions: getActiveSessionSummaries?.() ?? [],
+  });
+
+  if (decision.kind === 'stop-all') {
+    const sessions = decision.sessions;
 
     // Engine is labelled per shell so the list matches what the Create sheet and
     // Settings call them. It does NOT change the outcome — stop-all terminates
@@ -1410,6 +1420,32 @@ app.on('before-quit', (e) => {
       .then((r) => {
         if (r.response === 0) return; // Cancel — stay open, sessions untouched.
         if (r.checkboxChecked) setConfirmExitOnQuit?.(false).catch(console.error);
+        proceed();
+      })
+      .catch((err) => { console.error(err); proceed(); });
+    return;
+  }
+
+  if (decision.kind === 'direct') {
+    const names = decision.sessions.slice(0, 10).map((s) => `• ${s.name}`).join('\n');
+    const extra = decision.sessions.length > 10 ? `\n…and ${decision.sessions.length - 10} more` : '';
+    const opts = {
+      type: 'warning' as const,
+      title: 'Stop direct sessions?',
+      message: `Quitting will stop ${decision.sessions.length} direct session${decision.sessions.length === 1 ? '' : 's'}.`,
+      detail: `Direct sessions run like ⌘T and stop when Argus quits:\n\n${names}${extra}\n\nPersistent sessions keep running in the background.`,
+      buttons: ['Cancel', 'Quit'],
+      defaultId: 1,
+      cancelId: 0,
+      checkboxLabel: "Don't ask again",
+      checkboxChecked: false,
+    };
+    const win = getMainWindow();
+    const dlg = win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts);
+    dlg
+      .then((r) => {
+        if (r.response === 0) return; // Cancel — stay open, sessions untouched.
+        if (r.checkboxChecked) setConfirmQuitDirectSessions?.(false).catch(console.error);
         proceed();
       })
       .catch((err) => { console.error(err); proceed(); });
