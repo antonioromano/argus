@@ -39,6 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   tileQuickAction: 'diff',
   tileRunningIndicator: 'hairline',
   quickActionPromptedAt: '',
+  introSeen: '',
   defaultTerminalEngine: 'web',
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,

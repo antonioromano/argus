@@ -39,6 +39,7 @@ const MENU_CHANNELS = [
   'menu:open-shell',
   'menu:terminal-search',
   'menu:clear-terminal',
+  'menu:whats-new',
 ] as const;
 type MenuChannel = typeof MENU_CHANNELS[number];
 

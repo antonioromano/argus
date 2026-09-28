@@ -247,7 +247,8 @@ export function modifiedPanes(config: AppConfig): Set<PaneId> {
  *  Deliberately NOT every AppConfig key: customAgents and agentFlags are user
  *  data, not preferences — wiping them from a settings-wide reset would delete
  *  work, and removing an agent already has its own confirm. quickActionPromptedAt
- *  is bookkeeping (resetting it would re-show a one-time prompt). Both stay put.
+ *  and introSeen are bookkeeping (resetting them would re-show a one-time
+ *  prompt). All of these stay put.
  */
 export const RESETTABLE_KEYS: ConfigKey[] = [
   'defaultAgent',

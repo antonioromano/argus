@@ -155,6 +155,13 @@ test('quickActionPromptedAt stores the version that showed the picker', async ()
   assert.equal(loaded.quickActionPromptedAt, '0.22.0');
 });
 
+test('introSeen stores the id of the last intro and ignores non-strings', async () => {
+  const { body } = await put({ introSeen: 'terminal-kinds' });
+  assert.equal(body.introSeen, 'terminal-kinds');
+  const { body: after } = await put({ introSeen: 42 });
+  assert.equal(after.introSeen, 'terminal-kinds');
+});
+
 test('quickActionPromptedAt can be cleared to re-arm the picker', async () => {
   await put({ quickActionPromptedAt: '0.22.0' });
   const { body } = await put({ quickActionPromptedAt: '' });
@@ -201,6 +208,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     tileQuickAction: 'files',
     tileRunningIndicator: 'off',
     quickActionPromptedAt: '0.23.0',
+    introSeen: 'terminal-kinds',
     defaultTerminalEngine: 'native',
     defaultRunMode: 'direct',
     confirmQuitDirectSessions: false,

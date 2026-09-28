@@ -108,6 +108,9 @@ export interface AppConfig {
   // next launch. A version string (not a bool) so a future release can re-ask
   // without a config migration.
   quickActionPromptedAt?: string;
+  /** Id of the last What's new / Welcome intro the user finished or skipped.
+   *  Empty = never seen one. Bookkeeping, not a preference. */
+  introSeen?: string;
   // App-wide default for sessions with no per-session terminalEngine choice.
   defaultTerminalEngine?: TerminalEngine;
   // Run mode for new sessions when the Create sheet doesn't override it.
@@ -144,6 +147,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   tileQuickAction: 'diff',
   tileRunningIndicator: 'hairline',
   quickActionPromptedAt: '',
+  introSeen: '',
   defaultTerminalEngine: 'web',
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,

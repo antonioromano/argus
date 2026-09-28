@@ -696,6 +696,11 @@ function buildAppMenu(): Menu {
     role: 'help',
     submenu: [
       {
+        label: 'What’s New…',
+        click: () => sendMenuEvent('menu:whats-new'),
+      },
+      { type: 'separator' },
+      {
         label: 'Argus on GitHub',
         click: () => shell.openExternal('https://github.com/antonio/argus'),
       },

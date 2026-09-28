@@ -17,7 +17,8 @@ export type MenuChannel =
   | 'menu:open-files'
   | 'menu:open-shell'
   | 'menu:terminal-search'
-  | 'menu:clear-terminal';
+  | 'menu:clear-terminal'
+  | 'menu:whats-new';
 
 export interface ElectronAppBridge {
   setBadge(count: number): void;

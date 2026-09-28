@@ -1,4 +1,5 @@
 import type { RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
+import type { IntroFlow } from './intro/intro.js';
 
 export type View = 'dashboard' | 'focus';
 
@@ -9,6 +10,7 @@ export type Overlay =
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
+  | { kind: 'intro'; flow: IntroFlow }
   | null;
 
 /**

@@ -37,6 +37,8 @@ import { CommandPalette } from './overlays/CommandPalette.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
 import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
+import { CURRENT_INTRO_ID, introToShow } from './intro/intro.js';
+import { IntroSheet, type IntroResult } from './intro/IntroSheet.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../constants/tileActions.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
@@ -313,6 +315,33 @@ function DesktopInner() {
   // window listener). The window-keydown fallback below still handles non-terminal
   // focus; openOverlay is idempotent so a redundant double-fire is harmless.
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
+  const openWhatsNew = useCallback(() => app.openOverlay({ kind: 'intro', flow: 'whatsNew' }), [app]);
+  const openWhatsNewRef = useRef(openWhatsNew);
+  useEffect(() => { openWhatsNewRef.current = openWhatsNew; }, [openWhatsNew]);
+
+  // One-time What's new / Welcome (see intro/intro.ts). Opened once per launch,
+  // and only when nothing else is on screen; the ref keeps a slow config write
+  // from re-opening it right after the user closes it.
+  const pendingIntro = introToShow(config, updateStatus?.currentVersion);
+  const introAutoShownRef = useRef(false);
+  useEffect(() => {
+    if (!pendingIntro || introAutoShownRef.current || app.overlay) return;
+    introAutoShownRef.current = true;
+    app.openOverlay({ kind: 'intro', flow: pendingIntro });
+  }, [pendingIntro, app]);
+  const handleIntroDone = useCallback((result: IntroResult) => {
+    const version = updateStatus?.currentVersion ?? '';
+    void updateConfig({
+      introSeen: CURRENT_INTRO_ID,
+      // Welcome replaces the older quick-action prompt for new users.
+      ...(config?.quickActionPromptedAt ? {} : { quickActionPromptedAt: version }),
+      ...(result.defaults
+        ? { defaultRunMode: result.defaults.runMode, defaultTerminalEngine: result.defaults.terminalEngine }
+        : {}),
+    });
+    if (result.openCreate) app.openOverlay({ kind: 'create' });
+    else app.closeOverlay();
+  }, [app, config?.quickActionPromptedAt, updateConfig, updateStatus?.currentVersion]);
   const openCreateRef = useRef(openCreate);
   useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
   // The five actions below act on "the focused shell" — same target as the
@@ -366,7 +395,8 @@ function DesktopInner() {
     const offShell = bridge.onMenu('menu:open-shell', () => openShellForFocusedRef.current());
     const offSearch = bridge.onMenu('menu:terminal-search', () => openTerminalSearchRef.current());
     const offClear = bridge.onMenu('menu:clear-terminal', () => clearFocusedTerminalScrollbackRef.current());
-    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); };
+    const offIntro = bridge.onMenu('menu:whats-new', () => openWhatsNewRef.current());
+    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -1061,7 +1091,16 @@ function DesktopInner() {
 
       {/* One-time quick-action picker. Held back until config and the running
           version are both known, so it can never stamp itself away on boot. */}
-      {shouldPromptQuickAction(config, updateStatus?.currentVersion) && (
+      {app.overlay?.kind === 'intro' && updateStatus && (
+        <IntroSheet
+          flow={app.overlay.flow}
+          version={updateStatus.currentVersion}
+          config={config}
+          onDone={handleIntroDone}
+        />
+      )}
+
+      {pendingIntro === null && shouldPromptQuickAction(config, updateStatus?.currentVersion) && (
         <QuickActionSheet
           version={updateStatus!.currentVersion}
           onConfirm={(action, version) => {
