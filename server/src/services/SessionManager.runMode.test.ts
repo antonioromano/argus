@@ -138,9 +138,14 @@ test('Restart of a restored placeholder spawns through the direct backend', asyn
 });
 
 test('input and resize to a restored placeholder are harmless', async () => {
-  const { sm } = await restoreWith([rec({ runMode: 'direct' })]);
+  const { sm, direct, persistent } = await restoreWith([rec({ runMode: 'direct' })]);
   assert.doesNotThrow(() => sm.writeToSession('r1', 'hello'));
   assert.doesNotThrow(() => sm.resizeSession('r1', 90, 30));
+  assert.doesNotThrow(() => sm.writeToSession('r1', '\x1b[<64;1;1M')); // wheel report
+  assert.deepEqual(direct.log, []);
+  assert.deepEqual(persistent.log, []);
+  const s = sm.getAllSessions().find((x) => x.id === 'r1')!;
+  assert.equal(s.status, 'exited');
 });
 
 test('a record without runMode restores as persistent, exactly as before', async () => {

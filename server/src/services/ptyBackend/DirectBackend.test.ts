@@ -6,13 +6,15 @@ import { InertPty } from './InertPty.js';
 function fakePty() {
   const writes: string[] = [];
   let killed = 0;
+  let exitListener: (() => void) | undefined;
   const p = {
     pid: 1, cols: 80, rows: 24, process: 'claude', handleFlowControl: false,
-    onData: () => ({ dispose() {} }), onExit: () => ({ dispose() {} }),
+    onData: () => ({ dispose() {} }),
+    onExit: (cb: () => void) => { exitListener = cb; return { dispose() {} }; },
     write: (d: string) => { writes.push(d); }, resize() {}, clear() {},
     kill: () => { killed++; }, pause() {}, resume() {},
   };
-  return { p: p as any, writes, killedCount: () => killed };
+  return { p: p as any, writes, killedCount: () => killed, fireExit: () => exitListener?.() };
 }
 
 function harness() {
@@ -66,6 +68,23 @@ test('a wheel report is a plain write to the agent', () => {
   const p = backend.spawn(opts('s1'));
   backend.writeWheel('s1', p, '\x1b[<64;1;1M');
   assert.deepEqual(ptys[0].writes, ['\x1b[<64;1;1M']);
+});
+
+test('a naturally-exited agent is untracked and never signalled again', () => {
+  const { backend, ptys } = harness();
+  const p1 = backend.spawn(opts('s1'));
+  backend.spawn(opts('s2'));
+  ptys[0].fireExit(); // s1's agent exits on its own, e.g. the user typed `exit`
+
+  backend.detach(p1);
+  assert.equal(ptys[0].killedCount(), 0, 'detach must not kill an already-exited pty');
+
+  backend.stopSession('s1');
+  assert.equal(ptys[0].killedCount(), 0, 'stopSession must not kill an already-exited pty');
+
+  backend.stopAll();
+  assert.equal(ptys[0].killedCount(), 0, 'stopAll must not kill an already-exited pty');
+  assert.equal(ptys[1].killedCount(), 1, 'stopAll still kills the still-running s2');
 });
 
 test('an InertPty accepts every call and never emits', () => {

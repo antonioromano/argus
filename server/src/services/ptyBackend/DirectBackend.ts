@@ -14,6 +14,10 @@ import type { PtyBackend, SpawnOpts } from './types.js';
 export class DirectBackend implements PtyBackend {
   readonly kind = 'direct' as const;
   private readonly ptys = new Map<string, IPty>();
+  // A pty the agent has already exited from on its own. node-pty/the OS can
+  // recycle pids, so a stale pid must never be re-signalled — track the
+  // object itself, not an id, and let it be GC'd once nothing else refs it.
+  private readonly exited = new WeakSet<IPty>();
 
   constructor(private readonly pty: Pick<PtyManager, 'spawn'>) {}
 
@@ -23,6 +27,10 @@ export class DirectBackend implements PtyBackend {
     // attachExisting never applies: there is nothing to attach to.
     const p = this.pty.spawn(o.folderPath, o.command, o.cols, o.rows, o.flags, o.extraEnv);
     this.ptys.set(o.sessionId, p);
+    p.onExit(() => {
+      if (this.ptys.get(o.sessionId) === p) this.ptys.delete(o.sessionId);
+      this.exited.add(p);
+    });
     return p;
   }
 
@@ -35,14 +43,16 @@ export class DirectBackend implements PtyBackend {
   }
 
   detach(pty: IPty): void {
-    try { pty.kill(); } catch { /* already gone */ }
     for (const [id, p] of this.ptys) if (p === pty) this.ptys.delete(id);
+    if (this.exited.has(pty)) return; // already exited on its own — nothing to signal
+    try { pty.kill(); } catch { /* already gone */ }
   }
 
   stopSession(sessionId: string): void {
     const p = this.ptys.get(sessionId);
     this.ptys.delete(sessionId);
-    try { p?.kill(); } catch { /* already gone */ }
+    if (!p || this.exited.has(p)) return; // already exited on its own — nothing to signal
+    try { p.kill(); } catch { /* already gone */ }
   }
 
   stopAll(): void {
