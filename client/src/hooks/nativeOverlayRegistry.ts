@@ -43,12 +43,26 @@ const holders = new Map<string, number>();   // sessionId -> suppression refcoun
 interface AllHandle { ids: Set<string> }
 const activeAllHandles = new Set<AllHandle>();
 
+// Tiles swap in a placeholder while a full-screen surface is up, so every tile
+// looks the same whether its terminal is a hidden native view or a web one.
+const fullScreenListeners = new Set<() => void>();
+function notifyFullScreen(): void { for (const fn of fullScreenListeners) fn(); }
+
+/** True while at least one suppress('all') surface (sheet, modal) is open. */
+export function isFullScreenSuppressed(): boolean { return activeAllHandles.size > 0; }
+
+export function subscribeFullScreenSuppression(fn: () => void): () => void {
+  fullScreenListeners.add(fn);
+  return () => { fullScreenListeners.delete(fn); };
+}
+
 let transport: Transport = { hide: () => {}, show: () => {} };
 
 export function setSuppressionTransport(t: Transport): void { transport = t; }
 
 export function resetOverlayRegistryForTests(): void {
   rects.clear(); holders.clear(); activeAllHandles.clear();
+  notifyFullScreen();
   transport = { hide: () => {}, show: () => {} };
 }
 
@@ -106,7 +120,7 @@ export function suppress(target: 'all' | Rect): SuppressionHandle {
   // after suppress() was called. For a partial-rect suppression it is a
   // fixed snapshot — only 'all' suppressions track latecomers.
   const allHandle: AllHandle | undefined = isAll ? { ids: idSet } : undefined;
-  if (allHandle) activeAllHandles.add(allHandle);
+  if (allHandle) { activeAllHandles.add(allHandle); notifyFullScreen(); }
 
   let released = false;
   return {
@@ -119,7 +133,7 @@ export function suppress(target: 'all' | Rect): SuppressionHandle {
     release() {
       if (released) return;        // double-release must not decrement twice
       released = true;
-      if (allHandle) activeAllHandles.delete(allHandle);
+      if (allHandle) { activeAllHandles.delete(allHandle); notifyFullScreen(); }
       for (const id of idSet) {
         const n = holders.get(id);
         if (n === undefined) continue;          // unregistered while suppressed

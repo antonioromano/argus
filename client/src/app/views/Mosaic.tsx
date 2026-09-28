@@ -5,6 +5,9 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
+import { ExitedCard } from '../ui/ExitedCard.js';
+import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
+import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu } from '../../components/primitives/index.js';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
@@ -696,6 +699,7 @@ function MosaicTileInner({
   const [copied, setCopied] = useState(false);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const sessionMenu = useSessionMenu();
+  const modalOpen = useFullScreenSuppressed();
   // Stable wrapper so TerminalShell's memo isn't busted by a fresh closure here.
   const sessionId = session.id;
   const handleFocusChange = useCallback(
@@ -843,8 +847,8 @@ function MosaicTileInner({
           </Tooltip>
         )}
         {session.runMode === 'direct' && (
-          <Tooltip content="Direct session — stops when Argus quits">
-            <span className="argus-tile-branch">Direct</span>
+          <Tooltip content="Native terminal — stops when Argus quits">
+            <span className="argus-tile-branch">Native</span>
           </Tooltip>
         )}
         {session.hasGitChanges && (
@@ -909,10 +913,19 @@ function MosaicTileInner({
 
       {menuAt && <ContextMenu x={menuAt.x} y={menuAt.y} items={menuItems} onClose={closeMenu} />}
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
         <ErrorBoundary key={session.id} label={session.name}>
           <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} useNative={nativeEngine} dimmed={!isFocused || !windowFocused} />
         </ErrorBoundary>
+        {session.status === 'exited' && !nativeEngine && (
+          <ExitedCard
+            runMode={session.runMode}
+            folderPath={session.folderPath}
+            onRestart={() => onRestart(session)}
+            onClone={onClone ? () => onClone(session) : undefined}
+          />
+        )}
+        {modalOpen && <ModalPlaceholder status={session.status} />}
       </div>
     </div>
   );

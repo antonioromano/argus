@@ -7,6 +7,9 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
+import { ExitedCard } from '../ui/ExitedCard.js';
+import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
+import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
@@ -124,6 +127,7 @@ export function Focus({
   // two surfaces cannot disagree on whether native is possible at all; the
   // per-session decision on top of that goes through resolveTerminalEngine.
   const nativeAvailable = useNativeTerminalAvailable();
+  const modalOpen = useFullScreenSuppressed();
   const useNativeTerminal = resolveTerminalEngine(active.terminalEngine, defaultTerminalEngine, nativeAvailable);
 
   const sendInput = (data: string) => {
@@ -262,8 +266,8 @@ export function Focus({
             </Tooltip>
             )}
             {active.runMode === 'direct' && (
-              <Tooltip content="Direct session — stops when Argus quits">
-                <span className="argus-tile-branch">Direct</span>
+              <Tooltip content="Native terminal — stops when Argus quits">
+                <span className="argus-tile-branch">Native</span>
               </Tooltip>
             )}
             {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
@@ -306,7 +310,7 @@ export function Focus({
               tool window is maximized it collapses to 0 height and the workbench
               overlays the region, with a clickable peek strip to return. */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
               <ErrorBoundary key={active.id} label={active.name}>
                 <TerminalShell
                   session={active}
@@ -315,6 +319,13 @@ export function Focus({
                   status={active.status}
                   focused={terminalFocused}
                   onFocusChange={setTerminalFocused}
+                  // Entering Focus is a request to work in this shell: take
+                  // keyboard focus on mount (and again once a native overlay
+                  // has attached). Until this was explicit, a native shell got
+                  // focus only because requestFocusToken 0 was mistaken for a
+                  // request; once that was corrected, Focus opened with the
+                  // shell unfocused and dimmed until clicked.
+                  autoFocus
                   framed={false}
                   shortcuts={shortcuts}
                   searchOpen={searchOpen}
@@ -325,6 +336,10 @@ export function Focus({
                   useNative={useNativeTerminal}
                 />
               </ErrorBoundary>
+              {active.status === 'exited' && !useNativeTerminal && (
+                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onClone={onClone} />
+              )}
+              {modalOpen && <ModalPlaceholder status={active.status} />}
             </div>
 
             {!maximized && <ReplyBar session={active} onSend={sendInput} />}

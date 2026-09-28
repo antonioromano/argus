@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   registerOverlay, unregisterOverlay, suppress,
   setSuppressionTransport, resetOverlayRegistryForTests,
+  isFullScreenSuppressed, subscribeFullScreenSuppression,
 } from './nativeOverlayRegistry.js';
 
 const A = { x: 0, y: 0, width: 100, height: 100 };
@@ -97,5 +98,28 @@ describe('nativeOverlayRegistry', () => {
   it('touching edges do not count as an overlap', () => {
     registerOverlay('a', A);          // 0..100
     expect(suppress({ x: 100, y: 0, width: 10, height: 10 }).ids).toEqual([]);
+  });
+});
+
+describe('full-screen suppression state', () => {
+  it('reports open while any suppress("all") handle is held and notifies on each change', () => {
+    resetOverlayRegistryForTests();
+    const seen: boolean[] = [];
+    const off = subscribeFullScreenSuppression(() => seen.push(isFullScreenSuppressed()));
+    const a = suppress('all');
+    const b = suppress('all');
+    a.release();
+    expect(isFullScreenSuppressed()).toBe(true);
+    b.release();
+    expect(isFullScreenSuppressed()).toBe(false);
+    expect(seen).toEqual([true, true, true, false]);
+    off();
+  });
+
+  it('does not count a partial-rect suppression as full-screen', () => {
+    resetOverlayRegistryForTests();
+    const h = suppress({ x: 0, y: 0, width: 10, height: 10 });
+    expect(isFullScreenSuppressed()).toBe(false);
+    h.release();
   });
 });
