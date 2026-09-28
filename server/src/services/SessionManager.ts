@@ -26,6 +26,7 @@ import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
 import { DirectBackend } from './ptyBackend/DirectBackend.js';
+import { InertPty } from './ptyBackend/InertPty.js';
 import type { PtyBackend } from './ptyBackend/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
@@ -561,6 +562,9 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+    // A direct session restored after a restart: its agent died with the last
+    // Argus (spec D2), so there is nothing to classify — mark it exited up front.
+    if (restoreExited) stateDetector.setExited();
 
     const resolvedFlags = flags || [];
 
@@ -569,7 +573,8 @@ export class SessionManager {
     // surviving agent keeps the hooks it was spawned with (the settings file
     // persists on disk across restart, R6). A restored session's arbiter falls
     // back to coverageFor(agentType), so native signals from a survivor still count.
-    const inj = attachExisting ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags);
+    // A restoreExited placeholder has no process to inject into either.
+    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -587,16 +592,21 @@ export class SessionManager {
     const persistent = backend.isPersistent();
     const tmuxName = persistent && backend.kind === 'tmux' ? tmuxSessionName(id) : undefined;
     await backend.ready?.();
-    const ptyProcess = backend.spawn({
-      sessionId: id,
-      folderPath: effectiveFolderPath,
-      command,
-      cols: SPAWN_COLS,
-      rows: SPAWN_ROWS,
-      flags: spawnFlags,
-      extraEnv: spawnEnv,
-      attachExisting,
-    });
+    // A direct session restored after a restart: its agent died with the last
+    // Argus (spec D2). Register it with an inert pty and status 'exited' so the
+    // tile keeps its place and Restart spawns a fresh agent; never auto-spawn.
+    const ptyProcess = restoreExited
+      ? new InertPty(SPAWN_COLS, SPAWN_ROWS)
+      : backend.spawn({
+          sessionId: id,
+          folderPath: effectiveFolderPath,
+          command,
+          cols: SPAWN_COLS,
+          rows: SPAWN_ROWS,
+          flags: spawnFlags,
+          extraEnv: spawnEnv,
+          attachExisting,
+        });
 
     // Re-attaching to a live survivor: start neutral and let the detector
     // reclassify from the repaint, and suppress the redraw activity burst.
@@ -612,7 +622,10 @@ export class SessionManager {
     // a 'running' baseline makes the first settle look like running→idle and get
     // promoted to a false 'done' on every app/Mac restart. Genuinely new sessions
     // (no existingId) still start 'running' so they notify 'done' when a run ends.
-    const initialStatus: SessionStatus = (attachExisting || existingId != null) ? 'idle' : 'running';
+    // A restoreExited placeholder has no live agent at all — it starts 'exited'.
+    const initialStatus: SessionStatus = restoreExited
+      ? 'exited'
+      : (attachExisting || existingId != null) ? 'idle' : 'running';
 
     const session: ManagedSession = {
       id,
@@ -633,7 +646,7 @@ export class SessionManager {
       worktreeBranch,
       terminalEngine: this.normalizeTerminalEngine(terminalEngine),
       tmuxName,
-      persistent,
+      persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
@@ -1702,6 +1715,18 @@ export class SessionManager {
         await access(p.folderPath);
       } catch {
         console.warn(`Skipping session "${p.name}": folder not accessible (${p.folderPath})`);
+        continue;
+      }
+
+      // Direct agents never survive an Argus restart (spec D2) — restore as an
+      // exited placeholder without touching survivor lookup/attach at all.
+      if (p.runMode === 'direct') {
+        try {
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true);
+          console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
+        } catch (err) {
+          console.error(`Failed to restore session "${p.name}":`, err);
+        }
         continue;
       }
 

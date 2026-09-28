@@ -103,3 +103,47 @@ test('runMode is persisted', async () => {
   await sm.createSession(os.tmpdir(), 'd', 'claude', [], undefined, undefined, undefined, undefined, false, undefined, 'direct');
   assert.equal(saved[0].runMode, 'direct');
 });
+
+async function restoreWith(records: any[]) {
+  const ctx = withBackends();
+  (ctx.sm as any).store = { load: async () => records, save: async () => {} };
+  await ctx.sm.restoreSessions();
+  return ctx;
+}
+
+const rec = (over: any) => ({
+  id: 'r1', name: 'Rebrandly', folderPath: os.tmpdir(), createdAt: '2026-09-01T00:00:00.000Z',
+  agentType: 'claude', flags: ['--x'], terminalEngine: 'native', ...over,
+});
+
+test('a restored direct session comes back exited, with its metadata, and is not spawned', async () => {
+  const { sm, direct, persistent } = await restoreWith([rec({ runMode: 'direct' })]);
+  const s = sm.getAllSessions().find((x) => x.id === 'r1')!;
+  assert.equal(s.status, 'exited');
+  assert.equal(s.runMode, 'direct');
+  assert.equal(s.name, 'Rebrandly');
+  assert.equal(s.terminalEngine, 'native');
+  assert.deepEqual(s.flags, ['--x']);
+  assert.deepEqual(direct.log, []);
+  assert.deepEqual(persistent.log, []);
+});
+
+test('Restart of a restored placeholder spawns through the direct backend', async () => {
+  const { sm, direct, persistent } = await restoreWith([rec({ runMode: 'direct' })]);
+  await sm.restartSession('r1');
+  assert.ok(direct.log.includes('spawn:r1'), direct.log.join(','));
+  assert.deepEqual(persistent.log.filter((l) => l.startsWith('spawn')), []);
+});
+
+test('input and resize to a restored placeholder are harmless', async () => {
+  const { sm } = await restoreWith([rec({ runMode: 'direct' })]);
+  assert.doesNotThrow(() => sm.writeToSession('r1', 'hello'));
+  assert.doesNotThrow(() => sm.resizeSession('r1', 90, 30));
+});
+
+test('a record without runMode restores as persistent, exactly as before', async () => {
+  const { sm, persistent } = await restoreWith([rec({})]);
+  const s = sm.getAllSessions().find((x) => x.id === 'r1')!;
+  assert.equal(s.runMode, 'persistent');
+  assert.ok(persistent.log.includes('spawn:r1'), persistent.log.join(','));
+});
