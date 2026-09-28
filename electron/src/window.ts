@@ -157,6 +157,13 @@ export function createAppWindow(windowId: string): BrowserWindow {
     vibrancy: 'sidebar',
     visualEffectState: 'followWindow',
     backgroundColor: '#00000000',
+    // A native terminal tile is a child NSWindow that becomes KEY when clicked,
+    // leaving this window non-key while the app stays active. Without this,
+    // macOS spends the next click on the Argus UI (Expand, Exit focus, a tile
+    // header, any button) just making this window key again, and the click
+    // itself is dropped — every action after typing in a native tile took two
+    // clicks.
+    acceptFirstMouse: true,
     show: false,
     webPreferences: {
       nodeIntegration: false,
