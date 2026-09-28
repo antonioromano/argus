@@ -61,10 +61,10 @@ function submitButton(): HTMLButtonElement {
   return btn as HTMLButtonElement;
 }
 
-function runModeButton(label: string): HTMLButtonElement {
-  const btn = Array.from(container.querySelectorAll('button'))
-    .find((b) => b.textContent?.includes(label));
-  if (!btn) throw new Error(`${label} run-mode button not rendered`);
+function terminalTab(label: string): HTMLButtonElement {
+  const btn = Array.from(container.querySelectorAll('[role="radio"]'))
+    .find((b) => b.textContent?.startsWith(label));
+  if (!btn) throw new Error(`${label} terminal tab not rendered`);
   return btn as HTMLButtonElement;
 }
 
@@ -76,12 +76,12 @@ async function submit() {
   });
 }
 
-describe('CreateSheet run mode', () => {
-  it('defaults the run mode to config.defaultRunMode and submits it', async () => {
+describe('CreateSheet terminal', () => {
+  it('defaults to Native when config.defaultRunMode is direct, and submits direct + web', async () => {
     const onCreate = vi.fn(async () => {});
     await renderCreate({ config: { ...DEFAULT_CONFIG, defaultRunMode: 'direct' }, onCreate });
 
-    expect(runModeButton('Direct').getAttribute('aria-checked')).toBe('true');
+    expect(terminalTab('Native').getAttribute('aria-checked')).toBe('true');
 
     await submit();
 
@@ -97,14 +97,14 @@ describe('CreateSheet run mode', () => {
     );
   });
 
-  it('sends "direct" after the user picks Direct in the run-mode toggle', async () => {
+  it('sends direct + web after the user picks the Native tab', async () => {
     const onCreate = vi.fn(async () => {});
     await renderCreate({ onCreate }); // config.defaultRunMode is 'persistent'
 
     await act(async () => {
-      runModeButton('Direct').click();
+      terminalTab('Native').click();
     });
-    expect(runModeButton('Direct').getAttribute('aria-checked')).toBe('true');
+    expect(terminalTab('Native').getAttribute('aria-checked')).toBe('true');
 
     await submit();
 
@@ -117,6 +117,27 @@ describe('CreateSheet run mode', () => {
       undefined,
       'web',
       'direct',
+    );
+  });
+
+  it('sends persistent + native after the user picks the Advanced tab', async () => {
+    const onCreate = vi.fn(async () => {});
+    await renderCreate({ onCreate });
+
+    await act(async () => {
+      terminalTab('Advanced').click();
+    });
+    await submit();
+
+    expect(onCreate).toHaveBeenCalledWith(
+      '/tmp/project',
+      undefined,
+      'claude',
+      [],
+      undefined,
+      undefined,
+      'native',
+      'persistent',
     );
   });
 });

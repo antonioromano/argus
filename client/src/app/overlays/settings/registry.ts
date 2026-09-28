@@ -149,7 +149,7 @@ export const PANES: readonly PaneDef[] = [
     group: 'System',
     icon: Server,
     keys: ['ptyBackend', 'defaultTerminalEngine', 'defaultRunMode'],
-    keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent'],
+    keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent', 'default terminal', 'universal', 'advanced'],
   },
   {
     id: 'power',

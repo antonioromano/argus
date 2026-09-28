@@ -4,7 +4,7 @@
  * indicator, waiting style), each with its own copy of the same style object.
  * This is that control, once. Use it when every option is legible from a word
  * or two; when an option needs a sentence to justify itself, use radio cards
- * (see EngineChoice) instead.
+ * (see TerminalChoice) instead.
  */
 interface SegmentedOption<T extends string> {
   value: T;

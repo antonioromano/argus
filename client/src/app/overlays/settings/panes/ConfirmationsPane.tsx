@@ -36,8 +36,8 @@ export function ConfirmationsPane({ config, onSave }: PaneProps) {
             effect on that path. */}
         {!exitOnQuit && (
           <SettingRow
-            label="Confirm quitting with direct sessions"
-            hint="Direct sessions stop when Argus quits. Ask before ⌘Q stops ones that are still running."
+            label="Confirm quitting with Native sessions"
+            hint="Native sessions stop when Argus quits. Ask before quitting stops ones that are still running."
           >
             <Toggle
               checked={config.confirmQuitDirectSessions !== false}

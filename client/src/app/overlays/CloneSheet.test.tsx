@@ -61,14 +61,14 @@ function submitButton(): HTMLButtonElement {
   return btn as HTMLButtonElement;
 }
 
-describe('CloneSheet run mode', () => {
-  it('preselects Direct for a source session with runMode "direct" and submits it', async () => {
+describe('CloneSheet terminal', () => {
+  it('preselects Native for a source session with runMode "direct" and submits it', async () => {
     const onClone = vi.fn(async () => {});
     await renderClone({ currentRunMode: 'direct', onClone });
 
-    const directButton = Array.from(container.querySelectorAll('button'))
-      .find((b) => b.textContent?.includes('Direct'));
-    expect(directButton?.getAttribute('aria-checked')).toBe('true');
+    const nativeTab = Array.from(container.querySelectorAll('[role="radio"]'))
+      .find((b) => b.textContent === 'Native');
+    expect(nativeTab?.getAttribute('aria-checked')).toBe('true');
 
     await act(async () => {
       submitButton().click();

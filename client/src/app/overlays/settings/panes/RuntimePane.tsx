@@ -1,8 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
-import { EngineChoice } from '../../../ui/EngineChoice.js';
-import { RunModeChoice } from '../../../ui/RunModeChoice.js';
-import { ENGINE_NOTE_DEFAULT } from '../../../ui/terminalEngineCopy.js';
+import { TerminalChoice } from '../../../ui/TerminalChoice.js';
+import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
 import type { PaneProps } from '../types.js';
 
@@ -75,22 +74,19 @@ export function RuntimePane({ config, onSave }: PaneProps) {
         </SettingRow>
       </Section>
 
-      <Section title="Terminal engine">
+      <Section title="Default terminal">
         <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
-          <EngineChoice
-            value={config.defaultTerminalEngine ?? 'web'}
-            onChange={(v) => onSave({ defaultTerminalEngine: v })}
+          <TerminalChoice
+            value={kindOf(config.defaultRunMode, config.defaultTerminalEngine)}
+            onChange={(k) => {
+              const next = settingsFor(k);
+              onSave({ defaultRunMode: next.runMode, defaultTerminalEngine: next.terminalEngine });
+            }}
           />
           <p style={{ margin: 0, fontSize: 'var(--t-xs)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
-            {ENGINE_NOTE_DEFAULT}
+            Applies to new sessions only — existing ones keep the terminal they were created with.
           </p>
         </div>
-      </Section>
-
-      <Section title="Run mode">
-        <SettingRow label="Default for new sessions" hint="Direct runs the agent like ⌘T and stops it when Argus quits. Persistent survives restarts.">
-          <RunModeChoice value={config.defaultRunMode ?? 'persistent'} onChange={(v) => onSave({ defaultRunMode: v })} />
-        </SettingRow>
       </Section>
     </>
   );
