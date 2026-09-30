@@ -20,6 +20,7 @@ import { ToolbarPane } from './settings/panes/ToolbarPane.js';
 import { AgentsPane } from './settings/panes/AgentsPane.js';
 import { GroupsPane } from './settings/panes/GroupsPane.js';
 import { IsolationPane } from './settings/panes/IsolationPane.js';
+import { LaunchersPane } from './settings/panes/LaunchersPane.js';
 import { ConfirmationsPane } from './settings/panes/ConfirmationsPane.js';
 import { NotificationsPane } from './settings/panes/NotificationsPane.js';
 import { KeyboardPane } from './settings/panes/KeyboardPane.js';
@@ -148,6 +149,7 @@ export function SettingsOverlay({
               )}
               {pane === 'groups' && <GroupsPane {...paneProps} />}
               {pane === 'isolation' && <IsolationPane sessions={sessions} />}
+              {pane === 'launchers' && <LaunchersPane {...paneProps} />}
               {pane === 'confirmations' && <ConfirmationsPane {...paneProps} />}
               {pane === 'notifications' && <NotificationsPane {...paneProps} />}
               {pane === 'keyboard' && <KeyboardPane {...paneProps} />}

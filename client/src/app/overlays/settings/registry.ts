@@ -26,6 +26,7 @@ import {
   Server,
   BatteryCharging,
   Wrench,
+  Rocket,
 } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
 
@@ -37,6 +38,7 @@ export type PaneId =
   | 'agents'
   | 'groups'
   | 'isolation'
+  | 'launchers'
   | 'confirmations'
   | 'notifications'
   | 'keyboard'
@@ -118,6 +120,14 @@ export const PANES: readonly PaneDef[] = [
     icon: GitBranch,
     keys: [],
     keywords: ['worktree', 'isolation', 'branch', 'sandbox', 'git', 'parallel'],
+  },
+  {
+    id: 'launchers',
+    label: 'Launchers',
+    group: 'Workspace',
+    icon: Rocket,
+    keys: ['launchFolderRoots'],
+    keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots'],
   },
   {
     id: 'confirmations',
