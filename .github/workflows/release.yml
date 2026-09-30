@@ -48,20 +48,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Gate the signed release artifact on the same lint + test checks CI runs.
-      # ci.yml doesn't trigger on tag pushes, so these must run inline here —
-      # build:all (typecheck) already runs inside package:mac below.
+      # Gate the signed release artifact on the same checks CI runs, in the
+      # same order. ci.yml doesn't trigger on tag pushes, so these must run
+      # inline here.
+      #
+      # Fail fast on the missing-root-dependency class (broke v0.21.0/v0.21.1)
+      # before spending minutes on the rest. package:mac re-runs it as its
+      # first command, so local packaging is guarded too.
+      - name: Check dependency sync
+        run: npm run check:deps
+
       - name: Lint
         run: npm run lint
 
+      # Build before Test: npm test includes the electron suite, which
+      # type-checks electron/ against server/dist — absent until the server is
+      # built. Testing first broke the v0.24.0 release run.
+      - name: Build
+        run: npm run build:all
+
       - name: Test
         run: npm test
-
-      # Fail fast on the missing-root-dependency class (broke v0.21.0/v0.21.1)
-      # before spending minutes on the packaging step. package:mac re-runs it
-      # as its first command, so local packaging is guarded too.
-      - name: Check dependency sync
-        run: npm run check:deps
 
       - name: Build and package DMGs
         run: npm run package:mac
