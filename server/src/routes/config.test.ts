@@ -248,3 +248,11 @@ test('PUT /api/config rejects an unknown defaultRunMode and keeps the current va
   const { body } = await put({ defaultRunMode: 'sometimes' });
   assert.equal((body as Record<string, unknown>).defaultRunMode, 'direct');
 });
+
+test('custom agent promptFlag: unsafe rejected, safe accepted', async () => {
+  const agent = { id: 'pf', name: 'PF', command: 'pf', builtin: false };
+  const bad = await put({ customAgents: [{ ...agent, promptFlag: '--p; rm' }] });
+  assert.equal(bad.status, 400);
+  const ok = await put({ customAgents: [{ ...agent, promptFlag: '-i' }] });
+  assert.equal(ok.status, 200);
+});

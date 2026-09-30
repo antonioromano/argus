@@ -5,18 +5,7 @@ import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { CreateSessionRequest, RenameSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
-
-// Only allow safe flag characters — blocks shell metacharacters like ; | & ` $() etc.
-const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/]*$/;
-
-function validateFlags(flags: string[]): string | null {
-  for (const flag of flags) {
-    if (!FLAG_PATTERN.test(flag.trim())) {
-      return `Invalid flag: "${flag}". Flags must start with - or -- and contain only safe characters.`;
-    }
-  }
-  return null;
-}
+import { validateFlags } from '../utils/flags.js';
 
 // Enforce single-membership: a session id may appear in at most one group (first wins).
 function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {

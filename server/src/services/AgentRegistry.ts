@@ -56,3 +56,19 @@ export class AgentRegistry {
     });
   }
 }
+
+/**
+ * argv that carries an initial prompt for this agent, appended after every other
+ * flag (and after Argus's signal injection). null = the agent can't take one.
+ * Forms verified against each CLI's --help (2026-09-30): claude `[prompt]` positional
+ * starts an interactive session; codex `[PROMPT]` positional is interactive (exec is
+ * a separate subcommand); gemini `-i, --prompt-interactive`.
+ */
+export function promptArgs(agent: AgentDefinition, prompt: string): string[] | null {
+  if (agent.builtin) {
+    if (agent.id === 'claude' || agent.id === 'codex') return [prompt];
+    if (agent.id === 'gemini') return ['-i', prompt];
+    return null;
+  }
+  return agent.promptFlag ? [agent.promptFlag, prompt] : null;
+}

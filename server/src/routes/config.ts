@@ -40,6 +40,9 @@ function validateCustomAgents(customAgents: AgentDefinition[]): string | null {
     if (!COMMAND_PATTERN.test(a.command.trim())) {
       return `Invalid command "${a.command}". Commands may contain only letters, numbers, and _ @ . / - characters.`;
     }
+    if (a.promptFlag !== undefined && !/^--?[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(a.promptFlag)) {
+      return `Invalid prompt flag "${a.promptFlag}" for agent "${a.name}".`;
+    }
   }
   return null;
 }
