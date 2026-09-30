@@ -27,7 +27,7 @@ describe('pane registry', () => {
     const owned = PANES.flatMap((p) => p.keys);
     expect(new Set(owned).size).toBe(owned.length);
 
-    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen']);
+    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen', 'launchFolderRoots']);
     const uncovered = (Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[])
       .filter((k) => !bookkeeping.has(k) && !owned.includes(k));
     expect(uncovered).toEqual([]);

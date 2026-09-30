@@ -52,6 +52,8 @@ export interface AgentDefinition {
   installUrl?: string;
   /** Optional opt-in to native state signals (custom agents). */
   stateSignals?: AgentStateSignalConfig;
+  /** Custom agents: flag that carries an initial prompt (e.g. "-i"). Built-ins need none. */
+  promptFlag?: string;
 }
 
 export interface AgentFlag {
@@ -117,6 +119,8 @@ export interface AppConfig {
   defaultRunMode?: RunMode;
   // Ask before ⌘Q stops running direct sessions.
   confirmQuitDirectSessions?: boolean;
+  // Launch links outside these roots get a warning on the approval card.
+  launchFolderRoots?: string[];
 }
 
 /** Every AppConfig key with its shipped default. The single source of truth for
@@ -151,6 +155,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultTerminalEngine: 'web',
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,
+  launchFolderRoots: ['~/development'],
 };
 
 export interface AgentStatus {
@@ -158,6 +163,84 @@ export interface AgentStatus {
   installed: boolean;
   resolvedPath?: string;
 }
+
+export interface LaunchRequest {
+  agent: string;
+  folder: string;
+  flags: string[];
+  prompt?: string;
+  engine?: TerminalEngine;
+  mode?: RunMode;
+  name?: string;
+  worktree?: string;
+  base?: string;
+}
+
+export type LaunchWarningKind = 'worktree' | 'folder-outside-roots' | 'folder-agent-config' | 'launcher-changed';
+
+export interface LaunchWarning {
+  kind: LaunchWarningKind;
+  detail: string;
+}
+
+export interface ValidatedLaunch {
+  request: LaunchRequest;          // folder realpath'd
+  agentCommand: string;            // resolved agent command
+  args: string[];                  // flags + prompt args, spawn order
+  command: string;                 // display string (Argus injection omitted)
+  warnings: LaunchWarning[];
+  folderAgentConfig: string[];     // names found: '.claude', '.mcp.json', 'CLAUDE.md'
+}
+
+export type ValidationResult = { ok: true; value: ValidatedLaunch } | { ok: false; error: string };
+
+export interface Launcher {
+  id: string;
+  label: string;
+  request: LaunchRequest;
+  agentCommand: string;
+  folderConfigAtSave: string[];
+  createdAt: string;
+}
+
+export type RunResolution =
+  | { kind: 'unknown' }
+  | { kind: 'invalid'; error: string }
+  | { kind: 'live'; sessionId: string }
+  | { kind: 'changed'; launcher: Launcher; validated: ValidatedLaunch }
+  | { kind: 'ready'; launcher: Launcher; validated: ValidatedLaunch };
+
+export type PendingLaunchState = 'pending' | 'starting' | 'error' | 'expired';
+
+export interface PendingLaunchView {
+  id: string;
+  source: 'new' | 'run';
+  launcherId?: string;
+  label: string;
+  agent: string;
+  folder: string;
+  args: string[];
+  prompt?: string;
+  command: string;
+  engine?: TerminalEngine;
+  mode?: RunMode;
+  name?: string;
+  worktree?: string;
+  base?: string;
+  warnings: LaunchWarning[];
+  state: PendingLaunchState;
+  error?: string;
+  receivedAt: number;
+  canSaveAsLauncher: boolean;
+}
+
+export interface SaveAsLauncher {
+  id: string;
+  label: string;
+  overwrite?: boolean;
+}
+
+export type LaunchActionResult = { ok: true } | { ok: false; error: string };
 
 export interface AgentDetectionResponse {
   agents: AgentStatus[];

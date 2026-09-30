@@ -212,6 +212,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     defaultTerminalEngine: 'native',
     defaultRunMode: 'direct',
     confirmQuitDirectSessions: false,
+    launchFolderRoots: ['~/home'],
   };
 
   // The list above used to be maintained by hand against a comment, and

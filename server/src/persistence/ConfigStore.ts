@@ -43,6 +43,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultTerminalEngine: 'web',
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,
+  launchFolderRoots: ['~/development'],
 };
 
 export class ConfigStore {
