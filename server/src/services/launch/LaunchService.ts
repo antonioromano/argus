@@ -1,6 +1,6 @@
 import type { AppConfig, Launcher, LaunchActionResult, LaunchRequest, RunResolution, SessionInfo, ValidatedLaunch, ValidationResult } from '@argus/shared';
 import type { AgentRegistry } from '../AgentRegistry.js';
-import { validateLaunch } from './validateLaunch.js';
+import { validateLaunch, configEntryPath } from './validateLaunch.js';
 
 const ID_RE = /^[a-z0-9-]{1,40}$/;
 const MAX_LABEL = 60;
@@ -38,9 +38,14 @@ export class LaunchService {
     if (v.value.agentCommand !== launcher.agentCommand) {
       reasons.push(`agent command changed (${launcher.agentCommand} → ${v.value.agentCommand})`);
     }
-    const before = [...launcher.folderConfigAtSave].sort().join(',');
-    const after = [...v.value.folderAgentConfig].sort().join(',');
-    if (before !== after) reasons.push(`folder agent config changed (${before || 'none'} → ${after || 'none'})`);
+    // Entries carry a content hash, so an edit (not just a file appearing) counts.
+    const before = new Set(launcher.folderConfigAtSave);
+    const after = new Set(v.value.folderAgentConfig);
+    const differing = [...before].filter((e) => !after.has(e)).concat([...after].filter((e) => !before.has(e)));
+    if (differing.length) {
+      const paths = [...new Set(differing.map(configEntryPath))].sort();
+      reasons.push(`folder agent config changed (${paths.join(', ')})`);
+    }
     if (reasons.length) {
       const validated = { ...v.value, warnings: [...v.value.warnings, { kind: 'launcher-changed' as const, detail: `Since this launcher was saved: ${reasons.join('; ')}` }] };
       return { kind: 'changed', launcher, validated };

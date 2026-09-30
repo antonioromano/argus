@@ -1,4 +1,5 @@
-import { realpath, stat, access } from 'fs/promises';
+import { realpath, stat, readFile } from 'fs/promises';
+import { createHash } from 'crypto';
 import path from 'path';
 import type { AppConfig, LaunchRequest, LaunchWarning, ValidationResult } from '@argus/shared';
 import type { AgentRegistry } from '../AgentRegistry.js';
@@ -6,7 +7,12 @@ import { promptArgs } from '../AgentRegistry.js';
 import { shquote } from '../PtyManager.js';
 import { validateFlags } from '../../utils/flags.js';
 
-export const AGENT_CONFIG_FILES = ['.claude', '.mcp.json', 'CLAUDE.md'];
+/** Folder files an agent loads on start. Their CONTENTS are hashed so a saved
+ *  launcher notices hook/MCP/instruction edits, not just files appearing. */
+export const AGENT_CONFIG_FILES = [
+  '.claude/settings.json', '.claude/settings.local.json', '.mcp.json',
+  'CLAUDE.md', 'AGENTS.md', 'GEMINI.md', '.gemini/settings.json',
+];
 /** tmux caps one command near 16 KB; the tmux path quotes the agent line twice. */
 export const MAX_QUOTED_BYTES = 12288;
 
@@ -16,9 +22,25 @@ const SAFE_WORD = /^[A-Za-z0-9_@%+=:,./-]+$/;
 const displayWord = (s: string) => (SAFE_WORD.test(s) ? s : shquote(s));
 const expandHome = (p: string, home: string) => (p === '~' || p.startsWith('~/') ? home + p.slice(1) : p);
 
-async function exists(p: string): Promise<boolean> {
-  try { await access(p); return true; } catch { return false; }
+async function isDir(p: string): Promise<boolean> {
+  try { return (await stat(p)).isDirectory(); } catch { return false; }
 }
+
+/** Sorted `"<relpath>#<sha256-hex-16>"` per existing config file, plus a bare
+ *  `".claude/"` when that directory exists without any of the listed files. */
+async function agentConfigEntries(folder: string): Promise<string[]> {
+  const entries: string[] = [];
+  for (const rel of AGENT_CONFIG_FILES) {
+    let buf: Buffer;
+    try { buf = await readFile(path.join(folder, rel)); } catch { continue; }
+    entries.push(`${rel}#${createHash('sha256').update(buf).digest('hex').slice(0, 16)}`);
+  }
+  if (!entries.some((e) => e.startsWith('.claude/')) && (await isDir(path.join(folder, '.claude')))) entries.push('.claude/');
+  return entries.sort();
+}
+
+/** The relpath part of an agent-config entry (drops the content hash). */
+export const configEntryPath = (e: string) => e.split('#')[0];
 
 export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Promise<ValidationResult> {
   const agent = deps.agentRegistry.getById(req.agent, deps.config.customAgents ?? []);
@@ -43,7 +65,8 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
     if (!pa) return { ok: false, error: `Agent "${agent.name}" does not accept an initial prompt` };
     tail = pa;
   }
-  const args = [...req.flags, ...tail];
+  // Prompt right after the command (spawn order): a bare flag can't take it as a value.
+  const args = [...tail, ...req.flags];
 
   const inner = `exec ${[agent.command, ...args.map(shquote)].join(' ')}`;
   if (Buffer.byteLength(shquote(inner)) > MAX_QUOTED_BYTES) {
@@ -60,10 +83,9 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
   if (!roots.some((r) => folder === r || folder.startsWith(r + path.sep))) {
     warnings.push({ kind: 'folder-outside-roots', detail: `Outside ${(deps.config.launchFolderRoots ?? []).join(', ') || 'any configured root'}` });
   }
-  const folderAgentConfig: string[] = [];
-  for (const f of AGENT_CONFIG_FILES) if (await exists(path.join(folder, f))) folderAgentConfig.push(f);
+  const folderAgentConfig = await agentConfigEntries(folder);
   if (folderAgentConfig.length) {
-    warnings.push({ kind: 'folder-agent-config', detail: `Loads when the agent starts: ${folderAgentConfig.join(', ')}` });
+    warnings.push({ kind: 'folder-agent-config', detail: `Loads when the agent starts: ${folderAgentConfig.map(configEntryPath).join(', ')}` });
   }
   if (req.worktree) {
     warnings.push({ kind: 'worktree', detail: `Creates branch ${req.worktree} from ${req.base ?? 'HEAD'}` });

@@ -87,7 +87,7 @@ Rules for `new`: Any unknown param, a repeated singleton param, or a URL > 8 KB 
 
 - `SessionManager.createSession` gains an optional `initialPrompt`.
 - Each agent definition gains a `promptArgs(prompt) → string[]`: `claude` → `[prompt]`, `codex` → `[prompt]`, `gemini` → `['-i', prompt]` *(the codex and gemini forms still need checking against each CLI's `--help`)*. Custom agents get an optional `promptFlag` in settings; with none, a prompt is rejected at validation time rather than dropped.
-- The prompt is appended **after** signal injection, so no adapter ever parses prompt text: `const spawnFlags = [...(inj?.flags ?? resolvedFlags), ...(initialPrompt ? promptArgs(initialPrompt) : [])]`. `buildSignalInjection` and `ManagedSession.flags` keep using the original `resolvedFlags`. All three spawn paths already quote every entry, so no backend changes.
+- The prompt is placed **right after the agent command, before user and injected flags**: `const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)]`. A bare user flag that takes a value (`flag=--mcp-config`) therefore can't consume the prompt as that value (commander takes the next argv even if it is `--`). `promptTail` is computed separately and never passed to `buildSignalInjection`, so no adapter ever parses prompt text; `buildSignalInjection` and `ManagedSession.flags` keep using the original `resolvedFlags`. `validateLaunch` builds `args` in the same order (`[...promptArgs, ...flags]`), so the card's argument rows and display command match spawn order. All three spawn paths already quote every entry, so no backend changes.
 - The prompt can't start with `-` (§1), so it can never be read as a CLI option. The quoting stops shell injection; this rule stops option injection.
 - "First spawn" = the `createSessionFromLaunch` call (§4), for both `new` approvals and `run` launchers. It is the **only** caller that passes `initialPrompt`. `restoreSessions()` and `restartSession()` re-enter `createSession` with the stored flags and never pass it. `ManagedSession.flags` and `PersistedSession.flags` keep the original flags, and `initialPrompt` is never persisted. That keeps an Argus relaunch from re-running the refresh.
 - `initialPrompt` is **not** added to the REST or Socket.io request shapes (`CreateSessionRequest` stays as is). Only the in-process launch export accepts it. With `createSession` already at 12 positional params, pass it on the launch path through an options object.
@@ -116,7 +116,7 @@ The gate logic lives in a pure module, `electron/src/launchGate.ts`: `createLaun
    - returns the display command (agent command plus user-visible args, Argus's injected `--settings` / `-c notify` omitted, built with the same `shquote` as `PtyManager.ts`) and the `args` list
    - returns warnings:
      - `folder-outside-roots`: realpath not under any of `config.launchFolderRoots`, default `['~/development']`
-     - `folder-agent-config`: folder holds `.claude/`, `.mcp.json` or `CLAUDE.md`, listed by name, "this config loads when the agent starts"
+     - `folder-agent-config`: folder holds any of `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.gemini/settings.json` (or a bare `.claude/` directory), listed by relative path, "this config loads when the agent starts". `folderAgentConfig` records each as `"<relpath>#<sha256-hex-16>"` of its **contents** (sorted), so a later edit is detectable, not just a file appearing
      - `worktree`: "creates branch `feat/x` from `main`"
 
 **`new` links** → always add a `PendingLaunch` (dedupe: an identical request already pending just refocuses it; the dedupe key is built from explicit request fields, not a JSON dump).
@@ -124,7 +124,7 @@ The gate logic lives in a pure module, `electron/src/launchGate.ts`: `createLaun
 **`run/<id>` links** (`id` must match `^[a-z0-9-]{1,40}$`, no query params):
 - Unknown id → error toast "No launcher `<id>`" (the id is echoed only after it passes the regex).
 - A live (not `exited`) session created from this launcher exists → focus and highlight that tile; no spawn. A double-click or impatient re-click can't pile up sessions.
-- The launcher's stored `agentCommand` ≠ the agent's current resolved command, **or** the folder's agent-config files differ from `folderConfigAtSave` → pending card with a `launcher-changed` warning and an "Update launcher" option. A remote config change to a custom agent, or hooks dropped into the folder later, can't silently change what a saved launcher runs.
+- The launcher's stored `agentCommand` ≠ the agent's current resolved command, **or** the folder's agent-config files or their **contents** differ from `folderConfigAtSave` (content hashes compared; the warning names the changed relpaths) → pending card with a `launcher-changed` warning and an "Update launcher" option. A remote config change to a custom agent, or hooks dropped into the folder later, can't silently change what a saved launcher runs.
 - Otherwise → create directly through `createSessionFromLaunch` (§4). Toast "Started `<label>`" plus the tile highlight. A failure turns into a pending card in `error` state.
 - A per-launcher in-flight guard ignores a second `run` link for the same launcher while it is still starting.
 
@@ -199,10 +199,10 @@ Limits:
 Launcher { id: string /* ^[a-z0-9-]{1,40}$ */, label: string,
            request: LaunchRequest /* folder realpath'd, no worktree */,
            agentCommand: string /* resolved agent command at save */,
-           folderConfigAtSave: string[], createdAt: string }
+           folderConfigAtSave: string[] /* '<relpath>#<sha256-hex-16>' per agent config file */, createdAt: string }
 ```
 
-- Launchers live in `server/data/launchers.json` (`LauncherStore`, atomic write like `ConfigStore`). `PUT /api/config` never sees them, so an unrelated Settings save can't wipe them and a remote config write can't plant or alter one. Additions and renames happen only through the main-process IPC handlers.
+- Launchers live in `server/data/launchers.json` (`LauncherStore`, atomic write like `ConfigStore`). An unparseable file is copied to `launchers.json.bak` (best effort) before the store loads as empty. `PUT /api/config` never sees them, so an unrelated Settings save can't wipe them and a remote config write can't plant or alter one. Additions and renames happen only through the main-process IPC handlers.
 - `AppConfig.launchFolderRoots: string[]` (default `['~/development']`) stays in `AppConfig`, in both `DEFAULT_CONFIG` literals (registered in `check-dep-sync.mjs`). It only drives warnings.
 - Duplicate id on save → the card asks to overwrite or pick another id.
 - **Settings pane "Launchers"** (registered in `settings/registry.ts`):
@@ -216,12 +216,13 @@ Launcher { id: string /* ^[a-z0-9-]{1,40}$ */, label: string,
 
 ### 6. Security properties
 
-- Remote content can **propose** a session with `new`, never start one. It can start only a launcher the user saved from an approved card, and only as saved: the stored command and the folder's agent config are rechecked on every run.
-- The prompt is argv, quoted by the existing `shquote` paths. It never reaches a shell unquoted; tests cover `'`, `$(…)`, backticks, newlines and `;`. It can't start with `-`, so it is never read as a CLI option, and it is appended after signal injection, so no adapter parses it.
+- Remote content can **propose** a session with `new`, never start one. It can start only a launcher the user saved from an approved card, and only as saved: the stored command and the folder's agent config (file contents, hashed) are rechecked on every run.
+- The prompt is argv, quoted by the existing `shquote` paths. It never reaches a shell unquoted; tests cover `'`, `$(…)`, backticks, newlines and `;`. It can't start with `-`, so it is never read as a CLI option. It is placed right after the agent command, before user and injected flags, so a bare user flag can't take it as its value, and it is never passed to signal injection, so no adapter parses it.
 - Flags aren't classified (D4). The card's job is to show every argument clearly; judging them is the user's.
 - The gate proves the user **chose to run this text**, not that the text is safe. What an approved prompt can do still depends on the agent's permission mode.
 - A known `run/<id>` link can be replayed by any page. Worst case it opens the saved session, or focuses the live one.
 - No approval surface over the network (ngrok, mobile); pending state never persisted.
+- The card stack stays above native terminal overlays for its whole lifetime: its suppression is live (`suppressLive`), re-evaluated when a tile registers or moves under it and on window resize, so a new session or a reflow can't put a native terminal over an approvable card.
 - Out of scope: an attacker who already runs code as the user. They can call `claude` directly.
 
 ### 7. Dev scheme registration (safe testing)
@@ -236,8 +237,8 @@ Launcher { id: string /* ^[a-z0-9-]{1,40}$ */, label: string,
 | Layer | Where | Cases |
 |---|---|---|
 | Parser | `electron/src/launchLink.test.ts` (`node:test`) | every `new` param; repeated `flag` order; unknown param; duplicate singleton; bad engine/mode; `~` expansion; oversize URL; `run/<id>` id regex and "no query params"; `notif/` untouched; wrong host; prompt starting with `-`; bidi / zero-width / control chars in prompt, name, folder |
-| Validation | server `node:test` | unknown agent; missing folder; file not dir; flags failing `validateFlags`; prompt on agent without prompt support; quoted prompt > 12 KB; warnings for folder outside roots, folder with `.claude/` / `.mcp.json` / `CLAUDE.md`, worktree |
-| Prompt argv | server `node:test` (per backend + `SessionManager.signalInjection.test.ts`) | quoting of `'`, `$()`, backticks, newline, `;`; prompt appended after injection (claude `--settings` and codex `notify` untouched by prompts like `--settings=/x`, `notify=x`); prompt present on first spawn; **absent after `restartSession` and `restoreSessions`**; not in `sessions.json`; `config.agentFlags` unchanged after a launch; `launcherId` persisted |
+| Validation | server `node:test` | unknown agent; missing folder; file not dir; flags failing `validateFlags`; prompt on agent without prompt support; quoted prompt > 12 KB; warnings for folder outside roots, folder agent config files (relpaths listed, contents hashed), worktree |
+| Prompt argv | server `node:test` (per backend + `SessionManager.signalInjection.test.ts`) | quoting of `'`, `$()`, backticks, newline, `;`; prompt placed first, before user and injected flags (a bare user flag cannot capture it; claude `--settings` and codex `notify` untouched by prompts like `--settings=/x`, `notify=x`); prompt present on first spawn; **absent after `restartSession` and `restoreSessions`**; not in `sessions.json`; `config.agentFlags` unchanged after a launch; `launcherId` persisted |
 | Gate | `electron/src/launchGate.test.ts` (`node:test`) | `new` → always pending; identical pending deduped; `run` unknown → error; `run` with a live session → focus, no spawn; `run` after that session exits → spawns; `run` with a changed agent command or changed folder config → pending `launcher-changed`; `run` ok → direct; expiry → `expired` (also enforced in `approve`); cap of 5 counting non-expired cards; burst limit; per-launcher in-flight guard; cold-start queue drains only after renderer load + restore (both outcomes); `launch:list` after reload; card re-homes when its window closes for any reason; IPC from an unknown sender, an unknown id, or an unfocused window rejected |
 | Launcher store | server `node:test` | load/save round-trip, malformed entries dropped, config PUT never touches launchers |
 | Card UI | client `vitest` | every arg on its own row; prompt block with count, visible newlines, "Show all"; warnings as icon + text; states pending/starting/error/expired; Start disabled 1 s and restarts on refocus and on position change; Start not Enter-activated; Save as launcher disabled with a worktree; `aria-live` announcement; menu item focuses the card; stack sits under sheets; update-launcher option on `changed` cards; approve errors inline |

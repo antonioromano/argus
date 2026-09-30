@@ -189,7 +189,7 @@ export interface ValidatedLaunch {
   args: string[];                  // flags + prompt args, spawn order
   command: string;                 // display string (Argus injection omitted)
   warnings: LaunchWarning[];
-  folderAgentConfig: string[];     // names found: '.claude', '.mcp.json', 'CLAUDE.md'
+  folderAgentConfig: string[];     // sorted '<relpath>#<sha256-hex-16>' per agent config file found (+ bare '.claude/')
 }
 
 export type ValidationResult = { ok: true; value: ValidatedLaunch } | { ok: false; error: string };

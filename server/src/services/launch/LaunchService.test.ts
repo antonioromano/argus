@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, realpathSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AgentRegistry } from '../AgentRegistry.js';
@@ -66,6 +66,28 @@ test('resolveRun: unknown, live, changed agent command, changed folder config, i
 
   rmSync(s.folder, { recursive: true, force: true });
   assert.equal((await s.svc.resolveRun('c2')).kind, 'invalid');
+});
+
+test('resolveRun: editing CLAUDE.md or .claude/settings.json content after save → changed', async (t) => {
+  const s = setup(t);
+  mkdirSync(path.join(s.folder, '.claude'));
+  writeFileSync(path.join(s.folder, '.claude', 'settings.json'), '{}');
+  writeFileSync(path.join(s.folder, 'CLAUDE.md'), '# v1');
+  const v = await s.svc.validate({ agent: 'claude', folder: s.folder, flags: [] });
+  assert.ok(v.ok);
+  await s.svc.add({ id: 'h1', label: 'h', validated: v.value });
+  assert.equal((await s.svc.resolveRun('h1')).kind, 'ready');
+
+  writeFileSync(path.join(s.folder, 'CLAUDE.md'), '# v2');
+  const r = await s.svc.resolveRun('h1');
+  assert.equal(r.kind, 'changed');
+  const w = r.kind === 'changed' ? r.validated.warnings.find((x) => x.kind === 'launcher-changed') : undefined;
+  assert.ok(w && w.detail.includes('CLAUDE.md'), JSON.stringify(w));
+  assert.ok(w && !/#[0-9a-f]{16}/.test(w.detail), 'reason lists relpaths, no hashes');
+
+  await s.svc.add({ id: 'h2', label: 'h', validated: (await s.svc.validate({ agent: 'claude', folder: s.folder, flags: [] }) as any).value });
+  writeFileSync(path.join(s.folder, '.claude', 'settings.json'), '{"hooks":{}}');
+  assert.equal((await s.svc.resolveRun('h2')).kind, 'changed');
 });
 
 test('rename and remove', async (t) => {

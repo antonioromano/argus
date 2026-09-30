@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LauncherStore } from './LauncherStore.js';
@@ -28,4 +28,19 @@ test('drops malformed entries and non-array files', async (t) => {
   assert.deepEqual((await new LauncherStore(f).load()).map((l) => l.id), ['ok']);
   writeFileSync(f, '{"not":"array"}');
   assert.deepEqual(await new LauncherStore(f).load(), []);
+});
+
+test('corrupt JSON → empty list, and the corrupt file is copied to .bak first', async (t) => {
+  const d = dir(t);
+  const f = path.join(d, 'launchers.json');
+  writeFileSync(f, '[{"id": "half');
+  assert.deepEqual(await new LauncherStore(f).load(), []);
+  assert.equal(readFileSync(f + '.bak', 'utf-8'), '[{"id": "half');
+});
+
+test('missing file writes no .bak', async (t) => {
+  const d = dir(t);
+  const f = path.join(d, 'launchers.json');
+  await new LauncherStore(f).load();
+  assert.equal(existsSync(f + '.bak'), false);
 });

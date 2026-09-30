@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises';
+import { readFile, copyFile } from 'fs/promises';
 import type { Launcher } from '@argus/shared';
 import { atomicWrite } from '../utils/atomicWrite.js';
 
@@ -29,7 +29,12 @@ export class LauncherStore {
       const data = JSON.parse(await readFile(this.filePath, 'utf-8'));
       return Array.isArray(data) ? data.filter(isLauncher) : [];
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('[LauncherStore] load failed:', err);
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      console.warn('[LauncherStore] load failed:', err);
+      // Unparseable: keep a copy before the next save() overwrites it with [].
+      if (err instanceof SyntaxError) {
+        await copyFile(this.filePath, `${this.filePath}.bak`).catch((e) => console.warn('[LauncherStore] backup failed:', e));
+      }
       return [];
     }
   }

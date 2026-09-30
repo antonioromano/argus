@@ -584,8 +584,11 @@ export class SessionManager {
     // persists on disk across restart, R6). A restored session's arbiter falls
     // back to coverageFor(agentType), so native signals from a survivor still count.
     // A restoreExited placeholder has no process to inject into either.
-    // Initial prompt (deep links): appended AFTER signal injection so no adapter
-    // ever parses prompt text, and only on a fresh create — restore/reattach and
+    // Initial prompt (deep links): placed right after the agent command, before
+    // user and injected flags, so a bare user flag (`--mcp-config`) can never
+    // consume the prompt as its value. It is still computed separately and never
+    // passed to buildSignalInjection, so no adapter ever parses prompt text. Only
+    // on a fresh create — restore/reattach and
     // restartSession never pass opts.initialPrompt, so it can't be replayed.
     // Resolved before any signal file is written so an unsupported agent throws cleanly.
     let promptTail: string[] = [];
@@ -604,7 +607,7 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = [...(inj?.flags ?? resolvedFlags), ...promptTail];
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
     const spawnEnv = inj?.env ?? {};
 
     // Survives app quit when the backend is persistent. tmuxName is set only for

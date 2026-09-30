@@ -33,21 +33,31 @@ function harness() {
 const create = (sm: SessionManager, flags: string[], opts: any) =>
   sm.createSession(os.tmpdir(), 'n', 'claude', flags, undefined, undefined, undefined, undefined, false, undefined, 'persistent', false, opts);
 
-test('prompt is the last argv entry, after signal injection', async () => {
+test('prompt is the first argv entry, before user flags and signal injection', async () => {
   const { sm, spawns } = harness();
   await create(sm, ['--model=opus'], { initialPrompt: 'settings=/x notify=x' });
   const flags: string[] = spawns[0].flags;
-  assert.equal(flags.at(-1), 'settings=/x notify=x');
+  assert.equal(flags[0], 'settings=/x notify=x');
+  const modelIdx = flags.indexOf('--model=opus');
   const settingsIdx = flags.indexOf('--settings');
-  assert.ok(settingsIdx >= 0 && settingsIdx < flags.length - 1, 'injected --settings precedes the prompt');
+  assert.ok(modelIdx > 0, 'user flags follow the prompt');
+  assert.ok(settingsIdx > modelIdx, 'injected --settings still follows user flags');
   assert.ok(!flags.includes('/x'), 'prompt never parsed as a --settings value');
+});
+
+test('a bare user flag cannot capture the prompt as its value', async () => {
+  const { sm, spawns } = harness();
+  await create(sm, ['--add-dir'], { initialPrompt: 'hello' });
+  const flags: string[] = spawns[0].flags;
+  assert.equal(flags[0], 'hello');
+  assert.ok(flags.indexOf('--add-dir') > 0, '--add-dir comes after the prompt');
 });
 
 test('prompt text that looks like injection flags is not parsed by the adapter', async () => {
   const { sm, spawns } = harness();
   await create(sm, [], { initialPrompt: 'use --settings=/tmp/evil.json please' });
   const flags: string[] = spawns[0].flags;
-  assert.equal(flags.at(-1), 'use --settings=/tmp/evil.json please');
+  assert.equal(flags[0], 'use --settings=/tmp/evil.json please');
   assert.equal(flags.filter((f) => f === '--settings').length, 1, 'only Argus\'s own --settings');
 });
 

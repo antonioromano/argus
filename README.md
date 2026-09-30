@@ -150,7 +150,7 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 
 ### Launch links
 
-Other local tools can open a session in Argus with a link. `argus://new?agent=claude&folder=~/dev/repo&prompt=…` always shows an approval card listing every argument; nothing runs until you click Start. Tick **Save as launcher** to get a one-click `argus://run/<id>` link (manage them in Settings → Launchers). A saved launcher re-checks its agent command and the folder's agent config on every run.
+Other local tools can open a session in Argus with a link. `argus://new?agent=claude&folder=~/dev/repo&prompt=…` always shows an approval card listing every argument; nothing runs until you click Start. Tick **Save as launcher** to get a one-click `argus://run/<id>` link (manage them in Settings → Launchers). A saved launcher re-checks its agent command and the contents of the folder's agent config files (`.claude/settings*.json`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.gemini/settings.json`) on every run; any change sends it back through the approval card.
 
 ### Mobile Support
 
