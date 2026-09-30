@@ -10,6 +10,8 @@ import type {
   AppConfig,
   ClientToServerEvents,
   ServerToClientEvents,
+  SessionInfo,
+  ValidatedLaunch,
   WindowRegistryState,
 } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
@@ -23,6 +25,8 @@ import { ConfigStore } from './persistence/ConfigStore.js';
 import { ChangelistStore } from './persistence/ChangelistStore.js';
 import { CommitSelectionStore } from './persistence/CommitSelectionStore.js';
 import { AgentRegistry } from './services/AgentRegistry.js';
+import { LauncherStore } from './persistence/LauncherStore.js';
+import { LaunchService } from './services/launch/LaunchService.js';
 import { AuthService } from './services/AuthService.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
@@ -182,6 +186,35 @@ windowRegistry.onChange((state) => io.emit('window:state', state));
 sessionManager.onSessionDeleted = (id) => {
   void windowRegistry.removeSession(id).catch(console.error);
 };
+
+// Deep-link launchers (argus://run/<id>) — own file, never via PUT /api/config.
+const launcherStore = new LauncherStore(path.join(dataDir, 'launchers.json'));
+const launchService = new LaunchService({
+  store: launcherStore,
+  loadConfig: () => configStore.load(),
+  agentRegistry,
+  home: os.homedir(),
+  findLiveByLauncher: (id) => sessionManager.findLiveByLauncher(id),
+});
+/** In-process only (Electron main). There is deliberately no REST route. */
+export function getLaunchService(): LaunchService {
+  return launchService;
+}
+/** Create a session from an approved/ready launch and give it to `windowId`. */
+export async function hostLaunch(v: ValidatedLaunch, windowId: string, launcherId?: string): Promise<SessionInfo> {
+  const r = v.request;
+  const session = await sessionManager.createSession(
+    r.folder, r.name, r.agent, r.flags, undefined, undefined, r.worktree, r.base, false, r.engine, r.mode, false,
+    { initialPrompt: r.prompt, launcherId },
+  );
+  await windowRegistry.assign(session.id, windowId);
+  return session;
+}
+let sessionsRestored: Promise<void> = Promise.resolve();
+/** Resolves once restoreSessions (started in the background by startServer) settles. */
+export function whenSessionsRestored(): Promise<void> {
+  return sessionsRestored;
+}
 
 // Electron host callbacks — mutable so the host can set them before/after
 // startServer (same pattern as _filesystemOptions).
@@ -361,7 +394,7 @@ export async function startServer(): Promise<void> {
   // creation on this made a large session set look/act like a startup
   // crash. Clients already handle sessions arriving progressively via the
   // 'session:created' socket event, so there's no ordering requirement here.
-  void sessionManager
+  sessionsRestored = sessionManager
     .restoreSessions()
     .then(() =>
       windowRegistry.pruneToSessions(
