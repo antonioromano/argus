@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  registerOverlay, unregisterOverlay, suppress,
+  registerOverlay, unregisterOverlay, suppress, suppressLive,
   setSuppressionTransport, resetOverlayRegistryForTests,
   isFullScreenSuppressed, subscribeFullScreenSuppression,
 } from './nativeOverlayRegistry.js';
@@ -121,5 +121,111 @@ describe('full-screen suppression state', () => {
     const h = suppress({ x: 0, y: 0, width: 10, height: 10 });
     expect(isFullScreenSuppressed()).toBe(false);
     h.release();
+  });
+});
+
+describe('live partial suppression (suppressLive)', () => {
+  const CARD = { x: 120, y: 0, width: 60, height: 100 };    // between A and B: overlaps nothing
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const flushFrame = () => vi.advanceTimersByTime(50);
+
+  it('hides what the rect covers at creation, like suppress(rect)', () => {
+    registerOverlay('a', A);
+    registerOverlay('b', B);
+    const h = suppressLive(() => ({ x: 50, y: 0, width: 200, height: 10 }));
+    expect(hidden.sort()).toEqual(['a', 'b']);
+    h.release();
+    expect(shown.sort()).toEqual(['a', 'b']);
+  });
+
+  it('an overlay registered after the handle, intersecting its rect, is hidden immediately', () => {
+    const h = suppressLive(() => CARD);
+    registerOverlay('late', { x: 150, y: 50, width: 100, height: 100 });
+    expect(hidden).toEqual(['late']);
+    registerOverlay('far', { x: 400, y: 0, width: 50, height: 50 });
+    expect(hidden).toEqual(['late']);
+    h.release();
+    expect(shown).toEqual(['late']);
+  });
+
+  it('an overlay whose geometry moves into the rect is hidden; moving out unhides it', () => {
+    registerOverlay('a', A);
+    const h = suppressLive(() => CARD);
+    expect(hidden).toEqual([]);
+    registerOverlay('a', { x: 120, y: 0, width: 100, height: 100 });   // reflow into the card
+    expect(hidden).toEqual(['a']);
+    registerOverlay('a', { x: 120, y: 0, width: 100, height: 100 });   // repeat report: no double hold
+    registerOverlay('a', A);                                            // moves back out
+    expect(shown).toEqual(['a']);
+    h.release();
+    expect(shown).toEqual(['a']);                                       // not shown twice
+  });
+
+  it('re-evaluates on window resize (rAF-throttled) when the rect moves', () => {
+    registerOverlay('a', A);
+    registerOverlay('b', B);
+    let rect = CARD;
+    const h = suppressLive(() => rect);
+    expect(hidden).toEqual([]);
+    rect = { x: 50, y: 0, width: 20, height: 20 };                      // window narrowed: card over A
+    window.dispatchEvent(new Event('resize'));
+    window.dispatchEvent(new Event('resize'));
+    expect(hidden).toEqual([]);                                         // not until the frame
+    flushFrame();
+    expect(hidden).toEqual(['a']);
+    rect = { x: 250, y: 0, width: 20, height: 20 };                     // now over B only
+    window.dispatchEvent(new Event('resize'));
+    flushFrame();
+    expect(hidden).toEqual(['a', 'b']);
+    expect(shown).toEqual(['a']);
+    h.release();
+    expect(shown).toEqual(['a', 'b']);
+  });
+
+  it('refresh() re-evaluates a changed rect on the next frame', () => {
+    registerOverlay('a', A);
+    let rect: { x: number; y: number; width: number; height: number } | null = null;
+    const h = suppressLive(() => rect);
+    rect = { x: 0, y: 0, width: 10, height: 10 };
+    h.refresh();
+    flushFrame();
+    expect(hidden).toEqual(['a']);
+    expect(h.ids).toEqual(['a']);
+    h.release();
+  });
+
+  it('release unhides everything it holds and stops tracking', () => {
+    registerOverlay('a', A);
+    registerOverlay('b', B);
+    const h = suppressLive(() => ({ x: 0, y: 0, width: 300, height: 10 }));
+    h.release();
+    h.release();                                                        // idempotent
+    expect(shown.sort()).toEqual(['a', 'b']);
+    registerOverlay('c', { x: 0, y: 0, width: 10, height: 10 });
+    window.dispatchEvent(new Event('resize'));
+    flushFrame();
+    expect(hidden.sort()).toEqual(['a', 'b']);
+  });
+
+  it('composes with other suppressions via the refcount', () => {
+    registerOverlay('a', A);
+    const s = suppress('all');
+    const h = suppressLive(() => ({ x: 0, y: 0, width: 10, height: 10 }));
+    s.release();
+    expect(shown).toEqual([]);                                          // live handle still holds it
+    registerOverlay('a', B);                                            // moves out from under the card
+    expect(shown).toEqual(['a']);
+    h.release();
+  });
+
+  it('an unregistered overlay leaves the handle; re-registering outside the rect is not held', () => {
+    registerOverlay('a', A);
+    const h = suppressLive(() => ({ x: 0, y: 0, width: 10, height: 10 }));
+    unregisterOverlay('a');
+    registerOverlay('a', B);
+    expect(h.ids).toEqual([]);
+    h.release();
+    expect(shown).toEqual([]);
   });
 });

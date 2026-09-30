@@ -57,7 +57,9 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
     }
   };
   const promptLines = (view.prompt ?? '').split('\n');
-  const longPrompt = promptLines.length > 6;
+  const manyLines = promptLines.length > 6;
+  // One long line wraps past the 7.5em box too; offer the expander for it as well.
+  const longPrompt = manyLines || (view.prompt?.length ?? 0) > 600;
 
   return (
     <div
@@ -109,7 +111,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
             </div>
             {longPrompt && (
               <button type="button" onClick={() => setShowAll((v) => !v)} style={{ fontSize: 'var(--t-xs)', background: 'none', border: 0, color: 'var(--accent)', cursor: 'pointer', padding: 0 }}>
-                {showAll ? 'Show less' : `Show all (${promptLines.length} lines)`}
+                {showAll ? 'Show less' : manyLines ? `Show all (${promptLines.length} lines)` : `Show all (${view.prompt!.length} chars)`}
               </button>
             )}
           </>
@@ -148,7 +150,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           </label>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button variant="ghost" onClick={() => void onDiscard(view.id)}>{expired ? 'Dismiss' : 'Discard'}</Button>
+          <Button variant="ghost" disabled={busy} onClick={() => void onDiscard(view.id)}>{expired ? 'Dismiss' : 'Discard'}</Button>
           {expired ? (
             <span style={{ alignSelf: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Expired</span>
           ) : (

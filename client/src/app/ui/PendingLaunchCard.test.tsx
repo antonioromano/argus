@@ -101,6 +101,33 @@ describe('PendingLaunchCard', () => {
     expect(q('[data-testid="launch-start"]')).toBeNull();
   });
 
+  it('M3: Discard is disabled while starting', async () => {
+    const { onDiscard } = await render({ state: 'starting' });
+    const discard = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Discard') as HTMLButtonElement;
+    expect(discard.disabled).toBe(true);
+    await act(async () => { discard.click(); });
+    expect(onDiscard).not.toHaveBeenCalled();
+    await render({ state: 'pending' });
+    const again = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Discard') as HTMLButtonElement;
+    expect(again.disabled).toBe(false);
+  });
+
+  it('M2: a long single-line prompt (>600 chars) gets a "Show all (N chars)" expander', async () => {
+    const long = 'x'.repeat(601);
+    await render({ prompt: long, args: [long] });
+    const btn = [...container.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Show all'));
+    expect(btn?.textContent).toBe('Show all (601 chars)');
+    await act(async () => { btn!.click(); });
+    expect(q('[data-testid="launch-prompt"]').style.maxHeight).toBe('none');
+    await render({ prompt: 'x'.repeat(600), args: [] });
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.startsWith('Show all'))).toBe(false);
+  });
+
+  it('M2: a many-line prompt keeps the line-count expander', async () => {
+    await render({ prompt: 'a\nb\nc\nd\ne\nf\ng', args: [] });
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent === 'Show all (7 lines)')).toBe(true);
+  });
+
   it('run card with launcher-changed warning: update toggle sends overwrite; new card never shows it', async () => {
     const { onApprove } = await render({
       source: 'run', launcherId: 'nightly', label: 'Nightly', canSaveAsLauncher: false,

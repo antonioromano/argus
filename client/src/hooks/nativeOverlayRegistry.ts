@@ -43,6 +43,31 @@ const holders = new Map<string, number>();   // sessionId -> suppression refcoun
 interface AllHandle { ids: Set<string> }
 const activeAllHandles = new Set<AllHandle>();
 
+// Every active suppressLive() handle. A partial-rect suppress() snapshots the
+// overlays it covers once, which is wrong for a surface that must stay on top
+// while the layout under it changes (the deep-link approval card: a tile can
+// reflow or register under it, and the window can resize and move the
+// right-anchored stack). A live handle re-evaluates its membership whenever an
+// overlay registers or reports new geometry (synchronously, so nothing ever
+// paints over it) and on window resize / refresh() (rAF-throttled), diffing
+// the set it holds instead of releasing and re-suppressing.
+interface LiveHandle { getRect: () => Rect | null; ids: Set<string> }
+const liveHandles = new Set<LiveHandle>();
+let liveFrame: { cancel(): void } | null = null;
+
+function scheduleLiveReevaluation(): void {
+  if (liveFrame) return;
+  const run = () => { liveFrame = null; for (const h of liveHandles) evaluateLive(h); };
+  if (typeof requestAnimationFrame === 'function') {
+    const id = requestAnimationFrame(run);
+    liveFrame = { cancel: () => cancelAnimationFrame(id) };
+  } else {
+    const id = setTimeout(run, 16);
+    liveFrame = { cancel: () => clearTimeout(id) };
+  }
+}
+const onWindowResize = () => scheduleLiveReevaluation();
+
 // Tiles swap in a placeholder while a full-screen surface is up, so every tile
 // looks the same whether its terminal is a hidden native view or a web one.
 const fullScreenListeners = new Set<() => void>();
@@ -62,6 +87,8 @@ export function setSuppressionTransport(t: Transport): void { transport = t; }
 
 export function resetOverlayRegistryForTests(): void {
   rects.clear(); holders.clear(); activeAllHandles.clear();
+  liveHandles.clear(); liveFrame?.cancel(); liveFrame = null;
+  if (typeof window !== 'undefined') window.removeEventListener('resize', onWindowResize);
   notifyFullScreen();
   transport = { hide: () => {}, show: () => {} };
 }
@@ -77,6 +104,27 @@ function hold(sessionId: string): void {
   if (n === 1) transport.hide(sessionId);
 }
 
+/** Drop one hold; the last holder re-shows the overlay if it still exists. */
+function unhold(sessionId: string): void {
+  const n = holders.get(sessionId);
+  if (n === undefined) return;                  // unregistered while suppressed
+  if (n <= 1) { holders.delete(sessionId); if (rects.has(sessionId)) transport.show(sessionId); }
+  else holders.set(sessionId, n - 1);
+}
+
+/** Bring one live handle's hold on one overlay in line with the current geometry. */
+function syncLive(h: LiveHandle, sessionId: string, surface: Rect | null): void {
+  const r = rects.get(sessionId);
+  const covered = !!surface && !!r && intersects(r, surface);
+  if (covered && !h.ids.has(sessionId)) { h.ids.add(sessionId); hold(sessionId); }
+  else if (!covered && h.ids.has(sessionId)) { h.ids.delete(sessionId); unhold(sessionId); }
+}
+
+function evaluateLive(h: LiveHandle): void {
+  const surface = h.getRect();
+  for (const id of new Set([...rects.keys(), ...h.ids])) syncLive(h, id, surface);
+}
+
 export function registerOverlay(sessionId: string, rect: Rect): void {
   rects.set(sessionId, rect);
   // A tile that appears while a sheet is open must not flash over it. It
@@ -90,6 +138,9 @@ export function registerOverlay(sessionId: string, rect: Rect): void {
     h.ids.add(sessionId);
     hold(sessionId);
   }
+  // Live partial suppressions: a tile that registers or moves under the
+  // surface is hidden now; one that moves out is shown again.
+  for (const h of liveHandles) syncLive(h, sessionId, h.getRect());
 }
 
 export function unregisterOverlay(sessionId: string): void {
@@ -99,6 +150,7 @@ export function unregisterOverlay(sessionId: string): void {
   // the same sessionId while the suppression is still active would add a
   // second, stale membership that a single release() would over-decrement.
   for (const h of activeAllHandles) h.ids.delete(sessionId);
+  for (const h of liveHandles) h.ids.delete(sessionId);
 }
 
 export interface SuppressionHandle { ids: string[]; release(): void }
@@ -140,6 +192,42 @@ export function suppress(target: 'all' | Rect): SuppressionHandle {
         if (n <= 1) { holders.delete(id); if (rects.has(id)) transport.show(id); }
         else holders.set(id, n - 1);
       }
+    },
+  };
+}
+
+export interface LiveSuppressionHandle {
+  readonly ids: string[];
+  /** Re-evaluate on the next frame (e.g. the surface itself resized). */
+  refresh(): void;
+  release(): void;
+}
+
+/**
+ * Like suppress(rect), but kept true for the handle's lifetime: overlays that
+ * register, move under, or move out from under `getRect()` are hidden/shown as
+ * it happens, and window resizes re-measure the surface. `getRect` returning
+ * null means the surface covers nothing right now.
+ */
+export function suppressLive(getRect: () => Rect | null): LiveSuppressionHandle {
+  const h: LiveHandle = { getRect, ids: new Set() };
+  if (liveHandles.size === 0 && typeof window !== 'undefined') window.addEventListener('resize', onWindowResize);
+  liveHandles.add(h);
+  evaluateLive(h);
+  let released = false;
+  return {
+    get ids() { return [...h.ids]; },
+    refresh() { if (!released) scheduleLiveReevaluation(); },
+    release() {
+      if (released) return;
+      released = true;
+      liveHandles.delete(h);
+      if (liveHandles.size === 0) {
+        liveFrame?.cancel(); liveFrame = null;
+        if (typeof window !== 'undefined') window.removeEventListener('resize', onWindowResize);
+      }
+      for (const id of h.ids) unhold(id);
+      h.ids.clear();
     },
   };
 }

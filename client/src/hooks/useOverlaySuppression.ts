@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { suppress, type Rect } from './nativeOverlayRegistry.js';
+import { useEffect, type RefObject } from 'react';
+import { suppress, suppressLive, type Rect } from './nativeOverlayRegistry.js';
 
 /**
  * Hide any native terminal overlay this surface would cover. A child NSWindow
@@ -17,8 +17,23 @@ import { suppress, type Rect } from './nativeOverlayRegistry.js';
  * mount/unmount (see the SuppressWhileOpen pattern in Sheet.tsx/AlertSheet.tsx),
  * not call this directly from its own top level.
  */
-export function useOverlaySuppression(target: 'all' | (() => Rect | null)): void {
+export interface LiveSuppressionOptions {
+  /** Keep the suppression true while the layout under the surface changes:
+   *  tiles registering/moving under it, window resizes (see suppressLive). */
+  live: true;
+  /** The surface element; its own size changes re-measure the rect. */
+  observe?: RefObject<Element | null>;
+}
+
+export function useOverlaySuppression(target: 'all' | (() => Rect | null), options?: LiveSuppressionOptions): void {
   useEffect(() => {
+    if (options?.live && target !== 'all') {
+      const handle = suppressLive(target);
+      const el = options.observe?.current;
+      const ro = el && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => handle.refresh()) : null;
+      if (el) ro?.observe(el);
+      return () => { ro?.disconnect(); handle.release(); };
+    }
     const isAll = target === 'all';
     const rect = isAll ? null : target();
     if (!isAll && !rect) return;
