@@ -21,12 +21,24 @@ function SuppressUnder({ target }: { target: () => DOMRect | null }) {
 export function LaunchCardStack() {
   const { pending, approve, discard } = useLaunches();
   const [expanded, setExpanded] = useState(false);
+  const [layoutEpoch, setLayoutEpoch] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const shown = pending.length > 0;
 
   useEffect(() => window.electronLaunch?.onToast((t) => pushToast(t.message, t.tone)), []);
   useEffect(() => window.electronApp?.onMenu('menu:review-launch', () => {
     ref.current?.querySelector<HTMLElement>('[data-testid="launch-prompt"], [data-testid="launch-card"] button')?.focus();
   }), []);
+
+  // Content grows after mount (disclosures, inputs, errors, window resize):
+  // re-measure so native overlays stay hidden under the whole stack.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setLayoutEpoch((n) => n + 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [shown]);
 
   if (pending.length === 0) return null;
   const visible = expanded ? pending : pending.slice(0, MAX_VISIBLE);
@@ -37,9 +49,9 @@ export function LaunchCardStack() {
       ref={ref}
       aria-live="assertive"
       aria-label="Pending launches"
-      style={{ position: 'fixed', top: STACK_TOP, right: 16, zIndex: 'var(--z-pop)' as unknown as number, display: 'flex', flexDirection: 'column', gap: 8 }}
+      style={{ position: 'fixed', top: STACK_TOP, right: 16, zIndex: 'var(--z-pop)' as unknown as number, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: `calc(100vh - ${STACK_TOP}px - 16px)`, overflowY: 'auto' }}
     >
-      <SuppressUnder key={`${visible.length}-${expanded}`} target={() => ref.current?.getBoundingClientRect() ?? null} />
+      <SuppressUnder key={`${visible.length}-${expanded}-${layoutEpoch}`} target={() => ref.current?.getBoundingClientRect() ?? null} />
       {visible.map((v, i) => (
         <PendingLaunchCard key={v.id} view={v} index={i} onApprove={approve} onDiscard={discard} />
       ))}

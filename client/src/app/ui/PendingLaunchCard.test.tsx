@@ -116,4 +116,51 @@ describe('PendingLaunchCard', () => {
     await render({ warnings: [{ kind: 'launcher-changed', detail: 'x' }] });
     expect(q('[data-testid="launch-update-toggle"]')).toBeNull();
   });
+
+  it('Enter/Space on a focused Start and early clicks never approve; re-arm after window focus blocks clicks', async () => {
+    const { onApprove } = await render();
+    start().focus();
+    await act(async () => {
+      start().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      start().dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      start().click();
+    });
+    expect(onApprove).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(START_DELAY_MS); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); start().click(); });
+    expect(onApprove).not.toHaveBeenCalled();
+    await act(async () => { vi.advanceTimersByTime(START_DELAY_MS); });
+    await act(async () => { start().click(); });
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed approve result or a rejection shows an alert; the next Start clears it', async () => {
+    const onApprove = vi.fn(async () => ({ ok: false, error: 'nope' }) as { ok: boolean; error?: string });
+    await render({}, { onApprove });
+    await act(async () => { vi.advanceTimersByTime(START_DELAY_MS); });
+    await act(async () => { start().click(); });
+    expect(q('[data-testid="launch-action-error"]').textContent).toContain('nope');
+    expect(q('[data-testid="launch-action-error"]').getAttribute('role')).toBe('alert');
+    onApprove.mockImplementationOnce(async () => { throw new Error('boom'); });
+    await act(async () => { start().click(); });
+    expect(q('[data-testid="launch-action-error"]').textContent).toContain('boom');
+    onApprove.mockImplementationOnce(async () => ({ ok: true }));
+    await act(async () => { start().click(); });
+    expect(q('[data-testid="launch-action-error"]')).toBeNull();
+  });
+
+  it('Esc is ignored while starting and when it comes from an input inside the card', async () => {
+    const { onDiscard } = await render({ state: 'starting' });
+    const card = q('[data-testid="launch-card"]');
+    await act(async () => { card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(onDiscard).not.toHaveBeenCalled();
+
+    const h = await render({ state: 'pending' });
+    await act(async () => { (q('[data-testid="launch-save-toggle"]') as HTMLInputElement).click(); });
+    const input = q('[data-testid="launch-save-id"]');
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(h.onDiscard).not.toHaveBeenCalled();
+    await act(async () => { q('[data-testid="launch-card"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(h.onDiscard).toHaveBeenCalledWith('id-1');
+  });
 });

@@ -15,8 +15,11 @@ export function useLaunches() {
   }, [bridge, refresh]);
 
   const approve = useCallback(
-    (id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult> =>
-      bridge ? bridge.approve(id, saveAs) : Promise.resolve({ ok: false, error: 'Unavailable' }),
+    async (id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult> => {
+      if (!bridge) return { ok: false, error: 'Unavailable' };
+      try { return await bridge.approve(id, saveAs); }
+      catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }
+    },
     [bridge],
   );
   const discard = useCallback((id: string) => (bridge ? bridge.discard(id) : Promise.resolve()), [bridge]);

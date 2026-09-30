@@ -19,6 +19,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
   const [saveLabel, setSaveLabel] = useState(view.name ?? view.label);
   const [update, setUpdate] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   // Start arms START_DELAY_MS after the card appears, and re-arms whenever the
   // card moves (index) or the window regains focus (epoch), so a click aimed
   // elsewhere can't approve it. `armKey` identifies the current arming period;
@@ -34,7 +35,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
     return () => clearTimeout(t);
   }, [armKey]);
   useEffect(() => {
-    const onFocus = () => setEpoch((n) => n + 1);
+    const onFocus = () => { armedKeyRef.current = ''; setEpoch((n) => n + 1); };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, []);
@@ -42,12 +43,18 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
   const canUpdate = view.source === 'run' && !!view.launcherId && view.warnings.some((w) => w.kind === 'launcher-changed');
   const busy = view.state === 'starting';
   const expired = view.state === 'expired';
-  const start = () => {
+  const start = async () => {
     if (armedKeyRef.current !== armKey || busy || expired) return;
     const saveAs: SaveAsLauncher | undefined = canUpdate && update
       ? { id: view.launcherId!, label: view.label, overwrite: true }
       : view.source === 'new' && save && view.canSaveAsLauncher ? { id: saveId, label: saveLabel } : undefined;
-    void onApprove(view.id, saveAs);
+    setActionError(null);
+    try {
+      const res = await onApprove(view.id, saveAs);
+      if (!res.ok) setActionError(res.error ?? 'Launch failed');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
   };
   const promptLines = (view.prompt ?? '').split('\n');
   const longPrompt = promptLines.length > 6;
@@ -57,7 +64,10 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
       data-testid="launch-card"
       role="group"
       aria-label={`Launch request: ${view.agent} in ${view.folder}`}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); void onDiscard(view.id); } }}
+      onKeyDown={(e) => {
+        const tag = (e.target as HTMLElement).tagName;
+        if (e.key === 'Escape' && !busy && tag !== 'INPUT' && tag !== 'TEXTAREA') { e.stopPropagation(); void onDiscard(view.id); }
+      }}
       style={{
         width: 460, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
         background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 8,
@@ -112,6 +122,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
 
         {view.state === 'error' && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
         {view.state === 'pending' && view.error && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
+        {actionError && <div role="alert" data-testid="launch-action-error" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{actionError}</div>}
       </div>
 
       <div style={{ borderTop: '1px solid var(--line-2)', padding: 'var(--s-3) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 8 }}>
