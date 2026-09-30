@@ -3,7 +3,8 @@ import type { Launcher } from '@argus/shared';
 import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 
-const scheme = () => (import.meta.env.DEV ? 'argus-dev' : 'argus');
+/** The deep-link scheme main registered (argus / argus-dev); main is the source of truth. */
+const scheme = () => window.electronLaunch?.scheme || 'argus';
 const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const EXAMPLE = () => `${scheme()}://new?agent=claude&folder=~/development/my-repo&prompt=hello`;

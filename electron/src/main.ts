@@ -65,6 +65,10 @@ if (!app.isPackaged) {
 // (which owns 'argus://'). Drives setAsDefaultProtocolClient, the terminal-notifier
 // -open URL, and the open-url strip below.
 const SCHEME = app.isPackaged ? 'argus' : 'argus-dev';
+// The renderer builds argus:// links (Settings → Launchers) from main's scheme,
+// read synchronously once by the preload. Registered at module load so it exists
+// before any window's preload runs.
+ipcMain.on('launch:scheme', (e) => { e.returnValue = SCHEME; });
 
 interface ApplyUpdateResult {
   success: boolean;
@@ -1273,9 +1277,11 @@ async function main() {
     launch: (v, w, l) => hostLaunch(v, w, l),
     saveLauncher: (i) => launchService.add(i),
     targetWindow: () => getFocusedWindowId(),
-    changed: (w) => {
+    changed: (w, reason) => {
+      // Only a new card (or a dedupe re-focus) may surface a hidden window;
+      // expiry ticks and rehomes must never pop it to the front.
       const win = getAppWindow(w) ?? getMainWindow();
-      if (win && !win.isVisible()) focusAppWindow(w);
+      if (reason === 'added' && win && !win.isVisible()) focusAppWindow(w);
       sendTo(w, 'launch:changed');
     },
     toast: (w, message, tone) => sendTo(w, 'launch:toast', { message, tone }),

@@ -48,6 +48,15 @@ test('new: name and folder reject control and format chars', () => {
   assert.equal(err('argus://new?agent=claude&folder=/tmp%E2%80%AE'), 'bad-folder');
 });
 
+test('M1: agent must be a plain id (no control/format chars to echo in errors)', () => {
+  assert.equal(err('argus://new?agent=cla%0Aude&folder=/tmp'), 'bad-agent');
+  assert.equal(err('argus://new?agent=a%E2%80%AEb&folder=/tmp'), 'bad-agent');
+  assert.equal(err('argus://new?agent=a%20b&folder=/tmp'), 'bad-agent');
+  assert.equal(err('argus://new?agent=' + 'a'.repeat(65) + '&folder=/tmp'), 'bad-agent');
+  assert.equal(newReq('argus://new?agent=123e4567-e89b-12d3-a456-426614174000&folder=/tmp').agent, '123e4567-e89b-12d3-a456-426614174000');
+  assert.equal(newReq('argus://new?agent=my_agent.v2&folder=/tmp').agent, 'my_agent.v2');
+});
+
 test('run: id only, no params', () => {
   const r = p('argus://run/jarvar-refresh');
   assert.deepEqual(r, { ok: true, kind: 'run', launcherId: 'jarvar-refresh' });

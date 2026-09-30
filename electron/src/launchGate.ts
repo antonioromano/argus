@@ -14,7 +14,10 @@ export interface GateDeps {
   launch(v: ValidatedLaunch, windowId: string, launcherId?: string): Promise<{ id: string }>;
   saveLauncher(input: { id: string; label: string; validated: ValidatedLaunch; overwrite?: boolean }): Promise<LaunchActionResult>;
   targetWindow(): string;
-  changed(windowId: string): void;
+  /** Pending cards of `windowId` changed. `added` = a card appeared or a dedupe
+   *  hit re-focused one (main may bring the window forward); `updated` = state
+   *  change, expiry, rehome (main must never steal focus for these). */
+  changed(windowId: string, reason: 'added' | 'updated'): void;
   toast(windowId: string, message: string, tone: 'ok' | 'warn' | 'danger'): void;
   highlight(windowId: string, sessionId: string): void;
   notifyIfBackground(view: PendingLaunchView, windowId: string): void;
@@ -58,7 +61,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     const q = validated.request;
     const key = JSON.stringify([source, launcherId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
     for (const e of entries.values()) {
-      if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId); return e; }
+      if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId, 'added'); return e; }
     }
     if ([...entries.values()].filter((e) => e.view.state !== 'expired').length >= LIMITS.maxPending) {
       deps.toast(windowId, 'Too many pending launches, link ignored', 'warn');
@@ -75,7 +78,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     };
     const entry: Entry = { view, validated, windowId, key };
     entries.set(view.id, entry);
-    deps.changed(windowId);
+    deps.changed(windowId, 'added');
     deps.notifyIfBackground(view, windowId);
     return entry;
   };
@@ -123,7 +126,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
               deps.highlight(w, s.id);
             } catch (e) {
               const card = addCard(r.validated, 'run', r.launcher.id, r.launcher.label);
-              if (card) { card.view.state = 'error'; card.view.error = errMsg(e); deps.changed(card.windowId); }
+              if (card) { card.view.state = 'error'; card.view.error = errMsg(e); deps.changed(card.windowId, 'updated'); }
               else deps.toast(w, `Launcher "${r.launcher.label}" failed: ${errMsg(e)}`, 'danger');
             }
         }
@@ -142,28 +145,29 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       if (e.view.state === 'expired') return { ok: false, error: 'This launch expired' };
       if (e.view.state === 'starting') return { ok: false, error: 'Already starting' };
       if (e.view.state === 'pending' && deps.now() - e.view.receivedAt > LIMITS.expiryMs) {
-        e.view.state = 'expired'; deps.changed(e.windowId);
+        e.view.state = 'expired'; deps.changed(e.windowId, 'updated');
         return { ok: false, error: 'This launch expired' };
       }
       const isRun = e.view.source === 'run';
       if (saveAs && (isRun ? saveAs.id !== e.view.launcherId : !e.view.canSaveAsLauncher)) {
         return { ok: false, error: 'This launch can’t be saved as a launcher' };
       }
-      e.view.state = 'starting'; e.view.error = undefined; deps.changed(e.windowId);
+      e.view.state = 'starting'; e.view.error = undefined; deps.changed(e.windowId, 'updated');
       try {
         if (saveAs && e.savedAs !== saveAs.id) {
           const saved = await deps.saveLauncher({ id: saveAs.id, label: saveAs.label, validated: e.validated, overwrite: isRun ? true : saveAs.overwrite });
-          if (!saved.ok) { e.view.state = 'pending'; e.view.error = saved.error; deps.changed(e.windowId); return saved; }
+          if (!saved.ok) { e.view.state = 'pending'; e.view.error = saved.error; deps.changed(e.windowId, 'updated'); return saved; }
           e.savedAs = saveAs.id;
         }
         const launcherId = saveAs?.id ?? e.savedAs ?? e.view.launcherId;
         const s = await deps.launch(e.validated, e.windowId, launcherId);
         entries.delete(id);
-        deps.changed(e.windowId);
+        deps.changed(e.windowId, 'updated');
         deps.highlight(e.windowId, s.id);
+        if (saveAs && !isRun) deps.toast(e.windowId, `Saved launcher run/${saveAs.id}`, 'ok');
         return { ok: true };
       } catch (err) {
-        e.view.state = 'error'; e.view.error = errMsg(err); deps.changed(e.windowId);
+        e.view.state = 'error'; e.view.error = errMsg(err); deps.changed(e.windowId, 'updated');
         return { ok: false, error: errMsg(err) };
       }
     },
@@ -172,7 +176,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       const e = entries.get(id);
       if (!e) return;
       entries.delete(id);
-      deps.changed(e.windowId);
+      deps.changed(e.windowId, 'updated');
     },
 
     tick() {
@@ -180,7 +184,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       for (const e of entries.values()) {
         if (e.view.state === 'pending' && t - e.view.receivedAt > LIMITS.expiryMs) {
           e.view.state = 'expired';
-          deps.changed(e.windowId);
+          deps.changed(e.windowId, 'updated');
         }
       }
     },
@@ -191,7 +195,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     rehome(closed) {
       let moved = false;
       for (const e of entries.values()) if (e.windowId === closed) { e.windowId = 'main'; moved = true; }
-      if (moved) deps.changed('main');
+      if (moved) deps.changed('main', 'updated');
     },
   };
 }

@@ -19,7 +19,7 @@ function make(over: Partial<GateDeps> = {}) {
     launch: async (_v, w, l) => { log.push(`launch:${w}:${l ?? ''}`); return { id: 'sess-new' }; },
     saveLauncher: async (i) => { log.push(`save:${i.id}`); return { ok: true }; },
     targetWindow: () => 'main',
-    changed: (w) => log.push(`changed:${w}`),
+    changed: (w, reason) => log.push(`changed:${w}:${reason}`),
     toast: (w, m, tone) => log.push(`toast:${w}:${tone}:${m}`),
     highlight: (w, s) => log.push(`highlight:${w}:${s}`),
     notifyIfBackground: (v) => log.push(`notify:${v.id}`),
@@ -39,7 +39,7 @@ test('new link → pending card in the target window, never launched directly', 
   assert.equal(card.source, 'new');
   assert.equal(card.canSaveAsLauncher, true);
   assert.ok(!log.some((l) => l.startsWith('launch:')));
-  assert.ok(log.includes('changed:main'));
+  assert.ok(log.includes('changed:main:added'));
   assert.ok(log.includes(`notify:${card.id}`));
 });
 
@@ -162,6 +162,49 @@ test('rehome moves cards of a closed window to main', async () => {
   assert.equal(gate.list('main').length, 1);
 });
 
+test('I4: only a new card or a dedupe refocus reports "added"; expiry, rehome, approve report "updated"', async () => {
+  const { gate, log, advance } = make({ targetWindow: () => 'w2' });
+  await gate.handle(newLink({ prompt: 'x' }));
+  assert.deepEqual(log.filter((l) => l.startsWith('changed:')), ['changed:w2:added']);
+  let n = log.length;
+  await gate.handle(newLink({ prompt: 'x' }));                 // dedupe hit re-focuses
+  assert.deepEqual(log.slice(n).filter((l) => l.startsWith('changed:')), ['changed:w2:added']);
+
+  n = log.length;
+  advance(LIMITS.expiryMs + 1);
+  gate.tick();
+  gate.rehome('w2');
+  const later = log.slice(n).filter((l) => l.startsWith('changed:'));
+  assert.deepEqual(later, ['changed:w2:updated', 'changed:main:updated']);
+
+  await gate.handle(newLink({ prompt: 'y' }));
+  const id = gate.list('w2').find((c) => c.prompt === 'y')!.id;
+  n = log.length;
+  await gate.approve(id);
+  gate.discard(gate.list('main')[0].id);
+  assert.ok(log.slice(n).filter((l) => l.startsWith('changed:')).every((l) => l.endsWith(':updated')));
+});
+
+test('T9: approving a new card with save-as toasts "Saved launcher run/<id>" after the launch', async () => {
+  const { gate, log } = make();
+  await gate.handle(newLink());
+  const id = gate.list('main')[0].id;
+  assert.deepEqual(await gate.approve(id, { id: 'my-launcher', label: 'Mine' }), { ok: true });
+  const toastAt = log.indexOf('toast:main:ok:Saved launcher run/my-launcher');
+  assert.ok(toastAt > log.indexOf('launch:main:my-launcher'), log.join('\n'));
+});
+
+test('T9: no saved toast without save-as, or when the launch fails', async () => {
+  const { gate, log } = make();
+  await gate.handle(newLink({ prompt: 'a' }));
+  await gate.approve(gate.list('main')[0].id);
+  assert.ok(!log.some((l) => l.includes('Saved launcher')));
+  const f = make({ launch: async () => { throw new Error('boom'); } });
+  await f.gate.handle(newLink());
+  await f.gate.approve(f.gate.list('main')[0].id, { id: 'x1', label: 'X' });
+  assert.ok(!f.log.some((l) => l.includes('Saved launcher')));
+});
+
 test('unknown id: approve refused, has() false', async () => {
   const { gate } = make();
   assert.equal(gate.has('nope'), false);
@@ -194,7 +237,7 @@ test('fix2: approve refuses a stale pending card without tick()', async () => {
   const n = log.length;
   assert.deepEqual(await gate.approve(id), { ok: false, error: 'This launch expired' });
   assert.equal(gate.list('main')[0].state, 'expired');
-  assert.ok(log.slice(n).includes('changed:main'));
+  assert.ok(log.slice(n).includes('changed:main:updated'));
   assert.ok(!log.some((l) => l.startsWith('launch:')));
 });
 

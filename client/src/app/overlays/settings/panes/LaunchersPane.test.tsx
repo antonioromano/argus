@@ -46,6 +46,18 @@ describe('LaunchersPane', () => {
     expect(container.textContent).toContain('refresh dashboard');
   });
 
+  it('M4: links use the scheme main exposes on the bridge', async () => {
+    (window as unknown as { electronLaunch: Record<string, unknown> }).electronLaunch.scheme = 'argus-dev';
+    await render();
+    expect(container.textContent).toContain('argus-dev://run/jarvar-refresh');
+  });
+
+  it('M4: links fall back to argus:// when the bridge exposes no scheme', async () => {
+    await render();
+    expect(container.textContent).toContain('argus://run/jarvar-refresh');
+    expect(container.textContent).not.toContain('argus-dev://');
+  });
+
   it('rename is inline (Electron has no window.prompt) and goes over the bridge', async () => {
     await render();
     await act(async () => { (container.querySelector('[data-testid="launcher-rename"]') as HTMLElement).click(); });

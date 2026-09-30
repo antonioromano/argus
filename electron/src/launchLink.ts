@@ -2,7 +2,7 @@ import type { LaunchRequest, RunMode, TerminalEngine } from '@argus/shared';
 
 export type LinkErrorClass =
   | 'wrong-scheme' | 'unknown-host' | 'too-long' | 'unknown-param' | 'duplicate-param'
-  | 'missing-agent' | 'missing-folder' | 'bad-folder' | 'bad-engine' | 'bad-mode'
+  | 'missing-agent' | 'bad-agent' | 'missing-folder' | 'bad-folder' | 'bad-engine' | 'bad-mode'
   | 'bad-flag-shape' | 'bad-prompt' | 'bad-name' | 'bad-worktree' | 'base-without-worktree'
   | 'bad-launcher-id' | 'bad-notif-id';
 
@@ -21,6 +21,8 @@ const CONTROL = /[\u0000-\u001F\u007F-\u009F]/;
 const CONTROL_EXCEPT_NL = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/;
 const FORMAT = /\p{Cf}/u;
 const REF_RE = /^(?!-)[A-Za-z0-9._/-]+$/;
+/** Builtin ids and custom-agent UUIDs; keeps control/format chars out of error text. */
+const AGENT_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 const fail = (error: LinkErrorClass): ParsedLink => ({ ok: false, error });
 const cleanText = (s: string) => !CONTROL.test(s) && !FORMAT.test(s);
@@ -51,6 +53,7 @@ export function parseLaunchUrl(raw: string, scheme: string, home: string): Parse
   }
   const agent = params.get('agent');
   if (!agent) return fail('missing-agent');
+  if (!AGENT_RE.test(agent)) return fail('bad-agent');
   let folder = params.get('folder');
   if (!folder) return fail('missing-folder');
   if (folder === '~' || folder.startsWith('~/')) folder = home + folder.slice(1);

@@ -47,6 +47,8 @@ export interface ElectronNotificationsBridge {
 }
 
 export interface ElectronLaunchBridge {
+  /** Deep-link scheme main registered: 'argus' packaged, 'argus-dev' in dev. */
+  scheme?: string;
   list(): Promise<PendingLaunchView[]>;
   approve(id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult>;
   discard(id: string): Promise<void>;
