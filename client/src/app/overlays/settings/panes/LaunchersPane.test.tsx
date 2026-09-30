@@ -4,12 +4,19 @@ import { createRoot, type Root } from 'react-dom/client';
 import { DEFAULT_CONFIG } from '@argus/shared';
 import { LaunchersPane } from './LaunchersPane.js';
 
+const toasts = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('../../../../components/primitives/index.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../components/primitives/index.js')>()),
+  pushToast: toasts.push,
+}));
+
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
 const L = { id: 'jarvar-refresh', label: 'JarvAR refresh', request: { agent: 'claude', folder: '/Users/me/development/jarvar', flags: ['--model=opus'], prompt: 'refresh dashboard' }, agentCommand: 'claude', folderConfigAtSave: [], createdAt: '2026-09-30T10:00:00.000Z' };
 let container: HTMLDivElement; let root: Root;
 let bridge: { list: ReturnType<typeof vi.fn>; rename: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
 beforeEach(() => {
+  toasts.push.mockClear();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   bridge = { list: vi.fn(async () => [L]), rename: vi.fn(async () => ({ ok: true })), remove: vi.fn(async () => ({ ok: true })) };
   (window as unknown as { electronLaunch?: unknown }).electronLaunch = { launchers: bridge };
@@ -55,7 +62,10 @@ describe('LaunchersPane', () => {
   it('delete goes over the bridge and refreshes', async () => {
     await render();
     bridge.list.mockResolvedValueOnce([]);
-    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); await Promise.resolve(); });
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
+    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Delete JarvAR refresh?');
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete-confirm"]') as HTMLElement).click(); await Promise.resolve(); });
     expect(bridge.remove).toHaveBeenCalledWith('jarvar-refresh');
     expect(container.textContent).toContain('No launchers');
   });
@@ -70,5 +80,60 @@ describe('LaunchersPane', () => {
       ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); // React's onBlur listens to focusout
     });
     expect(onSave).toHaveBeenCalledWith({ launchFolderRoots: ['~/development', '~/work'] });
+  });
+});
+
+describe('LaunchersPane fixes', () => {
+  const setInput = (el: HTMLInputElement | HTMLTextAreaElement, v: string) => {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('roots textarea re-syncs when config changes while unfocused', async () => {
+    const onSave = vi.fn(async (p: Partial<typeof DEFAULT_CONFIG>) => ({ ...DEFAULT_CONFIG, ...p }));
+    await render(onSave);
+    await act(async () => { root.render(<LaunchersPane config={{ ...DEFAULT_CONFIG, launchFolderRoots: ['~/a', '~/b'] }} onSave={onSave} />); await Promise.resolve(); });
+    expect((container.querySelector('[data-testid="launch-roots"]') as HTMLTextAreaElement).value).toBe('~/a\n~/b');
+  });
+
+  it('blur with unchanged roots does not save', async () => {
+    const { onSave } = await render();
+    const ta = container.querySelector('[data-testid="launch-roots"]') as HTMLTextAreaElement;
+    await act(async () => { ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('list rejection renders an error row', async () => {
+    bridge.list.mockRejectedValueOnce(new Error('boom'));
+    await render();
+    const row = container.querySelector('[data-testid="launchers-error"]');
+    expect(row?.textContent).toContain('boom');
+  });
+
+  it('remove rejection pushes a danger toast', async () => {
+    await render();
+    bridge.remove.mockRejectedValueOnce(new Error('nope'));
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete-confirm"]') as HTMLElement).click(); await Promise.resolve(); });
+    expect(toasts.push).toHaveBeenCalledWith('nope', 'danger');
+  });
+
+  it('cancel on delete confirm does not remove', async () => {
+    await render();
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete-cancel"]') as HTMLElement).click(); });
+    expect(bridge.remove).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="launcher-delete-confirm"]')).toBeNull();
+  });
+
+  it('rename Save is disabled for a blank label', async () => {
+    await render();
+    await act(async () => { (container.querySelector('[data-testid="launcher-rename"]') as HTMLElement).click(); });
+    await act(async () => { setInput(container.querySelector('[data-testid="launcher-rename-input"]') as HTMLInputElement, '   '); });
+    const save = container.querySelector('[data-testid="launcher-rename-save"]') as HTMLElement;
+    expect(save.querySelector('button')!.disabled).toBe(true);
+    await act(async () => { save.click(); await Promise.resolve(); });
+    expect(bridge.rename).not.toHaveBeenCalled();
   });
 });
