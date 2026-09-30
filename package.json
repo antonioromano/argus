@@ -13,7 +13,7 @@
     "client"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
+    "postinstall": "node scripts/postinstall.js && node scripts/register-dev-scheme.mjs",
     "sync-versions": "node scripts/sync-versions.mjs",
     "check:deps": "node scripts/check-dep-sync.mjs",
     "lint": "npm run lint -w client",
@@ -26,7 +26,7 @@
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:native": "node scripts/build-native.mjs",
     "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
-    "electron:dev": "npm run build:all && make -C daemon build && npm run build:native -- --arch=$(node -p process.arch) && ARGUS_PORT=5403 electron .",
+    "electron:dev": "npm run build:all && make -C daemon build && npm run build:native -- --arch=$(node -p process.arch) && node scripts/register-dev-scheme.mjs && ARGUS_PORT=5403 electron .",
     "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npm run build:native && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {

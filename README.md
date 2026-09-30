@@ -180,6 +180,14 @@ A mobile companion view is reachable from your phone's browser when an ngrok tun
 5. **Reconnect replay** — A 100KB rolling buffer per session lets the UI catch up on output when reopening or reconnecting.
 6. **Session survival** — Sessions run under a dedicated tmux server, so they survive quitting and reopening the app.
 
+### Testing deep links
+
+`npm run dev` registers `argus-dev://` on the dev Electron.app (`scripts/register-dev-scheme.mjs`, also run on `npm install`). With the dev app running:
+
+    open "argus-dev://new?agent=claude&folder=/tmp/argus-dl-test&prompt=hello"
+
+The installed app keeps `argus://`; the two never collide. If the dev app is not running, the link opens a bare Electron window. Start `npm run dev` first.
+
 ## Tech Stack
 
 | Layer | Technologies |
