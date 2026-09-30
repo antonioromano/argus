@@ -40,6 +40,7 @@ const MENU_CHANNELS = [
   'menu:terminal-search',
   'menu:clear-terminal',
   'menu:whats-new',
+  'menu:review-launch',
 ] as const;
 type MenuChannel = typeof MENU_CHANNELS[number];
 
@@ -171,5 +172,28 @@ contextBridge.exposeInMainWorld('electronNotifications', {
     const listener = (_e: unknown, id: string) => cb(id);
     ipcRenderer.on('notif:click', listener);
     return () => ipcRenderer.off('notif:click', listener);
+  },
+});
+
+// Deep-link launch approvals. Approval/launcher writes are validated in main
+// (sender must be a focused Argus window's main frame).
+contextBridge.exposeInMainWorld('electronLaunch', {
+  list: () => ipcRenderer.invoke('launch:list'),
+  approve: (id: string, saveAs?: { id: string; label: string; overwrite?: boolean }) => ipcRenderer.invoke('launch:approve', { id, saveAs }),
+  discard: (id: string) => ipcRenderer.invoke('launch:discard', id),
+  onChanged: (cb: () => void) => {
+    const l = () => cb();
+    ipcRenderer.on('launch:changed', l);
+    return () => ipcRenderer.off('launch:changed', l);
+  },
+  onToast: (cb: (t: { message: string; tone: 'ok' | 'warn' | 'danger' }) => void) => {
+    const l = (_e: unknown, t: { message: string; tone: 'ok' | 'warn' | 'danger' }) => cb(t);
+    ipcRenderer.on('launch:toast', l);
+    return () => ipcRenderer.off('launch:toast', l);
+  },
+  launchers: {
+    list: () => ipcRenderer.invoke('launcher:list'),
+    rename: (id: string, label: string) => ipcRenderer.invoke('launcher:rename', { id, label }),
+    remove: (id: string) => ipcRenderer.invoke('launcher:delete', id),
   },
 });

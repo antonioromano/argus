@@ -1,3 +1,5 @@
+import type { Launcher, LaunchActionResult, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
+
 /** True when the renderer is running on macOS (Electron always is, but kept explicit). */
 export const isMac =
   typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
@@ -18,7 +20,8 @@ export type MenuChannel =
   | 'menu:open-shell'
   | 'menu:terminal-search'
   | 'menu:clear-terminal'
-  | 'menu:whats-new';
+  | 'menu:whats-new'
+  | 'menu:review-launch';
 
 export interface ElectronAppBridge {
   setBadge(count: number): void;
@@ -43,9 +46,23 @@ export interface ElectronNotificationsBridge {
   onClick(cb: (id: string) => void): () => void;
 }
 
+export interface ElectronLaunchBridge {
+  list(): Promise<PendingLaunchView[]>;
+  approve(id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult>;
+  discard(id: string): Promise<void>;
+  onChanged(cb: () => void): () => void;
+  onToast(cb: (t: { message: string; tone: 'ok' | 'warn' | 'danger' }) => void): () => void;
+  launchers: {
+    list(): Promise<Launcher[]>;
+    rename(id: string, label: string): Promise<LaunchActionResult>;
+    remove(id: string): Promise<LaunchActionResult>;
+  };
+}
+
 declare global {
   interface Window {
     electronApp?: ElectronAppBridge;
     electronNotifications?: ElectronNotificationsBridge;
+    electronLaunch?: ElectronLaunchBridge;
   }
 }

@@ -293,6 +293,12 @@ export function getAppWindow(windowId: string): BrowserWindow | null {
   return win && !win.isDestroyed() ? win : null;
 }
 
+/** Which Argus window owns this webContents (IPC sender check). null = not ours. */
+export function windowIdOf(wc: Electron.WebContents): string | null {
+  for (const [id, win] of windows) if (!win.isDestroyed() && win.webContents === wc) return id;
+  return null;
+}
+
 export function getMainWindow(): BrowserWindow | null {
   return getAppWindow(MAIN_WINDOW_ID);
 }

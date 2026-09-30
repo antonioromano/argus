@@ -6,6 +6,10 @@ import { createRequire } from 'module';
 import type { UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { homedir } from 'os';
+import { randomUUID } from 'crypto';
+import { parseLaunchUrl } from './launchLink.js';
+import { createLaunchGate, type LaunchGate } from './launchGate.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
@@ -17,7 +21,7 @@ import {
   getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
   setMainCloseHandler, hideMainWindow, adoptAsMain,
   setZoomLevelForFocused, getZoomLevelForFocused,
-  setAppQuitting, setStopAllOnQuit, getStopAllOnQuit,
+  setAppQuitting, setStopAllOnQuit, getStopAllOnQuit, windowIdOf,
 } from './window.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
@@ -498,6 +502,160 @@ function readAppVersion(): string {
   }
 }
 
+// Native notifications. Renderer can't set an icon via the Web Notification
+// API on macOS (Chromium ignores it and falls back to the bundle icon, which
+// is the Electron atom in dev). Routing through main lets us pass an explicit
+// nativeImage so the spartan icon always shows.
+const notifIcon = nativeImage.createFromPath(
+  join(__dirname, '..', 'assets', 'icon_spartan_amber_v2_128.png'),
+);
+const activeNotifs = new Map<string, Notification>();
+
+type NotifPayload = { id: string; title: string; subtitle?: string; body: string; sound?: boolean; attributeToApp?: boolean };
+function postNotification(payload: NotifPayload, onNativeClick?: () => void): void {
+  console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
+
+  // Reject any id that isn't a UUID: it's interpolated into terminal-notifier's
+  // -open deep-link URL below (and used as -group/-remove key).
+  if (!SESSION_ID_RE.test(payload.id)) {
+    console.error(`[notif] rejected non-UUID id=${JSON.stringify(payload.id)}`);
+    return;
+  }
+
+  // Use terminal-notifier when available — works in dev and packaged alike
+  // because it spawns as its own .app bundle and gets its own usernoted attribution
+  // (unlike Electron native Notification or osascript, which are attributed to Argus
+  // itself and silently dropped for ad-hoc builds).
+  // NOTE: terminal-notifier 2.0.0 silently drops -message bodies that start with '['.
+  // Always pass session name via -subtitle so the body is bracket-free.
+  if (terminalNotifierPath) {
+    const args = [
+      '-title', payload.title,
+      ...(payload.subtitle ? ['-subtitle', payload.subtitle] : []),
+      '-message', payload.body,
+      // Same-group notifications replace each other.
+      '-group', payload.id,
+      // Attribute the post to Argus's (top-level, always-present) bundle when the
+      // caller asks. This is defence against a polluted LaunchServices db: the
+      // vendored terminal-notifier.app shares the generic bundle id
+      // fr.julienxx.oss.terminal-notifier with any other copy on the machine
+      // (Homebrew, node-notifier, ...). If LS resolves that id to a stale/dead
+      // path, usernoted logs "Failed to source application bundle" and falls back
+      // to launching Terminal.app to present the banner — a stray Terminal window.
+      // -sender routes sourcing to Argus instead, sidestepping the collision.
+      // Only real (background) notifications set this: they fire while Argus is
+      // unfocused, so macOS never suppresses the banner. The Settings test button
+      // omits it precisely because it fires while Argus is frontmost, where an
+      // Argus-attributed banner WOULD be suppressed.
+      ...(payload.attributeToApp && app.isPackaged ? ['-sender', 'com.antonio.argus'] : []),
+      // Click opens the SCHEME:// url via -open (NOT -execute). -open hands the
+      // URL straight to LaunchServices, which activates the scheme owner (Argus)
+      // and fires the main-process open-url handler with the session id — same
+      // deep-link round-trip, no per-session notif:click IPC needed.
+      //
+      // Why not -execute / -sender: -execute runs the URL through /bin/sh and,
+      // with no -activate set, terminal-notifier falls back to activating its
+      // hardcoded default sender com.apple.Terminal → a stray Terminal window
+      // popped open on every click. -sender only sets the banner icon, never the
+      // click target, so it didn't stop that AND (attributing the post to Argus)
+      // let macOS suppress the banner whenever Argus was frontmost — which broke
+      // the Settings "Send test notification" button. -open fixes both: no shell,
+      // and the click target is Argus by scheme ownership.
+      '-open', `${SCHEME}://notif/${payload.id}`,
+    ];
+    if (payload.sound) args.push('-sound', 'default');
+    runNotifier(args, (err) => {
+      if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
+      else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
+    });
+    return;
+  }
+
+  if (app.isPackaged) {
+    // Packaged build but bundled notifier missing — osascript fallback.
+    // Known to be dropped by usernoted for ad-hoc builds, but harmless;
+    // keeps the path alive for a future Developer-ID-signed build.
+    execFile(
+      'osascript',
+      [
+        '-e', 'on run argv',
+        '-e', payload.sound
+          ? 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Ping"'
+          : 'display notification (item 1 of argv) with title (item 2 of argv)',
+        '-e', 'end run',
+        '--', payload.body, payload.title,
+      ],
+      (err) => {
+        if (err) console.error(`[notif] osascript failed id=${payload.id}:`, err);
+        else console.log(`[notif] osascript exited 0 id=${payload.id} (delivery not guaranteed)`);
+      },
+    );
+    return;
+  }
+
+  // Dev without terminal-notifier — native Electron Notification.
+  // May not deliver for ad-hoc builds (usernoted attribution). Kept as
+  // last-resort fallback if the source notifier binary is absent.
+  if (!Notification.isSupported()) {
+    console.warn('[notif] Notification.isSupported() === false — OS will not deliver');
+    return;
+  }
+
+  const existing = activeNotifs.get(payload.id);
+  if (existing) existing.close();
+
+  const notif = new Notification({
+    title: payload.title,
+    subtitle: payload.subtitle,
+    body: payload.body,
+    icon: notifIcon,
+    silent: !payload.sound,
+  });
+  notif.on('click', () => {
+    if (onNativeClick) {
+      onNativeClick();
+    } else {
+      showWindow();
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) win.webContents.send('notif:click', payload.id);
+    }
+    activeNotifs.delete(payload.id);
+  });
+  notif.on('close', () => {
+    if (activeNotifs.get(payload.id) === notif) activeNotifs.delete(payload.id);
+  });
+  notif.on('failed', (_e, error) => {
+    console.error(`[notif] delivery failed id=${payload.id}: ${error}`);
+  });
+  try {
+    notif.show();
+    console.log(`[notif] show() called id=${payload.id}`);
+  } catch (err) {
+    console.error(`[notif] show() threw id=${payload.id}:`, err);
+  }
+  activeNotifs.set(payload.id, notif);
+}
+
+// Deep-link launches (argus://new, argus://run). Links arriving before the main
+// window has loaded AND session restore has settled are queued, then drained.
+let launchGate: LaunchGate | null = null;
+let launchReady = false;
+const pendingLaunchUrls: string[] = [];
+
+function handleLaunchUrl(url: string): void {
+  const parsed = parseLaunchUrl(url, SCHEME, homedir());
+  if (parsed.ok && parsed.kind === 'notif') {
+    const w = launchGate?.windowOf(parsed.sessionId);
+    if (w) focusAppWindow(w); else deliverNotifClick(parsed.sessionId);
+    return;
+  }
+  if (!launchReady || !launchGate) {
+    if (pendingLaunchUrls.length < 20) pendingLaunchUrls.push(url);
+    return;
+  }
+  void launchGate.handle(parsed).catch((e) => console.error('[launch] handle failed:', e));
+}
+
 function sendMenuEvent(channel: string): void {
   const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
   if (win && !win.isDestroyed()) win.webContents.send(channel);
@@ -583,6 +741,11 @@ function buildAppMenu(): Menu {
         label: 'Close Session',
         accelerator: menuAccelerator('close-shell'),
         click: () => sendMenuEvent('menu:close-session'),
+      },
+      {
+        label: 'Review Pending Launch',
+        accelerator: 'Alt+CmdOrCtrl+L',
+        click: () => sendMenuEvent('menu:review-launch'),
       },
     ],
   };
@@ -950,14 +1113,7 @@ async function main() {
     app.dock?.setBadge(count > 0 ? String(count) : '');
   });
 
-  // Native notifications. Renderer can't set an icon via the Web Notification
-  // API on macOS (Chromium ignores it and falls back to the bundle icon, which
-  // is the Electron atom in dev). Routing through main lets us pass an explicit
-  // nativeImage so the spartan icon always shows.
-  const notifIcon = nativeImage.createFromPath(
-    join(__dirname, '..', 'assets', 'icon_spartan_amber_v2_128.png'),
-  );
-  const activeNotifs = new Map<string, Notification>();
+  // Native notifications: see postNotification (module level).
 
   // Packaged delivery goes through the vendored terminal-notifier.app (see
   // electron/resources/terminal-notifier/README.md). Ad-hoc signed bundles are
@@ -981,125 +1137,7 @@ async function main() {
   };
   terminalNotifierPath = resolveTerminalNotifier();
 
-  ipcMain.on('notif:show', (_event, payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean; attributeToApp?: boolean }) => {
-    console.log(`[notif] show requested id=${payload.id} title=${JSON.stringify(payload.title)}`);
-
-    // Reject any id that isn't a UUID: it's interpolated into terminal-notifier's
-    // -open deep-link URL below (and used as -group/-remove key).
-    if (!SESSION_ID_RE.test(payload.id)) {
-      console.error(`[notif] rejected non-UUID id=${JSON.stringify(payload.id)}`);
-      return;
-    }
-
-    // Use terminal-notifier when available — works in dev and packaged alike
-    // because it spawns as its own .app bundle and gets its own usernoted attribution
-    // (unlike Electron native Notification or osascript, which are attributed to Argus
-    // itself and silently dropped for ad-hoc builds).
-    // NOTE: terminal-notifier 2.0.0 silently drops -message bodies that start with '['.
-    // Always pass session name via -subtitle so the body is bracket-free.
-    if (terminalNotifierPath) {
-      const args = [
-        '-title', payload.title,
-        ...(payload.subtitle ? ['-subtitle', payload.subtitle] : []),
-        '-message', payload.body,
-        // Same-group notifications replace each other.
-        '-group', payload.id,
-        // Attribute the post to Argus's (top-level, always-present) bundle when the
-        // caller asks. This is defence against a polluted LaunchServices db: the
-        // vendored terminal-notifier.app shares the generic bundle id
-        // fr.julienxx.oss.terminal-notifier with any other copy on the machine
-        // (Homebrew, node-notifier, ...). If LS resolves that id to a stale/dead
-        // path, usernoted logs "Failed to source application bundle" and falls back
-        // to launching Terminal.app to present the banner — a stray Terminal window.
-        // -sender routes sourcing to Argus instead, sidestepping the collision.
-        // Only real (background) notifications set this: they fire while Argus is
-        // unfocused, so macOS never suppresses the banner. The Settings test button
-        // omits it precisely because it fires while Argus is frontmost, where an
-        // Argus-attributed banner WOULD be suppressed.
-        ...(payload.attributeToApp && app.isPackaged ? ['-sender', 'com.antonio.argus'] : []),
-        // Click opens the SCHEME:// url via -open (NOT -execute). -open hands the
-        // URL straight to LaunchServices, which activates the scheme owner (Argus)
-        // and fires the main-process open-url handler with the session id — same
-        // deep-link round-trip, no per-session notif:click IPC needed.
-        //
-        // Why not -execute / -sender: -execute runs the URL through /bin/sh and,
-        // with no -activate set, terminal-notifier falls back to activating its
-        // hardcoded default sender com.apple.Terminal → a stray Terminal window
-        // popped open on every click. -sender only sets the banner icon, never the
-        // click target, so it didn't stop that AND (attributing the post to Argus)
-        // let macOS suppress the banner whenever Argus was frontmost — which broke
-        // the Settings "Send test notification" button. -open fixes both: no shell,
-        // and the click target is Argus by scheme ownership.
-        '-open', `${SCHEME}://notif/${payload.id}`,
-      ];
-      if (payload.sound) args.push('-sound', 'default');
-      runNotifier(args, (err) => {
-        if (err) console.error(`[notif] terminal-notifier failed id=${payload.id}:`, err);
-        else console.log(`[notif] terminal-notifier delivered id=${payload.id}`);
-      });
-      return;
-    }
-
-    if (app.isPackaged) {
-      // Packaged build but bundled notifier missing — osascript fallback.
-      // Known to be dropped by usernoted for ad-hoc builds, but harmless;
-      // keeps the path alive for a future Developer-ID-signed build.
-      execFile(
-        'osascript',
-        [
-          '-e', 'on run argv',
-          '-e', payload.sound
-            ? 'display notification (item 1 of argv) with title (item 2 of argv) sound name "Ping"'
-            : 'display notification (item 1 of argv) with title (item 2 of argv)',
-          '-e', 'end run',
-          '--', payload.body, payload.title,
-        ],
-        (err) => {
-          if (err) console.error(`[notif] osascript failed id=${payload.id}:`, err);
-          else console.log(`[notif] osascript exited 0 id=${payload.id} (delivery not guaranteed)`);
-        },
-      );
-      return;
-    }
-
-    // Dev without terminal-notifier — native Electron Notification.
-    // May not deliver for ad-hoc builds (usernoted attribution). Kept as
-    // last-resort fallback if the source notifier binary is absent.
-    if (!Notification.isSupported()) {
-      console.warn('[notif] Notification.isSupported() === false — OS will not deliver');
-      return;
-    }
-
-    const existing = activeNotifs.get(payload.id);
-    if (existing) existing.close();
-
-    const notif = new Notification({
-      title: payload.title,
-      subtitle: payload.subtitle,
-      body: payload.body,
-      icon: notifIcon,
-      silent: !payload.sound,
-    });
-    notif.on('click', () => {
-      showWindow();
-      const win = getMainWindow();
-      if (win && !win.isDestroyed()) win.webContents.send('notif:click', payload.id);
-      activeNotifs.delete(payload.id);
-    });
-    notif.on('close', () => {
-      if (activeNotifs.get(payload.id) === notif) activeNotifs.delete(payload.id);
-    });
-    notif.on('failed', (_e, error) => {
-      console.error(`[notif] delivery failed id=${payload.id}: ${error}`);
-    });
-    try {
-      notif.show();
-      console.log(`[notif] show() called id=${payload.id}`);
-    } catch (err) {
-      console.error(`[notif] show() threw id=${payload.id}:`, err);
-    }
-    activeNotifs.set(payload.id, notif);
-  });
+  ipcMain.on('notif:show', (_e, payload: NotifPayload) => postNotification(payload));
 
   ipcMain.on('notif:close', (_event, id: string) => {
     if (app.isPackaged && terminalNotifierPath) {
@@ -1202,7 +1240,10 @@ async function main() {
   });
   // Secondary red-button close → server deletes the record (sessions merge back
   // to main) → onClose hook destroys the BrowserWindow.
-  setSecondaryCloseHandler((id) => { void hostDeleteWindowFn?.(id).catch(console.error); });
+  setSecondaryCloseHandler((id) => {
+    launchGate?.rehome(id);
+    void hostDeleteWindowFn?.(id).catch(console.error);
+  });
   // Main red-button close → server promotes the oldest surviving window
   // (its BrowserWindow is adopted as the new main); with no other windows,
   // fall back to hide-and-keep-alive.
@@ -1217,6 +1258,77 @@ async function main() {
       destroyAppWindow('main');
       adoptAsMain(promotedId);
     })().catch(console.error);
+  });
+
+  const launchService = server.getLaunchService() as import('../../server/dist/services/launch/LaunchService.js').LaunchService;
+  const hostLaunch = server.hostLaunch as (v: import('@argus/shared').ValidatedLaunch, windowId: string, launcherId?: string) => Promise<{ id: string }>;
+  const sendTo = (windowId: string, channel: string, payload?: unknown) => {
+    const win = getAppWindow(windowId) ?? getMainWindow();
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+  launchGate = createLaunchGate({
+    now: () => Date.now(),
+    newId: () => randomUUID(),
+    validate: (req) => launchService.validate(req),
+    resolveRun: (id) => launchService.resolveRun(id),
+    launch: (v, w, l) => hostLaunch(v, w, l),
+    saveLauncher: (i) => launchService.add(i),
+    targetWindow: () => getFocusedWindowId(),
+    changed: (w) => {
+      const win = getAppWindow(w) ?? getMainWindow();
+      if (win && !win.isVisible()) focusAppWindow(w);
+      sendTo(w, 'launch:changed');
+    },
+    toast: (w, message, tone) => sendTo(w, 'launch:toast', { message, tone }),
+    highlight: (w, sessionId) => { focusAppWindow(w); sendTo(w, 'notif:click', sessionId); },
+    notifyIfBackground: (view, w) => {
+      if (BrowserWindow.getFocusedWindow()) return;
+      postNotification(
+        { id: view.id, title: 'Launch waiting for approval', subtitle: view.label, body: `${view.agent} in ${view.folder}`, attributeToApp: true },
+        () => focusAppWindow(w),
+      );
+    },
+  });
+  setInterval(() => launchGate?.tick(), 30_000).unref();
+
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /** Only an Argus window's main frame may drive launches. Returns its window id. */
+  const launchSender = (e: Electron.IpcMainInvokeEvent, requireFocus: boolean): string | null => {
+    if (e.senderFrame !== e.sender.mainFrame) return null;
+    const w = windowIdOf(e.sender);
+    if (!w) return null;
+    if (requireFocus && !getAppWindow(w)?.isFocused()) return null;
+    return w;
+  };
+  const refused = { ok: false as const, error: 'Refused: not a focused Argus window' };
+
+  ipcMain.handle('launch:list', (e) => {
+    const w = launchSender(e, false);
+    return w && launchGate ? launchGate.list(w) : [];
+  });
+  ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown } }) => {
+    if (!launchSender(e, true) || !launchGate) return refused;
+    if (typeof arg?.id !== 'string' || !UUID_RE.test(arg.id)) return { ok: false, error: 'Bad id' };
+    const s = arg.saveAs;
+    const saveAs = s && typeof s.id === 'string' && typeof s.label === 'string'
+      ? { id: s.id, label: s.label, overwrite: s.overwrite === true }
+      : undefined;
+    return launchGate.approve(arg.id, saveAs);
+  });
+  ipcMain.handle('launch:discard', (e, id: unknown) => {
+    if (!launchSender(e, false) || typeof id !== 'string' || !UUID_RE.test(id)) return;
+    launchGate?.discard(id);
+  });
+  ipcMain.handle('launcher:list', (e) => (launchSender(e, false) ? launchService.list() : []));
+  ipcMain.handle('launcher:rename', (e, arg: { id: unknown; label: unknown }) => {
+    if (!launchSender(e, true)) return refused;
+    if (typeof arg?.id !== 'string' || typeof arg.label !== 'string') return { ok: false, error: 'Bad input' };
+    return launchService.rename(arg.id, arg.label);
+  });
+  ipcMain.handle('launcher:delete', (e, id: unknown) => {
+    if (!launchSender(e, true)) return refused;
+    if (typeof id !== 'string') return { ok: false, error: 'Bad input' };
+    return launchService.remove(id);
   });
 
   if (process.platform === 'darwin') {
@@ -1234,6 +1346,19 @@ async function main() {
   for (const w of registryState.windows) {
     if (!w.isMain) createAppWindow(w.id);
   }
+
+  // Drain queued deep links once the main renderer has loaded and restore has
+  // settled (so run/<id> focus-if-live sees restored sessions).
+  const mainWin = getMainWindow();
+  const rendererReady = new Promise<void>((resolve) => {
+    if (!mainWin || !mainWin.webContents.isLoading()) resolve();
+    else mainWin.webContents.once('did-finish-load', () => resolve());
+  });
+  const whenRestored = server.whenSessionsRestored as () => Promise<void>;
+  void Promise.all([rendererReady, whenRestored()]).then(() => {
+    launchReady = true;
+    for (const u of pendingLaunchUrls.splice(0)) handleLaunchUrl(u);
+  });
 
   // Surface a failed Phase-2 install from the previous run: if the cache install
   // errored after we quit, the helper relaunched the OLD version and left a
@@ -1283,8 +1408,7 @@ if (!app.requestSingleInstanceLock()) {
   // click delivers once the renderer is ready.
   app.on('open-url', (event, url) => {
     event.preventDefault();
-    const id = url.replace(new RegExp(`^${SCHEME}://notif/`), '').replace(/\/$/, '');
-    if (SESSION_ID_RE.test(id)) deliverNotifClick(id);
+    handleLaunchUrl(url);
   });
 
   app.whenReady().then(() => {
