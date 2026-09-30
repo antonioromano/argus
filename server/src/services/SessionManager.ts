@@ -31,7 +31,7 @@ import type { PtyBackend } from './ptyBackend/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
 import { SessionStore, type PersistedSession } from '../persistence/SessionStore.js';
 import { ConfigStore } from '../persistence/ConfigStore.js';
-import { AgentRegistry } from './AgentRegistry.js';
+import { AgentRegistry, promptArgs } from './AgentRegistry.js';
 import { CompanionTerminalManager } from './CompanionTerminalManager.js';
 import { IdleGeometryGate } from './idleGeometryGate.js';
 import { SleepPreventionService } from './SleepPreventionService.js';
@@ -40,6 +40,14 @@ import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import type { GitService } from './GitService.js';
+
+/** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
+export interface CreateSessionOpts {
+  /** Appended after signal injection on a FRESH create only; never stored. */
+  initialPrompt?: string;
+  /** The saved launcher this session was started from (metadata). */
+  launcherId?: string;
+}
 
 interface ManagedSession {
   id: string;
@@ -67,6 +75,8 @@ interface ManagedSession {
   worktreePath?: string;
   worktreeBranch?: string;
   lastPrompt?: string;
+  /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
+  launcherId?: string;
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -486,7 +496,7 @@ export class SessionManager {
     }
   }
 
-  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine, runMode?: RunMode, restoreExited = false): Promise<SessionInfo> {
+  async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine, runMode?: RunMode, restoreExited = false, opts: CreateSessionOpts = {}): Promise<SessionInfo> {
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -574,6 +584,16 @@ export class SessionManager {
     // persists on disk across restart, R6). A restored session's arbiter falls
     // back to coverageFor(agentType), so native signals from a survivor still count.
     // A restoreExited placeholder has no process to inject into either.
+    // Initial prompt (deep links): appended AFTER signal injection so no adapter
+    // ever parses prompt text, and only on a fresh create — restore/reattach and
+    // restartSession never pass opts.initialPrompt, so it can't be replayed.
+    // Resolved before any signal file is written so an unsupported agent throws cleanly.
+    let promptTail: string[] = [];
+    if (opts.initialPrompt !== undefined && !attachExisting && !restoreExited && existingId == null) {
+      const pa = agentDef ? promptArgs(agentDef, opts.initialPrompt) : null;
+      if (!pa) throw new Error(`Agent "${resolvedAgentType}" does not accept an initial prompt`);
+      promptTail = pa;
+    }
     const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags);
     if (inj) {
       for (const f of inj.files) {
@@ -584,7 +604,7 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = inj?.flags ?? resolvedFlags;
+    const spawnFlags = [...(inj?.flags ?? resolvedFlags), ...promptTail];
     const spawnEnv = inj?.env ?? {};
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -648,6 +668,7 @@ export class SessionManager {
       tmuxName,
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
+      launcherId: opts.launcherId,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1085,6 +1106,14 @@ export class SessionManager {
   getSessionInfo(id: string): SessionInfo | undefined {
     const session = this.sessions.get(id);
     return session ? this.toSessionInfo(session) : undefined;
+  }
+
+  /** A non-exited session started from this launcher, if any (deep-link focus-if-live). */
+  findLiveByLauncher(launcherId: string): SessionInfo | undefined {
+    for (const s of this.sessions.values()) {
+      if (s.launcherId === launcherId && s.status !== 'exited') return this.toSessionInfo(s);
+    }
+    return undefined;
   }
 
   getAllSessions(): SessionInfo[] {
@@ -1730,7 +1759,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true);
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -1750,7 +1779,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent');
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1782,6 +1811,7 @@ export class SessionManager {
       lastPrompt: session.lastPrompt,
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
+      launcherId: session.launcherId,
     };
   }
 
@@ -1851,6 +1881,7 @@ export class SessionManager {
         worktreeBranch: s.worktreeBranch,
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
+        launcherId: s.launcherId,
       }));
       await this.store.save(data);
     });

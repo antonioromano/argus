@@ -14,6 +14,7 @@ export interface PersistedSession {
   worktreeBranch?: string;
   terminalEngine?: TerminalEngine;
   runMode?: RunMode;
+  launcherId?: string;
 }
 
 export class SessionStore {

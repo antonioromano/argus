@@ -263,6 +263,8 @@ export interface SessionInfo {
   terminalEngine?: TerminalEngine;
   /** How the agent is hosted. Missing ⇒ 'persistent' (sessions created before run modes). */
   runMode?: RunMode;
+  /** Deep-link launcher that started this session. */
+  launcherId?: string;
 }
 
 export interface CreateSessionRequest {
