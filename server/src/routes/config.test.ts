@@ -256,3 +256,31 @@ test('custom agent promptFlag: unsafe rejected, safe accepted', async () => {
   const ok = await put({ customAgents: [{ ...agent, promptFlag: '-i' }] });
   assert.equal(ok.status, 200);
 });
+
+test('PUT launchFolderRoots persists and is returned by GET', async () => {
+  const { status, body } = await put({ launchFolderRoots: ['~/work', '/opt/x'] });
+  assert.equal(status, 200);
+  assert.deepEqual(body.launchFolderRoots, ['~/work', '/opt/x']);
+  assert.deepEqual((await get()).launchFolderRoots, ['~/work', '/opt/x']);
+});
+
+test('a non-array launchFolderRoots is rejected, keeping the stored value', async () => {
+  await put({ launchFolderRoots: ['~/keep'] });
+  const { body } = await put({ launchFolderRoots: 'nope' });
+  assert.deepEqual(body.launchFolderRoots, ['~/keep']);
+});
+
+test('launchFolderRoots bounds: entry over 512 chars, over 20 entries, or blank entry are rejected', async () => {
+  await put({ launchFolderRoots: ['~/keep'] });
+  for (const bad of [['a'.repeat(600)], Array.from({ length: 21 }, (_, i) => `/r${i}`), ['  '], ['ok', 5]]) {
+    const { body } = await put({ launchFolderRoots: bad });
+    assert.deepEqual(body.launchFolderRoots, ['~/keep']);
+  }
+});
+
+test('launchFolderRoots entries are trimmed; an unrelated save leaves them unchanged', async () => {
+  const { body } = await put({ launchFolderRoots: ['  ~/trim  '] });
+  assert.deepEqual(body.launchFolderRoots, ['~/trim']);
+  const after = await put({});
+  assert.deepEqual(after.body.launchFolderRoots, ['~/trim']);
+});
