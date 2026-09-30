@@ -651,6 +651,7 @@ function handleLaunchUrl(url: string): void {
   }
   if (!launchReady || !launchGate) {
     if (pendingLaunchUrls.length < 20) pendingLaunchUrls.push(url);
+    else console.warn('[launch] queue full: link dropped');
     return;
   }
   void launchGate.handle(parsed).catch((e) => console.error('[launch] handle failed:', e));
@@ -1235,15 +1236,12 @@ async function main() {
 
   server.setWindowHooks({
     onCreate: (id: string) => { createAppWindow(id); },
-    onClose: (id: string) => { destroyAppWindow(id); },
+    onClose: (id: string) => { launchGate?.rehome(id); destroyAppWindow(id); },
     onFocus: (id: string) => { focusAppWindow(id); },
   });
   // Secondary red-button close → server deletes the record (sessions merge back
   // to main) → onClose hook destroys the BrowserWindow.
-  setSecondaryCloseHandler((id) => {
-    launchGate?.rehome(id);
-    void hostDeleteWindowFn?.(id).catch(console.error);
-  });
+  setSecondaryCloseHandler((id) => { void hostDeleteWindowFn?.(id).catch(console.error); });
   // Main red-button close → server promotes the oldest surviving window
   // (its BrowserWindow is adopted as the new main); with no other windows,
   // fall back to hide-and-keep-alive.
@@ -1257,6 +1255,7 @@ async function main() {
       }
       destroyAppWindow('main');
       adoptAsMain(promotedId);
+      launchGate?.rehome(promotedId);
     })().catch(console.error);
   });
 
@@ -1285,7 +1284,7 @@ async function main() {
       if (BrowserWindow.getFocusedWindow()) return;
       postNotification(
         { id: view.id, title: 'Launch waiting for approval', subtitle: view.label, body: `${view.agent} in ${view.folder}`, attributeToApp: true },
-        () => focusAppWindow(w),
+        () => focusAppWindow(launchGate?.windowOf(view.id) ?? 'main'),
       );
     },
   });
@@ -1307,17 +1306,22 @@ async function main() {
     return w && launchGate ? launchGate.list(w) : [];
   });
   ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown } }) => {
-    if (!launchSender(e, true) || !launchGate) return refused;
+    const sender = launchSender(e, true);
+    if (!sender || !launchGate) return refused;
     if (typeof arg?.id !== 'string' || !UUID_RE.test(arg.id)) return { ok: false, error: 'Bad id' };
+    if (launchGate.windowOf(arg.id) !== sender) return refused;
     const s = arg.saveAs;
-    const saveAs = s && typeof s.id === 'string' && typeof s.label === 'string'
-      ? { id: s.id, label: s.label, overwrite: s.overwrite === true }
-      : undefined;
+    if (s !== undefined && !(s && typeof s.id === 'string' && typeof s.label === 'string')) {
+      return { ok: false, error: 'Bad input' };
+    }
+    const saveAs = s ? { id: s.id as string, label: s.label as string, overwrite: s.overwrite === true } : undefined;
     return launchGate.approve(arg.id, saveAs);
   });
   ipcMain.handle('launch:discard', (e, id: unknown) => {
-    if (!launchSender(e, false) || typeof id !== 'string' || !UUID_RE.test(id)) return;
-    launchGate?.discard(id);
+    const sender = launchSender(e, false);
+    if (!sender || typeof id !== 'string' || !UUID_RE.test(id)) return;
+    if (launchGate?.windowOf(id) !== sender) return;
+    launchGate.discard(id);
   });
   ipcMain.handle('launcher:list', (e) => (launchSender(e, false) ? launchService.list() : []));
   ipcMain.handle('launcher:rename', (e, arg: { id: unknown; label: unknown }) => {
@@ -1352,7 +1356,10 @@ async function main() {
   const mainWin = getMainWindow();
   const rendererReady = new Promise<void>((resolve) => {
     if (!mainWin || !mainWin.webContents.isLoading()) resolve();
-    else mainWin.webContents.once('did-finish-load', () => resolve());
+    else {
+      mainWin.webContents.once('did-finish-load', () => resolve());
+      mainWin.webContents.once('did-fail-load', () => resolve());
+    }
   });
   const whenRestored = server.whenSessionsRestored as () => Promise<void>;
   void Promise.all([rendererReady, whenRestored()]).then(() => {
