@@ -148,6 +148,10 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 - **Configurable** — Toggle on/off in Settings
 - **Auto-dismiss** — Notifications close automatically when the session leaves `waiting` status or is deleted
 
+### Launch links
+
+Other local tools can open a session in Argus with a link. `argus://new?agent=claude&folder=~/dev/repo&prompt=…` always shows an approval card listing every argument; nothing runs until you click Start. Tick **Save as launcher** to get a one-click `argus://run/<id>` link (manage them in Settings → Launchers). A saved launcher re-checks its agent command and the folder's agent config on every run.
+
 ### Mobile Support
 
 A mobile companion view is reachable from your phone's browser when an ngrok tunnel is active.

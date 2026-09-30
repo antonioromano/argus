@@ -1,6 +1,6 @@
 # Deep-link launcher (`argus://new`, `argus://run`) — design
 
-**Status:** approved in conversation 2026-09-30; revised after the multi-persona spec review the same day. Nothing built.
+**Status:** approved in conversation 2026-09-30; revised after the multi-persona spec review the same day. Synced to the shipped implementation (feat/deep-link-launcher); deviations from the original design are folded into the sections below.
 
 ## Intent
 
@@ -108,29 +108,35 @@ Warning = { kind: 'worktree' | 'folder-outside-roots' | 'folder-agent-config'
 The gate logic lives in a pure module, `electron/src/launchGate.ts`: `createLaunchGate({ now, validate, findLauncher, liveSessionForLauncher, create, notify })` with `enqueue / approve / discard / expire / list`. `main.ts` only wires it (same pattern as `quitPolicy.ts`), so it is unit-testable.
 
 **Common steps** (both link kinds):
-1. **Cold start:** until the main window exists, its renderer has fired `did-finish-load`, **and** `restoreSessions()` has settled, push the URL to `pendingUrls[]`. Then drain. (`startServer()` resolves before any window exists.)
+1. **Cold start:** until the main window exists, its renderer has fired `did-finish-load` (or `did-fail-load`, so a failed load can't strand links), **and** `restoreSessions()` has settled, push the URL to `pendingUrls[]`. Then drain. (`startServer()` resolves before any window exists.) The queue is capped at 20; hitting the cap logs a warning.
 2. `parseLaunchUrl` fails → in-app error toast (§4) naming the error **class** (unknown param, bad agent, …), never echoing URL text; at most one per 10 s, then "N invalid links ignored".
 3. Server-side validation via a new export `validateLaunch(request)`:
-   - agent exists, folder is a directory, flags pass `validateFlags`, agent supports a prompt if one was given
+   - agent exists, folder is an **absolute** existing directory, flags pass `validateFlags`, agent supports a prompt if one was given
+   - re-checks the prompt rule (no leading `-`), because saved launchers are re-validated here without passing through the URL parser
    - returns the display command (agent command plus user-visible args, Argus's injected `--settings` / `-c notify` omitted, built with the same `shquote` as `PtyManager.ts`) and the `args` list
    - returns warnings:
      - `folder-outside-roots`: realpath not under any of `config.launchFolderRoots`, default `['~/development']`
      - `folder-agent-config`: folder holds `.claude/`, `.mcp.json` or `CLAUDE.md`, listed by name, "this config loads when the agent starts"
      - `worktree`: "creates branch `feat/x` from `main`"
 
-**`new` links** → always add a `PendingLaunch` (dedupe: an identical request already pending just refocuses it).
+**`new` links** → always add a `PendingLaunch` (dedupe: an identical request already pending just refocuses it; the dedupe key is built from explicit request fields, not a JSON dump).
 
 **`run/<id>` links** (`id` must match `^[a-z0-9-]{1,40}$`, no query params):
 - Unknown id → error toast "No launcher `<id>`" (the id is echoed only after it passes the regex).
 - A live (not `exited`) session created from this launcher exists → focus and highlight that tile; no spawn. A double-click or impatient re-click can't pile up sessions.
 - The launcher's stored `agentCommand` ≠ the agent's current resolved command, **or** the folder's agent-config files differ from `folderConfigAtSave` → pending card with a `launcher-changed` warning and an "Update launcher" option. A remote config change to a custom agent, or hooks dropped into the folder later, can't silently change what a saved launcher runs.
-- Otherwise → create directly through `createSessionFromLaunch` (§4). Toast "Started `<label>` · View" plus the tile highlight. A failure turns into a pending card in `error` state.
+- Otherwise → create directly through `createSessionFromLaunch` (§4). Toast "Started `<label>`" plus the tile highlight. A failure turns into a pending card in `error` state.
+- A per-launcher in-flight guard ignores a second `run` link for the same launcher while it is still starting.
 
-**Target window:** the focused Argus window, else `main`; `showWindow()` if hidden. `launch:pending` is only a refresh hint. The card stack reads state from main with `launch:list` (`ipcRenderer.invoke`) on mount and on each hint, so a renderer reload or a late window never loses a card. If a card's window closes, the card moves to `main`.
+**Target window:** the focused Argus window, else `main`; `showWindow()` if hidden. `launch:pending` is only a refresh hint. The card stack reads state from main with `launch:list` (`ipcRenderer.invoke`) on mount and on each hint, so a renderer reload or a late window never loses a card. When a card's window closes for **any** reason (REST delete, merge-all, main-window promotion), its cards move to `main`.
 
-**Not frontmost:** when a card arrives and no Argus window is focused, post a system notification through the existing notification pipeline ("Launch waiting for approval: `<label>`"). Clicking it focuses the card's window. The dock badge shows the pending count.
+**Not frontmost:** when a card arrives and no Argus window is focused, post a system notification through the existing notification pipeline ("Launch waiting for approval: `<label>`"). Clicking it focuses the card's window. There is no dock badge: the renderer already owns `dock:setBadge` for waiting sessions, and a second writer would clobber it.
 
-Limits: at most 5 pending (a sixth → toast "Too many pending launches, link ignored"); pending expires after 10 min into the `expired` state; more than 3 links in 10 s → the rest are dropped with one log line.
+Limits:
+- at most 5 pending; the cap counts only non-expired cards (a sixth → toast "Too many pending launches, link ignored")
+- pending expires after 10 min into the `expired` state, and `approve()` enforces expiry itself rather than trusting the timer
+- more than 3 links in 10 s → the rest are dropped; the burst warning is logged once per window
+- error toasts are limited to 1 per 10 s
 
 ### 4. Approval card
 
@@ -138,7 +144,7 @@ Limits: at most 5 pending (a sixth → toast "Too many pending launches, link ig
 - A fixed stack anchored below the window toolbar, overlaying the tile area (layout never reflows), in Mosaic and Focus.
 - At most 2 cards are visible, plus a "+N more" row.
 - New cards append at the **bottom**, so an existing card's buttons never move under the cursor.
-- The stack follows the overlay suppression contract (`hooks/overlaySuppressionContract.test.ts`): while a modal Sheet is open it collapses to a badge and expands when the sheet closes.
+- The stack renders at `--z-pop`, below sheets (`--z-sheet`), so a modal Sheet naturally covers it; it does not collapse. It suppresses native overlays under its own rect (`hooks/overlaySuppressionContract.test.ts`), re-measures that rect on resize (ResizeObserver), and scrolls when taller than the window.
 
 **Content** (top to bottom):
 - **Header:** agent · label or `basename(folder)`.
@@ -147,7 +153,7 @@ Limits: at most 5 pending (a sixth → toast "Too many pending launches, link ig
 - **Prompt:** a separate labelled block with a character count. Newlines are rendered visibly (`⏎` + line break); max height 6 lines with internal scroll and a "Show all" expander. Never truncated without an explicit "N more characters".
 - **Full command:** in a collapsed "Command" disclosure (the exact display string from `validateLaunch`).
 - **Warnings:** one row each, icon + text, never colour alone.
-- **Footer (sticky):** Discard · Start, plus "Save as launcher" (id field prefilled with a slug of the name or folder basename, label field). "Save as launcher" is disabled with helper text when a worktree is present ("a launcher would create the same branch every run"). After saving, the card shows the `run/<id>` link with a Copy button.
+- **Footer (sticky):** Discard · Start, plus "Save as launcher" (id field prefilled with a slug of the name or folder basename, label field). "Save as launcher" is disabled with helper text when a worktree is present ("a launcher would create the same branch every run"). After saving, the card shows the `run/<id>` link with a Copy button. On a `launcher-changed` run card the footer offers "Update launcher `<id>` to this command (stops asking next time)": approving with it overwrites that launcher (its id must equal the card's `launcherId`; overwrite is forced) and launches.
 - All text is rendered as text (never HTML). Control and format chars are already rejected at parse time (§1).
 
 **States:**
@@ -159,15 +165,15 @@ Limits: at most 5 pending (a sixth → toast "Too many pending launches, link ig
 | error | card stays, inline error, Retry · Discard |
 | expired | muted, "Expired", Dismiss; stays until dismissed |
 
-**Start delay:** per card, 1 s with a visible fill. It restarts when the window regains focus and whenever the card's position changes.
+**Start delay:** per card, 1 s with a visible fill. Start reads an arming key (index + focus epoch), so the delay restarts when the window regains focus and whenever the card's position changes. Approve failures are shown inline (`role="alert"`) on the card.
 
 **Keyboard and screen reader:**
 - The stack is an `aria-live="assertive"` region announcing "Launch request: `<agent>` in `<folder>`".
-- Focus is **not** moved into the card automatically (the user may be typing in a terminal). The command palette entry "Review pending launch" focuses the first card.
+- Focus is **not** moved into the card automatically (the user may be typing in a terminal). The app-menu item "Review Pending Launch" (⌥⌘L, `menu:review-launch`) focuses the first card. It is a menu accelerator, not a palette entry: the palette has no generic action list, and menu accelerators are the only shortcuts that reach a native terminal tile (`menuShortcuts.ts`).
 - Tab order: prompt, arguments, Save as launcher, Discard, Start.
-- Start is `aria-disabled` (not removed) during the delay, and is **never** the default-focused or Enter-activated button. Esc discards only when the card has focus.
+- Start is `aria-disabled` (not removed) during the delay, and is **never** the default-focused or Enter-activated button. Esc discards only when the card has focus, and is ignored while the card is starting and inside inputs.
 
-**Errors elsewhere:** bad links and unknown launchers use an in-app toast in the target window (with "Copy link"). No native dialogs. With no window yet, they queue with the URLs (§3 step 1).
+**Errors elsewhere:** bad links and unknown launchers use an in-app toast in the target window. Toasts are message + tone only (no action buttons, no "Copy link"). No native dialogs. With no window yet, they queue with the URLs (§3 step 1).
 
 **Reuse:** the card composes the `Button`, `Code`, `Badge`, `Toast` and `States` primitives from `client/src/components/primitives`. The Settings pane is built from `Section` / `SettingRow` like `ConfirmationsPane`.
 
@@ -178,10 +184,11 @@ Limits: at most 5 pending (a sixth → toast "Too many pending launches, link ig
   - check the sender is an Argus app window (`event.senderFrame` URL / known `webContents` id)
   - check ids against the pending map or the launcher store
   - reject approval while the sender window is unfocused
+  - accept approve and discard only from the card's own window; a malformed `saveAs` is rejected with "Bad input"
 
 **On approve:**
 1. Main calls a new server export `createSessionFromLaunch(request, { launcherId? })`. It wraps `manager.createSession(…)`, passing `initialPrompt` through an options object, and assigns the session to the approving window.
-2. If `saveAs` is set, it calls `addLauncher(…)` (§5).
+2. If `saveAs` is set, it saves the launcher through `LauncherStore` (§5). The saved id is remembered on the pending entry, so a retry after a failed start doesn't save again.
 3. Main removes the pending entry and highlights the new tile through the existing `notif:click` glow chain.
 - Launch-created sessions do **not** update the sticky `config.agentFlags` defaults that `POST /api/sessions` maintains.
 - `launcherId` is stored on `ManagedSession` and `PersistedSession` (metadata only), so the focus-if-live check also works after an Argus restart.
@@ -195,19 +202,16 @@ Launcher { id: string /* ^[a-z0-9-]{1,40}$ */, label: string,
            folderConfigAtSave: string[], createdAt: string }
 ```
 
-- `AppConfig.launchers: Launcher[]` and `AppConfig.launchFolderRoots: string[]` (default `['~/development']`), added to both `DEFAULT_CONFIG` literals (the pair is already registered in `check-dep-sync.mjs`).
-- `PUT /api/config` **must carry `launchers` forward explicitly**. Leaving it out of the allowlist would wipe every launcher on any unrelated Settings save (see Current state).
-  - The value always comes from the current config.
-  - A body-supplied array is honoured only as a **subset of current ids** (removal), and its contents are ignored: `updated.launchers = isSubsetById(body.launchers, current) ? current.filter(c => body.launchers.some(e => e.id === c.id)) : current.launchers`.
-  - Additions go only through `addLauncher`, and label changes only through `renameLauncher`. Only the main-process IPC handlers call them. Otherwise a remote config write could plant or alter a launcher.
-- `launchFolderRoots` is an ordinary setting (it only changes warnings).
+- Launchers live in `server/data/launchers.json` (`LauncherStore`, atomic write like `ConfigStore`). `PUT /api/config` never sees them, so an unrelated Settings save can't wipe them and a remote config write can't plant or alter one. Additions and renames happen only through the main-process IPC handlers.
+- `AppConfig.launchFolderRoots: string[]` (default `['~/development']`) stays in `AppConfig`, in both `DEFAULT_CONFIG` literals (registered in `check-dep-sync.mjs`). It only drives warnings.
 - Duplicate id on save → the card asks to overwrite or pick another id.
-- **Settings pane "Launchers"** (registered in `settings/registry.ts`, in the group holding session-creation panes [verify group name]):
+- **Settings pane "Launchers"** (registered in `settings/registry.ts`):
   - empty state: "No launchers. Approve a launch link and choose Save as launcher."
   - each row: label, `run/<id>`, agent @ folder, created date
   - expanding a row shows the full stored args and prompt
-  - actions: Copy link · Rename · Delete, with an undo toast
-  - the pane also edits `launchFolderRoots`
+  - actions: Copy link · Rename · Delete. Delete asks for inline confirmation; Rename's Save is disabled when the label is blank
+  - the pane also edits `launchFolderRoots`: the textarea re-syncs from config while not focused and skips saving unchanged values
+  - errors surface as toasts or an error row
   - a "Copy example link" button shows the `new` grammar
 
 ### 6. Security properties
@@ -234,10 +238,10 @@ Launcher { id: string /* ^[a-z0-9-]{1,40}$ */, label: string,
 | Parser | `electron/src/launchLink.test.ts` (`node:test`) | every `new` param; repeated `flag` order; unknown param; duplicate singleton; bad engine/mode; `~` expansion; oversize URL; `run/<id>` id regex and "no query params"; `notif/` untouched; wrong host; prompt starting with `-`; bidi / zero-width / control chars in prompt, name, folder |
 | Validation | server `node:test` | unknown agent; missing folder; file not dir; flags failing `validateFlags`; prompt on agent without prompt support; quoted prompt > 12 KB; warnings for folder outside roots, folder with `.claude/` / `.mcp.json` / `CLAUDE.md`, worktree |
 | Prompt argv | server `node:test` (per backend + `SessionManager.signalInjection.test.ts`) | quoting of `'`, `$()`, backticks, newline, `;`; prompt appended after injection (claude `--settings` and codex `notify` untouched by prompts like `--settings=/x`, `notify=x`); prompt present on first spawn; **absent after `restartSession` and `restoreSessions`**; not in `sessions.json`; `config.agentFlags` unchanged after a launch; `launcherId` persisted |
-| Gate | `electron/src/launchGate.test.ts` (`node:test`) | `new` → always pending; identical pending deduped; `run` unknown → error; `run` with a live session → focus, no spawn; `run` after that session exits → spawns; `run` with a changed agent command or changed folder config → pending `launcher-changed`; `run` ok → direct; expiry → `expired`; cap of 5; burst limit; cold-start queue drains only after renderer load + restore (both outcomes); `launch:list` after reload; card re-homes when its window closes; IPC from an unknown sender, an unknown id, or an unfocused window rejected |
-| Launcher store | server `node:test` | PUT without the key preserves launchers; PUT with a subset removes; PUT adding or modifying an entry is ignored; `addLauncher` duplicate id; `renameLauncher` |
-| Card UI | client `vitest` | every arg on its own row; prompt block with count, visible newlines, "Show all"; warnings as icon + text; states pending/starting/error/expired; Start disabled 1 s and restarts on refocus and on position change; Start not Enter-activated; Save as launcher disabled with a worktree; `aria-live` announcement; palette entry focuses the card; stack collapses while a Sheet is open |
-| Settings pane | client `vitest` | empty state; row expand shows args + prompt; rename and delete go over IPC; undo toast; roots editor |
+| Gate | `electron/src/launchGate.test.ts` (`node:test`) | `new` → always pending; identical pending deduped; `run` unknown → error; `run` with a live session → focus, no spawn; `run` after that session exits → spawns; `run` with a changed agent command or changed folder config → pending `launcher-changed`; `run` ok → direct; expiry → `expired` (also enforced in `approve`); cap of 5 counting non-expired cards; burst limit; per-launcher in-flight guard; cold-start queue drains only after renderer load + restore (both outcomes); `launch:list` after reload; card re-homes when its window closes for any reason; IPC from an unknown sender, an unknown id, or an unfocused window rejected |
+| Launcher store | server `node:test` | load/save round-trip, malformed entries dropped, config PUT never touches launchers |
+| Card UI | client `vitest` | every arg on its own row; prompt block with count, visible newlines, "Show all"; warnings as icon + text; states pending/starting/error/expired; Start disabled 1 s and restarts on refocus and on position change; Start not Enter-activated; Save as launcher disabled with a worktree; `aria-live` announcement; menu item focuses the card; stack sits under sheets; update-launcher option on `changed` cards; approve errors inline |
+| Settings pane | client `vitest` | empty state; row expand shows args + prompt; rename and delete (inline confirm) go over IPC; roots editor re-syncs and skips unchanged saves |
 | End to end (manual) | `npm run dev` | `open "argus-dev://new?agent=claude&folder=/tmp/argus-dl-test&prompt=hello"` → card with folder-outside-roots warning → Start → tile runs `claude 'hello'`; approve again with Save as launcher `test-hello` → `open argus-dev://run/test-hello` auto-starts; open it again while it runs → focuses the tile; add `.claude/` to the folder → next run goes to pending with `launcher-changed` |
 
 Gate: `npm run verify` (packaging invariants live in `check:deps`).
@@ -248,7 +252,7 @@ Gate: `npm run verify` (packaging invariants live in `check:deps`).
 2. Parser + validation + warnings (no UI; a dev-only log line shows the parsed request).
 3. `initialPrompt` plumbing + no-replay tests; `launcherId` on sessions.
 4. Gate module, IPC, card UI with all states, notification when Argus isn't frontmost.
-5. Launcher store, config-route carry-forward, Settings pane.
+5. Launcher store (`launchers.json`), Settings pane.
 6. Manual end-to-end on `argus-dev://`; then minor release (0.25.0) per CLAUDE.md, only when asked.
 
 First client after release: the JarvAR dashboard's Claude button. The launcher is created once from `argus://new?agent=claude&folder=…/jarvar&prompt=refresh%20dashboard&name=JarvAR%20refresh` and saved as `jarvar-refresh`. The button then links to `argus://run/jarvar-refresh` (`argus-dev://` while testing).
@@ -257,4 +261,3 @@ First client after release: the JarvAR dashboard's Claude button. The launcher i
 
 1. `codex` / `gemini` prompt argv forms: verify against each CLI's `--help` before shipping `promptArgs`.
 2. `routes/config.ts` `FLAG_PATTERN` allows spaces, `routes/sessions.ts` doesn't. Align them separately; out of scope here.
-3. Settings registry group for the Launchers pane, and whether "Review pending launch" also gets a keyboard shortcut.
