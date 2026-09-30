@@ -31,8 +31,9 @@ export interface LaunchGate {
   rehome(closedWindowId: string): void;
 }
 
-interface Entry { view: PendingLaunchView; validated: ValidatedLaunch; windowId: string; key: string }
+interface Entry { view: PendingLaunchView; validated: ValidatedLaunch; windowId: string; key: string; savedAs?: string }
 
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
 
 export function createLaunchGate(deps: GateDeps): LaunchGate {
@@ -40,6 +41,8 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
   let recent: number[] = [];
   let lastErrorToast = -Infinity;
   let suppressedErrors = 0;
+  let lastBurstWarnWindow = -Infinity;
+  const inFlightRuns = new Set<string>();
 
   const errorToast = (windowId: string, message: string) => {
     const t = deps.now();
@@ -52,11 +55,12 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
 
   const addCard = (validated: ValidatedLaunch, source: 'new' | 'run', launcherId?: string, label?: string): Entry | undefined => {
     const windowId = deps.targetWindow();
-    const key = JSON.stringify([source, launcherId ?? '', validated.request]);
+    const q = validated.request;
+    const key = JSON.stringify([source, launcherId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
     for (const e of entries.values()) {
       if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId); return e; }
     }
-    if (entries.size >= LIMITS.maxPending) {
+    if ([...entries.values()].filter((e) => e.view.state !== 'expired').length >= LIMITS.maxPending) {
       deps.toast(windowId, 'Too many pending launches, link ignored', 'warn');
       return undefined;
     }
@@ -80,7 +84,11 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     const t = deps.now();
     recent = recent.filter((x) => t - x < LIMITS.burstWindowMs);
     if (recent.length >= LIMITS.burstCount) {
-      console.warn('[launch] burst limit: link dropped');
+      const windowStart = recent[0];
+      if (windowStart !== lastBurstWarnWindow) {
+        lastBurstWarnWindow = windowStart;
+        console.warn('[launch] burst limit: link dropped');
+      }
       return false;
     }
     recent.push(t);
@@ -89,31 +97,38 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
 
   return {
     async handle(link) {
+      if (link.ok && link.kind === 'notif') return; // main routes notif before calling the gate
       if (!withinBurst()) return;
       const w = deps.targetWindow();
       if (!link.ok) { errorToast(w, `Launch link rejected: ${link.error}`); return; }
-      if (link.kind === 'notif') return; // main routes notif before calling the gate
       if (link.kind === 'new') {
         const v = await deps.validate(link.request);
         if (!v.ok) { errorToast(w, `Launch link rejected: ${v.error}`); return; }
         addCard(v.value, 'new');
         return;
       }
-      const r = await deps.resolveRun(link.launcherId);
-      switch (r.kind) {
-        case 'unknown': errorToast(w, `No launcher "${link.launcherId}"`); return;
-        case 'invalid': errorToast(w, `Launcher "${link.launcherId}": ${r.error}`); return;
-        case 'live': deps.highlight(w, r.sessionId); return;
-        case 'changed': addCard(r.validated, 'run', r.launcher.id, r.launcher.label); return;
-        case 'ready':
-          try {
-            const s = await deps.launch(r.validated, w, r.launcher.id);
-            deps.toast(w, `Started ${r.launcher.label}`, 'ok');
-            deps.highlight(w, s.id);
-          } catch (e) {
-            const card = addCard(r.validated, 'run', r.launcher.id, r.launcher.label);
-            if (card) { card.view.state = 'error'; card.view.error = (e as Error).message; deps.changed(card.windowId); }
-          }
+      if (inFlightRuns.has(link.launcherId)) return;
+      inFlightRuns.add(link.launcherId);
+      try {
+        const r = await deps.resolveRun(link.launcherId);
+        switch (r.kind) {
+          case 'unknown': errorToast(w, `No launcher "${link.launcherId}"`); return;
+          case 'invalid': errorToast(w, `Launcher "${link.launcherId}": ${r.error}`); return;
+          case 'live': deps.highlight(w, r.sessionId); return;
+          case 'changed': addCard(r.validated, 'run', r.launcher.id, r.launcher.label); return;
+          case 'ready':
+            try {
+              const s = await deps.launch(r.validated, w, r.launcher.id);
+              deps.toast(w, `Started ${r.launcher.label}`, 'ok');
+              deps.highlight(w, s.id);
+            } catch (e) {
+              const card = addCard(r.validated, 'run', r.launcher.id, r.launcher.label);
+              if (card) { card.view.state = 'error'; card.view.error = errMsg(e); deps.changed(card.windowId); }
+              else deps.toast(w, `Launcher "${r.launcher.label}" failed: ${errMsg(e)}`, 'danger');
+            }
+        }
+      } finally {
+        inFlightRuns.delete(link.launcherId);
       }
     },
 
@@ -126,22 +141,30 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       if (!e) return { ok: false, error: 'No such pending launch' };
       if (e.view.state === 'expired') return { ok: false, error: 'This launch expired' };
       if (e.view.state === 'starting') return { ok: false, error: 'Already starting' };
-      if (saveAs && !e.view.canSaveAsLauncher) return { ok: false, error: 'This launch can’t be saved as a launcher' };
+      if (e.view.state === 'pending' && deps.now() - e.view.receivedAt > LIMITS.expiryMs) {
+        e.view.state = 'expired'; deps.changed(e.windowId);
+        return { ok: false, error: 'This launch expired' };
+      }
+      const isRun = e.view.source === 'run';
+      if (saveAs && (isRun ? saveAs.id !== e.view.launcherId : !e.view.canSaveAsLauncher)) {
+        return { ok: false, error: 'This launch can’t be saved as a launcher' };
+      }
       e.view.state = 'starting'; e.view.error = undefined; deps.changed(e.windowId);
       try {
-        if (saveAs) {
-          const saved = await deps.saveLauncher({ id: saveAs.id, label: saveAs.label, validated: e.validated, overwrite: saveAs.overwrite });
+        if (saveAs && e.savedAs !== saveAs.id) {
+          const saved = await deps.saveLauncher({ id: saveAs.id, label: saveAs.label, validated: e.validated, overwrite: isRun ? true : saveAs.overwrite });
           if (!saved.ok) { e.view.state = 'pending'; e.view.error = saved.error; deps.changed(e.windowId); return saved; }
+          e.savedAs = saveAs.id;
         }
-        const launcherId = saveAs?.id ?? e.view.launcherId;
+        const launcherId = saveAs?.id ?? e.savedAs ?? e.view.launcherId;
         const s = await deps.launch(e.validated, e.windowId, launcherId);
         entries.delete(id);
         deps.changed(e.windowId);
         deps.highlight(e.windowId, s.id);
         return { ok: true };
       } catch (err) {
-        e.view.state = 'error'; e.view.error = (err as Error).message; deps.changed(e.windowId);
-        return { ok: false, error: (err as Error).message };
+        e.view.state = 'error'; e.view.error = errMsg(err); deps.changed(e.windowId);
+        return { ok: false, error: errMsg(err) };
       }
     },
 
