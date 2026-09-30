@@ -24,6 +24,7 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
   const agent = deps.agentRegistry.getById(req.agent, deps.config.customAgents ?? []);
   if (!agent) return { ok: false, error: `Unknown agent "${req.agent}"` };
 
+  if (!req.folder || !path.isAbsolute(req.folder)) return { ok: false, error: 'Folder must be an absolute path' };
   let folder: string;
   try {
     folder = await realpath(req.folder);
@@ -37,6 +38,7 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
 
   let tail: string[] = [];
   if (req.prompt !== undefined) {
+    if (req.prompt.trimStart().startsWith('-')) return { ok: false, error: 'Prompt must not start with "-"' };
     const pa = promptArgs(agent, req.prompt);
     if (!pa) return { ok: false, error: `Agent "${agent.name}" does not accept an initial prompt` };
     tail = pa;

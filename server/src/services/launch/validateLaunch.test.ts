@@ -68,3 +68,20 @@ test('folder is realpath-resolved', async (t) => {
   assert.ok(r.ok);
   assert.equal(r.value.request.folder, inRoot);
 });
+
+test('prompt must not start with "-" (defence in depth for saved launchers)', async (t) => {
+  const { inRoot, deps } = fixture(t);
+  const a = await validateLaunch({ agent: 'claude', folder: inRoot, flags: [], prompt: '--dangerously-skip-permissions' }, deps);
+  assert.equal(a.ok, false);
+  assert.match((a as any).error, /must not start/);
+  assert.equal((await validateLaunch({ agent: 'claude', folder: inRoot, flags: [], prompt: '  -p' }, deps)).ok, false);
+});
+
+test('folder must be absolute', async (t) => {
+  const { deps } = fixture(t);
+  for (const folder of ['', 'relative/x']) {
+    const r = await validateLaunch({ agent: 'claude', folder, flags: [] }, deps);
+    assert.equal(r.ok, false);
+    assert.match((r as any).error, /absolute/);
+  }
+});
