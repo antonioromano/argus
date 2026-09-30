@@ -18,6 +18,7 @@ import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus } from 'lucide-react';
+import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
@@ -1128,6 +1129,7 @@ function DesktopInner() {
       />
     </WindowChrome>
     </SessionMenuProvider>
+      {window.electronLaunch && <LaunchCardStack />}
     </ToastProvider>
     </FontSettingsProvider>
   );
