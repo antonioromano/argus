@@ -646,6 +646,19 @@ let launchGate: LaunchGate | null = null;
 let launchReady = false;
 const pendingLaunchUrls: string[] = [];
 
+/**
+ * Surface the launch window after a deep link. focusAppWindow alone only
+ * orders the window within Argus: on macOS, while another app (the browser the
+ * link was clicked in) is active, BrowserWindow.focus() does not activate the
+ * application, so Argus stayed behind and "nothing happened". app.focus with
+ * steal activates it — acceptable here because the user just clicked a link
+ * aimed at Argus (and the gate's burst limit caps how often that can happen).
+ */
+function bringLaunchWindowToFront(windowId: string): void {
+  focusAppWindow(windowId);
+  if (process.platform === 'darwin') app.focus({ steal: true });
+}
+
 function handleLaunchUrl(url: string): void {
   const parsed = parseLaunchUrl(url, SCHEME, homedir());
   if (parsed.ok && parsed.kind === 'notif') {
@@ -1278,14 +1291,14 @@ async function main() {
     saveLauncher: (i) => launchService.add(i),
     targetWindow: () => getFocusedWindowId(),
     changed: (w, reason) => {
-      // Only a new card (or a dedupe re-focus) may surface a hidden window;
-      // expiry ticks and rehomes must never pop it to the front.
-      const win = getAppWindow(w) ?? getMainWindow();
-      if (reason === 'added' && win && !win.isVisible()) focusAppWindow(w);
+      // A new card (or a dedupe re-focus) brings Argus to the front — the user
+      // just clicked a link in another app, so a visible-but-behind window must
+      // come forward too. Expiry ticks and rehomes never do.
+      if (reason === 'added') bringLaunchWindowToFront(w);
       sendTo(w, 'launch:changed');
     },
     toast: (w, message, tone) => sendTo(w, 'launch:toast', { message, tone }),
-    highlight: (w, sessionId) => { focusAppWindow(w); sendTo(w, 'notif:click', sessionId); },
+    highlight: (w, sessionId) => { bringLaunchWindowToFront(w); sendTo(w, 'notif:click', sessionId); },
     notifyIfBackground: (view, w) => {
       if (BrowserWindow.getFocusedWindow()) return;
       postNotification(

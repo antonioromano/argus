@@ -10,6 +10,7 @@ import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
+import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
 import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
@@ -128,6 +129,9 @@ export function Focus({
   // per-session decision on top of that goes through resolveTerminalEngine.
   const nativeAvailable = useNativeTerminalAvailable();
   const modalOpen = useFullScreenSuppressed();
+  // A partial surface (popover, launch card) hides this tile's native overlay
+  // too; without the placeholder the tile would go blank.
+  const overlayHidden = useOverlayHidden(active.id);
   const useNativeTerminal = resolveTerminalEngine(active.terminalEngine, defaultTerminalEngine, nativeAvailable);
 
   const sendInput = (data: string) => {
@@ -339,7 +343,7 @@ export function Focus({
               {active.status === 'exited' && !useNativeTerminal && (
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onClone={onClone} />
               )}
-              {modalOpen && <ModalPlaceholder status={active.status} />}
+              {(modalOpen || overlayHidden) && <ModalPlaceholder status={active.status} />}
             </div>
 
             {!maximized && <ReplyBar session={active} onSend={sendInput} />}

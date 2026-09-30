@@ -70,6 +70,19 @@ const onWindowResize = () => scheduleLiveReevaluation();
 
 // Tiles swap in a placeholder while a full-screen surface is up, so every tile
 // looks the same whether its terminal is a hidden native view or a web one.
+// Per-overlay hidden state: a hidden native overlay leaves its tile blank, so
+// tiles subscribe to learn when THEIR overlay is hidden by any suppression
+// (full-screen, partial rect or live) and draw a placeholder meanwhile.
+const hiddenListeners = new Set<() => void>();
+function notifyHidden(): void { for (const fn of hiddenListeners) fn(); }
+
+export function isOverlayHidden(sessionId: string): boolean { return (holders.get(sessionId) ?? 0) > 0; }
+
+export function subscribeOverlayHidden(fn: () => void): () => void {
+  hiddenListeners.add(fn);
+  return () => { hiddenListeners.delete(fn); };
+}
+
 const fullScreenListeners = new Set<() => void>();
 function notifyFullScreen(): void { for (const fn of fullScreenListeners) fn(); }
 
@@ -90,6 +103,7 @@ export function resetOverlayRegistryForTests(): void {
   liveHandles.clear(); liveFrame?.cancel(); liveFrame = null;
   if (typeof window !== 'undefined') window.removeEventListener('resize', onWindowResize);
   notifyFullScreen();
+  notifyHidden();
   transport = { hide: () => {}, show: () => {} };
 }
 
@@ -101,14 +115,14 @@ function intersects(a: Rect, b: Rect): boolean {
 function hold(sessionId: string): void {
   const n = (holders.get(sessionId) ?? 0) + 1;
   holders.set(sessionId, n);
-  if (n === 1) transport.hide(sessionId);
+  if (n === 1) { transport.hide(sessionId); notifyHidden(); }
 }
 
 /** Drop one hold; the last holder re-shows the overlay if it still exists. */
 function unhold(sessionId: string): void {
   const n = holders.get(sessionId);
   if (n === undefined) return;                  // unregistered while suppressed
-  if (n <= 1) { holders.delete(sessionId); if (rects.has(sessionId)) transport.show(sessionId); }
+  if (n <= 1) { holders.delete(sessionId); if (rects.has(sessionId)) transport.show(sessionId); notifyHidden(); }
   else holders.set(sessionId, n - 1);
 }
 
@@ -145,7 +159,7 @@ export function registerOverlay(sessionId: string, rect: Rect): void {
 
 export function unregisterOverlay(sessionId: string): void {
   rects.delete(sessionId);
-  holders.delete(sessionId);
+  if (holders.delete(sessionId)) notifyHidden();
   // Drop it from every active handle too — otherwise a later re-register of
   // the same sessionId while the suppression is still active would add a
   // second, stale membership that a single release() would over-decrement.
@@ -186,12 +200,7 @@ export function suppress(target: 'all' | Rect): SuppressionHandle {
       if (released) return;        // double-release must not decrement twice
       released = true;
       if (allHandle) { activeAllHandles.delete(allHandle); notifyFullScreen(); }
-      for (const id of idSet) {
-        const n = holders.get(id);
-        if (n === undefined) continue;          // unregistered while suppressed
-        if (n <= 1) { holders.delete(id); if (rects.has(id)) transport.show(id); }
-        else holders.set(id, n - 1);
-      }
+      for (const id of idSet) unhold(id);      // unregistered-while-suppressed ids are skipped inside
     },
   };
 }

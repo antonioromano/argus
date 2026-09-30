@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { Focus } from './Focus.js';
-import { suppress, resetOverlayRegistryForTests } from '../../hooks/nativeOverlayRegistry.js';
+import { suppress, registerOverlay, resetOverlayRegistryForTests } from '../../hooks/nativeOverlayRegistry.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -121,6 +121,18 @@ describe('Focus — modal placeholder', () => {
     act(() => { h = suppress('all'); });
     const ph = container.querySelector('[data-testid="modal-placeholder"]');
     expect(ph?.querySelector('[data-status="running"]')).not.toBeNull();
+    act(() => h.release());
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
+  });
+
+  it('covers the terminal while its native overlay is hidden by a partial surface (popover, launch card)', () => {
+    resetOverlayRegistryForTests();
+    renderFocus(session({ status: 'running' }));
+    act(() => { registerOverlay('s1', { x: 0, y: 0, width: 400, height: 300 }); });
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
+    let h!: ReturnType<typeof suppress>;
+    act(() => { h = suppress({ x: 10, y: 10, width: 50, height: 50 }); });
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).not.toBeNull();
     act(() => h.release());
     expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
   });

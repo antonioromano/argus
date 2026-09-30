@@ -3,6 +3,7 @@ import {
   registerOverlay, unregisterOverlay, suppress, suppressLive,
   setSuppressionTransport, resetOverlayRegistryForTests,
   isFullScreenSuppressed, subscribeFullScreenSuppression,
+  isOverlayHidden, subscribeOverlayHidden,
 } from './nativeOverlayRegistry.js';
 
 const A = { x: 0, y: 0, width: 100, height: 100 };
@@ -227,5 +228,65 @@ describe('live partial suppression (suppressLive)', () => {
     expect(h.ids).toEqual([]);
     h.release();
     expect(shown).toEqual([]);
+  });
+});
+
+// A hidden native overlay leaves its tile blank unless the tile draws a
+// placeholder. Tiles need to know when THEIR overlay is hidden by any kind of
+// suppression (full-screen, partial rect, or live), not only full-screen.
+describe('per-overlay hidden state', () => {
+  it('reports a tile hidden by a partial-rect suppression, and not its uncovered neighbour', () => {
+    registerOverlay('a', A); registerOverlay('b', B);
+    const h = suppress({ x: 10, y: 10, width: 20, height: 20 });
+    expect(isOverlayHidden('a')).toBe(true);
+    expect(isOverlayHidden('b')).toBe(false);
+    h.release();
+    expect(isOverlayHidden('a')).toBe(false);
+  });
+
+  it('reports a tile hidden by a live suppression and clears when the surface moves away', () => {
+    registerOverlay('a', A);
+    let rect: typeof A | null = { x: 10, y: 10, width: 20, height: 20 };
+    const h = suppressLive(() => rect);
+    expect(isOverlayHidden('a')).toBe(true);
+    rect = { x: 500, y: 500, width: 10, height: 10 };
+    registerOverlay('a', A); // a geometry report re-evaluates live handles
+    expect(isOverlayHidden('a')).toBe(false);
+    h.release();
+  });
+
+  it('notifies subscribers only when some overlay flips between shown and hidden', () => {
+    registerOverlay('a', A);
+    let calls = 0;
+    const off = subscribeOverlayHidden(() => { calls++; });
+    const h1 = suppress({ x: 0, y: 0, width: 10, height: 10 });
+    const h2 = suppress({ x: 0, y: 0, width: 10, height: 10 }); // refcount 2: no flip
+    expect(calls).toBe(1);
+    h1.release();                                              // still held: no flip
+    expect(calls).toBe(1);
+    h2.release();                                              // shown again
+    expect(calls).toBe(2);
+    expect(isOverlayHidden('a')).toBe(false);
+    off();
+  });
+
+  it('full-screen suppression marks every registered tile hidden', () => {
+    registerOverlay('a', A); registerOverlay('b', B);
+    const h = suppress('all');
+    expect(isOverlayHidden('a') && isOverlayHidden('b')).toBe(true);
+    h.release();
+    expect(isOverlayHidden('a') || isOverlayHidden('b')).toBe(false);
+  });
+
+  it('unregistering a hidden overlay clears its hidden state and notifies', () => {
+    registerOverlay('a', A);
+    let calls = 0;
+    const off = subscribeOverlayHidden(() => { calls++; });
+    const h = suppress({ x: 0, y: 0, width: 10, height: 10 });
+    unregisterOverlay('a');
+    expect(isOverlayHidden('a')).toBe(false);
+    expect(calls).toBe(2);
+    h.release();
+    off();
   });
 });

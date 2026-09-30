@@ -8,6 +8,7 @@ import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
+import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
 import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu } from '../../components/primitives/index.js';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
@@ -700,6 +701,9 @@ function MosaicTileInner({
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const sessionMenu = useSessionMenu();
   const modalOpen = useFullScreenSuppressed();
+  // A partial surface (popover, launch card) hides this tile's native overlay
+  // too; without the placeholder the tile would go blank.
+  const overlayHidden = useOverlayHidden(session.id);
   // Stable wrapper so TerminalShell's memo isn't busted by a fresh closure here.
   const sessionId = session.id;
   const handleFocusChange = useCallback(
@@ -925,7 +929,7 @@ function MosaicTileInner({
             onClone={onClone ? () => onClone(session) : undefined}
           />
         )}
-        {modalOpen && <ModalPlaceholder status={session.status} />}
+        {(modalOpen || overlayHidden) && <ModalPlaceholder status={session.status} />}
       </div>
     </div>
   );
