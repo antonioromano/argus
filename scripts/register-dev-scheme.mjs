@@ -19,14 +19,24 @@ if (!existsSync(plist)) process.exit(0);
 const run = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const read = () => { try { return run('/usr/bin/plutil', ['-extract', 'CFBundleURLTypes', 'json', '-o', '-', plist]); } catch { return ''; } };
 
-if (!read().includes('"argus-dev"')) {
-  const entry = JSON.stringify([{ CFBundleURLName: 'Argus Dev', CFBundleURLSchemes: ['argus-dev'] }]);
-  try { run('/usr/bin/plutil', ['-remove', 'CFBundleURLTypes', plist]); } catch { /* absent */ }
-  run('/usr/bin/plutil', ['-insert', 'CFBundleURLTypes', '-json', entry, plist]);
+const signed = () => { try { run('/usr/bin/codesign', ['--verify', app]); return true; } catch { return false; } };
+
+try {
+  if (!read().includes('"argus-dev"')) {
+    const entry = JSON.stringify([{ CFBundleURLName: 'Argus Dev', CFBundleURLSchemes: ['argus-dev'] }]);
+    try { run('/usr/bin/plutil', ['-remove', 'CFBundleURLTypes', plist]); } catch { /* absent */ }
+    run('/usr/bin/plutil', ['-insert', 'CFBundleURLTypes', '-json', entry, plist]);
+  }
   // Editing Info.plist invalidates the bundle signature; re-sign ad hoc so the
-  // dev app still launches on Apple Silicon.
-  run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
-  run('/usr/bin/codesign', ['--verify', app]);
+  // dev app still launches on Apple Silicon. Checked independently of the insert
+  // so a previously failed codesign is repaired on the next run.
+  if (!signed()) {
+    run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app]);
+    run('/usr/bin/codesign', ['--verify', app]);
+  }
+  run(LSREG, ['-f', app]);
+  console.log('[register-dev-scheme] argus-dev:// → ' + app);
+} catch (err) {
+  // Never fail `npm install` / `npm run dev` over an optional dev convenience.
+  console.warn('[register-dev-scheme] skipped: ' + (err && err.message ? err.message.split('\n')[0] : err));
 }
-run(LSREG, ['-f', app]);
-console.log('[register-dev-scheme] argus-dev:// → ' + app);
