@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
+import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
-import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { AgentTabs } from '../ui/AgentTabs.js';
 import {
   Sheet,
   Field,
@@ -16,12 +16,15 @@ import {
   AlertSheet,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
+import { TerminalChoice } from '../ui/TerminalChoice.js';
+import { kindOf, settingsFor } from '../ui/terminalKind.js';
+import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 
 interface CreateSheetProps {
   config: AppConfig | null;
   initialFolderPath?: string | null;
   onClose: () => void;
-  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string) => Promise<void>;
+  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -51,12 +54,6 @@ function relativeTime(ms: number): string {
   return `${Math.floor(diff / 604_800_000)}w ago`;
 }
 
-const BUILTIN_AGENTS: AgentDefinition[] = [
-  { id: 'claude', name: 'Claude Code', command: 'claude', builtin: true },
-  { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
-  { id: 'codex',  name: 'Codex',  command: 'codex',  builtin: true },
-];
-
 export function CreateSheet({
   config,
   initialFolderPath,
@@ -79,6 +76,8 @@ export function CreateSheet({
   const [folderPath, setFolderPath] = useState(effectiveInitialFolder);
   const [name, setName] = useState('');
   const [agentId, setAgentId] = useState<string>(config?.defaultAgent ?? 'claude');
+  const [terminalEngine, setTerminalEngine] = useState<TerminalEngine>(config?.defaultTerminalEngine ?? 'web');
+  const [runMode, setRunMode] = useState<RunMode>(config?.defaultRunMode ?? 'persistent');
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [creating, setCreating] = useState(false);
@@ -317,7 +316,7 @@ export function CreateSheet({
     setError(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined);
+      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');
     } finally {
@@ -362,7 +361,7 @@ export function CreateSheet({
 
   if (!config) {
     return (
-      <Sheet title="New shell" eyebrow="ARGUS · CREATE" onClose={onClose} width={560}>
+      <Sheet title="New shell" eyebrow="ARGUS · CREATE" onClose={onClose} width={880}>
         <LoadingState label="Loading config" />
       </Sheet>
     );
@@ -374,7 +373,7 @@ export function CreateSheet({
       title="New shell"
       eyebrow="ARGUS · CREATE"
       subtitle="Spin up an agent. Pick a folder, configure flags, hit Spawn."
-      width={560}
+      width={880}
       onClose={handleClose}
       dirty={isDirty}
       onConfirmClose={() => setConfirmDiscard(true)}
@@ -399,386 +398,376 @@ export function CreateSheet({
         onSubmit={handleSubmit}
         style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}
       >
-        <Field label="Working folder" required hint="click path or ⌘O to browse">
-          <div ref={recentsRef} style={{ position: 'relative' }}>
-            {/* Split button: left = native picker, right = recents dropdown */}
-            <div style={{
-              display: 'flex',
-              height: 36,
-              background: 'var(--bg-1)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--r-2)',
-              overflow: 'hidden',
-            }}>
-              {/* Left: native OS picker — a real button so it's keyboard-focusable
-                  (Tab + Enter/Space) and excluded from the global Enter→submit. */}
-              <button
-                type="button"
-                onClick={handlePickFolder}
-                style={{
-                  all: 'unset',
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-2)',
-                  padding: '0 var(--s-3)',
-                  cursor: 'pointer',
-                  borderRight: localRecents.length > 0 ? '1px solid var(--line-2)' : 'none',
-                  overflow: 'hidden',
-                  minWidth: 0,
-                  boxSizing: 'border-box',
-                }}
-              >
-                <Folder size={13} strokeWidth={1.5} color="var(--fg-3)" style={{ flexShrink: 0 }} />
-                <span style={{
-                  flex: 1,
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-sm)',
-                  color: picking ? 'var(--fg-2)' : folderPath ? 'var(--fg-0)' : 'var(--fg-3)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  pointerEvents: 'none',
-                }}>
-                  {picking ? 'opening…' : folderPath || '~/work/project'}
-                </span>
-              </button>
-
-              {/* Right: recents toggle — only when history exists */}
-              {localRecents.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setRecentsOpen((o) => !o)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '0 10px',
-                    flexShrink: 0,
-                    background: recentsOpen ? 'var(--accent-bg)' : 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: recentsOpen ? 'var(--accent)' : 'var(--fg-2)',
-                    fontSize: 'var(--t-xs)',
-                    fontFamily: 'var(--font-sans)',
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                    transition: 'background 0.12s, color 0.12s',
-                  }}
-                >
-                  Recents
-                  <ChevronDown
-                    size={11}
-                    strokeWidth={2.5}
-                    style={{ transition: 'transform 0.15s', transform: recentsOpen ? 'rotate(180deg)' : 'none' }}
-                  />
-                </button>
-              )}
-            </div>
-
-            {/* Recents dropdown. onClick preventDefault: this dropdown lives inside
-                Field's <label>, so clicking a non-interactive row would forward a
-                synthetic click to the label's control (the picker button) and pop the
-                OS folder dialog. preventDefault cancels that forwarding; React onClick
-                handlers still run, so selecting a recent folder works. */}
-            {recentsOpen && localRecents.length > 0 && (
-              <div onClick={(e) => e.preventDefault()} style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 0,
-                right: 0,
-                zIndex: 50,
-                background: 'var(--bg-2)',
-                border: '1px solid var(--line-3)',
-                borderRadius: 'var(--r-2)',
-                overflow: 'hidden',
-                boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
-              }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 'var(--s-5)', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+            <Field label="Working folder" required hint="click path or ⌘O to browse">
+              <div ref={recentsRef} style={{ position: 'relative' }}>
+                {/* Split button: left = native picker, right = recents dropdown */}
                 <div style={{
-                  padding: '6px 10px 5px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.09em',
-                  textTransform: 'uppercase' as const,
-                  color: 'var(--fg-3)',
-                  borderBottom: '1px solid var(--line-2)',
+                  display: 'flex',
+                  height: 36,
+                  background: 'var(--bg-1)',
+                  border: '1px solid var(--line-2)',
+                  borderRadius: 'var(--r-2)',
+                  overflow: 'hidden',
                 }}>
-                  Recent folders
+                  {/* Left: native OS picker — a real button so it's keyboard-focusable
+                      (Tab + Enter/Space) and excluded from the global Enter→submit. */}
+                  <button
+                    type="button"
+                    onClick={handlePickFolder}
+                    style={{
+                      all: 'unset',
+                      flex: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 'var(--s-2)',
+                      padding: '0 var(--s-3)',
+                      cursor: 'pointer',
+                      borderRight: localRecents.length > 0 ? '1px solid var(--line-2)' : 'none',
+                      overflow: 'hidden',
+                      minWidth: 0,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <Folder size={13} strokeWidth={1.5} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                    <span style={{
+                      flex: 1,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 'var(--t-sm)',
+                      color: picking ? 'var(--fg-2)' : folderPath ? 'var(--fg-0)' : 'var(--fg-3)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      pointerEvents: 'none',
+                    }}>
+                      {picking ? 'opening…' : folderPath || '~/work/project'}
+                    </span>
+                  </button>
+
+                  {/* Right: recents toggle — only when history exists */}
+                  {localRecents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setRecentsOpen((o) => !o)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '0 10px',
+                        flexShrink: 0,
+                        background: recentsOpen ? 'var(--accent-bg)' : 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: recentsOpen ? 'var(--accent)' : 'var(--fg-2)',
+                        fontSize: 'var(--t-xs)',
+                        fontFamily: 'var(--font-sans)',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        transition: 'background 0.12s, color 0.12s',
+                      }}
+                    >
+                      Recents
+                      <ChevronDown
+                        size={11}
+                        strokeWidth={2.5}
+                        style={{ transition: 'transform 0.15s', transform: recentsOpen ? 'rotate(180deg)' : 'none' }}
+                      />
+                    </button>
+                  )}
                 </div>
-                <div style={{ maxHeight: 220, overflowY: 'auto' as const }}>
-                  {localRecents.map((entry, index) => {
-                    const isActive = entry.path === folderPath;
-                    const isHovered = hoveredRecent === entry.path;
-                    const isHighlighted = highlightedRecent === index;
-                    const basename = entry.path.split('/').pop() || entry.path;
-                    return (
-                      <div
-                        key={entry.path}
-                        ref={isHighlighted ? highlightedRowRef : undefined}
-                        onMouseEnter={() => { setHoveredRecent(entry.path); setHighlightedRecent(index); }}
-                        onMouseLeave={() => setHoveredRecent(null)}
-                        onClick={() => { setFolderPath(entry.path); setRecentsOpen(false); }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 9,
-                          padding: '7px 10px',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid var(--line-1)',
-                          background: isActive ? 'var(--accent-bg)' : (isHovered || isHighlighted) ? 'var(--bg-3)' : 'transparent',
-                          transition: 'background 0.08s',
-                        }}
-                      >
-                        <Folder
-                          size={12}
-                          strokeWidth={1.5}
-                          color={isActive ? 'var(--accent)' : 'var(--fg-3)'}
-                          style={{ flexShrink: 0 }}
-                        />
-                        <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                          <div style={{
-                            fontSize: 'var(--t-xs)',
-                            fontWeight: 600,
-                            color: isActive ? 'var(--accent-hover)' : 'var(--fg-0)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}>
-                            {basename}
-                          </div>
-                          <div style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 10,
-                            color: 'var(--fg-3)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            marginTop: 1,
-                          }}>
-                            {entry.path}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                          <span style={{ fontSize: 10, color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
-                            {relativeTime(entry.lastOpened)}
-                          </span>
-                          {isActive && <Check size={11} strokeWidth={2.5} color="var(--accent)" />}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); handleRemoveRecent(entry.path); }}
-                            title="Remove from recents"
+
+                {/* Recents dropdown. onClick preventDefault: this dropdown lives inside
+                    Field's <label>, so clicking a non-interactive row would forward a
+                    synthetic click to the label's control (the picker button) and pop the
+                    OS folder dialog. preventDefault cancels that forwarding; React onClick
+                    handlers still run, so selecting a recent folder works. */}
+                {recentsOpen && localRecents.length > 0 && (
+                  <div onClick={(e) => e.preventDefault()} style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    zIndex: 50,
+                    background: 'var(--bg-2)',
+                    border: '1px solid var(--line-3)',
+                    borderRadius: 'var(--r-2)',
+                    overflow: 'hidden',
+                    boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
+                  }}>
+                    <div style={{
+                      padding: '6px 10px 5px',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.09em',
+                      textTransform: 'uppercase' as const,
+                      color: 'var(--fg-3)',
+                      borderBottom: '1px solid var(--line-2)',
+                    }}>
+                      Recent folders
+                    </div>
+                    <div style={{ maxHeight: 220, overflowY: 'auto' as const }}>
+                      {localRecents.map((entry, index) => {
+                        const isActive = entry.path === folderPath;
+                        const isHovered = hoveredRecent === entry.path;
+                        const isHighlighted = highlightedRecent === index;
+                        const basename = entry.path.split('/').pop() || entry.path;
+                        return (
+                          <div
+                            key={entry.path}
+                            ref={isHighlighted ? highlightedRowRef : undefined}
+                            onMouseEnter={() => { setHoveredRecent(entry.path); setHighlightedRecent(index); }}
+                            onMouseLeave={() => setHoveredRecent(null)}
+                            onClick={() => { setFolderPath(entry.path); setRecentsOpen(false); }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              width: 18,
-                              height: 18,
-                              borderRadius: 3,
-                              border: 'none',
-                              background: 'transparent',
+                              gap: 9,
+                              padding: '7px 10px',
                               cursor: 'pointer',
-                              color: 'var(--fg-3)',
-                              padding: 0,
-                              opacity: isHovered ? 1 : 0,
-                              transition: 'opacity 0.1s, color 0.1s, background 0.1s',
-                            }}
-                            onMouseEnter={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,80,80,0.15)';
-                              (e.currentTarget as HTMLButtonElement).style.color = '#e05d5d';
-                            }}
-                            onMouseLeave={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                              (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)';
+                              borderBottom: '1px solid var(--line-1)',
+                              background: isActive ? 'var(--accent-bg)' : (isHovered || isHighlighted) ? 'var(--bg-3)' : 'transparent',
+                              transition: 'background 0.08s',
                             }}
                           >
-                            <X size={11} strokeWidth={2.5} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{
-                  padding: '5px 10px',
-                  fontSize: 10,
-                  color: 'var(--fg-3)',
-                  textAlign: 'center' as const,
-                  borderTop: '1px solid var(--line-2)',
-                }}>
-                  {localRecents.length} of 100 · ordered by last opened
-                </div>
-              </div>
-            )}
-          </div>
-        </Field>
-
-        <Field label="Shell name" hint="optional · auto from folder otherwise">
-          <TextInput
-            value={name}
-            onChange={setName}
-            placeholder="e.g. refactor-event-bus"
-            mono
-          />
-        </Field>
-
-        <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden' }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--s-3)',
-            padding: '10px 12px',
-            background: 'var(--bg-1)',
-            borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
-          }}>
-            <div>
-              <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
-                Agent isolation
-              </div>
-              <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 2 }}>
-                {isGitRepo === false
-                  ? 'Requires a git repository'
-                  : useWorktree
-                    ? 'This session works in its own branch — no conflicts with other agents'
-                    : 'Prevent file conflicts when running multiple agents on the same repo'}
-              </div>
-            </div>
-            <Toggle
-              checked={useWorktree && isGitRepo === true}
-              onChange={(v) => setUseWorktree(v)}
-              disabled={isGitRepo !== true}
-            />
-          </div>
-          {useWorktree && isGitRepo === true && (
-            <div style={{ padding: '10px 12px', background: 'var(--bg-2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Branch name
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                <GitBranch size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
-                <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
-              </div>
-              <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
-                Base branch
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                <GitBranch size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
-                <TextInput value={worktreeBase} onChange={setWorktreeBase} placeholder="HEAD" mono list="create-base-branches" />
-                <datalist id="create-base-branches">
-                  {repoBranches.map((b) => <option key={b} value={b} />)}
-                </datalist>
-              </div>
-              <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
-                New branch starts from here · defaults to the current branch
-              </div>
-            </div>
-          )}
-          {isGitRepo === false && (
-            <div style={{
-              padding: '7px 12px',
-              background: 'var(--warn-bg)',
-              borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-3)',
-            }}>
-              <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
-                ⚠ Not a git repository
-              </span>
-              <button
-                type="button"
-                onClick={handleGitInit}
-                disabled={initializingGit}
-                style={{
-                  fontSize: 'var(--t-xs)',
-                  color: 'var(--warn)',
-                  background: 'transparent',
-                  border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
-                  borderRadius: 'var(--r-1)',
-                  cursor: initializingGit ? 'default' : 'pointer',
-                  padding: '2px 8px',
-                  fontFamily: 'var(--font-sans)',
-                  opacity: initializingGit ? 0.6 : 1,
-                  flexShrink: 0,
-                }}
-              >
-                {initializingGit ? 'Initializing…' : 'Initialize'}
-              </button>
-            </div>
-          )}
-        </div>
-
-        <Field label="Agent" required>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--s-2)' }}>
-            {agents.map((a) => {
-              const isSel = agentId === a.id;
-              return (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={() => setAgentId(a.id)}
-                  style={{
-                    all: 'unset',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--s-2)',
-                    padding: 'var(--s-2) var(--s-3)',
-                    background: isSel ? 'var(--accent-bg)' : 'var(--bg-1)',
-                    border: `1px solid ${isSel ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                    borderRadius: 'var(--r-2)',
-                  }}
-                >
-                  <AgentGlyph agent={a.id} size={22} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>{a.name}</div>
-                    <div className="eyebrow" style={{ marginTop: 2 }}>{a.builtin ? a.id : 'custom'}</div>
+                            <Folder
+                              size={12}
+                              strokeWidth={1.5}
+                              color={isActive ? 'var(--accent)' : 'var(--fg-3)'}
+                              style={{ flexShrink: 0 }}
+                            />
+                            <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
+                              <div style={{
+                                fontSize: 'var(--t-xs)',
+                                fontWeight: 600,
+                                color: isActive ? 'var(--accent-hover)' : 'var(--fg-0)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {basename}
+                              </div>
+                              <div style={{
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 10,
+                                color: 'var(--fg-3)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                marginTop: 1,
+                              }}>
+                                {entry.path}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                              <span style={{ fontSize: 10, color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                                {relativeTime(entry.lastOpened)}
+                              </span>
+                              {isActive && <Check size={11} strokeWidth={2.5} color="var(--accent)" />}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); handleRemoveRecent(entry.path); }}
+                                title="Remove from recents"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: 18,
+                                  height: 18,
+                                  borderRadius: 3,
+                                  border: 'none',
+                                  background: 'transparent',
+                                  cursor: 'pointer',
+                                  color: 'var(--fg-3)',
+                                  padding: 0,
+                                  opacity: isHovered ? 1 : 0,
+                                  transition: 'opacity 0.1s, color 0.1s, background 0.1s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,80,80,0.15)';
+                                  (e.currentTarget as HTMLButtonElement).style.color = '#e05d5d';
+                                }}
+                                onMouseLeave={(e) => {
+                                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)';
+                                }}
+                              >
+                                <X size={11} strokeWidth={2.5} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{
+                      padding: '5px 10px',
+                      fontSize: 10,
+                      color: 'var(--fg-3)',
+                      textAlign: 'center' as const,
+                      borderTop: '1px solid var(--line-2)',
+                    }}>
+                      {localRecents.length} of 100 · ordered by last opened
+                    </div>
                   </div>
-                  {isSel && <Check size={14} strokeWidth={2.5} color="var(--accent)" />}
-                </button>
-              );
-            })}
-          </div>
-        </Field>
+                )}
+              </div>
+            </Field>
 
-        <Field label="Flags" hint={currentFlags.length === 0 ? 'no flags configured' : undefined}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {currentFlags.map((flag) => (
-              <label
-                key={flag.id}
-                style={{
+            <Field label="Shell name" hint="optional · auto from folder otherwise">
+              <TextInput
+                value={name}
+                onChange={setName}
+                placeholder="e.g. refactor-event-bus"
+                mono
+              />
+            </Field>
+
+            <Field label="Agent" required>
+              <AgentTabs agents={agents} value={agentId} onChange={setAgentId} />
+            </Field>
+
+            <Field label="Flags" hint={currentFlags.length === 0 ? 'no flags configured' : undefined}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {currentFlags.map((flag) => (
+                  <label
+                    key={flag.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 'var(--s-2)',
+                      cursor: 'pointer',
+                      padding: '3px 0',
+                    }}
+                  >
+                    <Checkbox
+                      checked={!!flagStates[flag.id]}
+                      onChange={(v) => setFlagStates((p) => ({ ...p, [flag.id]: v }))}
+                      size={14}
+                    />
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
+                      {flag.value}
+                    </span>
+                  </label>
+                ))}
+                {onSaveFlag && (
+                  <div style={{ display: 'flex', gap: 'var(--s-2)', marginTop: 'var(--s-2)' }}>
+                    <div style={{ flex: 1 }}>
+                      <TextInput
+                        value={newFlag}
+                        onChange={setNewFlag}
+                        placeholder="--flag-name value"
+                        mono
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddFlag(); } }}
+                      />
+                    </div>
+                    <Button variant="outline" size="md" disabled={!newFlag.trim()} onClick={handleAddFlag}>
+                      + Add
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </Field>
+
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+            <Field label="Terminal">
+              <TerminalChoice
+                value={kindOf(runMode, terminalEngine)}
+                onChange={(k) => {
+                  const next = settingsFor(k);
+                  setRunMode(next.runMode);
+                  setTerminalEngine(next.terminalEngine);
+                }}
+              />
+            </Field>
+
+            <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--s-3)',
+                padding: '10px 12px',
+                background: 'var(--bg-1)',
+                borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
+              }}>
+                <div>
+                  <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
+                    Agent isolation
+                  </div>
+                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 2 }}>
+                    {isGitRepo === false
+                      ? 'Requires a git repository'
+                      : useWorktree
+                        ? 'This session works in its own branch — no conflicts with other agents'
+                        : 'Prevent file conflicts when running multiple agents on the same repo'}
+                  </div>
+                </div>
+                <Toggle
+                  checked={useWorktree && isGitRepo === true}
+                  onChange={(v) => setUseWorktree(v)}
+                  disabled={isGitRepo !== true}
+                />
+              </div>
+              {useWorktree && isGitRepo === true && (
+                <div style={{ padding: '10px 12px', background: 'var(--bg-2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Branch name
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                    <GitBranch size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                    <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
+                  </div>
+                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
+                    Base branch
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                    <GitBranch size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                    <TextInput value={worktreeBase} onChange={setWorktreeBase} placeholder="HEAD" mono list="create-base-branches" />
+                    <datalist id="create-base-branches">
+                      {repoBranches.map((b) => <option key={b} value={b} />)}
+                    </datalist>
+                  </div>
+                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+                    New branch starts from here · defaults to the current branch
+                  </div>
+                </div>
+              )}
+              {isGitRepo === false && (
+                <div style={{
+                  padding: '7px 12px',
+                  background: 'var(--warn-bg)',
+                  borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 'var(--s-2)',
-                  cursor: 'pointer',
-                  padding: '3px 0',
-                }}
-              >
-                <Checkbox
-                  checked={!!flagStates[flag.id]}
-                  onChange={(v) => setFlagStates((p) => ({ ...p, [flag.id]: v }))}
-                  size={14}
-                />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
-                  {flag.value}
-                </span>
-              </label>
-            ))}
-            {onSaveFlag && (
-              <div style={{ display: 'flex', gap: 'var(--s-2)', marginTop: 'var(--s-2)' }}>
-                <div style={{ flex: 1 }}>
-                  <TextInput
-                    value={newFlag}
-                    onChange={setNewFlag}
-                    placeholder="--flag-name value"
-                    mono
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddFlag(); } }}
-                  />
+                  gap: 'var(--s-3)',
+                }}>
+                  <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
+                    ⚠ Not a git repository
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleGitInit}
+                    disabled={initializingGit}
+                    style={{
+                      fontSize: 'var(--t-xs)',
+                      color: 'var(--warn)',
+                      background: 'transparent',
+                      border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
+                      borderRadius: 'var(--r-1)',
+                      cursor: initializingGit ? 'default' : 'pointer',
+                      padding: '2px 8px',
+                      fontFamily: 'var(--font-sans)',
+                      opacity: initializingGit ? 0.6 : 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {initializingGit ? 'Initializing…' : 'Initialize'}
+                  </button>
                 </div>
-                <Button variant="outline" size="md" disabled={!newFlag.trim()} onClick={handleAddFlag}>
-                  + Add
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
+
           </div>
-        </Field>
+        </div>
 
         {error && <ErrorState title="Cannot spawn" detail={error} />}
       </form>

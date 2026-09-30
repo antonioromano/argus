@@ -3,6 +3,7 @@ import { Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react';
 import { api, setToken } from '../services/api.js';
 import { reconnectSocket } from '../hooks/useSocket.js';
 import { Button, Field, TextInput } from '../components/primitives/index.js';
+import { useOverlaySuppression } from '../hooks/useOverlaySuppression.js';
 
 interface PasswordGateProps {
   onAuthenticated: () => void;
@@ -13,6 +14,11 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // The caller (DesktopRoot) only renders PasswordGate in place of the whole
+  // app while auth is unresolved — a real conditional mount, so a top-level
+  // call is correct here.
+  useOverlaySuppression('all');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

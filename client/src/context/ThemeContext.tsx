@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { flushSync } from 'react-dom';
 import type { ReactNode } from 'react';
 import { ThemeContext, type Theme, type ThemeMode } from './theme-context.js';
+
 
 // --- Helpers ---
 
@@ -54,12 +54,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   const setMode = useCallback((m: ThemeMode) => {
-    const apply = () => {
-      setModeState(m);
-      localStorage.setItem('theme-mode', m);
-    };
-    if (!document.startViewTransition) { apply(); return; }
-    document.startViewTransition(() => flushSync(apply));
+    // Instant, and suppressed while it happens. Argus used to crossfade the
+    // whole root through the View Transitions API, but a native terminal
+    // overlay is a child NSWindow and cannot be part of a DOM snapshot — its
+    // own crossfade was independent of the app's and visibly out of step no
+    // matter what it was cued off. On top of that, element-level colour
+    // transitions kept running after the view transition ended, so the app
+    // appeared to fade twice. Switching with no animation anywhere is the one
+    // arrangement that cannot be out of sync.
+    //
+    // `data-theme-switching` disables transitions and animations for the swap
+    // (see tokens.css); two frames of it, because the attribute and the theme
+    // change must both be in the same style recalculation as the paint that
+    // applies them.
+    document.documentElement.dataset.themeSwitching = '';
+    setModeState(m);
+    localStorage.setItem('theme-mode', m);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        delete document.documentElement.dataset.themeSwitching;
+      });
+    });
   }, []);
 
   // Backwards-compat toggle: flips between dark and light explicitly,

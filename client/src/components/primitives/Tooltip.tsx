@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, cloneElement } from 'react';
 import type { ReactElement, CSSProperties, MouseEvent as RMouseEvent, FocusEvent as RFocusEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 
 interface TooltipProps {
   content: string;
@@ -201,6 +202,13 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         <div ref={tooltipRef} role="tooltip" style={tooltipStyle}>{content}</div>,
         document.body,
       )}
+      {/* Tooltip wraps its trigger for that element's whole lifetime and never
+          unmounts on hide/show — only `visible` toggles. A top-level
+          useOverlaySuppression call would suppress from the trigger's first
+          mount onward, not just while the bubble is actually shown. Gating
+          SuppressWhileMounted on `visible` gives it the tooltip's real
+          on-screen lifetime instead. */}
+      {visible && <SuppressWhileMounted target={() => tooltipRef.current?.getBoundingClientRect() ?? null} />}
     </>
   );
 }

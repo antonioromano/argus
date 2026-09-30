@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AppConfig } from '@argus/shared';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Toggle } from '../../../components/primitives/index.js';
-import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../keyboard/registry.js';
-import { resolveShortcuts, findConflicts } from '../../../keyboard/useShortcuts.js';
-import { eventToCombo, formatCombo, isLoneModifier } from '../../../keyboard/combo.js';
+import { Section, SettingRow } from '../../../../components/primitives/index.js';
+import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
+import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
+import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
+import type { PaneProps } from '../types.js';
 
-interface KeyboardSettingsProps {
-  config: AppConfig;
-  onSave: (data: Partial<AppConfig>) => Promise<AppConfig>;
-}
-
-export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
+/** Shortcuts only. "Confirm before closing a shell" used to head this pane — a
+ *  behaviour pref that happened to mention ⌘W; it now lives with the other two
+ *  confirmations in Behavior → Confirmations. */
+export function KeyboardPane({ config, onSave }: PaneProps) {
   const overrides = useMemo(() => config.keyboardShortcuts ?? {}, [config.keyboardShortcuts]);
   const resolved = resolveShortcuts(overrides);
   const conflicts = findConflicts(resolved);
@@ -39,7 +37,6 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
     void onSave({ keyboardShortcuts: next });
   };
   const resetAll = () => void onSave({ keyboardShortcuts: {} });
-
   const hasOverrides = Object.keys(overrides).length > 0;
 
   const comboPill = (danger = false): React.CSSProperties => ({
@@ -66,21 +63,7 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
   };
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      <div className="eyebrow" style={{ color: 'var(--accent)' }}>Settings · Keyboard</div>
-      <h2 style={{ fontSize: 'var(--t-2xl)', margin: '6px 0 var(--s-4)', letterSpacing: 'var(--tracking-tight)', fontWeight: 600 }}>
-        Keyboard
-      </h2>
-
-      <Section title="Closing shells">
-        <SettingRow label="Confirm before closing a shell" hint="Show a confirmation when closing a shell with ⌘W or the close button">
-          <Toggle
-            checked={config.confirmCloseShell !== false}
-            onChange={(v) => onSave({ confirmCloseShell: v })}
-          />
-        </SettingRow>
-      </Section>
-
+    <>
       {CATEGORY_ORDER.map((category) => {
         const actions = SHORTCUTS.filter((s) => s.category === category);
         if (actions.length === 0) return null;
@@ -129,11 +112,17 @@ export function KeyboardSettings({ config, onSave }: KeyboardSettingsProps) {
         );
       })}
 
+      {/* Kept alongside the sheet-wide Reset: this one touches only bindings, so
+          re-defaulting a mangled keymap never disturbs any other preference. */}
       <div style={{ marginTop: 'var(--s-4)' }}>
-        <button style={{ ...actionBtn, opacity: hasOverrides ? 1 : 0.35, cursor: hasOverrides ? 'pointer' : 'default' }} disabled={!hasOverrides} onClick={resetAll}>
-          Reset all to defaults
+        <button
+          style={{ ...actionBtn, opacity: hasOverrides ? 1 : 0.35, cursor: hasOverrides ? 'pointer' : 'default' }}
+          disabled={!hasOverrides}
+          onClick={resetAll}
+        >
+          Reset all shortcuts
         </button>
       </div>
-    </div>
+    </>
   );
 }

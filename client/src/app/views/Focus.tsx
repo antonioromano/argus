@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, TerminalEngine } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
@@ -7,11 +7,15 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
+import { ExitedCard } from '../ui/ExitedCard.js';
+import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
+import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
+import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
 // Monaco-backed workbench panels are lazy-loaded so the heavy editor bundle is
 // only fetched when a user actually opens the code explorer / diff view
 // (e.g. /mobile never mounts these).
@@ -51,6 +55,8 @@ interface FocusProps {
   filter?: string;
   onSelect: (id: string) => void;
   onReorder: (newOrderedIds: string[]) => void;
+  /** App-wide fallback when a session has no stored engine preference. */
+  defaultTerminalEngine?: TerminalEngine;
   /** True when a session is owned by a different window (multi-window). */
   isForeign?: (id: string) => boolean;
   /** Label of the window that owns a foreign session, for the OTHERS strip badge. */
@@ -87,6 +93,7 @@ export function Focus({
   filter,
   onSelect,
   onReorder,
+  defaultTerminalEngine,
   isForeign,
   foreignLabel,
   onBack,
@@ -113,6 +120,15 @@ export function Focus({
   const [isResizing, setIsResizing] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
+  // then confirm the addon actually loaded in this process before trusting it.
+  // Availability is shared with Mosaic via useNativeTerminalAvailable so the
+  // two surfaces cannot disagree on whether native is possible at all; the
+  // per-session decision on top of that goes through resolveTerminalEngine.
+  const nativeAvailable = useNativeTerminalAvailable();
+  const modalOpen = useFullScreenSuppressed();
+  const useNativeTerminal = resolveTerminalEngine(active.terminalEngine, defaultTerminalEngine, nativeAvailable);
 
   const sendInput = (data: string) => {
     socket.emit('session:input', { sessionId: active.id, data });
@@ -249,6 +265,11 @@ export function Focus({
               </span>
             </Tooltip>
             )}
+            {active.runMode === 'direct' && (
+              <Tooltip content="Native terminal — stops when Argus quits">
+                <span className="argus-tile-branch">Native</span>
+              </Tooltip>
+            )}
             {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <div style={{ flex: 1 }} />
             <Button
@@ -289,7 +310,7 @@ export function Focus({
               tool window is maximized it collapses to 0 height and the workbench
               overlays the region, with a clickable peek strip to return. */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
               <ErrorBoundary key={active.id} label={active.name}>
                 <TerminalShell
                   session={active}
@@ -298,6 +319,13 @@ export function Focus({
                   status={active.status}
                   focused={terminalFocused}
                   onFocusChange={setTerminalFocused}
+                  // Entering Focus is a request to work in this shell: take
+                  // keyboard focus on mount (and again once a native overlay
+                  // has attached). Until this was explicit, a native shell got
+                  // focus only because requestFocusToken 0 was mistaken for a
+                  // request; once that was corrected, Focus opened with the
+                  // shell unfocused and dimmed until clicked.
+                  autoFocus
                   framed={false}
                   shortcuts={shortcuts}
                   searchOpen={searchOpen}
@@ -305,8 +333,13 @@ export function Focus({
                   onCloseSearch={onCloseSearch}
                   requestFocusToken={focusToken}
                   suspendResize={isResizing}
+                  useNative={useNativeTerminal}
                 />
               </ErrorBoundary>
+              {active.status === 'exited' && !useNativeTerminal && (
+                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onClone={onClone} />
+              )}
+              {modalOpen && <ModalPlaceholder status={active.status} />}
             </div>
 
             {!maximized && <ReplyBar session={active} onSend={sendInput} />}

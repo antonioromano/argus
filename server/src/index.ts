@@ -128,13 +128,24 @@ export async function setConfirmExitOnQuit(value: boolean): Promise<void> {
   applyConfig(updated);
   await configStore.save(updated);
 }
-// Name + status for every live (non-exited) session — used to populate the
-// "exit all sessions" confirmation dialog.
-export function getActiveSessionSummaries(): { name: string; status: string }[] {
+export function getConfirmQuitDirectSessions(): boolean {
+  return currentConfig?.confirmQuitDirectSessions !== false;
+}
+export async function setConfirmQuitDirectSessions(value: boolean): Promise<void> {
+  const cfg = currentConfig ?? (await configStore.load());
+  const updated = { ...cfg, confirmQuitDirectSessions: value };
+  applyConfig(updated);
+  await configStore.save(updated);
+}
+// Name, status, engine and run mode for every live (non-exited) session — used
+// to populate the "exit all sessions" and "stop direct sessions" quit
+// confirmation dialogs, which label each one so it is clear what is about to
+// be stopped.
+export function getActiveSessionSummaries(): { name: string; status: string; terminalEngine?: string; runMode?: 'persistent' | 'direct' }[] {
   return sessionManager
     .getAllSessions()
     .filter((s) => s.status !== 'exited')
-    .map((s) => ({ name: s.name, status: s.status }));
+    .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine, runMode: s.runMode ?? 'persistent' }));
 }
 const agentRegistry = new AgentRegistry();
 
@@ -177,6 +188,12 @@ sessionManager.onSessionDeleted = (id) => {
 const _windowHooks: WindowHostHooks = {};
 export function setWindowHooks(h: WindowHostHooks): void {
   Object.assign(_windowHooks, h);
+}
+/** The in-process SessionManager, for Electron main to wire the native terminal
+ *  host. Main runs the server in-process (electron/src/main.ts:515), so this is
+ *  a direct reference — no socket hop. */
+export function getSessionManager(): SessionManager {
+  return sessionManager;
 }
 export function getWindowRegistryState(): WindowRegistryState {
   return windowRegistry.getState();

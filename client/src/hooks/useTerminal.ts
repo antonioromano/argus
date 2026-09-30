@@ -13,6 +13,7 @@ import { ResizeEmitGate } from './resizeGate.js';
 import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
+import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -43,8 +44,18 @@ interface UseTerminalOptions {
   suspendResize?: boolean;
 }
 
+// Backgrounds are --bg-2 (the tile card), NOT Tokyo Night's own. The terminal
+// sits inside that card with only padding between them, so anything else shows
+// as a seam: measured, the app page is #f4f1eb (warm) against Tokyo Night's
+// #f5f5f5 (neutral) — identical lightness, different hue, which reads as a dead
+// patch rather than as a lighter or darker surface. The rest of the palette is
+// still Tokyo Night.
+//
+// Kept in sync by hand with tokens.css (--bg-2) and with TerminalShell's
+// `termBg`. The native overlay derives from these via toNativeTheme, so both
+// engines move together.
 const DARK_THEME = {
-  background: '#1a1b26',
+  background: '#191b20',
   foreground: '#c0caf5',
   cursor: '#c0caf5',
   selectionBackground: '#33467c',
@@ -67,7 +78,7 @@ const DARK_THEME = {
 };
 
 const LIGHT_THEME = {
-  background: '#f5f5f5',
+  background: '#ffffff',
   foreground: '#343b58',
   cursor: '#343b58',
   selectionBackground: '#b4d5fe',
@@ -88,6 +99,92 @@ const LIGHT_THEME = {
   brightCyan: '#0f4b6e',
   brightWhite: '#343b58',
 };
+
+/** Shape of the SwiftTerm-side theme payload (mirrors preload's NativeTerminalTheme). */
+export interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
+
+// ANSI order matches xterm's own convention: black, red, green, yellow, blue,
+// magenta, cyan, white, then the bright variants — the same order SwiftTerm's
+// `installColors(_:)` expects (see OverlayController.setTheme).
+function toNativeTheme(t: typeof DARK_THEME): NativeTerminalTheme {
+  return {
+    background: t.background,
+    foreground: t.foreground,
+    cursor: t.cursor,
+    ansi: [
+      t.black, t.red, t.green, t.yellow, t.blue, t.magenta, t.cyan, t.white,
+      t.brightBlack, t.brightRed, t.brightGreen, t.brightYellow, t.brightBlue, t.brightMagenta, t.brightCyan, t.brightWhite,
+    ],
+  };
+}
+
+// Native-overlay counterpart of DARK_THEME/LIGHT_THEME above, derived from
+// the SAME values rather than hand-copied ones so the xterm.js and SwiftTerm
+// paths can never visually drift apart.
+const NATIVE_DARK_THEME = toNativeTheme(DARK_THEME);
+const NATIVE_LIGHT_THEME = toNativeTheme(LIGHT_THEME);
+
+/** Native-terminal counterpart of the `theme` prop useTerminal takes — used by
+ *  TerminalShellNativeHole to build the payload for electronNativeTerminal.setTheme. */
+export function nativeThemeFor(theme: 'dark' | 'light'): NativeTerminalTheme {
+  return theme === 'dark' ? NATIVE_DARK_THEME : NATIVE_LIGHT_THEME;
+}
+
+/** The slice of the native-terminal preload bridge this module drives directly. */
+interface NativeClearScrollbackBridge {
+  clearScrollback(sessionId: string): void;
+}
+
+// Server-side half of "clear scrollback": purges the mirror's history and
+// broadcasts an authoritative frame so the rows stay gone across joins and
+// resyncs. Exported so the menu:clear-terminal path (ArgusApp.tsx, for when a
+// native tile holds key focus and this hook's own keydown handler below never
+// sees the keystroke) emits the identical event rather than a hand-copied one
+// that could drift from this one.
+//
+// Also asks a native overlay (if this session has one attached) to clear its
+// own scrollback — SwiftTerm's Terminal.clearScrollback(), the native
+// counterpart of this hook's local `terminal.write('\x1b[3J')` below, which a
+// native tile has no xterm instance to receive. Safe to call unconditionally:
+// NativeTerminalHost no-ops for a session with no attached overlay, and the
+// bridge itself is a no-op outside Electron (dev:web/jsdom) or when the
+// native addon never loaded.
+export function clearScrollback(socket: TypedSocket, sessionId: string): void {
+  socket.emit('session:clear-buffer', sessionId);
+  (window as Window & { electronNativeTerminal?: NativeClearScrollbackBridge })
+    .electronNativeTerminal?.clearScrollback(sessionId);
+}
+
+interface NativeFindBarBridge {
+  openFindBar(sessionId: string): void;
+}
+
+// Opens SwiftTerm's own find bar for a native tile (OverlayController.
+// openFindBar). Exported so ArgusApp.tsx's search action — shared by the
+// window-keydown 'terminal-search' case and the menu:terminal-search
+// accelerator (openTerminalSearch/openTerminalSearchFor) — can call it
+// directly and UNCONDITIONALLY on every invocation, never gated on whether
+// React's searchOpen/searchSessionId state actually changed value.
+//
+// That gating is exactly the bug this works around: SwiftTerm's find bar can
+// be dismissed from INSIDE its own window (its own Escape/close button) with
+// no callback back to JS — see OverlayController.closeFindBar's doc comment
+// — so if opening only ran off a searchOpen false->true transition (a React
+// effect keyed on that prop), a second Cmd+F on the SAME tile after such a
+// dismissal would be a no-op: the prop never changed, so the effect never
+// re-fired, silently killing the shortcut for that tile until the user
+// switched away and back. Calling this unconditionally on every search
+// action closes that gap.
+//
+// Safe to call for every search action regardless of engine: like
+// clearScrollback above, NativeTerminalHost no-ops for a session with no
+// attached overlay, and SwiftTerm's own show-find-interface action is
+// idempotent — a repeat call just re-shows/refocuses the existing bar rather
+// than duplicating it.
+export function openNativeFindBar(sessionId: string): void {
+  (window as Window & { electronNativeTerminal?: NativeFindBarBridge })
+    .electronNativeTerminal?.openFindBar(sessionId);
+}
 
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
@@ -155,7 +252,7 @@ export function useTerminal(
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
       theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
       allowProposedApi: true,
-      scrollback: 5000,
+      scrollback: TERMINAL_SCROLLBACK,
       scrollSensitivity: 3,
       fastScrollSensitivity: 10,
       // Option composes special chars (@ [ ] { } on non-US Mac layouts) instead of
@@ -221,6 +318,22 @@ export function useTerminal(
     const onXtermBlur  = () => onFocusChangeRef.current?.(false);
     xtermTextarea?.addEventListener('focus', onXtermFocus);
     xtermTextarea?.addEventListener('blur', onXtermBlur);
+
+    // Element focus events alone are not enough. A native terminal overlay is
+    // a child NSWindow: clicking one takes key focus away from the web
+    // contents, but this textarea REMAINS document.activeElement — element
+    // focus never moved, so no blur fires here. Clicking back onto this tile
+    // makes the window key again and, because the element still holds focus,
+    // Chromium fires no new focus event either. Nothing would ever tell the
+    // mosaic which tile the user returned to, and the selection stayed on the
+    // native tile indefinitely.
+    //
+    // Re-assert on window focus, guarded on actually holding it so the other
+    // tiles stay quiet.
+    const onWindowFocus = () => {
+      if (document.activeElement === xtermTextarea) onFocusChangeRef.current?.(true);
+    };
+    window.addEventListener('focus', onWindowFocus);
 
     // Copy: substitute xterm's own getSelection() into the clipboard. The DOM
     // renderer paints each buffer row as a separate element, so Chromium's
@@ -389,7 +502,7 @@ export function useTerminal(
       if (comboMatches(event, binds['clear-terminal'])) {
         if (event.type === 'keydown') {
           terminal.write('\x1b[3J');
-          socket.emit('session:clear-buffer', sessionId);
+          clearScrollback(socket, sessionId);
         }
         return false;
       }
@@ -498,6 +611,7 @@ export function useTerminal(
       document.removeEventListener('visibilitychange', handleVisibility);
       xtermTextarea?.removeEventListener('focus', onXtermFocus);
       xtermTextarea?.removeEventListener('blur', onXtermBlur);
+      window.removeEventListener('focus', onWindowFocus);
       container.removeEventListener('copy', handleCopy);
       disposeMouse();
       scrollDisposable.dispose();

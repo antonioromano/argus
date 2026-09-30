@@ -157,6 +157,13 @@ export function createAppWindow(windowId: string): BrowserWindow {
     vibrancy: 'sidebar',
     visualEffectState: 'followWindow',
     backgroundColor: '#00000000',
+    // A native terminal tile is a child NSWindow that becomes KEY when clicked,
+    // leaving this window non-key while the app stays active. Without this,
+    // macOS spends the next click on the Argus UI (Expand, Exit focus, a tile
+    // header, any button) just making this window key again, and the click
+    // itself is dropped — every action after typing in a native tile took two
+    // clicks.
+    acceptFirstMouse: true,
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -179,6 +186,25 @@ export function createAppWindow(windowId: string): BrowserWindow {
   // IPv6. Pinning 127.0.0.1 guarantees we reach our own server.
   const port = process.env.ARGUS_PORT || '5757';
   win.loadURL(`http://127.0.0.1:${port}/?windowId=${windowId}`);
+
+  // With native-terminal tracing on, forward the renderer's own trace lines to
+  // the terminal. The renderer half of the geometry story (what it measured
+  // for a hole) is only visible in the devtools console, and Argus wires no
+  // devtools accelerator — so without this the two halves cannot be read
+  // together. Filtered to the trace tag: this is not a general console mirror.
+  if (process.env.ARGUS_NATIVE_TERM_DEBUG === '1') {
+    win.webContents.on('console-message', (e) => {
+      // Event-object form: the positional (event, level, message, ...) overload
+      // is deprecated and warns on every load.
+      if (e.message.startsWith('[native-term:trace]')) console.log('[renderer]', e.message);
+    });
+    win.webContents.once('did-finish-load', () => {
+      // Saves the user a devtools round-trip to set the localStorage flag.
+      void win.webContents.executeJavaScript(
+        "try { localStorage.setItem('argusNativeTermDebug', '1'); } catch {}",
+      );
+    });
+  }
 
   // Re-apply the tracked whole-app zoom on every load — webContents resets zoom
   // to 0 on reload/route change otherwise. Unconditional so a 0 (100%) level is

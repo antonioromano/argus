@@ -70,3 +70,39 @@ jobs:
 
       - name: Build (arm64 + x64)
         run: make build
+
+  native:
+    # Native terminal engine: SwiftTerm shim (SwiftPM) + N-API addon. Before
+    # this, a Swift or ObjC++ break surfaced only in release packaging, and the
+    # shim's XCTest suite never ran at all.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: native/ArgusTerminal/.build
+          key: spm-${{ runner.os }}-${{ env.ImageVersion }}-${{ hashFiles('native/ArgusTerminal/Package.resolved') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Swift tests
+        run: swift test --package-path native/ArgusTerminal
+
+      # Host arch only (arm64 on macos-15): proves the addon compiles and links
+      # against the shim. Packaging still builds both arches.
+      - name: Build addon
+        run: npm run build:native -- --arch=arm64
+
+      - name: Addon loads and exports its surface
+        run: >
+          node -e "const a=require('./electron/resources/native-terminal/arm64/argus_native_terminal.node');
+          for (const k of ['create','setFrame','feed','gridSize','setFontSize','destroy'])
+          if (typeof a[k] !== 'function') { console.error('missing export', k); process.exit(1); }"

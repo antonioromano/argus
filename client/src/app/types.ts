@@ -1,14 +1,16 @@
-import type { SessionInfo } from '@argus/shared';
+import type { RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
+import type { IntroFlow } from './intro/intro.js';
 
 export type View = 'dashboard' | 'focus';
 
 export type Overlay =
   | { kind: 'create' }
-  | { kind: 'clone'; folderPath: string; agentType?: string }
+  | { kind: 'clone'; folderPath: string; agentType?: string; terminalEngine?: TerminalEngine; runMode?: RunMode }
   | { kind: 'palette' }
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
+  | { kind: 'intro'; flow: IntroFlow }
   | null;
 
 /**

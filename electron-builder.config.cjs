@@ -72,6 +72,21 @@ module.exports = {
       to: 'argusd',
       filter: ['argusd-*'],
     },
+    // Native terminal engine addon + Swift dylib (Phase 3 packaging), built
+    // per-arch by `npm run build:native` (scripts/build-native.mjs) into
+    // electron/resources/native-terminal/<arch>/. Shipped via extraResources
+    // rather than app.asar so the .node's dlopen and the dylib's @loader_path
+    // rpath (binding.gyp) both resolve against plain files on disk — an asar
+    // archive can't be dlopen'd directly. Resolved at runtime as
+    // resourcesPath/native-terminal/${process.arch}/argus_native_terminal.node
+    // (see loadNativeTerminalAddon in electron/src/main.ts). Both files are
+    // Mach-O, so they stay in the bundle for afterPack's ad-hoc --deep sign
+    // (like tmux/argusd, not stashed).
+    {
+      from: 'electron/resources/native-terminal',
+      to: 'native-terminal',
+      filter: ['**/*'],
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import type { TileQuickAction } from '@argus/shared';
 import { PICKABLE_QUICK_ACTIONS, tileActionMeta } from '../../constants/tileActions.js';
+import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 
 interface QuickActionPickerProps {
   value: TileQuickAction;
@@ -25,6 +26,7 @@ const LIST_W = 300;
 export function QuickActionPicker({ value, onChange, defaultAction }: QuickActionPickerProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const current = tileActionMeta(value);
   const CurrentIcon = current.icon;
 
@@ -78,7 +80,12 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
       </button>
 
       {open && (
+        // QuickActionPicker itself stays mounted for the life of the tile
+        // header — only `open` toggles the listbox — so SuppressWhileMounted
+        // is rendered in this branch to get the listbox's real mount/unmount
+        // lifetime rather than the picker's.
         <div
+          ref={listRef}
           role="listbox"
           style={{
             position: 'absolute',
@@ -94,6 +101,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
             animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
           }}
         >
+          <SuppressWhileMounted target={() => listRef.current?.getBoundingClientRect() ?? null} />
           {PICKABLE_QUICK_ACTIONS.map((id) => {
             const meta = tileActionMeta(id);
             const Icon = meta.icon;

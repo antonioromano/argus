@@ -21,7 +21,7 @@ export interface SpawnOpts {
  * (default 'tmux' for one release).
  */
 export interface PtyBackend {
-  readonly kind: 'tmux' | 'daemon';
+  readonly kind: 'tmux' | 'daemon' | 'direct';
 
   /** True when sessions survive an app quit. */
   isPersistent(): boolean;

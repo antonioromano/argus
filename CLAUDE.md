@@ -18,19 +18,31 @@ npm run dev
 # Package a signed macOS .dmg
 npm run package:mac
 
-# Build all workspaces (shared → server → client → electron)
+# THE local gate — run this before committing. Everything CI checks, in one command.
+npm run verify      # lint → build:all (incl. check:deps) → test
+
+# Build all workspaces (check:deps → shared → server → client → electron)
 npm run build:all
+
+# Packaging guard on its own (runs inside build:all; see Key Details)
+npm run check:deps
 
 # Lint (client only)
 npm run lint -w client
 
 # Test (server uses node:test, client uses Vitest)
-npm test            # runs server + client
+npm test            # runs server + client + electron
 npm test -w server
 npm test -w client
 ```
 
-CI (`.github/workflows/ci.yml`) runs `lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
+**`npm run verify` is the pre-commit gate.** Lint + build + test alone are *not* sufficient: the packaging
+invariants (root-dep bundling, no runtime `@argus/*` imports, cross-boundary constants in sync) live in
+`check:deps`, and violating one produces green tests and a **DMG that crashes at launch** — that is how
+v0.21.0, v0.21.1 and v0.22.5 shipped broken. `check:deps` now runs first inside `build:all`, so `npm run dev`
+catches it too.
+
+CI (`.github/workflows/ci.yml`) runs `check:deps → lint → build:all (typecheck) → test` on every PR and push to `main` (macos-15, Node from `.nvmrc`). Keep it green — it gates merges.
 
 The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) still exists for fast hot-reload iteration on UI changes, but Electron is the only supported client surface. The browser `<header>` and `window.confirm` fallback have been removed.
 
@@ -55,6 +67,7 @@ Single file (`src/types.ts`) defining all shared TypeScript types: session model
 - **`app/ArgusApp`** — Top-level shell (theme toggle, focus mode, command palette, overlays); routes `/mobile` → `app/mobile/MobileApp` (read-only terminals).
 - **`app/views/Mosaic`** — Grid of up to 12 terminal tiles with drag-and-drop reordering (@dnd-kit) + minimized chips. `app/views/Focus` — single shell + docked workbench panels. Leaf tiles + `TerminalShell` are `React.memo`-wrapped (handlers stabilized via a latest-ref pattern).
 - **`app/ui/TerminalShell`** + **`hooks/useTerminal`** — xterm.js with the built-in **DOM renderer** (no WebGL/Canvas). GPU-atlas renderers were dropped in 0.16.13 (WebGL hit the ~16-context cap; both baked glyph/cell metrics wrong on cold Electron start). The DOM renderer reflows on font load and is immune. `doFit()` is the single relayout funnel; wheel handling goes through `attachCustomWheelEventHandler` — both load-bearing.
+- **`app/overlays/SettingsOverlay`** + **`app/overlays/settings/`** — Settings is a shell plus one pane per topic: `settings/registry.ts` declares the 14 panes (id, sidebar group, the `AppConfig` keys each owns, filter keywords) and every pane lives in `settings/panes/`. Add a setting by adding it to a pane and listing its key in the registry — the sidebar filter, the per-pane modified dot, the footer count and Reset all are all derived from `keys` + `DEFAULT_CONFIG` (exported from `shared/`, re-exported by the server's `ConfigStore`). Panes hold no config state: they render `config` and write through `onSave`.
 - **`components/explorer/`** (Monaco workbench) — `MonacoPane`, editor tabs, `registerSymbolProviders` (server-backed go-to-def/find-refs); `panels/{ExplorerWorkbench,DiffWorkbench}`.
 - **`hooks/`** — `useSocket` (singleton WS client), `useSessions`, `useOrder`/`useGroups` (persisted ordering + groups), `useGitDiff`/`useGitFileStatuses`, `useFileBuffer`/`useFileTree`/`useEditorGroups`, `useNotifications`, `useConfig`, `useUpdate`, `useNgrok`. **`services/api`** — REST client; use `authFetch` (never bare `fetch`) so the ngrok-auth header is sent.
 - A strict CSP ships in `index.html` (`script-src 'self'`); the renderer is sandboxed. Keep both intact when adding inline scripts or new connect origins.
@@ -100,5 +113,6 @@ Users update via the in-app update button (Homebrew) or `brew upgrade --cask arg
 - Ports by mode — packaged app: **5757**; `npm run dev` (Electron): **5403**; `dev:web`: server **5401** + Vite client **5402** (proxies API/WS to 5401). Each mode also gets its own Electron `userData` profile (`argus` vs `argus-dev`), tmux socket (`argus` vs `argus-dev`), and `argus://` vs `argus-dev://` deep-link scheme — so the installed app and `npm run dev` can run **at the same time**.
 - TypeScript strict mode, ES2022 target, ESM (`"type": "module"`) throughout
 - Server uses `.js` extensions in imports (required for ESM resolution with TypeScript)
+- **Server and `electron/` code may only ever `import type` from `@argus/shared`.** app.asar has no `node_modules/@argus`, so a *value* import crashes the packaged app at launch with `ERR_MODULE_NOT_FOUND` (shipped broken in v0.22.5). Duplicate the value on the server side instead and register the pair in `scripts/check-dep-sync.mjs` (check 3 pins scalars and object literals). The renderer has no such limit — Vite compiles shared like any other source. Run `npm run check:deps` after touching imports or deps; CI and `package:mac` both gate on it.
 - Session data files (`server/data/sessions.json`, `server/data/order.json`) are gitignored
 - `node-pty` requires a native prebuilt binary; `postinstall` script ensures the macOS ARM64 spawn-helper is executable
