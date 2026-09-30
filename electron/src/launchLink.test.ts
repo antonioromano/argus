@@ -29,6 +29,7 @@ test('new: rejections', () => {
   assert.equal(err('argus://new?agent=claude&folder=/tmp&base=main'), 'base-without-worktree');
   assert.equal(err('argus://new?agent=claude&folder=/tmp&worktree=-x'), 'bad-worktree');
   assert.equal(err('argus://new?agent=claude&folder=/tmp&worktree=a/../b'), 'bad-worktree');
+  assert.equal(err('argus://new?agent=claude&folder=/tmp&prompt=' + 'a'.repeat(9000)), 'too-long');
 });
 
 test('new: prompt rules', () => {

@@ -128,6 +128,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       confirmQuitDirectSessions: confirmQuitDirectSessions !== undefined
         ? !!confirmQuitDirectSessions
         : current.confirmQuitDirectSessions,
+      // interim: Task 5 replaces this with bounded validation (≤20 entries, ≤512 chars, trimmed)
       launchFolderRoots: Array.isArray(launchFolderRoots)
         ? launchFolderRoots.filter((x) => typeof x === 'string')
         : current.launchFolderRoots,
