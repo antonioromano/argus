@@ -921,6 +921,7 @@ function DesktopInner() {
 
           {app.view === 'focus' && activeSession && (
             <Focus
+              runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               sessions={orderedSessions}
               active={activeSession}
               socket={socket}

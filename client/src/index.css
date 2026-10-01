@@ -839,6 +839,10 @@ body {
   animation: argus-tile-notified 1.2s var(--ease-out) forwards;
 }
 .argus-tile-header {
+  /* Anchors the running hairline (.argus-tile-prog, absolute) to the header.
+     Without it the hairline anchored to the whole tile and drew at its bottom
+     edge, under the terminal — so it never showed outside the settings preview. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--s-2);
@@ -948,6 +952,8 @@ body {
   height: 2px;
   overflow: hidden;
   pointer-events: none;
+  /* Its lower pixel overlaps the tile body, a later positioned sibling. */
+  z-index: 1;
 }
 .argus-tile-prog > i {
   position: absolute;

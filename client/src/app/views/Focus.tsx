@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionInfo, TerminalEngine } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, TileRunningIndicator } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
@@ -48,6 +48,8 @@ function readStoredWidth(): number {
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 interface FocusProps {
+  /** Progress hairline under the header while running — same setting as the mosaic tiles. */
+  runningIndicator?: TileRunningIndicator;
   sessions: SessionInfo[];
   active: SessionInfo;
   socket: TypedSocket;
@@ -86,6 +88,7 @@ interface FocusProps {
 }
 
 export function Focus({
+  runningIndicator = 'hairline',
   sessions,
   active,
   socket,
@@ -213,6 +216,7 @@ export function Focus({
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div
             style={{
+              position: 'relative', // anchors the running hairline
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--s-3)',
@@ -308,6 +312,9 @@ export function Focus({
             )}
             <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
             <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+            {runningIndicator === 'hairline' && active.status === 'running' && (
+              <span className="argus-tile-prog" aria-hidden><i /></span>
+            )}
           </div>
 
           {/* Terminal/reply region. The terminal stays mounted at all times; when a
