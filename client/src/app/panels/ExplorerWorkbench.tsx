@@ -25,6 +25,11 @@ import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { symbolNavContext } from '../../components/explorer/registerSymbolProviders.js';
 
 const COLUMN_RATIO_KEY = 'argus.explorer.columnRatio';
+const TREE_WIDTH_KEY = 'argus.explorer.treeWidth';
+// File tree is drag-resizable so long file names can be read; double-click the divider resets it.
+const TREE_WIDTH_DEFAULT = 280;
+const TREE_WIDTH_MIN = 200;
+const TREE_WIDTH_MAX_RATIO = 0.5;
 
 interface ExplorerWorkbenchProps {
   session: SessionInfo;
@@ -72,6 +77,9 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
 
   const [columnRatio, setColumnRatio] = useState<number>(() => readColumnRatio());
   const [divDragging, setDivDragging] = useState(false);
+  const [treeWidth, setTreeWidth] = useState<number>(() => readTreeWidth());
+  const [treeDragging, setTreeDragging] = useState(false);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const editorRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
@@ -190,6 +198,33 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(COLUMN_RATIO_KEY, String(columnRatio));
   }, [columnRatio]);
+
+  // Persist the file-tree width.
+  useEffect(() => {
+    try { localStorage.setItem(TREE_WIDTH_KEY, String(treeWidth)); } catch { /* ignore */ }
+  }, [treeWidth]);
+
+  // File-tree divider drag.
+  useEffect(() => {
+    if (!treeDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const host = bodyRef.current;
+      if (!host) return;
+      const rect = host.getBoundingClientRect();
+      const max = Math.max(TREE_WIDTH_MIN, rect.width * TREE_WIDTH_MAX_RATIO);
+      setTreeWidth(Math.round(Math.min(max, Math.max(TREE_WIDTH_MIN, e.clientX - rect.left))));
+    };
+    const onUp = () => setTreeDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    const prev = document.body.style.cursor;
+    document.body.style.cursor = 'col-resize';
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prev;
+    };
+  }, [treeDragging]);
 
   // Column divider drag.
   useEffect(() => {
@@ -375,13 +410,13 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <div ref={bodyRef} style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <aside
           style={{
-            width: 280,
+            width: treeWidth,
+            maxWidth: `${TREE_WIDTH_MAX_RATIO * 100}%`,
             flexShrink: 0,
             background: 'var(--bg-1)',
-            borderRight: '1px solid var(--line-2)',
             display: 'flex',
             flexDirection: 'column',
             minHeight: 0,
@@ -410,6 +445,15 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             />
           )}
         </aside>
+
+        <ResizeDivider
+          isDragging={treeDragging}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            setTreeDragging(true);
+          }}
+          onDoubleClick={() => setTreeWidth(TREE_WIDTH_DEFAULT)}
+        />
 
         <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {focusedSnap?.conflict && <ConflictBanner onReload={() => void focusedSnap?.reload()} />}
@@ -562,6 +606,15 @@ function readColumnRatio(): number {
   const n = raw ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return 0.5;
   return Math.min(0.8, Math.max(0.2, n));
+}
+
+function readTreeWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(TREE_WIDTH_KEY));
+    return Number.isFinite(n) && n >= TREE_WIDTH_MIN ? n : TREE_WIDTH_DEFAULT;
+  } catch {
+    return TREE_WIDTH_DEFAULT;
+  }
 }
 
 function EmptyHint() {
