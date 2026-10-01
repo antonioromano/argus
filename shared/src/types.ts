@@ -498,6 +498,9 @@ export interface GitDiffResponse {
   untracked: string[];
   /** All-added diff (`git diff --no-index`) for the untracked files, so they preview like tracked changes. */
   untrackedDiff: string;
+  /** Files left out because their diff alone would overflow the response
+   *  (e.g. a staged deletion of a huge JSON). Listed as header-only entries. */
+  oversized?: string[];
   error?: string;
 }
 
