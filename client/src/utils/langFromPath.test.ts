@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { previewKind, isMarkdownPath } from './langFromPath.js';
+import { previewKind, isMarkdownPath, isImagePath } from './langFromPath.js';
 
 describe('previewKind', () => {
   it('detects markdown variants', () => {
@@ -24,5 +24,19 @@ describe('previewKind', () => {
   it('isMarkdownPath stays markdown-only (csv is not markdown)', () => {
     expect(isMarkdownPath('/a/data.csv')).toBe(false);
     expect(isMarkdownPath('/a/README.md')).toBe(true);
+  });
+});
+
+describe('isImagePath', () => {
+  it('matches common image extensions case-insensitively', () => {
+    expect(isImagePath('/r/logo.png')).toBe(true);
+    expect(isImagePath('/r/Photo.JPG')).toBe(true);
+    expect(isImagePath('/r/icon.svg')).toBe(true);
+  });
+
+  it('rejects non-image and extensionless files', () => {
+    expect(isImagePath('/r/README.md')).toBe(false);
+    expect(isImagePath('/r/Makefile')).toBe(false);
+    expect(isImagePath('/r/archive.png.zip')).toBe(false);
   });
 });

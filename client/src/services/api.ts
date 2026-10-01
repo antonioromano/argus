@@ -184,6 +184,11 @@ export const api = {
     return (await requireOk(res)).json();
   },
 
+  getImageBlob: async (filePath: string): Promise<Blob> => {
+    const res = await authFetch(`${API_BASE}/fs/image?path=${encodeURIComponent(filePath)}`);
+    return (await requireOk(res)).blob();
+  },
+
   findDefinition: async (filePath: string, symbol: string, line: number): Promise<DefinitionResponse> => {
     const params = new URLSearchParams({ path: filePath, symbol, line: String(line) });
     const res = await authFetch(`${API_BASE}/symbols/definition?${params}`);

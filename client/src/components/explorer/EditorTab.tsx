@@ -3,9 +3,10 @@ import { useFileBuffer } from '../../hooks/useFileBuffer.js';
 import { MonacoPane } from './MonacoPane.js';
 import { MarkdownPreview } from './MarkdownPreview.js';
 import { CsvPreview } from './CsvPreview.js';
+import { ImagePreview } from './ImagePreview.js';
 import { ResizeDivider } from '../ResizeDivider.js';
 import { LoadingState, ErrorState } from '../primitives/index.js';
-import { previewKind, monacoLanguageFor, type PreviewKind } from '../../utils/langFromPath.js';
+import { previewKind, monacoLanguageFor, isImagePath, type PreviewKind } from '../../utils/langFromPath.js';
 
 export type ViewMode = 'edit' | 'preview' | 'split';
 
@@ -52,7 +53,9 @@ export function EditorTab({
   onState,
   onUnmount,
 }: EditorTabProps) {
-  const buffer = useFileBuffer({ sessionId, filePath: path });
+  const isImage = isImagePath(path);
+  // Images skip the text buffer entirely — the text endpoint rejects binaries.
+  const buffer = useFileBuffer({ sessionId, filePath: isImage ? null : path });
   const kind = previewKind(path);
 
   // Surface buffer state upward. save/reload are stable callbacks from the hook,
@@ -81,7 +84,9 @@ export function EditorTab({
         flexDirection: 'column',
       }}
     >
-      {buffer.loading ? (
+      {isImage ? (
+        <ImagePreview filePath={path} />
+      ) : buffer.loading ? (
         <LoadingState label="Loading file" />
       ) : buffer.error ? (
         <ErrorState title="Failed to open file" detail={buffer.error} onRetry={() => void buffer.reload()} />
