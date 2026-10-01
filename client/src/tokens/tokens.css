@@ -252,6 +252,7 @@
   --z-fab: 50;         /* floating action buttons — above sticky, below sheets */
   --z-pop: 100;
   --z-sheet: 1000;
+  --z-popover: 1050;  /* dropdowns portalled to <body> from inside a sheet (e.g. Settings) */
   --z-tooltip: 1100;   /* above sheets/overlays so tips show over them */
   --z-overlay: 2000;   /* alert dialogs / password gate — above everything but toasts */
   --z-toast: 3000;
