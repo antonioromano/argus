@@ -4,6 +4,8 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { ShellGitChip } from '../ui/ShellGitChip.js';
+import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
@@ -278,7 +280,9 @@ export function Focus({
                 <span className="argus-tile-branch">Native</span>
               </Tooltip>
             )}
-            {active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
+            {active.shellGit !== undefined ? (
+              active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
+            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <div style={{ flex: 1 }} />
             <Button
               variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
@@ -386,6 +390,7 @@ export function Focus({
                   >
                     {maximized.kind === 'diff' ? (
                       <DiffWorkbench
+                        key={workRoot(active)}
                         session={active}
                         onClose={restoreToShell}
                         initialFile={maximized.file}
@@ -393,6 +398,7 @@ export function Focus({
                       />
                     ) : (
                       <ExplorerWorkbench
+                        key={workRoot(active)}
                         session={active}
                         onClose={restoreToShell}
                         initialFilePath={maximized.filePath}

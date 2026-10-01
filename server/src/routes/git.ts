@@ -6,6 +6,7 @@ import type { CommitSelectionStore } from '../persistence/CommitSelectionStore.j
 import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
 import { resolveRelativeWithinBase } from '../utils/pathScope.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { workRootOf } from '../utils/workRoot.js';
 
 function isSafeRef(ref: string): boolean {
   return !ref.startsWith('-') && !ref.includes('..');
@@ -21,7 +22,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const diff = await gitService.getDiff(session.folderPath);
+    const diff = await gitService.getDiff(workRootOf(session));
 
     if (diff.error === 'Not a git repository') {
       res.status(400).json(diff);
@@ -53,7 +54,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ diff: '', error: 'Invalid file path' });
       return;
     }
@@ -63,7 +64,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.getDiffForFile(session.folderPath, filePath, contextLines, source);
+    const result = await gitService.getDiffForFile(workRootOf(session), filePath, contextLines, source);
 
     if (result.error) {
       res.status(500).json(result);
@@ -90,7 +91,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ hunks: [], isBinary: false, error: 'Invalid file path' });
       return;
     }
@@ -100,7 +101,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.getDiffStructured(session.folderPath, filePath, contextLines, source);
+    const result = await gitService.getDiffStructured(workRootOf(session), filePath, contextLines, source);
 
     res.setHeader('Cache-Control', 'no-cache');
     res.json(result);
@@ -118,12 +119,12 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ error: 'filePath required' });
       return;
     }
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ error: 'Invalid file path' });
       return;
     }
 
-    const result = await gitService.stageFile(session.folderPath, filePath);
+    const result = await gitService.stageFile(workRootOf(session), filePath);
     if (!result.success) {
       res.status(500).json({ error: result.error });
       return;
@@ -143,16 +144,16 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'Invalid selection descriptor' });
       return;
     }
-    if (!resolveRelativeWithinBase(session.folderPath, selection.filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), selection.filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
-    if (selection.fromPath && !resolveRelativeWithinBase(session.folderPath, selection.fromPath)) {
+    if (selection.fromPath && !resolveRelativeWithinBase(workRootOf(session), selection.fromPath)) {
       res.status(400).json({ success: false, error: 'Invalid fromPath' });
       return;
     }
 
-    const result = await gitService.stagePatch(session.folderPath, selection);
+    const result = await gitService.stagePatch(workRootOf(session), selection);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -168,16 +169,16 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'Invalid selection descriptor' });
       return;
     }
-    if (!resolveRelativeWithinBase(session.folderPath, selection.filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), selection.filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
-    if (selection.fromPath && !resolveRelativeWithinBase(session.folderPath, selection.fromPath)) {
+    if (selection.fromPath && !resolveRelativeWithinBase(workRootOf(session), selection.fromPath)) {
       res.status(400).json({ success: false, error: 'Invalid fromPath' });
       return;
     }
 
-    const result = await gitService.discardPatch(session.folderPath, selection);
+    const result = await gitService.discardPatch(workRootOf(session), selection);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -205,7 +206,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.commit(session.folderPath, message, !!amend, files);
+    const result = await gitService.commit(workRootOf(session), message, !!amend, files);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -221,12 +222,12 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'filePath required' });
       return;
     }
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
 
-    const result = await gitService.unstageFile(session.folderPath, filePath);
+    const result = await gitService.unstageFile(workRootOf(session), filePath);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -236,7 +237,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const result = await gitService.push(session.folderPath);
+    const result = await gitService.push(workRootOf(session));
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -246,7 +247,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const result = await gitService.pull(session.folderPath);
+    const result = await gitService.pull(workRootOf(session));
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -262,12 +263,12 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ success: false, error: 'filePath required' });
       return;
     }
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
 
-    const result = await gitService.addToGitignore(session.folderPath, filePath);
+    const result = await gitService.addToGitignore(workRootOf(session), filePath);
     res.status(result.success ? 200 : 500).json(result);
   }));
 
@@ -278,7 +279,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.getBranches(session.folderPath);
+    const result = await gitService.getBranches(workRootOf(session));
     res.json(result);
   }));
 
@@ -299,7 +300,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.checkoutBranch(session.folderPath, branch);
+    const result = await gitService.checkoutBranch(workRootOf(session), branch);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -320,7 +321,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.createBranch(session.folderPath, name, from);
+    const result = await gitService.createBranch(workRootOf(session), name, from);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -337,7 +338,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.pullAndBranch(session.folderPath, branchName, baseBranch);
+    const result = await gitService.pullAndBranch(workRootOf(session), branchName, baseBranch);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -349,7 +350,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
 
     try {
-      const result = await gitService.getFileStatuses(session.folderPath);
+      const result = await gitService.getFileStatuses(workRootOf(session));
       res.setHeader('Cache-Control', 'no-cache');
       res.json(result);
     } catch {
@@ -370,12 +371,12 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ lines: [], error: 'Invalid file path' });
       return;
     }
 
-    const result = await gitService.getBlame(session.folderPath, filePath);
+    const result = await gitService.getBlame(workRootOf(session), filePath);
     res.setHeader('Cache-Control', 'no-cache');
     res.json(result);
   }));
@@ -393,12 +394,12 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    if (!resolveRelativeWithinBase(session.folderPath, filePath)) {
+    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
       res.status(400).json({ success: false, error: 'Invalid file path' });
       return;
     }
 
-    const result = await gitService.revertFileToHead(session.folderPath, filePath);
+    const result = await gitService.revertFileToHead(workRootOf(session), filePath);
     res.status(result.success ? 200 : 400).json(result);
   }));
 
@@ -409,7 +410,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.getLastCommit(session.folderPath);
+    const result = await gitService.getLastCommit(workRootOf(session));
     res.json(result);
   }));
 
@@ -420,7 +421,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const state = await changelistStore.load(session.folderPath);
+    const state = await changelistStore.load(workRootOf(session));
     res.setHeader('Cache-Control', 'no-cache');
     res.json(state);
   }));
@@ -438,7 +439,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    await changelistStore.save(session.folderPath, state);
+    await changelistStore.save(workRootOf(session), state);
     res.setHeader('Cache-Control', 'no-cache');
     res.json({ success: true });
   }));
@@ -449,7 +450,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const state = await commitSelectionStore.load(session.folderPath);
+    const state = await commitSelectionStore.load(workRootOf(session));
     res.setHeader('Cache-Control', 'no-cache');
     res.json(state);
   }));
@@ -465,7 +466,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.status(400).json({ error: 'Invalid commit-selection state' });
       return;
     }
-    await commitSelectionStore.save(session.folderPath, state);
+    await commitSelectionStore.save(workRootOf(session), state);
     res.setHeader('Cache-Control', 'no-cache');
     res.json({ success: true });
   }));

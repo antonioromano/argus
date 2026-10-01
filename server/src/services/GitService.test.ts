@@ -41,6 +41,28 @@ test('getBlame evicts the oldest cache entry once BLAME_CACHE_MAX_ENTRIES is exc
   }
 });
 
+import { parseShellContext } from './GitService.js';
+
+test('parseShellContext: branch, ahead/behind and changed files', () => {
+  const out = [
+    '# branch.oid 1234567890abcdef',
+    '# branch.head feat/login',
+    '# branch.upstream origin/feat/login',
+    '# branch.ab +2 -1',
+    '1 .M N... 100644 100644 100644 aaa bbb src/a.ts',
+    '? notes.txt',
+    '',
+  ].join('\n');
+  assert.deepEqual(parseShellContext(out, '/r'), { root: '/r', branch: 'feat/login', detached: false, ahead: 2, behind: 1, changes: 2 });
+});
+
+test('parseShellContext: no upstream, and a detached HEAD shows the short sha', () => {
+  assert.deepEqual(parseShellContext('# branch.oid abcdef1234\n# branch.head main\n', '/r'),
+    { root: '/r', branch: 'main', detached: false, ahead: null, behind: null, changes: 0 });
+  assert.deepEqual(parseShellContext('# branch.oid abcdef1234\n# branch.head (detached)\n', '/r'),
+    { root: '/r', branch: 'abcdef1', detached: true, ahead: null, behind: null, changes: 0 });
+});
+
 import { parseNumstatZ } from './GitService.js';
 import { mkdirSync } from 'fs';
 

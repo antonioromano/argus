@@ -1,6 +1,7 @@
 import type { SessionStatus } from '@argus/shared';
 import type { Terminal as XTerminal } from '@xterm/headless';
 import { TerminalMirror } from './TerminalMirror.js';
+import { SHELL_AGENT_ID } from '../constants/agents.js';
 
 // Standalone StateDetectors (unit tests) create their own mirror at the old
 // scrollback depth; a session-backed detector is handed the shared session
@@ -231,6 +232,8 @@ export class StateDetector {
   private lastFeedAt = 0;
   private lastResizeAt = 0;
   private destroyed = false;
+  /** Plain shell (no AI): nothing ever asks the user a question, so never 'waiting'. */
+  private readonly neverWaits: boolean;
 
   constructor(
     onStatusChange: (status: SessionStatus) => void,
@@ -242,7 +245,9 @@ export class StateDetector {
   ) {
     this.clock = clock;
     this.onStatusChange = onStatusChange;
-    this.promptPatterns = AGENT_PROMPT_PATTERNS[agentType] ?? DEFAULT_PROMPT_PATTERNS;
+    this.neverWaits = agentType === SHELL_AGENT_ID;
+    // A shell prompt (`$`, `#`, `>`) is its resting state, not a question.
+    this.promptPatterns = this.neverWaits ? [] : AGENT_PROMPT_PATTERNS[agentType] ?? DEFAULT_PROMPT_PATTERNS;
     this.inputBoxPatterns = AGENT_INPUT_BOX_PATTERNS[agentType] ?? [];
     this.workingPatterns = AGENT_WORKING_PATTERNS[agentType] ?? [];
     // Extraction anchors on either a real prompt or the input box (the question
@@ -363,7 +368,8 @@ export class StateDetector {
     // else the screen is quiet with no signal → idle. A bare input box is NOT
     // a signal here, so a finished session (box only) settles to idle.
     const classified = this.classify();
-    const recentCursorStyle = this.clock.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
+    // zsh/vi-mode prompts emit DECSCUSR on every redraw — not a menu for a shell.
+    const recentCursorStyle = !this.neverWaits && this.clock.now() - this.lastCursorStyleAt < CURSOR_ESC_WINDOW_MS;
 
     if (classified === 'running') {
       this.scheduleStatus('running');

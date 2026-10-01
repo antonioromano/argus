@@ -63,6 +63,15 @@ module.exports = {
       to: 'bin',
       filter: ['argus-signal'],
     },
+    // Plain Shell zsh integration: bundled zsh-autosuggestions (MIT) + its
+    // license. Resolved at runtime as resourcesPath/shell-integration (see
+    // server/src/services/shellIntegration.ts resolveAutosuggest). Plain text
+    // sourced by zsh — nothing to sign.
+    {
+      from: 'resources/shell-integration',
+      to: 'shell-integration',
+      filter: ['zsh-autosuggestions.zsh', 'LICENSE-zsh-autosuggestions'],
+    },
     // argusd pty-host daemon (plan 2026-07-22-003), built per-arch by
     // `make -C daemon build`. Resolved at runtime as
     // resourcesPath/argusd/argusd-${process.arch}. A Mach-O binary, so it stays

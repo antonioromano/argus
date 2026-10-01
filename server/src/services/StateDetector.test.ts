@@ -287,3 +287,27 @@ test('onPromptUpdate fires when the menu paints after a cursor-hint waiting tran
   assert.deepEqual(updates, ['Which file should I edit?']);
   det.destroy();
 });
+
+test('plain shell: a $ prompt or a (y/n) question settles to idle, never waiting', async () => {
+  // For an agent with no table entry, `$` / `#` / `>` / (y/n) mean waiting. A plain
+  // shell sits at its prompt between commands, so that is its resting state.
+  const seen: string[] = [];
+  const { det, settle } = make((s) => { seen.push(s); }, 'shell');
+  det.feed(atBottom('user@mac ~/repo $ '));
+  await settle();
+  det.feed(atBottom('Overwrite file? (y/n)'));
+  await settle();
+  assert.equal(seen.at(-1), 'idle');
+  assert.ok(!seen.includes('waiting'), `unexpected waiting in ${seen.join(',')}`);
+  det.destroy();
+});
+
+test('plain shell: a DECSCUSR cursor-style redraw is not a waiting hint', async () => {
+  // zsh vi-mode / many themes emit `\e[5 q` on every prompt redraw.
+  const seen: string[] = [];
+  const { det, settle } = make((s) => { seen.push(s); }, 'shell');
+  det.feed('\x1b[5 q% ');
+  await settle();
+  assert.ok(!seen.includes('waiting'), `unexpected waiting in ${seen.join(',')}`);
+  det.destroy();
+});

@@ -7,6 +7,15 @@ test('builtins are registered', () => {
   assert.equal(r.isRegistered('claude', []), true);
   assert.equal(r.isRegistered('gemini', []), true);
   assert.equal(r.isRegistered('codex', []), true);
+  assert.equal(r.isRegistered('shell', []), true);
+});
+
+test('the plain shell runs the login shell, takes no prompt, and is not detected as an agent', () => {
+  const r = new AgentRegistry();
+  const shell = r.getById('shell', [])!;
+  assert.equal(shell.command, process.env.SHELL || '/bin/zsh');
+  assert.equal(promptArgs(shell, 'hi'), null);
+  assert.ok(!r.detectInstalled().some((s) => s.agent.id === 'shell'));
 });
 
 test('custom agents are registered', () => {

@@ -1,4 +1,4 @@
-import type { AgentType } from '@argus/shared';
+import { SHELL_AGENT_ID, type AgentType } from '@argus/shared';
 
 interface AgentGlyphProps {
   agent: AgentType;
@@ -59,7 +59,23 @@ function CodexIcon({ size }: { size: number }) {
   );
 }
 
+/** Plain shell: a neutral `>_` prompt box, deliberately uncoloured so it reads
+ *  apart from the agents' brand glyphs in the tree, tiles and chips. */
+function ShellIcon({ size }: { size: number }) {
+  const sw = Math.max(1.1, size * 0.09);
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <g stroke="var(--fg-2)" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+        <polyline points="4.75,6.25 6.75,8 4.75,9.75" />
+        <line x1="8.25" y1="10" x2="11.25" y2="10" />
+      </g>
+    </svg>
+  );
+}
+
 export function AgentGlyph({ agent, size = 18 }: AgentGlyphProps) {
+  if (agent === SHELL_AGENT_ID) return <ShellIcon size={size} />;
   if (agent === 'claude') return <ClaudeIcon size={size} />;
   if (agent === 'gemini') return <GeminiIcon size={size} />;
   if (agent === 'codex') return <CodexIcon size={size} />;

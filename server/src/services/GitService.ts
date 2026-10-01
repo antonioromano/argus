@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { appendFile } from 'fs/promises';
 import path from 'path';
-import type { GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
+import type { ShellGitContext, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
 
 function findGit(): string {
   try {
@@ -838,6 +838,24 @@ export class GitService {
     }
   }
 
+  /**
+   * Branch, ahead/behind its upstream, and changed-file count for a plain Shell
+   * session's cwd — one `git status` call. null when the cwd isn't in a repo.
+   */
+  async shellContext(cwd: string): Promise<ShellGitContext | null> {
+    let out: string;
+    let root: string;
+    try {
+      [out, root] = await Promise.all([
+        execGit(['--no-optional-locks', 'status', '--porcelain=v2', '--branch'], cwd),
+        execGit(['rev-parse', '--show-toplevel'], cwd),
+      ]);
+    } catch {
+      return null;
+    }
+    return parseShellContext(out, root.trim());
+  }
+
   async getBranches(folderPath: string): Promise<GitBranchesResponse> {
     try {
       const output = await execGit(['branch'], folderPath);
@@ -1113,4 +1131,32 @@ export class GitService {
       return { success: false, error: (err as Error).message };
     }
   }
+}
+
+/** Parse `git status --porcelain=v2 --branch` into the Shell header's git context. */
+export function parseShellContext(out: string, root: string): ShellGitContext {
+  let branch: string | null = null;
+  let oid: string | null = null;
+  let ahead: number | null = null;
+  let behind: number | null = null;
+  let changes = 0;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('# branch.head ')) {
+      const head = line.slice('# branch.head '.length).trim();
+      branch = head === '(detached)' ? null : head;
+    } else if (line.startsWith('# branch.oid ')) {
+      const o = line.slice('# branch.oid '.length).trim();
+      oid = o === '(initial)' ? null : o.slice(0, 7);
+    } else if (line.startsWith('# branch.ab ')) {
+      const m = /\+(\d+) -(\d+)/.exec(line);
+      if (m) {
+        ahead = Number(m[1]);
+        behind = Number(m[2]);
+      }
+    } else if (line.length > 0 && !line.startsWith('#')) {
+      changes++;
+    }
+  }
+  // Detached HEAD: show the short sha in place of a branch name.
+  return { root, branch: branch ?? oid, detached: branch === null, ahead, behind, changes };
 }

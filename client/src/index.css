@@ -902,6 +902,27 @@ body {
   border-radius: var(--r-1);
   padding: 1px var(--s-1);
 }
+/* Plain Shell git context: ⎇ branch ↑ahead ↓behind ●changes (follows cd). */
+.argus-shell-git {
+  flex-shrink: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  padding: 1px var(--s-1);
+  white-space: nowrap;
+}
+.argus-shell-git-branch { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.argus-shell-git-ahead { color: var(--accent); flex-shrink: 0; }
+.argus-shell-git-behind { color: var(--warn); flex-shrink: 0; }
+.argus-shell-git-changes { color: var(--dirty); flex-shrink: 0; }
+
 .argus-tile-dirty {
   width: 6px; height: 6px;
   border-radius: 50%;

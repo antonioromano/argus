@@ -14,6 +14,7 @@ import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
 import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { FileSection } from './FileSection.js';
 import { api } from '../../services/api.js';
+import { workRoot } from '../../utils/workRoot.js';
 import {
   IconButton,
   Button,
@@ -630,7 +631,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                   key={f.id}
                   file={f}
                   sessionId={session.id}
-                  folderPath={session.folderPath}
+                  folderPath={workRoot(session)}
                   onOpenInEditor={onOpenInEditor}
                   mode={viewMode}
                   active={resolvedActiveId === f.id}

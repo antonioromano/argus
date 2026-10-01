@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
@@ -855,7 +856,11 @@ function MosaicTileInner({
             <span className="argus-tile-branch">Native</span>
           </Tooltip>
         )}
-        {session.hasGitChanges && (
+        {/* A Shell with integration reports git for wherever it cd'd to; that
+            replaces the start-folder dirty dot, which would describe another repo. */}
+        {session.shellGit !== undefined ? (
+          session.cwd && session.shellGit && <ShellGitChip cwd={session.cwd} git={session.shellGit} />
+        ) : session.hasGitChanges && (
           <Tooltip content="Uncommitted changes">
             <span className="argus-tile-dirty" />
           </Tooltip>

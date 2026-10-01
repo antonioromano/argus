@@ -10,6 +10,7 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { BINARY_EXTENSIONS, EXCLUDED_SEARCH_DIRS, EXCLUDED_SEARCH_EXTS } from '../utils/searchExclusions.js';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
+import { workRootOf } from '../utils/workRoot.js';
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -37,7 +38,7 @@ function validateSessionPath(
   if (!path.isAbsolute(rawPath)) return { error: 'invalid path', status: 400 };
   const session = sessionManager.getSession(sessionId);
   if (!session) return { error: 'session not found', status: 404 };
-  const resolved = resolveWithinBase(session.folderPath, rawPath);
+  const resolved = resolveWithinBase(workRootOf(session), rawPath);
   if (!resolved) {
     return { error: 'path is outside session working directory', status: 403 };
   }
@@ -216,7 +217,7 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    const resolved = resolveWithinBase(workRootOf(session), rawPath);
     if (!resolved) {
       res.status(403).json({ error: 'path is outside session working directory' });
       return;
@@ -362,7 +363,7 @@ export function createFilesystemRoutes(
       return;
     }
 
-    const resolved = resolveWithinBase(session.folderPath, rawPath);
+    const resolved = resolveWithinBase(workRootOf(session), rawPath);
     if (!resolved) {
       res.status(403).json({ success: false, error: 'path is outside session working directory' });
       return;

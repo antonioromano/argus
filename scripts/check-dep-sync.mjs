@@ -109,6 +109,7 @@ function constValue(file, name) {
 const DUPLICATED_CONSTS = [
   { name: 'SESSION_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/session.ts' },
   { name: 'MAIN_WINDOW_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/windows.ts' },
+  { name: 'SHELL_AGENT_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/agents.ts' },
   // Renderer ↔ Electron main: main cannot import renderer code either.
   { name: 'TERMINAL_SCROLLBACK', shared: 'client/src/constants/terminal.ts', server: 'electron/src/nativeTerminal/constants.ts' },
 ];

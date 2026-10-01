@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionStatus, TerminalEngine, RunMode } from '@argus/shared';
+import type { SessionInfo, SessionStatus, TerminalEngine, RunMode, ShellGitContext } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -68,6 +68,10 @@ export function useSessions(socket: TypedSocket) {
       );
     };
 
+    const handleShellContext = ({ sessionId, cwd, shellGit }: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
+    };
+
     socket.on('session:status', handleStatus);
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
@@ -75,6 +79,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:renamed', handleRenamed);
     socket.on('session:error', handleSessionError);
     socket.on('session:gitStatus', handleGitStatus);
+    socket.on('session:shellContext', handleShellContext);
 
     return () => {
       socket.off('session:status', handleStatus);
@@ -84,6 +89,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:renamed', handleRenamed);
       socket.off('session:error', handleSessionError);
       socket.off('session:gitStatus', handleGitStatus);
+      socket.off('session:shellContext', handleShellContext);
     };
   }, [socket]);
 
