@@ -12,6 +12,19 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
+const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.bmp': 'image/bmp',
+  '.avif': 'image/avif',
+  '.svg': 'image/svg+xml',
+};
 
 // Validates that sessionId and path are present, the session exists, and the
 // resolved path falls within the session's working directory.
@@ -131,6 +144,54 @@ export function createFilesystemRoutes(
 
       const mimeType = getMimeType(ext);
       res.json({ content, encoding: 'utf8', mimeType, size, truncated, mtimeMs: fileStat.mtimeMs });
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') {
+        res.status(404).json({ error: 'file not found' });
+      } else {
+        res.status(500).json({ error: 'failed to read file' });
+      }
+    }
+  });
+
+  // Raw bytes for image preview. Only whitelisted image types are served, so
+  // this can't be used to pull arbitrary binaries off disk.
+  router.get('/image', async (req, res) => {
+    const rawPath = req.query.path as string;
+    if (!rawPath) {
+      res.status(400).json({ error: 'path query parameter required' });
+      return;
+    }
+
+    const resolved = sessionManager.resolveWithinAnySession(rawPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
+      return;
+    }
+
+    const mimeType = IMAGE_MIME_TYPES[path.extname(resolved).toLowerCase()];
+    if (!mimeType) {
+      res.status(400).json({ error: 'not a supported image type' });
+      return;
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        res.status(400).json({ error: 'not a file' });
+        return;
+      }
+      if (fileStat.size > MAX_IMAGE_SIZE_BYTES) {
+        res.status(413).json({ error: 'image too large to preview' });
+        return;
+      }
+      const data = await readFile(resolved);
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      // SVG can carry script; neuter it if the URL is ever opened directly.
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(data);
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {

@@ -82,6 +82,14 @@ export function isMarkdownPath(filePath: string): boolean {
   return ext === 'md' || ext === 'mdx' || ext === 'markdown';
 }
 
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp', 'avif', 'svg']);
+
+/** Images open in a read-only viewer instead of Monaco (the text endpoint rejects them). */
+export function isImagePath(filePath: string): boolean {
+  const ext = filePath.toLowerCase().split('.').pop();
+  return !!ext && IMAGE_EXTS.has(ext);
+}
+
 export type PreviewKind = 'markdown' | 'csv';
 
 /** Which rendered-preview pane (if any) a file gets alongside the editor. */

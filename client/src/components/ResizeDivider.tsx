@@ -3,10 +3,11 @@ import { useState } from 'react';
 interface ResizeDividerProps {
   isDragging: boolean;
   onMouseDown: (e: React.MouseEvent) => void;
+  onDoubleClick?: () => void;
   orientation?: 'vertical' | 'horizontal';
 }
 
-export function ResizeDivider({ isDragging, onMouseDown, orientation = 'vertical' }: ResizeDividerProps) {
+export function ResizeDivider({ isDragging, onMouseDown, onDoubleClick, orientation = 'vertical' }: ResizeDividerProps) {
   const [isHovered, setIsHovered] = useState(false);
   const isActive = isDragging || isHovered;
   const baseStyle: React.CSSProperties = {
@@ -19,6 +20,7 @@ export function ResizeDivider({ isDragging, onMouseDown, orientation = 'vertical
     return (
       <div
         onMouseDown={onMouseDown}
+        onDoubleClick={onDoubleClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{ ...baseStyle, width: 3, cursor: 'col-resize' }}
@@ -28,6 +30,7 @@ export function ResizeDivider({ isDragging, onMouseDown, orientation = 'vertical
   return (
     <div
       onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{ ...baseStyle, height: 3, cursor: 'row-resize' }}
