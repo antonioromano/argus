@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentDefinition, SessionInfo } from '@argus/shared';
+import { SHELL_AGENT_ID, type AgentDefinition, type SessionInfo } from '@argus/shared';
 import { X, CornerDownLeft, FolderSearch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { useConfig } from '../../hooks/useConfig.js';
@@ -19,6 +19,7 @@ const BUILTIN_AGENTS: AgentDefinition[] = [
   { id: 'claude', name: 'Claude', command: 'claude', builtin: true },
   { id: 'gemini', name: 'Gemini', command: 'gemini', builtin: true },
   { id: 'codex', name: 'Codex', command: 'codex', builtin: true },
+  { id: SHELL_AGENT_ID, name: 'Shell', command: '$SHELL', builtin: true },
 ];
 
 /** Mobile create-session sheet. No native folder picker on a phone, so the

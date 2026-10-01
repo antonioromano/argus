@@ -1,5 +1,6 @@
 import { execFileSync } from 'child_process';
 import type { AgentDefinition, AgentStatus } from '@argus/shared';
+import { SHELL_AGENT_ID } from '../constants/agents.js';
 
 const BUILTIN_AGENTS: AgentDefinition[] = [
   {
@@ -26,6 +27,13 @@ const BUILTIN_AGENTS: AgentDefinition[] = [
     installCommand: 'npm install -g @openai/codex',
     installUrl: 'https://github.com/openai/codex',
   },
+  {
+    // No AI: the user's own login shell, same binary the ⌘T terminal uses.
+    id: SHELL_AGENT_ID,
+    name: 'Shell',
+    command: process.env.SHELL || '/bin/zsh',
+    builtin: true,
+  },
 ];
 
 export class AgentRegistry {
@@ -45,8 +53,9 @@ export class AgentRegistry {
     return this.getById(id, customAgents) !== undefined;
   }
 
+  /** AI agents only — the plain shell is always available and has nothing to install. */
   detectInstalled(): AgentStatus[] {
-    return BUILTIN_AGENTS.map((agent) => {
+    return BUILTIN_AGENTS.filter((a) => a.id !== SHELL_AGENT_ID).map((agent) => {
       try {
         const resolvedPath = execFileSync('which', [agent.command], { encoding: 'utf-8' }).trim();
         return { agent, installed: true, resolvedPath };

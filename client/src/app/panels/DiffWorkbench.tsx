@@ -14,6 +14,7 @@ import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
 import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { FileSection } from './FileSection.js';
 import { api } from '../../services/api.js';
+import { workRoot } from '../../utils/workRoot.js';
 import {
   IconButton,
   Button,
@@ -429,6 +430,23 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
         >
           {isLoading && total === 0 && <LoadingState label="Loading diff" />}
           {error && <ErrorState title="Diff failed" detail={error} onRetry={refresh} />}
+          {!error && !!diff?.oversized?.length && (
+            <div
+              role="note"
+              title={diff.oversized.join('\n')}
+              style={{
+                margin: 'var(--s-2)',
+                padding: '6px var(--s-2)',
+                fontSize: 'var(--t-tiny)',
+                color: 'var(--warn)',
+                background: 'var(--warn-bg)',
+                borderRadius: 'var(--r-2)',
+              }}
+            >
+              {diff.oversized.length === 1 ? '1 file is' : `${diff.oversized.length} files are`} too large to preview —
+              listed without content, still stageable as a whole.
+            </div>
+          )}
           {!isLoading && !error && total === 0 && (
             <EmptyState icon={GitCommit} title="No changes" hint="Working tree clean." />
           )}
@@ -613,7 +631,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                   key={f.id}
                   file={f}
                   sessionId={session.id}
-                  folderPath={session.folderPath}
+                  folderPath={workRoot(session)}
                   onOpenInEditor={onOpenInEditor}
                   mode={viewMode}
                   active={resolvedActiveId === f.id}

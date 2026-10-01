@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import type { TileQuickAction } from '@argus/shared';
 import { PICKABLE_QUICK_ACTIONS, tileActionMeta } from '../../constants/tileActions.js';
@@ -13,6 +14,31 @@ interface QuickActionPickerProps {
 
 const CLOSED_W = 210;
 const LIST_W = 300;
+/** Gap between the button and the list, and the list's margin from the window edge. */
+const GAP = 4;
+const EDGE = 8;
+
+interface ListPos { left: number; top: number; maxHeight: number }
+
+/**
+ * Where the list goes: right-aligned under the button, or above it when the
+ * window has more room there (a picker near the bottom of Settings). Fixed
+ * coordinates, because the list is portalled to <body> — the settings card's
+ * `overflow: hidden` (rounded corners) would otherwise clip it.
+ */
+function placeList(button: DOMRect, listHeight: number): ListPos {
+  const below = window.innerHeight - button.bottom - GAP - EDGE;
+  const above = button.top - GAP - EDGE;
+  const openUp = listHeight > below && above > below;
+  const room = openUp ? above : below;
+  const height = Math.min(listHeight, room);
+  const left = Math.max(EDGE, Math.min(button.right - LIST_W, window.innerWidth - LIST_W - EDGE));
+  return {
+    left,
+    top: openUp ? button.top - GAP - height : button.bottom + GAP,
+    maxHeight: room,
+  };
+}
 
 /**
  * Dropdown for the tile header's pinned action. A native <select> cannot render
@@ -26,6 +52,7 @@ const LIST_W = 300;
 export function QuickActionPicker({ value, onChange, defaultAction }: QuickActionPickerProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const current = tileActionMeta(value);
   const CurrentIcon = current.icon;
@@ -33,8 +60,18 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      // The list lives in a portal, outside wrapRef — clicks on it are inside too.
+      const t = e.target as Node;
+      if (!wrapRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
     };
+    // Fixed-position list: scrolling the pane or resizing would leave it behind.
+    // Close instead of chasing the button (a scroll inside the list itself is fine).
+    const onScroll = (e: Event) => {
+      if (!listRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onResize = () => setOpen(false);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
     };
@@ -43,7 +80,23 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
     return () => {
       document.removeEventListener('mousedown', onDown, true);
       document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
+  }, [open]);
+
+  // Measure the rendered list, then place it (before paint, so it never flashes
+  // at the wrong spot).
+  useLayoutEffect(() => {
+    if (!open) return;
+    const button = buttonRef.current?.getBoundingClientRect();
+    const list = listRef.current;
+    if (!button || !list) return;
+    const pos = placeList(button, list.scrollHeight);
+    list.style.left = `${pos.left}px`;
+    list.style.top = `${pos.top}px`;
+    list.style.maxHeight = `${pos.maxHeight}px`;
+    list.style.visibility = 'visible';
   }, [open]);
 
   const label = (id: TileQuickAction) =>
@@ -52,6 +105,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <button
+        ref={buttonRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -79,7 +133,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
         <ChevronDown size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-3)' }} />
       </button>
 
-      {open && (
+      {open && createPortal(
         // QuickActionPicker itself stays mounted for the life of the tile
         // header — only `open` toggles the listbox — so SuppressWhileMounted
         // is rendered in this branch to get the listbox's real mount/unmount
@@ -88,11 +142,17 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
           ref={listRef}
           role="listbox"
           style={{
-            position: 'absolute',
-            top: 36,
-            right: 0,
+            // left / top / maxHeight / visibility are set by the layout effect
+            // once the list can be measured; hidden until then.
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            overflowY: 'auto',
+            boxSizing: 'border-box',
+            visibility: 'hidden',
             width: LIST_W,
-            zIndex: 'var(--z-pop)' as unknown as number,
+            // Portalled to <body>, so it must clear the Settings sheet (--z-sheet).
+            zIndex: 'var(--z-popover)' as unknown as number,
             background: 'var(--bg-2)',
             border: '1px solid var(--line-3)',
             borderRadius: 'var(--r-3)',
@@ -142,7 +202,8 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

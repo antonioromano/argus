@@ -23,6 +23,7 @@ import { useTheme } from '../../context/theme-context.js';
 import { previewKind } from '../../utils/langFromPath.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { symbolNavContext } from '../../components/explorer/registerSymbolProviders.js';
+import { workRoot } from '../../utils/workRoot.js';
 
 const COLUMN_RATIO_KEY = 'argus.explorer.columnRatio';
 const TREE_WIDTH_KEY = 'argus.explorer.treeWidth';
@@ -65,7 +66,8 @@ interface ZoneRect {
 
 export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLine, initialQuery }: ExplorerWorkbenchProps) {
   const { theme } = useTheme();
-  const groups = useEditorGroups(session.id, initialFilePath ?? null);
+  // A Shell keeps one tab layout per repo it visits (its root follows `cd`).
+  const groups = useEditorGroups(session.shellGit ? `${session.id}@${workRoot(session)}` : session.id, initialFilePath ?? null);
 
   const [tabStates, setTabStates] = useState<Record<string, TabBufferSnapshot>>({});
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
@@ -339,7 +341,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
     [groups],
   );
 
-  const tree = useFileTree(session.folderPath, session.id);
+  const tree = useFileTree(workRoot(session), session.id);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
 
   const dirtyMap: Record<string, boolean> = {};
@@ -385,7 +387,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             maxWidth: '40%',
           }}
         >
-          {focusedPath ?? session.folderPath}
+          {focusedPath ?? workRoot(session)}
         </span>
         {focusedSnap?.dirty && <Chip dot="var(--dirty)">UNSAVED</Chip>}
         {focusedSnap?.saving && <Chip dot="var(--accent)">SAVING…</Chip>}
@@ -438,7 +440,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           {searchOpen && (
             <FileSearchPanel
               key={searchQuery ?? ''}
-              folderPath={session.folderPath}
+              folderPath={workRoot(session)}
               initialQuery={searchQuery}
               onSelectFile={(path, line) => onPickFile(path, line)}
               onClose={() => setSearchOpen(false)}
@@ -504,7 +506,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                           key={path}
                           sessionId={session.id}
                           path={path}
-                          rootPath={session.folderPath}
+                          rootPath={workRoot(session)}
                           visible={path === g.active}
                           theme={theme}
                           viewMode={viewModeFor(path)}

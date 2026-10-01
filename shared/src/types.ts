@@ -6,8 +6,12 @@ export type MosaicWaitingStyle = 'breathing' | 'flag';
 // How mosaic tiles are arranged: side by side in columns, or stacked in rows.
 export type MosaicOrientation = 'horizontal' | 'vertical';
 
-export type BuiltinAgentId = 'claude' | 'gemini' | 'codex';
+export type BuiltinAgentId = 'claude' | 'gemini' | 'codex' | 'shell';
 export type AgentType = BuiltinAgentId | string;
+
+/** Agent id of the plain login shell: a session with no AI attached. It never
+ *  reports 'waiting' or 'done' — only running (output streaming) / idle / exited. */
+export const SHELL_AGENT_ID = 'shell';
 
 /** Which terminal implementation renders a session. `web` (xterm.js) is the
  *  default and the universal fallback; `native` is a macOS-only preference that
@@ -265,6 +269,23 @@ export interface SessionInfo {
   runMode?: RunMode;
   /** Deep-link launcher that started this session. */
   launcherId?: string;
+  /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
+  cwd?: string;
+  shellGit?: ShellGitContext | null;
+}
+
+/** Git state of a plain Shell's current directory (follows `cd`). */
+export interface ShellGitContext {
+  /** Repo root (`git rev-parse --show-toplevel`) — Diff / Files follow it. */
+  root: string;
+  /** Branch name, or the short sha when HEAD is detached (null on an empty repo). */
+  branch: string | null;
+  detached: boolean;
+  /** Commits not yet pushed / not yet pulled. null = no upstream configured. */
+  ahead: number | null;
+  behind: number | null;
+  /** Changed + untracked files. */
+  changes: number;
 }
 
 export interface CreateSessionRequest {
@@ -414,6 +435,7 @@ export interface ServerToClientEvents {
   'update:failed': (payload: { error: string; upToDate?: boolean }) => void;
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
+  'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** Filesystem change detected under a session's folder. `dirs` are the
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */
@@ -498,6 +520,9 @@ export interface GitDiffResponse {
   untracked: string[];
   /** All-added diff (`git diff --no-index`) for the untracked files, so they preview like tracked changes. */
   untrackedDiff: string;
+  /** Files left out because their diff alone would overflow the response
+   *  (e.g. a staged deletion of a huge JSON). Listed as header-only entries. */
+  oversized?: string[];
   error?: string;
 }
 

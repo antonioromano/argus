@@ -15,8 +15,12 @@ import type {
   ServerToClientEvents,
   TerminalEngine,
   RunMode,
+  ShellGitContext,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
+import { SHELL_AGENT_ID } from '../constants/agents.js';
+import { zshIntegrationEnv } from './shellIntegration.js';
+import { OscCwdParser } from './oscCwd.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror } from './TerminalMirror.js';
@@ -39,6 +43,7 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
+import { workRootOf } from '../utils/workRoot.js';
 import type { GitService } from './GitService.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
@@ -132,7 +137,17 @@ interface ManagedSession {
    * producing a spurious idle→running→done cycle.
    */
   hasUserInputSinceIdle: boolean;
+  /** Plain Shell only: OSC 7 reader, last reported cwd, and that cwd's git state. */
+  cwdParser?: OscCwdParser;
+  cwd?: string;
+  shellGit?: ShellGitContext | null;
+  shellGitTimer?: ReturnType<typeof setTimeout>;
+  /** cwd the last broadcast shellGit was computed for (dedupes broadcasts). */
+  shellGitCwd?: string;
 }
+
+/** Coalesce git refreshes: a burst of prompts (e.g. holding Enter) costs one `git status`. */
+const SHELL_GIT_DEBOUNCE_MS = 400;
 
 const GIT_POLL_INTERVAL_MS = 10_000;
 // Re-validate a folder's git-repo-ness this often, so a `git init` after startup
@@ -438,7 +453,7 @@ export class SessionManager {
    */
   resolveWithinAnySession(rawPath: string): string | null {
     for (const session of this.sessions.values()) {
-      const resolved = resolveWithinBase(session.folderPath, rawPath);
+      const resolved = resolveWithinBase(workRootOf(session), rawPath);
       if (resolved) return resolved;
     }
     return null;
@@ -451,7 +466,7 @@ export class SessionManager {
    */
   sessionForPath(rawPath: string): { session: ManagedSession; resolved: string } | null {
     for (const session of this.sessions.values()) {
-      const resolved = resolveWithinBase(session.folderPath, rawPath);
+      const resolved = resolveWithinBase(workRootOf(session), rawPath);
       if (resolved) return { session, resolved };
     }
     return null;
@@ -466,6 +481,8 @@ export class SessionManager {
       const now = Date.now();
       for (const session of this.sessions.values()) {
         if (session.status === 'exited') continue;
+        // Shell: also catch changes made outside it (an editor, another tab).
+        if (session.cwd) await this.refreshShellGit(session);
 
         // Cache git-repo-ness per folder: known non-git folders are skipped
         // entirely (no wasted `git status` spawn each tick), and the result is
@@ -608,7 +625,7 @@ export class SessionManager {
       }
     }
     const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
-    const spawnEnv = inj?.env ?? {};
+    const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(resolvedAgentType) };
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
     // the tmux backend (diagnostics/legacy); the daemon backend keys off id.
@@ -676,6 +693,7 @@ export class SessionManager {
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
       hasUserInputSinceIdle: !attachExisting && existingId == null,
+      cwdParser: resolvedAgentType === SHELL_AGENT_ID ? new OscCwdParser() : undefined,
     };
 
     ptyProcess.onData((data) => {
@@ -688,6 +706,7 @@ export class SessionManager {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
       }
       stateDetector.feed(data);
+      this.trackShellCwd(session, data);
       // Mid-reseed these bytes are history the clients already have; they go to
       // the mirror only, and one authoritative frame follows (see beginResync).
       if (session.resyncing) {
@@ -752,6 +771,7 @@ export class SessionManager {
     void this.fileWatcher.stop(id);
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
+    if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
     const backend = this.backendFor(session);
     backend.detach(session.pty);   // detach our client (tmux) / stop receiving (daemon)
     backend.stopSession(id);        // actually stop the agent
@@ -779,6 +799,7 @@ export class SessionManager {
     session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
+    if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
     const backend = this.backendFor(session);
     backend.detach(session.pty);
     // Discard the surviving conversation so restart is a real restart — and wait
@@ -839,7 +860,7 @@ export class SessionManager {
     session.nativeLastSeenAt = undefined;
     session.nativeState = undefined;
     const spawnFlags = inj?.flags ?? session.flags;
-    const spawnEnv = inj?.env ?? {};
+    const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(session.agentType) };
     await backend.ready?.();
     const ptyProcess = backend.spawn({
       sessionId: id,
@@ -873,6 +894,7 @@ export class SessionManager {
         session.outputBuffer = session.outputBuffer.slice(-100_000);
       }
       stateDetector.feed(data);
+      this.trackShellCwd(session, data);
       this.emitOutput(session, data);
     });
 
@@ -907,14 +929,20 @@ export class SessionManager {
     // and the 60s "waiting for your input" Notification while a background Task
     // subagent is still working (its inner tool calls emit no hooks), so a fresh
     // native idle/waiting must not pin the status while the terminal streams.
-    if (detected !== 'running' && this.nativeIsFresh(session)) {
+    // Exception: the native idle was deferred (screen still painting, see
+    // applyNativeSignal) so the session is still 'running', and now the screen
+    // agrees it is idle. Dropping that stranded the session on 'running' for good.
+    const deferredNativeIdle = detected === 'idle' && session.nativeState === 'idle' && session.status === 'running';
+    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
       if (coverage.has(detected as AgentSignalState)) return;
     }
 
     let status = detected;
     if (detected === 'idle' || detected === 'waiting') {
-      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle) {
+      // A plain shell finishing a command is its normal rhythm, not a run worth
+      // flagging — promoting it would raise a 'done' notification after every `ls`.
+      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
         status = 'done';
       }
     }
@@ -973,17 +1001,22 @@ export class SessionManager {
 
   /**
    * Promote a session to 'done' if it is genuinely finished: still 'running'
-   * (nothing changed it since the grace was armed) AND the screen has stopped
-   * painting. Recent output means work is still happening — e.g. a background
-   * Task subagent whose inner tool calls fire no hooks — so promotion is
-   * skipped; the eventual SubagentStop → re-invoke → Stop cycle lands the real
-   * 'done' later.
+   * (nothing changed it since the grace was armed), the screen has stopped
+   * painting, and no working footer is on it. Recent output or a footer means
+   * work is still happening — e.g. a background Task subagent whose inner tool
+   * calls fire no hooks — so check again after another grace rather than give
+   * up: a single miss used to strand the session on 'running' for good (the
+   * native idle was already spent, and nothing else would ever settle it).
+   * The chain ends as soon as anything else moves the status off 'running'.
    */
   private tryPromoteDone(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
     if (session.status !== 'running') return; // discard: status changed before the grace fired
-    if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) return;
+    if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS || session.stateDetector.getStatus() === 'running') {
+      this.armDoneGrace(session);
+      return;
+    }
     session.status = 'done';
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
@@ -1815,7 +1848,57 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      cwd: session.cwd,
+      shellGit: session.shellGit,
     };
+  }
+
+  /** Env that turns on the zsh shell integration — Shell sessions only. */
+  private shellIntegrationEnv(agentType: string): Record<string, string> {
+    if (agentType !== SHELL_AGENT_ID) return {};
+    return zshIntegrationEnv(this.dataDir) ?? {};
+  }
+
+  /**
+   * Follow a Shell's cwd from the OSC 7 its integration prints on every prompt.
+   * Every report (not only a changed cwd) schedules a git refresh, so a commit,
+   * push or checkout typed in the shell shows up as soon as the prompt returns.
+   */
+  private trackShellCwd(session: ManagedSession, data: string): void {
+    if (!session.cwdParser) return;
+    const cwd = session.cwdParser.feed(data);
+    if (cwd === null) return;
+    session.cwd = cwd;
+    this.scheduleShellGit(session);
+  }
+
+  private scheduleShellGit(session: ManagedSession): void {
+    if (session.shellGitTimer) clearTimeout(session.shellGitTimer);
+    session.shellGitTimer = setTimeout(() => {
+      session.shellGitTimer = undefined;
+      void this.refreshShellGit(session);
+    }, SHELL_GIT_DEBOUNCE_MS);
+  }
+
+  private async refreshShellGit(session: ManagedSession): Promise<void> {
+    const cwd = session.cwd;
+    if (!cwd || !this.gitService) return;
+    const shellGit = await this.gitService.shellContext(cwd);
+    // Dropped while git ran (deleted, or cd'd elsewhere — that cwd has its own refresh queued).
+    if (this.sessions.get(session.id) !== session || session.cwd !== cwd) return;
+    const unchanged = session.shellGitCwd === cwd && JSON.stringify(shellGit) === JSON.stringify(session.shellGit);
+    const prevRoot = workRootOf(session);
+    session.shellGit = shellGit;
+    // Diff / Files follow the repo the shell is in — re-point the change watcher too.
+    const root = workRootOf(session);
+    if (root !== prevRoot) {
+      void this.fileWatcher.stop(session.id).then(() => {
+        if (this.sessions.get(session.id) === session) this.fileWatcher.watch(session.id, workRootOf(session));
+      });
+    }
+    session.shellGitCwd = cwd;
+    if (unchanged) return;
+    this.io?.emit('session:shellContext', { sessionId: session.id, cwd, shellGit });
   }
 
   /** Accept only the two known values. Anything else becomes undefined so the

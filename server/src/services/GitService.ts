@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { appendFile } from 'fs/promises';
 import path from 'path';
-import type { GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
+import type { ShellGitContext, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
 
 function findGit(): string {
   try {
@@ -37,6 +37,70 @@ function execGit(args: string[], cwd: string): Promise<string> {
       resolve(stdout);
     });
   });
+}
+
+/** A single file whose diff is longer than this is left out of a capped diff. */
+const OVERSIZED_FILE_LINES = 20_000;
+
+function isMaxBuffer(err: unknown): boolean {
+  return (err as { code?: string }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+}
+
+/**
+ * `git diff <args>` that survives a diff too big for one response. One huge file
+ * (a staged deletion of a 600k-line JSON) used to overflow maxBuffer and fail the
+ * whole Diff panel. On overflow, re-run without files over OVERSIZED_FILE_LINES
+ * and append a header-only stub for each, so they still list and can be staged
+ * as a whole. Their paths are added to `oversized`.
+ */
+async function diffCapped(args: string[], cwd: string, oversized: Set<string>): Promise<string> {
+  try {
+    return await execGit(args, cwd);
+  } catch (err) {
+    if (!isMaxBuffer(err)) throw err;
+  }
+  // Renames off in the fallback: numstat reports a rename as `a => b`, which
+  // couldn't be excluded by path. They show as delete + add instead.
+  const stat = await execGit([...args, '--no-renames', '--numstat', '--summary', '-z'], cwd);
+  const { big, modes } = parseNumstatZ(stat);
+  if (big.length === 0) throw new Error('diff too large to display');
+  const body = await execGit(
+    // numstat paths are repo-root relative; :(top) anchors the pathspecs there
+    // too, so this also works when the session folder is a repo subdirectory.
+    [...args, '--no-renames', '--', ':(top)', ...big.map((p) => `:(top,exclude,literal)${p}`)],
+    cwd,
+  );
+  for (const p of big) oversized.add(p);
+  const stubs = big.map((p) => {
+    const mode = modes.get(p);
+    if (mode?.kind === 'delete') return `diff --git a/${p} b/${p}\ndeleted file mode ${mode.mode}\n--- a/${p}\n+++ /dev/null\n`;
+    if (mode?.kind === 'create') return `diff --git a/${p} b/${p}\nnew file mode ${mode.mode}\n--- /dev/null\n+++ b/${p}\n`;
+    return `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n`;
+  });
+  return body + stubs.join('');
+}
+
+/**
+ * Parse `git diff --numstat --summary -z`: NUL-terminated `add\tdel\tpath`
+ * records, then newline-separated ` create|delete mode <mode> <path>` lines.
+ * Returns files over OVERSIZED_FILE_LINES and each file's create/delete mode.
+ */
+export function parseNumstatZ(out: string): { big: string[]; modes: Map<string, { kind: 'create' | 'delete'; mode: string }> } {
+  const big: string[] = [];
+  const modes = new Map<string, { kind: 'create' | 'delete'; mode: string }>();
+  for (const rec of out.split('\0')) {
+    for (const line of rec.split('\n')) {
+      const num = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line);
+      if (num) {
+        const lines = (num[1] === '-' ? 0 : Number(num[1])) + (num[2] === '-' ? 0 : Number(num[2]));
+        if (lines > OVERSIZED_FILE_LINES) big.push(num[3]);
+        continue;
+      }
+      const sum = /^ (create|delete) mode (\d+) (.+)$/.exec(line);
+      if (sum) modes.set(sum[3], { kind: sum[1] as 'create' | 'delete', mode: sum[2] });
+    }
+  }
+  return { big, modes };
 }
 
 // Like execGit but tolerant of the exit-1 that `git diff --no-index` returns when
@@ -519,9 +583,9 @@ export class GitService {
     }
   }
 
-  private async getBranchDiff(folderPath: string): Promise<string> {
+  private async getBranchDiff(folderPath: string, oversized: Set<string>): Promise<string> {
     try {
-      return await execGit(['diff', 'HEAD'], folderPath);
+      return await diffCapped(['diff', 'HEAD'], folderPath, oversized);
     } catch {
       return '';
     }
@@ -563,14 +627,15 @@ export class GitService {
     }
 
     try {
+      const oversized = new Set<string>();
       const [unstaged, staged, branch, untracked] = await Promise.all([
-        execGit(['diff'], folderPath),
-        execGit(['diff', '--cached'], folderPath),
-        this.getBranchDiff(folderPath),
+        diffCapped(['diff'], folderPath, oversized),
+        diffCapped(['diff', '--cached'], folderPath, oversized),
+        this.getBranchDiff(folderPath, oversized),
         this.getUntrackedFiles(folderPath),
       ]);
       const untrackedDiff = await this.getUntrackedDiff(folderPath, untracked);
-      return { unstaged, staged, branch, untracked, untrackedDiff };
+      return { unstaged, staged, branch, untracked, untrackedDiff, ...(oversized.size ? { oversized: [...oversized].sort() } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get diff';
       return { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '', error: message };
@@ -771,6 +836,24 @@ export class GitService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Branch, ahead/behind its upstream, and changed-file count for a plain Shell
+   * session's cwd — one `git status` call. null when the cwd isn't in a repo.
+   */
+  async shellContext(cwd: string): Promise<ShellGitContext | null> {
+    let out: string;
+    let root: string;
+    try {
+      [out, root] = await Promise.all([
+        execGit(['--no-optional-locks', 'status', '--porcelain=v2', '--branch'], cwd),
+        execGit(['rev-parse', '--show-toplevel'], cwd),
+      ]);
+    } catch {
+      return null;
+    }
+    return parseShellContext(out, root.trim());
   }
 
   async getBranches(folderPath: string): Promise<GitBranchesResponse> {
@@ -1048,4 +1131,32 @@ export class GitService {
       return { success: false, error: (err as Error).message };
     }
   }
+}
+
+/** Parse `git status --porcelain=v2 --branch` into the Shell header's git context. */
+export function parseShellContext(out: string, root: string): ShellGitContext {
+  let branch: string | null = null;
+  let oid: string | null = null;
+  let ahead: number | null = null;
+  let behind: number | null = null;
+  let changes = 0;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('# branch.head ')) {
+      const head = line.slice('# branch.head '.length).trim();
+      branch = head === '(detached)' ? null : head;
+    } else if (line.startsWith('# branch.oid ')) {
+      const o = line.slice('# branch.oid '.length).trim();
+      oid = o === '(initial)' ? null : o.slice(0, 7);
+    } else if (line.startsWith('# branch.ab ')) {
+      const m = /\+(\d+) -(\d+)/.exec(line);
+      if (m) {
+        ahead = Number(m[1]);
+        behind = Number(m[2]);
+      }
+    } else if (line.length > 0 && !line.startsWith('#')) {
+      changes++;
+    }
+  }
+  // Detached HEAD: show the short sha in place of a branch name.
+  return { root, branch: branch ?? oid, detached: branch === null, ahead, behind, changes };
 }

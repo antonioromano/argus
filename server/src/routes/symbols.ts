@@ -8,6 +8,7 @@ import { getRipgrepPath } from '../utils/ripgrep.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { EXCLUDED_SEARCH_DIRS } from '../utils/searchExclusions.js';
 import { definitionPatterns, referencePattern, isValidSymbol, type DefinitionPattern } from '../utils/symbolPatterns.js';
+import { workRootOf } from '../utils/workRoot.js';
 
 const DEFINITION_CAP = 50;
 const REFERENCE_CAP = 200;
@@ -140,7 +141,7 @@ export function createSymbolRoutes(sessionManager: SessionManager): Router {
       res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
-    const root = owner.session.folderPath;
+    const root = workRootOf(owner.session);
     const rg = getRipgrepPath();
 
     const patterns = definitionPatterns(rawPath, symbol);
@@ -213,7 +214,7 @@ export function createSymbolRoutes(sessionManager: SessionManager): Router {
       res.status(403).json({ error: 'path is outside any session working directory' });
       return;
     }
-    const root = owner.session.folderPath;
+    const root = workRootOf(owner.session);
     const rg = getRipgrepPath();
 
     const out = rg
@@ -260,7 +261,7 @@ export function createSymbolRoutes(sessionManager: SessionManager): Router {
       return;
     }
 
-    const resolved = await resolveImportSpecifier(owner.resolved, specifier, owner.session.folderPath);
+    const resolved = await resolveImportSpecifier(owner.resolved, specifier, workRootOf(owner.session));
     res.json({ path: resolved } satisfies ResolveImportResponse);
   });
 
