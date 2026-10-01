@@ -907,7 +907,11 @@ export class SessionManager {
     // and the 60s "waiting for your input" Notification while a background Task
     // subagent is still working (its inner tool calls emit no hooks), so a fresh
     // native idle/waiting must not pin the status while the terminal streams.
-    if (detected !== 'running' && this.nativeIsFresh(session)) {
+    // Exception: the native idle was deferred (screen still painting, see
+    // applyNativeSignal) so the session is still 'running', and now the screen
+    // agrees it is idle. Dropping that stranded the session on 'running' for good.
+    const deferredNativeIdle = detected === 'idle' && session.nativeState === 'idle' && session.status === 'running';
+    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
       if (coverage.has(detected as AgentSignalState)) return;
     }
@@ -973,17 +977,22 @@ export class SessionManager {
 
   /**
    * Promote a session to 'done' if it is genuinely finished: still 'running'
-   * (nothing changed it since the grace was armed) AND the screen has stopped
-   * painting. Recent output means work is still happening — e.g. a background
-   * Task subagent whose inner tool calls fire no hooks — so promotion is
-   * skipped; the eventual SubagentStop → re-invoke → Stop cycle lands the real
-   * 'done' later.
+   * (nothing changed it since the grace was armed), the screen has stopped
+   * painting, and no working footer is on it. Recent output or a footer means
+   * work is still happening — e.g. a background Task subagent whose inner tool
+   * calls fire no hooks — so check again after another grace rather than give
+   * up: a single miss used to strand the session on 'running' for good (the
+   * native idle was already spent, and nothing else would ever settle it).
+   * The chain ends as soon as anything else moves the status off 'running'.
    */
   private tryPromoteDone(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
     if (session.status !== 'running') return; // discard: status changed before the grace fired
-    if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) return;
+    if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS || session.stateDetector.getStatus() === 'running') {
+      this.armDoneGrace(session);
+      return;
+    }
     session.status = 'done';
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();

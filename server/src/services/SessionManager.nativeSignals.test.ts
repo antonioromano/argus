@@ -39,7 +39,7 @@ function inject(sm: SessionManager, over: Record<string, unknown> = {}): any {
     status: 'running',
     createdAt: new Date().toISOString(),
     pty: {},
-    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => Infinity },
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => Infinity },
     outputBuffer: '',
     persistent: false,
     hasUserInputSinceIdle: true,
@@ -129,7 +129,7 @@ test('native idle while output still streams arms the grace timer instead of imm
     status: 'running',
     hasUserInputSinceIdle: true,
     suppressDonePromotion: false,
-    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => 100 },
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => 100 },
   });
   // Claude fires Stop while a background Task subagent keeps painting the screen.
   sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
@@ -144,12 +144,14 @@ test('done-grace fire skips promotion while output still streams', () => {
     agentType: 'claude',
     status: 'running',
     hasUserInputSinceIdle: true,
-    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => 100 },
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => 100 },
   });
   emitted.length = 0;
   (sm as any).tryPromoteDone('s');
   assert.equal(s.status, 'running', 'promotion skipped — background task still working');
   assert.equal(emitted.length, 0, 'no status emitted');
+  assert.notEqual(s.doneTimer, undefined, 're-checks later instead of giving up');
+  clearTimeout(s.doneTimer);
 });
 
 test('done-grace fire promotes once output has gone quiet', () => {
@@ -159,7 +161,7 @@ test('done-grace fire promotes once output has gone quiet', () => {
     agentType: 'claude',
     status: 'running',
     hasUserInputSinceIdle: true,
-    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, msSinceLastFeed: () => quietMs },
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => quietMs },
   });
   sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
   assert.equal(s.status, 'running');
@@ -238,4 +240,55 @@ test('applyNativeSignal ignores unknown and exited sessions', () => {
   const s = inject(sm, { status: 'exited' });
   sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
   assert.equal(s.status, 'exited', 'exited sessions are never revived by a native signal');
+});
+
+// Regression: "ciao, come va?" → Claude answers → Stop hook fires while the last
+// frame is still painting → the session stayed RUNNING forever.
+test('a native idle deferred behind a painting screen still lands as done once the screen settles', () => {
+  const { sm } = mgr();
+  let quietMs = 100;
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => quietMs },
+  });
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL }); // deferred: screen painting
+  assert.equal(s.status, 'running');
+  (sm as any).tryPromoteDone('s'); // first grace: still painting
+  assert.equal(s.status, 'running');
+  assert.notEqual(s.doneTimer, undefined, 'still waiting, not given up');
+  clearTimeout(s.doneTimer); s.doneTimer = undefined;
+  quietMs = 5_000;
+  (sm as any).tryPromoteDone('s'); // next grace: quiet now
+  assert.equal(s.status, 'done');
+});
+
+test('while native idle is fresh, a heuristic idle that agrees with it is not dropped', () => {
+  const { sm } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'idle', msSinceLastFeed: () => 100 },
+  });
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL }); // deferred
+  clearTimeout(s.doneTimer); s.doneTimer = undefined;
+  detect(sm, 'idle'); // the screen settles — must reach the done path, not be suppressed
+  assert.notEqual(s.doneTimer, undefined, 'done promotion armed from the agreeing heuristic idle');
+  clearTimeout(s.doneTimer);
+});
+
+test('a quiet screen with the working footer still on it keeps waiting (background subagent)', () => {
+  const { sm } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: true,
+    stateDetector: { getLastPromptText: () => 'SCRAPED', resize: () => {}, getStatus: () => 'running', msSinceLastFeed: () => 5_000 },
+  });
+  (sm as any).tryPromoteDone('s');
+  assert.equal(s.status, 'running', 'footer says work is ongoing');
+  assert.notEqual(s.doneTimer, undefined);
+  clearTimeout(s.doneTimer);
 });
