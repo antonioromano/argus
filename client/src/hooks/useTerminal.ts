@@ -5,6 +5,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, SessionReplay } from '@argus/shared';
 import { comboMatches } from '../keyboard/combo.js';
+import { macLineEditSequence } from '../keyboard/terminalKeys.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
 import { terminalSelectionToClipboard } from './terminalCopy.js';
@@ -504,6 +505,13 @@ export function useTerminal(
           terminal.write('\x1b[3J');
           clearScrollback(socket, sessionId);
         }
+        return false;
+      }
+
+      // ⌘← / ⌘→ / ⌘⌫: line start / end / kill-to-start, like Terminal and iTerm.
+      const lineEdit = macLineEditSequence(event);
+      if (lineEdit) {
+        if (event.type === 'keydown') socket.emit('session:input', { sessionId, data: lineEdit });
         return false;
       }
 

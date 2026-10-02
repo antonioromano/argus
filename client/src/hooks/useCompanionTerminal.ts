@@ -11,6 +11,7 @@ import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
 import '@xterm/xterm/css/xterm.css';
+import { macLineEditSequence } from '../keyboard/terminalKeys.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -179,6 +180,11 @@ export function useCompanionTerminal(
     socket.on('ct:exit', handleExit);
 
     terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      const lineEdit = macLineEditSequence(event); // ⌘← / ⌘→ / ⌘⌫, as in useTerminal
+      if (lineEdit) {
+        if (event.type === 'keydown') socket.emit('ct:input', { sessionId, data: lineEdit });
+        return false;
+      }
       if (isPrimaryModifier(event) && (event.key === 'l' || event.key === 'L')) {
         if (event.type === 'keydown') terminal.clear();
         return false;
