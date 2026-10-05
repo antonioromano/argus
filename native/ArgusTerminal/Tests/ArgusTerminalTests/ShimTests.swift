@@ -864,6 +864,87 @@ final class ShimTests: XCTestCase {
     XCTAssertEqual(reports, [true, false])
   }
 
+  /// ESC[3J (a reseed frame, a restart wipe, clear-scrollback) moves yDisp
+  /// without SwiftTerm's scrolled callback. A reader scrolled up when it lands
+  /// is at the bottom afterwards; the host must hear that, or it withholds
+  /// refresh frames for good, and SwiftTerm's sticky userScrolling must clear,
+  /// or new lines stop moving the viewport.
+  func testClearingScrollbackWhileScrolledUpReturnsTheReaderToTheBottom() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    var reports: [Bool] = []
+    c.onScrolledUp = { reports.append($0) }
+    c.debugScrollToTop()
+    c.feed(data: Data("\u{1b}[3J".utf8) as NSData)
+    XCTAssertEqual(reports, [true, false])
+    c.feed(data: Data(String(repeating: "more\r\n", count: 100).utf8) as NSData)
+    XCTAssertFalse(c.debugIsScrolledUp(), "new output must follow the bottom again")
+    XCTAssertEqual(reports, [true, false])
+  }
+
+  /// Live output while a reader is up must not report a return to the bottom.
+  func testOutputWhileScrolledUpKeepsTheReaderUp() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    var reports: [Bool] = []
+    c.onScrolledUp = { reports.append($0) }
+    c.debugScrollToTop()
+    c.feed(data: Data(String(repeating: "more\r\n", count: 20).utf8) as NSData)
+    XCTAssertTrue(c.debugIsScrolledUp())
+    XCTAssertEqual(reports, [true])
+  }
+
+  /// A wheel event is re-checked after SwiftTerm handles it, so a stale
+  /// "scrolled up" belief is corrected even when the notch moves no row.
+  func testAWheelEventResyncsAStaleScrolledUpState() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data(String(repeating: "line\r\n", count: 200).utf8) as NSData)
+    c.debugScrollToTop()
+    XCTAssertTrue(c.debugLastScrolledUp())
+    c.debugScrollToBottom()
+    XCTAssertFalse(c.debugLastScrolledUp())
+    guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: -3, wheel2: 0, wheel3: 0),
+          let down = NSEvent(cgEvent: cg) else {
+      XCTFail("could not synthesize a scroll event")
+      return
+    }
+    c.debugSendEvent(down)
+    XCTAssertFalse(c.debugLastScrolledUp())
+    XCTAssertFalse(c.debugIsScrolledUp())
+  }
+
+  /// SwiftTerm snaps the cell width to the backing scale it sees when the font
+  /// is set — at init that is NSScreen.main, not the screen the overlay ends up
+  /// on. A scale change must recompute it and tell the host to re-seed.
+  func testCellMetricsAreRecomputedWhenTheBackingScaleChanges() {
+    let (c, parent) = attachedController()
+    _ = parent
+    var resets = 0
+    c.onMetricsReset = { resets += 1 }
+    let real = c.debugMetricsScale()
+    c.debugForceMetricsScale(real + 1)   // as if snapped on another display
+    c.debugRefreshCellMetrics()
+    XCTAssertEqual(resets, 1)
+    XCTAssertEqual(c.debugMetricsScale(), real)
+    c.debugRefreshCellMetrics()
+    XCTAssertEqual(resets, 1, "an unchanged scale is a no-op")
+  }
+
+  func testAFontChangeRecordsTheScaleItWasSnappedAt() {
+    let (c, parent) = attachedController()
+    _ = parent
+    let real = c.debugMetricsScale()
+    c.debugForceMetricsScale(real + 1)
+    c.setFontSize(c.debugFontPointSize() + 1)
+    XCTAssertEqual(c.debugMetricsScale(), real)
+  }
+
   /// SwiftTerm's find bar puts an `NSSearchField` inside this same window, so
   /// while the user is typing a search term, Option+⌫/←→ (word editing in the
   /// field) must reach the field, not be translated to bytes for the pty.

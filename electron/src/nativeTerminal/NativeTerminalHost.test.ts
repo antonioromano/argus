@@ -15,6 +15,7 @@ function fakeAddon() {
   let bellCb: ((id: number) => void) | undefined;
   let copyCb: ((id: number, text: string) => void) | undefined;
   let scrolledCb: ((id: number, up: boolean) => void) | undefined;
+  let metricsCb: ((id: number) => void) | undefined;
   // Set a flag to true to make the *next* call to that method throw once,
   // then auto-reset — lets a test inject a single fault mid-sequence.
   // What gridSize() reports — the grid the last setFrame produced.
@@ -82,6 +83,7 @@ function fakeAddon() {
     onBell: (cb) => { bellCb = cb; },
     onCopy: (cb) => { copyCb = cb; },
     onScrolledUp: (cb) => { scrolledCb = cb; },
+    onMetricsReset: (cb) => { metricsCb = cb; },
   };
   return { addon, calls, createdWith, failNext, setGrid: (g: typeof grid) => { grid = g; },
            setGridThrows: (t: boolean) => { gridThrows = t; },
@@ -93,7 +95,8 @@ function fakeAddon() {
            fireDrop: (i: number, p: string[]) => dropCb!(i, p),
            fireBell: (i: number) => bellCb!(i),
            fireCopy: (i: number, t: string) => copyCb!(i, t),
-           fireScrolledUp: (i: number, up: boolean) => scrolledCb!(i, up) };
+           fireScrolledUp: (i: number, up: boolean) => scrolledCb!(i, up),
+           fireMetricsReset: (i: number) => metricsCb!(i) };
 }
 
 function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<HostDeps> = {}) {
@@ -1407,6 +1410,70 @@ test('attach ignores a non-finite font size from the renderer', () => {
 });
 
 // ── Realign after a resize settles, and after output settles (B4) ──────────
+
+test('a re-attach re-reports key focus the overlay still holds (renderer reload)', () => {
+  // Cmd+R reloads the renderer; the overlay stays key, so AppKit sends no new
+  // becomeKey and the fresh renderer would dim the focused tile.
+  const { addon, fireFocus } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  fireFocus(1, true);
+  focused.length = 0;
+  host.attach('s1', HANDLE, RECT);
+  assert.deepEqual(focused, [['s1', true]]);
+});
+
+test('a re-attach of an overlay without key focus reports nothing', () => {
+  const { addon } = fakeAddon();
+  const { host, focused } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  host.attach('s1', HANDLE, RECT);
+  assert.deepEqual(focused, []);
+});
+
+test('a metrics reset on a shown, seeded overlay re-seeds it', () => {
+  // The overlay recomputed its cell width for a new display scale; that
+  // soft-resets SwiftTerm exactly like a font change.
+  const { addon, calls, fireMetricsReset } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  calls.length = 0;
+  fireMetricsReset(1);
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+});
+
+test('a metrics reset on an unseeded overlay feeds nothing — the first seed covers it', () => {
+  const { addon, calls, fireMetricsReset } = fakeAddon();
+  const { host } = harness(addon);
+  host.attach('s1', HANDLE, { x: 0, y: 0, width: 0, height: 0 });
+  calls.length = 0;
+  fireMetricsReset(1);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+});
+
+test('a metrics reset on an unknown overlay id is ignored', () => {
+  const { addon, calls, fireMetricsReset } = fakeAddon();
+  harness(addon);
+  fireMetricsReset(99);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+});
+
+test('a settle realign is deferred while the reader is scrolled up, then re-seeded on return', (t) => {
+  // A screen frame repaints the view under a reader looking at history; hold
+  // it like a refresh frame and rebuild once they are back at the bottom.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { addon, calls, fireScrolledUp } = fakeAddon();
+  const { host, emitStatus } = harness(addon);
+  host.attach('s1', HANDLE, RECT);
+  emitStatus('s1', 'running');
+  fireScrolledUp(1, true);
+  calls.length = 0;
+  emitStatus('s1', 'waiting');
+  t.mock.timers.tick(1000);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+  fireScrolledUp(1, false);
+  assert.equal(calls.filter((c) => c === 'feed:1:REPLAY').length, 1, calls.join(','));
+});
 
 test('a forwarded native resize is followed by one screen-only realign', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });

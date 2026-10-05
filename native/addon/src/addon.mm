@@ -28,6 +28,7 @@ Napi::ThreadSafeFunction g_dropTsfn;
 Napi::ThreadSafeFunction g_bellTsfn;
 Napi::ThreadSafeFunction g_copyTsfn;
 Napi::ThreadSafeFunction g_scrolledTsfn;
+Napi::ThreadSafeFunction g_metricsTsfn;
 bool g_hasInputTsfn = false;
 bool g_hasResizeTsfn = false;
 bool g_hasFocusTsfn = false;
@@ -36,6 +37,7 @@ bool g_hasDropTsfn = false;
 bool g_hasBellTsfn = false;
 bool g_hasCopyTsfn = false;
 bool g_hasScrolledTsfn = false;
+bool g_hasMetricsTsfn = false;
 
 OverlayController* Lookup(const Napi::CallbackInfo& info, uint32_t* outId) {
   if (info.Length() < 1 || !info[0].IsNumber()) return nil;
@@ -157,6 +159,13 @@ Napi::Value Create(const Napi::CallbackInfo& info) {
     bool isUp = up ? true : false;
     g_scrolledTsfn.BlockingCall([id, isUp](Napi::Env env, Napi::Function cb) {
       cb.Call({Napi::Number::New(env, id), Napi::Boolean::New(env, isUp)});
+    });
+  }];
+
+  [c setOnMetricsReset:^{
+    if (!g_hasMetricsTsfn) return;
+    g_metricsTsfn.BlockingCall([id](Napi::Env env, Napi::Function cb) {
+      cb.Call({Napi::Number::New(env, id)});
     });
   }];
 
@@ -379,6 +388,7 @@ Napi::Value Destroy(const Napi::CallbackInfo& info) {
     [c setOnBell:nil];
     [c setOnCopy:nil];
     [c setOnScrolledUp:nil];
+    [c setOnMetricsReset:nil];
     [c destroy];
     g_overlays.erase(id);
   }
@@ -419,6 +429,11 @@ Napi::Value OnScrolledUp(const Napi::CallbackInfo& info) {
   return info.Env().Undefined();
 }
 
+Napi::Value OnMetricsReset(const Napi::CallbackInfo& info) {
+  InstallTsfn(info, "argusMetricsReset", &g_metricsTsfn, &g_hasMetricsTsfn);
+  return info.Env().Undefined();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("create", Napi::Function::New(env, Create));
   exports.Set("setFrame", Napi::Function::New(env, SetFrame));
@@ -443,6 +458,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("onCopy", Napi::Function::New(env, OnCopy));
   exports.Set("onScrolledUp", Napi::Function::New(env, OnScrolledUp));
   exports.Set("onBell", Napi::Function::New(env, OnBell));
+  exports.Set("onMetricsReset", Napi::Function::New(env, OnMetricsReset));
   return exports;
 }
 

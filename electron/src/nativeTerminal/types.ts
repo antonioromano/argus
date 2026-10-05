@@ -44,6 +44,9 @@ export interface NativeTerminalAddon {
   onBell(cb: (id: number) => void): void;
   onCopy(cb: (id: number, text: string) => void): void;
   onScrolledUp(cb: (id: number, scrolledUp: boolean) => void): void;
+  /** The overlay recomputed its cell metrics (display scale changed), which
+   *  soft-resets the terminal; the host re-seeds it. */
+  onMetricsReset(cb: (id: number) => void): void;
 }
 
 export interface HostDeps {

@@ -234,6 +234,19 @@ export class NativeTerminalHost {
       }
     });
 
+    // The overlay recomputed its cell metrics for a new display scale, which
+    // soft-resets SwiftTerm like a font change. Only a seeded overlay needs
+    // rebuilding: an unseeded one gets its first seed later, at the new size.
+    this.addon.onMetricsReset((id) => {
+      try {
+        const sessionId = this.byOverlay.get(id);
+        if (!sessionId || !this.seeded.has(sessionId)) return;
+        this.reseedAfterFontChange(sessionId, id);
+      } catch (err) {
+        console.error('[native-term] metrics-reset re-seed failed for overlay', id, err);
+      }
+    });
+
     this.addon.onDropPaths((id, paths) => {
       try {
         const sessionId = this.byOverlay.get(id);
@@ -291,6 +304,12 @@ export class NativeTerminalHost {
     if (id === undefined || !this.addon) return;
     if (this.resizeSuspended.has(sessionId)) return;
     if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return;
+    // A screen frame repaints the view under a reader looking at history.
+    // Owe a refresh instead; returning to the bottom re-seeds (onScrolledUp).
+    if (this.scrolledUp.has(sessionId)) {
+      this.refreshOwed.add(sessionId);
+      return;
+    }
     try {
       this.deps.flushOutput(sessionId);
       const snap = this.deps.getReplaySnapshot(sessionId, 'screen');
@@ -414,6 +433,17 @@ export class NativeTerminalHost {
     // transition and so set no frame — do it here.
     if (usable && wasShown && this.shown.has(sessionId)) {
       this.pushFrame(sessionId, id, rect);
+    }
+    // A renderer reload (Cmd+R) re-attaches every tile while the overlay keeps
+    // key status, so AppKit sends no new becomeKey and the fresh renderer
+    // believed no tile was focused — it dimmed the one being typed into until
+    // a click out and back in. Re-report the focus the overlay still holds.
+    if (!isNew && this.focused.has(sessionId)) {
+      try {
+        this.deps.notifyFocus(sessionId, true);
+      } catch (err) {
+        console.error('[native-term] notifyFocus failed for', sessionId, err);
+      }
     }
     return true;
   }

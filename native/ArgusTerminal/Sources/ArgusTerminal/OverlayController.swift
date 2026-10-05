@@ -51,7 +51,12 @@ final class KeyableWindow: NSWindow {
         return
       }
     }
-    if event.type == .scrollWheel { onScrollWheel?(event) }
+    if event.type == .scrollWheel {
+      onScrollWheel?(event)
+      super.sendEvent(event)
+      onScrollWheelHandled?()
+      return
+    }
     if event.type == .leftMouseDown {
       let f = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
       optionDownAt = (f == .option && event.clickCount == 1) ? event.timestamp : nil
@@ -136,6 +141,10 @@ final class KeyableWindow: NSWindow {
   /// Called for every scroll event before SwiftTerm handles it, so the
   /// controller can set the sensitivity for this notch's modifiers.
   var onScrollWheel: ((NSEvent) -> Void)?
+
+  /// Called after SwiftTerm has handled a scroll event, so the controller can
+  /// re-check whether the reader is at the bottom (see syncScrolledUp).
+  var onScrollWheelHandled: (() -> Void)?
 
   /// Option+click to move the cursor (xterm's altClickMovesCursor): a mouse-up
   /// within 500 ms of an Option mouse-down, with no selection made, asks the
@@ -242,6 +251,21 @@ final class PassthroughView: NSView {
 final class DropAwareTerminalView: TerminalView {
   var onDropPaths: (([String]) -> Void)?
 
+  /// Fired when the view joins a window or its window changes backing scale
+  /// (dragged to a display with another pixel density). See
+  /// OverlayController.refreshCellMetricsIfScaleChanged.
+  var onBackingScaleMayHaveChanged: (() -> Void)?
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    onBackingScaleMayHaveChanged?()
+  }
+
+  override func viewDidChangeBackingProperties() {
+    super.viewDidChangeBackingProperties()
+    onBackingScaleMayHaveChanged?()
+  }
+
   /// Edit ▸ Copy / ⌘C. Hands the selection to the host rather than writing raw
   /// rows: the agent wraps and gutters its own output, and the text a user
   /// expects is rebuilt by the renderer's terminalSelectionToClipboard — the
@@ -317,6 +341,18 @@ final class DropAwareTerminalView: TerminalView {
   @objc public var onScrolledUp: ((Bool) -> Void)?
   private var lastScrolledUp = false
 
+  /// The cell metrics were recomputed (backing-scale change), which resizes
+  /// and soft-resets the terminal; the host re-seeds so modes and screen are
+  /// restored. See refreshCellMetricsIfScaleChanged.
+  @objc public var onMetricsReset: (() -> Void)?
+
+  /// The backing scale SwiftTerm last snapped its cell width to. It snaps in
+  /// computeFontDimensions using `window?.backingScaleFactor ??
+  /// NSScreen.main.backingScaleFactor` — and the view is created in init, with
+  /// no window yet, so that is the MAIN screen's scale, and SwiftTerm never
+  /// recomputes it on its own (no viewDidChangeBackingProperties override).
+  private var metricsScale: CGFloat = OverlayController.currentScale(of: nil)
+
   private let terminalView: DropAwareTerminalView
   private var window: NSWindow?
   /// The parent to (re-)attach to. Tracked separately from `window.parent`
@@ -372,6 +408,7 @@ final class DropAwareTerminalView: TerminalView {
       self?.onDropPaths?(paths as NSArray)
     }
     terminalView.onCopyText = { [weak self] text in self?.onCopy?(text as NSString) }
+    terminalView.onBackingScaleMayHaveChanged = { [weak self] in self?.refreshCellMetricsIfScaleChanged() }
     hideScroller()
     // SwiftTerm defaults to `.hoverWithModifier`: a plain URL is only
     // highlighted while Command is held, and only Command-click opens it.
@@ -403,6 +440,34 @@ final class DropAwareTerminalView: TerminalView {
   /// modifier (Option) is held — `amount * fastScrollSensitivity *
   /// scrollSensitivity` — so the Option-held rate is 10 * 3 = 30, not 10.
   static func scrollSensitivity(optionDown: Bool) -> CGFloat { optionDown ? 30 : 3 }
+
+  /// The scale SwiftTerm's backingScaleFactor() would report for a view in
+  /// `window` — the same fallback chain (MacTerminalView.swift).
+  static func currentScale(of window: NSWindow?) -> CGFloat {
+    window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+  }
+
+  /// Table borders drifted right of the text, more with every column, on a
+  /// display whose scale differed from the one the cell width was snapped at.
+  /// Text is placed at `col × cellWidth`, but the custom box-drawing glyphs
+  /// (customBlockGlyphs, on by default) at `col × round(cellWidth × scale)`
+  /// (AppleTerminalView.swift drawBoxDrawingItems). A width snapped at 2x
+  /// (e.g. 7.5pt) drawn at 1x puts each border 0.5pt further right per
+  /// column. Re-assigning the font makes SwiftTerm recompute the width for
+  /// the current scale.
+  private func refreshCellMetricsIfScaleChanged() {
+    guard let win = terminalView.window else { return }
+    let scale = OverlayController.currentScale(of: win)
+    guard scale != metricsScale else { return }
+    otrace("backing scale \(metricsScale) -> \(scale): recomputing cell metrics")
+    metricsScale = scale
+    terminalView.font = terminalView.font
+    onMetricsReset?()
+  }
+
+  public func debugMetricsScale() -> CGFloat { metricsScale }
+  public func debugForceMetricsScale(_ scale: CGFloat) { metricsScale = scale }
+  public func debugRefreshCellMetrics() { refreshCellMetricsIfScaleChanged() }
 
   /// Called for every scroll event before SwiftTerm handles it.
   private func prepareScroll(optionDown: Bool) {
@@ -463,6 +528,7 @@ final class DropAwareTerminalView: TerminalView {
     w.onScrollWheel = { [weak self] event in
       self?.prepareScroll(optionDown: event.modifierFlags.contains(.option))
     }
+    w.onScrollWheelHandled = { [weak self] in self?.syncScrolledUp() }
     // xterm's scrollOnUserInput: return a scrolled-up reader to the bottom on
     // every user keystroke, unconditionally — see sendEvent's doc comment for
     // why SwiftTerm's own ensureCaretIsVisible (inside send(data:), triggered
@@ -611,6 +677,7 @@ final class DropAwareTerminalView: TerminalView {
   @objc public func feed(data: NSData) {
     let bytes = [UInt8](Data(referencing: data))
     terminalView.feed(byteArray: bytes[...])
+    syncScrolledUp()
   }
 
   /// The grid SwiftTerm has computed for the view's current size. Updated
@@ -644,6 +711,7 @@ final class DropAwareTerminalView: TerminalView {
     let clamped = min(max(size, 6), 72)
     guard terminalView.font.pointSize != clamped else { return }
     terminalView.font = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+    metricsScale = OverlayController.currentScale(of: terminalView.window)
   }
 
   /// `x`/`y`/`width`/`height` are VIEWPORT coordinates of the tile's
@@ -1198,11 +1266,34 @@ final class DropAwareTerminalView: TerminalView {
   /// hold back refresh frames meanwhile (xterm's shouldPaintReplay). Only on a
   /// transition: this fires for every scrolled line.
   public func scrolled(source: TerminalView, position: Double) {
-    let up = source.canScroll && position < 1
+    reportScrolledUp(source.canScroll && position < 1)
+  }
+
+  private func reportScrolledUp(_ up: Bool) {
     guard up != lastScrolledUp else { return }
     lastScrolledUp = up
     onScrolledUp?(up)
   }
+
+  /// Re-derives "scrolled up" from the view itself. `scrolled` above only
+  /// fires from SwiftTerm's scrollTo, and only when the row changes, so a
+  /// reader could reach the bottom with no callback at all: ESC[3J (a reseed
+  /// frame, a restart wipe, clear-scrollback) moves yDisp directly, and a
+  /// wheel notch that lands on the row it is already on fires nothing. The
+  /// host then kept believing the reader was up and withheld every refresh
+  /// frame, and SwiftTerm's own `userScrolling` stayed set, so new lines stopped
+  /// moving the viewport — scrolling down never reached the newest output.
+  /// At the bottom, scroll(toPosition: 1) also clears that sticky flag (it
+  /// resets it even when the row does not change).
+  private func syncScrolledUp() {
+    let v = terminalView
+    let up = v.canScroll && v.scrollPosition < 1
+    if !up { v.scroll(toPosition: 1) }
+    reportScrolledUp(up)
+  }
+
+  public func debugSyncScrolledUp() { syncScrolledUp() }
+  public func debugLastScrolledUp() -> Bool { lastScrolledUp }
   public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
   /// OSC 52 clipboard writes are ignored on purpose. The xterm path has no
   /// clipboard addon either, so terminal output cannot overwrite the user's
