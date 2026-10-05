@@ -28,7 +28,7 @@
 // `<arch>` is Node's arch naming (arm64 / x64) — see resolveDaemonBin.ts and
 // PtyManager's tmux-<arch> resolution for the same convention.
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -133,12 +133,18 @@ console.log('\n[build-native] done.');
  * addon failed with "'ArgusTerminal-Swift.h' file not found" even though the
  * Swift build succeeded. Find it wherever this SwiftPM put it and copy it to
  * the path binding.gyp uses; fail loudly, with what was found, if it is absent.
+ *
+ * Never trust a header already sitting at that path: CI caches `.build`, so
+ * it can be the copy an EARLIER run made. On Xcode 16 the fresh header lands
+ * elsewhere, and returning early on "expected exists" compiled the addon
+ * against a stale interface — v0.25.2's CI failed with "no visible @interface
+ * for 'OverlayController' declares the selector 'setOnMetricsReset:'". The
+ * newest generated header wins.
  */
 function ensureSwiftHeader(swiftArch) {
   const releaseDir = path.join(swiftPackagePath, '.build', `${swiftArch}-apple-macosx`, 'release');
   const expectedDir = path.join(releaseDir, 'ArgusTerminal.build', 'include');
   const expected = path.join(expectedDir, 'ArgusTerminal-Swift.h');
-  if (existsSync(expected)) return;
 
   const found = [];
   const walk = (dir, depth) => {
@@ -161,7 +167,9 @@ function ensureSwiftHeader(swiftArch) {
       `ArgusTerminal.build contains: ${listing}`,
     );
   }
-  console.log(`[build-native] Swift header found at ${found[0]}; copying to ${expected}`);
+  const newest = found.reduce((a, b) => (statSync(b).mtimeMs > statSync(a).mtimeMs ? b : a));
+  if (newest === expected) return;   // Xcode 26: generated in place
+  console.log(`[build-native] Swift header found at ${newest}; copying to ${expected}`);
   mkdirSync(expectedDir, { recursive: true });
-  copyFileSync(found[0], expected);
+  copyFileSync(newest, expected);
 }
