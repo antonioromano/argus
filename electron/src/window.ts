@@ -2,6 +2,7 @@ import { BrowserWindow, app, shell, screen } from 'electron';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, writeFileSync } from 'fs';
+import { resolveMenuTarget } from './menuTarget.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAIN_WINDOW_ID = 'main'; // mirror of @argus/shared MAIN_WINDOW_ID (electron avoids the runtime dep)
@@ -303,8 +304,17 @@ export function getMainWindow(): BrowserWindow | null {
   return getAppWindow(MAIN_WINDOW_ID);
 }
 
+// Windows hosting a native terminal overlay that is currently key. Set by
+// main.ts, which owns the session→window map; see menuTarget.ts for why
+// getFocusedWindow() alone is not enough.
+let keyOverlayOwners: () => Iterable<BrowserWindow | null | undefined> = () => [];
+
+export function setKeyOverlayOwners(fn: () => Iterable<BrowserWindow | null | undefined>): void {
+  keyOverlayOwners = fn;
+}
+
 export function getFocusedWindowId(): string {
-  const focused = BrowserWindow.getFocusedWindow();
+  const focused = resolveMenuTarget(BrowserWindow.getFocusedWindow(), keyOverlayOwners());
   if (focused) {
     for (const [id, win] of windows) if (win === focused) return id;
   }

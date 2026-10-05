@@ -18,7 +18,7 @@ import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
   createAppWindow, destroyAppWindow, focusAppWindow, getAppWindow, getMainWindow,
-  getFocusedWindowId, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
+  getFocusedWindowId, setKeyOverlayOwners, showWindow, saveAllWindowStates, setSecondaryCloseHandler,
   setMainCloseHandler, hideMainWindow, adoptAsMain,
   setZoomLevelForFocused, getZoomLevelForFocused,
   setAppQuitting, setStopAllOnQuit, getStopAllOnQuit, windowIdOf,
@@ -688,6 +688,11 @@ const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
 // must not keep the colliding accelerators disabled: Monaco reports no blur
 // when a child NSWindow takes key status, so that belief would stay true.
 const nativeKeySessions = new Set<string>();
+setKeyOverlayOwners(() => [...nativeKeySessions].map((id) => {
+  const winId = sessionToWindowId.get(id);
+  const win = winId === undefined ? null : BrowserWindow.fromId(winId);
+  return win && !win.isDestroyed() ? win : null;
+}));
 
 // Re-derive and apply enabled/disabled for the four Monaco-colliding menu
 // items from whichever window is resolved the same way sendMenuEvent resolves
@@ -844,8 +849,20 @@ function buildAppMenu(): Menu {
         click: () => sendMenuEvent('menu:clear-terminal'),
       },
       { type: 'separator' },
-      { role: 'reload' },
-      { role: 'forceReload' },
+      // Not the built-in roles: those reload BrowserWindow.getFocusedWindow(),
+      // which is null while a native tile (a child NSWindow) is key, so Cmd+R
+      // did nothing there. getFocusedWindowId() also resolves the overlay's
+      // owner — see menuTarget.ts.
+      {
+        label: 'Reload',
+        accelerator: 'CmdOrCtrl+R',
+        click: () => getAppWindow(getFocusedWindowId())?.webContents.reload(),
+      },
+      {
+        label: 'Force Reload',
+        accelerator: 'Shift+CmdOrCtrl+R',
+        click: () => getAppWindow(getFocusedWindowId())?.webContents.reloadIgnoringCache(),
+      },
       { type: 'separator' },
       // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
       // Custom click handlers (not built-in roles) so every change routes through
