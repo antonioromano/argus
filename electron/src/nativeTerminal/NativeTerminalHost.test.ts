@@ -118,6 +118,8 @@ function harness(addonOrNull: NativeTerminalAddon | null, overrides: Partial<Hos
     onReplay: (cb) => { emitReplay = cb; return () => { emitReplay = undefined; }; },
     onStatus: (cb) => { emitStatus = cb; return () => { emitStatus = undefined; }; },
     flushOutput: (id) => order.push(`flush:${id}`),
+    isMirrorSettled: () => true,
+    afterMirrorWrite: () => Promise.resolve(),
     setViewing: (id, v) => viewing.push([id, v]),
     writeToSession: (id, d) => wrote.push([id, d]),
     resizeSession: (id, c, r) => { resized.push([id, c, r]); order.push(`resize:${id}:${c}x${r}`); },
@@ -1584,4 +1586,89 @@ test('a realign that comes due after the overlay was hidden or detached feeds no
   calls.length = 0;
   t.mock.timers.tick(1000);
   assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+});
+
+/**
+ * A mirror whose parser is behind the bytes already emitted — what a big
+ * SIGWINCH reprint leaves for ~100ms. Snapshots read before `parse()` are the
+ * half-painted screen the parser has reached so far; after it, the real one.
+ */
+function laggingMirror() {
+  let settled = false;
+  let waiters: Array<() => void> = [];
+  return {
+    overrides: {
+      isMirrorSettled: () => settled,
+      afterMirrorWrite: () => new Promise<void>((r) => { waiters.push(r); }),
+      getReplaySnapshot: (_id: string, flavor?: 'full' | 'screen') => {
+        const kind = flavor === 'screen' ? 'SCREEN' : 'REPLAY';
+        return { data: settled ? kind : `${kind}-STALE` };
+      },
+    } satisfies Partial<HostDeps>,
+    parse: async () => {
+      settled = true;
+      const w = waiters;
+      waiters = [];
+      for (const r of w) r();
+      await new Promise((r) => setImmediate(r));
+    },
+    unsettle: () => { settled = false; },
+  };
+}
+
+test('a realign waits for the mirror to finish parsing before it snapshots the screen', async (t) => {
+  // Measured: a 2MB reprint takes the mirror ~120ms to parse, and the resize
+  // realign fires 120ms after the resize — mid-parse. The frame it read was
+  // the screen half-painted (a line cut mid-word, blank rows below), and an
+  // idle agent sends nothing afterwards to paint over it.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const mirror = laggingMirror();
+  const { addon, calls, fireResize, setGrid } = fakeAddon();
+  const { host } = harness(addon, mirror.overrides);
+  await mirror.parse();
+  host.attach('s1', HANDLE, RECT);
+  mirror.unsettle();
+  calls.length = 0;
+  setGrid({ cols: 90, rows: 30 });
+  fireResize(1, 90, 30);
+  t.mock.timers.tick(120);
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+  await mirror.parse();
+  assert.deepEqual(calls.filter((c) => c.startsWith('feed:')), ['feed:1:SCREEN']);
+});
+
+test('a first seed on a mirror still parsing feeds the settled frame, not the half-parsed one', async () => {
+  const mirror = laggingMirror();
+  const { addon, calls } = fakeAddon();
+  const { host, emitOutput } = harness(addon, mirror.overrides);
+  host.attach('s1', HANDLE, RECT);
+  // Output that lands meanwhile is already in the mirror, so the frame covers
+  // it; feeding it too would paint it twice.
+  emitOutput('s1', 'LIVE');
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+  await mirror.parse();
+  assert.deepEqual(calls.filter((c) => c.startsWith('feed:')), ['feed:1:REPLAY']);
+  emitOutput('s1', 'AFTER');
+  assert.ok(calls.includes('feed:1:AFTER'), calls.join(','));
+});
+
+test('a seed or realign waiting on the mirror feeds nothing once the overlay is detached', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const mirror = laggingMirror();
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon, mirror.overrides);
+  host.attach('s1', HANDLE, RECT);
+  host.detach('s1');
+  await mirror.parse();
+  assert.ok(!calls.some((c) => c.startsWith('feed:')), calls.join(','));
+});
+
+test('only the newest of two overlapping seeds is fed', async () => {
+  const mirror = laggingMirror();
+  const { addon, calls } = fakeAddon();
+  const { host } = harness(addon, mirror.overrides);
+  host.attach('s1', HANDLE, RECT);
+  host.setFontSize('s1', 14);   // a re-seed while the first one is still waiting
+  await mirror.parse();
+  assert.equal(calls.filter((c) => c.startsWith('feed:')).length, 1, calls.join(','));
 });

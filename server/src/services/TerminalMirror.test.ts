@@ -395,3 +395,18 @@ test('cross-version: serialize 6.0.0 → replay 5.5.0 holds grid', async (t) => 
   m.dispose();
   dst.dispose();
 });
+
+test('isSettled is false until the parser has consumed every fed byte', async () => {
+  // The parser runs asynchronously; a serialize() read before it catches up
+  // returns the screen half-painted (the native seed/realign bug).
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  assert.equal(m.isSettled(), true);
+  void m.feed('first\r\n');
+  const last = m.feed('LAST');
+  assert.equal(m.isSettled(), false);
+  assert.ok(!m.serializeScreen().includes('LAST'));
+  await last;
+  assert.equal(m.isSettled(), true);
+  assert.ok(m.serializeScreen().includes('LAST'));
+  m.dispose();
+});

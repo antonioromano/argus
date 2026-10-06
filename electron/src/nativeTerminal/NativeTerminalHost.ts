@@ -47,6 +47,10 @@ function isUsableFrame(rect: Rect): boolean {
 const REALIGN_AFTER_RESIZE_MS = 120;
 const REALIGN_AFTER_SETTLE_MS = 450;
 
+/** Waits on the mirror's parser at most this many times before snapshotting
+ *  anyway — output that never pauses must not starve a seed for good. */
+const MAX_SETTLE_PASSES = 20;
+
 /**
  * Geometry tracing, on with ARGUS_NATIVE_TERM_DEBUG=1 (the Swift shim reads the
  * same variable, and window.ts mirrors the renderer's trace lines to stdout).
@@ -116,6 +120,9 @@ export class NativeTerminalHost {
   // quiet state) can be told apart from any other status change.
   private readonly realignTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly lastStatus = new Map<string, string>();
+  // Bumped by every seed, so a seed still waiting on the mirror (see
+  // whenMirrorSettled) knows a newer one has superseded it.
+  private readonly seedGen = new Map<string, number>();
 
   constructor(deps: HostDeps) {
     this.deps = deps;
@@ -301,23 +308,66 @@ export class NativeTerminalHost {
    */
   private realign(sessionId: string): void {
     const id = this.bySession.get(sessionId);
-    if (id === undefined || !this.addon) return;
-    if (this.resizeSuspended.has(sessionId)) return;
-    if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return;
+    if (id === undefined || !this.canRealign(sessionId)) return;
+    this.whenMirrorSettled(sessionId, () => {
+      // Re-checked: waiting on the mirror can span a hide, detach or scroll.
+      if (this.bySession.get(sessionId) !== id || !this.canRealign(sessionId)) return;
+      try {
+        const snap = this.deps.getReplaySnapshot(sessionId, 'screen');
+        if (!snap || snap.alternate) return;
+        this.addon!.feed(id, Buffer.from(snap.data, 'utf8'));
+      } catch (err) {
+        console.error('[native-term] realign failed for', sessionId, err);
+      }
+    });
+  }
+
+  private canRealign(sessionId: string): boolean {
+    if (!this.addon || this.resizeSuspended.has(sessionId)) return false;
+    if (!this.seeded.has(sessionId) || !this.shown.has(sessionId)) return false;
     // A screen frame repaints the view under a reader looking at history.
     // Owe a refresh instead; returning to the bottom re-seeds (onScrolledUp).
     if (this.scrolledUp.has(sessionId)) {
       this.refreshOwed.add(sessionId);
-      return;
+      return false;
     }
+    return true;
+  }
+
+  /**
+   * Flushes pending output, then runs `snapshot` once the mirror has parsed
+   * every byte emitted so far — synchronously when it already has.
+   *
+   * A replay frame is only correct if it covers exactly what the view has
+   * been fed: the flush delivers every emitted byte, so the mirror must have
+   * parsed all of them too. Its parser trails the stream after a big burst
+   * (measured: ~120ms for a 2MB reprint — the agent's SIGWINCH repaint of a
+   * long transcript), and a frame read meanwhile is the screen half-painted:
+   * a line cut mid-word, blank rows below. An idle agent sends nothing after
+   * it, so that frame stayed on screen until the next resize.
+   *
+   * Bytes arriving while this waits are flushed on the next pass, so the
+   * frame read on the pass that finds the mirror settled covers them as well.
+   */
+  private whenMirrorSettled(sessionId: string, snapshot: () => void, pass = 0): void {
     try {
       this.deps.flushOutput(sessionId);
-      const snap = this.deps.getReplaySnapshot(sessionId, 'screen');
-      if (!snap || snap.alternate) return;
-      this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
+      if (pass >= MAX_SETTLE_PASSES || this.deps.isMirrorSettled(sessionId)) {
+        snapshot();
+        return;
+      }
     } catch (err) {
-      console.error('[native-term] realign failed for', sessionId, err);
+      console.error('[native-term] mirror settle failed for', sessionId, err);
+      snapshot();
+      return;
     }
+    this.deps.afterMirrorWrite(sessionId).then(
+      () => this.whenMirrorSettled(sessionId, snapshot, pass + 1),
+      (err: unknown) => {
+        console.error('[native-term] mirror settle failed for', sessionId, err);
+        snapshot();
+      },
+    );
   }
 
   /**
@@ -620,7 +670,9 @@ export class NativeTerminalHost {
    * Pending output is flushed before the snapshot, as the socket join handler
    * does: those bytes are already in the mirror, and the flush reaches the
    * output subscriber while this overlay is still unseeded, so it is dropped
-   * rather than painted twice.
+   * rather than painted twice. The snapshot itself waits for the mirror to
+   * parse everything flushed (whenMirrorSettled), so it can land after the
+   * overlay is shown; a first seed leaves the overlay unseeded until then.
    *
    * Best-effort throughout: once create() has succeeded the overlay is a real
    * native window, and a failure here must not unregister it — it stays
@@ -637,22 +689,28 @@ export class NativeTerminalHost {
     } catch (err) {
       console.error('[native-term] pre-seed resize failed for', sessionId, err);
     }
-    try {
-      // True for the FIRST seed: this overlay is not yet in `seeded`, so
-      // feedLive's `if (!this.seeded.has(sessionId)) return;` drops whatever
-      // this flush emits. A RE-seed (font change, return-to-bottom) finds the
-      // overlay already seeded, so the flushed bytes ARE fed here this time —
-      // but the full-frame snapshot fed right after supersedes them, so
-      // nothing is lost or double-painted either way.
-      this.deps.flushOutput(sessionId);
-      const snap = this.deps.getReplaySnapshot(sessionId);
-      if (snap) this.addon.feed(id, Buffer.from(snap.data, 'utf8'));
-    } catch (err) {
-      console.error('[native-term] replay seed failed for', sessionId, err);
-    } finally {
-      // Marked even on failure: live output on a bad seed beats a blank view.
-      this.seeded.add(sessionId);
-    }
+    const gen = (this.seedGen.get(sessionId) ?? 0) + 1;
+    this.seedGen.set(sessionId, gen);
+    // True for the FIRST seed: this overlay is not yet in `seeded`, so
+    // feedLive's `if (!this.seeded.has(sessionId)) return;` drops whatever
+    // the flush emits — including output flushed while the mirror catches
+    // up. A RE-seed (font change, return-to-bottom) finds the overlay already
+    // seeded, so the flushed bytes ARE fed — but the full-frame snapshot fed
+    // after them supersedes them, so nothing is lost or double-painted
+    // either way.
+    this.whenMirrorSettled(sessionId, () => {
+      // Detached, or a newer seed took over, while this one waited.
+      if (this.bySession.get(sessionId) !== id || this.seedGen.get(sessionId) !== gen) return;
+      try {
+        const snap = this.deps.getReplaySnapshot(sessionId);
+        if (snap) this.addon!.feed(id, Buffer.from(snap.data, 'utf8'));
+      } catch (err) {
+        console.error('[native-term] replay seed failed for', sessionId, err);
+      } finally {
+        // Marked even on failure: live output on a bad seed beats a blank view.
+        this.seeded.add(sessionId);
+      }
+    });
   }
 
   /**
@@ -915,6 +973,7 @@ export class NativeTerminalHost {
     this.suppressed.delete(sessionId);
     this.shown.delete(sessionId);
     this.seeded.delete(sessionId);
+    this.seedGen.delete(sessionId);
     this.scrolledUp.delete(sessionId);
     this.refreshOwed.delete(sessionId);
     this.resizeSuspended.delete(sessionId);

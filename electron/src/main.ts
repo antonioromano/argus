@@ -970,6 +970,8 @@ async function main() {
     onReplay: (cb: (sessionId: string, data: string) => void) => sm.onReplay(cb),
     onStatus: (cb: (sessionId: string, status: string) => void) => sm.onStatus(cb),
     flushOutput: (id: string) => sm.flushOutput(id),
+    isMirrorSettled: (id: string) => sm.isMirrorSettled(id),
+    afterMirrorWrite: (id: string) => sm.afterMirrorWrite(id),
     setViewing: (id: string, viewing: boolean) => sm.setNativeViewer(id, viewing),
     writeToSession: (id: string, d: string) => sm.writeToSession(id, d),
     resizeSession: (id: string, c: number, r: number) => sm.resizeFromNative(id, c, r),

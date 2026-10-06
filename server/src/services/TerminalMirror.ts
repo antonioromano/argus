@@ -115,6 +115,8 @@ export class TerminalMirror {
   private serializer: ISerializeAddon;
   /** Serialises `term.write()` so buffer/serialize reads see a settled parser. */
   private writeQueue: Promise<void> = Promise.resolve();
+  /** Feeds handed to the queue whose bytes the parser has not consumed yet. */
+  private pendingWrites = 0;
   private destroyed = false;
   private scrollback: number;
   /** Currently-enabled DEC private modes (by numeric id), from DECSET/DECRST. */
@@ -156,6 +158,7 @@ export class TerminalMirror {
   /** Feed raw pty bytes into the emulator. Resolves once the parser has consumed them. */
   feed(data: string): Promise<void> {
     if (this.destroyed) return Promise.resolve();
+    this.pendingWrites++;
     this.writeQueue = this.writeQueue
       .then(
         () =>
@@ -171,6 +174,9 @@ export class TerminalMirror {
         // A rejected chain would permanently skip every later .then() on the
         // queue, freezing both replay and classification for this session.
         console.error('TerminalMirror writeQueue error:', err);
+      })
+      .finally(() => {
+        this.pendingWrites--;
       });
     return this.writeQueue;
   }
@@ -178,6 +184,15 @@ export class TerminalMirror {
   /** Resolves when all queued writes have been parsed — for post-write reads. */
   afterWrite(): Promise<void> {
     return this.writeQueue;
+  }
+
+  /**
+   * True when every fed byte has been parsed, so a synchronous read
+   * (serialize, readRows) reflects all of them. The parser runs in time
+   * slices: a 2MB burst leaves it ~120ms behind the stream.
+   */
+  isSettled(): boolean {
+    return this.pendingWrites === 0;
   }
 
   resize(cols: number, rows: number): void {

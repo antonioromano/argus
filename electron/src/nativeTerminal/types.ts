@@ -72,6 +72,16 @@ export interface HostDeps {
    */
   flushOutput(id: string): void;
   /**
+   * Whether the session's mirror has parsed every byte it was handed. Its
+   * parser runs asynchronously, in time slices, so after a large burst (an
+   * agent reprinting its transcript on SIGWINCH) it can trail the bytes
+   * already emitted by ~100ms — and a snapshot taken meanwhile is the screen
+   * half-painted.
+   */
+  isMirrorSettled(id: string): boolean;
+  /** Resolves once the writes queued on the session's mirror so far are parsed. */
+  afterMirrorWrite(id: string): Promise<void>;
+  /**
    * Reports whether a native overlay is watching this session. A native view
    * never joins a socket room, so without this the server's idle-geometry
    * gate treats a natively viewed session as unwatched and shrinks its pty.

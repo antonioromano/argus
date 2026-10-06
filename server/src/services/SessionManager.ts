@@ -1347,6 +1347,16 @@ export class SessionManager {
     }
   }
 
+  /** Whether the session's mirror has parsed every byte fed to it (unknown → true). */
+  isMirrorSettled(id: string): boolean {
+    return this.sessions.get(id)?.mirror?.isSettled() ?? true;
+  }
+
+  /** Resolves once the writes queued on the session's mirror so far are parsed. */
+  async afterMirrorWrite(id: string): Promise<void> {
+    await this.sessions.get(id)?.mirror?.afterWrite();
+  }
+
   getReplaySnapshot(id: string, flavor: ReplayFlavor = 'full'): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
