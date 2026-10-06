@@ -25,7 +25,7 @@ interface CloneSheetProps {
   currentTerminalEngine?: TerminalEngine;
   currentRunMode?: RunMode;
   onClose: () => void;
-  onClone: (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
+  onClone: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -51,6 +51,7 @@ export function CloneSheet({
   const [runMode, setRunMode] = useState<RunMode>(
     currentRunMode ?? config?.defaultRunMode ?? 'persistent',
   );
+  const [name, setName] = useState('');
   const [flagStates, setFlagStates] = useState<Record<string, boolean>>({});
   const [newFlag, setNewFlag] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -86,6 +87,7 @@ export function CloneSheet({
 
   const isDirty =
     agentId !== initialAgentId ||
+    name.trim() !== '' ||
     newFlag.trim() !== '' ||
     useWorktree ||
     branchName !== initialBranch;
@@ -107,7 +109,7 @@ export function CloneSheet({
     try {
       const flags = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       const branch = (isGitRepo && useWorktree) ? branchName.trim() : undefined;
-      await onClone(folderPath, agentId, flags, branch || undefined, terminalEngine, runMode);
+      await onClone(folderPath, name.trim() || undefined, agentId, flags, branch || undefined, terminalEngine, runMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clone');
     } finally {
@@ -187,6 +189,15 @@ export function CloneSheet({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
             <Field label="Folder" hint="locked — clones inherit folder">
               <TextInput value={folderPath} mono disabled />
+            </Field>
+
+            <Field label="Shell name" hint="optional · auto from folder otherwise">
+              <TextInput
+                value={name}
+                onChange={setName}
+                placeholder="e.g. refactor-event-bus"
+                mono
+              />
             </Field>
 
             <Field label="Agent" required>

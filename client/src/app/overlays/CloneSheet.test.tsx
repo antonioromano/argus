@@ -78,11 +78,55 @@ describe('CloneSheet terminal', () => {
 
     expect(onClone).toHaveBeenCalledWith(
       '/tmp/project',
+      undefined,
       'claude',
       [],
       undefined,
       'web',
       'direct',
     );
+  });
+});
+
+function typeInto(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+  act(() => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+describe('CloneSheet shell name', () => {
+  function nameInput(): HTMLInputElement {
+    const input = container.querySelector<HTMLInputElement>('input[placeholder="e.g. refactor-event-bus"]');
+    if (!input) throw new Error('Shell name input not rendered');
+    return input;
+  }
+
+  it('submits the typed shell name, trimmed', async () => {
+    const onClone = vi.fn(async () => {});
+    await renderClone({ onClone });
+
+    typeInto(nameInput(), '  review-pass  ');
+    await act(async () => {
+      submitButton().click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onClone).toHaveBeenCalledWith('/tmp/project', 'review-pass', 'claude', [], undefined, 'web', 'persistent');
+  });
+
+  it('leaves the name to the server when the field is blank', async () => {
+    const onClone = vi.fn(async () => {});
+    await renderClone({ onClone });
+
+    await act(async () => {
+      submitButton().click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onClone).toHaveBeenCalledWith('/tmp/project', undefined, 'claude', [], undefined, 'web', 'persistent');
   });
 });

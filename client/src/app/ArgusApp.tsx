@@ -595,8 +595,8 @@ function DesktopInner() {
     if (app.view === 'focus') app.openSession(created.id);
   };
 
-  const handleClone = async (folderPath: string, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => {
-    const created = await createSession(folderPath, undefined, agentType, flags, worktreeBranch, undefined, terminalEngine, runMode);
+  const handleClone = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => {
+    const created = await createSession(folderPath, name, agentType, flags, worktreeBranch, undefined, terminalEngine, runMode);
     await claimForThisWindow(created.id);
     addToRecentFolders(folderPath);
     app.closeOverlay();
