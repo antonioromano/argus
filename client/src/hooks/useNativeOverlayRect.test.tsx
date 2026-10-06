@@ -395,4 +395,37 @@ describe('useNativeOverlayRect — reported geometry', () => {
 
     await act(async () => root.unmount());
   });
+
+  it('a tile shifted to another grid column at the same size is re-reported', async () => {
+    // Mosaic 3→4 tiles: the third tile moves from column 3 to column 2 at the
+    // same width and height. No ResizeObserver, no visibility change, no
+    // animation — the overlay stayed at the old column, over the new tile, and
+    // the moved tile's hole was left blank.
+    const originalIO = (globalThis as any).IntersectionObserver;
+    const ios: { cb: IntersectionObserverCallback; options?: IntersectionObserverInit }[] = [];
+    (globalThis as any).IntersectionObserver = class {
+      constructor(cb: IntersectionObserverCallback, options?: IntersectionObserverInit) { ios.push({ cb, options }); }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const c = document.createElement('div');
+      document.body.appendChild(c);
+      const root = createRoot(c);
+      await act(async () => { root.render(<Probe enabled />); });
+      act(() => FakeResizeObserver.instances[0].trigger());
+      api.setRect.mockClear();
+
+      const move = ios.find((o) => o.options?.rootMargin);
+      expect(move).toBeDefined();
+      act(() => move!.cb([{ intersectionRatio: 1 } as IntersectionObserverEntry], {} as IntersectionObserver));
+      currentRect = { ...currentRect, x: currentRect.x + 400 };
+      act(() => move!.cb([{ intersectionRatio: 0 } as IntersectionObserverEntry], {} as IntersectionObserver));
+
+      expect(api.setRect).toHaveBeenCalledWith('s1', { x: 410, y: 20, width: 300, height: 150 });
+      act(() => root.unmount());
+    } finally {
+      (globalThis as any).IntersectionObserver = originalIO;
+    }
+  });
 });

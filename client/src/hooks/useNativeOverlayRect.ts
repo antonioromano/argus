@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { registerOverlay, unregisterOverlay } from './nativeOverlayRegistry.js';
+import { observeMove, type MoveObserver } from './observeMove.js';
 
 interface NativeOverlayRect { x: number; y: number; width: number; height: number }
 
@@ -139,6 +140,9 @@ export function useNativeOverlayRect(
       lastRectKey.current = key;
       api.setRect(sessionId, rect);
       registerOverlay(sessionId, rect);
+      // Re-arm the move watch at the new position (it also needs a first arm
+      // once a hole that mounted at zero size gets one).
+      move?.refresh();
     };
 
     // A tile can be hidden without its size changing and without unmounting —
@@ -148,6 +152,11 @@ export function useNativeOverlayRect(
     let io: IntersectionObserver | null = null;
 
     let ro: ResizeObserver | null = null;
+    // A tile can also MOVE without resizing or changing visibility — Mosaic
+    // going from 3 to 4 tiles shifts the third one a whole column left at the
+    // same size. Nothing above fires for that, so the overlay stayed where the
+    // tile used to be (over the new tile) and the moved tile's hole was blank.
+    let move: MoveObserver | null = null;
     // Only motion on the hole itself or one of its ancestors can move it.
     // Every native tile listens at the document, and each report() forces a
     // layout read, so an unrelated button's hover transition must not cost
@@ -182,6 +191,7 @@ export function useNativeOverlayRect(
       ro?.observe(el);
       io = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(report) : null;
       io?.observe(el);
+      move = observeMove(el, report);
       window.addEventListener('resize', report);
       window.addEventListener('scroll', report, true);
       // A CSS animation or transition on ANY ancestor can move the hole
@@ -202,6 +212,7 @@ export function useNativeOverlayRect(
       cancelled = true;
       ro?.disconnect();
       io?.disconnect();
+      move?.disconnect();
       window.removeEventListener('resize', report);
       window.removeEventListener('scroll', report, true);
       document.removeEventListener('animationend', onAncestorMotionEnd, true);
