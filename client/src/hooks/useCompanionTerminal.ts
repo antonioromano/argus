@@ -5,7 +5,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
 import { installSelectableMouse } from './terminalMouse.js';
-import { terminalSelectionToClipboard } from './terminalCopy.js';
+import { terminalCopyFlavors, xtermSelectionWithBold } from './terminalRichCopy.js';
 import { createTerminalLinkProvider } from './terminalLinks.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
@@ -228,7 +228,9 @@ export function useCompanionTerminal(
     // gutter. See useTerminal / terminalCopy for the full rationale.
     const handleCopy = (e: ClipboardEvent) => {
       if (!terminal.hasSelection()) return;
-      e.clipboardData?.setData('text/plain', terminalSelectionToClipboard(terminal.getSelection()));
+      const { text, html } = terminalCopyFlavors(xtermSelectionWithBold(terminal));
+      e.clipboardData?.setData('text/plain', text);
+      e.clipboardData?.setData('text/html', html);
       e.preventDefault();
     };
     container.addEventListener('copy', handleCopy);

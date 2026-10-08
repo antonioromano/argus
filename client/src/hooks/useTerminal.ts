@@ -8,7 +8,7 @@ import { comboMatches } from '../keyboard/combo.js';
 import { macLineEditSequence } from '../keyboard/terminalKeys.js';
 import { resolveShortcuts, type ResolvedShortcuts } from '../keyboard/useShortcuts.js';
 import { installSelectableMouse } from './terminalMouse.js';
-import { terminalSelectionToClipboard } from './terminalCopy.js';
+import { terminalCopyFlavors, xtermSelectionWithBold } from './terminalRichCopy.js';
 import { createTerminalLinkProvider } from './terminalLinks.js';
 import { ResizeEmitGate } from './resizeGate.js';
 import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
@@ -348,7 +348,9 @@ export function useTerminal(
     // indent, so there is no soft wrap left for xterm to join. See terminalCopy.
     const handleCopy = (e: ClipboardEvent) => {
       if (!terminal.hasSelection()) return;
-      e.clipboardData?.setData('text/plain', terminalSelectionToClipboard(terminal.getSelection()));
+      const { text, html } = terminalCopyFlavors(xtermSelectionWithBold(terminal));
+      e.clipboardData?.setData('text/plain', text);
+      e.clipboardData?.setData('text/html', html);
       e.preventDefault();
     };
     container.addEventListener('copy', handleCopy);

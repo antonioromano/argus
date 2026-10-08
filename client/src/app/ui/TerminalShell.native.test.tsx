@@ -7,6 +7,7 @@ import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { FontSettingsContext } from '../../context/font-settings-context.js';
 import { terminalSelectionToClipboard } from '../../hooks/terminalCopy.js';
+import { terminalTextToHtml } from '../../hooks/terminalRichCopy.js';
 
 let copyListener: ((sessionId: string, text: string) => void) | undefined;
 
@@ -98,13 +99,17 @@ describe('TerminalShellNativeHole — code font size', () => {
 });
 
 describe('TerminalShellNativeHole — copy', () => {
-  it('formats a native copy exactly as an xterm tile would', async () => {
+  it('formats a native copy exactly as an xterm tile would, with its HTML rendering', async () => {
     const root = mount();
     await act(async () => { root.render(<TerminalShell session={session} socket={socket} theme="dark" useNative />); });
     // Gutter-indented rows the agent wrapped at 30 columns.
     const raw = '  The quick brown fox jumps over\n  the lazy dog.';
     copyListener?.('s1', raw);
-    expect(api.writeClipboard).toHaveBeenCalledWith(terminalSelectionToClipboard(raw));
+    const clean = terminalSelectionToClipboard(raw);
+    // The HTML flavor carries a fresh Docs wrapper id per copy; compare past it.
+    const sansId = (h: string) => h.replace(/docs-internal-guid-[^"]*/, '');
+    expect(api.writeClipboard).toHaveBeenCalledWith(clean, expect.any(String));
+    expect(sansId(api.writeClipboard.mock.calls[0][1])).toBe(sansId(terminalTextToHtml(clean)));
     expect(api.writeClipboard.mock.calls[0][0]).not.toContain('\n');
     await act(async () => root.unmount());
   });
