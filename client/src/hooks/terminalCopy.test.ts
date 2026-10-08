@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { terminalSelectionToClipboard as clean } from './terminalCopy.js';
+import { terminalSelectionToClipboard as clean, withStartColumn } from './terminalCopy.js';
 
 describe('terminalSelectionToClipboard', () => {
   it('returns empty input untouched', () => {
@@ -201,5 +201,58 @@ describe('terminalSelectionToClipboard', () => {
   it('is idempotent — copying already-clean text changes nothing', () => {
     const once = clean('  wrapped text that continues onto the row below\n  below this one');
     expect(clean(once)).toBe(once);
+  });
+
+  it('rejoins a list item wrapped onto rows hanging under its text', () => {
+    const selection = [
+      '- Definition: a paying self-serve account whose owner',
+      '  signed up with a business email domain.',
+      '  - Sign-up to paid: 3.02%',
+      '- Churn: half say unused.',
+    ].join('\n');
+    expect(clean(selection)).toBe(
+      [
+        '- Definition: a paying self-serve account whose owner signed up with a business email domain.',
+        '  - Sign-up to paid: 3.02%',
+        '- Churn: half say unused.',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps an authored indented row under a short list item', () => {
+    expect(clean('- short item\n  note under it\n- next')).toBe('- short item\n  note under it\n- next');
+  });
+
+  // ── selection start column ────────────────────────────────────────────────
+
+  it('rejoins and dedents a reply whose drag started on the first word, past the ⏺', () => {
+    const selection = withStartColumn(
+      [
+        'Hi team, wanted to share a quick recap of today\'s product review on the two ICP',
+        '  drafts, one for PLG business users and one for sales-led accounts.',
+        '',
+        '  PLG Business User',
+      ].join('\n'),
+      2,
+    );
+    expect(clean(selection)).toBe(
+      'Hi team, wanted to share a quick recap of today\'s product review on the two ICP drafts, one for PLG business users and one for sales-led accounts.\n\nPLG Business User',
+    );
+  });
+
+  it('rejoins a paragraph whose drag started mid-row', () => {
+    const selection = withStartColumn(
+      ['days — well past the 48h acceptance', '  criterion. branded_links list path is clean.'].join('\n'),
+      20,
+    );
+    expect(clean(selection)).toBe('days — well past the 48h acceptance criterion. branded_links list path is clean.');
+  });
+
+  it('keeps code indentation relative to where a mid-row drag started', () => {
+    expect(clean(withStartColumn('f() {\n    return 1;\n  }', 11))).toBe('f() {\n  return 1;\n}');
+  });
+
+  it('ignores the start column for a single row', () => {
+    expect(clean(withStartColumn('hello', 4))).toBe('hello');
   });
 });

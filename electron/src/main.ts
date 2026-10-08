@@ -986,7 +986,10 @@ async function main() {
     // renderer answers (window reloading). The owning renderer then replaces it
     // with the formatted text (native-term:write-clipboard).
     notifyCopy: (id: string, text: string) => {
-      clipboard.writeText(text);
+      // Strip the start-column prefix and bold-run marks (U+FDD3/U+FDD0/U+FDD1,
+      // see client terminalCopy.ts) the native view adds; only the renderer
+      // reads them.
+      clipboard.writeText(text.replace(/^\uFDD3\d+\uFDD3/, '').replace(/[\uFDD0\uFDD1]/g, ''));
       sendToNativeTermWindow(id, 'native-term:copy', { sessionId: id, text });
     },
     notifyDropPaths: (id: string, paths: string[]) =>
@@ -1085,8 +1088,13 @@ async function main() {
     nativeTerminal!.clearScrollback(sessionId);
   });
 
-  ipcMain.on('native-term:write-clipboard', (_e, { text }: { text: unknown }) => {
-    if (typeof text === 'string' && text.length <= 10_000_000) clipboard.writeText(text);
+  // Plain text plus, when the renderer sent one, an HTML rendering for rich-text
+  // targets (Slack, Gmail, Docs). Both flavors land in one write so a paste never
+  // sees one without the other.
+  ipcMain.on('native-term:write-clipboard', (_e, { text, html }: { text: unknown; html?: unknown }) => {
+    if (typeof text !== 'string' || text.length > 10_000_000) return;
+    if (typeof html === 'string' && html.length > 0 && html.length <= 20_000_000) clipboard.write({ text, html });
+    else clipboard.writeText(text);
   });
 
   // Theme apply — not window-scoped: every window applies the same theme, so a
