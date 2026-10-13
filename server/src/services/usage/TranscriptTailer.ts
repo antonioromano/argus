@@ -85,6 +85,7 @@ const SEEN_CAP = 256;
 /** An unterminated line longer than this is dropped rather than buffered forever. */
 const MAX_LINE_BYTES = 32 * 1024 * 1024;
 const RECENT_PERSISTED = 8;
+const MAX_MODEL_LEN = 100;
 
 const zero = (): UsageCounters => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
@@ -214,7 +215,8 @@ export class TranscriptTailer {
     const msg = entry.message;
     const usage = msg?.usage;
     if (!usage || typeof usage !== 'object') return false;
-    const model: string | undefined = typeof msg.model === 'string' ? msg.model : undefined;
+    // Bounded: the model string is echoed to every client and persisted.
+    const model: string | undefined = typeof msg.model === 'string' ? msg.model.slice(0, MAX_MODEL_LEN) : undefined;
     // Claude Code's locally-generated messages (errors, interrupts) carry zero usage.
     if (model === '<synthetic>') return false;
 

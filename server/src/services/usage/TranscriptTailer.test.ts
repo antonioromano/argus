@@ -175,3 +175,12 @@ test('a missing file is not an error', async () => {
   const t = new TranscriptTailer(path.join(os.tmpdir(), 'argus-no-such-dir', 'x.jsonl'));
   assert.equal(await t.poll(), false);
 });
+
+test('the model string is capped', async () => {
+  const f = tmpFile();
+  writeFileSync(f, assistant('m1', { in: 1 }, { model: 'claude-' + 'x'.repeat(500) }));
+  const t = new TranscriptTailer(f);
+  await t.poll();
+  assert.equal(t.context!.model!.length, 100);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});

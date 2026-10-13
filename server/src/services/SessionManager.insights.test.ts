@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { SessionManager } from './SessionManager.js';
@@ -17,6 +17,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function mgr() {
   const dataDir = mkdtempSync(path.join(os.tmpdir(), 'argus-insights-'));
+  process.env.CLAUDE_CONFIG_DIR = dataDir;
   const sm = new SessionManager(dataDir, fakeConfig);
   const emitted: Array<{ ev: string; p: any }> = [];
   (sm as any).io = { emit: (ev: string, p: any) => emitted.push({ ev, p }), to: () => ({ emit: () => {} }) };
@@ -44,8 +45,11 @@ function inject(sm: SessionManager, over: Record<string, unknown> = {}): any {
   return s;
 }
 
+/** Writes under `<dir>/projects/` — mgr() points CLAUDE_CONFIG_DIR at `dir`,
+ *  so the file sits where Claude keeps transcripts. */
 function transcript(dir: string): string {
-  const f = path.join(dir, `${UUID}.jsonl`);
+  mkdirSync(path.join(dir, 'projects', '-x'), { recursive: true });
+  const f = path.join(dir, 'projects', '-x', `${UUID}.jsonl`);
   writeFileSync(f, JSON.stringify({
     type: 'assistant',
     message: { id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0 } },
@@ -124,14 +128,14 @@ test('waiting status carries waitingSince (stable across re-emits) and menu opti
 });
 
 test('a restored session announces its Claude id and usage in session:created', async () => {
-  const { sm, emitted, dataDir } = mgr();
-  const f = transcript(dataDir);
   const seed = mgr();
+  const f = transcript(seed.dataDir);
   const s0 = inject(seed.sm);
   seed.sm.applyAgentMeta('s', { transcriptPath: f });
   await s0.usage.pollNow();
   const usageState = s0.usage.serialize();
   s0.usage.dispose();
+  const { sm, emitted, dataDir } = mgr();
 
   // restoreExited: a direct session restored as an exited placeholder (no spawn).
   await sm.createSession(dataDir, 'restored', 'claude', [], 'r1', new Date().toISOString(), undefined, undefined, false, undefined, 'direct', true,

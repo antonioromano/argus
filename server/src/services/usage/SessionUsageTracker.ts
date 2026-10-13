@@ -1,4 +1,6 @@
 import path from 'path';
+import os from 'os';
+import { realpathSync, statSync } from 'fs';
 import type { SessionUsage } from '@argus/shared';
 import { contextWindowFor } from './pricing.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
@@ -28,6 +30,8 @@ export interface SessionUsageTrackerOpts {
   fs?: TranscriptFs;
   debounceMs?: number;
   emitThrottleMs?: number;
+  /** Directories a transcript must live under (default: transcriptRoots()). */
+  roots?: readonly string[];
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
@@ -49,6 +53,36 @@ export function isPlausibleTranscriptPath(p: unknown): p is string {
   return /^[A-Za-z0-9._-]+\.jsonl$/.test(path.basename(p));
 }
 
+/** Where Claude keeps transcripts: `$CLAUDE_CONFIG_DIR/projects`, and `~/.claude/projects`. */
+export function transcriptRoots(env: NodeJS.ProcessEnv = process.env): string[] {
+  const roots = [path.join(os.homedir(), '.claude', 'projects')];
+  if (env.CLAUDE_CONFIG_DIR) roots.unshift(path.join(env.CLAUDE_CONFIG_DIR, 'projects'));
+  return roots;
+}
+
+/**
+ * The real path of a hook-reported transcript, or undefined unless it is a
+ * plausible `*.jsonl` path that resolves (symlinks followed) to a regular file
+ * inside one of `roots`. The server only ever opens the returned real path.
+ */
+export function resolveTranscriptPath(p: unknown, roots: readonly string[] = transcriptRoots()): string | undefined {
+  if (!isPlausibleTranscriptPath(p)) return undefined;
+  try {
+    const real = realpathSync(p);
+    if (!statSync(real).isFile()) return undefined;
+    const inside = roots.some((r) => {
+      try {
+        return real.startsWith(realpathSync(r) + path.sep);
+      } catch {
+        return false;
+      }
+    });
+    return inside ? real : undefined;
+  } catch {
+    return undefined; // missing (not written yet) — a later hook retries
+  }
+}
+
 export class SessionUsageTracker {
   private tailers = new Map<string, TranscriptTailer>();
   private current?: string;
@@ -61,6 +95,7 @@ export class SessionUsageTracker {
   private emitTimer?: ReturnType<typeof setTimeout>;
   private lastEmitAt = 0;
   private disposed = false;
+  private roots: readonly string[];
   private updatedAt = 0;
   /** message id → the transcript that counts it. A conversation resumed into a
    *  new file can repeat its history there; only the first file counts it. */
@@ -77,6 +112,7 @@ export class SessionUsageTracker {
     this.fs = opts.fs ?? nodeTranscriptFs;
     this.debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.emitThrottleMs = opts.emitThrottleMs ?? DEFAULT_EMIT_THROTTLE_MS;
+    this.roots = opts.roots ?? transcriptRoots();
   }
 
   static restore(
@@ -90,7 +126,10 @@ export class SessionUsageTracker {
       t.tailers.set(s.path, TranscriptTailer.restore(s, t.fs, t.claim));
       for (const [id] of s.recent ?? []) t.owners.set(id, s.path);
     }
-    if (state.current && t.tailers.has(state.current)) t.current = state.current;
+    // Totals of every transcript are kept, but only a still-valid file is read again.
+    if (state.current && t.tailers.has(state.current) && resolveTranscriptPath(state.current, t.roots) === state.current) {
+      t.current = state.current;
+    }
     t.updatedAt = Date.now();
     return t;
   }
@@ -103,8 +142,11 @@ export class SessionUsageTracker {
   }
 
   /** The transcript Claude is writing now. A new path starts a new tailer. */
-  setTranscript(p: string): void {
-    if (this.disposed || !isPlausibleTranscriptPath(p)) return;
+  setTranscript(reported: string): void {
+    if (this.disposed) return;
+    // Known paths were resolved when first seen; a new one must check out.
+    const p = this.tailers.has(reported) ? reported : resolveTranscriptPath(reported, this.roots);
+    if (!p) return;
     if (!this.tailers.has(p)) {
       this.tailers.set(p, new TranscriptTailer(p, this.fs, this.claim));
       while (this.tailers.size > MAX_TRANSCRIPTS) {
