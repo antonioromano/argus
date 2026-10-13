@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Loader2,
   Table,
+  TriangleAlert,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatusCode } from '@argus/shared';
@@ -287,6 +288,14 @@ function ChevronCell({ node }: { node: VisibleNode }) {
         color="var(--fg-3)"
         style={{ flexShrink: 0, animation: 'argus-spin 0.9s linear infinite' }}
       />
+    );
+  }
+  if (node.error && !node.expanded) {
+    // Same 12px cell as the chevron, so the row never changes size.
+    return (
+      <span title="Couldn't load this folder — click to retry" style={{ display: 'inline-flex', flexShrink: 0 }}>
+        <TriangleAlert size={12} strokeWidth={1.8} color="var(--danger)" />
+      </span>
     );
   }
   const Icon = node.expanded ? ChevronDown : ChevronRight;
