@@ -214,6 +214,16 @@ export function setupSocketHandler(
       }, inputQueue));
     });
 
+    socket.on('session:answer', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const { sessionId, key } = (payload ?? {}) as { sessionId?: unknown; key?: unknown };
+      if (typeof sessionId !== 'string') { reply({ ok: false, error: 'Invalid request' }); return; }
+      const error = manager.checkPromptAnswer(sessionId, key);
+      if (error) { reply({ ok: false, error }); return; }
+      inputQueue.write(sessionId, key as string);
+      reply({ ok: true });
+    });
+
     socket.on('session:resize', ({ sessionId, cols, rows }) => {
       if (!manager.getSession(sessionId)) return;
       // Store this client's dimensions

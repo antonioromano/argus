@@ -1075,7 +1075,9 @@ function DesktopInner() {
             shortcutLabel={formatCombo(shortcuts.resolved['waiting-inbox'])}
             onClose={app.closeOverlay}
             onJump={(id) => { app.closeOverlay(); openSessionGuarded(id); }}
-            onSendKey={(id, key) => socket.emit('session:input', { sessionId: id, data: key })}
+            onSendKey={(id, key) => socket.emit('session:answer', { sessionId: id, key }, (res) => {
+              if (!res.ok) pushToast(res.error, 'warn');
+            })}
             onBroadcast={openBroadcast}
           />
         </Overlay>

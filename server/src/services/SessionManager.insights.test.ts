@@ -148,3 +148,37 @@ test('a restored session announces its Claude id and usage in session:created', 
   rmSync(dataDir, { recursive: true, force: true });
   rmSync(seed.dataDir, { recursive: true, force: true });
 });
+
+test('a repaint that changes the menu re-announces the options; an identical one does not', () => {
+  const { sm, emitted, dataDir } = mgr();
+  let options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  inject(sm, {
+    status: 'running',
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  (sm as any).applyDetectedStatus('s', 'waiting');
+  const count = () => emitted.filter((e) => e.ev === 'session:status').length;
+  const before = count();
+  (sm as any).refreshPromptOptions('s');
+  assert.equal(count(), before, 'unchanged menu → no re-emit');
+  options = [{ key: '1', label: 'Allow' }, { key: '2', label: 'Deny' }, { key: '3', label: 'Always' }];
+  (sm as any).refreshPromptOptions('s');
+  assert.equal(count(), before + 1);
+  assert.equal(emitted.at(-1)!.p.promptOptions.length, 3);
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('checkPromptAnswer re-reads the screen and refuses a digit the menu no longer has', () => {
+  const { sm, dataDir } = mgr();
+  let options: Array<{ key: string; label: string }> | undefined = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  const s = inject(sm, { status: 'waiting', stateDetector: { getMenuOptions: () => options } });
+  assert.equal(sm.checkPromptAnswer('s', '2'), null);
+  assert.match(sm.checkPromptAnswer('s', '3')!, /prompt changed/);
+  assert.match(sm.checkPromptAnswer('s', '1; rm')!, /Invalid choice/);
+  options = undefined; // the menu went away
+  assert.match(sm.checkPromptAnswer('s', '1')!, /prompt changed/);
+  s.status = 'running';
+  assert.match(sm.checkPromptAnswer('s', '1')!, /no longer waiting/);
+  assert.match(sm.checkPromptAnswer('nope', '1')!, /not found/);
+  rmSync(dataDir, { recursive: true, force: true });
+});

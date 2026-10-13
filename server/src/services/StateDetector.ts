@@ -265,6 +265,8 @@ export class StateDetector {
   }
   private onStatusChange: (status: SessionStatus) => void;
   private onPromptUpdate: ((text: string) => void) | null = null;
+  /** Fired on every settle while stably waiting (the menu may have repainted). */
+  private onWaitingRepaint: (() => void) | null = null;
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
   private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
@@ -330,6 +332,10 @@ export class StateDetector {
    */
   setOnPromptUpdate(cb: (text: string) => void): void {
     this.onPromptUpdate = cb;
+  }
+
+  setOnWaitingRepaint(cb: () => void): void {
+    this.onWaitingRepaint = cb;
   }
 
   resize(cols: number, rows: number): void {
@@ -439,6 +445,9 @@ export class StateDetector {
           this.lastReportedPrompt = text;
           this.onPromptUpdate?.(text);
         }
+        // Even with the question unchanged, the menu under it can change
+        // (options re-painted, a different menu in the same box).
+        this.onWaitingRepaint?.();
       }
     } else {
       this.scheduleStatus('idle');

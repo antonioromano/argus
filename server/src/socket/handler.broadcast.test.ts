@@ -19,6 +19,7 @@ function harness() {
   const manager = {
     getSession: (id: string) => sessions.get(id),
     writeToSession: (id: string, data: string) => { writes.push([id, data]); },
+    checkPromptAnswer: (id: string, key: string) => (id === 'b' && key === '1' ? null : 'The prompt changed — open the shell to answer'),
   } as unknown as SessionManager;
   let connection: ((socket: Socket) => void) | undefined;
   const io = {
@@ -32,7 +33,8 @@ function harness() {
   connection!({ id: 'sock', handshake: { auth: {}, query: {} }, on: (ev: string, fn: Handler) => { on.set(ev, fn); }, emit: () => {} } as unknown as Socket);
   const broadcast = (payload: unknown) => new Promise<any>((resolve) => on.get('session:broadcast')!(payload, resolve));
   const fireNoAck = (payload: unknown) => on.get('session:broadcast')!(payload);
-  return { broadcast, fireNoAck, writes };
+  const answer = (payload: unknown) => new Promise<any>((resolve) => on.get('session:answer')!(payload, resolve));
+  return { broadcast, fireNoAck, answer, writes };
 }
 
 test('session:broadcast writes to every live target via writeToSession and acks the count', async () => {
@@ -62,4 +64,14 @@ test('session:broadcast tolerates a missing ack', () => {
   assert.doesNotThrow(() => fireNoAck({ sessionIds: ['a'], text: 'ok' }));
   assert.doesNotThrow(() => fireNoAck({ sessionIds: ['ghost'], text: 'ok' }));
   assert.deepEqual(writes, [['a', 'ok']]);
+});
+
+test('session:answer writes the digit only when the manager confirms the menu has it', async () => {
+  const { answer, writes } = harness();
+  assert.deepEqual(await answer({ sessionId: 'b', key: '1' }), { ok: true });
+  assert.deepEqual(writes, [['b', '1']]);
+  const refused = await answer({ sessionId: 'b', key: '2' });
+  assert.equal(refused.ok, false);
+  assert.equal((await answer({ key: '1' })).ok, false);
+  assert.equal(writes.length, 1);
 });

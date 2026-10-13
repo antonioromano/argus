@@ -678,6 +678,7 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+    stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -953,6 +954,7 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+    stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
@@ -1096,6 +1098,31 @@ export class SessionManager {
     if (session.lastPrompt === text) return;
     session.lastPrompt = text;
     this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
+  }
+
+  /** A repaint while waiting: re-announce the status if the menu options changed. */
+  private refreshPromptOptions(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status !== 'waiting') return;
+    const fresh = session.stateDetector.getMenuOptions?.();
+    if (JSON.stringify(fresh) === JSON.stringify(session.promptOptions)) return;
+    this.emitStatus({ sessionId: id, status: 'waiting', lastPrompt: session.lastPrompt });
+  }
+
+  /**
+   * Guard for answering a waiting menu with one digit (waiting inbox): the
+   * session must still be waiting and the menu on screen *right now* must have
+   * that option. Re-read here, never trusted from the client, so a digit is
+   * never typed into whatever replaced the menu. Returns an error, or null.
+   */
+  checkPromptAnswer(id: string, key: unknown): string | null {
+    const session = this.sessions.get(id);
+    if (!session) return 'Session not found';
+    if (typeof key !== 'string' || !/^[1-9]$/.test(key)) return 'Invalid choice';
+    if (session.status !== 'waiting') return 'That shell is no longer waiting';
+    const options = session.stateDetector.getMenuOptions?.();
+    if (!options?.some((o) => o.key === key)) return 'The prompt changed — open the shell to answer';
+    return null;
   }
 
   /**

@@ -449,6 +449,8 @@ export interface ClientToServerEvents {
   'session:mark-done': (sessionId: string) => void;
   /** Type the same text into several sessions at once (validated + rate-limited server-side). */
   'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
+  /** Answer a waiting numbered menu with one digit; refused unless that option is on screen now. */
+  'session:answer': (payload: { sessionId: string; key: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Ephemeral terminals (Explorer view only — not persisted, not in session list)
   'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
   'ephemeral:input': (payload: { id: string; data: string }) => void;
