@@ -6,6 +6,8 @@ import type { AgentRegistry } from '../AgentRegistry.js';
 import { promptArgs } from '../AgentRegistry.js';
 import { shquote } from '../PtyManager.js';
 import { validateFlags } from '../../utils/flags.js';
+import { SHELL_AGENT_ID } from '../../constants/agents.js';
+import { riskyFlags } from './riskyFlags.js';
 
 /** Folder files an agent loads on start. Their CONTENTS are hashed so a saved
  *  launcher notices hook/MCP/instruction edits, not just files appearing. */
@@ -57,6 +59,11 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
 
   const flagError = validateFlags(req.flags);
   if (flagError) return { ok: false, error: flagError };
+  // A plain shell has no agent CLI to interpret flags: whatever a link puts
+  // there lands on the login shell's command line (`zsh -c …`, `--rcfile …`).
+  if (agent.id === SHELL_AGENT_ID && req.flags.length > 0) {
+    return { ok: false, error: 'Flags are not allowed for a shell launch' };
+  }
 
   let tail: string[] = [];
   if (req.prompt !== undefined) {
@@ -74,6 +81,14 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
   }
 
   const warnings: LaunchWarning[] = [];
+  const risky = riskyFlags(req.flags);
+  if (risky.length) {
+    warnings.push({
+      kind: 'risky-flag',
+      detail: `Dangerous flags — only start this if you wrote the link: ${risky.map((r) => `${r.flag} (${r.reason})`).join('; ')}`,
+      flags: risky.map((r) => r.flag),
+    });
+  }
   const roots = await Promise.all(
     (deps.config.launchFolderRoots ?? []).map(async (r) => {
       const abs = expandHome(r, deps.home);

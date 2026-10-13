@@ -180,11 +180,13 @@ export interface LaunchRequest {
   base?: string;
 }
 
-export type LaunchWarningKind = 'worktree' | 'folder-outside-roots' | 'folder-agent-config' | 'launcher-changed';
+export type LaunchWarningKind = 'worktree' | 'folder-outside-roots' | 'folder-agent-config' | 'launcher-changed' | 'risky-flag';
 
 export interface LaunchWarning {
   kind: LaunchWarningKind;
   detail: string;
+  /** For 'risky-flag': the exact flags flagged, so the card can mark them. */
+  flags?: string[];
 }
 
 export interface ValidatedLaunch {

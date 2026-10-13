@@ -110,3 +110,40 @@ test('folder must be absolute', async (t) => {
     assert.match((r as any).error, /absolute/);
   }
 });
+
+// S6: a web page can open argus://new with any flags. The ones that widen what
+// the agent may do must be called out, not listed like `--model=opus`.
+test('risky flags produce a risky-flag warning naming each one', async (t) => {
+  const { inRoot, deps } = fixture(t);
+  const flags = [
+    '--model=opus',
+    '--mcp-config=/Users/x/Downloads/evil.json',
+    '--settings=/tmp/s.json',
+    '--add-dir=/',
+    '--dangerously-skip-permissions',
+    '--permission-mode=bypassPermissions',
+    '--allowedTools=Bash',
+    '--allowed-tools=Bash',
+  ];
+  const r = await validateLaunch({ agent: 'claude', folder: inRoot, flags }, deps);
+  assert.ok(r.ok, JSON.stringify(r));
+  const w = r.value.warnings.find((x) => x.kind === 'risky-flag');
+  assert.ok(w, 'expected a risky-flag warning');
+  assert.deepEqual(w.flags, flags.slice(1));
+  assert.match(w.detail, /--dangerously-skip-permissions/);
+});
+
+test('benign flags produce no risky-flag warning', async (t) => {
+  const { inRoot, deps } = fixture(t);
+  const r = await validateLaunch({ agent: 'claude', folder: inRoot, flags: ['--model=opus', '-c', '--verbose'] }, deps);
+  assert.ok(r.ok);
+  assert.equal(r.value.warnings.some((x) => x.kind === 'risky-flag'), false);
+});
+
+test('a shell launch refuses flags entirely', async (t) => {
+  const { inRoot, deps } = fixture(t);
+  const r = await validateLaunch({ agent: 'shell', folder: inRoot, flags: ['--rcfile=/tmp/x'] }, deps);
+  assert.equal(r.ok, false);
+  assert.match((r as { error: string }).error, /shell/);
+  assert.equal((await validateLaunch({ agent: 'shell', folder: inRoot, flags: [] }, deps)).ok, true);
+});
