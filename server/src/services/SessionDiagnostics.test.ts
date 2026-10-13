@@ -24,8 +24,8 @@ function makePayload(overrides: Partial<SessionDiagnosticsPayload> = {}): Sessio
       suppressDonePromotion: false,
       donePromotionPending: true,
       hasUserInputSinceIdle: true,
-      outputBufferBytes: 42,
-      outputBufferCapBytes: 100_000,
+      rawTailBytes: 42,
+      rawTailCapBytes: 16_384,
       connectedClients: 2,
     },
     detector: {

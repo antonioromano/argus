@@ -16,6 +16,9 @@ import type {
   TerminalEngine,
   RunMode,
   ShellGitContext,
+  SessionUsage,
+  PromptOption,
+  SessionStatusPayload,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
@@ -24,6 +27,7 @@ import { OscCwdParser } from './oscCwd.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
 import { TerminalMirror } from './TerminalMirror.js';
+import { RawTail } from './RawTail.js';
 import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
@@ -44,7 +48,10 @@ import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
+import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
+import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -52,6 +59,13 @@ export interface CreateSessionOpts {
   initialPrompt?: string;
   /** The saved launcher this session was started from (metadata). */
   launcherId?: string;
+  /** Skip the per-create sessions.json write. restoreSessions sets it and
+   *  persists once at the end, instead of rewriting the file per session. */
+  skipPersist?: boolean;
+  /** Restore only: the persisted Claude conversation id and usage meter, applied
+   *  before `session:created` goes out so clients see Resume and the chip at once. */
+  claudeSessionId?: string;
+  usage?: SessionUsageTrackerState;
 }
 
 interface ManagedSession {
@@ -66,7 +80,19 @@ interface ManagedSession {
   stateDetector: StateDetector;
   /** Authoritative server-side screen — shared with stateDetector, source of replay frames. */
   mirror: TerminalMirror;
-  outputBuffer: string;
+  /** Raw pty tail for the diagnostics dump only. Replay never reads it: the
+   *  mirror is authoritative, and a raw byte tail sliced mid-escape is exactly
+   *  what garbled replays before the mirror existed. */
+  rawTail: RawTail;
+  /**
+   * Set once an exited session's mirror has been frozen (see tierExitedSession):
+   * the frames it would serve, captured once, after which the headless xterm
+   * (~14MB at 5000 rows) is disposed. Joins are served from here until a
+   * restart builds a fresh mirror.
+   */
+  exitedFrame?: { full: string; screen: string; alternate: boolean; appMouse: boolean; sgr: boolean };
+  /** Pending freeze of an exited session's mirror (EXITED_TIER_DELAY_MS). */
+  tierTimer?: ReturnType<typeof setTimeout>;
   /** Output accumulated since the last socket flush (see emitOutput). */
   pendingOutput?: string;
   flushTimer?: NodeJS.Timeout;
@@ -144,20 +170,36 @@ interface ManagedSession {
   shellGitTimer?: ReturnType<typeof setTimeout>;
   /** cwd the last broadcast shellGit was computed for (dedupes broadcasts). */
   shellGitCwd?: string;
+  /** Claude only: conversation id from the hooks' `session_id`. */
+  claudeSessionId?: string;
+  /** Set by emitStatus while the session is waiting (see SessionInfo). */
+  waitingSince?: number;
+  promptOptions?: PromptOption[];
+  /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
+  usage?: SessionUsageTracker;
 }
+
+/** sessions.json is rewritten at most this often for usage-meter progress alone
+ *  (every lifecycle change and shutdown persist it anyway). */
+const USAGE_PERSIST_MS = 30_000;
+/** A Stop hook can fire just before Claude's last transcript write lands; read
+ *  once more shortly after so the turn's final numbers are not missed. */
+const USAGE_FOLLOWUP_MS = 1_500;
 
 /** Coalesce git refreshes: a burst of prompts (e.g. holding Enter) costs one `git status`. */
 const SHELL_GIT_DEBOUNCE_MS = 400;
 
 const GIT_POLL_INTERVAL_MS = 10_000;
+/** Parallel `git status` runs per poll tick (see pollGitStatus). */
+const GIT_POLL_CONCURRENCY = 4;
 // Re-validate a folder's git-repo-ness this often, so a `git init` after startup
 // is eventually picked up without re-spawning `git rev-parse` every tick.
 const GIT_REPO_RECHECK_MS = 60_000;
 
-// Rolling output buffer cap (see onData slicing); surfaced in diagnostics so a
-// dump shows fill-vs-cap. Keep in sync with the slice length in onData.
-const OUTPUT_BUFFER_CAP = 100_000;
-// How much of the rolling buffer to embed as the raw-tail fallback in a dump.
+// How much raw pty output to keep per session for the diagnostics dump. This
+// used to be a 100KB rolling string (re-copied on every chunk) that also backed
+// a replay fallback; the mirror made that fallback dead code, so only the
+// dump's tail remains.
 const RAW_TAIL_BYTES = 16 * 1024;
 
 // A native signal keeps its authority for this long. Refreshed by every native
@@ -170,6 +212,12 @@ const DONE_GRACE_MS = 2_000;
 const DONE_QUIET_MS = 1_200;
 // Depth of the per-session raw-signal ring kept for the diagnostics dump.
 const NATIVE_RING_SIZE = 5;
+/**
+ * How long after its pty exits a session's mirror is frozen into a stored frame
+ * and disposed. Not immediate: node-pty can deliver trailing output after
+ * onExit, and those bytes belong in the frame.
+ */
+const EXITED_TIER_DELAY_MS = 5_000;
 
 /**
  * Claude's `Notification` hook is wired to `waiting` for BOTH a genuine
@@ -281,6 +329,21 @@ export interface SessionReplayFrame {
   sgr: boolean;
 }
 
+/**
+ * Run `fn` over `items` with at most `limit` calls in flight. Resolves once all
+ * have settled; `fn` is expected to handle its own errors.
+ */
+async function runBounded<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const item = items[next++] as T;
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 export class SessionManager {
   private sessions = new Map<string, ManagedSession>();
   private persistQueue: Promise<void> = Promise.resolve();
@@ -318,6 +381,7 @@ export class SessionManager {
     this.io?.to(sessionId).emit('session:fsChanged', { sessionId, dirs });
   });
   private preventSleepWhileRunning = false;
+  private usagePersistTimer?: ReturnType<typeof setTimeout>;
 
   private readonly dataDir: string;
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
@@ -476,29 +540,32 @@ export class SessionManager {
     // Skip if a previous sweep is still running, so a slow tick can't overlap the
     // next interval and pile up git subprocesses.
     if (!this.gitService || this.gitPollRunning) return;
+    const git = this.gitService;
     this.gitPollRunning = true;
     try {
       const now = Date.now();
-      for (const session of this.sessions.values()) {
-        if (session.status === 'exited') continue;
-        // Shell: also catch changes made outside it (an editor, another tab).
-        if (session.cwd) await this.refreshShellGit(session);
-
-        // Cache git-repo-ness per folder: known non-git folders are skipped
-        // entirely (no wasted `git status` spawn each tick), and the result is
-        // re-validated periodically so a later `git init` is still detected.
-        const cached = this.gitRepoCache.get(session.folderPath);
-        const stale = !cached || now - cached.checkedAt >= GIT_REPO_RECHECK_MS;
-        if (cached && !cached.isRepo && !stale) continue;
-        let isRepo = cached?.isRepo ?? true;
-        if (stale) {
-          isRepo = await this.gitService.isGitRepo(session.folderPath);
-          this.gitRepoCache.set(session.folderPath, { isRepo, checkedAt: now });
+      // One `git status` per folder per tick, however many sessions share it
+      // (several agents in one repo is the common case). Sessions sharing a
+      // folder await the same promise even while the pool runs them in parallel.
+      const dirtyByFolder = new Map<string, Promise<boolean | null>>();
+      const folderDirty = (folder: string): Promise<boolean | null> => {
+        let p = dirtyByFolder.get(folder);
+        if (!p) {
+          p = this.folderGitDirty(git, folder, now);
+          dirtyByFolder.set(folder, p);
         }
-        if (!isRepo) continue;
-
+        return p;
+      };
+      const live = Array.from(this.sessions.values()).filter((s) => s.status !== 'exited');
+      // Bounded, not serial: N repos used to cost N back-to-back `git status`
+      // runs per tick; unbounded would fork N gits at once on a big mosaic.
+      await runBounded(live, GIT_POLL_CONCURRENCY, async (session) => {
         try {
-          const dirty = await this.gitService.hasChanges(session.folderPath);
+          // Shell: also catch changes made outside it (an editor, another tab).
+          if (session.cwd) await this.refreshShellGit(session);
+          const dirty = await folderDirty(session.folderPath);
+          // Not a repo / transient git error, or the session went away mid-tick.
+          if (dirty === null || this.sessions.get(session.id) !== session) return;
           const prev = this.gitDirtyMap.get(session.id);
           if (dirty !== prev) {
             this.gitDirtyMap.set(session.id, dirty);
@@ -507,13 +574,40 @@ export class SessionManager {
         } catch {
           // transient git error — ignore this tick
         }
-      }
+      });
     } finally {
       this.gitPollRunning = false;
     }
   }
 
+  /**
+   * Whether `folder` has uncommitted changes, or null when it is not a git repo
+   * (or git failed this tick). Git-repo-ness is cached per folder: known non-git
+   * folders are skipped entirely (no wasted `git status` spawn each tick), and
+   * the result is re-validated periodically so a later `git init` is detected.
+   */
+  private async folderGitDirty(git: GitService, folder: string, now: number): Promise<boolean | null> {
+    try {
+      const cached = this.gitRepoCache.get(folder);
+      const stale = !cached || now - cached.checkedAt >= GIT_REPO_RECHECK_MS;
+      if (cached && !cached.isRepo && !stale) return null;
+      let isRepo = cached?.isRepo ?? true;
+      if (stale) {
+        isRepo = await git.isGitRepo(folder);
+        this.gitRepoCache.set(folder, { isRepo, checkedAt: now });
+      }
+      if (!isRepo) return null;
+      return await git.hasChanges(folder);
+    } catch {
+      return null;
+    }
+  }
+
   async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine, runMode?: RunMode, restoreExited = false, opts: CreateSessionOpts = {}): Promise<SessionInfo> {
+    // A new session's folder is its sandbox root: absolute, realpath'd, a
+    // directory. Restores keep the stored path (it was canonical when created,
+    // and the persisted record / tmux name is keyed to it).
+    if (!existingId) folderPath = await resolveSessionFolder(folderPath);
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 
@@ -589,6 +683,7 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+    stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -678,7 +773,7 @@ export class SessionManager {
       pty: ptyProcess,
       stateDetector,
       mirror,
-      outputBuffer: '',
+      rawTail: new RawTail(RAW_TAIL_BYTES),
       // Eager coverage for a freshly-injected session; a restored survivor leaves
       // this undefined and the arbiter falls back to coverageFor(agentType).
       nativeCoverage: inj ? new Set(inj.coverage) : undefined,
@@ -700,11 +795,7 @@ export class SessionManager {
       // Ignore late output from a pty that restart already replaced (node-pty
       // flushes buffered bytes on kill, so this can fire after the swap).
       if (session.pty !== ptyProcess) return;
-      // Buffer output for replay on reconnect
-      session.outputBuffer += data;
-      if (session.outputBuffer.length > 100_000) {
-        session.outputBuffer = session.outputBuffer.slice(-100_000);
-      }
+      session.rawTail.push(data); // diagnostics only — no per-chunk copy
       stateDetector.feed(data);
       this.trackShellCwd(session, data);
       // Mid-reseed these bytes are history the clients already have; they go to
@@ -722,12 +813,15 @@ export class SessionManager {
       stateDetector.setExited();
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
+      this.scheduleExitedTier(session, ptyProcess);
+      this.nudgeUsage(session, true);
     });
 
+    this.applyRestoredInsights(session, opts);
     this.sessions.set(id, session);
     this.fileWatcher.watch(id, session.folderPath);
     this.refreshSleepPrevention();
-    await this.persistSessions();
+    if (!opts.skipPersist) await this.persistSessions();
 
     const info = this.toSessionInfo(session);
     this.io?.emit('session:created', info);
@@ -758,6 +852,7 @@ export class SessionManager {
 
     session.stateDetector.destroy();
     session.mirror?.dispose();
+    if (session.tierTimer) { clearTimeout(session.tierTimer); session.tierTimer = undefined; }
     if (session.flushTimer) {
       clearTimeout(session.flushTimer);
       session.flushTimer = undefined;
@@ -769,6 +864,7 @@ export class SessionManager {
       /* ignore */
     }
     void this.fileWatcher.stop(id);
+    session.usage?.dispose();
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -788,15 +884,33 @@ export class SessionManager {
     this.onSessionDeleted?.(id);
   }
 
-  async restartSession(id: string): Promise<SessionInfo> {
+  /**
+   * Relaunch a session's agent. A plain restart is a fresh start; `resume`
+   * (Claude only) reopens the last conversation with `claude --resume <id>`,
+   * through exactly the same teardown/spawn path.
+   */
+  async restartSession(id: string, opts: { resume?: boolean } = {}): Promise<SessionInfo> {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
+    // Resolve the resume argv before tearing anything down, so a session with
+    // nothing to resume is refused with its agent (if any) left untouched.
+    let userFlags = session.flags;
+    if (opts.resume) {
+      if (session.agentType !== 'claude') throw new Error('Only Claude sessions can resume a conversation');
+      if (!session.claudeSessionId) throw new Error('No Claude conversation to resume yet');
+      userFlags = buildResumeFlags(session.flags, session.claudeSessionId);
+    }
 
     // Tear down old pty and companion terminal. Kill the tmux session too so the
     // surviving conversation is discarded — otherwise new-session -A would just
     // reattach to the old process and "restart" would be a no-op.
     session.stateDetector.destroy();
     session.mirror?.dispose(); // detector no longer owns the injected mirror; free it here
+    if (session.tierTimer) { clearTimeout(session.tierTimer); session.tierTimer = undefined; }
+    // A frozen exited session also had its folder watcher stopped; the fresh
+    // run needs it back (watch() is a no-op if it is still running).
+    const wasTiered = session.exitedFrame !== undefined;
+    session.exitedFrame = undefined;
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -812,7 +926,9 @@ export class SessionManager {
     this.companionTerminals.kill(id);
 
     // Reset state
-    session.outputBuffer = '';
+    session.rawTail?.clear();
+    // A fresh run starts with an empty context; a resume reopens the same one.
+    if (!opts.resume) session.usage?.clearCurrent();
     session.status = 'running';
     this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
@@ -843,10 +959,11 @@ export class SessionManager {
       mirror,
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
+    stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
-    const inj = this.buildSignalInjection(id, session.agentType, session.flags);
+    const inj = this.buildSignalInjection(id, session.agentType, userFlags);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -859,7 +976,9 @@ export class SessionManager {
     session.nativeCoverage = inj ? new Set(inj.coverage) : undefined;
     session.nativeLastSeenAt = undefined;
     session.nativeState = undefined;
-    const spawnFlags = inj?.flags ?? session.flags;
+    // Spawn-only: the resume flags are never written back to session.flags, so
+    // the next plain Restart is still a fresh start.
+    const spawnFlags = inj?.flags ?? userFlags;
     const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(session.agentType) };
     await backend.ready?.();
     const ptyProcess = backend.spawn({
@@ -886,13 +1005,11 @@ export class SessionManager {
     session.pty = ptyProcess;
     session.stateDetector = stateDetector;
     session.mirror = mirror;
+    if (wasTiered) this.fileWatcher.watch(id, workRootOf(session));
 
     ptyProcess.onData((data) => {
       if (session.pty !== ptyProcess) return;
-      session.outputBuffer += data;
-      if (session.outputBuffer.length > 100_000) {
-        session.outputBuffer = session.outputBuffer.slice(-100_000);
-      }
+      session.rawTail.push(data); // diagnostics only — no per-chunk copy
       stateDetector.feed(data);
       this.trackShellCwd(session, data);
       this.emitOutput(session, data);
@@ -903,6 +1020,8 @@ export class SessionManager {
       stateDetector.setExited();
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
+      this.scheduleExitedTier(session, ptyProcess);
+      this.nudgeUsage(session, true);
     });
 
     this.emitStatus({ sessionId: id, status: 'running' });
@@ -986,6 +1105,31 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
   }
 
+  /** A repaint while waiting: re-announce the status if the menu options changed. */
+  private refreshPromptOptions(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || session.status !== 'waiting') return;
+    const fresh = session.stateDetector.getMenuOptions?.();
+    if (JSON.stringify(fresh) === JSON.stringify(session.promptOptions)) return;
+    this.emitStatus({ sessionId: id, status: 'waiting', lastPrompt: session.lastPrompt });
+  }
+
+  /**
+   * Guard for answering a waiting menu with one digit (waiting inbox): the
+   * session must still be waiting and the menu on screen *right now* must have
+   * that option. Re-read here, never trusted from the client, so a digit is
+   * never typed into whatever replaced the menu. Returns an error, or null.
+   */
+  checkPromptAnswer(id: string, key: unknown): string | null {
+    const session = this.sessions.get(id);
+    if (!session) return 'Session not found';
+    if (typeof key !== 'string' || !/^[1-9]$/.test(key)) return 'Invalid choice';
+    if (session.status !== 'waiting') return 'That shell is no longer waiting';
+    const options = session.stateDetector.getMenuOptions?.();
+    if (!options?.some((o) => o.key === key)) return 'The prompt changed — open the shell to answer';
+    return null;
+  }
+
   /**
    * Arm the done-grace timer (idempotent): Claude pauses between tool calls and
    * the screen can look idle mid-run, so promotion waits DONE_GRACE_MS and then
@@ -1060,6 +1204,8 @@ export class SessionManager {
     };
     (session.nativeRing ??= []).push(raw);
     if (session.nativeRing.length > NATIVE_RING_SIZE) session.nativeRing.shift();
+    // Every hook marks transcript activity; Stop (idle) ends a turn.
+    this.nudgeUsage(session, signal.state === 'idle');
 
     // A native event is a turn boundary — cancel any pending heuristic done-grace.
     if (session.doneTimer) {
@@ -1111,6 +1257,49 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
+  /**
+   * Hook metadata from a Claude session: the conversation id (Resume) and the
+   * transcript path (usage meter). Validated by the route; ignored for any
+   * non-Claude agent and for unknown sessions.
+   */
+  applyAgentMeta(id: string, meta: { claudeSessionId?: string; transcriptPath?: string }): void {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return;
+    if (meta.claudeSessionId && meta.claudeSessionId !== session.claudeSessionId) {
+      session.claudeSessionId = meta.claudeSessionId;
+      this.io?.emit('session:claudeId', { sessionId: id, claudeSessionId: meta.claudeSessionId });
+      this.persistSessions().catch(console.error);
+    }
+    if (meta.transcriptPath) {
+      this.usageTracker(session).setTranscript(meta.transcriptPath);
+    }
+  }
+
+  private usageTracker(session: ManagedSession): SessionUsageTracker {
+    session.usage ??= new SessionUsageTracker((usage) => this.onUsageChange(session, usage));
+    return session.usage;
+  }
+
+  private onUsageChange(session: ManagedSession, usage: SessionUsage): void {
+    if (this.sessions.get(session.id) !== session) return;
+    this.io?.emit('session:usage', { sessionId: session.id, usage });
+    if (!this.usagePersistTimer) {
+      this.usagePersistTimer = setTimeout(() => {
+        this.usagePersistTimer = undefined;
+        this.persistSessions().catch(console.error);
+      }, USAGE_PERSIST_MS);
+      this.usagePersistTimer.unref?.();
+    }
+  }
+
+  /** Re-read a session's transcript after hook activity (debounced in the tracker). */
+  private nudgeUsage(session: ManagedSession, followUp: boolean): void {
+    const usage = session.usage;
+    if (!usage) return;
+    usage.schedule();
+    if (followUp) setTimeout(() => usage.schedule(), USAGE_FOLLOWUP_MS).unref?.();
+  }
+
   /** Client manually promotes an idle session to done. */
   markSessionDone(id: string): void {
     const session = this.sessions.get(id);
@@ -1156,10 +1345,6 @@ export class SessionManager {
     return Array.from(this.sessions.values()).map((s) => this.toSessionInfo(s));
   }
 
-  getSessionBuffer(id: string): string | undefined {
-    return this.sessions.get(id)?.outputBuffer;
-  }
-
   /**
    * Assemble a full diagnostics snapshot for one session — Argus's in-memory
    * status machine + StateDetector signals + tmux/pty truth + the session's
@@ -1181,7 +1366,7 @@ export class SessionManager {
     // capture-pane) — consistent with what replay now serves, and non-blocking.
     let scrollback: string | null = null;
     try {
-      scrollback = session.mirror.serialize();
+      scrollback = session.exitedFrame?.full ?? session.mirror.serialize();
     } catch {
       scrollback = null;
     }
@@ -1197,8 +1382,8 @@ export class SessionManager {
         suppressDonePromotion: !!session.suppressDonePromotion,
         donePromotionPending: session.doneTimer != null,
         hasUserInputSinceIdle: session.hasUserInputSinceIdle,
-        outputBufferBytes: session.outputBuffer.length,
-        outputBufferCapBytes: OUTPUT_BUFFER_CAP,
+        rawTailBytes: session.rawTail?.size ?? 0,
+        rawTailCapBytes: RAW_TAIL_BYTES,
         connectedClients: this.io?.sockets.adapter.rooms.get(id)?.size ?? 0,
         native: {
           state: session.nativeState ?? null,
@@ -1212,7 +1397,7 @@ export class SessionManager {
       detector: session.stateDetector.getDiagnostics(),
       tmux,
       scrollback,
-      rawTail: session.outputBuffer.slice(-RAW_TAIL_BYTES),
+      rawTail: session.rawTail?.tail() ?? '',
       app: {
         nodeEnv: process.env['NODE_ENV'] ?? '',
         port: process.env['ARGUS_PORT'] ?? process.env['PORT'] ?? '',
@@ -1247,7 +1432,7 @@ export class SessionManager {
    * so a single prefix that (a) forces the client onto the normal buffer and
    * (b) clears its stale screen + scrollback is correct for both cases. The
    * frame then repaints everything (validated by TerminalMirror dirty-target
-   * tests). Falls back to the raw rolling buffer only if the mirror is unusable.
+   * tests).
    */
   /** Queue output for the session's room, coalesced into ≤60fps emissions. */
   private emitOutput(session: ManagedSession, data: string): void {
@@ -1319,8 +1504,26 @@ export class SessionManager {
     return () => { this.statusSubscribers.delete(cb); };
   }
 
-  /** The one place a status change is announced: sockets and in-process subscribers. */
-  private emitStatus(payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+  /**
+   * The one place a status change is announced: sockets and in-process
+   * subscribers. Also stamps the waiting-inbox fields: when the session started
+   * waiting (kept across re-emits of the same wait) and the menu options on
+   * screen, re-read on every emit so a late-painted menu is picked up.
+   */
+  private emitStatus(base: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+    const payload: SessionStatusPayload = { ...base };
+    const session = this.sessions.get(base.sessionId);
+    if (session) {
+      if (base.status === 'waiting') {
+        session.waitingSince ??= Date.now();
+        session.promptOptions = session.stateDetector.getMenuOptions?.();
+        payload.waitingSince = session.waitingSince;
+        if (session.promptOptions) payload.promptOptions = session.promptOptions;
+      } else {
+        session.waitingSince = undefined;
+        session.promptOptions = undefined;
+      }
+    }
     this.io?.emit('session:status', payload);
     for (const cb of this.statusSubscribers) {
       try {
@@ -1360,6 +1563,15 @@ export class SessionManager {
   getReplaySnapshot(id: string, flavor: ReplayFlavor = 'full'): SessionReplayFrame | undefined {
     const session = this.sessions.get(id);
     if (!session) return undefined;
+    const frozen = session.exitedFrame;
+    if (frozen) {
+      // Exited and tiered: same frame shapes as below, from the stored strings.
+      const { alternate, appMouse, sgr } = frozen;
+      if (flavor === 'screen' && !alternate) {
+        return { data: '\x1b[?1049l\x1b[2J\x1b[H' + frozen.screen, alternate, appMouse, sgr };
+      }
+      return { data: '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H' + frozen.full, alternate, appMouse, sgr };
+    }
     try {
       const alternate = session.mirror.bufferType() === 'alternate';
       const { appMouse, sgr } = session.mirror.modes();
@@ -1376,10 +1588,11 @@ export class SessionManager {
       const prefix = '\x1b[?1049l\x1b[2J\x1b[3J\x1b[H';
       return { data: prefix + session.mirror.serialize(), alternate, appMouse, sgr };
     } catch {
-      // Mirror unexpectedly unusable — fall back to the raw rolling buffer.
-      const data = session.outputBuffer;
-      if (data === undefined) return undefined;
-      return { data, alternate: false, appMouse: false, sgr: true };
+      // Mirror unexpectedly unusable. There used to be a raw-byte fallback
+      // here, but serialize() never throws on a live mirror (it returns ''
+      // once disposed), and a raw tail sliced mid-escape is the garbled-replay
+      // bug the mirror replaced — so no frame beats a corrupt one.
+      return undefined;
     }
   }
 
@@ -1394,7 +1607,7 @@ export class SessionManager {
   async clearBuffer(id: string): Promise<void> {
     const session = this.sessions.get(id);
     if (!session) return;
-    session.outputBuffer = '';
+    session.rawTail?.clear();
     await this.purgeScrollback(id);
   }
 
@@ -1408,6 +1621,9 @@ export class SessionManager {
     // Pending bytes belong before the clear, or they'd be dropped by it.
     this.flushOutput(id);
     await session.mirror?.clearScrollback();
+    // A frozen session has no mirror to clear: drop the history from the stored
+    // frame instead (screen-only is what a cleared mirror would serialize to).
+    if (session.exitedFrame) session.exitedFrame.full = session.exitedFrame.screen;
     const frame = this.getReplaySnapshot(id);
     // 'refresh': unsolicited, so a client whose user is scrolled up may ignore it
     // rather than have its viewport yanked to the bottom.
@@ -1457,7 +1673,7 @@ export class SessionManager {
       clearTimeout(session.flushTimer);
       session.flushTimer = undefined;
     }
-    session.outputBuffer = '';
+    session.rawTail?.clear();
     session.resyncing = true;
     session.resyncDeadline = Date.now() + SessionManager.RESYNC_MAX_MS;
     // Everything up to here is pre-drop history; the replay appends after it.
@@ -1782,6 +1998,59 @@ export class SessionManager {
     this.resizeSession(id, cols, IDLE_MIN_ROWS);
   }
 
+  /** Arm the freeze of an exited session's mirror (see tierExitedSession). */
+  private scheduleExitedTier(session: ManagedSession, pty: IPty): void {
+    if (session.tierTimer) clearTimeout(session.tierTimer);
+    session.tierTimer = setTimeout(() => {
+      session.tierTimer = undefined;
+      void this.tierExitedSession(session, pty);
+    }, EXITED_TIER_DELAY_MS);
+    session.tierTimer.unref?.();
+  }
+
+  /**
+   * An exited session keeps its tile (and its last screen) until restarted or
+   * closed, but nothing will ever write to its mirror again — so serialize it
+   * once and drop the headless xterm, its parser and its 5000-row buffer. Also
+   * stops the folder watcher, which until now ran until destroySession.
+   *
+   * Everything that could still reach the disposed mirror is safe: the
+   * detector is destroyed first (all its deferred callbacks check that), and
+   * TerminalMirror's own methods no-op once disposed (feed, resize,
+   * rebuildWithout, readRows/totalRows → empty), so a late resync or
+   * width-change dedup finds nothing and the replay is served from the frame.
+   * resize/write already return early for an exited session.
+   */
+  private async tierExitedSession(session: ManagedSession, pty: IPty): Promise<void> {
+    // restartSession disposes the old mirror synchronously but swaps `pty` only
+    // after its awaits, so pty identity alone can't tell a restart began while we
+    // waited below — the captured mirror being disposed (or replaced) can.
+    const mirror = session.mirror;
+    const current = (): boolean =>
+      this.sessions.get(session.id) === session && session.pty === pty && !session.exitedFrame &&
+      session.mirror === mirror && !mirror.disposed;
+    if (!current()) return;
+    // Let any in-flight dedup rebuild and queued writes land in the frame.
+    await session.trimPromise?.catch(() => {});
+    await mirror.afterWrite();
+    // Restarted or destroyed while we waited — leave it alone.
+    if (!current()) return;
+    // Mid-reseed: try again later rather than keep the mirror for good.
+    if (session.resyncing) {
+      this.scheduleExitedTier(session, pty);
+      return;
+    }
+    session.exitedFrame = {
+      full: mirror.serialize(),
+      screen: mirror.serializeScreen(),
+      alternate: mirror.bufferType() === 'alternate',
+      ...mirror.modes(),
+    };
+    session.stateDetector.destroy();
+    mirror.dispose();
+    void this.fileWatcher.stop(session.id);
+  }
+
   async restoreSessions(): Promise<void> {
     const persisted = await this.store.load();
 
@@ -1805,7 +2074,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -1825,7 +2094,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1836,10 +2105,25 @@ export class SessionManager {
     // deleted, or a crash left them behind).
     await this.backend.reapOrphans(knownIds);
 
-    // Ensure sessions.json reflects only successfully restored sessions.
-    // This is idempotent when all sessions restore, but necessary when some
-    // or all fail — otherwise stale entries persist and retry every restart.
+    // The one sessions.json write for the whole restore (each createSession
+    // above skipped its own). Also drops entries that failed to restore —
+    // otherwise stale entries persist and retry every restart.
     await this.persistSessions();
+  }
+
+  /** Carry a restored Claude session's conversation id and usage meter over a restart. */
+  private applyRestoredInsights(session: ManagedSession, opts: CreateSessionOpts): void {
+    if (session.agentType !== 'claude') return;
+    if (opts.claudeSessionId && isClaudeSessionId(opts.claudeSessionId)) session.claudeSessionId = opts.claudeSessionId;
+    if (opts.usage) {
+      try {
+        session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u));
+        // A surviving agent kept writing while Argus was down — catch up.
+        session.usage.schedule();
+      } catch (err) {
+        console.warn(`[usage] could not restore meter for ${session.id}:`, err);
+      }
+    }
   }
 
   private toSessionInfo(session: ManagedSession): SessionInfo {
@@ -1860,6 +2144,10 @@ export class SessionManager {
       launcherId: session.launcherId,
       cwd: session.cwd,
       shellGit: session.shellGit,
+      usage: session.usage?.snapshot(),
+      claudeSessionId: session.claudeSessionId,
+      waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
+      promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
     };
   }
 
@@ -1933,14 +2221,17 @@ export class SessionManager {
    * background and reattach on next launch. Never kills tmux sessions here.
    */
   async shutdown(): Promise<void> {
+    if (this.usagePersistTimer) { clearTimeout(this.usagePersistTimer); this.usagePersistTimer = undefined; }
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
       this.gitPollTimer = null;
     }
     for (const session of this.sessions.values()) {
       try {
+        if (session.tierTimer) { clearTimeout(session.tierTimer); session.tierTimer = undefined; }
         session.stateDetector.destroy();
         session.mirror?.dispose();
+        session.usage?.dispose();
         this.backendFor(session).detach(session.pty); // detach only; agent survives the quit
       } catch {
         // pty may already be dead — continue to next session
@@ -1978,6 +2269,8 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        claudeSessionId: s.claudeSessionId,
+        usage: s.usage?.serialize(),
       }));
       await this.store.save(data);
     });

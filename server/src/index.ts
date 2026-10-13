@@ -44,12 +44,15 @@ import { createUpdateRoutes } from './routes/update.js';
 import { createWorktreeRoutes } from './routes/worktrees.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createOriginGuard } from './middleware/originGuard.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { createJsonBodyParser } from './middleware/bodyParsers.js';
 import { createDebugScrollRoute } from './routes/debugScroll.js';
 import { createAgentSignalRoutes } from './routes/agentSignals.js';
 import { getOrCreateSignalSecret } from './services/agentSignals/token.js';
 import { resolveSignalBin } from './services/agentSignals/resolveBin.js';
 import { registerProcessHandlers } from './process/globalHandlers.js';
+import { scrubParentAgentEnv } from './utils/scrubParentAgentEnv.js';
 
 registerProcessHandlers();
 
@@ -70,11 +73,20 @@ export function setPickFolderFn(fn: () => Promise<string | null>): void {
   _filesystemOptions.pickFolder = fn;
 }
 
+// Before anything spawns: an Argus started from a Claude Code terminal must not
+// pass that session's markers to its own agents (see scrubParentAgentEnv).
+const scrubbedEnv = scrubParentAgentEnv();
+if (scrubbedEnv.length > 0) console.log(`[env] dropped inherited Claude session markers: ${scrubbedEnv.join(', ')}`);
+
 const dataDir = (process.env.ARGUS_DATA_DIR || process.env.DATA_DIR)
   ? path.resolve(process.env.ARGUS_DATA_DIR || process.env.DATA_DIR || '')
   : path.join(os.homedir(), '.argus');
 
 const app = express();
+// Must precede the first app.use (the app router reads it once, lazily). Routing
+// was case-insensitive, so `/API/sessions` matched the sessions route while the
+// auth middleware's `startsWith('/api/')` let it through unauthenticated.
+app.set('case sensitive routing', true);
 const httpServer = createServer(app);
 
 const staticCorsOrigins = [
@@ -100,11 +112,21 @@ const corsOriginFn = (
   cb(null, false);
 };
 
+// Reject (not just un-header) untrusted Host/Origin before anything runs: see
+// originGuard for the cross-site WebSocket / DNS-rebinding hole it closes.
+const originGuard = createOriginGuard({
+  staticOrigins: staticCorsOrigins,
+  tunnelUrl: () => ngrokService?.getStatus().publicUrl ?? undefined,
+});
+app.use(originGuard.middleware);
 app.use(cors({ origin: corsOriginFn }));
-app.use(express.json({ limit: '10mb' }));
+// Per-route limits (fs writes, agent signals) only hold if this skips them.
+app.use(createJsonBodyParser());
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },
+  // engine.io never checks Origin on a WebSocket upgrade; this does.
+  allowRequest: originGuard.allowRequest,
 });
 
 // Config store & agent registry

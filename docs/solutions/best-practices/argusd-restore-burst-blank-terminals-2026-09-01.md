@@ -31,7 +31,7 @@ Server-side fingerprint, from `POST /api/sessions/:id/diagnostics`:
 
 ```
 feedCount = 0        # StateDetector never saw a byte
-outputBufferBytes = 0
+rawTailBytes = 0       # (named outputBufferBytes before 0.25.5)
 scrollback: (empty)  # the mirror is empty, so replay serves nothing
 ```
 

@@ -2,39 +2,15 @@ import { createHash } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { readFile } from 'fs/promises';
-import { execFileSync } from 'child_process';
 import { atomicWrite } from '../utils/atomicWrite.js';
+import { resolveGitRoot } from '../utils/gitRoot.js';
 import type { ChangelistStateResponse } from '@argus/shared';
-
-// Resolve the git binary path once at startup.
-const GIT_PATH = (() => {
-  try {
-    return execFileSync('which', ['git'], { encoding: 'utf-8' }).trim();
-  } catch {
-    return 'git';
-  }
-})();
 
 const DEFAULT_STATE: ChangelistStateResponse = {
   version: 1,
   activeId: 'default',
   lists: [{ id: 'default', name: 'Changes', isDefault: true, fileKeys: [] }],
 };
-
-/**
- * Resolves the git repository root for a given folder path.
- * Falls back to folderPath itself when not inside a git repository.
- */
-function getGitRoot(folderPath: string): string {
-  try {
-    return execFileSync(GIT_PATH, ['rev-parse', '--show-toplevel'], {
-      cwd: folderPath,
-      encoding: 'utf-8',
-    }).trim();
-  } catch {
-    return folderPath;
-  }
-}
 
 /**
  * Returns the path to the changelist state file for the given git root.
@@ -56,7 +32,8 @@ export class ChangelistStore {
    * Returns a fresh DEFAULT_STATE if no persisted state exists.
    */
   async load(folderPath: string): Promise<ChangelistStateResponse> {
-    const gitRoot = getGitRoot(folderPath);
+    // Cached + async (utils/gitRoot): no blocking git fork per request.
+    const gitRoot = await resolveGitRoot(folderPath);
     const filePath = stateFilePath(gitRoot);
 
     try {
@@ -83,7 +60,8 @@ export class ChangelistStore {
    * Writes are serialized per-repository to prevent interleaved concurrent writes.
    */
   async save(folderPath: string, state: ChangelistStateResponse): Promise<void> {
-    const gitRoot = getGitRoot(folderPath);
+    // Cached + async (utils/gitRoot): no blocking git fork per request.
+    const gitRoot = await resolveGitRoot(folderPath);
     const filePath = stateFilePath(gitRoot);
 
     // Chain this write onto the tail of the existing queue for this repo.

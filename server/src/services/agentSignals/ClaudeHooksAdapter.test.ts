@@ -47,8 +47,10 @@ test('inject (no user --settings): writes the Argus settings file + adds the fla
   assert.equal(inj.files[0]!.path, '/home/u/.argus/signals/sess-1.json');
   const content = JSON.parse(inj.files[0]!.content);
   assert.ok(content.hooks.Stop && content.hooks.UserPromptSubmit && content.hooks.PreToolUse && content.hooks.Notification);
-  assert.match(content.hooks.Stop[0].hooks[0].command, /argus-signal" --session sess-1 --state idle$/);
-  assert.match(content.hooks.Notification[0].hooks[0].command, /--state waiting --prompt-from-stdin$/);
+  assert.match(content.hooks.Stop[0].hooks[0].command, /argus-signal" --session sess-1 --hook-stdin --state idle$/);
+  assert.match(content.hooks.Notification[0].hooks[0].command, /--hook-stdin --state waiting --prompt-from-stdin$/);
+  // SessionStart forwards the session id / transcript path with no state.
+  assert.match(content.hooks.SessionStart[0].hooks[0].command, /argus-signal" --session sess-1 --hook-stdin$/);
 });
 
 test('inject (user --settings PATH): deep-merges, collapses to one flag, strips user flag', () => {

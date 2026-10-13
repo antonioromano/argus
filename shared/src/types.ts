@@ -125,6 +125,8 @@ export interface AppConfig {
   confirmQuitDirectSessions?: boolean;
   // Launch links outside these roots get a warning on the approval card.
   launchFolderRoots?: string[];
+  // Context % / cost chip on Claude tile headers (default: true).
+  showUsageMeter?: boolean;
 }
 
 /** Every AppConfig key with its shipped default. The single source of truth for
@@ -160,6 +162,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
+  showUsageMeter: true,
 };
 
 export interface AgentStatus {
@@ -180,11 +183,13 @@ export interface LaunchRequest {
   base?: string;
 }
 
-export type LaunchWarningKind = 'worktree' | 'folder-outside-roots' | 'folder-agent-config' | 'launcher-changed';
+export type LaunchWarningKind = 'worktree' | 'folder-outside-roots' | 'folder-agent-config' | 'launcher-changed' | 'risky-flag';
 
 export interface LaunchWarning {
   kind: LaunchWarningKind;
   detail: string;
+  /** For 'risky-flag': the exact flags flagged, so the card can mark them. */
+  flags?: string[];
 }
 
 export interface ValidatedLaunch {
@@ -272,6 +277,49 @@ export interface SessionInfo {
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
+  /** Claude only: token / context / cost meter built from the agent's transcript. */
+  usage?: SessionUsage;
+  /** Claude only: the conversation id the agent last reported (what Resume reopens). */
+  claudeSessionId?: string;
+  /** Epoch ms the session entered `waiting`; set only while waiting. */
+  waitingSince?: number;
+  /** While waiting: the numbered menu choices on screen, when they could be read reliably. */
+  promptOptions?: PromptOption[];
+}
+
+/** One numbered choice of a waiting agent's selection menu. Sending `key`
+ *  (a single digit) to the session picks it. */
+export interface PromptOption {
+  key: string;
+  label: string;
+}
+
+/**
+ * Token usage of a Claude session, summed from the `message.usage` blocks of
+ * its transcript(s). Cumulative across /clear and restarts of the same Argus
+ * session; the context fields describe the latest main-thread turn only.
+ */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  /** Sum of the four counters above. */
+  totalTokens: number;
+  /** Model of the latest main-thread turn (as written in the transcript). */
+  model?: string;
+  /** Prompt size of the latest main-thread turn: input + cache read + cache write. */
+  contextTokens?: number;
+  /** Window of `model`, when known. */
+  contextWindow?: number;
+  /** contextTokens / contextWindow × 100, when the window is known. */
+  contextPct?: number;
+  /** Estimated USD at API list prices. Absent when no turn's model is priced. */
+  costUsd?: number;
+  /** True when some turns used a model with no price, so costUsd undercounts. */
+  costPartial?: boolean;
+  /** Epoch ms of the last change. */
+  updatedAt: number;
 }
 
 /** Git state of a plain Shell's current directory (follows `cd`). */
@@ -300,6 +348,12 @@ export interface CreateSessionRequest {
 }
 
 export interface CreateSessionResponse extends SessionInfo {}
+
+/** PATCH /api/sessions/:id/restart. `resume` reopens the Claude conversation
+ *  (`claude --resume <claudeSessionId>`) instead of starting fresh. */
+export interface RestartSessionRequest {
+  resume?: boolean;
+}
 
 /** Display-name change for a live shell. The tmux session name derives from the
  *  session id, so a rename is purely cosmetic and never touches the backend pty. */
@@ -362,6 +416,23 @@ export interface PathCompletionResponse {
   completions: string[];
 }
 
+/** Longest text one broadcast may carry, and most sessions it may target.
+ *  Duplicated in server/src/constants/broadcast.ts (kept in sync by check:deps). */
+export const BROADCAST_MAX_TEXT = 4000;
+export const BROADCAST_MAX_TARGETS = 50;
+
+/** Send `text` (then Enter, when `enter`) to every session in `sessionIds`.
+ *  Single-line: control characters (newlines included) are refused. */
+export interface BroadcastRequest {
+  sessionIds: string[];
+  text: string;
+  enter?: boolean;
+}
+
+export type BroadcastResult =
+  | { ok: true; sent: number; skipped: number }
+  | { ok: false; error: string };
+
 // Socket.io typed events
 export interface ClientToServerEvents {
   'session:join': (sessionId: string) => void;
@@ -378,11 +449,10 @@ export interface ClientToServerEvents {
   'session:clear-buffer': (sessionId: string) => void;
   'session:seen': (sessionId: string) => void;
   'session:mark-done': (sessionId: string) => void;
-  // Ephemeral terminals (Explorer view only — not persisted, not in session list)
-  'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
-  'ephemeral:input': (payload: { id: string; data: string }) => void;
-  'ephemeral:resize': (payload: { id: string; cols: number; rows: number }) => void;
-  'ephemeral:kill': (payload: { id: string }) => void;
+  /** Type the same text into several sessions at once (validated + rate-limited server-side). */
+  'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
+  /** Answer a waiting numbered menu with one digit; refused unless that option is on screen now. */
+  'session:answer': (payload: { sessionId: string; key: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */
   'ct:join': (sessionId: string, size?: { cols: number; rows: number }) => void;
@@ -417,10 +487,19 @@ export interface SessionReplay {
   reason?: 'join' | 'refresh' | 'resync';
 }
 
+export interface SessionStatusPayload {
+  sessionId: string;
+  status: SessionStatus;
+  lastPrompt?: string;
+  /** See SessionInfo.waitingSince / promptOptions — present only while waiting. */
+  waitingSince?: number;
+  promptOptions?: PromptOption[];
+}
+
 export interface ServerToClientEvents {
   'session:output': (payload: { sessionId: string; data: string }) => void;
   'session:replay': (payload: SessionReplay) => void;
-  'session:status': (payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => void;
+  'session:status': (payload: SessionStatusPayload) => void;
   'session:exit': (payload: { sessionId: string; exitCode: number }) => void;
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
@@ -437,13 +516,14 @@ export interface ServerToClientEvents {
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
+  /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
+  'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
+  /** A Claude session reported a (new) conversation id — Resume reopens it. */
+  'session:claudeId': (payload: { sessionId: string; claudeSessionId: string }) => void;
   /** Filesystem change detected under a session's folder. `dirs` are the
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */
   'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
-  // Ephemeral terminal responses
-  'ephemeral:output': (payload: { id: string; data: string }) => void;
-  'ephemeral:exit': (payload: { id: string; exitCode: number }) => void;
   // Companion terminal responses
   'ct:output': (payload: { sessionId: string; data: string }) => void;
   'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;

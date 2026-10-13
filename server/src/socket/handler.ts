@@ -1,9 +1,12 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { SessionManager } from '../services/SessionManager.js';
-import type { AuthService } from '../services/AuthService.js';
+import { authVerdict, type AuthService } from '../services/AuthService.js';
+import { isExposedRequest } from '../middleware/exposure.js';
 import type { UpdateService } from '../services/UpdateService.js';
-import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
+import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
+import { BROADCAST_RATE, SessionInputQueue, SlidingWindowLimiter, runBroadcast, validateBroadcast } from './broadcast.js';
+import { clampGrid } from '../utils/clampGrid.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -31,8 +34,51 @@ export function companionSpawnSize(size: unknown): [number, number] {
   return s && ok(s.cols, 1000) && ok(s.rows, 500) ? [s.cols, s.rows] : [120, 30];
 }
 
+// Companion-terminal output coalescers, by session id. Module-level because the
+// companion outlives the socket that spawned it (it is broadcast to a room).
+const ctCoalescers = new Map<string, OutputCoalescer>();
+
+/** How often live sockets are re-checked against the token store. */
+export const SOCKET_REVALIDATE_MS = 60_000;
+
+/** What the auth gate recorded about a socket at handshake (socket.data). */
+interface SocketAuthData {
+  token?: string;
+  exposedRequest?: boolean;
+}
+
+function socketVerdict(authService: AuthService, data: SocketAuthData | undefined) {
+  // A socket with no recorded handshake data is treated as exposed — fail closed.
+  return authVerdict(authService, data?.token, data?.exposedRequest ?? true);
+}
+
+/**
+ * Disconnect every socket that would no longer pass the handshake gate: its
+ * token expired or was revoked (password change, clearAuth), or enforcement
+ * turned on after it connected (tunnel start, password set). Returns how many
+ * were dropped.
+ */
+export function dropUnauthorizedSockets(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  authService: AuthService,
+): number {
+  const sockets = (io as { sockets?: { sockets?: Map<string, TypedSocket> } }).sockets?.sockets;
+  if (!sockets) return 0;
+  let dropped = 0;
+  for (const socket of [...sockets.values()]) {
+    if (socketVerdict(authService, socket.data as SocketAuthData) === 'ok') continue;
+    socket.disconnect(true);
+    dropped++;
+  }
+  return dropped;
+}
+
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
+  // CompanionTerminalManager.kill() unregisters before killing, so the companion's
+  // onExit (the usual cleanup) is skipped on destroy — drop its coalescer here.
+  ctCoalescers.get(sessionId)?.dispose();
+  ctCoalescers.delete(sessionId);
 }
 
 function getMaxDimensions(sessionId: string): { cols: number; rows: number } | null {
@@ -84,26 +130,37 @@ function getSessionDimensions(sessionId: string): { cols: number; rows: number }
   return getMaxDimensions(sessionId);
 }
 
-const ephemeralManager = new EphemeralTerminalManager();
-
 export function setupSocketHandler(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   manager: SessionManager,
   authService: AuthService,
   updateService: UpdateService,
 ): void {
+  // One input queue for all connections: keystrokes and broadcasts to a session
+  // stay in order even when they come from different windows.
+  const inputQueue = new SessionInputQueue((id, data) => manager.writeToSession(id, data));
+
   io.use((socket, next) => {
-    if (!authService.enforced) {
-      next();
-      return;
-    }
-    const token = socket.handshake.auth?.token as string | undefined;
-    if (token && authService.validateToken(token)) {
-      next();
-    } else {
-      next(new Error('Authentication required'));
-    }
+    const rawToken = socket.handshake.auth?.token;
+    const req = socket.request;
+    const data: SocketAuthData = {
+      token: typeof rawToken === 'string' ? rawToken : undefined,
+      // Same per-request exposure rule as HTTP: a socket through a tunnel Argus
+      // didn't start must authenticate even while authService.exposed is false.
+      exposedRequest: req ? isExposedRequest(req.headers, req.socket?.remoteAddress) : true,
+    };
+    // Kept on the socket so it can be re-checked after the handshake.
+    if (socket.data !== undefined) Object.assign(socket.data, data);
+    const verdict = authVerdict(authService, data.token, data.exposedRequest ?? true);
+    if (verdict === 'ok') next();
+    else if (verdict === 'no-password') next(new Error('Server is network-exposed but has no password set'));
+    else next(new Error('Authentication required'));
   });
+
+  // Re-check live sockets when the rules tighten, and periodically so a token
+  // that expires (24h TTL) mid-connection stops working too.
+  authService.onEnforcementChange(() => { dropUnauthorizedSockets(io, authService); });
+  setInterval(() => { dropUnauthorizedSockets(io, authService); }, SOCKET_REVALIDATE_MS).unref();
 
   io.on('connection', (socket: TypedSocket) => {
     console.log(`Client connected: ${socket.id}`);
@@ -184,15 +241,46 @@ export function setupSocketHandler(
 
     socket.on('session:input', ({ sessionId, data }) => {
       if (!manager.getSession(sessionId)) return;
-      try {
-        manager.writeToSession(sessionId, data);
-      } catch {
-        /* session may have exited between the guard check and write */
-      }
+      // Through the queue so a keystroke can't land between a broadcast's text
+      // and its Enter; a write error (session exited meanwhile) is swallowed.
+      inputQueue.write(sessionId, data);
     });
 
-    socket.on('session:resize', ({ sessionId, cols, rows }) => {
-      if (!manager.getSession(sessionId)) return;
+    // Broadcast input (F4): same text into several shells. Validated (known ids,
+    // length cap, single line), rate-limited per socket, and written through
+    // the session:input path above.
+    const broadcastLimiter = new SlidingWindowLimiter(BROADCAST_RATE.max, BROADCAST_RATE.windowMs);
+    socket.on('session:broadcast', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const req = validateBroadcast(payload, (id) => !!manager.getSession(id));
+      if (!req.ok) {
+        reply(req);
+        return;
+      }
+      if (!broadcastLimiter.take()) {
+        reply({ ok: false, error: 'Too many broadcasts — wait a few seconds' });
+        return;
+      }
+      reply(runBroadcast(req, (id) => {
+        const s = manager.getSession(id);
+        return !!s && s.status !== 'exited';
+      }, inputQueue));
+    });
+
+    socket.on('session:answer', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const { sessionId, key } = (payload ?? {}) as { sessionId?: unknown; key?: unknown };
+      if (typeof sessionId !== 'string') { reply({ ok: false, error: 'Invalid request' }); return; }
+      const error = manager.checkPromptAnswer(sessionId, key);
+      if (error) { reply({ ok: false, error }); return; }
+      inputQueue.write(sessionId, key as string);
+      reply({ ok: true });
+    });
+
+    socket.on('session:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {
+      const grid = clampGrid(rawCols, rawRows);
+      if (!grid || !manager.getSession(sessionId)) return;
+      const { cols, rows } = grid;
       // Store this client's dimensions
       const sockets = clientDimensions.get(sessionId);
       if (sockets) {
@@ -203,40 +291,6 @@ export function setupSocketHandler(
       try {
         manager.resizeSession(sessionId, dims.cols, dims.rows);
       } catch { /* session may have exited between guard check and resize */ }
-    });
-
-    // Ephemeral terminal events (Explorer view — not persisted, not in session list)
-    socket.on('ephemeral:spawn', ({ id, cwd }) => {
-      // Containment: only spawn a shell inside a folder Argus actually manages a
-      // session for. Without this an (authenticated) client — including one on
-      // the mobile tunnel — could open a login shell at any path on the host,
-      // escaping the session sandbox every other fs/git route enforces.
-      const safeCwd = manager.resolveWithinAnySession(cwd);
-      if (!safeCwd) {
-        socket.emit('ephemeral:exit', { id, exitCode: -1 });
-        return;
-      }
-      ephemeralManager.spawn(
-        id,
-        socket.id,
-        safeCwd,
-        120,
-        30,
-        (data) => socket.emit('ephemeral:output', { id, data }),
-        (exitCode) => socket.emit('ephemeral:exit', { id, exitCode }),
-      );
-    });
-
-    socket.on('ephemeral:input', ({ id, data }) => {
-      ephemeralManager.write(id, data);
-    });
-
-    socket.on('ephemeral:resize', ({ id, cols, rows }) => {
-      ephemeralManager.resize(id, cols, rows);
-    });
-
-    socket.on('ephemeral:kill', ({ id }) => {
-      ephemeralManager.kill(id);
     });
 
     // Companion terminal events (one per session, persists while parent session is alive)
@@ -251,12 +305,18 @@ export function setupSocketHandler(
         if (!clientDimensions.has(ctRoom)) {
           clientDimensions.set(ctRoom, new Map());
         }
+        // Coalesced like session:output; see ctCoalescers.
+        ctCoalescers.get(sessionId)?.dispose();
+        const out = createOutputCoalescer((data) => io.to(ctRoom).emit('ct:output', { sessionId, data }));
+        ctCoalescers.set(sessionId, out);
         manager.companionTerminals.spawn(
           sessionId,
           session.folderPath,
           ...companionSpawnSize(size),
-          (data) => io.to(ctRoom).emit('ct:output', { sessionId, data }),
+          (data) => out.push(data),
           (exitCode) => {
+            out.dispose(); // output first, then the exit
+            if (ctCoalescers.get(sessionId) === out) ctCoalescers.delete(sessionId);
             io.to(ctRoom).emit('ct:exit', { sessionId, exitCode });
             clientDimensions.delete(ctRoom);
           },
@@ -267,6 +327,10 @@ export function setupSocketHandler(
         }
       }
 
+      // Same invariant as session:join: pending bytes are already in the
+      // companion buffer replayed below, so emit them to the room BEFORE this
+      // socket joins it — after would paint them twice.
+      ctCoalescers.get(sessionId)?.flush();
       void socket.join(ctRoom);
       const buffer = manager.companionTerminals.getBuffer(sessionId);
       if (buffer) {
@@ -291,7 +355,10 @@ export function setupSocketHandler(
       manager.companionTerminals.write(sessionId, data);
     });
 
-    socket.on('ct:resize', ({ sessionId, cols, rows }) => {
+    socket.on('ct:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {
+      const grid = clampGrid(rawCols, rawRows);
+      if (!grid) return;
+      const { cols, rows } = grid;
       const ctRoom = `ct:${sessionId}`;
       const sockets = clientDimensions.get(ctRoom);
       if (sockets) {
@@ -350,8 +417,6 @@ export function setupSocketHandler(
         }
       }
       mobileSocketIds.delete(socket.id);
-      // Kill all ephemeral terminals for this socket
-      ephemeralManager.killAllForSocket(socket.id);
     });
   });
 }

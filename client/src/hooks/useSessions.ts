@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionStatus, TerminalEngine, RunMode, ShellGitContext } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/index.js';
+import { pruneFileTreeCache } from './useFileTree.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
@@ -31,6 +32,14 @@ export function useSessions(socket: TypedSocket) {
     for (const buf of pendingDeltasRef.current) buf.push(fn);
     setSessions(fn);
   }, []);
+
+  // Evict per-session caches for sessions that are gone (deleted, errored, or
+  // missing from a post-reconnect refetch). Gated on `loaded` so the empty
+  // pre-fetch list never reads as "everything was deleted".
+  useEffect(() => {
+    if (!loaded) return;
+    pruneFileTreeCache(new Set(sessions.map((s) => s.id)));
+  }, [sessions, loaded]);
 
   // Load sessions on mount and after reconnect
   useEffect(() => {
@@ -61,9 +70,12 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
+    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions }: SessionStatusPayload) => {
       applyDelta((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt } : s)),
+        prev.map((s) => (s.id === sessionId
+          // waitingSince/promptOptions are only sent while waiting; their absence clears them.
+          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions }
+          : s)),
       );
     };
 
@@ -102,7 +114,17 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
     };
 
+    const handleUsage = ({ sessionId, usage }: { sessionId: string; usage: SessionUsage }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
+    };
+
+    const handleClaudeId = ({ sessionId, claudeSessionId }: { sessionId: string; claudeSessionId: string }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, claudeSessionId } : s)));
+    };
+
     socket.on('session:status', handleStatus);
+    socket.on('session:usage', handleUsage);
+    socket.on('session:claudeId', handleClaudeId);
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
     socket.on('session:deleted', handleDeleted);
@@ -113,6 +135,8 @@ export function useSessions(socket: TypedSocket) {
 
     return () => {
       socket.off('session:status', handleStatus);
+      socket.off('session:usage', handleUsage);
+      socket.off('session:claudeId', handleClaudeId);
       socket.off('session:exit', handleExit);
       socket.off('session:created', handleCreated);
       socket.off('session:deleted', handleDeleted);

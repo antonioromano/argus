@@ -5,6 +5,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
+import { UsageChip } from '../ui/UsageChip.js';
 import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
@@ -52,6 +53,8 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 interface FocusProps {
   /** Progress hairline under the header while running — same setting as the mosaic tiles. */
   runningIndicator?: TileRunningIndicator;
+  /** Claude usage chip in the header (config `showUsageMeter`, default true). */
+  showUsage?: boolean;
   sessions: SessionInfo[];
   active: SessionInfo;
   socket: TypedSocket;
@@ -79,6 +82,8 @@ interface FocusProps {
   onClone: () => void;
   onKill: () => void;
   onRestart: () => void;
+  /** Reopen the last Claude conversation; pass only when it applies (canResume). */
+  onResume?: () => void;
   /** Write a diagnostics dump for this session to disk (debug action). */
   onDumpDiagnostics: () => void;
   /** Show the diagnostics dump button (gated by the developer-tools setting). */
@@ -91,6 +96,7 @@ interface FocusProps {
 
 export function Focus({
   runningIndicator = 'hairline',
+  showUsage = true,
   sessions,
   active,
   socket,
@@ -112,6 +118,7 @@ export function Focus({
   onClone,
   onKill,
   onRestart,
+  onResume,
   onDumpDiagnostics,
   showDiagnostics,
   shortcuts,
@@ -283,6 +290,7 @@ export function Focus({
             {active.shellGit !== undefined ? (
               active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
             ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
+            {showUsage && active.usage && <UsageChip usage={active.usage} />}
             <div style={{ flex: 1 }} />
             <Button
               variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
@@ -352,7 +360,7 @@ export function Focus({
                 />
               </ErrorBoundary>
               {active.status === 'exited' && !useNativeTerminal && (
-                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onClone={onClone} />
+                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
               {(modalOpen || overlayHidden) && <ModalPlaceholder status={active.status} />}
             </div>

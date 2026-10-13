@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 
@@ -59,8 +59,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     };
   }, [push]);
 
+  const value = useMemo(() => ({ push }), [push]);
+
   return (
-    <ToastContext.Provider value={{ push }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div
         style={{

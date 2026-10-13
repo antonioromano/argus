@@ -1,9 +1,10 @@
 import { Router } from 'express';
+import path from 'path';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { CreateSessionRequest, RenameSessionRequest, SessionGroup } from '@argus/shared';
+import type { CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateFlags } from '../utils/flags.js';
 
@@ -106,6 +107,12 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       res.status(400).json({ error: 'folderPath is required' });
       return;
     }
+    // Canonicalised (realpath, directory check) in SessionManager.createSession;
+    // reject the obvious case here with a clear 400.
+    if (typeof folderPath !== 'string' || !path.isAbsolute(folderPath)) {
+      res.status(400).json({ error: 'folderPath must be an absolute path' });
+      return;
+    }
 
     if (flags?.length) {
       const validationError = validateFlags(flags);
@@ -152,12 +159,13 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
   }));
 
   router.patch('/:id/restart', asyncHandler(async (req, res) => {
+    const { resume } = (req.body ?? {}) as RestartSessionRequest;
     try {
-      const session = await manager.restartSession(req.params.id);
+      const session = await manager.restartSession(req.params.id, { resume: resume === true });
       res.json(session);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to restart session';
-      res.status(404).json({ error: message });
+      res.status(/not found/i.test(message) ? 404 : 400).json({ error: message });
     }
   }));
 

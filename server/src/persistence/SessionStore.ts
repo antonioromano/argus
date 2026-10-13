@@ -2,6 +2,7 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { atomicWrite } from '../utils/atomicWrite.js';
 import type { RunMode, TerminalEngine } from '@argus/shared';
+import type { SessionUsageTrackerState } from '../services/usage/SessionUsageTracker.js';
 
 export interface PersistedSession {
   id: string;
@@ -15,6 +16,10 @@ export interface PersistedSession {
   terminalEngine?: TerminalEngine;
   runMode?: RunMode;
   launcherId?: string;
+  /** Claude only: the conversation id last reported by the agent's hooks. */
+  claudeSessionId?: string;
+  /** Claude only: usage-meter tail state (offsets + totals per transcript). */
+  usage?: SessionUsageTrackerState;
 }
 
 export class SessionStore {

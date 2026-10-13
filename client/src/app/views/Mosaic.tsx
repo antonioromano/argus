@@ -5,6 +5,8 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
+import { UsageChip } from '../ui/UsageChip.js';
+import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
@@ -76,6 +78,8 @@ interface MosaicProps {
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  /** Reopen the last Claude conversation (offered only when canResume). */
+  onResume?: (session: SessionInfo) => void;
   onDumpDiagnostics: (session: SessionInfo) => void;
   /** Show the per-tile diagnostics button (gated by the developer-tools setting). */
   showDiagnostics: boolean;
@@ -107,6 +111,8 @@ interface MosaicProps {
   defaultTerminalEngine?: TerminalEngine;
   /** Side by side columns ('horizontal') or stacked rows ('vertical') (default: horizontal). */
   orientation?: MosaicOrientation;
+  /** Show the Claude usage chip in tile headers (default: true). */
+  showUsage?: boolean;
 }
 
 const MAX_TILES = 12;
@@ -114,7 +120,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -171,10 +177,36 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     handlerStateRef.current = { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize, restoreFromFilter, currentGroup };
   });
 
+  // Genie animation timers, cleared on unmount so a Mosaic torn down mid-
+  // animation (switching to Focus) doesn't fire state updates/toggles later.
+  const animTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Minimizes whose toggle is still waiting on the genie timer. The animation is
+  // cosmetic and may be dropped on unmount; the user's choice must not be.
+  const pendingMinimizeRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const timers = animTimersRef.current;
+    const pending = pendingMinimizeRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+      for (const id of pending) handlerStateRef.current.toggleMinimize(id);
+      pending.clear();
+    };
+  }, []);
+  const later = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      animTimersRef.current.delete(t);
+      fn();
+    }, ms);
+    animTimersRef.current.add(t);
+  }, []);
+
   const handleMinimize = useCallback((id: string) => {
     const { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize } = handlerStateRef.current;
     setMinimizingIds(prev => new Set([...prev, id]));
-    setTimeout(() => {
+    pendingMinimizeRef.current.add(id);
+    later(() => {
+      pendingMinimizeRef.current.delete(id);
       const remaining = filtered
         .slice(0, MAX_TILES)
         .filter(s => !isMinimized(s.id, groupFilterIds, activeGroupId) && s.id !== id && !minimizingIds.has(s.id))
@@ -183,29 +215,29 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
       setMinimizingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
       setNewChipIds(prev => new Set([...prev, id]));
       setReflowingIds(new Set(remaining));
-      setTimeout(() => {
+      later(() => {
         setNewChipIds(prev => { const n = new Set(prev); n.delete(id); return n; });
         setReflowingIds(new Set());
       }, 540);
     }, 340);
-  }, []);
+  }, [later]);
 
   const handleRestore = useCallback((id: string) => {
     const { groupFilterIds, toggleMinimize, restoreFromFilter, currentGroup } = handlerStateRef.current;
     if (groupFilterIds) restoreFromFilter(id, currentGroup);
     else toggleMinimize(id);
     setRestoringIds(prev => new Set([...prev, id]));
-    setTimeout(() => {
+    later(() => {
       setRestoringIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     }, 400);
-  }, []);
+  }, [later]);
 
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -220,6 +252,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
+  const handleTileResume = useCallback((s: SessionInfo) => propCbRef.current.onResume?.(s), []);
   const handleTileDumpDiagnostics = useCallback((s: SessionInfo) => propCbRef.current.onDumpDiagnostics(s), []);
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
@@ -453,6 +486,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onOpen={handleTileOpen}
                   onKill={handleTileKill}
                   onRestart={handleTileRestart}
+                  onResume={onResume && canResume(s) ? handleTileResume : undefined}
                   onDumpDiagnostics={handleTileDumpDiagnostics}
                   showDiagnostics={showDiagnostics}
                   onMarkDone={onMarkDone ? handleTileMarkDone : undefined}
@@ -471,6 +505,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   isNotified={notifiedTileId === s.id}
                   quickAction={quickAction}
                   runningIndicator={runningIndicator}
+                  showUsage={showUsage}
                   nativeEngine={resolveTerminalEngine(s.terminalEngine, defaultTerminalEngine, nativeAvailable)}
                 />
               ))}
@@ -536,6 +571,8 @@ type MosaicTileSharedProps = {
   onOpen: (id: string) => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  /** Reopen the last Claude conversation (offered only when canResume). */
+  onResume?: (session: SessionInfo) => void;
   onDumpDiagnostics: (session: SessionInfo) => void;
   showDiagnostics: boolean;
   /** Mark-as-done handler; gated by `canMarkDone` for whether the button shows. */
@@ -559,6 +596,8 @@ type MosaicTileSharedProps = {
   /** Pinned header action + running-progress treatment, both from config. */
   quickAction: TileQuickAction;
   runningIndicator: TileRunningIndicator;
+  /** Claude usage chip in the header (config `showUsageMeter`). */
+  showUsage?: boolean;
   /** Native terminal engine decision for THIS session (see
    *  resolveTerminalEngine) — availability is resolved once by the Mosaic
    *  root, but the outcome is per-session. Still a plain boolean, so it
@@ -676,6 +715,7 @@ function MosaicTileInner({
   onOpen,
   onKill,
   onRestart,
+  onResume,
   onDumpDiagnostics,
   showDiagnostics,
   onMarkDone,
@@ -693,6 +733,7 @@ function MosaicTileInner({
   onCloseSearch,
   quickAction,
   runningIndicator,
+  showUsage = true,
   nativeEngine,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
@@ -763,6 +804,7 @@ function MosaicTileInner({
     {
       onRename: () => sessionMenu.beginRename(session.id, 'tile'),
       onOpen, onKill, onRestart, onToggleMinimize,
+      onResume, canResume: () => !!onResume,
       onDumpDiagnostics, showDiagnostics,
       onMarkDone, canMarkDone: () => !!canMarkDone,
       onMerge, canMerge: () => !!canMerge,
@@ -866,6 +908,8 @@ function MosaicTileInner({
           </Tooltip>
         )}
 
+        {showUsage && session.usage && <UsageChip usage={session.usage} />}
+
         <span className="argus-tile-status argus-status" data-status={session.status}>
           {STATUS_LABELS[session.status]}
         </span>
@@ -931,6 +975,7 @@ function MosaicTileInner({
             runMode={session.runMode}
             folderPath={session.folderPath}
             onRestart={() => onRestart(session)}
+            onResume={onResume ? () => onResume(session) : undefined}
             onClone={onClone ? () => onClone(session) : undefined}
           />
         )}

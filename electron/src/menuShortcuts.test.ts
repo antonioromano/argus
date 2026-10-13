@@ -66,3 +66,10 @@ test('an unusable binding falls back to the default without losing the item', ()
 test('unknown ids are ignored', () => {
   assert.equal(setMenuShortcuts({ 'not-a-shortcut': 'mod+q' }), false);
 });
+
+// Not Cmd+Shift+I: Monaco binds it (Format Document), and as an app-menu
+// accelerator it would fire over a focused editor.
+test('the waiting inbox has a menu accelerator (it must reach native tiles too)', () => {
+  assert.equal(MENU_SHORTCUT_DEFAULTS['waiting-inbox'], 'mod+shift+j');
+  assert.equal(menuAccelerator('waiting-inbox'), 'CmdOrCtrl+Shift+J');
+});

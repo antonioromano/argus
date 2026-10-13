@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import { SessionManager } from './SessionManager.js';
+import { TerminalMirror } from './TerminalMirror.js';
 import { tmuxSessionName } from './PtyManager.js';
 
 // These tests exercise the tmux-delegation path via PtyManager stubs; pin the
@@ -146,21 +147,32 @@ function withFakeNonTmuxSession(sm: SessionManager, id: string, outputBuffer: st
   });
 }
 
-test('getReplaySnapshot returns a fresh frame each call (no TTL cache)', () => {
+test('getReplaySnapshot reflects new output immediately (no stale frame)', async () => {
   // The TTL snapshot cache was removed with the move to mirror.serialize()
-  // (plan 002 Unit 2): serving is an in-memory read, so every join reflects the
-  // latest state immediately. These fakes carry no mirror, exercising the
-  // raw-buffer fallback path — enough to prove there is no stale caching.
+  // (plan 002 Unit 2). The mirror now memoizes serialize() per write
+  // generation, so this pins that a join after new output never gets the
+  // previous frame back.
   const sm = new SessionManager(os.tmpdir(), fakeConfig);
-  withFakeNonTmuxSession(sm, 'sess-2', 'first-snapshot');
-  assert.equal(sm.getReplaySnapshot('sess-2')?.data, 'first-snapshot');
+  withFakeNonTmuxSession(sm, 'sess-2', '');
+  const mirror = new TerminalMirror(40, 10, 200);
+  (sm as any).sessions.get('sess-2').mirror = mirror;
+  await mirror.feed('first-snapshot');
+  assert.match(sm.getReplaySnapshot('sess-2')!.data, /first-snapshot/);
 
-  (sm as any).sessions.get('sess-2').outputBuffer = 'second-snapshot';
-  assert.equal(
-    sm.getReplaySnapshot('sess-2')?.data,
-    'second-snapshot',
-    'no cache — a fresh call reflects the latest state immediately',
+  await mirror.feed('\r\nsecond-snapshot');
+  assert.match(
+    sm.getReplaySnapshot('sess-2')!.data,
+    /second-snapshot/,
+    'a fresh call reflects the latest state immediately',
   );
+  mirror.dispose();
+});
+
+test('getReplaySnapshot returns undefined rather than a raw byte tail when the mirror is unusable', () => {
+  // The raw-buffer fallback is gone: a tail sliced mid-escape garbles clients.
+  const sm = new SessionManager(os.tmpdir(), fakeConfig);
+  withFakeNonTmuxSession(sm, 'sess-nomirror', '');
+  assert.equal(sm.getReplaySnapshot('sess-nomirror'), undefined);
 });
 
 test('persistSessions serializes concurrent writes and always persists the latest state (no stale overwrite)', async () => {

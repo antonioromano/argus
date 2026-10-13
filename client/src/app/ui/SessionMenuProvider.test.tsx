@@ -126,3 +126,36 @@ describe('SessionMenuProvider rename', () => {
     expect(container.querySelector('input')).toBeNull();
   });
 });
+
+describe('SessionMenuProvider api identity', () => {
+  it('stays stable across parent re-renders with an inline onRename, and calls the latest one', () => {
+    const seen: unknown[] = [];
+    function Probe() {
+      const api = useSessionMenu();
+      seen.push(api);
+      return null;
+    }
+    const calls: string[] = [];
+    const render = (tag: string) => {
+      act(() => {
+        root.render(
+          <SessionMenuProvider
+            actions={{ onOpen: vi.fn(), onKill: vi.fn(), onRestart: vi.fn() }}
+            onRename={(id, name) => { calls.push(`${tag}:${id}:${name}`); }}
+          >
+            <Probe />
+          </SessionMenuProvider>,
+        );
+      });
+    };
+    render('first');
+    render('second');
+    render('third');
+
+    expect(seen.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(seen).size, 'one api object across renders').toBe(1);
+
+    act(() => { (seen[0] as ReturnType<typeof useSessionMenu>).commitRename('s1', ' renamed '); });
+    expect(calls).toEqual(['third:s1:renamed']);
+  });
+});

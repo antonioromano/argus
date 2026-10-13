@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'os';
 import { SessionManager } from './SessionManager.js';
 import { TerminalMirror } from './TerminalMirror.js';
+import { RawTail } from './RawTail.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux'; // pin backend so a built argusd binary doesn't flip the default
 
@@ -37,7 +38,7 @@ function mgrWithMirrorSession(id: string, mirror: TerminalMirror): { sm: Session
     pty: {},
     stateDetector: { resize: () => {} },
     mirror,
-    outputBuffer: 'RAW-FALLBACK',
+    rawTail: (() => { const t = new RawTail(1024); t.push('RAW-FALLBACK'); return t; })(),
     tmuxName: `argus-${id}`,
     persistent: true,
     hasUserInputSinceIdle: false,
@@ -142,7 +143,7 @@ test('clearBuffer wipes the mirror history so the stale rows cannot come back on
   const frame = sm.getReplaySnapshot('s5')!;
   assert.doesNotMatch(frame.data, /hist-line-0\b/, 'cleared history must not be served again');
   assert.match(frame.data, /hist-line-19/, 'the visible screen survives the clear');
-  assert.equal((sm as any).sessions.get('s5').outputBuffer, '', 'raw rolling buffer cleared too');
+  assert.equal((sm as any).sessions.get('s5').rawTail.size, 0, 'raw diagnostics tail cleared too');
   mirror.dispose();
 });
 
@@ -169,7 +170,7 @@ test('clearBuffer repaints the clients already in the room, not just the one tha
   mirror.dispose();
 });
 
-test('getReplaySnapshot falls back to the raw buffer when the mirror throws', async () => {
+test('getReplaySnapshot sends no frame (never a raw byte tail) when the mirror throws', async () => {
   const mirror = new TerminalMirror(40, 10, 200);
   mirror.dispose(); // disposed → serialize() returns '' (not a throw); force a throw instead
   const { sm } = mgrWithMirrorSession('s4', mirror);
@@ -182,5 +183,8 @@ test('getReplaySnapshot falls back to the raw buffer when the mirror throws', as
     },
   };
   const frame = sm.getReplaySnapshot('s4');
-  assert.equal(frame!.data, 'RAW-FALLBACK', 'falls back to the raw rolling buffer on mirror failure');
+  // The raw-buffer fallback was removed: a tail sliced mid-escape is the
+  // garbled-replay bug the mirror replaced. Every caller treats undefined as
+  // "no frame"; the raw tail survives only in the diagnostics dump.
+  assert.equal(frame, undefined, 'mirror failure yields no frame, not the raw tail');
 });

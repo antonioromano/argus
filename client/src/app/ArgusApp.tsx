@@ -14,10 +14,10 @@ import { useNotifications } from '../hooks/useNotifications.js';
 import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
+import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
@@ -35,6 +35,10 @@ import { Overlay } from './overlays/Overlay.js';
 import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
+import { WaitingInbox } from './overlays/WaitingInbox.js';
+import { BroadcastSheet } from './overlays/BroadcastSheet.js';
+import { formatCombo } from '../keyboard/combo.js';
+import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
 import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
@@ -51,6 +55,7 @@ import { insertBefore } from '../utils/reorder.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 import { setSuppressionTransport } from '../hooks/nativeOverlayRegistry.js';
+import { canResume } from '../utils/resume.js';
 
 interface NativeTerminalSuppressionBridge {
   suppress: (sessionId: string) => void;
@@ -303,6 +308,14 @@ function DesktopInner() {
     }
   }, []);
 
+  // Resume an exited Claude session's last conversation. No confirm: the agent
+  // is already gone, so nothing running is interrupted.
+  const resumeSession = useCallback((s: SessionInfo) => {
+    api.restartSession(s.id, { resume: true }).catch((err) => {
+      pushToast(err instanceof Error ? err.message : 'Failed to resume conversation', 'danger');
+    });
+  }, []);
+
   // Cmd+W → close the active terminal's shell. Registered once; reads latest state via ref.
   const closeActiveShell = useCallback(() => {
     if (!activeTerminalId) return;
@@ -317,6 +330,16 @@ function DesktopInner() {
   // focus; openOverlay is idempotent so a redundant double-fire is harmless.
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
   const openWhatsNew = useCallback(() => app.openOverlay({ kind: 'intro', flow: 'whatsNew' }), [app]);
+  const openInbox = useCallback(() => app.openOverlay({ kind: 'inbox' }), [app]);
+  const openBroadcast = useCallback((sessionIds: string[]) => app.openOverlay({ kind: 'broadcast', sessionIds }), [app]);
+  // Ack-based so the sheet can show the server's refusal (unknown shell, rate
+  // limit) inline; the timeout covers a dropped socket, which never acks.
+  const sendBroadcast = useCallback((req: BroadcastRequest) => new Promise<BroadcastResult>((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, error: 'No answer from Argus — check the connection and try again' }), 5000);
+    socket.emit('session:broadcast', req, (res) => { clearTimeout(timer); resolve(res); });
+  }), [socket]);
+  const openInboxRef = useRef(openInbox);
+  useEffect(() => { openInboxRef.current = openInbox; }, [openInbox]);
   const openWhatsNewRef = useRef(openWhatsNew);
   useEffect(() => { openWhatsNewRef.current = openWhatsNew; }, [openWhatsNew]);
 
@@ -397,7 +420,10 @@ function DesktopInner() {
     const offSearch = bridge.onMenu('menu:terminal-search', () => openTerminalSearchRef.current());
     const offClear = bridge.onMenu('menu:clear-terminal', () => clearFocusedTerminalScrollbackRef.current());
     const offIntro = bridge.onMenu('menu:whats-new', () => openWhatsNewRef.current());
-    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); };
+    // Open-only (never a toggle): the menu accelerator and the keydown path can
+    // both fire for one keystroke, and two toggles would cancel out.
+    const offInbox = bridge.onMenu('menu:waiting-inbox', () => openInboxRef.current());
+    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -532,6 +558,10 @@ function DesktopInner() {
           if (app.overlay?.kind === 'palette') app.closeOverlay();
           else app.openOverlay({ kind: 'palette' });
           break;
+        case 'waiting-inbox':
+          e.preventDefault();
+          openInbox();
+          break;
         case 'terminal-search':
           // Fallback when no terminal owns the keystroke (e.g. focus is on the shell
           // chrome). Open search for the active terminal; useTerminal handles the
@@ -566,7 +596,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -766,6 +796,35 @@ function DesktopInner() {
     </>
   );
 
+  // Command palette actions. Built per render — the palette is only mounted
+  // while open, so this costs nothing the rest of the time.
+  const paletteCommands: PaletteCommand[] = [
+    {
+      id: 'waiting-inbox',
+      label: counts.waiting > 0 ? `Waiting inbox (${counts.waiting})` : 'Waiting inbox',
+      hint: formatCombo(shortcuts.resolved['waiting-inbox']),
+      keywords: 'waiting prompt approve answer pending needs input',
+      icon: Inbox,
+      run: openInbox,
+    },
+    {
+      id: 'broadcast',
+      label: 'Broadcast input…',
+      hint: 'type into several shells',
+      keywords: 'send all many multiple type same text compact',
+      icon: Send,
+      run: () => openBroadcast([]),
+    },
+    ...orderedSessions.filter(canResume).map((s) => ({
+      id: `resume-${s.id}`,
+      label: `Resume conversation: ${s.name}`,
+      hint: s.folderPath.split('/').slice(-2).join('/'),
+      keywords: 'resume claude continue restart',
+      icon: History,
+      run: () => { app.closeOverlay(); resumeSession(s); },
+    })),
+  ];
+
   // One shell action menu for the whole app: every surface that shows a shell
   // name (tile header, focus header, sidebar row, minimized chip) opens this on
   // right-click, and Rename flips that surface into an inline editor.
@@ -773,6 +832,8 @@ function DesktopInner() {
     onOpen: openSessionGuarded,
     onKill: requestKill,
     onRestart: setPendingRestart,
+    onResume: resumeSession,
+    canResume,
     onToggleMinimize: mosaicVis.toggleMinimize,
     onDumpDiagnostics: (s: SessionInfo) => void handleDumpDiagnostics(s),
     showDiagnostics: config?.debugToolsEnabled ?? false,
@@ -895,6 +956,7 @@ function DesktopInner() {
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
+              onResume={resumeSession}
               onDumpDiagnostics={(s) => void handleDumpDiagnostics(s)}
               showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
@@ -916,12 +978,14 @@ function DesktopInner() {
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
               defaultTerminalEngine={config?.defaultTerminalEngine}
+              showUsage={config?.showUsageMeter !== false}
             />
           )}
 
           {app.view === 'focus' && activeSession && (
             <Focus
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
+              showUsage={config?.showUsageMeter !== false}
               sessions={orderedSessions}
               active={activeSession}
               socket={socket}
@@ -948,6 +1012,7 @@ function DesktopInner() {
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType, terminalEngine: activeSession.terminalEngine, runMode: activeSession.runMode })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
+              onResume={canResume(activeSession) ? () => resumeSession(activeSession) : undefined}
               onDumpDiagnostics={() => void handleDumpDiagnostics(activeSession)}
               showDiagnostics={config?.debugToolsEnabled ?? false}
               shortcuts={shortcuts.resolved}
@@ -999,8 +1064,35 @@ function DesktopInner() {
               app.closeOverlay();
               guardForeign(sessionId, () => app.openMaximized({ kind: 'diff', sessionId }));
             }}
+            commands={paletteCommands}
           />
         </Overlay>
+      )}
+      {app.overlay?.kind === 'inbox' && (
+        <Overlay onClose={app.closeOverlay} align="top" label="Waiting inbox">
+          <WaitingInbox
+            sessions={orderedSessions}
+            shortcutLabel={formatCombo(shortcuts.resolved['waiting-inbox'])}
+            onClose={app.closeOverlay}
+            onJump={(id) => { app.closeOverlay(); openSessionGuarded(id); }}
+            onSendKey={(id, key) => socket.emit('session:answer', { sessionId: id, key }, (res) => {
+              if (!res.ok) pushToast(res.error, 'warn');
+            })}
+            onBroadcast={openBroadcast}
+          />
+        </Overlay>
+      )}
+      {app.overlay?.kind === 'broadcast' && (
+        <BroadcastSheet
+          sessions={orderedSessions}
+          initialSelected={app.overlay.sessionIds}
+          onSend={sendBroadcast}
+          onSent={({ sent, skipped }) => {
+            pushToast(`Sent to ${sent} shell${sent === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped (exited)` : ''}`, 'ok');
+            app.closeOverlay();
+          }}
+          onClose={app.closeOverlay}
+        />
       )}
       {app.overlay?.kind === 'update' && updateStatus && (
         <Overlay onClose={app.closeOverlay} label="Update Argus">
