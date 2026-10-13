@@ -2,30 +2,11 @@ import { createHash } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { readFile } from 'fs/promises';
-import { execFileSync } from 'child_process';
 import { atomicWrite } from '../utils/atomicWrite.js';
+import { resolveGitRoot } from '../utils/gitRoot.js';
 import type { CommitSelectionState } from '@argus/shared';
 
-const GIT_PATH = (() => {
-  try {
-    return execFileSync('which', ['git'], { encoding: 'utf-8' }).trim();
-  } catch {
-    return 'git';
-  }
-})();
-
 const DEFAULT_STATE: CommitSelectionState = { version: 1, files: [] };
-
-function getGitRoot(folderPath: string): string {
-  try {
-    return execFileSync(GIT_PATH, ['rev-parse', '--show-toplevel'], {
-      cwd: folderPath,
-      encoding: 'utf-8',
-    }).trim();
-  } catch {
-    return folderPath;
-  }
-}
 
 function stateFilePath(gitRoot: string): string {
   const hash = createHash('sha256').update(gitRoot).digest('hex');
@@ -36,7 +17,8 @@ const writeQueues = new Map<string, Promise<void>>();
 
 export class CommitSelectionStore {
   async load(folderPath: string): Promise<CommitSelectionState> {
-    const gitRoot = getGitRoot(folderPath);
+    // Cached + async (utils/gitRoot): no blocking git fork per request.
+    const gitRoot = await resolveGitRoot(folderPath);
     const filePath = stateFilePath(gitRoot);
 
     try {
@@ -52,7 +34,8 @@ export class CommitSelectionStore {
   }
 
   async save(folderPath: string, state: CommitSelectionState): Promise<void> {
-    const gitRoot = getGitRoot(folderPath);
+    // Cached + async (utils/gitRoot): no blocking git fork per request.
+    const gitRoot = await resolveGitRoot(folderPath);
     const filePath = stateFilePath(gitRoot);
 
     const queue = writeQueues.get(gitRoot) ?? Promise.resolve();

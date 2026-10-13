@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
+import { RawTail } from './RawTail.js';
 import { SessionManager } from './SessionManager.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux'; // pin backend so a built argusd binary doesn't flip the default
@@ -74,7 +75,7 @@ function fixture() {
     pty: old,
     stateDetector: { destroy: () => {}, feed: () => {}, setOnPromptUpdate: () => {}, setExited: () => {} },
     mirror: { dispose: () => {}, feed: async () => {} },
-    outputBuffer: 'stale',
+    rawTail: (() => { const t = new RawTail(1024); t.push('stale'); return t; })(),
     persistent: true,
     hasUserInputSinceIdle: false,
     cols: 100,
@@ -108,5 +109,5 @@ test('restartSession leaves the session running on a fresh pty', async () => {
 
   assert.equal(session.pty, fresh);
   assert.equal(info.status, 'running');
-  assert.equal(session.outputBuffer, '');
+  assert.equal(session.rawTail.size, 0, 'restart drops the previous run\'s raw tail');
 });

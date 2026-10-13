@@ -4,6 +4,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
+import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -19,8 +20,16 @@ const clientDimensions = new Map<string, Map<string, { cols: number; rows: numbe
 // (it fits the phone) — desktop-only sessions keep the max behavior.
 const mobileSocketIds = new Set<string>();
 
+// Companion-terminal output coalescers, by session id. Module-level because the
+// companion outlives the socket that spawned it (it is broadcast to a room).
+const ctCoalescers = new Map<string, OutputCoalescer>();
+
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
+  // CompanionTerminalManager.kill() unregisters before killing, so the companion's
+  // onExit (the usual cleanup) is skipped on destroy — drop its coalescer here.
+  ctCoalescers.get(sessionId)?.dispose();
+  ctCoalescers.delete(sessionId);
 }
 
 function getMaxDimensions(sessionId: string): { cols: number; rows: number } | null {
@@ -95,6 +104,8 @@ export function setupSocketHandler(
 
   io.on('connection', (socket: TypedSocket) => {
     console.log(`Client connected: ${socket.id}`);
+    // This socket's ephemeral-terminal output coalescers, by terminal id.
+    const ephemeralCoalescers = new Map<string, OutputCoalescer>();
     if (socket.handshake.query?.client === 'mobile') {
       mobileSocketIds.add(socket.id);
     }
@@ -204,14 +215,24 @@ export function setupSocketHandler(
         socket.emit('ephemeral:exit', { id, exitCode: -1 });
         return;
       }
+      // Coalesced like session:output (per-chunk emits starve the renderer).
+      // spawn() replaces any terminal already using this id, so retire its
+      // coalescer first — its bytes belong before the new shell's.
+      ephemeralCoalescers.get(id)?.dispose();
+      const out = createOutputCoalescer((data) => socket.emit('ephemeral:output', { id, data }));
+      ephemeralCoalescers.set(id, out);
       ephemeralManager.spawn(
         id,
         socket.id,
         safeCwd,
         120,
         30,
-        (data) => socket.emit('ephemeral:output', { id, data }),
-        (exitCode) => socket.emit('ephemeral:exit', { id, exitCode }),
+        (data) => out.push(data),
+        (exitCode) => {
+          out.dispose(); // output first, then the exit
+          if (ephemeralCoalescers.get(id) === out) ephemeralCoalescers.delete(id);
+          socket.emit('ephemeral:exit', { id, exitCode });
+        },
       );
     });
 
@@ -224,6 +245,8 @@ export function setupSocketHandler(
     });
 
     socket.on('ephemeral:kill', ({ id }) => {
+      ephemeralCoalescers.get(id)?.dispose();
+      ephemeralCoalescers.delete(id);
       ephemeralManager.kill(id);
     });
 
@@ -239,13 +262,19 @@ export function setupSocketHandler(
         if (!clientDimensions.has(ctRoom)) {
           clientDimensions.set(ctRoom, new Map());
         }
+        // Coalesced like session:output; see ctCoalescers.
+        ctCoalescers.get(sessionId)?.dispose();
+        const out = createOutputCoalescer((data) => io.to(ctRoom).emit('ct:output', { sessionId, data }));
+        ctCoalescers.set(sessionId, out);
         manager.companionTerminals.spawn(
           sessionId,
           session.folderPath,
           120,
           30,
-          (data) => io.to(ctRoom).emit('ct:output', { sessionId, data }),
+          (data) => out.push(data),
           (exitCode) => {
+            out.dispose(); // output first, then the exit
+            if (ctCoalescers.get(sessionId) === out) ctCoalescers.delete(sessionId);
             io.to(ctRoom).emit('ct:exit', { sessionId, exitCode });
             clientDimensions.delete(ctRoom);
           },
@@ -256,6 +285,10 @@ export function setupSocketHandler(
         }
       }
 
+      // Same invariant as session:join: pending bytes are already in the
+      // companion buffer replayed below, so emit them to the room BEFORE this
+      // socket joins it — after would paint them twice.
+      ctCoalescers.get(sessionId)?.flush();
       void socket.join(ctRoom);
       const buffer = manager.companionTerminals.getBuffer(sessionId);
       if (buffer) {
@@ -340,6 +373,8 @@ export function setupSocketHandler(
       }
       mobileSocketIds.delete(socket.id);
       // Kill all ephemeral terminals for this socket
+      for (const out of ephemeralCoalescers.values()) out.dispose();
+      ephemeralCoalescers.clear();
       ephemeralManager.killAllForSocket(socket.id);
     });
   });

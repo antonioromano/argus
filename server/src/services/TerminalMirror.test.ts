@@ -410,3 +410,55 @@ test('isSettled is false until the parser has consumed every fed byte', async ()
   assert.ok(m.serializeScreen().includes('LAST'));
   m.dispose();
 });
+
+// ─── serialize cache (perf: repeat joins with no new output do zero work) ────
+
+test('serialize() is cached until something mutates the buffer', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('first line\r\n');
+  let calls = 0;
+  const ser = (m as any).serializer;
+  const orig = ser.serialize.bind(ser);
+  ser.serialize = (o: unknown) => { calls++; return orig(o); };
+
+  const a = m.serialize();
+  const b = m.serialize();
+  assert.equal(a, b);
+  assert.equal(calls, 1, 'second call with no new output must hit the cache');
+
+  await m.feed('second line');
+  const c = m.serialize();
+  assert.equal(calls, 2, 'a completed feed invalidates the cache');
+  assert.match(c, /second line/);
+
+  m.resize(COLS - 5, ROWS);
+  m.serialize();
+  assert.equal(calls, 3, 'a resize invalidates the cache');
+
+  m.serializeScreen();
+  m.serializeScreen();
+  assert.equal(calls, 4, 'screen frames are cached separately');
+  m.dispose();
+});
+
+test('serialize() invalidates on mode changes, clears and rebuilds', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed(Array.from({ length: 20 }, (_, i) => `row-${i}`).join('\r\n'));
+  const before = m.serialize();
+  await m.feed('\x1b[?1006h');
+  assert.notEqual(m.serialize(), before, 'DECSET 1006 must show up (appended mode)');
+  assert.match(m.serialize(), /row-0\b/);
+  await m.clearScrollback();
+  assert.doesNotMatch(m.serialize(), /row-0\b/, 'ED 3 must not serve the cached history');
+  m.dispose();
+});
+
+test('serialize() is never cached while a write is still being parsed', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  const pending = m.feed('in flight');
+  // Unsettled: whatever this returns must not be stored and served later.
+  m.serialize();
+  await pending;
+  assert.match(m.serialize(), /in flight/);
+  m.dispose();
+});

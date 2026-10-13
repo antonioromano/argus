@@ -125,6 +125,17 @@ export class TerminalMirror {
   private cursorVisible = true;
   /** Suppresses StateDetector's activity heuristic during a survivor re-seed. */
   private _seeding = false;
+  /**
+   * Bumped by everything that can change what serialize() returns: every feed
+   * (when queued AND when parsed — ED 3, rebuildWithout, reset and DECSET/DECRST
+   * mode changes all arrive as feeds) and every resize. Conservative on purpose:
+   * a spurious bump only costs one recompute; a missed one would serve a stale
+   * frame.
+   */
+  private generation = 0;
+  /** serialize()/serializeScreen() results for `generation`, so a repeat join
+   *  with no new output costs nothing (a full 5000-row serialize is ~47ms sync). */
+  private frameCache: { generation: number; full?: string; screen?: string } = { generation: -1 };
 
   constructor(cols = 120, rows = 30, scrollback = MIRROR_SCROLLBACK) {
     this.scrollback = scrollback;
@@ -159,6 +170,7 @@ export class TerminalMirror {
   feed(data: string): Promise<void> {
     if (this.destroyed) return Promise.resolve();
     this.pendingWrites++;
+    this.generation++;
     this.writeQueue = this.writeQueue
       .then(
         () =>
@@ -167,7 +179,11 @@ export class TerminalMirror {
               resolve();
               return;
             }
-            this.term.write(data, () => resolve());
+            this.term.write(data, () => {
+              // Parsed: the buffer now reflects these bytes.
+              this.generation++;
+              resolve();
+            });
           }),
       )
       .catch((err) => {
@@ -197,6 +213,7 @@ export class TerminalMirror {
 
   resize(cols: number, rows: number): void {
     if (this.destroyed || cols <= 0 || rows <= 0) return;
+    this.generation++; // a resize reflows the buffer
     try {
       this.term.resize(cols, rows);
     } catch {
@@ -313,7 +330,9 @@ export class TerminalMirror {
    */
   serialize(): string {
     if (this.destroyed) return '';
-    return this.serializer.serialize({ scrollback: this.scrollback }) + this.appendModes();
+    return this.cachedFrame('full', () =>
+      this.serializer.serialize({ scrollback: this.scrollback }) + this.appendModes(),
+    );
   }
 
   /**
@@ -324,7 +343,25 @@ export class TerminalMirror {
    */
   serializeScreen(): string {
     if (this.destroyed) return '';
-    return this.serializer.serialize({ scrollback: 0 }) + this.appendModes();
+    return this.cachedFrame('screen', () => this.serializer.serialize({ scrollback: 0 }) + this.appendModes());
+  }
+
+  /**
+   * Serve a frame from the cache when nothing has touched the buffer since it
+   * was built. Only a *settled* mirror is cached: mid-parse the buffer changes
+   * between generation bumps (xterm parses in time slices), so an unsettled
+   * read is computed fresh and never stored.
+   */
+  private cachedFrame(kind: 'full' | 'screen', build: () => string): string {
+    if (!this.isSettled()) return build();
+    if (this.frameCache.generation !== this.generation) {
+      this.frameCache = { generation: this.generation };
+    }
+    const hit = this.frameCache[kind];
+    if (hit !== undefined) return hit;
+    const frame = build();
+    this.frameCache[kind] = frame;
+    return frame;
   }
 
   /** Escape sequences for enabled modes that serialize() does not itself emit. */
@@ -349,6 +386,7 @@ export class TerminalMirror {
   }
 
   bufferType(): 'normal' | 'alternate' {
+    if (this.destroyed) return 'normal';
     return this.term.buffer.active.type === 'alternate' ? 'alternate' : 'normal';
   }
 
@@ -360,12 +398,18 @@ export class TerminalMirror {
     this._seeding = false;
   }
 
+  /** True once dispose() ran; every method is then a no-op. */
+  get disposed(): boolean {
+    return this.destroyed;
+  }
+
   get seeding(): boolean {
     return this._seeding;
   }
 
   dispose(): void {
     this.destroyed = true;
+    this.frameCache = { generation: -1 }; // release the cached strings
     try {
       this.serializer.dispose();
     } catch {
