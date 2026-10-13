@@ -279,6 +279,17 @@ export interface SessionInfo {
   usage?: SessionUsage;
   /** Claude only: the conversation id the agent last reported (what Resume reopens). */
   claudeSessionId?: string;
+  /** Epoch ms the session entered `waiting`; set only while waiting. */
+  waitingSince?: number;
+  /** While waiting: the numbered menu choices on screen, when they could be read reliably. */
+  promptOptions?: PromptOption[];
+}
+
+/** One numbered choice of a waiting agent's selection menu. Sending `key`
+ *  (a single digit) to the session picks it. */
+export interface PromptOption {
+  key: string;
+  label: string;
 }
 
 /**
@@ -457,10 +468,19 @@ export interface SessionReplay {
   reason?: 'join' | 'refresh' | 'resync';
 }
 
+export interface SessionStatusPayload {
+  sessionId: string;
+  status: SessionStatus;
+  lastPrompt?: string;
+  /** See SessionInfo.waitingSince / promptOptions — present only while waiting. */
+  waitingSince?: number;
+  promptOptions?: PromptOption[];
+}
+
 export interface ServerToClientEvents {
   'session:output': (payload: { sessionId: string; data: string }) => void;
   'session:replay': (payload: SessionReplay) => void;
-  'session:status': (payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => void;
+  'session:status': (payload: SessionStatusPayload) => void;
   'session:exit': (payload: { sessionId: string; exitCode: number }) => void;
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;

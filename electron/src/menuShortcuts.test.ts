@@ -66,3 +66,8 @@ test('an unusable binding falls back to the default without losing the item', ()
 test('unknown ids are ignored', () => {
   assert.equal(setMenuShortcuts({ 'not-a-shortcut': 'mod+q' }), false);
 });
+
+test('the waiting inbox has a menu accelerator (it must reach native tiles too)', () => {
+  assert.equal(MENU_SHORTCUT_DEFAULTS['waiting-inbox'], 'mod+shift+i');
+  assert.equal(menuAccelerator('waiting-inbox'), 'CmdOrCtrl+Shift+I');
+});

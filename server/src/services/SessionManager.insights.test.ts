@@ -92,3 +92,33 @@ test('the Claude id and meter state are persisted to sessions.json', async () =>
   s.usage.dispose();
   rmSync(dataDir, { recursive: true, force: true });
 });
+
+test('waiting status carries waitingSince (stable across re-emits) and menu options', async () => {
+  const { sm, emitted, dataDir } = mgr();
+  const s = inject(sm, {
+    status: 'running',
+    stateDetector: {
+      getLastPromptText: () => 'Proceed?',
+      getStatus: () => 'waiting',
+      msSinceLastFeed: () => Infinity,
+      getMenuOptions: () => [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }],
+    },
+  });
+  (sm as any).applyDetectedStatus('s', 'waiting');
+  const first = emitted.filter((e) => e.ev === 'session:status').at(-1)!.p;
+  assert.equal(first.status, 'waiting');
+  assert.ok(typeof first.waitingSince === 'number');
+  assert.deepEqual(first.promptOptions, [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }]);
+  await sleep(5);
+  (sm as any).applyPromptUpdate('s', 'Proceed with npm test?');
+  const again = emitted.filter((e) => e.ev === 'session:status').at(-1)!.p;
+  assert.equal(again.waitingSince, first.waitingSince, 'same wait, same start time');
+  assert.equal(sm.getSessionInfo('s')!.waitingSince, first.waitingSince);
+
+  (sm as any).applyDetectedStatus('s', 'running');
+  const after = emitted.filter((e) => e.ev === 'session:status').at(-1)!.p;
+  assert.equal(after.waitingSince, undefined);
+  assert.equal(s.promptOptions, undefined);
+  assert.equal(sm.getSessionInfo('s')!.promptOptions, undefined);
+  rmSync(dataDir, { recursive: true, force: true });
+});

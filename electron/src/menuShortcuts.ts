@@ -23,6 +23,7 @@ export type MenuShortcutId =
   | 'new-session'
   | 'close-shell'
   | 'command-palette'
+  | 'waiting-inbox'
   | 'open-settings'
   | 'open-diff'
   | 'open-files'
@@ -34,6 +35,7 @@ export const MENU_SHORTCUT_DEFAULTS: Record<MenuShortcutId, string> = {
   'new-session': 'mod+n',
   'close-shell': 'mod+w',
   'command-palette': 'mod+k',
+  'waiting-inbox': 'mod+shift+i',
   'open-settings': 'mod+,',
   'open-diff': 'mod+d',
   'open-files': 'mod+e',

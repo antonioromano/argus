@@ -943,6 +943,27 @@ body {
 .argus-usage-ctx[data-level='high'] { color: var(--danger); }
 .argus-usage-cost { color: var(--fg-3); }
 
+/* Waiting inbox: one answer button per numbered menu option. Hover recolors
+   only — the chip never changes size. */
+.argus-inbox-option {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 2px 8px 2px 3px;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-1);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+}
+.argus-inbox-option:hover,
+.argus-inbox-option:focus-visible { background: var(--accent-bg); border-color: var(--accent-edge); color: var(--accent); }
+.argus-inbox-option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .argus-tile-dirty {
   width: 6px; height: 6px;
   border-radius: 50%;

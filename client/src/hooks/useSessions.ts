@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionStatus, TerminalEngine, RunMode, ShellGitContext, SessionUsage } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -40,9 +40,12 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
+    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions }: SessionStatusPayload) => {
       setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt } : s)),
+        prev.map((s) => (s.id === sessionId
+          // waitingSince/promptOptions are only sent while waiting; their absence clears them.
+          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions }
+          : s)),
       );
     };
 

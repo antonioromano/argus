@@ -17,6 +17,8 @@ import type {
   RunMode,
   ShellGitContext,
   SessionUsage,
+  PromptOption,
+  SessionStatusPayload,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
@@ -165,6 +167,9 @@ interface ManagedSession {
   shellGitCwd?: string;
   /** Claude only: conversation id from the hooks' `session_id`. */
   claudeSessionId?: string;
+  /** Set by emitStatus while the session is waiting (see SessionInfo). */
+  waitingSince?: number;
+  promptOptions?: PromptOption[];
   /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
   usage?: SessionUsageTracker;
 }
@@ -1462,8 +1467,26 @@ export class SessionManager {
     return () => { this.statusSubscribers.delete(cb); };
   }
 
-  /** The one place a status change is announced: sockets and in-process subscribers. */
-  private emitStatus(payload: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+  /**
+   * The one place a status change is announced: sockets and in-process
+   * subscribers. Also stamps the waiting-inbox fields: when the session started
+   * waiting (kept across re-emits of the same wait) and the menu options on
+   * screen, re-read on every emit so a late-painted menu is picked up.
+   */
+  private emitStatus(base: { sessionId: string; status: SessionStatus; lastPrompt?: string }): void {
+    const payload: SessionStatusPayload = { ...base };
+    const session = this.sessions.get(base.sessionId);
+    if (session) {
+      if (base.status === 'waiting') {
+        session.waitingSince ??= Date.now();
+        session.promptOptions = session.stateDetector.getMenuOptions?.();
+        payload.waitingSince = session.waitingSince;
+        if (session.promptOptions) payload.promptOptions = session.promptOptions;
+      } else {
+        session.waitingSince = undefined;
+        session.promptOptions = undefined;
+      }
+    }
     this.io?.emit('session:status', payload);
     for (const cb of this.statusSubscribers) {
       try {
@@ -2089,6 +2112,8 @@ export class SessionManager {
       shellGit: session.shellGit,
       usage: session.usage?.snapshot(),
       claudeSessionId: session.claudeSessionId,
+      waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
+      promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
     };
   }
 
