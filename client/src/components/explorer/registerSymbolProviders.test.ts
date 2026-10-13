@@ -34,14 +34,14 @@ const fakeMonaco = {
 
 registerSymbolProviders(fakeMonaco as any);
 
-const modelWith = (word: string | null, line = 'const x = foo;') => ({
+const modelWith = (word: string | null, line = 'const x = foo;', path = '/repo/a.ts', scheme = 'file') => ({
+  uri: { path, scheme },
   getWordAtPosition: () => (word ? { word, startColumn: 1, endColumn: word.length + 1 } : null),
   getLineContent: () => line,
 });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  symbolNavContext.activePath = '/repo/a.ts';
   symbolNavContext.onOpen = () => {};
 });
 
@@ -84,9 +84,18 @@ describe('definition provider', () => {
     expect(api.findDefinition).not.toHaveBeenCalled();
   });
 
-  it('returns null when there is no active file', async () => {
-    symbolNavContext.activePath = null;
-    expect(await captured.def.provideDefinition(modelWith('foo'), { lineNumber: 1 })).toBeNull();
+  it('resolves against the model it is asked about, not the last-focused editor (split view)', async () => {
+    (api.findDefinition as any).mockResolvedValue({ symbol: 'foo', truncated: false, locations: [] });
+    (api.resolveImport as any).mockResolvedValue({ path: null });
+    // Left group shows a.ts (focused last); the request comes from the right group's b.ts.
+    await captured.def.provideDefinition(modelWith('foo', 'const x = foo;', '/repo/b.ts'), { lineNumber: 4 });
+    expect(api.findDefinition).toHaveBeenCalledWith('/repo/b.ts', 'foo', 4);
+    await captured.def.provideDefinition(modelWith('foo', "import { x } from './foo';", '/repo/b.ts'), { lineNumber: 1, column: 21 });
+    expect(api.resolveImport).toHaveBeenCalledWith('/repo/b.ts', './foo');
+  });
+
+  it('returns null for a model that is not a file on disk (e.g. an in-memory diff model)', async () => {
+    expect(await captured.def.provideDefinition(modelWith('foo', 'const x = foo;', '/1', 'inmemory'), { lineNumber: 1 })).toBeNull();
     expect(api.findDefinition).not.toHaveBeenCalled();
   });
 });
@@ -100,6 +109,12 @@ describe('reference provider', () => {
     const res = await captured.ref.provideReferences(modelWith('foo'), { lineNumber: 1 });
     expect(api.findReferences).toHaveBeenCalledWith('/repo/a.ts', 'foo');
     expect(res[0].uri.path).toBe('/repo/a.ts');
+  });
+
+  it('queries with the requesting model\'s path', async () => {
+    (api.findReferences as any).mockResolvedValue({ symbol: 'foo', truncated: false, locations: [] });
+    await captured.ref.provideReferences(modelWith('foo', 'x', '/repo/b.ts'), { lineNumber: 1 });
+    expect(api.findReferences).toHaveBeenCalledWith('/repo/b.ts', 'foo');
   });
 });
 

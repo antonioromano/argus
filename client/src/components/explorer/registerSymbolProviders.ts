@@ -1,11 +1,12 @@
 import type * as Monaco from 'monaco-editor';
 import { api } from '../../services/api.js';
 
-// Per-file context the global providers read. The providers are registered once
-// against the monaco singleton; this mutable ref carries the active file + the
-// cross-file open callback so we never re-register when the open file changes.
+// Workbench callbacks the global providers/opener call. The providers are
+// registered once against the monaco singleton. They resolve the file from the
+// model Monaco hands them (its URI is the file path — see MonacoPane), never from
+// a global "active file": with a split editor two files are live at once, and the
+// last-focused one is not necessarily the one asking.
 interface SymbolNavContext {
-  activePath: string | null;
   /** Open another file in the workbench and reveal a line (cross-file go-to-def). */
   onOpen: (path: string, line: number) => void;
   /** Open the workbench file-search panel pre-seeded with a query (Unit 5). */
@@ -13,7 +14,6 @@ interface SymbolNavContext {
 }
 
 export const symbolNavContext: SymbolNavContext = {
-  activePath: null,
   onOpen: () => {},
   searchFor: () => {},
 };
@@ -26,6 +26,14 @@ const PROVIDER_LANGUAGES = [
 ];
 
 let registered = false;
+
+/** The on-disk path a model represents, or null for a non-file model (e.g. the
+ *  in-memory models a diff editor creates), which has no symbols to resolve. */
+function modelFilePath(model: Monaco.editor.ITextModel): string | null {
+  const { uri } = model;
+  if (uri.scheme !== 'file' || !uri.path) return null;
+  return uri.path;
+}
 
 /**
  * If `position` sits inside the quoted specifier of an import/require/from on its line,
@@ -53,7 +61,7 @@ export function registerSymbolProviders(monaco: typeof Monaco): void {
 
   const definitionProvider: Monaco.languages.DefinitionProvider = {
     async provideDefinition(model, position) {
-      const activePath = symbolNavContext.activePath;
+      const activePath = modelFilePath(model);
       if (!activePath) return null;
 
       // Module path under the cursor (e.g. `from './foo'`) → resolve to the real file
@@ -89,7 +97,7 @@ export function registerSymbolProviders(monaco: typeof Monaco): void {
   const referenceProvider: Monaco.languages.ReferenceProvider = {
     async provideReferences(model, position) {
       const word = model.getWordAtPosition(position);
-      const activePath = symbolNavContext.activePath;
+      const activePath = modelFilePath(model);
       if (!word || !activePath) return null;
       try {
         const res = await api.findReferences(activePath, word.word);
