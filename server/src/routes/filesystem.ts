@@ -45,6 +45,24 @@ function validateSessionPath(
   return { session, resolved };
 }
 
+/**
+ * resolveWithinBase accepts the base itself, which is right for reads but let
+ * one DELETE `rm -rf` the whole project (`.git` included) and rename/move carry
+ * the root away. Destructive operations go through this instead.
+ */
+function validateDestructivePath(
+  sessionManager: SessionManager,
+  sessionId: string,
+  rawPath: string,
+): ReturnType<typeof validateSessionPath> {
+  const validated = validateSessionPath(sessionManager, sessionId, rawPath);
+  if ('error' in validated) return validated;
+  if (validated.resolved === path.resolve(workRootOf(validated.session!))) {
+    return { error: 'refusing to modify the session root folder', status: 403 };
+  }
+  return validated;
+}
+
 // The folder picker (autocomplete + children) must browse paths that are NOT
 // yet a managed session — so it can't be scoped via resolveWithinAnySession like
 // the file routes. Instead it is bounded to the home subtree (matching the
@@ -451,7 +469,7 @@ export function createFilesystemRoutes(
   router.post('/rename', express.json(), async (req, res) => {
     const { sessionId, fromPath, toPath } = req.body as RenameFileRequest;
 
-    const validatedFrom = validateSessionPath(sessionManager, sessionId, fromPath);
+    const validatedFrom = validateDestructivePath(sessionManager, sessionId, fromPath);
     if ('error' in validatedFrom) {
       res.status(validatedFrom.status).json({ success: false, error: validatedFrom.error } satisfies FileCrudResponse);
       return;
@@ -474,7 +492,7 @@ export function createFilesystemRoutes(
   router.delete('/file', express.json(), async (req, res) => {
     const { sessionId, path: rawPath } = req.body as DeleteFileRequest;
 
-    const validated = validateSessionPath(sessionManager, sessionId, rawPath);
+    const validated = validateDestructivePath(sessionManager, sessionId, rawPath);
     if ('error' in validated) {
       res.status(validated.status).json({ success: false, error: validated.error } satisfies FileCrudResponse);
       return;
@@ -503,7 +521,7 @@ export function createFilesystemRoutes(
   router.post('/move', express.json(), async (req, res) => {
     const { sessionId, fromPath, toPath } = req.body as MoveFileRequest;
 
-    const validatedFrom = validateSessionPath(sessionManager, sessionId, fromPath);
+    const validatedFrom = validateDestructivePath(sessionManager, sessionId, fromPath);
     if ('error' in validatedFrom) {
       res.status(validatedFrom.status).json({ success: false, error: validatedFrom.error } satisfies FileCrudResponse);
       return;

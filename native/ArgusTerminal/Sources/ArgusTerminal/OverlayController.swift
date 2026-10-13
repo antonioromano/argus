@@ -284,7 +284,103 @@ final class DropAwareTerminalView: TerminalView {
       return
     }
     guard let text = getSelection(), !text.isEmpty else { return }
-    handler(text)
+    handler(Self.withStartColumn(selectionWithBoldMarks() ?? text, selectionStartColumn()))
+  }
+
+  /// The column the selection starts at, whichever way it was dragged.
+  func selectionStartColumn() -> Int {
+    Position.compare(selection.start, selection.end) == .after ? selection.end.col : selection.start.col
+  }
+
+  /// Prefixes the copy with the selection's start column, as the renderer's
+  /// terminalCopy.ts withStartColumn does (`\u{FDD3}<col>\u{FDD3}`). A drag
+  /// usually starts on the first word, past the gutter and Claude's `⏺`, and
+  /// without the column the renderer cannot tell that first row is indented
+  /// like the rest — it would neither dedent the block nor rejoin its wrap.
+  static func withStartColumn(_ text: String, _ col: Int) -> String {
+    guard col > 0 else { return text }
+    let mark = String(Unicode.Scalar(UInt32(0xFDD3))!)
+    return "\(mark)\(col)\(mark)\(text)"
+  }
+
+  /// Bold-run marks, matching BOLD_ON/BOLD_OFF in the renderer's terminalCopy.ts.
+  /// Unicode noncharacters: reserved for internal use, never in real output.
+  /// (Swift rejects them as literals, hence the scalar values.)
+  static let boldOn = String(Unicode.Scalar(UInt32(0xFDD0))!)
+  static let boldOff = String(Unicode.Scalar(UInt32(0xFDD1))!)
+
+  /// The selection rebuilt from its cells with every bold run wrapped in
+  /// boldOn/boldOff, so the renderer's HTML copy can keep it. Agents print
+  /// `**x**` as SGR bold and drop the asterisks, so the cell attribute is the
+  /// only place the bold still exists. Nil when nothing selected is bold: the
+  /// caller then sends getSelection() exactly as before.
+  ///
+  /// Selection positions index the buffer's line list (as SwiftTerm's own
+  /// getText does), end column exclusive.
+  func selectionWithBoldMarks() -> String? {
+    guard selection.active else { return nil }
+    let terminal = getTerminal()
+    var a = selection.start
+    var b = selection.end
+    if Position.compare(a, b) == .after { swap(&a, &b) }
+    let top = terminal.buffer.totalLinesTrimmed
+    var rows: [(cells: [(ch: String, bold: Bool)], wrapped: Bool)] = []
+    var anyBold = false
+    for r in a.row...max(a.row, b.row) {
+      guard let line = terminal.getScrollInvariantLine(row: r + top) else { continue }
+      let from = r == a.row ? a.col : 0
+      let to = r == b.row ? min(b.col, line.count) : line.count
+      var cells: [(ch: String, bold: Bool)] = []
+      var x = max(0, from)
+      while x < to {
+        let cell = line[x]
+        let ch = terminal.getCharacter(for: cell)
+        // The empty cell after a wide character is part of it, not a space.
+        if x > 0 && ch == "\u{0}" && line[x - 1].width == 2 { x += 1; continue }
+        let bold = cell.attribute.style.contains(.bold)
+        anyBold = anyBold || bold
+        cells.append((ch == "\u{0}" ? " " : String(ch), bold))
+        x += 1
+      }
+      rows.append((cells, line.isWrapped))
+    }
+    guard anyBold else { return nil }
+
+    var out = ""
+    for (i, row) in rows.enumerated() {
+      let wrapsOn = i + 1 < rows.count && rows[i + 1].wrapped
+      if i > 0 && !row.wrapped { out += "\n" }
+      out += Self.markBoldRuns(row.cells, keepTrailing: wrapsOn)
+    }
+    while out.hasSuffix("\n") { out.removeLast() }
+    return out
+  }
+
+  /// One row as text with bold runs marked. A run opens and closes only on a
+  /// non-space character, so the gutter and trailing padding stay mark-free —
+  /// the renderer's dedent and unwrap rely on that. Trailing whitespace is
+  /// padding and dropped, unless the row soft-wraps into the next one.
+  static func markBoldRuns(_ cells: [(ch: String, bold: Bool)], keepTrailing: Bool) -> String {
+    var end = cells.count
+    while !keepTrailing && end > 0 && cells[end - 1].ch.trimmingCharacters(in: .whitespaces).isEmpty { end -= 1 }
+    var out = ""
+    var open = false
+    // Whitespace is held back until the next visible character decides which
+    // side of a mark it falls on: a run closes right after its last visible
+    // character and opens right before its first.
+    var gap = ""
+    for cell in cells[0..<end] {
+      if cell.ch.trimmingCharacters(in: .whitespaces).isEmpty { gap += cell.ch; continue }
+      if cell.bold != open {
+        out += open ? boldOff + gap : gap + boldOn
+        open = cell.bold
+      } else {
+        out += gap
+      }
+      gap = ""
+      out += cell.ch
+    }
+    return (open ? out + boldOff : out) + gap
   }
 
   override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

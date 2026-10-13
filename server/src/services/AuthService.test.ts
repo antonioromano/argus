@@ -43,3 +43,27 @@ test('password with a colon round-trips (hash format is salt:key)', () => {
   assert.equal(auth.verifyPassword('a:b:c:d'), true);
   assert.equal(auth.verifyPassword('a:b:c'), false);
 });
+
+test('setPassword revokes every token issued under the previous password', () => {
+  const auth = new AuthService();
+  auth.setPassword('first-pass');
+  const token = auth.generateToken();
+  auth.setPassword('second-pass');
+  assert.equal(auth.validateToken(token), false);
+  const fresh = auth.generateToken();
+  assert.equal(auth.validateToken(fresh), true);
+});
+
+test('onEnforcementChange fires on password set, exposure on, and clearAuth', () => {
+  const auth = new AuthService();
+  let calls = 0;
+  const off = auth.onEnforcementChange(() => { calls++; });
+  auth.setPassword('pw');
+  auth.setExposed(true);
+  auth.setExposed(true); // no change → no call
+  auth.clearAuth();
+  assert.equal(calls, 3);
+  off();
+  auth.setPassword('pw');
+  assert.equal(calls, 3);
+});

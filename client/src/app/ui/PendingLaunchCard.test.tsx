@@ -26,6 +26,25 @@ const q = (sel: string) => container.querySelector(sel) as HTMLElement;
 const start = () => q('[data-testid="launch-start"]') as HTMLButtonElement;
 
 describe('PendingLaunchCard', () => {
+  it('shows risky-flag warnings prominently and marks those arguments', async () => {
+    await render({
+      args: ['--model=opus', '--dangerously-skip-permissions'],
+      warnings: [
+        { kind: 'folder-outside-roots', detail: 'Outside ~/development' },
+        { kind: 'risky-flag', detail: 'Dangerous flags: --dangerously-skip-permissions', flags: ['--dangerously-skip-permissions'] },
+      ],
+    });
+    const risky = q('[data-testid="launch-risky-warning"]');
+    expect(risky.getAttribute('role')).toBe('alert');
+    expect(risky.textContent).toContain('--dangerously-skip-permissions');
+    // Not duplicated among the ordinary warnings; the ordinary one still shows.
+    const plain = container.querySelectorAll('[data-testid="launch-warning"]');
+    expect(plain.length).toBe(1);
+    const rows = container.querySelectorAll('[data-testid="launch-arg"]');
+    expect(rows[0].hasAttribute('data-risky')).toBe(false);
+    expect(rows[1].getAttribute('data-risky')).toBe('true');
+  });
+
   it('lists every argument on its own row and shows the prompt with visible newlines and a count', async () => {
     await render();
     const rows = container.querySelectorAll('[data-testid="launch-arg"]');
