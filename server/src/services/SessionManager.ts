@@ -49,8 +49,8 @@ import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import type { GitService } from './GitService.js';
-import { SessionUsageTracker } from './usage/SessionUsageTracker.js';
-import { buildResumeFlags } from './claudeSession.js';
+import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -61,6 +61,10 @@ export interface CreateSessionOpts {
   /** Skip the per-create sessions.json write. restoreSessions sets it and
    *  persists once at the end, instead of rewriting the file per session. */
   skipPersist?: boolean;
+  /** Restore only: the persisted Claude conversation id and usage meter, applied
+   *  before `session:created` goes out so clients see Resume and the chip at once. */
+  claudeSessionId?: string;
+  usage?: SessionUsageTrackerState;
 }
 
 interface ManagedSession {
@@ -807,6 +811,7 @@ export class SessionManager {
       this.nudgeUsage(session, true);
     });
 
+    this.applyRestoredInsights(session, opts);
     this.sessions.set(id, session);
     this.fileWatcher.watch(id, session.folderPath);
     this.refreshSleepPrevention();
@@ -2037,8 +2042,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true });
-          this.restoreInsights(p);
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2058,8 +2062,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true });
-        this.restoreInsights(p);
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2077,17 +2080,16 @@ export class SessionManager {
   }
 
   /** Carry a restored Claude session's conversation id and usage meter over a restart. */
-  private restoreInsights(p: PersistedSession): void {
-    const session = this.sessions.get(p.id);
-    if (!session || session.agentType !== 'claude') return;
-    if (p.claudeSessionId) session.claudeSessionId = p.claudeSessionId;
-    if (p.usage) {
+  private applyRestoredInsights(session: ManagedSession, opts: CreateSessionOpts): void {
+    if (session.agentType !== 'claude') return;
+    if (opts.claudeSessionId && isClaudeSessionId(opts.claudeSessionId)) session.claudeSessionId = opts.claudeSessionId;
+    if (opts.usage) {
       try {
-        session.usage = SessionUsageTracker.restore(p.usage, (u) => this.onUsageChange(session, u));
+        session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u));
         // A surviving agent kept writing while Argus was down — catch up.
         session.usage.schedule();
       } catch (err) {
-        console.warn(`[usage] could not restore meter for ${p.id}:`, err);
+        console.warn(`[usage] could not restore meter for ${session.id}:`, err);
       }
     }
   }

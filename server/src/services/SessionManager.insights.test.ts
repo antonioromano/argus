@@ -122,3 +122,25 @@ test('waiting status carries waitingSince (stable across re-emits) and menu opti
   assert.equal(sm.getSessionInfo('s')!.promptOptions, undefined);
   rmSync(dataDir, { recursive: true, force: true });
 });
+
+test('a restored session announces its Claude id and usage in session:created', async () => {
+  const { sm, emitted, dataDir } = mgr();
+  const f = transcript(dataDir);
+  const seed = mgr();
+  const s0 = inject(seed.sm);
+  seed.sm.applyAgentMeta('s', { transcriptPath: f });
+  await s0.usage.pollNow();
+  const usageState = s0.usage.serialize();
+  s0.usage.dispose();
+
+  // restoreExited: a direct session restored as an exited placeholder (no spawn).
+  await sm.createSession(dataDir, 'restored', 'claude', [], 'r1', new Date().toISOString(), undefined, undefined, false, undefined, 'direct', true,
+    { skipPersist: true, claudeSessionId: UUID, usage: usageState });
+  const created = emitted.find((e) => e.ev === 'session:created')!.p;
+  assert.equal(created.claudeSessionId, UUID);
+  assert.equal(created.usage.totalTokens, 1030);
+  (sm as any).sessions.get('r1').usage.dispose();
+  await (sm as any).fileWatcher.stopAll();
+  rmSync(dataDir, { recursive: true, force: true });
+  rmSync(seed.dataDir, { recursive: true, force: true });
+});
