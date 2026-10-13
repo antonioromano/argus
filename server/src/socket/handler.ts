@@ -5,6 +5,7 @@ import type { AuthService } from '../services/AuthService.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
 import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
+import { BROADCAST_RATE, SlidingWindowLimiter, runBroadcast, validateBroadcast } from './broadcast.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -188,6 +189,30 @@ export function setupSocketHandler(
       } catch {
         /* session may have exited between the guard check and write */
       }
+    });
+
+    // Broadcast input (F4): same text into several shells. Validated (known ids,
+    // length cap, single line), rate-limited per socket, and written through
+    // the session:input path above.
+    const broadcastLimiter = new SlidingWindowLimiter(BROADCAST_RATE.max, BROADCAST_RATE.windowMs);
+    socket.on('session:broadcast', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const req = validateBroadcast(payload, (id) => !!manager.getSession(id));
+      if (!req.ok) {
+        reply(req);
+        return;
+      }
+      if (!broadcastLimiter.take()) {
+        reply({ ok: false, error: 'Too many broadcasts — wait a few seconds' });
+        return;
+      }
+      reply(runBroadcast(req, {
+        isLive: (id) => {
+          const s = manager.getSession(id);
+          return !!s && s.status !== 'exited';
+        },
+        write: (id, data) => manager.writeToSession(id, data),
+      }));
     });
 
     socket.on('session:resize', ({ sessionId, cols, rows }) => {

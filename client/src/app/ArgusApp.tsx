@@ -14,10 +14,10 @@ import { useNotifications } from '../hooks/useNotifications.js';
 import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
+import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
@@ -36,6 +36,7 @@ import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { WaitingInbox } from './overlays/WaitingInbox.js';
+import { BroadcastSheet } from './overlays/BroadcastSheet.js';
 import { formatCombo } from '../keyboard/combo.js';
 import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
@@ -330,6 +331,13 @@ function DesktopInner() {
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
   const openWhatsNew = useCallback(() => app.openOverlay({ kind: 'intro', flow: 'whatsNew' }), [app]);
   const openInbox = useCallback(() => app.openOverlay({ kind: 'inbox' }), [app]);
+  const openBroadcast = useCallback((sessionIds: string[]) => app.openOverlay({ kind: 'broadcast', sessionIds }), [app]);
+  // Ack-based so the sheet can show the server's refusal (unknown shell, rate
+  // limit) inline; the timeout covers a dropped socket, which never acks.
+  const sendBroadcast = useCallback((req: BroadcastRequest) => new Promise<BroadcastResult>((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, error: 'No answer from Argus — check the connection and try again' }), 5000);
+    socket.emit('session:broadcast', req, (res) => { clearTimeout(timer); resolve(res); });
+  }), [socket]);
   const openInboxRef = useRef(openInbox);
   useEffect(() => { openInboxRef.current = openInbox; }, [openInbox]);
   const openWhatsNewRef = useRef(openWhatsNew);
@@ -799,6 +807,14 @@ function DesktopInner() {
       icon: Inbox,
       run: openInbox,
     },
+    {
+      id: 'broadcast',
+      label: 'Broadcast input…',
+      hint: 'type into several shells',
+      keywords: 'send all many multiple type same text compact',
+      icon: Send,
+      run: () => openBroadcast([]),
+    },
     ...orderedSessions.filter(canResume).map((s) => ({
       id: `resume-${s.id}`,
       label: `Resume conversation: ${s.name}`,
@@ -1060,8 +1076,21 @@ function DesktopInner() {
             onClose={app.closeOverlay}
             onJump={(id) => { app.closeOverlay(); openSessionGuarded(id); }}
             onSendKey={(id, key) => socket.emit('session:input', { sessionId: id, data: key })}
+            onBroadcast={openBroadcast}
           />
         </Overlay>
+      )}
+      {app.overlay?.kind === 'broadcast' && (
+        <BroadcastSheet
+          sessions={orderedSessions}
+          initialSelected={app.overlay.sessionIds}
+          onSend={sendBroadcast}
+          onSent={({ sent, skipped }) => {
+            pushToast(`Sent to ${sent} shell${sent === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped (exited)` : ''}`, 'ok');
+            app.closeOverlay();
+          }}
+          onClose={app.closeOverlay}
+        />
       )}
       {app.overlay?.kind === 'update' && updateStatus && (
         <Overlay onClose={app.closeOverlay} label="Update Argus">

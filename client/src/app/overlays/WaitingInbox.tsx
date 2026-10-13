@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { Inbox } from 'lucide-react';
-import { Kbd } from '../../components/primitives/index.js';
+import { Checkbox, Kbd } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
 
@@ -13,6 +13,8 @@ interface WaitingInboxProps {
   onJump: (id: string) => void;
   /** Answer a numbered menu: send the digit to the session. */
   onSendKey: (id: string, key: string) => void;
+  /** Open broadcast input for these shells (the marked ones, else the selected one). */
+  onBroadcast?: (ids: string[]) => void;
 }
 
 /**
@@ -22,13 +24,23 @@ interface WaitingInboxProps {
  * Without options a digit does nothing — the row only jumps. The list is
  * derived from live session state, so answered prompts drop out by themselves.
  */
-export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendKey }: WaitingInboxProps) {
+export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendKey, onBroadcast }: WaitingInboxProps) {
   const items = useMemo(() => waitingItems(sessions), [sessions]);
   // Selection follows the session, not the row index, so a row leaving the
   // list (answered elsewhere) doesn't move the highlight onto a different shell.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = items.find((s) => s.id === selectedId) ?? items[0] ?? null;
   const selectedIndex = selected ? items.indexOf(selected) : -1;
+
+  // Shells marked (Space) for a broadcast; only those still waiting count.
+  const [marked, setMarked] = useState<Set<string>>(() => new Set());
+  const markedIds = items.filter((s) => marked.has(s.id)).map((s) => s.id);
+  const toggleMark = (id: string) => setMarked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
 
   const [now, setNow] = useState(() => Date.now());
   const ticking = items.length > 0;
@@ -53,6 +65,12 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
       } else if (e.key === 'Enter') {
         e.preventDefault();
         onJump(selected.id);
+      } else if (onBroadcast && e.key === ' ') {
+        e.preventDefault();
+        toggleMark(selected.id);
+      } else if (onBroadcast && (e.key === 'b' || e.key === 'B') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        onBroadcast(markedIds.length ? markedIds : [selected.id]);
       } else if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const key = optionForKey(selected, e.key);
         if (!key) return;
@@ -62,7 +80,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [items, selected, selectedIndex, onClose, onJump, onSendKey]);
+  }, [items, selected, selectedIndex, markedIds, onClose, onJump, onSendKey, onBroadcast]);
 
   useEffect(() => {
     if (selected) document.getElementById(`inbox-row-${selected.id}`)?.scrollIntoView?.({ block: 'nearest' });
@@ -139,6 +157,11 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
                 borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
               }}
             >
+              {onBroadcast && (
+                <div style={{ paddingTop: 1, flexShrink: 0 }}>
+                  <Checkbox checked={marked.has(s.id)} onChange={() => toggleMark(s.id)} size={14} />
+                </div>
+              )}
               <div style={{ paddingTop: 1, flexShrink: 0 }}>
                 <AgentGlyph agent={s.agentType} size={16} />
               </div>
@@ -197,6 +220,10 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
           { key: '↑↓', label: 'NAVIGATE' },
           { key: '↵', label: 'JUMP' },
           ...(selected?.promptOptions?.length ? [{ key: `1–${selected.promptOptions.length}`, label: 'ANSWER' }] : []),
+          ...(onBroadcast && items.length ? [
+            { key: 'Space', label: 'MARK' },
+            { key: 'B', label: markedIds.length ? `BROADCAST (${markedIds.length})` : 'BROADCAST' },
+          ] : []),
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
           <span key={label} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

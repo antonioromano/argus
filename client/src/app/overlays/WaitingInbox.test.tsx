@@ -77,4 +77,19 @@ describe('WaitingInbox', () => {
     render([]);
     expect(container.textContent).toContain('Nothing is waiting on you.');
   });
+
+  it('Space marks shells and B opens broadcast for the marked ones (else the selected one)', () => {
+    const onBroadcast = vi.fn();
+    const props = { onJump: vi.fn(), onSendKey: vi.fn(), onClose: vi.fn(), onBroadcast };
+    const list = [s('a', { waitingSince: 1 }), s('b', { waitingSince: 2 }), s('c', { waitingSince: 3 })];
+    act(() => root.render(<WaitingInbox sessions={list} {...props} />));
+    key('b');
+    expect(onBroadcast).toHaveBeenLastCalledWith(['a']);
+    key(' ');
+    key('ArrowDown');
+    key('ArrowDown');
+    key(' ');
+    key('B');
+    expect(onBroadcast).toHaveBeenLastCalledWith(['a', 'c']);
+  });
 });

@@ -414,6 +414,23 @@ export interface PathCompletionResponse {
   completions: string[];
 }
 
+/** Longest text one broadcast may carry, and most sessions it may target.
+ *  Duplicated in server/src/constants/broadcast.ts (kept in sync by check:deps). */
+export const BROADCAST_MAX_TEXT = 4000;
+export const BROADCAST_MAX_TARGETS = 50;
+
+/** Send `text` (then Enter, when `enter`) to every session in `sessionIds`.
+ *  Single-line: control characters (newlines included) are refused. */
+export interface BroadcastRequest {
+  sessionIds: string[];
+  text: string;
+  enter?: boolean;
+}
+
+export type BroadcastResult =
+  | { ok: true; sent: number; skipped: number }
+  | { ok: false; error: string };
+
 // Socket.io typed events
 export interface ClientToServerEvents {
   'session:join': (sessionId: string) => void;
@@ -430,6 +447,8 @@ export interface ClientToServerEvents {
   'session:clear-buffer': (sessionId: string) => void;
   'session:seen': (sessionId: string) => void;
   'session:mark-done': (sessionId: string) => void;
+  /** Type the same text into several sessions at once (validated + rate-limited server-side). */
+  'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
   // Ephemeral terminals (Explorer view only — not persisted, not in session list)
   'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
   'ephemeral:input': (payload: { id: string; data: string }) => void;
