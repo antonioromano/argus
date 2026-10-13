@@ -38,7 +38,7 @@ async function requireOk(res: Response): Promise<Response> {
   return res;
 }
 
-async function authFetch(
+export async function authFetch(
   url: string,
   init?: RequestInit,
   // When `intercept401` is false, a 401 is passed through to the caller instead

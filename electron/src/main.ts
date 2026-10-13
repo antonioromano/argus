@@ -906,7 +906,7 @@ function buildAppMenu(): Menu {
       { type: 'separator' },
       {
         label: 'Argus on GitHub',
-        click: () => shell.openExternal('https://github.com/antonio/argus'),
+        click: () => shell.openExternal('https://github.com/antonioromano/argus'),
       },
     ],
   };
