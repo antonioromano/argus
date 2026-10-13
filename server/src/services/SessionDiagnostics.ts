@@ -34,8 +34,9 @@ export interface SessionDiagnosticsPayload {
     suppressDonePromotion: boolean;
     donePromotionPending: boolean;
     hasUserInputSinceIdle: boolean;
-    outputBufferBytes: number;
-    outputBufferCapBytes: number;
+    /** Raw pty tail held for this dump (diagnostics only) vs its cap. */
+    rawTailBytes: number;
+    rawTailCapBytes: number;
     connectedClients: number;
     /** Native-signal arbitration state (plan 2026-07-22-001); absent pre-feature. */
     native?: {
@@ -51,7 +52,7 @@ export interface SessionDiagnosticsPayload {
   tmux: TmuxDiagnostics | null;
   /** Full tmux scrollback capture; null for non-tmux sessions or capture failure. */
   scrollback: string | null;
-  /** Last slice of the rolling output buffer (fallback view of recent bytes). */
+  /** Last raw pty bytes (escape sequences intact) — see SessionManager RawTail. */
   rawTail: string;
   app: {
     nodeEnv: string;
@@ -127,7 +128,7 @@ export function buildReport(p: SessionDiagnosticsPayload): { markdown: string; j
   md.push(`- suppressDonePromotion: ${runtime.suppressDonePromotion}`);
   md.push(`- donePromotionPending: ${runtime.donePromotionPending}`);
   md.push(`- hasUserInputSinceIdle: ${runtime.hasUserInputSinceIdle}`);
-  md.push(`- outputBuffer: ${runtime.outputBufferBytes} / ${runtime.outputBufferCapBytes} bytes`);
+  md.push(`- rawTail: ${runtime.rawTailBytes} / ${runtime.rawTailCapBytes} bytes`);
   md.push(`- last client grid: ${runtime.cols ?? '?'}×${runtime.rows ?? '?'}`);
   md.push('');
 

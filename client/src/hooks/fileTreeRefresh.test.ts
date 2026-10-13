@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadedSubdirs, dirsToRefetch } from './useFileTree.js';
+import { loadedSubdirs, dirsToRefetch, pruneFileTreeCache } from './useFileTree.js';
 import type { DirectoryEntry } from '@argus/shared';
 
 // Minimal NodeState-shaped map builder for the pure selectors.
@@ -65,5 +65,18 @@ describe('dirsToRefetch', () => {
 
   it('ignores unrelated dirs but keeps known ones', () => {
     expect(dirsToRefetch(nodes as never, ['/repo/src', '/repo/vendor/x']).sort()).toEqual(['/repo/src']);
+  });
+});
+
+describe('pruneFileTreeCache', () => {
+  it('evicts every root cached for a dead session and keeps live ones', () => {
+    const cache = new Map<string, unknown>([
+      ['live::/repo', 1],
+      ['live::/repo/wt', 2],
+      ['dead::/repo', 3],
+      ['dead::/other', 4],
+    ]);
+    pruneFileTreeCache(new Set(['live']), cache);
+    expect([...cache.keys()].sort()).toEqual(['live::/repo', 'live::/repo/wt']);
   });
 });

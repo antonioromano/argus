@@ -144,7 +144,9 @@ export function useCompanionTerminal(
       'companion', // own mouse-state key — don't inherit the Claude pane's appMouse
     );
 
-    requestAnimationFrame(() => {
+    // Cancelled in cleanup so a teardown before the frame doesn't fit a
+    // disposed terminal and resize a companion pty we've already left.
+    const fitFrame = requestAnimationFrame(() => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
         socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
@@ -236,6 +238,7 @@ export function useCompanionTerminal(
     container.addEventListener('copy', handleCopy);
 
     return () => {
+      cancelAnimationFrame(fitFrame);
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);

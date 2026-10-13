@@ -1,6 +1,6 @@
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import path from 'path';
 import os from 'os';
@@ -29,6 +29,8 @@ export class PtyManager {
   // undefined = not yet resolved; null = resolved-and-unavailable; string = path
   private tmuxPath: string | null | undefined;
   private tmuxConfigPath: string | null = null;
+  /** applyMouseConfig succeeded against the running tmux server (reset on kill-server). */
+  private mouseConfigApplied = false;
 
   constructor(dataDir?: string) {
     this.dataDir = dataDir || path.join(os.homedir(), '.argus');
@@ -183,9 +185,13 @@ export class PtyManager {
    * Best-effort: push the mouse/copy-mode options onto an ALREADY-RUNNING tmux
    * server. The `-f` config file is only read when the server first starts, so a
    * survivor server (sessions that outlived a prior app run) wouldn't otherwise
-   * pick up these settings. Idempotent — safe to call on every spawn.
+   * pick up these settings. Idempotent; runs its tmux commands once per server.
    */
   private applyMouseConfig(): void {
+    // Five synchronous tmux forks; once per server is enough. A server we
+    // start ourselves reads the same settings from the -f config, so only the
+    // first spawn (which may attach to a survivor server) needs this.
+    if (this.mouseConfigApplied) return;
     try {
       this.runTmux(['set-option', '-g', 'mouse', 'on']);
       this.runTmux(['set-option', '-g', 'allow-passthrough', 'on']);
@@ -197,6 +203,7 @@ export class PtyManager {
       if (this.runTmux(['show-options', '-g', 'terminal-overrides']).indexOf('smcup@') === -1) {
         this.runTmux(['set-option', '-ga', 'terminal-overrides', ',*:smcup@:rmcup@']);
       }
+      this.mouseConfigApplied = true;
     } catch {
       /* server not up yet → the -f config covers the fresh-server case */
     }
@@ -403,6 +410,7 @@ export class PtyManager {
 
   /** Kill the entire argus tmux server (all sessions). Used by "Quit & Stop All". */
   killTmuxServer(): void {
+    this.mouseConfigApplied = false; // the next server is a new one
     try {
       this.runTmux(['kill-server']);
     } catch {
@@ -447,8 +455,14 @@ export class PtyManager {
    * parsing entirely and lets the app (Claude) scroll its own view. Best-effort:
    * a gone session just throws and is swallowed by the caller.
    */
-  sendKeysLiteral(tmuxName: string, data: string): void {
-    this.runTmux(['send-keys', '-t', tmuxName, '-l', data]);
+  sendKeysLiteral(tmuxName: string, data: string): Promise<void> {
+    // Async: this runs on every wheel tick, and a synchronous fork blocked the
+    // event loop ~5ms each (all sessions' output stalled while scrolling).
+    const tmux = this.resolveTmux();
+    if (!tmux) return Promise.reject(new Error('tmux not available'));
+    return new Promise((resolve, reject) => {
+      execFile(tmux, this.tmuxArgs('send-keys', '-t', tmuxName, '-l', data), (err) => (err ? reject(err) : resolve()));
+    });
   }
 
   resize(ptyProcess: IPty, cols: number, rows: number): void {

@@ -447,7 +447,9 @@ export class GitService {
 
   async worktreeDirtyCheck(worktreePath: string): Promise<boolean> {
     try {
-      const output = await execGit(['status', '--porcelain'], worktreePath);
+      // Read-only: --no-optional-locks so this never takes index.lock (an
+      // agent's concurrent `git commit` would fail with "index.lock exists").
+      const output = await execGit(['--no-optional-locks', 'status', '--porcelain'], worktreePath);
       return output.trim().length > 0;
     } catch {
       return false;
@@ -831,7 +833,11 @@ export class GitService {
 
   async hasChanges(folderPath: string): Promise<boolean> {
     try {
-      const output = await execGit(['status', '--porcelain'], folderPath);
+      // Polled every 10s per session (SessionManager.pollGitStatus). Plain
+      // `git status` refreshes the index stat cache and so takes index.lock —
+      // racing an agent's own `git commit`, which then fails with "index.lock
+      // exists". --no-optional-locks skips that opportunistic write.
+      const output = await execGit(['--no-optional-locks', 'status', '--porcelain'], folderPath);
       return output.trim().length > 0;
     } catch {
       return false;
@@ -989,7 +995,7 @@ export class GitService {
 
     try {
       const [statusOutput, toplevel] = await Promise.all([
-        execGit(['status', '--porcelain', '--ignored'], folderPath),
+        execGit(['--no-optional-locks', 'status', '--porcelain', '--ignored'], folderPath), // read-only: never take index.lock
         execGit(['rev-parse', '--show-toplevel'], folderPath),
       ]);
 

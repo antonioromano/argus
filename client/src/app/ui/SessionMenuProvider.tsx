@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { SESSION_NAME_MAX } from '@argus/shared';
 import { ContextMenu } from '../../components/primitives/index.js';
@@ -46,19 +46,29 @@ export function SessionMenuProvider({
     setRenaming({ id, surface });
   }, []);
 
+  // Latest-ref so an inline `onRename` from the parent doesn't change
+  // commitRename — and with it the memoized `api` — on every parent render,
+  // which re-rendered every context consumer (each memoized MosaicTile).
+  const onRenameRef = useRef(onRename);
+  useEffect(() => {
+    onRenameRef.current = onRename;
+  });
+
   const commitRename = useCallback((id: string, name: string) => {
     const trimmed = name.trim().slice(0, SESSION_NAME_MAX);
     setRenaming(null);
-    if (trimmed) onRename(id, trimmed);
-  }, [onRename]);
+    if (trimmed) onRenameRef.current(id, trimmed);
+  }, []);
+
+  const cancelRename = useCallback(() => setRenaming(null), []);
 
   const api = useMemo<SessionMenuApi>(() => ({
     openMenu,
     beginRename,
     isRenaming: (id, surface) => renaming?.id === id && renaming.surface === surface,
     commitRename,
-    cancelRename: () => setRenaming(null),
-  }), [openMenu, beginRename, renaming, commitRename]);
+    cancelRename,
+  }), [openMenu, beginRename, renaming, commitRename, cancelRename]);
 
   const items = menuAt
     ? buildSessionMenuItems(

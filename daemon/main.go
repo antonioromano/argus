@@ -39,6 +39,9 @@ type daemon struct {
 	sessions     map[string]*session
 	client       *framedConn
 	lastActivity time.Time
+	// Held (never closed) for the process's life; a field so the GC can't
+	// finalize the file and release the lock early.
+	dirLock *os.File
 }
 
 func main() {
@@ -56,6 +59,15 @@ func main() {
 		sessions:     map[string]*session{},
 		lastActivity: time.Now(),
 	}
+
+	// One daemon per data dir, whatever its socket label: two daemons on one dir
+	// each restore the same persisted sessions, so every agent runs twice.
+	lock, err := acquireDirLock(filepath.Dir(socketPath))
+	if err != nil {
+		log.Printf("another argusd already serves %s (%v) — exiting", filepath.Dir(socketPath), err)
+		os.Exit(0)
+	}
+	d.dirLock = lock
 
 	ln, err := d.listen()
 	if err != nil {
@@ -118,6 +130,23 @@ func (d *daemon) listen() (net.Listener, error) {
 	// Stale — remove and retry once.
 	_ = os.Remove(d.socketPath)
 	return net.Listen("unix", d.socketPath)
+}
+
+// acquireDirLock takes an exclusive, non-blocking flock on dir/argusd.lock. The
+// kernel drops it when the process dies, so a crashed daemon never wedges it.
+func acquireDirLock(dir string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "argusd.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func (d *daemon) writePid() {

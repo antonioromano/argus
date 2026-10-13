@@ -949,6 +949,11 @@ async function main() {
     // matches the electron:dev script override, so there's nothing to configure.
     process.env.ARGUS_PORT = '5403';
     process.env.ARGUS_TMUX_SOCKET = 'argus-dev';
+    // The daemon label reads ARGUS_DAEMON_SOCKET first, and argusd exports it
+    // (=argus) into every session. Left inherited, a dev launched from an Argus
+    // terminal ran a second daemon labelled 'argus' on the dev data dir, which
+    // re-spawned the same sessions as the 'argus-dev' one: every agent twice.
+    process.env.ARGUS_DAEMON_SOCKET = 'argus-dev';
   } else {
     // Packaged launches from Finder/Dock with a clean env; honor explicit overrides.
     // 5757 (not 5400) keeps the packaged app off the port a sibling fork like

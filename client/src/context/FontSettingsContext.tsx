@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import {
   FontSettingsContext,
@@ -26,8 +26,12 @@ export function FontSettingsProvider({ uiFontSize, codeFontSize, children }: Pro
     root.style.setProperty('--code-font-size', `${code}px`);
   }, [ui, code]);
 
+  // Stable identity: every TerminalShell reads this context, so a fresh object
+  // per render re-rendered every terminal whenever the app shell did.
+  const value = useMemo(() => ({ uiFontSize: ui, codeFontSize: code }), [ui, code]);
+
   return (
-    <FontSettingsContext.Provider value={{ uiFontSize: ui, codeFontSize: code }}>
+    <FontSettingsContext.Provider value={value}>
       {children}
     </FontSettingsContext.Provider>
   );

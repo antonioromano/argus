@@ -4,6 +4,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 import { authVerdict, type AuthService } from '../services/AuthService.js';
 import { isExposedRequest } from '../middleware/exposure.js';
 import type { UpdateService } from '../services/UpdateService.js';
+import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
 import { clampGrid } from '../utils/clampGrid.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -19,6 +20,10 @@ const clientDimensions = new Map<string, Map<string, { cols: number; rows: numbe
 // client is viewing a session we size the pty to the *smallest* mobile client
 // (it fits the phone) — desktop-only sessions keep the max behavior.
 const mobileSocketIds = new Set<string>();
+
+// Companion-terminal output coalescers, by session id. Module-level because the
+// companion outlives the socket that spawned it (it is broadcast to a room).
+const ctCoalescers = new Map<string, OutputCoalescer>();
 
 /** How often live sockets are re-checked against the token store. */
 export const SOCKET_REVALIDATE_MS = 60_000;
@@ -57,6 +62,10 @@ export function dropUnauthorizedSockets(
 
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
+  // CompanionTerminalManager.kill() unregisters before killing, so the companion's
+  // onExit (the usual cleanup) is skipped on destroy — drop its coalescer here.
+  ctCoalescers.get(sessionId)?.dispose();
+  ctCoalescers.delete(sessionId);
 }
 
 function getMaxDimensions(sessionId: string): { cols: number; rows: number } | null {
@@ -250,13 +259,19 @@ export function setupSocketHandler(
         if (!clientDimensions.has(ctRoom)) {
           clientDimensions.set(ctRoom, new Map());
         }
+        // Coalesced like session:output; see ctCoalescers.
+        ctCoalescers.get(sessionId)?.dispose();
+        const out = createOutputCoalescer((data) => io.to(ctRoom).emit('ct:output', { sessionId, data }));
+        ctCoalescers.set(sessionId, out);
         manager.companionTerminals.spawn(
           sessionId,
           session.folderPath,
           120,
           30,
-          (data) => io.to(ctRoom).emit('ct:output', { sessionId, data }),
+          (data) => out.push(data),
           (exitCode) => {
+            out.dispose(); // output first, then the exit
+            if (ctCoalescers.get(sessionId) === out) ctCoalescers.delete(sessionId);
             io.to(ctRoom).emit('ct:exit', { sessionId, exitCode });
             clientDimensions.delete(ctRoom);
           },
@@ -267,6 +282,10 @@ export function setupSocketHandler(
         }
       }
 
+      // Same invariant as session:join: pending bytes are already in the
+      // companion buffer replayed below, so emit them to the room BEFORE this
+      // socket joins it — after would paint them twice.
+      ctCoalescers.get(sessionId)?.flush();
       void socket.join(ctRoom);
       const buffer = manager.companionTerminals.getBuffer(sessionId);
       if (buffer) {

@@ -384,7 +384,11 @@ export function useTerminal(
     // render garbled (focus view "cut in half", mosaic tile text misplaced).
     // Resizing first lets the server size the pane to us, so the capture matches
     // the grid we're about to render into.
-    requestAnimationFrame(() => {
+    // Tracked so cleanup can cancel it: an effect torn down before this frame
+    // (StrictMode double mount, fontsReady flip, fast Focus switching) would
+    // otherwise join the room AFTER cleanup's session:leave — a leaked
+    // subscription that keeps receiving output for a disposed terminal.
+    const joinFrame = requestAnimationFrame(() => {
       if (container.offsetWidth > 0 && container.offsetHeight > 0) {
         fitAddon.fit();
         // Forced: the join below replays a frame built for whatever size the
@@ -410,14 +414,17 @@ export function useTerminal(
     // drifted. The server answers with a screen-only frame (no \x1b[3J), so this
     // realigns without erasing the scrollback the reader may be sitting in.
     let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+    let resyncFrameTimer: ReturnType<typeof setTimeout> | null = null;
     const resync = (delay: number, frameDelay = 0) => {
       if (resyncTimer) clearTimeout(resyncTimer);
+      if (resyncFrameTimer) clearTimeout(resyncFrameTimer);
+      resyncFrameTimer = null;
       resyncTimer = setTimeout(() => {
         // Unforced: whatever changed the grid already reported it. This emit only
         // exists to guarantee ordering (server sized before it builds the frame).
         emitResize(terminal.cols, terminal.rows);
         const askFrame = () => socket.emit('session:resync', sessionId);
-        if (frameDelay > 0) setTimeout(askFrame, frameDelay);
+        if (frameDelay > 0) resyncFrameTimer = setTimeout(askFrame, frameDelay);
         else askFrame();
       }, delay);
     };
@@ -614,7 +621,9 @@ export function useTerminal(
 
     return () => {
       if (resizeTimer) clearTimeout(resizeTimer);
+      cancelAnimationFrame(joinFrame);
       if (resyncTimer) clearTimeout(resyncTimer);
+      if (resyncFrameTimer) clearTimeout(resyncFrameTimer);
       if (bellTimer) clearTimeout(bellTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);

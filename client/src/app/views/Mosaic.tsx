@@ -171,10 +171,36 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
     handlerStateRef.current = { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize, restoreFromFilter, currentGroup };
   });
 
+  // Genie animation timers, cleared on unmount so a Mosaic torn down mid-
+  // animation (switching to Focus) doesn't fire state updates/toggles later.
+  const animTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Minimizes whose toggle is still waiting on the genie timer. The animation is
+  // cosmetic and may be dropped on unmount; the user's choice must not be.
+  const pendingMinimizeRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const timers = animTimersRef.current;
+    const pending = pendingMinimizeRef.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+      for (const id of pending) handlerStateRef.current.toggleMinimize(id);
+      pending.clear();
+    };
+  }, []);
+  const later = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(() => {
+      animTimersRef.current.delete(t);
+      fn();
+    }, ms);
+    animTimersRef.current.add(t);
+  }, []);
+
   const handleMinimize = useCallback((id: string) => {
     const { filtered, groupFilterIds, activeGroupId, minimizingIds, isMinimized, toggleMinimize } = handlerStateRef.current;
     setMinimizingIds(prev => new Set([...prev, id]));
-    setTimeout(() => {
+    pendingMinimizeRef.current.add(id);
+    later(() => {
+      pendingMinimizeRef.current.delete(id);
       const remaining = filtered
         .slice(0, MAX_TILES)
         .filter(s => !isMinimized(s.id, groupFilterIds, activeGroupId) && s.id !== id && !minimizingIds.has(s.id))
@@ -183,22 +209,22 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
       setMinimizingIds(prev => { const n = new Set(prev); n.delete(id); return n; });
       setNewChipIds(prev => new Set([...prev, id]));
       setReflowingIds(new Set(remaining));
-      setTimeout(() => {
+      later(() => {
         setNewChipIds(prev => { const n = new Set(prev); n.delete(id); return n; });
         setReflowingIds(new Set());
       }, 540);
     }, 340);
-  }, []);
+  }, [later]);
 
   const handleRestore = useCallback((id: string) => {
     const { groupFilterIds, toggleMinimize, restoreFromFilter, currentGroup } = handlerStateRef.current;
     if (groupFilterIds) restoreFromFilter(id, currentGroup);
     else toggleMinimize(id);
     setRestoringIds(prev => new Set([...prev, id]));
-    setTimeout(() => {
+    later(() => {
       setRestoringIds(prev => { const n = new Set(prev); n.delete(id); return n; });
     }, 400);
-  }, []);
+  }, [later]);
 
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay

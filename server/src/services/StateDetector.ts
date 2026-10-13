@@ -323,8 +323,13 @@ export class StateDetector {
     // waiting for the 500ms idle settle (which exists only to detect the
     // ABSENCE of both — e.g. the menu-that-never-quiets case where a blinking
     // cursor keeps output trickling so settle() would never run).
+    //
+    // Only for the LAST queued write: under streaming, dozens of chunks queue
+    // up and a classify per chunk (two 15-row grid scans) doubled per-chunk
+    // CPU while every intermediate answer was immediately superseded. The
+    // settled write sees the newest screen; the 500ms settle covers the rest.
     written.then(() => {
-      if (this.destroyed) return;
+      if (this.destroyed || !this.mirror.isSettled()) return;
       const s = this.classify();
       if (s) this.scheduleStatus(s);
     });
@@ -421,8 +426,7 @@ export class StateDetector {
   }
 
   /** True if any of the last few visible rows is a genuine pending prompt/menu. */
-  private screenShowsPrompt(): boolean {
-    const lines = this.visibleRows();
+  private screenShowsPrompt(lines: string[] = this.visibleRows()): boolean {
     for (const line of lines) {
       for (const p of this.promptPatterns) {
         if (p.test(line)) return true;
@@ -432,9 +436,8 @@ export class StateDetector {
   }
 
   /** True if a working-indicator footer (agent actively working) is on screen. */
-  private screenShowsWorking(): boolean {
+  private screenShowsWorking(lines: string[]): boolean {
     if (this.workingPatterns.length === 0) return false;
-    const lines = this.visibleRows();
     for (const line of lines) {
       for (const p of this.workingPatterns) {
         if (p.test(line)) return true;
@@ -451,8 +454,10 @@ export class StateDetector {
    * screen goes quiet (see settle()).
    */
   private classify(): 'running' | 'waiting' | null {
-    if (this.screenShowsWorking()) return 'running';
-    if (this.screenShowsPrompt()) return 'waiting';
+    // One grid read shared by both checks (each used to collect its own).
+    const lines = this.visibleRows();
+    if (this.screenShowsWorking(lines)) return 'running';
+    if (this.screenShowsPrompt(lines)) return 'waiting';
     return null;
   }
 
