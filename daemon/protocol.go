@@ -14,9 +14,10 @@ import (
 
 // Wire framing: [uint32 BE bodyLen][body]. body[0] = kind, body[1] = idLen,
 // body[2:2+idLen] = sessionId, body[2+idLen:] = payload.
-//   kind 'C' → payload is JSON `control` (session id usually empty)
-//   kind 'D' → payload is raw pty bytes for the tagged session (both directions:
-//              daemon→server is output, server→daemon is input)
+//
+//	kind 'C' → payload is JSON `control` (session id usually empty)
+//	kind 'D' → payload is raw pty bytes for the tagged session (both directions:
+//	           daemon→server is output, server→daemon is input)
 const (
 	kindControl = 'C'
 	kindData    = 'D'
@@ -126,6 +127,20 @@ func (c *framedConn) drop() {
 			_ = c.conn.Close()
 		}
 	})
+}
+
+// isDead reports whether the connection has been dropped. A synchronous
+// (test/client) wrapper is never dead.
+func (c *framedConn) isDead() bool {
+	if c.dead == nil {
+		return false
+	}
+	select {
+	case <-c.dead:
+		return true
+	default:
+		return false
+	}
 }
 
 // enqueue hands one encoded frame to the writer, never blocking.

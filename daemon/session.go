@@ -2,14 +2,26 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 
 	"github.com/creack/pty"
 )
 
 const ringCapacity = 2 * 1024 * 1024 // 2MB per-session backlog for mirror seeding
+
+const (
+	// Input one session may have queued for its pty. A pty write blocks once the
+	// agent stops reading its stdin; past this the agent is not slow, it is deaf,
+	// and further input is dropped rather than held without limit. Generous next
+	// to anything typed or pasted.
+	maxSessionInputBytes = 1 << 20
+	// Queued input chunks regardless of size (a flood of keystrokes).
+	maxSessionInputFrames = 1024
+)
 
 type session struct {
 	id   string
@@ -21,6 +33,15 @@ type session struct {
 	subscribed bool // forward live output to the active client
 	exited     bool
 	code       int
+
+	// Input path: one writer goroutine per session, so a pty write that blocks
+	// (an agent not reading stdin) stalls only this session — never the
+	// connection's read loop and with it every other session's input.
+	in        chan []byte
+	inQueued  atomic.Int64
+	inDropped atomic.Int64
+	done      chan struct{}
+	doneOnce  sync.Once
 }
 
 func startSession(id string, argv []string, cwd string, env map[string]string, cols, rows int) (*session, error) {
@@ -42,7 +63,33 @@ func startSession(id string, argv []string, cwd string, env map[string]string, c
 	if err != nil {
 		return nil, err
 	}
-	return &session{id: id, cmd: cmd, ptmx: ptmx, ring: newRing(ringCapacity), subscribed: true}, nil
+	s := &session{
+		id: id, cmd: cmd, ptmx: ptmx, ring: newRing(ringCapacity), subscribed: true,
+		in:   make(chan []byte, maxSessionInputFrames),
+		done: make(chan struct{}),
+	}
+	go s.inputLoop()
+	return s, nil
+}
+
+// inputLoop is the session's only pty writer.
+func (s *session) inputLoop() {
+	for {
+		select {
+		case <-s.done:
+			return
+		case b := <-s.in:
+			s.inQueued.Add(-int64(len(b)))
+			if _, err := s.ptmx.Write(b); err != nil {
+				return // pty closed: the read loop reports the exit
+			}
+		}
+	}
+}
+
+// stop ends the input writer. Idempotent.
+func (s *session) stop() {
+	s.doneOnce.Do(func() { close(s.done) })
 }
 
 func (s *session) resize(cols, rows int) {
@@ -52,13 +99,42 @@ func (s *session) resize(cols, rows int) {
 	_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 }
 
+// write queues input for the pty, never blocking the caller. The queue keeps
+// data itself: callers hand over a buffer they never touch again (every frame
+// payload is a fresh allocation).
 func (s *session) write(data []byte) {
-	_, _ = s.ptmx.Write(data)
+	if len(data) == 0 {
+		return
+	}
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	if s.inQueued.Load()+int64(len(data)) > maxSessionInputBytes {
+		s.dropInput(len(data))
+		return
+	}
+	s.inQueued.Add(int64(len(data)))
+	select {
+	case s.in <- data:
+	default:
+		s.inQueued.Add(-int64(len(data)))
+		s.dropInput(len(data))
+	}
+}
+
+func (s *session) dropInput(n int) {
+	// Log the first drop of an episode only; a deaf agent gets a lot of input.
+	if s.inDropped.Add(1) == 1 {
+		log.Printf("session %s: input queue full (agent not reading stdin) — dropping %d bytes", s.id, n)
+	}
 }
 
 // kill terminates the agent and releases the pty. The read loop sees EOF and
 // reports the exit.
 func (s *session) kill() {
+	s.stop()
 	if s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
 	}
