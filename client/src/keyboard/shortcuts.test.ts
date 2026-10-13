@@ -50,3 +50,10 @@ describe('shortcut registry', () => {
     expect(SHORTCUTS_BY_ID['open-diff'].fixed).toBeUndefined();
   });
 });
+
+describe('waiting inbox shortcut', () => {
+  it('defaults to a combo no other action, Monaco or the app menu uses', () => {
+    // Cmd+Shift+I is Monaco's Format Document; Cmd+Shift+L/N/Q are app-menu items.
+    expect(resolveShortcuts()['waiting-inbox']).toBe('mod+shift+j');
+  });
+});

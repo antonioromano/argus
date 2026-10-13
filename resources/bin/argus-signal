@@ -6,7 +6,12 @@
 # every failure path exits 0 and the curl call is time-boxed. No Node dependency.
 #
 # Usage:
-#   argus-signal --session <id> --state <running|waiting|idle> [--prompt-from-stdin]
+#   argus-signal --session <id> --state <running|waiting|idle> [--prompt-from-stdin] [--hook-stdin]
+#   argus-signal --session <id> --hook-stdin            (metadata only, no state)
+#
+# --hook-stdin: the hook's stdin is Claude's hook JSON; forward its session_id
+# and transcript_path (the usage meter and Resume read them). Without --state
+# only that metadata is posted (SessionStart, which has no lifecycle meaning).
 #
 # Env (injected into the agent process by Argus at spawn):
 #   ARGUS_SIGNAL_URL    base URL, e.g. http://127.0.0.1:5757/api/agent-signals
@@ -16,11 +21,13 @@ set -u
 SESSION=""
 STATE=""
 PROMPT_FROM_STDIN=0
+HOOK_STDIN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) SESSION="${2:-}"; shift 2 ;;
     --state) STATE="${2:-}"; shift 2 ;;
     --prompt-from-stdin) PROMPT_FROM_STDIN=1; shift ;;
+    --hook-stdin) HOOK_STDIN=1; shift ;;
     *) shift ;;
   esac
 done
@@ -30,27 +37,48 @@ done
 [ -n "${ARGUS_SIGNAL_URL:-}" ] || exit 0
 [ -n "${ARGUS_SIGNAL_TOKEN:-}" ] || exit 0
 [ -n "$SESSION" ] || exit 0
-[ -n "$STATE" ] || exit 0
+[ -n "$STATE" ] || [ "$HOOK_STDIN" -eq 1 ] || exit 0
 
 # JSON-escape backslashes and double quotes (minimal; values are simple).
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
+# The FIRST "<key>":"<string>" pair in the hook JSON. Claude writes its own
+# top-level fields (session_id, transcript_path, message, ...) before the
+# tool's arguments, so the first match is the real one; a tool_input that
+# happens to carry a "session_id" (an MCP tool parameter, say) comes later and
+# must never win. Best-effort: not robust to escaped quotes inside the value —
+# the server validates every field and drops whatever doesn't parse.
+field() {
+  printf '%s' "$RAW" | tr '\n' ' ' \
+    | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n1 \
+    | sed "s/^\"$1\"[[:space:]]*:[[:space:]]*\"//; s/\"\$//"
+}
+
+# Only the head of stdin is parsed: the fields we want sit at the start, and a
+# PreToolUse for a multi-MB Write carries the whole file. The rest is drained
+# unread (so the hook never dies on EPIPE) at pipe speed, not parsed.
+RAW=""
+if [ "$PROMPT_FROM_STDIN" -eq 1 ] || [ "$HOOK_STDIN" -eq 1 ]; then
+  RAW=$(head -c 8192 2>/dev/null || true)
+  cat >/dev/null 2>&1 || true
+fi
 PROMPT=""
-if [ "$PROMPT_FROM_STDIN" -eq 1 ]; then
-  RAW=$(cat 2>/dev/null || true)
-  # Best-effort: pull the first "message":"..." out of the hook's stdin JSON.
-  # Not robust to escaped quotes inside the message; the server falls back to
-  # screen scraping when promptText is absent, so an imperfect grab is fine.
-  PROMPT=$(printf '%s' "$RAW" | tr '\n' ' ' | sed -n 's/.*"message"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+[ "$PROMPT_FROM_STDIN" -eq 1 ] && PROMPT=$(field message)
+CLAUDE_ID=""
+TRANSCRIPT=""
+if [ "$HOOK_STDIN" -eq 1 ]; then
+  CLAUDE_ID=$(field session_id)
+  TRANSCRIPT=$(field transcript_path)
 fi
 
-TOKEN_J=$(esc "${ARGUS_SIGNAL_TOKEN}")
-STATE_J=$(esc "$STATE")
-if [ -n "$PROMPT" ]; then
-  BODY=$(printf '{"token":"%s","state":"%s","promptText":"%s"}' "$TOKEN_J" "$STATE_J" "$(esc "$PROMPT")")
-else
-  BODY=$(printf '{"token":"%s","state":"%s"}' "$TOKEN_J" "$STATE_J")
-fi
+BODY=$(printf '"token":"%s"' "$(esc "${ARGUS_SIGNAL_TOKEN}")")
+[ -n "$STATE" ] && BODY="$BODY$(printf ',"state":"%s"' "$(esc "$STATE")")"
+[ -n "$PROMPT" ] && BODY="$BODY$(printf ',"promptText":"%s"' "$(esc "$PROMPT")")"
+[ -n "$CLAUDE_ID" ] && BODY="$BODY$(printf ',"claudeSessionId":"%s"' "$(esc "$CLAUDE_ID")")"
+[ -n "$TRANSCRIPT" ] && BODY="$BODY$(printf ',"transcriptPath":"%s"' "$(esc "$TRANSCRIPT")")"
+# Metadata-only call that found nothing to send: stay silent.
+[ -n "$STATE" ] || [ -n "$CLAUDE_ID" ] || [ -n "$TRANSCRIPT" ] || exit 0
+BODY="{$BODY}"
 
 URL="${ARGUS_SIGNAL_URL%/}/$SESSION"
 # Send the body via stdin (--data-binary @-), never `-d "$BODY"`: the token is a

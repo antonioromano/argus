@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, FileSearchResult } from '@argus/shared';
-import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, Terminal } from 'lucide-react';
+import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, Terminal, ChevronRight } from 'lucide-react';
+import { filterCommands, type PaletteCommand } from './paletteCommands.js';
 import { isMac, isPrimaryModifier } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
 import { Kbd, Tooltip, StatusPill } from '../../components/primitives/index.js';
@@ -19,6 +20,8 @@ interface CommandPaletteProps {
   onJumpSession: (id: string) => void;
   onOpenInExplorer: (sessionId: string, filePath: string, lineNumber?: number, query?: string) => void;
   onOpenInDiff: (sessionId: string, fileName: string) => void;
+  /** Runnable actions, listed under COMMANDS after the sessions. */
+  commands?: readonly PaletteCommand[];
 }
 
 function ResultIcon({ ext }: { ext: string }) {
@@ -35,6 +38,7 @@ export function CommandPalette({
   onJumpSession,
   onOpenInExplorer,
   onOpenInDiff,
+  commands = [],
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('all');
@@ -118,8 +122,13 @@ export function CommandPalette({
   // Scope tabs filter which groups are visible/navigable. Files requires a scoped
   // session to search within (otherwise empty + a hint).
   const visibleSessions = useMemo(() => (scope === 'files' ? [] : sessionItems), [scope, sessionItems]);
+  const commandItems = useMemo(() => filterCommands(commands, query), [commands, query]);
+  const visibleCommands = useMemo(() => (scope === 'files' ? [] : commandItems), [scope, commandItems]);
   const visibleResults = useMemo(() => (scope === 'sessions' ? [] : results), [scope, results]);
-  const total = visibleSessions.length + visibleResults.length;
+  // Row order: sessions, then commands, then files — indices are contiguous.
+  const commandsStart = visibleSessions.length;
+  const filesStart = commandsStart + visibleCommands.length;
+  const total = filesStart + visibleResults.length;
 
   // Keep selection in range as the visible list grows/shrinks. Adjust-during-render.
   if (selectedIndex > Math.max(0, total - 1)) {
@@ -167,8 +176,10 @@ export function CommandPalette({
           } else {
             scopeToSession(id);
           }
+        } else if (selectedIndex < filesStart) {
+          visibleCommands[selectedIndex - commandsStart]?.run();
         } else {
-          const r = visibleResults[selectedIndex - visibleSessions.length];
+          const r = visibleResults[selectedIndex - filesStart];
           if (r && scopedSession) {
             onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query);
           }
@@ -177,7 +188,7 @@ export function CommandPalette({
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [selectedIndex, total, visibleSessions, visibleResults, query, scopedSession, onClose, onJumpSession, onOpenInExplorer]);
+  }, [selectedIndex, total, visibleSessions, visibleCommands, visibleResults, commandsStart, filesStart, query, scopedSession, onClose, onJumpSession, onOpenInExplorer]);
 
   useEffect(() => {
     const item = document.getElementById(optionId(selectedIndex));
@@ -185,7 +196,7 @@ export function CommandPalette({
   }, [selectedIndex]);
 
   // Selected row resolution (file vs session) for the preview pane.
-  const fileIdx = selectedIndex - visibleSessions.length;
+  const fileIdx = selectedIndex - filesStart;
   const selectedFileResult: FileSearchResult | null =
     fileIdx >= 0 && fileIdx < visibleResults.length ? visibleResults[fileIdx] : null;
   const selectedSession: SessionInfo | null =
@@ -224,8 +235,11 @@ export function CommandPalette({
   const rootPath = scopedSession?.folderPath ?? '';
   const showResultsRegion = total > 0 || searching;
 
+  const selectedCommand: PaletteCommand | null =
+    selectedIndex >= commandsStart && selectedIndex < filesStart ? visibleCommands[selectedIndex - commandsStart] ?? null : null;
+
   const scopeCounts: Record<Scope, number> = {
-    all: sessionItems.length + results.length,
+    all: sessionItems.length + commandItems.length + results.length,
     files: results.length,
     sessions: sessionItems.length,
   };
@@ -425,11 +439,62 @@ export function CommandPalette({
             </div>
           )}
 
+          {visibleCommands.length > 0 && (
+            <div>
+              <div className="eyebrow" style={{ padding: 'var(--s-2) var(--s-4)', color: 'var(--fg-3)' }}>COMMANDS</div>
+              {visibleCommands.map((c, idx) => {
+                const i = idx + commandsStart;
+                const isSelected = selectedIndex === i;
+                const Icon = c.icon ?? ChevronRight;
+                return (
+                  <div
+                    key={c.id}
+                    id={optionId(i)}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => c.run()}
+                    onMouseEnter={() => setSelectedIndex(i)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px var(--s-4)',
+                      cursor: 'pointer',
+                      background: isSelected ? 'var(--bg-3)' : 'transparent',
+                      borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
+                    }}
+                  >
+                    <Icon size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--t-sm)',
+                        color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
+                        flex: '0 1 auto',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {c.label}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    {c.hint && (
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                        {c.hint}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {visibleResults.length > 0 && (
             <div>
               <div className="eyebrow" style={{ padding: 'var(--s-2) var(--s-4)', color: 'var(--fg-3)' }}>FILES</div>
               {visibleResults.map((r, idx) => {
-                const i = idx + visibleSessions.length;
+                const i = idx + filesStart;
                 const isSelected = selectedIndex === i;
                 const rel = r.path.startsWith(rootPath) ? r.path.slice(rootPath.length + 1) : r.path;
                 const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
@@ -532,6 +597,7 @@ export function CommandPalette({
 
         {/* Preview pane */}
         <PalettePreviewPane
+          command={selectedCommand}
           fileResult={selectedFileResult}
           session={selectedSession}
           content={previewContent}
@@ -557,7 +623,7 @@ export function CommandPalette({
                 { key: '↵', label: 'SCOPE' },
                 { key: isMac ? '⌘↵' : 'Ctrl+↵', label: 'FOCUS' },
               ]
-            : [{ key: '↵', label: 'OPEN' }]),
+            : [{ key: '↵', label: selectedCommand ? 'RUN' : 'OPEN' }]),
           { key: 'Tab', label: 'SCOPE' },
           ...(scopedSession && query === '' ? [{ key: '⌫', label: 'CLEAR SCOPE' }] : []),
           { key: 'Esc', label: 'CLOSE' },
@@ -587,13 +653,32 @@ const emptyHintStyle: React.CSSProperties = {
 };
 
 interface PalettePreviewPaneProps {
+  command: PaletteCommand | null;
   fileResult: FileSearchResult | null;
   session: SessionInfo | null;
   content: string | null;
   loading: boolean;
 }
 
-function PalettePreviewPane({ fileResult, session, content, loading }: PalettePreviewPaneProps) {
+function PalettePreviewPane({ command, fileResult, session, content, loading }: PalettePreviewPaneProps) {
+  if (command) {
+    const Icon = command.icon ?? ChevronRight;
+    return (
+      <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', padding: 'var(--s-5)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+          <Icon size={16} strokeWidth={1.6} style={{ color: 'var(--accent)' }} />
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-lg)', fontWeight: 600, color: 'var(--fg-0)' }}>
+            {command.label}
+          </span>
+        </div>
+        {command.hint && <DetailRow k="DETAIL" v={command.hint} mono />}
+        <div style={{ marginTop: 'auto', display: 'flex', gap: 'var(--s-3)', color: 'var(--fg-3)' }}>
+          <span className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Kbd>↵</Kbd>RUN</span>
+        </div>
+      </div>
+    );
+  }
+
   if (session) {
     return (
       <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', padding: 'var(--s-5)' }}>

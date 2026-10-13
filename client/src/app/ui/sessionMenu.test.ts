@@ -84,4 +84,15 @@ describe('buildSessionMenuItems', () => {
     const close = entries.find((e) => 'id' in e && e.id === 'close') as { danger?: boolean };
     expect(close.danger).toBe(true);
   });
+
+  it('offers Resume conversation only where canResume says so, right above restart', () => {
+    const onResume = vi.fn();
+    const none = ids(buildSessionMenuItems(session, actions({ onResume, canResume: () => false })));
+    expect(none).not.toContain('resume');
+    const items = buildSessionMenuItems(session, actions({ onResume, canResume: () => true }));
+    const order = ids(items);
+    expect(order.indexOf('resume')).toBe(order.indexOf('restart') - 1);
+    (items.find((e) => 'id' in e && e.id === 'resume') as { onClick: () => void }).onClick();
+    expect(onResume).toHaveBeenCalledWith(session);
+  });
 });

@@ -797,6 +797,11 @@ function buildAppMenu(): Menu {
         accelerator: menuAccelerator('command-palette'),
         click: () => sendMenuEvent('menu:toggle-palette'),
       },
+      {
+        label: 'Waiting Inbox',
+        accelerator: menuAccelerator('waiting-inbox'),
+        click: () => sendMenuEvent('menu:waiting-inbox'),
+      },
       { type: 'separator' },
       {
         label: 'Toggle Theme',

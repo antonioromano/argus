@@ -134,6 +134,57 @@ const QUESTION_SHAPED: RegExp[] = [
 ];
 
 const BOX_DRAWING_CHARS = /[│┃|╭╮╰╯─━┌┐└┘├┤┬┴┼·•▌▎▏]/g;
+
+/** One numbered choice of an on-screen selection menu ("❯ 1. Yes"). */
+export interface MenuOption {
+  key: string;
+  label: string;
+}
+
+const MENU_OPTION_ROW = /^([❯›>]\s*)?(\d)\.\s+(.+)$/;
+const MAX_MENU_LABEL = 80;
+
+/**
+ * The options of the selection menu at the bottom of the screen, or undefined
+ * when the screen does not *reliably* show one. Strict on purpose — the result
+ * lets a single keypress answer the agent:
+ *  - options are numbered 1..n in order, 2 ≤ n ≤ 9 (rows between them, such as
+ *    option descriptions, are allowed);
+ *  - one of them carries the selection cursor (❯ / ›), which is what tells a
+ *    live menu apart from a numbered list in the agent's prose;
+ *  - the last such run on screen wins (the live menu sits at the bottom).
+ * Rows are matched after box-drawing chars are stripped and trimmed.
+ */
+export function parseMenuOptions(rows: readonly string[]): MenuOption[] | undefined {
+  let run: MenuOption[] | null = null;
+  let runHasCursor = false;
+  let best: MenuOption[] | undefined;
+  const close = () => {
+    if (run && run.length >= 2 && runHasCursor) best = run;
+  };
+  for (const raw of rows) {
+    const cleaned = raw.replace(BOX_DRAWING_CHARS, ' ').trim();
+    const m = MENU_OPTION_ROW.exec(cleaned);
+    if (!m) continue;
+    const n = Number(m[2]);
+    const label = m[3]!.trim();
+    const opt = { key: String(n), label: label.length > MAX_MENU_LABEL ? `${label.slice(0, MAX_MENU_LABEL - 1)}…` : label };
+    if (n === 1) {
+      close();
+      run = [opt];
+      runHasCursor = !!m[1];
+    } else if (run && n === run.length + 1) {
+      run.push(opt);
+      if (m[1]) runHasCursor = true;
+    } else {
+      close();
+      run = null;
+      runHasCursor = false;
+    }
+  }
+  close();
+  return best;
+}
 const MAX_PROMPT_LEN = 140;
 
 const IDLE_SETTLE_MS = 500;
@@ -214,6 +265,8 @@ export class StateDetector {
   }
   private onStatusChange: (status: SessionStatus) => void;
   private onPromptUpdate: ((text: string) => void) | null = null;
+  /** Fired on every settle while stably waiting (the menu may have repainted). */
+  private onWaitingRepaint: (() => void) | null = null;
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
   private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
@@ -279,6 +332,10 @@ export class StateDetector {
    */
   setOnPromptUpdate(cb: (text: string) => void): void {
     this.onPromptUpdate = cb;
+  }
+
+  setOnWaitingRepaint(cb: () => void): void {
+    this.onWaitingRepaint = cb;
   }
 
   resize(cols: number, rows: number): void {
@@ -388,6 +445,9 @@ export class StateDetector {
           this.lastReportedPrompt = text;
           this.onPromptUpdate?.(text);
         }
+        // Even with the question unchanged, the menu under it can change
+        // (options re-painted, a different menu in the same box).
+        this.onWaitingRepaint?.();
       }
     } else {
       this.scheduleStatus('idle');
@@ -601,6 +661,12 @@ export class StateDetector {
       candidates.find((c) => QUESTION_SHAPED.some((p) => p.test(c))) ?? candidates[0];
     if (!picked) return undefined;
     return picked.length > MAX_PROMPT_LEN ? `${picked.slice(0, MAX_PROMPT_LEN - 1)}…` : picked;
+  }
+
+  /** The numbered options of the menu on screen, when it reliably shows one (see parseMenuOptions). */
+  getMenuOptions(): MenuOption[] | undefined {
+    if (this.destroyed) return undefined;
+    return parseMenuOptions(this.visibleRows(EXTRACT_SCAN_ROWS));
   }
 
   setExited(): void {

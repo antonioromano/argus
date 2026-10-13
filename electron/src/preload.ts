@@ -33,6 +33,7 @@ const MENU_CHANNELS = [
   'menu:close-session',
   'menu:open-settings',
   'menu:toggle-palette',
+  'menu:waiting-inbox',
   'menu:toggle-theme',
   'menu:open-diff',
   'menu:open-files',

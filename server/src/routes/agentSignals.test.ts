@@ -9,10 +9,14 @@ import type { SessionManager } from '../services/SessionManager.js';
 
 const SECRET = 'test-secret-abc';
 const calls: Array<{ id: string; sig: any }> = [];
+const metas: Array<{ id: string; meta: any }> = [];
 
 const fakeManager = {
   applyNativeSignal: (id: string, sig: any) => {
     calls.push({ id, sig });
+  },
+  applyAgentMeta: (id: string, meta: any) => {
+    metas.push({ id, meta });
   },
 } as unknown as SessionManager;
 
@@ -87,4 +91,45 @@ test('oversized body is rejected by the 16kb cap', async () => {
   const huge = 'x'.repeat(32 * 1024);
   const res = await post('sess-1', { token, state: 'idle', promptText: huge });
   assert.equal(res.status, 413, 'payload too large');
+});
+
+const UUID = '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b';
+
+test('hook metadata is forwarded alongside the state', async () => {
+  calls.length = 0;
+  metas.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const res = await post('sess-1', { token, state: 'idle', claudeSessionId: UUID, transcriptPath: '/Users/u/.claude/projects/x/a.jsonl' });
+  assert.equal(res.status, 204);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(metas, [{ id: 'sess-1', meta: { claudeSessionId: UUID, transcriptPath: '/Users/u/.claude/projects/x/a.jsonl' } }]);
+});
+
+test('metadata-only post (no state) is accepted and applies no state', async () => {
+  calls.length = 0;
+  metas.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const res = await post('sess-1', { token, claudeSessionId: UUID });
+  assert.equal(res.status, 204);
+  assert.equal(calls.length, 0);
+  assert.equal(metas.length, 1);
+});
+
+test('malformed metadata is dropped, the state still applies', async () => {
+  calls.length = 0;
+  metas.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const res = await post('sess-1', { token, state: 'running', claudeSessionId: '--dangerous; rm -rf', transcriptPath: '/etc/passwd' });
+  assert.equal(res.status, 204);
+  assert.equal(calls.length, 1);
+  assert.equal(metas.length, 0);
+  // With nothing valid left and no state, it is a bad request.
+  assert.equal((await post('sess-1', { token, claudeSessionId: 'nope' })).status, 400);
+});
+
+test('metadata needs a valid token too', async () => {
+  metas.length = 0;
+  const res = await post('sess-1', { token: 'wrong', claudeSessionId: UUID });
+  assert.equal(res.status, 401);
+  assert.equal(metas.length, 0);
 });

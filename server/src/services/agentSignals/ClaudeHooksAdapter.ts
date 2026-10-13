@@ -82,7 +82,8 @@ function loadUserSettings(
 
 /**
  * Claude Code adapter: injects Stop→idle, UserPromptSubmit/PreToolUse→running,
- * Notification→waiting(+prompt) hooks via a generated `--settings` file. When the
+ * Notification→waiting(+prompt) hooks, plus a state-less SessionStart hook,
+ * via a generated `--settings` file. When the
  * user already passes their own `--settings`, deep-merges into it and collapses
  * to a single flag (Q1) — never clobbering user hooks, never relying on Claude's
  * undocumented last-wins.
@@ -95,15 +96,20 @@ export class ClaudeHooksAdapter implements AgentSignalAdapter {
 
   private argusHooks(ctx: SignalInjectionContext): ClaudeHooks {
     const bin = ctx.signalBinPath;
-    const base = `"${bin}" --session ${ctx.sessionId} --state`;
+    // Every hook also forwards Claude's session_id + transcript_path from its
+    // stdin JSON (--hook-stdin): the usage meter tails the transcript and
+    // Resume needs the id. SessionStart carries no lifecycle state; it is there
+    // so a new transcript (startup, /clear, --resume) is picked up at once.
+    const base = `"${bin}" --session ${ctx.sessionId} --hook-stdin`;
     const cmd = (rest: string): ClaudeHookEntry => ({
-      hooks: [{ type: 'command', command: `${base} ${rest}` }],
+      hooks: [{ type: 'command', command: rest ? `${base} ${rest}` : base }],
     });
     return {
-      Stop: [cmd('idle')],
-      UserPromptSubmit: [cmd('running')],
-      PreToolUse: [cmd('running')],
-      Notification: [cmd('waiting --prompt-from-stdin')],
+      SessionStart: [cmd('')],
+      Stop: [cmd('--state idle')],
+      UserPromptSubmit: [cmd('--state running')],
+      PreToolUse: [cmd('--state running')],
+      Notification: [cmd('--state waiting --prompt-from-stdin')],
     };
   }
 

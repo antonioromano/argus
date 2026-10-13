@@ -5,6 +5,7 @@ import { authVerdict, type AuthService } from '../services/AuthService.js';
 import { isExposedRequest } from '../middleware/exposure.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
+import { BROADCAST_RATE, SessionInputQueue, SlidingWindowLimiter, runBroadcast, validateBroadcast } from './broadcast.js';
 import { clampGrid } from '../utils/clampGrid.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -123,6 +124,10 @@ export function setupSocketHandler(
   authService: AuthService,
   updateService: UpdateService,
 ): void {
+  // One input queue for all connections: keystrokes and broadcasts to a session
+  // stay in order even when they come from different windows.
+  const inputQueue = new SessionInputQueue((id, data) => manager.writeToSession(id, data));
+
   io.use((socket, next) => {
     const rawToken = socket.handshake.auth?.token;
     const req = socket.request;
@@ -224,11 +229,40 @@ export function setupSocketHandler(
 
     socket.on('session:input', ({ sessionId, data }) => {
       if (!manager.getSession(sessionId)) return;
-      try {
-        manager.writeToSession(sessionId, data);
-      } catch {
-        /* session may have exited between the guard check and write */
+      // Through the queue so a keystroke can't land between a broadcast's text
+      // and its Enter; a write error (session exited meanwhile) is swallowed.
+      inputQueue.write(sessionId, data);
+    });
+
+    // Broadcast input (F4): same text into several shells. Validated (known ids,
+    // length cap, single line), rate-limited per socket, and written through
+    // the session:input path above.
+    const broadcastLimiter = new SlidingWindowLimiter(BROADCAST_RATE.max, BROADCAST_RATE.windowMs);
+    socket.on('session:broadcast', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const req = validateBroadcast(payload, (id) => !!manager.getSession(id));
+      if (!req.ok) {
+        reply(req);
+        return;
       }
+      if (!broadcastLimiter.take()) {
+        reply({ ok: false, error: 'Too many broadcasts — wait a few seconds' });
+        return;
+      }
+      reply(runBroadcast(req, (id) => {
+        const s = manager.getSession(id);
+        return !!s && s.status !== 'exited';
+      }, inputQueue));
+    });
+
+    socket.on('session:answer', (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
+      const { sessionId, key } = (payload ?? {}) as { sessionId?: unknown; key?: unknown };
+      if (typeof sessionId !== 'string') { reply({ ok: false, error: 'Invalid request' }); return; }
+      const error = manager.checkPromptAnswer(sessionId, key);
+      if (error) { reply({ ok: false, error }); return; }
+      inputQueue.write(sessionId, key as string);
+      reply({ ok: true });
     });
 
     socket.on('session:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {
