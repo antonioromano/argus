@@ -19,6 +19,18 @@ const clientDimensions = new Map<string, Map<string, { cols: number; rows: numbe
 // (it fits the phone) — desktop-only sessions keep the max behavior.
 const mobileSocketIds = new Set<string>();
 
+/**
+ * Spawn grid for a companion shell: the joining client's size when it sent a
+ * sane one, else 120x30. Spawning at the real size means the first prompt is
+ * drawn for the panel it appears in, not reflowed from 120 columns.
+ */
+export function companionSpawnSize(size: unknown): [number, number] {
+  const s = size as { cols?: unknown; rows?: unknown } | undefined;
+  const ok = (v: unknown, max: number): v is number =>
+    typeof v === 'number' && Number.isInteger(v) && v >= 2 && v <= max;
+  return s && ok(s.cols, 1000) && ok(s.rows, 500) ? [s.cols, s.rows] : [120, 30];
+}
+
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
 }
@@ -228,7 +240,7 @@ export function setupSocketHandler(
     });
 
     // Companion terminal events (one per session, persists while parent session is alive)
-    socket.on('ct:join', (sessionId: string) => {
+    socket.on('ct:join', (sessionId: string, size?: { cols: number; rows: number }) => {
       const session = manager.getSession(sessionId);
       if (!session) return;
 
@@ -242,8 +254,7 @@ export function setupSocketHandler(
         manager.companionTerminals.spawn(
           sessionId,
           session.folderPath,
-          120,
-          30,
+          ...companionSpawnSize(size),
           (data) => io.to(ctRoom).emit('ct:output', { sessionId, data }),
           (exitCode) => {
             io.to(ctRoom).emit('ct:exit', { sessionId, exitCode });

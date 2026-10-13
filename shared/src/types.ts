@@ -384,7 +384,8 @@ export interface ClientToServerEvents {
   'ephemeral:resize': (payload: { id: string; cols: number; rows: number }) => void;
   'ephemeral:kill': (payload: { id: string }) => void;
   // Companion terminals (one per session, persists while parent session is alive)
-  'ct:join': (sessionId: string) => void;
+  /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */
+  'ct:join': (sessionId: string, size?: { cols: number; rows: number }) => void;
   'ct:leave': (sessionId: string) => void;
   'ct:input': (payload: { sessionId: string; data: string }) => void;
   'ct:resize': (payload: { sessionId: string; cols: number; rows: number }) => void;

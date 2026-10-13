@@ -155,20 +155,16 @@ export function useCompanionTerminal(
     };
     const scrollDisposable = terminal.onScroll(syncCursorVisibility);
 
-    // Join with this client's real grid size. ct:join spawns the shell at the
-    // server's default size (120x30) when none is running, and resize events
-    // that arrive before a spawn are dropped — so the size goes out on both
-    // sides of the join, in the same tick: before it so an already-running
-    // shell is sized before its buffer replays, after it so a freshly spawned
-    // shell is corrected before it prints its first prompt.
+    // Join with this client's real grid size: ct:join carries it so a shell
+    // that isn't running yet spawns at it, and the resize before the join sizes
+    // an already-running shell before its buffer replays.
     let sized = false;
     const emitSize = () => {
       if (sized) socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
     };
     const joinSized = () => {
       emitSize();
-      socket.emit('ct:join', sessionId);
-      emitSize();
+      socket.emit('ct:join', sessionId, sized ? { cols: terminal.cols, rows: terminal.rows } : undefined);
     };
     // First join waits one frame for layout so fit() measures the real cell grid
     // (cancelled on cleanup, so an unmount can't join after its ct:leave).

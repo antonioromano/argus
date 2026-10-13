@@ -44,7 +44,7 @@ vi.mock('../context/font-settings-context.js', () => ({ useFontSettings: () => (
 import { useCompanionTerminal } from './useCompanionTerminal.js';
 
 function createFakeSocket() {
-  const emitted: [string, unknown][] = [];
+  const emitted: [string, ...unknown[]][] = [];
   const handlers = new Map<string, Set<(...a: unknown[]) => void>>();
   return {
     emitted,
@@ -53,7 +53,7 @@ function createFakeSocket() {
       handlers.get(e)!.add(cb);
     },
     off: (e: string, cb: (...a: unknown[]) => void) => { handlers.get(e)?.delete(cb); },
-    emit: (e: string, payload?: unknown) => { emitted.push([e, payload]); },
+    emit: (e: string, ...args: unknown[]) => { emitted.push([e, ...args]); },
     fire: (e: string, ...a: unknown[]) => handlers.get(e)?.forEach((cb) => cb(...a)),
   };
 }
@@ -99,7 +99,7 @@ describe('useCompanionTerminal sizing on join', () => {
 
   const ctEvents = () => socket.emitted.filter(([e]) => e.startsWith('ct:'));
 
-  it('reports the real grid size around ct:join, never joining before the first fit', () => {
+  it('reports the real grid size with ct:join, never joining before the first fit', () => {
     act(() => root.render(<Probe />));
     // Nothing joins before layout has been measured.
     expect(ctEvents().some(([e]) => e === 'ct:join')).toBe(false);
@@ -110,8 +110,8 @@ describe('useCompanionTerminal sizing on join', () => {
     expect(joinIdx).toBeGreaterThan(-1);
     // Resize before join (an already-running shell is sized before its buffer replays)…
     expect(ev[joinIdx - 1]).toEqual(['ct:resize', { sessionId: 's1', cols: 173, rows: 41 }]);
-    // …and right after it, in the same tick (a first join spawns at the server default).
-    expect(ev[joinIdx + 1]).toEqual(['ct:resize', { sessionId: 's1', cols: 173, rows: 41 }]);
+    // …and the join itself carries the size, so a first join spawns the shell at it.
+    expect(ev[joinIdx]).toEqual(['ct:join', 's1', { cols: 173, rows: 41 }]);
   });
 
   it('a pending first-frame join is cancelled on unmount (no join after ct:leave)', () => {
@@ -122,11 +122,11 @@ describe('useCompanionTerminal sizing on join', () => {
     act(() => { root = createRoot(container); }); // for afterEach
   });
 
-  it('on reconnect, resizes before and after re-joining', () => {
+  it('on reconnect, resizes then re-joins with its size', () => {
     act(() => root.render(<Probe />));
     act(() => rafs.splice(0).forEach((cb) => cb(0)));
     socket.emitted.length = 0;
     act(() => socket.fire('connect'));
-    expect(ctEvents().map(([e]) => e)).toEqual(['ct:resize', 'ct:join', 'ct:resize']);
+    expect(ctEvents().map(([e]) => e)).toEqual(['ct:resize', 'ct:join']);
   });
 });
