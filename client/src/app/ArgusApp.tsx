@@ -481,7 +481,9 @@ function DesktopInner() {
     notifiedTileTimerRef.current = setTimeout(() => setNotifiedTileId(null), 1200);
   }, [app]);
 
-  // Notifications
+  // Notifications — only from the window that owns (renders) the session.
+  const { ownerOf: windowsOwnerOf, myWindowId: thisWindowId } = windowsApi;
+  const ownsSession = useCallback((id: string) => windowsOwnerOf(id) === thisWindowId, [windowsOwnerOf, thisWindowId]);
   useNotifications({
     sessions,
     enabled: config?.notificationsEnabled ?? true,
@@ -490,6 +492,7 @@ function DesktopInner() {
     notificationSound: config?.notificationSound ?? false,
     onFocusSession: highlightSession,
     onSwitchToSessionsTab: () => {},
+    ownsSession,
   });
 
   // Acknowledge 'done' when the session is open in focus view with the window

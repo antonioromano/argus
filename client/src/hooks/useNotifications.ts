@@ -12,7 +12,19 @@ interface UseNotificationsOptions {
   notificationSound?: boolean;
   onFocusSession: (id: string) => void;
   onSwitchToSessionsTab: () => void;
+  /**
+   * Whether this window owns the session (windows.json; unowned → main).
+   * Every Electron window runs this hook over ALL sessions, gated only on its
+   * own document.hasFocus(), so without this a background window notified about
+   * a session the user was watching in its focused owner window (and two
+   * unfocused windows both posted for the same transition). Only the owner —
+   * the one window that renders the session — decides. Defaults to "all mine"
+   * (single window).
+   */
+  ownsSession?: (id: string) => boolean;
 }
+
+const OWNS_ALL = () => true;
 
 export function useNotifications({
   sessions,
@@ -22,6 +34,7 @@ export function useNotifications({
   notificationSound = false,
   onFocusSession,
   onSwitchToSessionsTab,
+  ownsSession = OWNS_ALL,
 }: UseNotificationsOptions) {
   // Active notifications: id → whether the body was the generic fallback
   // (no extracted prompt yet). Fallback bodies are upgraded once when the
@@ -61,8 +74,9 @@ export function useNotifications({
     for (const session of sessions) {
       const prev = prevStatuses.current.get(session.id);
       const curr = session.status;
+      const mine = ownsSession(session.id);
 
-      if (curr === 'waiting' && prev !== 'waiting' && prev !== undefined && notifyOnWaiting) {
+      if (mine && curr === 'waiting' && prev !== 'waiting' && prev !== undefined && notifyOnWaiting) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
           // terminal-notifier 2.0.0 drops -message bodies starting with '[',
           // so session name goes in subtitle, body is the message text only.
@@ -82,7 +96,7 @@ export function useNotifications({
         }
       }
 
-      if (curr === 'done' && prev !== 'done' && prev !== undefined && notifyOnDone) {
+      if (mine && curr === 'done' && prev !== 'done' && prev !== undefined && notifyOnDone) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
           bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body: 'Finished', sound: notificationSound, attributeToApp: true });
           activeIds.current.set(session.id, { usedFallback: false });
@@ -108,7 +122,7 @@ export function useNotifications({
         prevStatuses.current.delete(id);
       }
     }
-  }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notificationSound]);
+  }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notificationSound, ownsSession]);
 
   // Cleanup on unmount
   useEffect(() => {
