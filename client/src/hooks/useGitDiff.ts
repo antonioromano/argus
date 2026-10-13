@@ -17,7 +17,10 @@ interface UseGitDiffResult {
   diff: GitDiffResponse | null;
   isLoading: boolean;
   error: string | null;
-  refresh: () => void;
+  /** Refetch now. Called while a fetch is in flight, it queues ONE trailing
+   *  refetch (so a stage/unstage isn't masked by a stale poll result) and the
+   *  returned promise settles after that trailing fetch. */
+  refresh: () => Promise<void>;
   contextLevels: Map<string, number>;
   expandFileContext: (filePath: string, source: 'unstaged' | 'staged' | 'branch') => void;
   expandingFiles: Set<string>;
@@ -28,7 +31,10 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const prevDiffRef = useRef<string>('');
-  const fetchingRef = useRef(false);
+  // The fetch currently on the wire, and the single trailing refetch queued
+  // behind it by refresh() calls that arrived meanwhile.
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const trailingRef = useRef<Promise<void> | null>(null);
   // Drives the loading spinner only on the first fetch (or on open); background
   // polls refresh silently so isLoading doesn't flip twice every poll tick.
   const initialLoadDoneRef = useRef(false);
@@ -44,10 +50,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
-  const fetchDiff = useCallback(async () => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
-
+  const runFetch = useCallback(async () => {
     // Only show the spinner for the first load; background polls refresh silently.
     const isInitial = !initialLoadDoneRef.current;
 
@@ -58,6 +61,9 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
       if (result.error) {
         setError(result.error);
         setDiff(result);
+        // The rendered diff is now the error payload: the next good response must
+        // replace it even if it equals the last good one.
+        prevDiffRef.current = '';
       } else {
         setError(null);
 
@@ -98,6 +104,9 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
                 } else {
                   expandedResult.branch = replaceFileDiff(expandedResult.branch, filePath, fileResult.diff);
                 }
+              }).catch(() => {
+                // Keep the default-context section for this file; one failed
+                // expansion must not fail the whole refresh.
               })
             );
           }
@@ -106,13 +115,13 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
             await Promise.all(expandPromises);
           }
 
-          const newKey = expandedResult.unstaged + '||' + expandedResult.staged + '||' + expandedResult.branch;
+          const newKey = diffKey(expandedResult);
           if (newKey !== prevDiffRef.current) {
             prevDiffRef.current = newKey;
             setDiff(expandedResult);
           }
         } else {
-          const newKey = result.unstaged + '||' + result.staged + '||' + result.branch;
+          const newKey = diffKey(result);
           if (newKey !== prevDiffRef.current) {
             prevDiffRef.current = newKey;
             setDiff(result);
@@ -121,14 +130,41 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch diff');
+      prevDiffRef.current = '';
     } finally {
       if (isInitial) {
         setIsLoading(false);
         initialLoadDoneRef.current = true;
       }
-      fetchingRef.current = false;
     }
   }, [sessionId]);
+
+  const startFetch = useCallback((): Promise<void> => {
+    const p = runFetch().finally(() => {
+      if (inFlightRef.current === p) inFlightRef.current = null;
+    });
+    inFlightRef.current = p;
+    return p;
+  }, [runFetch]);
+
+  /** Background poll: skip the tick if a fetch is already on the wire. */
+  const pollDiff = useCallback(() => {
+    if (inFlightRef.current) return;
+    void startFetch();
+  }, [startFetch]);
+
+  const fetchDiff = useCallback((): Promise<void> => {
+    const inFlight = inFlightRef.current;
+    if (!inFlight) return startFetch();
+    if (!trailingRef.current) {
+      const trailing = inFlight.then(() => {
+        trailingRef.current = null;
+        return startFetch();
+      });
+      trailingRef.current = trailing;
+    }
+    return trailingRef.current;
+  }, [startFetch]);
 
   // Fetch on open
   useEffect(() => {
@@ -138,17 +174,16 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
       initialLoadDoneRef.current = false;
       return;
     }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch-on-open is a legitimate external sync; fetchDiff sets loading state internally
-    fetchDiff();
+    void fetchDiff();
   }, [isOpen, fetchDiff]);
 
   // Poll when open, session is running, and tab is visible
   useEffect(() => {
     if (!isOpen || sessionStatus !== 'running' || !isTabVisible) return;
 
-    const interval = setInterval(fetchDiff, POLL_INTERVAL_MS);
+    const interval = setInterval(pollDiff, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [isOpen, sessionStatus, isTabVisible, fetchDiff]);
+  }, [isOpen, sessionStatus, isTabVisible, pollDiff]);
 
   const expandFileContext = useCallback((filePath: string, source: 'unstaged' | 'staged' | 'branch') => {
     const fileKey = `${source}:${filePath}`;
@@ -165,14 +200,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
     setExpandingFiles(prev => new Set(prev).add(fileKey));
 
     api.getFileDiff(sessionId, filePath, newLevel, source).then(fileResult => {
-      if (fileResult.error || !fileResult.diff) {
-        setExpandingFiles(prev => {
-          const next = new Set(prev);
-          next.delete(fileKey);
-          return next;
-        });
-        return;
-      }
+      if (fileResult.error || !fileResult.diff) return;
 
       setDiff(prev => {
         if (!prev) return prev;
@@ -184,10 +212,12 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
         } else {
           updated.branch = replaceFileDiff(updated.branch, filePath, fileResult.diff);
         }
-        prevDiffRef.current = updated.unstaged + '||' + updated.staged + '||' + updated.branch;
+        prevDiffRef.current = diffKey(updated);
         return updated;
       });
-
+    }).catch(() => {
+      // Network/HTTP failure: keep the current context; the finally clears the spinner.
+    }).finally(() => {
       setExpandingFiles(prev => {
         const next = new Set(prev);
         next.delete(fileKey);
@@ -197,6 +227,12 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   }, [sessionId]);
 
   return { diff, isLoading, error, refresh: fetchDiff, contextLevels, expandFileContext, expandingFiles };
+}
+
+/** Change-detection key over the WHOLE response — untracked files, their diff
+ *  and the oversized list included (a new untracked file changes nothing else). */
+function diffKey(d: GitDiffResponse): string {
+  return JSON.stringify([d.unstaged, d.staged, d.branch, d.untracked, d.untrackedDiff, d.oversized ?? null, d.error ?? null]);
 }
 
 /**
