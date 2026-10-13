@@ -67,6 +67,9 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     const cur = stateRef.current;
     const path = filePathRef.current;
     if (!path || !cur.dirty || cur.saving) return;
+    // Mark clean synchronously, before the await: unmount runs this from more than
+    // one cleanup, and a second call must not issue a duplicate (stale-mtime) write.
+    stateRef.current = { ...cur, dirty: false, initialContent: cur.content };
     try {
       await api.writeFile({
         sessionId,
@@ -127,18 +130,26 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     };
   }, [filePath, load, clearTimer, flush]);
 
+  // save() re-arms autosave for an edit made while it was in flight; the timer
+  // callback reads it through a ref so the closure isn't stale.
+  const saveRef = useRef<() => Promise<void>>(async () => {});
+
   const save = useCallback(async () => {
     const cur = stateRef.current;
     const path = filePathRef.current;
     if (!path) return;
     if (!cur.dirty || cur.saving) return;
     clearTimer();
+    // The exact text sent to disk. Anything typed after this point is NOT saved
+    // and must stay dirty once the write lands.
+    const written = cur.content;
+    stateRef.current = { ...cur, saving: true };
     setState((s) => ({ ...s, saving: true }));
     try {
       const res = await api.writeFile({
         sessionId,
         path,
-        content: cur.content,
+        content: written,
         originalMtimeMs: cur.mtimeMs || undefined,
       });
       if (filePathRef.current !== path) return;
@@ -152,16 +163,33 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
         pushToast(res.error ?? 'Save failed', 'danger');
         return;
       }
+      const next: UseFileBufferState = {
+        ...stateRef.current,
+        initialContent: written,
+        mtimeMs: res.mtimeMs,
+        dirty: stateRef.current.content !== written,
+        saving: false,
+        conflict: false,
+        error: null,
+      };
+      stateRef.current = next;
       setState((s) => ({
         ...s,
-        initialContent: s.content,
+        initialContent: written,
         mtimeMs: res.mtimeMs,
-        dirty: false,
+        dirty: s.content !== written,
         saving: false,
         conflict: false,
         error: null,
       }));
       pushToast('Saved', 'ok');
+      // An autosave that fired mid-flight bailed on `saving`; queue the newer edit.
+      if (next.dirty) {
+        clearTimer();
+        timerRef.current = setTimeout(() => {
+          void saveRef.current();
+        }, AUTOSAVE_MS);
+      }
     } catch (err) {
       if (filePathRef.current !== path) return;
       const msg = err instanceof Error ? err.message : 'Save failed';
@@ -169,6 +197,10 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
       pushToast(msg, 'danger');
     }
   }, [sessionId, clearTimer]);
+
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
 
   const setContent = useCallback((next: string) => {
     setState((s) => ({ ...s, content: next, dirty: next !== s.initialContent }));
@@ -183,13 +215,14 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
     await load(filePath);
   }, [filePath, load]);
 
-  // Cleanup: flush a pending autosave, then cancel the timer on unmount.
+  // Cleanup: cancel the timer on unmount. The pending-edit flush is owned by the
+  // filePath effect's cleanup above (which also runs on unmount); flushing here
+  // too issued a second, duplicate write.
   useEffect(() => {
     return () => {
       clearTimer();
-      void flush();
     };
-  }, [clearTimer, flush]);
+  }, [clearTimer]);
 
   return { ...state, setContent, save, reload };
 }

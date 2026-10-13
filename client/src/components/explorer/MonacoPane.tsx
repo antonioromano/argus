@@ -1,7 +1,8 @@
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
-import { registerSymbolProviders, addSymbolEditorActions, symbolNavContext } from './registerSymbolProviders.js';
+import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbolProviders.js';
+import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
 
@@ -15,8 +16,8 @@ interface MonacoPaneProps {
   theme: 'dark' | 'light';
   readOnly?: boolean;
   onSaveShortcut?: () => void;
-  /** Absolute path of the open file — sets the model URI (so same-file go-to-def
-   *  stays native) and the symbol-nav context the providers read. */
+  /** Absolute path of the open file — sets the model URI, which is what the
+   *  symbol providers resolve against (and keeps same-file go-to-def native). */
   path: string;
   revealLine?: number;
   /** Bump to force a re-reveal even when revealLine is unchanged (same-line jumps). */
@@ -108,12 +109,6 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   }, []);
 
-  // Keep the symbol-nav context pointed at the file shown in this editor, so the
-  // (globally registered) definition/reference providers resolve against it.
-  useEffect(() => {
-    symbolNavContext.activePath = path;
-  }, [path]);
-
   // Record the reveal request and drain it. revealNonce covers jumps to the same
   // line (search re-hit, cross-file open to an identical line number) that a bare
   // revealLine dependency would swallow. drainReveal handles the case where the
@@ -126,6 +121,18 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     // the reveal request itself, not on the (per-render) function identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealLine, revealNonce]);
+
+  // Own the model's lifetime (Editor gets keepCurrentModel): the same file can be
+  // open in both split groups on one shared model, and must not be disposed
+  // under the other group when one tab closes. See monacoModelRefs.ts.
+  useEffect(() => {
+    retainModel(path);
+    return () => {
+      releaseModel(path, () => {
+        monaco.editor.getModel(monaco.Uri.parse(path))?.dispose();
+      });
+    };
+  }, [path]);
 
   // Live-apply the code font size to the mounted editor.
   useEffect(() => {
@@ -153,6 +160,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     <Editor
       value={value}
       path={path}
+      keepCurrentModel
       language={language}
       theme={theme === 'dark' ? 'argus-dark' : 'vs'}
       onChange={(v) => onChange(v ?? '')}
@@ -160,7 +168,6 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
         editorRef.current = editor;
         registerSymbolProviders(monacoInstance);
         addSymbolEditorActions(editor);
-        symbolNavContext.activePath = path;
         if (onSaveShortcut) {
           editor.addCommand(monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS, () => {
             onSaveShortcut();

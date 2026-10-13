@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, AlertTriangle, AlertOctagon } from 'lucide-react';
+import { Check, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 
 export type ToastTone = 'ok' | 'warn' | 'danger';
@@ -33,7 +33,11 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const DURATION = 1500;
+// How long a toast stays up before fading. Errors carry information the user
+// has to read (and may need to act on), so they stay much longer, pause while
+// hovered/focused, and can be dismissed — a 1.5s error is unreadable and fails
+// WCAG 2.2.1 (Timing Adjustable). Confirmations stay brief.
+const DURATION: Record<ToastTone, number> = { ok: 1500, warn: 1500, danger: 6000 };
 const FADE_OUT = 200;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -42,9 +46,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const push = useCallback((message: string, tone: ToastTone = 'ok') => {
     const id = nextId++;
     setToasts((prev) => [...prev, { id, message, tone }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, DURATION + FADE_OUT);
+  }, []);
+
+  const remove = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   useEffect(() => {
@@ -60,9 +65,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={value}>
       {children}
       <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="false"
         style={{
           position: 'fixed',
           bottom: 16,
@@ -75,17 +77,36 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           pointerEvents: 'none',
         }}
       >
-        {toasts.map((t) => (
-          <ToastView key={t.id} item={t} />
-        ))}
+        {/* Errors are announced assertively; confirmations/warnings politely.
+            Both regions stay mounted so screen readers track them. */}
+        <div role="alert" style={STACK}>
+          {toasts.filter((t) => t.tone === 'danger').map((t) => (
+            <ToastView key={t.id} item={t} onDone={remove} />
+          ))}
+        </div>
+        <div role="status" aria-live="polite" aria-atomic="false" style={STACK}>
+          {toasts.filter((t) => t.tone !== 'danger').map((t) => (
+            <ToastView key={t.id} item={t} onDone={remove} />
+          ))}
+        </div>
       </div>
     </ToastContext.Provider>
   );
 }
 
-function ToastView({ item }: { item: ToastItem }) {
+const STACK: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 8,
+};
+
+function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
   const [visible, setVisible] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [paused, setPaused] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const dismissible = item.tone === 'danger';
 
   // Each toast is its own component instance, mounted when it's added to the
   // list and unmounted when it's removed — a real mount/unmount matching its
@@ -94,12 +115,25 @@ function ToastView({ item }: { item: ToastItem }) {
 
   useEffect(() => {
     const inFrame = requestAnimationFrame(() => setVisible(true));
-    const outTimer = setTimeout(() => setVisible(false), DURATION);
-    return () => {
-      cancelAnimationFrame(inFrame);
-      clearTimeout(outTimer);
-    };
+    return () => cancelAnimationFrame(inFrame);
   }, []);
+
+  // Auto-dismiss timer. Hover/focus pauses it; leaving restarts the full
+  // duration so the user always gets a complete read after looking away.
+  useEffect(() => {
+    if (paused || leaving) return;
+    const t = setTimeout(() => setLeaving(true), DURATION[item.tone]);
+    return () => clearTimeout(t);
+  }, [paused, leaving, item.tone]);
+
+  // Fade out, then drop from the list.
+  useEffect(() => {
+    if (!leaving) return;
+    const t = setTimeout(() => onDone(item.id), FADE_OUT);
+    return () => clearTimeout(t);
+  }, [leaving, item.id, onDone]);
+
+  const shown = visible && !leaving;
 
   const palette = TONE[item.tone];
   const Icon = palette.icon;
@@ -120,14 +154,44 @@ function ToastView({ item }: { item: ToastItem }) {
         borderRadius: 'var(--r-2)',
         fontSize: 'var(--t-tiny)',
         boxShadow: 'var(--shadow-sheet)',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(4px)',
+        opacity: shown ? 1 : 0,
+        transform: shown ? 'translateY(0)' : 'translateY(4px)',
         transition: 'opacity 200ms var(--ease-std), transform 200ms var(--ease-std)',
         pointerEvents: 'auto',
       }}
+      onMouseEnter={dismissible ? () => setPaused(true) : undefined}
+      onMouseLeave={dismissible ? () => setPaused(false) : undefined}
+      onFocus={dismissible ? () => setPaused(true) : undefined}
+      onBlur={dismissible ? () => setPaused(false) : undefined}
     >
       <Icon size={12} strokeWidth={1.8} />
       <span>{item.message}</span>
+      {dismissible && (
+        // Always rendered (never hover-revealed) so the toast never changes size.
+        <button
+          type="button"
+          aria-label="Dismiss"
+          className="hover-bg-3"
+          onClick={() => setLeaving(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 20,
+            height: 20,
+            marginRight: -6,
+            padding: 0,
+            border: 'none',
+            borderRadius: 'var(--r-1)',
+            background: 'transparent',
+            color: 'var(--fg-2)',
+            cursor: 'pointer',
+            flexShrink: 0,
+          }}
+        >
+          <X size={12} strokeWidth={1.8} />
+        </button>
+      )}
     </div>
   );
 }

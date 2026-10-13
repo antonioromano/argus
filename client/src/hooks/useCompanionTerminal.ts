@@ -144,14 +144,6 @@ export function useCompanionTerminal(
       'companion', // own mouse-state key — don't inherit the Claude pane's appMouse
     );
 
-    // Cancelled in cleanup so a teardown before the frame doesn't fit a
-    // disposed terminal and resize a companion pty we've already left.
-    const fitFrame = requestAnimationFrame(() => {
-      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-        fitAddon.fit();
-        socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
-      }
-    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -163,11 +155,29 @@ export function useCompanionTerminal(
     };
     const scrollDisposable = terminal.onScroll(syncCursorVisibility);
 
-    socket.emit('ct:join', sessionId);
+    // Join with this client's real grid size: ct:join carries it so a shell
+    // that isn't running yet spawns at it, and the resize before the join sizes
+    // an already-running shell before its buffer replays.
+    let sized = false;
+    const emitSize = () => {
+      if (sized) socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+    };
+    const joinSized = () => {
+      emitSize();
+      socket.emit('ct:join', sessionId, sized ? { cols: terminal.cols, rows: terminal.rows } : undefined);
+    };
+    // First join waits one frame for layout so fit() measures the real cell grid
+    // (cancelled on cleanup, so an unmount can't join after its ct:leave).
+    const joinFrame = requestAnimationFrame(() => {
+      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+        fitAddon.fit();
+        sized = true;
+      }
+      joinSized();
+    });
 
     const handleReconnect = () => {
-      socket.emit('ct:join', sessionId);
-      socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+      joinSized();
     };
     socket.on('connect', handleReconnect);
 
@@ -204,7 +214,8 @@ export function useCompanionTerminal(
         fitAddon.fit();
         if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
-        socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+        sized = true;
+        emitSize();
       }
     };
 
@@ -238,7 +249,7 @@ export function useCompanionTerminal(
     container.addEventListener('copy', handleCopy);
 
     return () => {
-      cancelAnimationFrame(fitFrame);
+      cancelAnimationFrame(joinFrame);
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
