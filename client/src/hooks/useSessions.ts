@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionStatus, TerminalEngine, RunMode, ShellGitContext } from '@argus/shared';
+import type { SessionInfo, SessionStatus, TerminalEngine, RunMode, ShellGitContext, SessionUsage } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -81,7 +81,12 @@ export function useSessions(socket: TypedSocket) {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
     };
 
+    const handleUsage = ({ sessionId, usage }: { sessionId: string; usage: SessionUsage }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
+    };
+
     socket.on('session:status', handleStatus);
+    socket.on('session:usage', handleUsage);
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
     socket.on('session:deleted', handleDeleted);
@@ -92,6 +97,7 @@ export function useSessions(socket: TypedSocket) {
 
     return () => {
       socket.off('session:status', handleStatus);
+      socket.off('session:usage', handleUsage);
       socket.off('session:exit', handleExit);
       socket.off('session:created', handleCreated);
       socket.off('session:deleted', handleDeleted);

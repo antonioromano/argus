@@ -1,5 +1,5 @@
 import type { TileRunningIndicator } from '@argus/shared';
-import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../../../../constants/tileActions.js';
@@ -37,6 +37,12 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
             options={INDICATOR_OPTIONS}
             onChange={(tileRunningIndicator) => { void onSave({ tileRunningIndicator }); }}
           />
+        </SettingRow>
+        <SettingRow
+          label="Usage meter"
+          hint="Context used and estimated API cost on Claude shells, read from the session transcript"
+        >
+          <Toggle checked={config.showUsageMeter !== false} onChange={(v) => onSave({ showUsageMeter: v })} />
         </SettingRow>
       </Section>
 

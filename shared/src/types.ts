@@ -125,6 +125,8 @@ export interface AppConfig {
   confirmQuitDirectSessions?: boolean;
   // Launch links outside these roots get a warning on the approval card.
   launchFolderRoots?: string[];
+  // Context % / cost chip on Claude tile headers (default: true).
+  showUsageMeter?: boolean;
 }
 
 /** Every AppConfig key with its shipped default. The single source of truth for
@@ -160,6 +162,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   defaultRunMode: 'persistent',
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
+  showUsageMeter: true,
 };
 
 export interface AgentStatus {
@@ -272,6 +275,36 @@ export interface SessionInfo {
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
+  /** Claude only: token / context / cost meter built from the agent's transcript. */
+  usage?: SessionUsage;
+}
+
+/**
+ * Token usage of a Claude session, summed from the `message.usage` blocks of
+ * its transcript(s). Cumulative across /clear and restarts of the same Argus
+ * session; the context fields describe the latest main-thread turn only.
+ */
+export interface SessionUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  /** Sum of the four counters above. */
+  totalTokens: number;
+  /** Model of the latest main-thread turn (as written in the transcript). */
+  model?: string;
+  /** Prompt size of the latest main-thread turn: input + cache read + cache write. */
+  contextTokens?: number;
+  /** Window of `model`, when known. */
+  contextWindow?: number;
+  /** contextTokens / contextWindow × 100, when the window is known. */
+  contextPct?: number;
+  /** Estimated USD at API list prices. Absent when no turn's model is priced. */
+  costUsd?: number;
+  /** True when some turns used a model with no price, so costUsd undercounts. */
+  costPartial?: boolean;
+  /** Epoch ms of the last change. */
+  updatedAt: number;
 }
 
 /** Git state of a plain Shell's current directory (follows `cd`). */
@@ -436,6 +469,8 @@ export interface ServerToClientEvents {
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
+  /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
+  'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** Filesystem change detected under a session's folder. `dirs` are the
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */

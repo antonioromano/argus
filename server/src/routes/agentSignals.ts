@@ -3,6 +3,8 @@ import express from 'express';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { AgentSignalState } from '@argus/shared';
 import { verifySignalToken } from '../services/agentSignals/token.js';
+import { isClaudeSessionId } from '../services/claudeSession.js';
+import { isPlausibleTranscriptPath } from '../services/usage/SessionUsageTracker.js';
 
 const VALID_STATES = new Set<AgentSignalState>(['running', 'waiting', 'idle']);
 
@@ -39,10 +41,25 @@ export function createAgentSignalRoutes(
       state?: unknown;
       promptText?: unknown;
       coverage?: unknown;
+      claudeSessionId?: unknown;
+      transcriptPath?: unknown;
     };
 
     if (typeof body.token !== 'string' || !verifySignalToken(getSecret(), sessionId, body.token)) {
       res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    // Hook metadata (Claude session id + transcript path). Malformed values are
+    // dropped, never rejected: the hook is fire-and-forget and a bad field must
+    // not cost the state signal it rode in with.
+    const claudeSessionId = isClaudeSessionId(body.claudeSessionId) ? body.claudeSessionId : undefined;
+    const transcriptPath = isPlausibleTranscriptPath(body.transcriptPath) ? body.transcriptPath : undefined;
+    const hasMeta = claudeSessionId !== undefined || transcriptPath !== undefined;
+    if (hasMeta) manager.applyAgentMeta(sessionId, { claudeSessionId, transcriptPath });
+
+    // State is optional only on a metadata-only post (Claude's SessionStart hook).
+    if (body.state === undefined && hasMeta) {
+      res.status(204).end();
       return;
     }
     if (typeof body.state !== 'string' || !VALID_STATES.has(body.state as AgentSignalState)) {

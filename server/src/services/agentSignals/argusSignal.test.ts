@@ -109,3 +109,45 @@ test('missing --state → no request, exits 0', async () => {
   assert.equal(code, 0);
   assert.equal(received.length, 0);
 });
+
+const HOOK_JSON =
+  '{"session_id":"0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b","transcript_path":"/Users/u/.claude/projects/-x/0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b.jsonl","hook_event_name":"Stop","cwd":"/x"}';
+
+test('--hook-stdin forwards session_id and transcript_path with the state', async () => {
+  received = [];
+  const code = await run(
+    ['--session', 'sess-6', '--state', 'idle', '--hook-stdin'],
+    { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't6' },
+    HOOK_JSON,
+  );
+  assert.equal(code, 0);
+  assert.deepEqual(received[0]!.body, {
+    token: 't6',
+    state: 'idle',
+    claudeSessionId: '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b',
+    transcriptPath: '/Users/u/.claude/projects/-x/0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b.jsonl',
+  });
+});
+
+test('--hook-stdin without --state posts metadata only', async () => {
+  received = [];
+  await run(['--session', 'sess-7', '--hook-stdin'], { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't7' }, HOOK_JSON);
+  assert.equal(received.length, 1);
+  assert.equal(received[0]!.body.state, undefined);
+  assert.equal(received[0]!.body.claudeSessionId, '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b');
+});
+
+test('--hook-stdin with no state and nothing on stdin sends nothing', async () => {
+  received = [];
+  const code = await run(['--session', 'sess-8', '--hook-stdin'], { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't8' }, '');
+  assert.equal(code, 0);
+  assert.equal(received.length, 0);
+});
+
+test('--prompt-from-stdin and --hook-stdin share one stdin read', async () => {
+  received = [];
+  const json = '{"session_id":"0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b","message":"Allow Bash?","transcript_path":"/t/a.jsonl"}';
+  await run(['--session', 'sess-9', '--state', 'waiting', '--prompt-from-stdin', '--hook-stdin'], { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't9' }, json);
+  assert.equal(received[0]!.body.promptText, 'Allow Bash?');
+  assert.equal(received[0]!.body.transcriptPath, '/t/a.jsonl');
+});

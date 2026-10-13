@@ -923,6 +923,26 @@ body {
 .argus-shell-git-behind { color: var(--warn); flex-shrink: 0; }
 .argus-shell-git-changes { color: var(--dirty); flex-shrink: 0; }
 
+/* Claude usage meter: context % (colored as the window fills) + est. cost. */
+.argus-usage {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  padding: 1px var(--s-1);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.argus-usage-ctx[data-level='warn'] { color: var(--warn); }
+.argus-usage-ctx[data-level='high'] { color: var(--danger); }
+.argus-usage-cost { color: var(--fg-3); }
+
 .argus-tile-dirty {
   width: 6px; height: 6px;
   border-radius: 50%;

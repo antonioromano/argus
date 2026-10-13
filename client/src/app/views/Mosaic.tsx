@@ -5,6 +5,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
+import { UsageChip } from '../ui/UsageChip.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
@@ -107,6 +108,8 @@ interface MosaicProps {
   defaultTerminalEngine?: TerminalEngine;
   /** Side by side columns ('horizontal') or stacked rows ('vertical') (default: horizontal). */
   orientation?: MosaicOrientation;
+  /** Show the Claude usage chip in tile headers (default: true). */
+  showUsage?: boolean;
 }
 
 const MAX_TILES = 12;
@@ -114,7 +117,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -497,6 +500,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   isNotified={notifiedTileId === s.id}
                   quickAction={quickAction}
                   runningIndicator={runningIndicator}
+                  showUsage={showUsage}
                   nativeEngine={resolveTerminalEngine(s.terminalEngine, defaultTerminalEngine, nativeAvailable)}
                 />
               ))}
@@ -585,6 +589,8 @@ type MosaicTileSharedProps = {
   /** Pinned header action + running-progress treatment, both from config. */
   quickAction: TileQuickAction;
   runningIndicator: TileRunningIndicator;
+  /** Claude usage chip in the header (config `showUsageMeter`). */
+  showUsage?: boolean;
   /** Native terminal engine decision for THIS session (see
    *  resolveTerminalEngine) — availability is resolved once by the Mosaic
    *  root, but the outcome is per-session. Still a plain boolean, so it
@@ -719,6 +725,7 @@ function MosaicTileInner({
   onCloseSearch,
   quickAction,
   runningIndicator,
+  showUsage = true,
   nativeEngine,
 }: MosaicTileSharedProps & {
   dragHandleListeners?: ReturnType<typeof useSortable>['listeners'];
@@ -891,6 +898,8 @@ function MosaicTileInner({
             <span className="argus-tile-dirty" />
           </Tooltip>
         )}
+
+        {showUsage && session.usage && <UsageChip usage={session.usage} />}
 
         <span className="argus-tile-status argus-status" data-status={session.status}>
           {STATUS_LABELS[session.status]}

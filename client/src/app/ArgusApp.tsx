@@ -916,12 +916,14 @@ function DesktopInner() {
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
               defaultTerminalEngine={config?.defaultTerminalEngine}
+              showUsage={config?.showUsageMeter !== false}
             />
           )}
 
           {app.view === 'focus' && activeSession && (
             <Focus
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
+              showUsage={config?.showUsageMeter !== false}
               sessions={orderedSessions}
               active={activeSession}
               socket={socket}

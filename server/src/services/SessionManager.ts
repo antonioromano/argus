@@ -16,6 +16,7 @@ import type {
   TerminalEngine,
   RunMode,
   ShellGitContext,
+  SessionUsage,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
@@ -46,6 +47,7 @@ import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import type { GitService } from './GitService.js';
+import { SessionUsageTracker } from './usage/SessionUsageTracker.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -160,7 +162,18 @@ interface ManagedSession {
   shellGitTimer?: ReturnType<typeof setTimeout>;
   /** cwd the last broadcast shellGit was computed for (dedupes broadcasts). */
   shellGitCwd?: string;
+  /** Claude only: conversation id from the hooks' `session_id`. */
+  claudeSessionId?: string;
+  /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
+  usage?: SessionUsageTracker;
 }
+
+/** sessions.json is rewritten at most this often for usage-meter progress alone
+ *  (every lifecycle change and shutdown persist it anyway). */
+const USAGE_PERSIST_MS = 30_000;
+/** A Stop hook can fire just before Claude's last transcript write lands; read
+ *  once more shortly after so the turn's final numbers are not missed. */
+const USAGE_FOLLOWUP_MS = 1_500;
 
 /** Coalesce git refreshes: a burst of prompts (e.g. holding Enter) costs one `git status`. */
 const SHELL_GIT_DEBOUNCE_MS = 400;
@@ -357,6 +370,7 @@ export class SessionManager {
     this.io?.to(sessionId).emit('session:fsChanged', { sessionId, dirs });
   });
   private preventSleepWhileRunning = false;
+  private usagePersistTimer?: ReturnType<typeof setTimeout>;
 
   private readonly dataDir: string;
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
@@ -784,6 +798,7 @@ export class SessionManager {
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
+      this.nudgeUsage(session, true);
     });
 
     this.sessions.set(id, session);
@@ -832,6 +847,7 @@ export class SessionManager {
       /* ignore */
     }
     void this.fileWatcher.stop(id);
+    session.usage?.dispose();
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -881,6 +897,7 @@ export class SessionManager {
 
     // Reset state
     session.rawTail?.clear();
+    session.usage?.clearCurrent(); // a fresh run starts with an empty context
     session.status = 'running';
     this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
@@ -970,6 +987,7 @@ export class SessionManager {
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
+      this.nudgeUsage(session, true);
     });
 
     this.emitStatus({ sessionId: id, status: 'running' });
@@ -1127,6 +1145,8 @@ export class SessionManager {
     };
     (session.nativeRing ??= []).push(raw);
     if (session.nativeRing.length > NATIVE_RING_SIZE) session.nativeRing.shift();
+    // Every hook marks transcript activity; Stop (idle) ends a turn.
+    this.nudgeUsage(session, signal.state === 'idle');
 
     // A native event is a turn boundary — cancel any pending heuristic done-grace.
     if (session.doneTimer) {
@@ -1176,6 +1196,48 @@ export class SessionManager {
     }
     this.refreshSleepPrevention();
     this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
+  }
+
+  /**
+   * Hook metadata from a Claude session: the conversation id (Resume) and the
+   * transcript path (usage meter). Validated by the route; ignored for any
+   * non-Claude agent and for unknown sessions.
+   */
+  applyAgentMeta(id: string, meta: { claudeSessionId?: string; transcriptPath?: string }): void {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return;
+    if (meta.claudeSessionId && meta.claudeSessionId !== session.claudeSessionId) {
+      session.claudeSessionId = meta.claudeSessionId;
+      this.persistSessions().catch(console.error);
+    }
+    if (meta.transcriptPath) {
+      this.usageTracker(session).setTranscript(meta.transcriptPath);
+    }
+  }
+
+  private usageTracker(session: ManagedSession): SessionUsageTracker {
+    session.usage ??= new SessionUsageTracker((usage) => this.onUsageChange(session, usage));
+    return session.usage;
+  }
+
+  private onUsageChange(session: ManagedSession, usage: SessionUsage): void {
+    if (this.sessions.get(session.id) !== session) return;
+    this.io?.emit('session:usage', { sessionId: session.id, usage });
+    if (!this.usagePersistTimer) {
+      this.usagePersistTimer = setTimeout(() => {
+        this.usagePersistTimer = undefined;
+        this.persistSessions().catch(console.error);
+      }, USAGE_PERSIST_MS);
+      this.usagePersistTimer.unref?.();
+    }
+  }
+
+  /** Re-read a session's transcript after hook activity (debounced in the tracker). */
+  private nudgeUsage(session: ManagedSession, followUp: boolean): void {
+    const usage = session.usage;
+    if (!usage) return;
+    usage.schedule();
+    if (followUp) setTimeout(() => usage.schedule(), USAGE_FOLLOWUP_MS).unref?.();
   }
 
   /** Client manually promotes an idle session to done. */
@@ -1935,6 +1997,7 @@ export class SessionManager {
       if (p.runMode === 'direct') {
         try {
           await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true });
+          this.restoreInsights(p);
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -1955,6 +2018,7 @@ export class SessionManager {
 
       try {
         await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true });
+        this.restoreInsights(p);
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -1969,6 +2033,22 @@ export class SessionManager {
     // above skipped its own). Also drops entries that failed to restore —
     // otherwise stale entries persist and retry every restart.
     await this.persistSessions();
+  }
+
+  /** Carry a restored Claude session's conversation id and usage meter over a restart. */
+  private restoreInsights(p: PersistedSession): void {
+    const session = this.sessions.get(p.id);
+    if (!session || session.agentType !== 'claude') return;
+    if (p.claudeSessionId) session.claudeSessionId = p.claudeSessionId;
+    if (p.usage) {
+      try {
+        session.usage = SessionUsageTracker.restore(p.usage, (u) => this.onUsageChange(session, u));
+        // A surviving agent kept writing while Argus was down — catch up.
+        session.usage.schedule();
+      } catch (err) {
+        console.warn(`[usage] could not restore meter for ${p.id}:`, err);
+      }
+    }
   }
 
   private toSessionInfo(session: ManagedSession): SessionInfo {
@@ -1989,6 +2069,7 @@ export class SessionManager {
       launcherId: session.launcherId,
       cwd: session.cwd,
       shellGit: session.shellGit,
+      usage: session.usage?.snapshot(),
     };
   }
 
@@ -2062,6 +2143,7 @@ export class SessionManager {
    * background and reattach on next launch. Never kills tmux sessions here.
    */
   async shutdown(): Promise<void> {
+    if (this.usagePersistTimer) { clearTimeout(this.usagePersistTimer); this.usagePersistTimer = undefined; }
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
       this.gitPollTimer = null;
@@ -2071,6 +2153,7 @@ export class SessionManager {
         if (session.tierTimer) { clearTimeout(session.tierTimer); session.tierTimer = undefined; }
         session.stateDetector.destroy();
         session.mirror?.dispose();
+        session.usage?.dispose();
         this.backendFor(session).detach(session.pty); // detach only; agent survives the quit
       } catch {
         // pty may already be dead — continue to next session
@@ -2108,6 +2191,8 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        claudeSessionId: s.claudeSessionId,
+        usage: s.usage?.serialize(),
       }));
       await this.store.save(data);
     });
