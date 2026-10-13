@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -70,8 +71,10 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Build and package DMGs
-        run: npm run package:mac
+      # package:mac:only — the Build step above already ran check:deps and
+      # build:all; `package:mac` would repeat both (a full second build).
+      - name: Package DMGs
+        run: npm run package:mac:only
         env:
           # Developer ID signing + notarization. When these secrets are unset
           # they resolve to empty strings, so electron-builder.config.cjs takes
@@ -84,56 +87,71 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      # Boot the actual packaged .app (native arch) and require /api/health to
-      # answer before anything is released. Tests the artifact, not the recipe:
-      # catches pruned asar deps, missing bundled binaries (argusd, tmux), and
-      # broken native modules — the class that shipped broken v0.21.0/v0.21.1.
+      # Boot the actual packaged .app and require /api/health to answer before
+      # anything is released, for BOTH architectures. Tests the artifact, not the
+      # recipe: catches pruned asar deps, missing bundled binaries (argusd, tmux),
+      # and broken native modules — the class that shipped broken v0.21.0/v0.21.1.
+      # The x64 build runs under Rosetta on the arm64 runner.
       #
       # The .app is copied OUT of the workspace first, because Node resolves bare
       # specifiers by walking ancestor directories: run in place, an app missing a
       # package still finds the repo's own node_modules and boots happily. That is
       # how v0.22.5 got a ✔ here and still died at /Applications with
       # ERR_MODULE_NOT_FOUND. /tmp has no node_modules above it, like a real install.
-      - name: Smoke test packaged app
+      - name: Install Rosetta (x64 smoke test)
+        run: softwareupdate --install-rosetta --agree-to-license
+
+      - name: Smoke test packaged apps
         run: |
-          SMOKE_ROOT="$(mktemp -d /tmp/argus-smoke.XXXXXX)"
-          cp -R "dist/mac-arm64/Argus.app" "$SMOKE_ROOT/"
-          APP="$SMOKE_ROOT/Argus.app"
-          echo "smoking $APP (outside the checkout: $(cd "$SMOKE_ROOT" && pwd))"
-          # Assert no ancestor carries a node_modules the app could borrow from.
-          # Only the app's own ancestors matter — siblings under /tmp are irrelevant.
-          DIR="$SMOKE_ROOT"
-          while [ "$DIR" != "/" ]; do
-            if [ -d "$DIR/node_modules" ]; then
-              echo "✖ $DIR/node_modules is above the smoke dir — resolution would not be hermetic"
-              exit 1
+          smoke() {
+            ARCH_LABEL="$1"; APP_SRC="$2"; shift 2
+            SMOKE_ROOT="$(mktemp -d /tmp/argus-smoke.XXXXXX)"
+            cp -R "$APP_SRC" "$SMOKE_ROOT/"
+            APP="$SMOKE_ROOT/Argus.app"
+            echo "[$ARCH_LABEL] smoking $APP (outside the checkout)"
+            # Assert no ancestor carries a node_modules the app could borrow from.
+            DIR="$SMOKE_ROOT"
+            while [ "$DIR" != "/" ]; do
+              if [ -d "$DIR/node_modules" ]; then
+                echo "✖ $DIR/node_modules is above the smoke dir — resolution would not be hermetic"
+                return 1
+              fi
+              DIR="$(dirname "$DIR")"
+            done
+            if [ -d /node_modules ]; then
+              echo "✖ /node_modules exists — not hermetic"
+              return 1
             fi
-            DIR="$(dirname "$DIR")"
-          done
-          if [ -d /node_modules ]; then
-            echo "✖ /node_modules exists — not hermetic"
-            exit 1
-          fi
-          "$APP/Contents/MacOS/Argus" > smoke.log 2>&1 &
-          APP_PID=$!
-          for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:5757/api/health > /dev/null; then
-              echo "✔ packaged app healthy after ~${i}s"
-              kill "$APP_PID" 2>/dev/null || true
-              exit 0
-            fi
-            # Died early (e.g. ERR_MODULE_NOT_FOUND on startup) — fail now, not in 30s.
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
-              echo "✖ app process exited before becoming healthy"
-              cat smoke.log
-              exit 1
-            fi
-            sleep 1
-          done
-          echo "✖ /api/health never answered on 127.0.0.1:5757"
-          cat smoke.log
-          kill "$APP_PID" 2>/dev/null || true
-          exit 1
+            "$@" "$APP/Contents/MacOS/Argus" > "smoke-$ARCH_LABEL.log" 2>&1 &
+            APP_PID=$!
+            for i in $(seq 1 60); do
+              if curl -sf http://127.0.0.1:5757/api/health > /dev/null; then
+                echo "✔ [$ARCH_LABEL] packaged app healthy after ~${i}s"
+                kill "$APP_PID" 2>/dev/null || true
+                # Free port 5757 for the next architecture.
+                for j in $(seq 1 20); do
+                  curl -sf http://127.0.0.1:5757/api/health > /dev/null || return 0
+                  sleep 1
+                done
+                pkill -f "$SMOKE_ROOT" 2>/dev/null || true
+                return 0
+              fi
+              # Died early (e.g. ERR_MODULE_NOT_FOUND on startup) — fail now.
+              if ! kill -0 "$APP_PID" 2>/dev/null; then
+                echo "✖ [$ARCH_LABEL] app process exited before becoming healthy"
+                cat "smoke-$ARCH_LABEL.log"
+                return 1
+              fi
+              sleep 1
+            done
+            echo "✖ [$ARCH_LABEL] /api/health never answered on 127.0.0.1:5757"
+            cat "smoke-$ARCH_LABEL.log"
+            kill "$APP_PID" 2>/dev/null || true
+            return 1
+          }
+
+          smoke arm64 "dist/mac-arm64/Argus.app"
+          smoke x64 "dist/mac/Argus.app" arch -x86_64
 
       - name: Compute SHA256
         id: sha
@@ -149,7 +167,10 @@ jobs:
         id: changelog
         run: |
           CURRENT_TAG="${GITHUB_REF_NAME}"
-          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -1)
+          # Nearest v* tag reachable from the commit BEFORE this tag. Sorting all
+          # tags by date picks up unrelated or out-of-order tags (hotfix on an
+          # older line, a re-pushed tag) and yields the wrong range.
+          PREV_TAG=$(git describe --tags --abbrev=0 --match 'v*' "${CURRENT_TAG}^" 2>/dev/null || true)
           if [ -z "$PREV_TAG" ]; then
             RAW=$(git log --pretty=format:"- %s" --no-merges)
           else
@@ -182,10 +203,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/antonioromano/argus.git"
-          # Always base the cask commit on the latest main, not the detached tag HEAD.
-          # This prevents push rejection when main moves forward during the CI run.
+          # Base the cask commit on the latest main, not the detached tag HEAD, and
+          # open a PR rather than pushing to main (branch protection / review).
           git fetch origin main
-          git checkout -B cask-bump origin/main
+          BRANCH="cask-bump-${VERSION}"
+          git checkout -B "$BRANCH" origin/main
 
           python3 - <<'PYEOF'
           import re, os
@@ -214,4 +236,7 @@ jobs:
 
           git add Casks/argus.rb
           git commit -m "chore: bump cask to ${VERSION}"
-          git push origin cask-bump:main
+          git push --force origin "$BRANCH"
+          gh pr create --repo antonioromano/argus --base main --head "$BRANCH" \
+            --title "chore: bump cask to ${VERSION}" \
+            --body "Automated cask bump for v${VERSION} (new DMG checksums)."
