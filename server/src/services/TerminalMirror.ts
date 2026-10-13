@@ -4,6 +4,7 @@ import type {
   ITerminalInitOnlyOptions,
   IBufferCell,
   IBufferLine,
+  IFunctionIdentifier,
 } from '@xterm/headless';
 // @xterm/headless ships CJS; Node's ESM↔CJS interop can't see the named export,
 // so default-import the module object and pull `Terminal` off it (same pattern as
@@ -110,9 +111,31 @@ function styleRow(line: IBufferLine): string {
  * `StateDetector` consumes a mirror rather than owning its own terminal, so
  * classification and replay share a single emulator (R1).
  */
+/** CSI handler a consumer registered through the mirror (re-applied on wake). */
+type CsiHook = { id: IFunctionIdentifier; cb: (params: (number | number[])[]) => boolean };
+
+/** Synchronous parse on xterm's core — what makes a wake complete before it returns. */
+type SyncWritable = { _core?: { writeSync?: (data: string) => void } };
+
 export class TerminalMirror {
-  readonly term: XTerminal;
-  private serializer: ISerializeAddon;
+  /** Null only while hibernated (or disposed after hibernating). */
+  private _term: XTerminal | null = null;
+  private serializer: ISerializeAddon | null = null;
+  /** Tiny stand-in served by `term` once a hibernated mirror is disposed. */
+  private inert: XTerminal | null = null;
+  /**
+   * Set while hibernated: the frames this mirror would serve, captured once,
+   * after which the emulator (~14MB at 5000 rows) is released. See hibernate().
+   */
+  private frozen: { full: string; screen: string; cols: number; rows: number } | null = null;
+  /** CSI handlers consumers registered via registerCsiHandler (see wake). */
+  private csiHooks: CsiHook[] = [];
+  /**
+   * A DECSTBM scroll region narrower than the screen is in force. serialize()
+   * does not reproduce it, so a mirror rebuilt from a frame would scroll the
+   * agent's later output differently — such a mirror is never hibernated.
+   */
+  private customScrollRegion = false;
   /** Serialises `term.write()` so buffer/serialize reads see a settled parser. */
   private writeQueue: Promise<void> = Promise.resolve();
   /** Feeds handed to the queue whose bytes the parser has not consumed yet. */
@@ -139,11 +162,118 @@ export class TerminalMirror {
 
   constructor(cols = 120, rows = 30, scrollback = MIRROR_SCROLLBACK) {
     this.scrollback = scrollback;
-    this.term = new Terminal({ cols, rows, allowProposedApi: true, scrollback });
+    this.createTerm(cols, rows);
+  }
+
+  /**
+   * The emulator. Reading it wakes a hibernated mirror first, so every consumer
+   * that reaches into the grid (StateDetector's classifier, diagnostics) sees
+   * exactly the buffer it would have seen had the mirror never slept.
+   */
+  get term(): XTerminal {
+    this.wake();
+    if (this._term) return this._term;
+    // Disposed while hibernated: nothing will read meaningfully, but a late
+    // reader must not crash.
+    this.inert ??= new Terminal({ cols: 1, rows: 1, scrollback: 0, allowProposedApi: true });
+    return this.inert;
+  }
+
+  private createTerm(cols: number, rows: number): void {
+    const term = new Terminal({ cols, rows, allowProposedApi: true, scrollback: this.scrollback });
     const addon = new SerializeAddon();
-    this.term.loadAddon(addon as unknown as Parameters<XTerminal['loadAddon']>[0]);
+    term.loadAddon(addon as unknown as Parameters<XTerminal['loadAddon']>[0]);
+    this._term = term;
     this.serializer = addon;
-    this.registerModeScanner();
+    this.registerModeScanner(term);
+    for (const hook of this.csiHooks) term.parser.registerCsiHandler(hook.id, hook.cb);
+  }
+
+  /**
+   * Register a CSI handler on the emulator's parser. Use this rather than
+   * `term.parser.registerCsiHandler`: a handler registered on the raw terminal
+   * is lost when a hibernated mirror wakes into a fresh one.
+   */
+  registerCsiHandler(id: IFunctionIdentifier, cb: (params: (number | number[])[]) => boolean): void {
+    this.csiHooks.push({ id, cb });
+    this.term.parser.registerCsiHandler(id, cb);
+  }
+
+  /** True while the emulator is released (see hibernate). */
+  get hibernated(): boolean {
+    return this.frozen !== null;
+  }
+
+  /**
+   * Whether hibernate() would succeed now: a settled, normal-screen mirror with
+   * no scroll region, on an xterm that can parse synchronously.
+   */
+  canHibernate(): boolean {
+    if (this.destroyed || this.frozen || !this._term) return false;
+    if (!this.isSettled() || this.customScrollRegion) return false;
+    if (this._term.buffer.active.type !== 'normal') return false;
+    return typeof (this._term as unknown as SyncWritable)._core?.writeSync === 'function';
+  }
+
+  /**
+   * Release the emulator, keeping only the frames it would serve — the cheap
+   * tier for a live session that is idle with nobody watching (the exited tier
+   * in SessionManager does the same for good). Returns false, changing nothing,
+   * when the mirror can't be rebuilt faithfully (see canHibernate).
+   *
+   * The way back is wake(): a fresh emulator parses the full frame — exactly
+   * what every client does with a join's replay — so scrollback depth, row
+   * indices, wrapping, cursor and modes come back as they were. The frame keeps
+   * the whole MIRROR_SCROLLBACK window: hibernating never costs history.
+   */
+  hibernate(): boolean {
+    if (!this.canHibernate()) return false;
+    const term = this._term!;
+    this.frozen = { full: this.serialize(), screen: this.serializeScreen(), cols: term.cols, rows: term.rows };
+    this.releaseTerm();
+    this.frameCache = { generation: -1 };
+    this.generation++;
+    return true;
+  }
+
+  /**
+   * Rebuild the emulator from the frozen frame. Synchronous on purpose: callers
+   * (a resize recording a dedup boundary, the classifier reading rows) read the
+   * buffer straight after, and must see all of it — an async parse would hand
+   * them a half-built grid, and a dedup boundary taken from one deletes the
+   * wrong rows.
+   */
+  wake(): void {
+    const f = this.frozen;
+    if (!f || this.destroyed) return;
+    this.frozen = null;
+    this.createTerm(f.cols, f.rows);
+    const term = this._term!;
+    // Our handlers are all synchronous, which is the case writeSync supports;
+    // silence its one-time "unreliable" warning for this deliberate use.
+    const level = term.options.logLevel;
+    term.options.logLevel = 'error';
+    try {
+      (term as unknown as SyncWritable)._core!.writeSync!(f.full);
+    } finally {
+      term.options.logLevel = level;
+    }
+    this.generation++;
+  }
+
+  private releaseTerm(): void {
+    try {
+      this.serializer?.dispose();
+    } catch {
+      // addon may already be gone
+    }
+    try {
+      this._term?.dispose();
+    } catch {
+      // ignore double-dispose
+    }
+    this.serializer = null;
+    this._term = null;
   }
 
   /**
@@ -151,7 +281,7 @@ export class TerminalMirror {
    * modes are enabled. Returns `false` so xterm still applies the mode itself —
    * we only shadow the state for serialize-append + `modes()`.
    */
-  private registerModeScanner(): void {
+  private registerModeScanner(term: XTerminal): void {
     const apply = (params: (number | number[])[], enable: boolean): boolean => {
       for (const p of params) {
         const n = Array.isArray(p) ? p[0] : p;
@@ -162,13 +292,22 @@ export class TerminalMirror {
       }
       return false; // fall through to xterm's own DECSET/DECRST handling
     };
-    this.term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (p) => apply(p, true));
-    this.term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (p) => apply(p, false));
+    term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (p) => apply(p, true));
+    term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (p) => apply(p, false));
+    // DECSTBM: `CSI r` (or a full-height region) resets the scroll region;
+    // anything else narrows it.
+    term.parser.registerCsiHandler({ final: 'r' }, (p) => {
+      const top = (Array.isArray(p[0]) ? p[0][0] : p[0]) ?? 0;
+      const bottom = (Array.isArray(p[1]) ? p[1][0] : p[1]) ?? 0;
+      this.customScrollRegion = !(top <= 1 && (bottom === 0 || bottom >= term.rows));
+      return false;
+    });
   }
 
   /** Feed raw pty bytes into the emulator. Resolves once the parser has consumed them. */
   feed(data: string): Promise<void> {
     if (this.destroyed) return Promise.resolve();
+    this.wake(); // output for a sleeping session: rebuild before it lands
     this.pendingWrites++;
     this.generation++;
     this.writeQueue = this.writeQueue
@@ -214,6 +353,8 @@ export class TerminalMirror {
   resize(cols: number, rows: number): void {
     if (this.destroyed || cols <= 0 || rows <= 0) return;
     this.generation++; // a resize reflows the buffer
+    // xterm resets the scroll region on resize.
+    this.customScrollRegion = false;
     try {
       this.term.resize(cols, rows);
     } catch {
@@ -330,8 +471,10 @@ export class TerminalMirror {
    */
   serialize(): string {
     if (this.destroyed) return '';
+    // A sleeping mirror answers joins from its frozen frame without waking.
+    if (this.frozen) return this.frozen.full;
     return this.cachedFrame('full', () =>
-      this.serializer.serialize({ scrollback: this.scrollback }) + this.appendModes(),
+      this.serializer!.serialize({ scrollback: this.scrollback }) + this.appendModes(),
     );
   }
 
@@ -343,7 +486,8 @@ export class TerminalMirror {
    */
   serializeScreen(): string {
     if (this.destroyed) return '';
-    return this.cachedFrame('screen', () => this.serializer.serialize({ scrollback: 0 }) + this.appendModes());
+    if (this.frozen) return this.frozen.screen;
+    return this.cachedFrame('screen', () => this.serializer!.serialize({ scrollback: 0 }) + this.appendModes());
   }
 
   /**
@@ -386,7 +530,7 @@ export class TerminalMirror {
   }
 
   bufferType(): 'normal' | 'alternate' {
-    if (this.destroyed) return 'normal';
+    if (this.destroyed || this.frozen) return 'normal'; // only a normal screen hibernates
     return this.term.buffer.active.type === 'alternate' ? 'alternate' : 'normal';
   }
 
@@ -410,15 +554,12 @@ export class TerminalMirror {
   dispose(): void {
     this.destroyed = true;
     this.frameCache = { generation: -1 }; // release the cached strings
+    this.frozen = null;
+    this.releaseTerm();
     try {
-      this.serializer.dispose();
+      this.inert?.dispose();
     } catch {
-      // addon may already be gone
-    }
-    try {
-      this.term.dispose();
-    } catch {
-      // ignore double-dispose
+      // ignore
     }
   }
 }

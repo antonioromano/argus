@@ -42,6 +42,7 @@ function harness(): Harness {
     resizeSession: () => {},
     scheduleIdleGeometry: () => {},
     cancelIdleGeometry: () => {},
+    rehydrateMirror: () => {},
   } as unknown as SessionManager;
 
   let connection: ((socket: Socket) => void) | undefined;

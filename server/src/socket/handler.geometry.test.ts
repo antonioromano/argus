@@ -33,6 +33,7 @@ function harness(): Harness {
     resizeSession: (id: string, cols: number, rows: number) => { resizes.push({ id, cols, rows }); },
     scheduleIdleGeometry: (id: string) => { idled.push(id); },
     cancelIdleGeometry: (id: string) => { cancelled.push(id); },
+    rehydrateMirror: () => {},
   } as unknown as SessionManager;
 
   let connection: ((socket: Socket) => void) | undefined;

@@ -93,6 +93,8 @@ interface ManagedSession {
   exitedFrame?: { full: string; screen: string; alternate: boolean; appMouse: boolean; sgr: boolean };
   /** Pending freeze of an exited session's mirror (EXITED_TIER_DELAY_MS). */
   tierTimer?: ReturnType<typeof setTimeout>;
+  /** When the session was first seen eligible to sleep its mirror (see sweepIdleTier). */
+  idleTierSince?: number;
   /** Output accumulated since the last socket flush (see emitOutput). */
   pendingOutput?: string;
   flushTimer?: NodeJS.Timeout;
@@ -218,6 +220,17 @@ const NATIVE_RING_SIZE = 5;
  * onExit, and those bytes belong in the frame.
  */
 const EXITED_TIER_DELAY_MS = 5_000;
+
+/**
+ * Idle-unviewed tier: a live session that has rested (idle/done) with nobody
+ * watching for this long hibernates its mirror — the emulator is released and
+ * only its frames are kept (TerminalMirror.hibernate), the cheap tier the
+ * exited sessions get, but reversible. It wakes on the next output, resize,
+ * read or join. Checked on a coarse sweep: precision buys nothing here.
+ */
+export const IDLE_TIER_DELAY_MS = 60_000;
+const IDLE_TIER_SWEEP_MS = 15_000;
+const IDLE_TIER_STATUSES: ReadonlySet<SessionStatus> = new Set<SessionStatus>(['idle', 'done']);
 
 /**
  * Claude's `Notification` hook is wired to `waiting` for BOTH a genuine
@@ -373,6 +386,7 @@ export class SessionManager {
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
   private gitPollRunning = false;
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
+  private idleTierTimer: ReturnType<typeof setInterval> | null = null;
   /** Shared with NgrokService and KeepAwakeService — see SleepPreventionService. */
   private readonly sleepPrevention: SleepPreventionService;
   // Per-session folder watcher; pushes changed dirs to the session's room so
@@ -475,6 +489,54 @@ export class SessionManager {
 
   setIo(io: Server<ClientToServerEvents, ServerToClientEvents>): void {
     this.io = io;
+    // Viewer tracking lives in the socket rooms, so the idle tier starts here.
+    if (this.idleTierTimer) clearInterval(this.idleTierTimer);
+    this.idleTierTimer = setInterval(() => this.sweepIdleTier(), IDLE_TIER_SWEEP_MS);
+    this.idleTierTimer.unref?.();
+  }
+
+  /**
+   * Hibernate the mirrors of sessions that have rested, unwatched, for
+   * IDLE_TIER_DELAY_MS. Everything that could still want the emulator soon
+   * disqualifies a session (and restarts its clock): any viewer, pending output
+   * or parse, an unsettled classification, a reseed or a width-change dedup in
+   * progress. A session that slips through anyway is safe: every mirror read
+   * wakes it first, synchronously.
+   */
+  sweepIdleTier(now = Date.now()): void {
+    for (const session of this.sessions.values()) {
+      if (!this.idleTierEligible(session)) {
+        session.idleTierSince = undefined;
+        continue;
+      }
+      session.idleTierSince ??= now;
+      if (now - session.idleTierSince < IDLE_TIER_DELAY_MS) continue;
+      session.mirror.hibernate();
+    }
+  }
+
+  private idleTierEligible(session: ManagedSession): boolean {
+    const mirror = session.mirror;
+    if (!mirror || mirror.disposed || mirror.hibernated) return false;
+    if (session.exitedFrame || !IDLE_TIER_STATUSES.has(session.status)) return false;
+    if ((this.io?.sockets.adapter.rooms.get(session.id)?.size ?? 0) > 0) return false;
+    if (this.nativeViewers.has(session.id)) return false;
+    if (session.pendingOutput || session.resyncing || session.trimTimer) return false;
+    if (session.trimBoundary !== undefined || session.resyncBoundary !== undefined) return false;
+    if (!session.stateDetector.isQuiescent()) return false;
+    return mirror.canHibernate();
+  }
+
+  /**
+   * A viewer arrived: wake a sleeping mirror now rather than on its first
+   * output. The join itself was answered from the frozen frame, which is
+   * identical to what the woken mirror serializes.
+   */
+  rehydrateMirror(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session) return;
+    session.idleTierSince = undefined;
+    session.mirror?.wake();
   }
 
   /** Invoked after a session is fully deleted — index.ts wires this to the
@@ -1955,6 +2017,7 @@ export class SessionManager {
     if (viewing) {
       this.nativeViewers.add(id);
       this.cancelIdleGeometry(id);
+      this.rehydrateMirror(id);
       return;
     }
     if (!this.nativeViewers.delete(id)) return;
@@ -2225,6 +2288,10 @@ export class SessionManager {
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
       this.gitPollTimer = null;
+    }
+    if (this.idleTierTimer) {
+      clearInterval(this.idleTierTimer);
+      this.idleTierTimer = null;
     }
     for (const session of this.sessions.values()) {
       try {
