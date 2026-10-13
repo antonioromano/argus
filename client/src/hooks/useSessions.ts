@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/index.js';
+import { pruneFileTreeCache } from './useFileTree.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -17,6 +18,14 @@ export function useSessions(socket: TypedSocket) {
   // without taking `sessions` as a dependency (which would churn the callback).
   const sessionsRef = useRef<SessionInfo[]>([]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
+
+  // Evict per-session caches for sessions that are gone (deleted, errored, or
+  // missing from a post-reconnect refetch). Gated on `loaded` so the empty
+  // pre-fetch list never reads as "everything was deleted".
+  useEffect(() => {
+    if (!loaded) return;
+    pruneFileTreeCache(new Set(sessions.map((s) => s.id)));
+  }, [sessions, loaded]);
 
   // Load sessions on mount and after reconnect
   useEffect(() => {
