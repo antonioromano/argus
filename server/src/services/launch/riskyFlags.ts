@@ -1,46 +1,92 @@
 /**
- * Agent CLI flags that change what an agent may do or what it loads, so a
- * deep link carrying them is effectively asking for more than "start an agent
- * in this folder". A web page can open `argus://new?...&flags=...`; the user
- * sees an approval card, and these flags must stand out there rather than sit
- * in a plain argument list.
+ * Which deep-link flags need the user's attention on the approval card.
  *
- * Matched on the flag NAME (the part before `=`), case-insensitively, so
- * `--mcp-config=~/Downloads/x.json` and `--MCP-CONFIG` both match.
+ * A web page can open `argus://new?...&flags=...`. A denylist of "dangerous"
+ * flags can't keep up with the agent CLIs' parsers — yargs (Gemini) accepts
+ * camelCase (`--approvalMode`) and `--no-x` negation, Claude has
+ * `--allow-dangerously-skip-permissions`, short flags cluster (`-yf`). So this
+ * is an ALLOWLIST: a few flags per agent known to be benign pass quietly;
+ * EVERY other flag is surfaced — with a specific reason when we know one, else
+ * as "unrecognized flag — review".
+ *
+ * Names are compared normalized: lowercased, leading dashes stripped, every
+ * `-`/`_` inside removed, a leading `no` dropped. Short-flag clusters
+ * (`-yf`) are checked letter by letter.
  */
-const RISKY_EXACT: Record<string, string> = {
-  // Claude Code
-  '--mcp-config': 'loads MCP servers (arbitrary programs) from a file',
-  '--settings': 'loads a settings file (hooks run shell commands)',
-  '--add-dir': 'grants access to directories outside the folder',
-  '--permission-mode': 'changes the permission mode',
-  '--allowedtools': 'pre-approves tools without asking',
-  '--allowed-tools': 'pre-approves tools without asking',
-  '--plugin-dir': 'loads plugins from a directory',
-  '--system-prompt': 'replaces the system prompt',
-  '--append-system-prompt': 'injects instructions into the system prompt',
-  // Gemini / Codex equivalents
-  '--yolo': 'auto-approves every action',
-  '-y': 'auto-approves every action',
-  '--approval-mode': 'changes the approval mode',
-  '--full-auto': 'auto-approves every action',
-  '--sandbox': 'changes the sandbox policy',
-  '--include-directories': 'grants access to directories outside the folder',
-  '--config': 'overrides agent configuration',
+
+/** Known-benign flags per agent (normalized long names and short letters). */
+const BENIGN: Record<string, { long: string[]; short: string[] }> = {
+  // claude: -c/--continue resumes the last conversation; -r/--resume a chosen one.
+  claude: { long: ['model', 'verbose', 'debug', 'continue', 'resume'], short: ['c', 'r'] },
+  // gemini: -m/--model, -d/--debug. (-y is --yolo, -s is --sandbox: not benign.)
+  gemini: { long: ['model', 'debug'], short: ['m', 'd'] },
+  // codex: -m/--model. (-c is a config override, -s sandbox, -a approval policy.)
+  codex: { long: ['model'], short: ['m'] },
 };
 
-/** Why `flag` is risky, or null when it isn't. */
-export function riskyFlagReason(flag: string): string | null {
-  const name = flag.trim().split('=')[0].toLowerCase();
-  if (name.startsWith('--dangerously')) return 'disables safety checks';
-  return RISKY_EXACT[name] ?? null;
+/** Specific reasons for flags known to widen what an agent may do (normalized). */
+const LONG_REASONS: Record<string, string> = {
+  mcpconfig: 'loads MCP servers (arbitrary programs) from a file',
+  strictmcpconfig: 'changes which MCP servers load',
+  settings: 'loads a settings file (hooks run shell commands)',
+  adddir: 'grants access to directories outside the folder',
+  includedirectories: 'grants access to directories outside the folder',
+  permissionmode: 'changes the permission mode',
+  allowedtools: 'pre-approves tools without asking',
+  disallowedtools: 'changes which tools are allowed',
+  plugindir: 'loads plugins from a directory',
+  systemprompt: 'replaces the system prompt',
+  appendsystemprompt: 'injects instructions into the system prompt',
+  yolo: 'auto-approves every action',
+  approvalmode: 'changes the approval mode',
+  askforapproval: 'changes the approval policy',
+  fullauto: 'auto-approves every action',
+  sandbox: 'changes the sandbox policy',
+  config: 'overrides agent configuration',
+  profile: 'switches agent configuration profile',
+};
+
+const SHORT_REASONS: Record<string, Record<string, string>> = {
+  gemini: { y: 'auto-approves every action (--yolo)', s: 'changes the sandbox policy (--sandbox)' },
+  codex: { c: 'overrides agent configuration (-c key=value)', s: 'changes the sandbox policy (--sandbox)', a: 'changes the approval policy (--ask-for-approval)' },
+};
+
+export const UNRECOGNIZED = 'unrecognized flag — review';
+
+/** Normalized long-flag name: `--No-Approval_Mode=x` → `approvalmode`. */
+export function normalizeFlagName(flag: string): string {
+  let n = flag.trim().split('=')[0].toLowerCase().replace(/^-+/, '').replace(/[-_]/g, '');
+  if (n.startsWith('no') && n.length > 2) n = n.slice(2);
+  return n;
 }
 
-/** The risky flags in `flags`, with reasons, in order. */
-export function riskyFlags(flags: string[]): Array<{ flag: string; reason: string }> {
+/** Why `flag` needs review for `agentId`, or null when it is known-benign. */
+export function flagReviewReason(agentId: string, flag: string): string | null {
+  const raw = flag.trim();
+  const benign = BENIGN[agentId] ?? { long: [], short: [] };
+  if (raw.startsWith('--')) {
+    const name = normalizeFlagName(raw);
+    if (name.includes('dangerous')) return 'disables safety checks';
+    if (LONG_REASONS[name]) return LONG_REASONS[name];
+    return benign.long.includes(name) ? null : UNRECOGNIZED;
+  }
+  // Short flag or cluster: every letter must be benign.
+  const letters = raw.replace(/^-/, '').split('=')[0];
+  if (!letters) return UNRECOGNIZED;
+  const reasons: string[] = [];
+  for (const ch of letters) {
+    const specific = SHORT_REASONS[agentId]?.[ch.toLowerCase()];
+    if (specific) reasons.push(`-${ch}: ${specific}`);
+    else if (!benign.short.includes(ch)) reasons.push(`-${ch}: ${UNRECOGNIZED}`);
+  }
+  return reasons.length ? reasons.join(', ') : null;
+}
+
+/** The flags in `flags` that need review, with reasons, in order. */
+export function flagsNeedingReview(agentId: string, flags: string[]): Array<{ flag: string; reason: string }> {
   const out: Array<{ flag: string; reason: string }> = [];
   for (const flag of flags) {
-    const reason = riskyFlagReason(flag);
+    const reason = flagReviewReason(agentId, flag);
     if (reason) out.push({ flag, reason });
   }
   return out;

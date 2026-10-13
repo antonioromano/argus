@@ -7,7 +7,7 @@ import { promptArgs } from '../AgentRegistry.js';
 import { shquote } from '../PtyManager.js';
 import { validateFlags } from '../../utils/flags.js';
 import { SHELL_AGENT_ID } from '../../constants/agents.js';
-import { riskyFlags } from './riskyFlags.js';
+import { flagsNeedingReview } from './riskyFlags.js';
 
 /** Folder files an agent loads on start. Their CONTENTS are hashed so a saved
  *  launcher notices hook/MCP/instruction edits, not just files appearing. */
@@ -81,11 +81,11 @@ export async function validateLaunch(req: LaunchRequest, deps: ValidateDeps): Pr
   }
 
   const warnings: LaunchWarning[] = [];
-  const risky = riskyFlags(req.flags);
+  const risky = flagsNeedingReview(agent.id, req.flags);
   if (risky.length) {
     warnings.push({
       kind: 'risky-flag',
-      detail: `Dangerous flags — only start this if you wrote the link: ${risky.map((r) => `${r.flag} (${r.reason})`).join('; ')}`,
+      detail: `Review these flags — only start this if you wrote the link: ${risky.map((r) => `${r.flag} (${r.reason})`).join('; ')}`,
       flags: risky.map((r) => r.flag),
     });
   }
