@@ -43,6 +43,12 @@ interface UseTerminalOptions {
    * The caller must dispatch `terminal:refit` when the drag ends.
    */
   suspendResize?: boolean;
+  /**
+   * Search-result changes from the SearchAddon. Wired to every addon this hook
+   * creates (the terminal is rebuilt on a fontsReady flip, StrictMode remount,
+   * …), so a subscriber never ends up listening to a disposed addon.
+   */
+  onSearchResults?: (r: { resultIndex: number; resultCount: number }) => void;
 }
 
 // Backgrounds are --bg-2 (the tile card), NOT Tokyo Night's own. The terminal
@@ -194,7 +200,7 @@ export function useTerminal(
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
-  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken, suspendResize = false } = options;
+  const { sessionId, socket, theme, readOnly = false, onFocusChange, autoFocus = false, shortcuts, onRequestSearch, requestFocusToken, suspendResize = false, onSearchResults } = options;
   // Rebuilt with the terminal (see the create effect) so a fresh grid always
   // reports itself once; read through a ref by the font-size effect too.
   const resizeGateRef = useRef(new ResizeEmitGate());
@@ -216,6 +222,8 @@ export function useTerminal(
   useEffect(() => { shortcutsRef.current = shortcuts ?? resolveShortcuts(); }, [shortcuts]);
   const onRequestSearchRef = useRef(onRequestSearch);
   useEffect(() => { onRequestSearchRef.current = onRequestSearch; }, [onRequestSearch]);
+  const onSearchResultsRef = useRef(onSearchResults);
+  useEffect(() => { onSearchResultsRef.current = onSearchResults; }, [onSearchResults]);
 
   // Insurance for cold starts: if the bundled web fonts aren't loaded when the
   // terminal is first opened, char-cell geometry can be measured against the
@@ -286,6 +294,8 @@ export function useTerminal(
     const searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
+    // Disposed with the terminal (addon disposal clears its emitters).
+    searchAddon.onDidChangeResults((r) => onSearchResultsRef.current?.(r));
 
     terminal.open(container);
 

@@ -33,7 +33,7 @@ vi.mock('@xterm/xterm', () => {
   return { Terminal };
 });
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
-vi.mock('@xterm/addon-search', () => ({ SearchAddon: class {} }));
+vi.mock('@xterm/addon-search', () => ({ SearchAddon: class { onDidChangeResults() { return { dispose: () => {} }; } } }));
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 vi.mock('./terminalMouse.js', () => ({
   installSelectableMouse: () => ({ dispose: () => {}, reconcileMouse: () => {} }),
