@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionInfo, TerminalEngine, TileRunningIndicator } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
@@ -39,15 +39,23 @@ const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
 const SIDE_PANEL_MIN = 240;
 const SIDE_PANEL_MAX = 720;
 const SIDE_PANEL_DEFAULT = 320;
+// Stacked layout: the companion shell docks under the conversation instead.
+const BOTTOM_PANEL_HEIGHT_KEY = 'argus.focus.bottomPanelHeight';
+const BOTTOM_PANEL_MIN = 120;
+const BOTTOM_PANEL_MAX = 720;
+const BOTTOM_PANEL_DEFAULT = 280;
 const PEEK_HEIGHT = 34;
 
-function readStoredWidth(): number {
-  if (typeof window === 'undefined') return SIDE_PANEL_DEFAULT;
-  const raw = window.localStorage.getItem(SIDE_PANEL_WIDTH_KEY);
+function readStoredSize(key: string, min: number, max: number, fallback: number): number {
+  if (typeof window === 'undefined') return fallback;
+  const raw = window.localStorage.getItem(key);
   const n = raw ? Number(raw) : NaN;
-  if (!Number.isFinite(n)) return SIDE_PANEL_DEFAULT;
-  return Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, n));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
+
+const readStoredWidth = () => readStoredSize(SIDE_PANEL_WIDTH_KEY, SIDE_PANEL_MIN, SIDE_PANEL_MAX, SIDE_PANEL_DEFAULT);
+const readStoredHeight = () => readStoredSize(BOTTOM_PANEL_HEIGHT_KEY, BOTTOM_PANEL_MIN, BOTTOM_PANEL_MAX, BOTTOM_PANEL_DEFAULT);
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -56,6 +64,8 @@ interface FocusProps {
   runningIndicator?: TileRunningIndicator;
   /** Claude usage chip in the header (config `showUsageMeter`, default true). */
   showUsage?: boolean;
+  /** Mosaic layout setting: 'vertical' (stacked) docks the companion shell below the conversation instead of beside it. */
+  orientation?: MosaicOrientation;
   sessions: SessionInfo[];
   active: SessionInfo;
   socket: TypedSocket;
@@ -98,6 +108,7 @@ interface FocusProps {
 export function Focus({
   runningIndicator = 'hairline',
   showUsage = true,
+  orientation = 'horizontal',
   sessions,
   active,
   socket,
@@ -131,9 +142,11 @@ export function Focus({
   const sessionMenu = useSessionMenu();
   const [terminalFocused, setTerminalFocused] = useState(false);
   const [sidePanelWidth, setSidePanelWidth] = useState<number>(readStoredWidth);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState<number>(readStoredHeight);
   const [isResizing, setIsResizing] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
-  const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
+  const stacked = orientation === 'vertical';
 
   // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
   // then confirm the addon actually loaded in this process before trusting it.
@@ -155,6 +168,10 @@ export function Focus({
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
   }, [sidePanelWidth]);
 
+  useEffect(() => {
+    window.localStorage.setItem(BOTTOM_PANEL_HEIGHT_KEY, String(bottomPanelHeight));
+  }, [bottomPanelHeight]);
+
   // Drop terminal-focus when the active session changes (adjust-during-render).
   const [focusedSession, setFocusedSession] = useState(active.id);
   if (focusedSession !== active.id) {
@@ -164,18 +181,25 @@ export function Focus({
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    dragStateRef.current = { startX: e.clientX, startWidth: sidePanelWidth };
+    dragStateRef.current = stacked
+      ? { start: e.clientY, startSize: bottomPanelHeight }
+      : { start: e.clientX, startSize: sidePanelWidth };
     setIsResizing(true);
-  }, [sidePanelWidth]);
+  }, [stacked, bottomPanelHeight, sidePanelWidth]);
 
   useEffect(() => {
     if (!isResizing) return;
     const onMove = (e: MouseEvent) => {
       const drag = dragStateRef.current;
       if (!drag) return;
-      const delta = drag.startX - e.clientX;
-      const next = Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, drag.startWidth + delta));
-      setSidePanelWidth(next);
+      // The panel sits after the divider, so dragging toward it grows the panel.
+      if (stacked) {
+        const delta = drag.start - e.clientY;
+        setBottomPanelHeight(Math.min(BOTTOM_PANEL_MAX, Math.max(BOTTOM_PANEL_MIN, drag.startSize + delta)));
+      } else {
+        const delta = drag.start - e.clientX;
+        setSidePanelWidth(Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, drag.startSize + delta)));
+      }
     };
     const onUp = () => {
       dragStateRef.current = null;
@@ -188,13 +212,13 @@ export function Focus({
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     const prevCursor = document.body.style.cursor;
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = stacked ? 'row-resize' : 'col-resize';
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.style.cursor = prevCursor;
     };
-  }, [isResizing]);
+  }, [isResizing, stacked]);
 
   const panelForActive =
     sidePanel && sidePanel.sessionId === active.id ? sidePanel : null;
@@ -222,8 +246,8 @@ export function Focus({
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} onReorder={onReorder} isForeign={isForeign} foreignLabel={foreignLabel} />
 
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
           <div
             style={{
               position: 'relative', // anchors the running hairline
@@ -452,13 +476,20 @@ export function Focus({
           </div>
         </div>
 
-        {dockedOpen && <ResizeDivider isDragging={isResizing} onMouseDown={onResizeStart} />}
+        {dockedOpen && (
+          <ResizeDivider
+            isDragging={isResizing}
+            onMouseDown={onResizeStart}
+            orientation={stacked ? 'horizontal' : 'vertical'}
+          />
+        )}
         {dockedOpen && panelForActive?.kind === 'terminal' && (
           <CompanionTerminalPanel
             session={active}
             socket={socket}
             theme={theme}
-            width={sidePanelWidth}
+            placement={stacked ? 'bottom' : 'side'}
+            size={stacked ? bottomPanelHeight : sidePanelWidth}
           />
         )}
       </div>

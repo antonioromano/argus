@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { Focus } from './Focus.js';
+import type { SidePanel } from '../types.js';
 import { suppress, registerOverlay, resetOverlayRegistryForTests } from '../../hooks/nativeOverlayRegistry.js';
 
 declare global {
@@ -16,6 +17,10 @@ declare global {
 // marker in Focus's own header and the exited-session card over the terminal.
 vi.mock('../ui/TerminalShell.js', () => ({
   TerminalShell: () => null,
+}));
+// The companion shell spawns a real xterm; only its placement matters here.
+vi.mock('../../hooks/useCompanionTerminal.js', () => ({
+  useCompanionTerminal: () => ({ terminalAlive: true }),
 }));
 
 let container: HTMLDivElement;
@@ -37,7 +42,11 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
   };
 }
 
-function renderFocus(active: SessionInfo, onRestart: () => void = noop) {
+function renderFocus(
+  active: SessionInfo,
+  onRestart: () => void = noop,
+  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation } = {},
+) {
   act(() => {
     root.render(
       <Focus
@@ -45,7 +54,8 @@ function renderFocus(active: SessionInfo, onRestart: () => void = noop) {
         active={active}
         socket={socket}
         theme="dark"
-        sidePanel={null}
+        sidePanel={opts.sidePanel ?? null}
+        orientation={opts.orientation}
         onSelect={noop}
         onReorder={noop}
         onBack={noop}
@@ -135,5 +145,25 @@ describe('Focus — modal placeholder', () => {
     expect(container.querySelector('[data-testid="modal-placeholder"]')).not.toBeNull();
     act(() => h.release());
     expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
+  });
+});
+
+describe('Focus — companion shell placement', () => {
+  const shellPanel: SidePanel = { kind: 'terminal', sessionId: 's1' };
+
+  it('docks the shell beside the conversation in the side-by-side layout', () => {
+    renderFocus(session(), noop, { sidePanel: shellPanel, orientation: 'horizontal' });
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.width).not.toBe('');
+    expect(aside.style.height).toBe('');
+    expect((aside.parentElement as HTMLElement).style.flexDirection).toBe('row');
+  });
+
+  it('docks the shell below the conversation in the stacked layout', () => {
+    renderFocus(session(), noop, { sidePanel: shellPanel, orientation: 'vertical' });
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.height).not.toBe('');
+    expect(aside.style.width).toBe('');
+    expect((aside.parentElement as HTMLElement).style.flexDirection).toBe('column');
   });
 });

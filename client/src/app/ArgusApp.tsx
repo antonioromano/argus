@@ -1011,6 +1011,7 @@ function DesktopInner() {
             <Focus
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               showUsage={config?.showUsageMeter !== false}
+              orientation={config?.mosaicOrientation ?? 'horizontal'}
               sessions={orderedSessions}
               active={activeSession}
               socket={socket}
