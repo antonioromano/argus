@@ -319,3 +319,21 @@ func TestSpawnOverLiveIDReplacesIt(t *testing.T) {
 		t.Fatal("displaced agent was left running")
 	}
 }
+
+func TestDirLockAllowsOneDaemonPerDir(t *testing.T) {
+	dir := filepath.Dir(shortSock(t))
+	first, err := acquireDirLock(dir)
+	if err != nil {
+		t.Fatalf("first lock: %v", err)
+	}
+	if second, err := acquireDirLock(dir); err == nil {
+		_ = second.Close()
+		t.Fatal("second daemon on the same dir must be refused")
+	}
+	_ = first.Close()
+	again, err := acquireDirLock(dir)
+	if err != nil {
+		t.Fatalf("lock must be reusable once released: %v", err)
+	}
+	_ = again.Close()
+}

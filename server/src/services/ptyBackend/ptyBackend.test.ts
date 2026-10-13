@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import path from 'path';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import type { IPty } from 'node-pty';
 import { PtyManager } from '../PtyManager.js';
-import { makePtyBackend } from './index.js';
+import { makePtyBackend, findDuplicateDaemons, chooseDaemonSocket } from './index.js';
 import { resolveDaemonBin } from '../daemon/resolveDaemonBin.js';
 
 const BIN = resolveDaemonBin();
@@ -102,6 +102,67 @@ test('DaemonBackend: spawn round-trips output + exit through the IPty surface', 
     else delete process.env.ARGUS_DAEMON_BIN;
     if (prevS !== undefined) process.env.ARGUS_DAEMON_SOCKET = prevS;
     else delete process.env.ARGUS_DAEMON_SOCKET;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('findDuplicateDaemons reports live daemons under other labels on the same data dir', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-dupd-'));
+  try {
+    const own = path.join(dir, 'argusd-argus-dev.sock');
+    writeFileSync(`${own}.pid`, '111'); // ourselves — never reported
+    writeFileSync(path.join(dir, 'argusd-argus.sock.pid'), '222\n'); // live duplicate
+    writeFileSync(path.join(dir, 'argusd-old.sock.pid'), '333'); // stale pid file
+    writeFileSync(path.join(dir, 'argusd-junk.sock.pid'), 'not-a-pid');
+    writeFileSync(path.join(dir, 'unrelated.pid'), '222');
+    const alive = new Set([111, 222]);
+    const dups = findDuplicateDaemons(dir, own, (pid) => alive.has(pid));
+    assert.deepEqual(dups, [{ socket: path.join(dir, 'argusd-argus.sock'), pid: 222 }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('findDuplicateDaemons uses real liveness by default and tolerates a missing dir', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-dupd-'));
+  try {
+    // A pid that cannot exist on macOS/Linux (beyond pid_max) reads as dead.
+    writeFileSync(path.join(dir, 'argusd-x.sock.pid'), '2147483646');
+    assert.deepEqual(findDuplicateDaemons(dir, path.join(dir, 'argusd-y.sock')), []);
+    // process.ppid is certainly alive.
+    writeFileSync(path.join(dir, 'argusd-z.sock.pid'), String(process.ppid));
+    assert.deepEqual(findDuplicateDaemons(dir, path.join(dir, 'argusd-y.sock')).map((d) => d.pid), [process.ppid]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.deepEqual(findDuplicateDaemons(path.join(dir, 'gone'), 'x'), []);
+});
+
+test('chooseDaemonSocket adopts the one live daemon on the data dir instead of starting a second', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-adopt-'));
+  try {
+    // Real incident: a dev launched from an Argus terminal inherited label 'argus'
+    // while the dev dir's daemon was 'argus-dev'.
+    writeFileSync(path.join(dir, 'argusd-argus-dev.sock.pid'), '222');
+    const alive = new Set([222]);
+    const got = chooseDaemonSocket(dir, { ARGUS_DAEMON_SOCKET: 'argus' }, (pid) => alive.has(pid));
+    assert.deepEqual(got, { socketPath: path.join(dir, 'argusd-argus-dev.sock'), label: 'argus-dev' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('chooseDaemonSocket keeps the env label when its own daemon is live or none is', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-adopt-'));
+  try {
+    const own = { socketPath: path.join(dir, 'argusd-argus.sock'), label: 'argus' };
+    assert.deepEqual(chooseDaemonSocket(dir, { ARGUS_DAEMON_SOCKET: 'argus' }, () => false), own, 'nothing live → spawn ours');
+    writeFileSync(path.join(dir, 'argusd-argus.sock.pid'), '111');
+    writeFileSync(path.join(dir, 'argusd-other.sock.pid'), '222');
+    const alive = new Set([111, 222]);
+    assert.deepEqual(chooseDaemonSocket(dir, { ARGUS_DAEMON_SOCKET: 'argus' }, (pid) => alive.has(pid)), own, 'ours live → ours');
+    assert.deepEqual(chooseDaemonSocket(dir, { ARGUS_TMUX_SOCKET: 'argus' }, () => true), own, 'falls back to the tmux label');
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
