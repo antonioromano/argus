@@ -165,7 +165,7 @@ func (d *daemon) cleanup() {
 // handleConn serves the single active server connection: handshake, then a frame
 // read loop. On disconnect, sessions survive (unsubscribed) — the whole point.
 func (d *daemon) handleConn(conn net.Conn) {
-	fc := newClientConn(conn)
+	fc := newClientConn(conn, d.sessionCount)
 	// Attach replay runs on its own goroutine: it paces a backlog of up to a
 	// whole ring against the consumer and can wait replayWriteTimeout per chunk,
 	// and on the read goroutine that wait froze input, resizes and spawns for
@@ -220,6 +220,13 @@ func (d *daemon) handleConn(conn net.Conn) {
 		}
 		d.handleControl(fc, c, attaches)
 	}
+}
+
+// sessionCount sizes the connection's global outbox cap.
+func (d *daemon) sessionCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.sessions)
 }
 
 func (d *daemon) handleControl(fc *framedConn, c control, attaches chan<- *session) {
@@ -295,6 +302,13 @@ func (d *daemon) handleControl(fc *framedConn, c control, attaches chan<- *sessi
 		d.cleanup()
 		os.Exit(0)
 
+	case "caps":
+		for _, cp := range c.Caps {
+			if cp == capResync {
+				fc.enableResync()
+			}
+		}
+
 	case "ping":
 		_ = fc.writeControl(control{Op: "pong", Version: protocolVersion})
 	}
@@ -314,6 +328,10 @@ func (d *daemon) handleControl(fc *framedConn, c control, attaches chan<- *sessi
 // those bytes up), so the client still sees one ordered stream, and the handoff
 // back to live happens under the same lock the read loop takes.
 func replayAndSubscribe(fc *framedConn, s *session) {
+	// This replay covers the whole ring, so it re-delivers whatever live output
+	// a resync discarded: the episode ends here, and the deadline cut-over below
+	// may already use the live path.
+	fc.resumeLive(s.id)
 	s.mu.Lock()
 	s.subscribed = false
 	mark := s.ring.oldest()

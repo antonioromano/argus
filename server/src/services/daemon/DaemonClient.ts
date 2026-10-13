@@ -42,7 +42,17 @@ interface Control {
   sessions?: string[];
   version?: number;
   msg?: string;
+  caps?: string[];
 }
+
+/**
+ * Optional daemon behaviours this client handles. `resync`: the daemon sheds a
+ * single session's live backlog when we fall behind and sends {op:'resync',id};
+ * we re-attach that one session. Without it the daemon keeps its legacy shared
+ * budget, whose overflow drops the whole connection. An older argusd ignores
+ * the announcement.
+ */
+const CLIENT_CAPS = ['resync'];
 
 /**
  * Client for a single argusd daemon (plan 2026-07-22-003). Ensures the daemon is
@@ -145,6 +155,7 @@ export class DaemonClient extends EventEmitter {
         const onHello = () => {
           if (settled) return;
           settled = true;
+          this.send({ op: 'caps', caps: CLIENT_CAPS });
           this.connected = true;
           this.emit('connected');
           this.pumpAttach();
@@ -269,6 +280,12 @@ export class DaemonClient extends EventEmitter {
       case 'exit':
         if (ctl.id) this.emit(`exit:${ctl.id}`, ctl.code ?? 0);
         break;
+      case 'resync':
+        // We fell behind on this session and the daemon discarded its queued
+        // live output (the connection and every other session are untouched).
+        // Its live stream stays off until we re-attach it.
+        if (ctl.id) this.emit('resync', ctl.id);
+        break;
       case 'list': {
         const resolve = this.listPending.shift();
         if (resolve) resolve(ctl.sessions ?? []);
@@ -304,6 +321,9 @@ export class DaemonClient extends EventEmitter {
    * waiting its turn.
    */
   attach(id: string, beforeSend?: () => void): void {
+    // An attach already waiting for this session will replay the whole ring
+    // anyway; a second one would only replay (and wipe) it twice.
+    if (this.attachQueue.some((a) => a.id === id)) return;
     this.attachQueue.push({ id, beforeSend });
     this.pumpAttach();
   }
