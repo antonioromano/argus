@@ -378,11 +378,6 @@ export interface ClientToServerEvents {
   'session:clear-buffer': (sessionId: string) => void;
   'session:seen': (sessionId: string) => void;
   'session:mark-done': (sessionId: string) => void;
-  // Ephemeral terminals (Explorer view only — not persisted, not in session list)
-  'ephemeral:spawn': (payload: { id: string; cwd: string }) => void;
-  'ephemeral:input': (payload: { id: string; data: string }) => void;
-  'ephemeral:resize': (payload: { id: string; cols: number; rows: number }) => void;
-  'ephemeral:kill': (payload: { id: string }) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   'ct:join': (sessionId: string) => void;
   'ct:leave': (sessionId: string) => void;
@@ -440,9 +435,6 @@ export interface ServerToClientEvents {
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */
   'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
-  // Ephemeral terminal responses
-  'ephemeral:output': (payload: { id: string; data: string }) => void;
-  'ephemeral:exit': (payload: { id: string; exitCode: number }) => void;
   // Companion terminal responses
   'ct:output': (payload: { sessionId: string; data: string }) => void;
   'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;

@@ -4,7 +4,6 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { clampGrid } from '../utils/clampGrid.js';
-import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -72,8 +71,6 @@ function getSessionDimensions(sessionId: string): { cols: number; rows: number }
   }
   return getMaxDimensions(sessionId);
 }
-
-const ephemeralManager = new EphemeralTerminalManager();
 
 export function setupSocketHandler(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
@@ -196,42 +193,6 @@ export function setupSocketHandler(
       } catch { /* session may have exited between guard check and resize */ }
     });
 
-    // Ephemeral terminal events (Explorer view — not persisted, not in session list)
-    socket.on('ephemeral:spawn', ({ id, cwd }) => {
-      // Containment: only spawn a shell inside a folder Argus actually manages a
-      // session for. Without this an (authenticated) client — including one on
-      // the mobile tunnel — could open a login shell at any path on the host,
-      // escaping the session sandbox every other fs/git route enforces.
-      const safeCwd = manager.resolveWithinAnySession(cwd);
-      if (!safeCwd) {
-        socket.emit('ephemeral:exit', { id, exitCode: -1 });
-        return;
-      }
-      ephemeralManager.spawn(
-        id,
-        socket.id,
-        safeCwd,
-        120,
-        30,
-        (data) => socket.emit('ephemeral:output', { id, data }),
-        (exitCode) => socket.emit('ephemeral:exit', { id, exitCode }),
-      );
-    });
-
-    socket.on('ephemeral:input', ({ id, data }) => {
-      ephemeralManager.write(id, data);
-    });
-
-    socket.on('ephemeral:resize', ({ id, cols: rawCols, rows: rawRows }) => {
-      const grid = clampGrid(rawCols, rawRows);
-      if (!grid) return;
-      ephemeralManager.resize(id, grid.cols, grid.rows);
-    });
-
-    socket.on('ephemeral:kill', ({ id }) => {
-      ephemeralManager.kill(id);
-    });
-
     // Companion terminal events (one per session, persists while parent session is alive)
     socket.on('ct:join', (sessionId: string) => {
       const session = manager.getSession(sessionId);
@@ -347,8 +308,6 @@ export function setupSocketHandler(
         }
       }
       mobileSocketIds.delete(socket.id);
-      // Kill all ephemeral terminals for this socket
-      ephemeralManager.killAllForSocket(socket.id);
     });
   });
 }
