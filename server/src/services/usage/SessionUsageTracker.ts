@@ -34,6 +34,8 @@ export interface SessionUsageTrackerOpts {
 const MAX_TRANSCRIPTS = 32;
 const DEFAULT_DEBOUNCE_MS = 400;
 const DEFAULT_EMIT_THROTTLE_MS = 1000;
+/** Message ids remembered for cross-transcript dedupe (oldest dropped first). */
+const MAX_OWNED_IDS = 50_000;
 
 /**
  * Shape check for a hook-reported transcript path before the server opens it:
@@ -60,6 +62,16 @@ export class SessionUsageTracker {
   private lastEmitAt = 0;
   private disposed = false;
   private updatedAt = 0;
+  /** message id → the transcript that counts it. A conversation resumed into a
+   *  new file can repeat its history there; only the first file counts it. */
+  private owners = new Map<string, string>();
+  private readonly claim = (id: string, owner: string): boolean => {
+    const cur = this.owners.get(id);
+    if (cur !== undefined) return cur === owner;
+    this.owners.set(id, owner);
+    if (this.owners.size > MAX_OWNED_IDS) this.owners.delete(this.owners.keys().next().value as string);
+    return true;
+  };
 
   constructor(private onChange: (usage: SessionUsage) => void, opts: SessionUsageTrackerOpts = {}) {
     this.fs = opts.fs ?? nodeTranscriptFs;
@@ -75,7 +87,8 @@ export class SessionUsageTracker {
     const t = new SessionUsageTracker(onChange, opts);
     for (const s of state.transcripts ?? []) {
       if (!isPlausibleTranscriptPath(s.path)) continue;
-      t.tailers.set(s.path, TranscriptTailer.restore(s, t.fs));
+      t.tailers.set(s.path, TranscriptTailer.restore(s, t.fs, t.claim));
+      for (const [id] of s.recent ?? []) t.owners.set(id, s.path);
     }
     if (state.current && t.tailers.has(state.current)) t.current = state.current;
     t.updatedAt = Date.now();
@@ -93,7 +106,7 @@ export class SessionUsageTracker {
   setTranscript(p: string): void {
     if (this.disposed || !isPlausibleTranscriptPath(p)) return;
     if (!this.tailers.has(p)) {
-      this.tailers.set(p, new TranscriptTailer(p, this.fs));
+      this.tailers.set(p, new TranscriptTailer(p, this.fs, this.claim));
       while (this.tailers.size > MAX_TRANSCRIPTS) {
         const oldest = this.tailers.keys().next().value as string;
         if (oldest === p) break;

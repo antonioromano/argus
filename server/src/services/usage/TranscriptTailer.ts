@@ -39,6 +39,13 @@ export interface TranscriptFs {
   read(path: string, position: number, length: number): Promise<Buffer>;
 }
 
+/**
+ * Cross-transcript dedupe hook: asked once per message id; false means the id
+ * already counts in another transcript of the same session (a resumed or
+ * forked conversation that copied its history), so this one must skip it.
+ */
+export type ClaimMessage = (id: string, path: string) => boolean;
+
 export const nodeTranscriptFs: TranscriptFs = {
   async stat(path) {
     const s = await stat(path);
@@ -95,12 +102,12 @@ export class TranscriptTailer {
   unpricedTurns = 0;
   context?: TranscriptContext;
 
-  constructor(path: string, private fs: TranscriptFs = nodeTranscriptFs) {
+  constructor(path: string, private fs: TranscriptFs = nodeTranscriptFs, private claim?: ClaimMessage) {
     this.path = path;
   }
 
-  static restore(state: TranscriptTailerState, fs: TranscriptFs = nodeTranscriptFs): TranscriptTailer {
-    const t = new TranscriptTailer(state.path, fs);
+  static restore(state: TranscriptTailerState, fs: TranscriptFs = nodeTranscriptFs, claim?: ClaimMessage): TranscriptTailer {
+    const t = new TranscriptTailer(state.path, fs, claim);
     t.offset = num(state.offset);
     t.ino = state.ino;
     t.totals = { ...zero(), ...state.totals };
@@ -230,6 +237,7 @@ export class TranscriptTailer {
 
     const id: string | undefined =
       (typeof msg.id === 'string' && msg.id) || (typeof entry.requestId === 'string' && entry.requestId) || undefined;
+    if (id && this.claim && !this.claim(id, this.path)) return false; // counted in another transcript
     if (id) {
       const prev = this.seen.get(id);
       if (prev) {

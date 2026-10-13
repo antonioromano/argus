@@ -122,3 +122,19 @@ test('setTranscript ignores implausible paths', () => {
   assert.equal(t.serialize().transcripts.length, 0);
   t.dispose();
 });
+
+test('history copied into a second transcript (fork / resume) is not counted twice', async () => {
+  const d = dir();
+  const a = path.join(d, 'a.jsonl');
+  const b = path.join(d, 'b.jsonl');
+  writeFileSync(a, line('m1', 100) + line('m2', 50));
+  const t = new SessionUsageTracker(() => {}, { emitThrottleMs: 0 });
+  t.setTranscript(a);
+  await t.pollNow();
+  writeFileSync(b, line('m1', 100) + line('m2', 50) + line('m3', 7)); // copied history + one new turn
+  t.setTranscript(b);
+  await t.pollNow();
+  assert.equal(t.snapshot()!.inputTokens, 157);
+  t.dispose();
+  rmSync(d, { recursive: true, force: true });
+});

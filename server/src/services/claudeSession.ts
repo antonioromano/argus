@@ -13,7 +13,9 @@ export function isClaudeSessionId(v: unknown): v is string {
 
 /** Flags that pick which conversation Claude opens. A resume replaces them all. */
 const CONVERSATION_FLAGS_WITH_VALUE = new Set(['--resume', '-r', '--session-id']);
-const CONVERSATION_FLAGS_BARE = new Set(['--continue', '-c']);
+// --fork-session would copy the conversation into a new session (and a new
+// transcript) — Resume means "carry on in the same one", so it is dropped too.
+const CONVERSATION_FLAGS_BARE = new Set(['--continue', '-c', '--fork-session']);
 
 /**
  * argv for `claude --resume <id>` on top of the session's own flags.

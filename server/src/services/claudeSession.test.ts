@@ -19,7 +19,7 @@ test('buildResumeFlags puts --resume <id> first and keeps the user flags', () =>
 
 test('buildResumeFlags drops conversation-selecting flags the user stored', () => {
   assert.deepEqual(
-    buildResumeFlags(['--continue', '-c', '--resume', 'old', '-r', 'older', '--session-id', 'x', '--resume=y', '--session-id=z', '--model', 'opus'], ID),
+    buildResumeFlags(['--continue', '-c', '--fork-session', '--resume', 'old', '-r', 'older', '--session-id', 'x', '--resume=y', '--session-id=z', '--model', 'opus'], ID),
     ['--resume', ID, '--model', 'opus'],
   );
   // A bare --resume (picker) is dropped without eating the next flag.
