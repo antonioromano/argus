@@ -31,7 +31,8 @@ export interface LoginRateLimiterOptions {
  *
  * X-Forwarded-For is a list each hop APPENDS to; the client controls every entry
  * except the last one, which the tunnel edge added — so use the last entry. A
- * client spoofing earlier entries can't escape its bucket.
+ * client spoofing earlier entries can't escape its bucket. No other header is
+ * trusted for the key (see below).
  */
 export function loginClientKey(headers: IncomingHttpHeaders, remoteAddress: string | undefined): string {
   const peer = remoteAddress ?? 'unknown';
@@ -40,13 +41,11 @@ export function loginClientKey(headers: IncomingHttpHeaders, remoteAddress: stri
   const xffValue = Array.isArray(xff) ? xff[xff.length - 1] : xff;
   const lastHop = xffValue?.split(',').map((s) => s.trim()).filter(Boolean).pop();
   if (lastHop) return `fwd:${lastHop}`;
-  const real = headers['x-real-ip'];
-  if (typeof real === 'string' && real.trim()) return `fwd:${real.trim()}`;
-  const fwd = typeof headers.forwarded === 'string' ? headers.forwarded : undefined;
-  const lastFor = fwd ? [...fwd.matchAll(/for="?\[?([^\]";,]+)/gi)].pop()?.[1] : undefined;
-  if (lastFor) return `fwd:${lastFor}`;
-  // Proxied but anonymous: still separate from genuinely local requests.
-  return `fwd:unknown`;
+  // Proxied but without X-Forwarded-For: X-Real-IP / Forwarded are NOT used —
+  // with no proxy-appended XFF hop they are entirely client-controlled, and
+  // rotating them would mint a fresh bucket per attempt. All such requests
+  // share one bucket (still separate from genuinely local requests).
+  return 'fwd:unknown';
 }
 
 export class LoginRateLimiter {

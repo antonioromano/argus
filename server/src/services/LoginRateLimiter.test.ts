@@ -15,7 +15,9 @@ test('loginClientKey: behind a tunnel, keys on the LAST X-Forwarded-For hop (the
   assert.equal(loginClientKey({ 'x-forwarded-for': '203.0.113.9' }, '127.0.0.1'), 'fwd:203.0.113.9');
   // The client prepended a fake entry; the edge appended the real one.
   assert.equal(loginClientKey({ 'x-forwarded-for': '10.0.0.1, 198.51.100.7' }, '127.0.0.1'), 'fwd:198.51.100.7');
-  assert.equal(loginClientKey({ forwarded: 'for=192.0.2.60;proto=https' }, '127.0.0.1'), 'fwd:192.0.2.60');
+  // Without XFF, client-controlled X-Real-IP / Forwarded are ignored.
+  assert.equal(loginClientKey({ forwarded: 'for=192.0.2.60;proto=https' }, '127.0.0.1'), 'fwd:unknown');
+  assert.equal(loginClientKey({ 'x-real-ip': '192.0.2.61' }, '127.0.0.1'), 'fwd:unknown');
   assert.equal(loginClientKey({ 'ngrok-trace-id': 'x' }, '127.0.0.1'), 'fwd:unknown');
 });
 
@@ -65,4 +67,14 @@ test('/api/auth/login: one tunnel client locked out, another still gets to try',
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
   }
+});
+
+test('rotating X-Real-IP / Forwarded without XFF does not mint fresh buckets', () => {
+  const l = new LoginRateLimiter({ maxAttempts: 3, globalMaxAttempts: 100 });
+  for (let i = 0; i < 3; i++) {
+    const key = loginClientKey(i % 2 ? { 'x-real-ip': `10.0.0.${i}` } : { forwarded: `for=10.1.0.${i}` }, '127.0.0.1');
+    l.recordFailure(key);
+  }
+  assert.match(l.check(loginClientKey({ 'x-real-ip': '10.9.9.9' }, '127.0.0.1')) ?? '', /Too many failed attempts/);
+  assert.match(l.check(loginClientKey({ forwarded: 'for=10.8.8.8' }, '127.0.0.1')) ?? '', /Too many failed attempts/);
 });
