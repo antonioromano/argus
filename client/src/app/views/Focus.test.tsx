@@ -166,4 +166,13 @@ describe('Focus — companion shell placement', () => {
     expect(aside.style.width).toBe('');
     expect((aside.parentElement as HTMLElement).style.flexDirection).toBe('column');
   });
+
+  it('lets the bottom shell yield height so the conversation above keeps its minimum', () => {
+    renderFocus(session(), noop, { sidePanel: shellPanel, orientation: 'vertical' });
+    const aside = container.querySelector('aside')!;
+    const conversation = aside.parentElement!.firstElementChild as HTMLElement;
+    expect(aside.style.flexShrink).toBe('1');
+    expect(aside.style.minHeight).toBe('0px');
+    expect(conversation.style.minHeight).toBe('200px');
+  });
 });

@@ -31,10 +31,11 @@ export function CompanionTerminalPanel({
   return (
     <aside
       style={{
+        // Docked below, the height is a preference: the panel shrinks when the
+        // window is too short, so the conversation above keeps its min height.
         ...(placement === 'bottom'
-          ? { height: size, borderTop: '1px solid var(--line-2)' }
-          : { width: size, borderLeft: '1px solid var(--line-2)' }),
-        flexShrink: 0,
+          ? { height: size, flexShrink: 1, minHeight: 0, borderTop: '1px solid var(--line-2)' }
+          : { width: size, flexShrink: 0, borderLeft: '1px solid var(--line-2)' }),
         background: 'var(--bg-1)',
         display: 'flex',
         flexDirection: 'column',

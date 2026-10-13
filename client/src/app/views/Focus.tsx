@@ -44,6 +44,9 @@ const BOTTOM_PANEL_HEIGHT_KEY = 'argus.focus.bottomPanelHeight';
 const BOTTOM_PANEL_MIN = 120;
 const BOTTOM_PANEL_MAX = 720;
 const BOTTOM_PANEL_DEFAULT = 280;
+// The conversation keeps at least this much height when the shell is docked
+// below it; the stored shell height is a preference that yields to it.
+const CONVERSATION_MIN_HEIGHT = 200;
 const PEEK_HEIGHT = 34;
 
 function readStoredSize(key: string, min: number, max: number, fallback: number): number {
@@ -146,6 +149,7 @@ export function Focus({
   const [isResizing, setIsResizing] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
   const stacked = orientation === 'vertical';
 
   // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
@@ -195,7 +199,13 @@ export function Focus({
       // The panel sits after the divider, so dragging toward it grows the panel.
       if (stacked) {
         const delta = drag.start - e.clientY;
-        setBottomPanelHeight(Math.min(BOTTOM_PANEL_MAX, Math.max(BOTTOM_PANEL_MIN, drag.startSize + delta)));
+        // Cap at what the window can give without squeezing the conversation,
+        // so the stored height never exceeds what was actually visible.
+        const avail = splitRef.current
+          ? splitRef.current.clientHeight - CONVERSATION_MIN_HEIGHT
+          : BOTTOM_PANEL_MAX;
+        const max = Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, avail));
+        setBottomPanelHeight(Math.min(max, Math.max(BOTTOM_PANEL_MIN, drag.startSize + delta)));
       } else {
         const delta = drag.start - e.clientX;
         setSidePanelWidth(Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, drag.startSize + delta)));
@@ -246,8 +256,8 @@ export function Focus({
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <ChipStrip sessions={sessions} activeId={active.id} filter={filter} onSelect={onSelect} onReorder={onReorder} isForeign={isForeign} foreignLabel={foreignLabel} />
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
+      <div ref={splitRef} style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: stacked ? CONVERSATION_MIN_HEIGHT : 0 }}>
           <div
             style={{
               position: 'relative', // anchors the running hairline
