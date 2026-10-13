@@ -11,6 +11,7 @@ A native macOS desktop app for managing multiple AI coding agent sessions at onc
 - [Installation](#installation)
 - [Features](#features)
   - [Session Management](#session-management)
+  - [Session Insights](#session-insights)
   - [Layout & Organization](#layout--organization)
   - [Focus Mode](#focus-mode)
   - [Terminal](#terminal)
@@ -27,6 +28,7 @@ A native macOS desktop app for managing multiple AI coding agent sessions at onc
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [How It Works](#how-it-works)
 - [Tech Stack](#tech-stack)
+- [Project Docs](#project-docs)
 
 ## Installation
 
@@ -63,6 +65,13 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 - **Collapsible sessions** — Minimize any session to a chip strip at the top of the dashboard; collapsed sessions stay connected and continue showing live status, then restore with one click
 - **Agent CLI flags** — Configure per-agent command-line flags (e.g. `--model`, `--verbose`) in Settings with sticky defaults; toggle individual flags on or off per session at creation time
 - **Git dirty indicator** — Orange warning icon next to session names when uncommitted changes exist; visible in terminal cards, focus mode, sidebar, collapsed chips, and dropdowns
+- **Resume conversation** — An exited Claude session offers *Resume conversation* next to Restart (exited card, the shell's ⋯ menu, Find & Jump). It relaunches with `claude --resume <id>`, and the conversation id is persisted, so it also works after Argus restarts
+
+### Session Insights
+
+- **Usage meter** — Claude sessions show a usage chip with context-window %, tokens and an estimated cost, read from the session's transcript
+- **Waiting inbox** — `⌘⇧J` (also in the View menu and Find & Jump) lists every session waiting on input, longest-waiting first, with its question. `↑↓` picks, `↵` jumps to the shell, and a digit answers a numbered menu prompt without leaving the inbox
+- **Broadcast input** — Send one line (`/compact`, "rebase on main", `y`) to several shells at once, optionally followed by Enter. Pick targets in Find & Jump or mark them with Space in the waiting inbox and press `B`; a confirmation step shows the exact text and every target first
 
 ### Layout & Organization
 
@@ -81,7 +90,7 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 
 - **xterm.js terminal** — Smooth, high-performance terminal with the DOM renderer for crisp text on a cold start
 - **Live two-way I/O** — All keyboard input and terminal output streams in real time
-- **Reconnect replay** — A 100KB rolling buffer per session replays output when you reconnect or reload
+- **Reconnect replay** — The server keeps a headless terminal mirror of every session and replays its screen and scrollback when you reconnect or reload
 - **Full terminal features** — Clickable links, copy-paste, and responsive resizing
 
 ### File Explorer
@@ -131,7 +140,7 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 ### Password Authentication
 
 - **Auto-enabled with ngrok** — When a tunnel is started, you set a password; the URL and password are shown together for easy sharing
-- **Secure comparison** — Passwords are hashed with SHA-256 and compared using `crypto.timingSafeEqual` to prevent timing attacks
+- **Secure comparison** — Passwords are hashed with scrypt (per-password salt) and compared using `crypto.timingSafeEqual` to prevent timing attacks
 - **Token-based sessions** — After login, a UUID token is issued and validated on all subsequent API and Socket.io requests; tokens are cleared when the tunnel stops
 
 ### Auto-Update
@@ -174,6 +183,7 @@ A mobile companion view is reachable from your phone's browser when an ngrok tun
 |-----|--------|
 | `Escape` | Exit diff fullscreen → close diff panel → exit explorer fullscreen → close explorer panel → exit focus mode (priority order) |
 | `Ctrl/Cmd+Enter` | Submit commit message (when commit bar is focused) |
+| `Cmd+Shift+J` | Open the waiting inbox (rebindable in Settings → Keyboard) |
 
 ## How It Works
 
@@ -181,8 +191,8 @@ A mobile companion view is reachable from your phone's browser when an ngrok tun
 2. **PTY spawning** — Argus spawns the AI CLI inside a pseudo-terminal via your login shell (`$SHELL -l -c "exec <agent>"`).
 3. **Real-time streaming** — Terminal I/O flows through Socket.io rooms. Each session is a room identified by its UUID.
 4. **State detection** — Output is stripped of ANSI codes and, after a 500ms settle period, the tail is analyzed to classify the session as `waiting`, `running`, `idle`, or `exited`.
-5. **Reconnect replay** — A 100KB rolling buffer per session lets the UI catch up on output when reopening or reconnecting.
-6. **Session survival** — Sessions run under a dedicated tmux server, so they survive quitting and reopening the app.
+5. **Reconnect replay** — A headless xterm mirror per session (`TerminalMirror`) is serialized and replayed when a window opens or reconnects to a session.
+6. **Session survival** — Agents run under `argusd`, a small bundled Go daemon that owns the ptys, so sessions survive quitting and reopening the app. A dedicated tmux server is the fallback if the daemon binary is missing.
 
 ### Testing deep links
 
@@ -203,7 +213,13 @@ The installed app keeps `argus://`; the two never collide. If the dev app is not
 | **Styling** | CSS custom properties (design tokens) — no CSS framework |
 | **Syntax highlighting** | react-syntax-highlighter (Prism, 29 languages) |
 | **Icons** | lucide-react |
-| **Session survival** | Bundled tmux (dedicated `argus` socket) |
+| **Session survival** | `argusd` pty daemon (Go, bundled); tmux fallback |
+
+## Project Docs
+
+- [`docs/reviews/2026-10-11-argus-review.md`](docs/reviews/2026-10-11-argus-review.md) — the current full-app review: security, bugs, performance, hygiene, feature ideas, with fix status
+- [`docs/solutions/`](docs/solutions/) — write-ups of past problems and their fixes
+- [`CLAUDE.md`](CLAUDE.md) — architecture notes, commands and the release recipe
 
 ---
 

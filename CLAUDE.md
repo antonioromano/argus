@@ -54,12 +54,12 @@ The `dev:web` escape-hatch (`PORT=5401 ... concurrently … server … client`) 
 Single file (`src/types.ts`) defining all shared TypeScript types: session models, REST request/response shapes, Socket.io event maps (`ClientToServerEvents`, `ServerToClientEvents`), and filesystem types.
 
 ### server/ (Express + Socket.io + node-pty)
-- **`services/SessionManager`** — Central orchestrator. Creates/destroys sessions, manages pty lifecycle, buffers output (100KB rolling window for reconnect replay), persists sessions to disk, polls git-dirty status, prevents sleep while running, and broadcasts state changes via Socket.io rooms.
-- **`services/PtyManager`** — Spawns the agent CLI inside a tmux session (`tmux -L argus`) via the user's login shell. Sets a UTF-8 spawn locale (load-bearing — see memory `argus-terminal-replay`). Wraps node-pty for write/resize/kill + tmux capture-pane snapshots.
+- **`services/SessionManager`** — Central orchestrator. Creates/destroys sessions, manages pty lifecycle, feeds output into a per-session `TerminalMirror` (headless xterm + serialize addon; the source of reconnect replay), persists sessions to disk, polls git-dirty status, prevents sleep while running, and broadcasts state changes via Socket.io rooms.
+- **`services/ptyBackend/`** — Picks how agents are spawned (`makePtyBackend` in `index.ts`). Default: **`DaemonBackend`** talking to **argusd** (`daemon/`, Go), which owns the ptys over a unix socket in the data dir, so sessions survive app quit; one daemon per data dir (flock + `chooseDaemonSocket`). Fallback: **`TmuxBackend`** (`tmux -L argus`) when the argusd binary is missing, or forced with config `ptyBackend: 'tmux'` / `ARGUS_PTY_BACKEND=tmux`. **`services/PtyManager`** wraps node-pty for the tmux path and sets a UTF-8 spawn locale (load-bearing — see `docs/solutions/best-practices/terminal-replay-garbling-utf8-locale.md`).
 - **`services/StateDetector`** — Analyzes ANSI-stripped terminal output (headless xterm) to detect session status. After output settles (500ms), checks the tail against per-agent prompt patterns to distinguish `waiting` from `idle`. Also extracts the last prompt text for notifications.
 - **`services/AgentRegistry`** — Built-in + custom agent definitions (claude/gemini/codex); validates `agentType` before spawn (command-injection guard). **`services/GitService`** — diff/stage/commit/branch/worktree/blame (~22 git routes). **`services/AuthService`** + **`LoginRateLimiter`** — scrypt password hash, 24h bearer tokens, rate-limited login (auth enforced when exposed or a password is set). **`services/NgrokService`** / **`UpdateService`** / **`CompanionTerminalManager`** / **`SleepPreventionService`** / **`services/WindowRegistry`** — tracks window lifecycle and session→window ownership.
 - **`persistence/`** — atomic-write JSON stores in `server/data/`: `SessionStore`, `OrderStore`, `GroupStore`, `ConfigStore`, `WindowStore` (windows.json), plus per-gitRoot `ChangelistStore` / `CommitSelectionStore`. Sessions and windows are restored on server restart.
-- **`socket/handler`** — Socket.io connection handler (token-gated when enforced). Clients join/leave session rooms; input is forwarded to pty; a tmux capture-pane snapshot is replayed on join. Also drives companion terminals.
+- **`socket/handler`** — Socket.io connection handler (token-gated when enforced). Clients join/leave session rooms; input is forwarded to the pty backend; on join the server sends a `session:replay` frame serialized from the session's `TerminalMirror` (cached per write generation). Also drives companion terminals.
 - **`routes/`** — `sessions` (CRUD + ordering), `filesystem` (scoped file read/write/search + folder-picker autocomplete/children), `git`, `symbols` (ripgrep go-to-def / find-refs), `worktrees`, `config`, `auth`, `ngrok`, `update`.
 - **`middleware/auth`** + **`utils/pathScope`** — bearer-token gate (fail-closed when exposed) and session-scoped path containment. **Every** new fs/git route must funnel through `pathScope`; remote-reachable requests must use `authFetch`.
 
@@ -88,9 +88,10 @@ When bumping the version, update it in **both** `package.json` (root) and the ve
 # 1. Bump the version in root package.json, then sync everything else:
 #    - edit package.json  →  "version": "X.Y.Z"  (root is the single source of truth)
 #    - run `npm run sync-versions`  →  stamps shared/server/client package.json + the README badge
+#    - run `npm install --package-lock-only`  →  carries the new version into package-lock.json
 
-# 2. Commit and tag
-git add package.json README.md
+# 2. Commit and tag (sync-versions touches 5 files, plus the lockfile — stage them all)
+git add package.json package-lock.json shared/package.json server/package.json client/package.json README.md
 git commit -m "bump version to X.Y.Z"
 git tag vX.Y.Z
 
@@ -99,18 +100,18 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-CI (`release.yml`) triggers on the tag push, builds the DMG, creates the GitHub release with **auto-generated release notes** (commits since the previous tag), and bumps the Homebrew cask. The "WHAT'S NEW" section in the Argus update dialog pulls those notes from the GitHub release body.
+CI (`.github/workflows/release.yml`) triggers on the tag push, gates on check:deps/lint/build/test, builds both DMGs, smoke-boots the packaged app, creates the GitHub release, and bumps the Homebrew cask. The release body is **built by the workflow itself** from `git log <previous tag>..<this tag> --no-merges` (one `- <subject>` line per commit, `chore: bump…` lines dropped) — GitHub's `generate_release_notes` and `.github/release.yml` are not used for it. The "WHAT'S NEW" section in the Argus update dialog pulls those notes from the GitHub release body.
 
-**Write meaningful commit messages before tagging** — they become the changelog. Conventional commit prefixes (`feat:`, `fix:`, `chore:`) appear verbatim in the release notes. The CI-generated `chore: bump cask` commit is excluded automatically via `.github/release.yml`.
+**Write meaningful commit messages before tagging** — their subjects become the changelog verbatim, conventional prefixes (`feat:`, `fix:`) included. Commits whose subject starts with `chore: bump` (version and cask bumps) are filtered out.
 
-To override auto-generation with a hand-written changelog, edit the GitHub release body after CI completes (or pass `body:` in the release workflow step — it takes precedence over `generate_release_notes`).
+To replace the generated notes with a hand-written changelog, edit the GitHub release body after CI completes.
 
 Users update via the in-app update button (Homebrew) or `brew upgrade --cask argus`. The version displayed in the UI comes from `package.json`, so it **must** match the tag.
 
 ## Key Details
 
 - Multi-window — each Electron window loads `?windowId=<id>` in the query string; session→window ownership lives server-side in `windows.json`; sessions render expanded only in their owning window.
-- Ports by mode — packaged app: **5757**; `npm run dev` (Electron): **5403**; `dev:web`: server **5401** + Vite client **5402** (proxies API/WS to 5401). Each mode also gets its own Electron `userData` profile (`argus` vs `argus-dev`), tmux socket (`argus` vs `argus-dev`), and `argus://` vs `argus-dev://` deep-link scheme — so the installed app and `npm run dev` can run **at the same time**.
+- Ports by mode — packaged app: **5757**; `npm run dev` (Electron): **5403**; `dev:web`: server **5401** + Vite client **5402** (proxies API/WS to 5401). Each mode also gets its own Electron `userData` profile (`argus` vs `argus-dev`), argusd/tmux socket label (`argus` vs `argus-dev`), and `argus://` vs `argus-dev://` deep-link scheme — so the installed app and `npm run dev` can run **at the same time**.
 - TypeScript strict mode, ES2022 target, ESM (`"type": "module"`) throughout
 - Server uses `.js` extensions in imports (required for ESM resolution with TypeScript)
 - **Server and `electron/` code may only ever `import type` from `@argus/shared`.** app.asar has no `node_modules/@argus`, so a *value* import crashes the packaged app at launch with `ERR_MODULE_NOT_FOUND` (shipped broken in v0.22.5). Duplicate the value on the server side instead and register the pair in `scripts/check-dep-sync.mjs` (check 3 pins scalars and object literals). The renderer has no such limit — Vite compiles shared like any other source. Run `npm run check:deps` after touching imports or deps; CI and `package:mac` both gate on it.
