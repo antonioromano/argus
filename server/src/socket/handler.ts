@@ -1,10 +1,10 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { SessionManager } from '../services/SessionManager.js';
-import type { AuthService } from '../services/AuthService.js';
+import { authVerdict, type AuthService } from '../services/AuthService.js';
+import { isExposedRequest } from '../middleware/exposure.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { clampGrid } from '../utils/clampGrid.js';
-import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -19,6 +19,41 @@ const clientDimensions = new Map<string, Map<string, { cols: number; rows: numbe
 // client is viewing a session we size the pty to the *smallest* mobile client
 // (it fits the phone) — desktop-only sessions keep the max behavior.
 const mobileSocketIds = new Set<string>();
+
+/** How often live sockets are re-checked against the token store. */
+export const SOCKET_REVALIDATE_MS = 60_000;
+
+/** What the auth gate recorded about a socket at handshake (socket.data). */
+interface SocketAuthData {
+  token?: string;
+  exposedRequest?: boolean;
+}
+
+function socketVerdict(authService: AuthService, data: SocketAuthData | undefined) {
+  // A socket with no recorded handshake data is treated as exposed — fail closed.
+  return authVerdict(authService, data?.token, data?.exposedRequest ?? true);
+}
+
+/**
+ * Disconnect every socket that would no longer pass the handshake gate: its
+ * token expired or was revoked (password change, clearAuth), or enforcement
+ * turned on after it connected (tunnel start, password set). Returns how many
+ * were dropped.
+ */
+export function dropUnauthorizedSockets(
+  io: Server<ClientToServerEvents, ServerToClientEvents>,
+  authService: AuthService,
+): number {
+  const sockets = (io as { sockets?: { sockets?: Map<string, TypedSocket> } }).sockets?.sockets;
+  if (!sockets) return 0;
+  let dropped = 0;
+  for (const socket of [...sockets.values()]) {
+    if (socketVerdict(authService, socket.data as SocketAuthData) === 'ok') continue;
+    socket.disconnect(true);
+    dropped++;
+  }
+  return dropped;
+}
 
 export function cleanupSessionDimensions(sessionId: string): void {
   clientDimensions.delete(sessionId);
@@ -73,8 +108,6 @@ function getSessionDimensions(sessionId: string): { cols: number; rows: number }
   return getMaxDimensions(sessionId);
 }
 
-const ephemeralManager = new EphemeralTerminalManager();
-
 export function setupSocketHandler(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
   manager: SessionManager,
@@ -82,17 +115,26 @@ export function setupSocketHandler(
   updateService: UpdateService,
 ): void {
   io.use((socket, next) => {
-    if (!authService.enforced) {
-      next();
-      return;
-    }
-    const token = socket.handshake.auth?.token as string | undefined;
-    if (token && authService.validateToken(token)) {
-      next();
-    } else {
-      next(new Error('Authentication required'));
-    }
+    const rawToken = socket.handshake.auth?.token;
+    const req = socket.request;
+    const data: SocketAuthData = {
+      token: typeof rawToken === 'string' ? rawToken : undefined,
+      // Same per-request exposure rule as HTTP: a socket through a tunnel Argus
+      // didn't start must authenticate even while authService.exposed is false.
+      exposedRequest: req ? isExposedRequest(req.headers, req.socket?.remoteAddress) : true,
+    };
+    // Kept on the socket so it can be re-checked after the handshake.
+    if (socket.data !== undefined) Object.assign(socket.data, data);
+    const verdict = authVerdict(authService, data.token, data.exposedRequest ?? true);
+    if (verdict === 'ok') next();
+    else if (verdict === 'no-password') next(new Error('Server is network-exposed but has no password set'));
+    else next(new Error('Authentication required'));
   });
+
+  // Re-check live sockets when the rules tighten, and periodically so a token
+  // that expires (24h TTL) mid-connection stops working too.
+  authService.onEnforcementChange(() => { dropUnauthorizedSockets(io, authService); });
+  setInterval(() => { dropUnauthorizedSockets(io, authService); }, SOCKET_REVALIDATE_MS).unref();
 
   io.on('connection', (socket: TypedSocket) => {
     console.log(`Client connected: ${socket.id}`);
@@ -194,42 +236,6 @@ export function setupSocketHandler(
       try {
         manager.resizeSession(sessionId, dims.cols, dims.rows);
       } catch { /* session may have exited between guard check and resize */ }
-    });
-
-    // Ephemeral terminal events (Explorer view — not persisted, not in session list)
-    socket.on('ephemeral:spawn', ({ id, cwd }) => {
-      // Containment: only spawn a shell inside a folder Argus actually manages a
-      // session for. Without this an (authenticated) client — including one on
-      // the mobile tunnel — could open a login shell at any path on the host,
-      // escaping the session sandbox every other fs/git route enforces.
-      const safeCwd = manager.resolveWithinAnySession(cwd);
-      if (!safeCwd) {
-        socket.emit('ephemeral:exit', { id, exitCode: -1 });
-        return;
-      }
-      ephemeralManager.spawn(
-        id,
-        socket.id,
-        safeCwd,
-        120,
-        30,
-        (data) => socket.emit('ephemeral:output', { id, data }),
-        (exitCode) => socket.emit('ephemeral:exit', { id, exitCode }),
-      );
-    });
-
-    socket.on('ephemeral:input', ({ id, data }) => {
-      ephemeralManager.write(id, data);
-    });
-
-    socket.on('ephemeral:resize', ({ id, cols: rawCols, rows: rawRows }) => {
-      const grid = clampGrid(rawCols, rawRows);
-      if (!grid) return;
-      ephemeralManager.resize(id, grid.cols, grid.rows);
-    });
-
-    socket.on('ephemeral:kill', ({ id }) => {
-      ephemeralManager.kill(id);
     });
 
     // Companion terminal events (one per session, persists while parent session is alive)
@@ -347,8 +353,6 @@ export function setupSocketHandler(
         }
       }
       mobileSocketIds.delete(socket.id);
-      // Kill all ephemeral terminals for this socket
-      ephemeralManager.killAllForSocket(socket.id);
     });
   });
 }

@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
-import { appendFile } from 'fs/promises';
+import { appendFile, readFile } from 'fs/promises';
 import path from 'path';
 import type { ShellGitContext, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
 
@@ -950,6 +950,8 @@ export class GitService {
       }
 
       const resolvedBase = baseBranch || await this.getDefaultBranch(folderPath);
+      // Defense in depth (the route validates too): it becomes a bare argv word.
+      if (resolvedBase.startsWith('-')) return { success: false, error: `Invalid base branch: "${resolvedBase}"` };
 
       if (await this.hasChanges(folderPath)) {
         return { success: false, error: 'You have uncommitted changes. Please commit or stash them first.' };
@@ -1122,15 +1124,46 @@ export class GitService {
     }
   }
 
+  /**
+   * Append one exact path to `<folderPath>/.gitignore`.
+   *
+   * The path used to be written verbatim: a name containing CR/LF injected extra
+   * rules (e.g. `x\n!secret.env` or `x\n*`), and an unanchored relative name
+   * matched that basename in every directory. Now: CR/LF (and other control
+   * characters) are refused, the path is made repo-relative to the folder and
+   * anchored with a leading `/`, and gitignore glob/escape characters are
+   * backslash-escaped so the rule matches only that one path.
+   */
   async addToGitignore(folderPath: string, filePath: string): Promise<PatchOperationResponse> {
+    const rule = gitignoreRuleFor(folderPath, filePath);
+    if (!rule) return { success: false, error: 'Invalid file path' };
     try {
       const gitignorePath = path.join(folderPath, '.gitignore');
-      await appendFile(gitignorePath, `${filePath}\n`);
+      let prefix = '';
+      try {
+        const existing = await readFile(gitignorePath, 'utf8');
+        if (existing.length > 0 && !existing.endsWith('\n')) prefix = '\n';
+      } catch { /* no .gitignore yet */ }
+      await appendFile(gitignorePath, `${prefix}${rule}\n`);
       return { success: true };
     } catch (err) {
       return { success: false, error: (err as Error).message };
     }
   }
+}
+
+/**
+ * The anchored `.gitignore` rule for one path inside `folderPath`, or null when
+ * the path is unusable (control characters, escapes the folder, is the folder).
+ */
+export function gitignoreRuleFor(folderPath: string, filePath: string): string | null {
+  if (!filePath || /[\x00-\x1f\x7f]/.test(filePath)) return null;
+  const rel = path.relative(folderPath, path.resolve(folderPath, filePath));
+  if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return null;
+  const posix = rel.split(path.sep).join('/');
+  // Escape gitignore metacharacters; a trailing space is significant only escaped.
+  const escaped = posix.replace(/[\\*?[\]]/g, (c) => `\\${c}`).replace(/ $/, '\\ ');
+  return `/${escaped}`;
 }
 
 /** Parse `git status --porcelain=v2 --branch` into the Shell header's git context. */

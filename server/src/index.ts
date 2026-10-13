@@ -46,6 +46,7 @@ import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { createJsonBodyParser } from './middleware/bodyParsers.js';
 import { createDebugScrollRoute } from './routes/debugScroll.js';
 import { createAgentSignalRoutes } from './routes/agentSignals.js';
 import { getOrCreateSignalSecret } from './services/agentSignals/token.js';
@@ -113,7 +114,8 @@ const originGuard = createOriginGuard({
 });
 app.use(originGuard.middleware);
 app.use(cors({ origin: corsOriginFn }));
-app.use(express.json({ limit: '10mb' }));
+// Per-route limits (fs writes, agent signals) only hold if this skips them.
+app.use(createJsonBodyParser());
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: corsOriginFn },

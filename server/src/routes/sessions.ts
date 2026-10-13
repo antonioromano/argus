@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import path from 'path';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
@@ -104,6 +105,12 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
 
     if (!folderPath) {
       res.status(400).json({ error: 'folderPath is required' });
+      return;
+    }
+    // Canonicalised (realpath, directory check) in SessionManager.createSession;
+    // reject the obvious case here with a clear 400.
+    if (typeof folderPath !== 'string' || !path.isAbsolute(folderPath)) {
+      res.status(400).json({ error: 'folderPath must be an absolute path' });
       return;
     }
 
