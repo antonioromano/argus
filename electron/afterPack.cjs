@@ -39,16 +39,14 @@ exports.default = async function afterPack(context) {
   // code-injection into the shipped app; EnableCookieEncryption turns on
   // OS-level encryption of the cookie store at rest.
   //
-  // NOT yet flipped: OnlyLoadAppFromAsar and EnableEmbeddedAsarIntegrityValidation
-  // (together they stop a local attacker swapping app.asar or dropping an
-  // unpacked app/ folder into Resources). Prerequisites look met — electron-builder
-  // 25.1.8 writes ElectronAsarIntegrity into Info.plist (per-arch builds, not
-  // universal, so it isn't disabled), the app lives in app.asar, and nothing below
-  // modifies the asar. Flip them once a packaged build has been verified to boot
-  // with them on (the release.yml smoke test boots the packaged app on a clean
-  // runner); a mismatch makes Electron exit at launch. The ripgrep binary in
-  // app.asar.unpacked and the extraResources native addon are not app code and
-  // are unaffected.
+  // OnlyLoadAppFromAsar + EnableEmbeddedAsarIntegrityValidation stop a local
+  // attacker swapping app.asar or dropping an unpacked app/ folder into
+  // Resources. They rely on electron-builder 25.1.8 writing ElectronAsarIntegrity
+  // into Info.plist (per-arch builds, not universal) and on nothing below
+  // touching the asar — a hash mismatch makes Electron exit at launch, which the
+  // release.yml smoke test (boots the packaged app on a clean runner) catches.
+  // The ripgrep binary in app.asar.unpacked and the extraResources native addon
+  // are not app code and are unaffected.
   await flipFuses(appPath, {
     version: FuseVersion.V1,
     resetAdHocDarwinSignature: true,
@@ -56,6 +54,8 @@ exports.default = async function afterPack(context) {
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableCookieEncryption]: true,
+    [FuseV1Options.OnlyLoadAppFromAsar]: true,
+    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
   });
 
   // When a Developer ID cert is present, electron-builder runs its own signing
