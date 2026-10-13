@@ -144,12 +144,6 @@ export function useCompanionTerminal(
       'companion', // own mouse-state key — don't inherit the Claude pane's appMouse
     );
 
-    requestAnimationFrame(() => {
-      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-        fitAddon.fit();
-        socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
-      }
-    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -161,11 +155,33 @@ export function useCompanionTerminal(
     };
     const scrollDisposable = terminal.onScroll(syncCursorVisibility);
 
-    socket.emit('ct:join', sessionId);
+    // Join with this client's real grid size. ct:join spawns the shell at the
+    // server's default size (120x30) when none is running, and resize events
+    // that arrive before a spawn are dropped — so the size goes out on both
+    // sides of the join, in the same tick: before it so an already-running
+    // shell is sized before its buffer replays, after it so a freshly spawned
+    // shell is corrected before it prints its first prompt.
+    let sized = false;
+    const emitSize = () => {
+      if (sized) socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+    };
+    const joinSized = () => {
+      emitSize();
+      socket.emit('ct:join', sessionId);
+      emitSize();
+    };
+    // First join waits one frame for layout so fit() measures the real cell grid
+    // (cancelled on cleanup, so an unmount can't join after its ct:leave).
+    const joinFrame = requestAnimationFrame(() => {
+      if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+        fitAddon.fit();
+        sized = true;
+      }
+      joinSized();
+    });
 
     const handleReconnect = () => {
-      socket.emit('ct:join', sessionId);
-      socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+      joinSized();
     };
     socket.on('connect', handleReconnect);
 
@@ -202,7 +218,8 @@ export function useCompanionTerminal(
         fitAddon.fit();
         if (terminal.cols !== prevCols) terminal.scrollToBottom();
         terminal.refresh(0, terminal.rows - 1);
-        socket.emit('ct:resize', { sessionId, cols: terminal.cols, rows: terminal.rows });
+        sized = true;
+        emitSize();
       }
     };
 
@@ -236,6 +253,7 @@ export function useCompanionTerminal(
     container.addEventListener('copy', handleCopy);
 
     return () => {
+      cancelAnimationFrame(joinFrame);
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeObserver.disconnect();
       window.removeEventListener('terminal:refit', handleRefit);
