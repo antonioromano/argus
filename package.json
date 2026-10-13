@@ -38,8 +38,7 @@
     "fix-path": "^4.0.0",
     "node-pty": "^1.1.0",
     "semver": "^7.7.1",
-    "socket.io": "^4.8.3",
-    "uuid": "^11.1.0"
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@electron/fuses": "^2.1.3",
