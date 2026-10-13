@@ -42,14 +42,25 @@ done
 # JSON-escape backslashes and double quotes (minimal; values are simple).
 esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
-# First "<key>":"<string>" value in the hook JSON. Best-effort: not robust to
-# escaped quotes inside the value — the server validates every field and drops
-# whatever doesn't parse, so an imperfect grab is harmless.
-field() { printf '%s' "$RAW" | tr '\n' ' ' | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1; }
+# The FIRST "<key>":"<string>" pair in the hook JSON. Claude writes its own
+# top-level fields (session_id, transcript_path, message, ...) before the
+# tool's arguments, so the first match is the real one; a tool_input that
+# happens to carry a "session_id" (an MCP tool parameter, say) comes later and
+# must never win. Best-effort: not robust to escaped quotes inside the value —
+# the server validates every field and drops whatever doesn't parse.
+field() {
+  printf '%s' "$RAW" | tr '\n' ' ' \
+    | grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -n1 \
+    | sed "s/^\"$1\"[[:space:]]*:[[:space:]]*\"//; s/\"\$//"
+}
 
+# Only the head of stdin is parsed: the fields we want sit at the start, and a
+# PreToolUse for a multi-MB Write carries the whole file. The rest is drained
+# unread (so the hook never dies on EPIPE) at pipe speed, not parsed.
 RAW=""
 if [ "$PROMPT_FROM_STDIN" -eq 1 ] || [ "$HOOK_STDIN" -eq 1 ]; then
-  RAW=$(cat 2>/dev/null || true)
+  RAW=$(head -c 8192 2>/dev/null || true)
+  cat >/dev/null 2>&1 || true
 fi
 PROMPT=""
 [ "$PROMPT_FROM_STDIN" -eq 1 ] && PROMPT=$(field message)

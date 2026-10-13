@@ -151,3 +151,35 @@ test('--prompt-from-stdin and --hook-stdin share one stdin read', async () => {
   assert.equal(received[0]!.body.promptText, 'Allow Bash?');
   assert.equal(received[0]!.body.transcriptPath, '/t/a.jsonl');
 });
+
+test('--hook-stdin takes the top-level session_id, not one nested in tool_input', async () => {
+  received = [];
+  const json = JSON.stringify({
+    session_id: '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b',
+    transcript_path: '/Users/u/.claude/projects/-x/real.jsonl',
+    hook_event_name: 'PreToolUse',
+    tool_name: 'mcp__db__query',
+    tool_input: { session_id: '11111111-2222-3333-4444-555555555555', transcript_path: '/tmp/evil.jsonl' },
+  });
+  await run(['--session', 'sess-10', '--state', 'running', '--hook-stdin'], { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't10' }, json);
+  assert.equal(received[0]!.body.claudeSessionId, '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b');
+  assert.equal(received[0]!.body.transcriptPath, '/Users/u/.claude/projects/-x/real.jsonl');
+});
+
+test('--hook-stdin cost stays flat for a multi-MB tool payload (only the head is parsed)', async () => {
+  const head = '{"session_id":"0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b","transcript_path":"/t/a.jsonl","hook_event_name":"PreToolUse","tool_input":{"content":"';
+  const time = async (bytes: number) => {
+    received = [];
+    const json = head + 'x'.repeat(bytes) + '"}}';
+    const t0 = performance.now();
+    await run(['--session', 'sess-11', '--state', 'running', '--hook-stdin'], { ARGUS_SIGNAL_URL: baseUrl, ARGUS_SIGNAL_TOKEN: 't11' }, json);
+    const ms = performance.now() - t0;
+    assert.equal(received[0]!.body.claudeSessionId, '0b0e7a3c-1f2d-4e5f-8a9b-0c1d2e3f4a5b');
+    return ms;
+  };
+  const small = await time(100);
+  const big = await time(3 * 1024 * 1024);
+  console.log(`[argus-signal] hook cost: 100B payload ${small.toFixed(0)}ms, 3MB payload ${big.toFixed(0)}ms`);
+  // Generous bound: before the fix a 3MB payload added ~500ms of sed/tr work.
+  assert.ok(big < small + 150, `3MB payload took ${big.toFixed(0)}ms vs ${small.toFixed(0)}ms`);
+});
