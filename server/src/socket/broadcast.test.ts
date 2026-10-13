@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateBroadcast, runBroadcast, SlidingWindowLimiter, BROADCAST_ENTER_DELAY_MS } from './broadcast.js';
+import { validateBroadcast, runBroadcast, SlidingWindowLimiter, SessionInputQueue, BROADCAST_ENTER_DELAY_MS } from './broadcast.js';
 import { BROADCAST_MAX_TARGETS, BROADCAST_MAX_TEXT } from '../constants/broadcast.js';
 
 const known = new Set(['a', 'b', 'c']);
@@ -42,31 +42,53 @@ test('nothing to send without text or enter', () => {
   assert.equal(v({ sessionIds: ['a'], text: '', enter: 'yes' }).ok, false, 'enter must be literally true');
 });
 
-test('runBroadcast writes the text to live targets, then Enter after a delay', () => {
+/** A queue over a write log with manually fired timers. */
+function queued() {
   const writes: Array<[string, string]> = [];
-  const scheduled: Array<[() => void, number]> = [];
-  const res = runBroadcast(
-    { ok: true, sessionIds: ['a', 'b', 'c'], text: 'rebase on main', enter: true },
-    { isLive: (id) => id !== 'b', write: (id, d) => { writes.push([id, d]); } },
-    (fn, ms) => { scheduled.push([fn, ms]); },
-  );
+  const timers: Array<[() => void, number]> = [];
+  const q = new SessionInputQueue((id, d) => { if (id === 'boom') throw new Error('gone'); writes.push([id, d]); }, (fn, ms) => { timers.push([fn, ms]); });
+  const fire = () => { const t = timers.shift(); t?.[0](); };
+  return { q, writes, timers, fire };
+}
+
+test('runBroadcast writes the text to live targets, then Enter after a pause', () => {
+  const { q, writes, timers, fire } = queued();
+  const res = runBroadcast({ ok: true, sessionIds: ['a', 'b', 'c'], text: 'rebase on main', enter: true }, (id) => id !== 'b', q);
   assert.deepEqual(res, { ok: true, sent: 2, skipped: 1 });
   assert.deepEqual(writes, [['a', 'rebase on main'], ['c', 'rebase on main']]);
-  assert.equal(scheduled.length, 1);
-  assert.equal(scheduled[0]![1], BROADCAST_ENTER_DELAY_MS);
-  scheduled[0]![0]();
+  assert.deepEqual(timers.map((t) => t[1]), [BROADCAST_ENTER_DELAY_MS, BROADCAST_ENTER_DELAY_MS]);
+  fire();
+  fire();
   assert.deepEqual(writes.slice(2), [['a', '\r'], ['c', '\r']]);
+  assert.equal(q.isPending('a'), false);
 });
 
-test('runBroadcast without Enter sends only the text; a throwing write counts as skipped', () => {
-  const writes: string[] = [];
-  const res = runBroadcast(
-    { ok: true, sessionIds: ['a', 'b'], text: 'y', enter: false },
-    { isLive: () => true, write: (id) => { if (id === 'b') throw new Error('gone'); writes.push(id); } },
-    () => assert.fail('no Enter scheduled'),
-  );
-  assert.deepEqual(res, { ok: true, sent: 1, skipped: 1 });
-  assert.deepEqual(writes, ['a']);
+test('runBroadcast without Enter writes straight through', () => {
+  const { q, writes, timers } = queued();
+  runBroadcast({ ok: true, sessionIds: ['a'], text: 'y', enter: false }, () => true, q);
+  assert.deepEqual(writes, [['a', 'y']]);
+  assert.equal(timers.length, 0);
+});
+
+test('keystrokes and a second broadcast wait behind a pending Enter', () => {
+  const { q, writes, fire } = queued();
+  runBroadcast({ ok: true, sessionIds: ['a'], text: 'one', enter: true }, () => true, q);
+  q.write('a', 'k'); // user types during the pause
+  runBroadcast({ ok: true, sessionIds: ['a'], text: 'two', enter: true }, () => true, q);
+  q.write('b', 'other session is unaffected');
+  assert.deepEqual(writes.map((w) => w[1]), ['one', 'other session is unaffected']);
+  fire();
+  assert.deepEqual(writes.map((w) => w[1]), ['one', 'other session is unaffected', '\r', 'k', 'two']);
+  fire();
+  assert.deepEqual(writes.map((w) => w[1]).slice(-1), ['\r']);
+  assert.equal(q.isPending('a'), false);
+});
+
+test('a write to a vanished session is swallowed and does not stall the queue', () => {
+  const { q, writes } = queued();
+  assert.doesNotThrow(() => q.write('boom', 'x'));
+  q.write('a', 'y');
+  assert.deepEqual(writes, [['a', 'y']]);
 });
 
 test('SlidingWindowLimiter allows max per window, then recovers', () => {

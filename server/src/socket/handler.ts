@@ -5,7 +5,7 @@ import type { AuthService } from '../services/AuthService.js';
 import type { UpdateService } from '../services/UpdateService.js';
 import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
 import { createOutputCoalescer, type OutputCoalescer } from '../utils/outputCoalescer.js';
-import { BROADCAST_RATE, SlidingWindowLimiter, runBroadcast, validateBroadcast } from './broadcast.js';
+import { BROADCAST_RATE, SessionInputQueue, SlidingWindowLimiter, runBroadcast, validateBroadcast } from './broadcast.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
@@ -90,6 +90,10 @@ export function setupSocketHandler(
   authService: AuthService,
   updateService: UpdateService,
 ): void {
+  // One input queue for all connections: keystrokes and broadcasts to a session
+  // stay in order even when they come from different windows.
+  const inputQueue = new SessionInputQueue((id, data) => manager.writeToSession(id, data));
+
   io.use((socket, next) => {
     if (!authService.enforced) {
       next();
@@ -184,11 +188,9 @@ export function setupSocketHandler(
 
     socket.on('session:input', ({ sessionId, data }) => {
       if (!manager.getSession(sessionId)) return;
-      try {
-        manager.writeToSession(sessionId, data);
-      } catch {
-        /* session may have exited between the guard check and write */
-      }
+      // Through the queue so a keystroke can't land between a broadcast's text
+      // and its Enter; a write error (session exited meanwhile) is swallowed.
+      inputQueue.write(sessionId, data);
     });
 
     // Broadcast input (F4): same text into several shells. Validated (known ids,
@@ -206,13 +208,10 @@ export function setupSocketHandler(
         reply({ ok: false, error: 'Too many broadcasts — wait a few seconds' });
         return;
       }
-      reply(runBroadcast(req, {
-        isLive: (id) => {
-          const s = manager.getSession(id);
-          return !!s && s.status !== 'exited';
-        },
-        write: (id, data) => manager.writeToSession(id, data),
-      }));
+      reply(runBroadcast(req, (id) => {
+        const s = manager.getSession(id);
+        return !!s && s.status !== 'exited';
+      }, inputQueue));
     });
 
     socket.on('session:resize', ({ sessionId, cols, rows }) => {

@@ -63,41 +63,87 @@ export const BROADCAST_RATE = { max: 5, windowMs: 10_000 };
  */
 export const BROADCAST_ENTER_DELAY_MS = 60;
 
-export interface BroadcastTarget {
-  /** Live (non-exited) sessions get the write; exited ones are skipped. */
-  isLive(id: string): boolean;
-  write(id: string, data: string): void;
+/**
+ * Per-session input ordering. A broadcast's Enter is written a moment after
+ * its text (see BROADCAST_ENTER_DELAY_MS); anything else written to that
+ * session meanwhile — the user typing, a second broadcast — waits behind the
+ * pending Enter instead of landing between the text and its Enter. A session
+ * with nothing pending is written straight through, synchronously.
+ */
+export class SessionInputQueue {
+  private queues = new Map<string, { ops: Array<{ data: string; pauseAfter: number }>; paused: boolean }>();
+
+  constructor(
+    private writeNow: (id: string, data: string) => void,
+    private schedule: (fn: () => void, ms: number) => void = (fn, ms) => { setTimeout(fn, ms); },
+  ) {}
+
+  /** Write `data`, after whatever is still pending for this session. */
+  write(id: string, data: string, pauseAfter = 0): void {
+    let q = this.queues.get(id);
+    if (!q) {
+      if (pauseAfter === 0) {
+        this.safeWrite(id, data); // the common case: nothing pending
+        return;
+      }
+      q = { ops: [], paused: false };
+      this.queues.set(id, q);
+    }
+    q.ops.push({ data, pauseAfter });
+    if (!q.paused) this.drain(id);
+  }
+
+  /** True while an Enter (or other paused op) is still pending for the session. */
+  isPending(id: string): boolean {
+    return this.queues.has(id);
+  }
+
+  private drain(id: string): void {
+    const q = this.queues.get(id);
+    if (!q) return;
+    while (q.ops.length > 0) {
+      const op = q.ops.shift()!;
+      this.safeWrite(id, op.data);
+      if (op.pauseAfter > 0) {
+        q.paused = true;
+        this.schedule(() => {
+          q.paused = false;
+          this.drain(id);
+        }, op.pauseAfter);
+        return;
+      }
+    }
+    this.queues.delete(id);
+  }
+
+  private safeWrite(id: string, data: string): void {
+    try {
+      this.writeNow(id, data);
+    } catch {
+      /* session exited or was deleted meanwhile */
+    }
+  }
 }
 
+/**
+ * Queue the broadcast on every live target: text, a short pause, then Enter
+ * (when asked). Exited and missing sessions are skipped and counted.
+ */
 export function runBroadcast(
   req: ValidBroadcast,
-  target: BroadcastTarget,
-  schedule: (fn: () => void, ms: number) => void = (fn, ms) => { setTimeout(fn, ms); },
+  isLive: (id: string) => boolean,
+  queue: SessionInputQueue,
 ): BroadcastResult {
   let sent = 0;
   let skipped = 0;
-  const delivered: string[] = [];
   for (const id of req.sessionIds) {
-    if (!target.isLive(id)) {
+    if (!isLive(id)) {
       skipped++;
       continue;
     }
-    try {
-      if (req.text) target.write(id, req.text);
-      delivered.push(id);
-      sent++;
-    } catch {
-      skipped++; // exited between the check and the write
-    }
-  }
-  if (req.enter && delivered.length > 0) {
-    const send = () => {
-      for (const id of delivered) {
-        try { target.write(id, '\r'); } catch { /* gone meanwhile */ }
-      }
-    };
-    if (req.text) schedule(send, BROADCAST_ENTER_DELAY_MS);
-    else send();
+    if (req.text) queue.write(id, req.text, req.enter ? BROADCAST_ENTER_DELAY_MS : 0);
+    if (req.enter) queue.write(id, '\r');
+    sent++;
   }
   return { ok: true, sent, skipped };
 }
