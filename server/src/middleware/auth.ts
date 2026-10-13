@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import type { AuthService } from '../services/AuthService.js';
+import { authVerdict, type AuthService } from '../services/AuthService.js';
+import { isExposedRequest } from './exposure.js';
 
 const PUBLIC_PATHS = [
   '/api/auth/status',
@@ -21,28 +22,24 @@ export function createAuthMiddleware(authService: AuthService) {
       return;
     }
 
-    // Fail-closed: server is reachable off-loopback but no password set yet.
-    // Block all protected API calls until the operator sets a password.
-    if (authService.exposed && !authService.enabled) {
-      res.status(503).json({ error: 'Server is network-exposed but has no password set. Start a tunnel via /api/ngrok/start to set one.' });
-      return;
-    }
-
-    if (!authService.enforced) {
-      next();
-      return;
-    }
-
+    // A request through a tunnel Argus did not start (manual ngrok,
+    // cloudflared, tailscale) is exposed even while authService.exposed is false.
+    const exposedRequest = isExposedRequest(req.headers, req.socket.remoteAddress);
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Authentication required' });
-      return;
-    }
-
-    const token = authHeader.slice(7);
-    if (!authService.validateToken(token)) {
-      res.status(401).json({ error: 'Invalid or expired token' });
-      return;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    switch (authVerdict(authService, token, exposedRequest)) {
+      case 'ok':
+        break;
+      case 'no-password':
+        // Fail-closed: reachable off-loopback but no password set yet.
+        res.status(503).json({ error: 'Server is network-exposed but has no password set. Start a tunnel via /api/ngrok/start to set one.' });
+        return;
+      case 'missing-token':
+        res.status(401).json({ error: 'Authentication required' });
+        return;
+      case 'invalid-token':
+        res.status(401).json({ error: 'Invalid or expired token' });
+        return;
     }
 
     next();
