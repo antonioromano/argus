@@ -32,25 +32,33 @@ func (r *ringBuffer) write(p []byte) {
 		r.len = c
 		return
 	}
-	for _, b := range p {
-		idx := (r.start + r.len) % c
-		r.buf[idx] = b
-		if r.len < c {
-			r.len++
-		} else {
-			r.start = (r.start + 1) % c // full: advance the oldest
-		}
+	// At most two copies: up to the physical end of the buffer, then the rest
+	// from the front. (Byte-at-a-time with a modulo per byte cost ~95µs per
+	// 32KB pty read — ~350MB/s on the hot output path.)
+	end := (r.start + r.len) % c
+	n := copy(r.buf[end:], p)
+	copy(r.buf, p[n:])
+	if over := r.len + len(p) - c; over > 0 {
+		// Full: the oldest `over` bytes were overwritten.
+		r.start = (r.start + over) % c
+		r.len = c
+	} else {
+		r.len += len(p)
 	}
 }
 
 // snapshot returns the valid bytes oldest-first, as a fresh copy.
 func (r *ringBuffer) snapshot() []byte {
-	c := len(r.buf)
 	out := make([]byte, r.len)
-	for i := 0; i < r.len; i++ {
-		out[i] = r.buf[(r.start+i)%c]
-	}
+	r.copyOut(out, r.start)
 	return out
+}
+
+// copyOut fills dst from the ring starting at physical index at, wrapping once.
+func (r *ringBuffer) copyOut(dst []byte, at int) {
+	at %= len(r.buf)
+	n := copy(dst, r.buf[at:])
+	copy(dst[n:], r.buf)
 }
 
 // from returns up to max bytes starting at absolute position mark, plus the
@@ -77,12 +85,9 @@ func (r *ringBuffer) from(mark uint64, max int) ([]byte, uint64) {
 	if n > max {
 		n = max
 	}
-	c := len(r.buf)
 	off := int(mark - oldest)
 	out := make([]byte, n)
-	for i := 0; i < n; i++ {
-		out[i] = r.buf[(r.start+off+i)%c]
-	}
+	r.copyOut(out, r.start+off)
 	return out, mark + uint64(n)
 }
 
