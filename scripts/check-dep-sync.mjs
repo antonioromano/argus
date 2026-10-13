@@ -211,3 +211,48 @@ if (objectDrift.length > 0) {
 }
 
 console.log(`✔ dep-sync: ${DUPLICATED_OBJECTS.length} cross-boundary object(s) in sync`);
+
+// ---------------------------------------------------------------------------
+// Check 4: the @xterm/headless postinstall patch is actually applied.
+// ---------------------------------------------------------------------------
+// scripts/postinstall.js backports two crash guards into @xterm/headless 6.0.x
+// (an uncaught throw in xterm's write timer kills the whole server). The patch
+// is silent on mismatch, so a skipped postinstall (`--ignore-scripts`, a cached
+// node_modules, a minifier change) ships an app that crashes on odd escape
+// sequences. Fail when a bundle on 6.0.x lacks a patch's marker.
+
+const { PATCHES, BUNDLES, PKG_DIR } = await import('./patch-xterm-headless.mjs');
+const headlessDir = path.join(repoRoot, PKG_DIR);
+let headlessVersion = null;
+try {
+  headlessVersion = JSON.parse(readFileSync(path.join(headlessDir, 'package.json'), 'utf8')).version;
+} catch {
+  /* not installed in this tree */
+}
+
+if (headlessVersion && /^6\.0\./.test(headlessVersion)) {
+  const unpatched = [];
+  for (const rel of BUNDLES) {
+    let src;
+    try {
+      src = readFileSync(path.join(headlessDir, rel), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const { name, marker } of PATCHES) {
+      if (!marker.test(src)) unpatched.push(`${rel}: ${name}`);
+    }
+  }
+  if (unpatched.length > 0) {
+    console.error(`✖ dep-sync: @xterm/headless ${headlessVersion} is missing its postinstall patch:`);
+    for (const u of unpatched) console.error(`    ${u}`);
+    console.error(
+      '\n  Run `node scripts/postinstall.js` (or `npm install` without --ignore-scripts).\n' +
+        '  If the bundle layout changed, update scripts/patch-xterm-headless.mjs.',
+    );
+    process.exit(1);
+  }
+  console.log(`✔ dep-sync: @xterm/headless ${headlessVersion} patches applied`);
+} else {
+  console.log('✔ dep-sync: @xterm/headless patch not applicable (not 6.0.x or not installed)');
+}
