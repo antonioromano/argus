@@ -2,7 +2,7 @@
  * Coalesce a pty's output into ≤60fps emissions — the same policy as
  * SessionManager.emitOutput (see OUTPUT_COALESCE_MS there for the measured
  * reason: per-chunk socket messages starve React commits in the renderer).
- * Used for the companion and ephemeral terminals, which emitted per chunk.
+ * Used for the companion terminals, which emitted per chunk.
  */
 export const COALESCE_MS = 16;
 /** Flush early if a burst accumulates this much before the timer fires. */

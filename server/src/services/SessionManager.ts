@@ -48,6 +48,7 @@ import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
+import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
@@ -603,6 +604,10 @@ export class SessionManager {
   }
 
   async createSession(folderPath: string, name?: string, agentType?: string, flags?: string[], existingId?: string, existingCreatedAt?: string, worktreeBranch?: string, worktreeBase?: string, attachExisting: boolean = false, terminalEngine?: TerminalEngine, runMode?: RunMode, restoreExited = false, opts: CreateSessionOpts = {}): Promise<SessionInfo> {
+    // A new session's folder is its sandbox root: absolute, realpath'd, a
+    // directory. Restores keep the stored path (it was canonical when created,
+    // and the persisted record / tmux name is keyed to it).
+    if (!existingId) folderPath = await resolveSessionFolder(folderPath);
     let effectiveFolderPath = folderPath;
     let worktreePath: string | undefined;
 

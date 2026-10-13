@@ -56,6 +56,11 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
       setActionError(err instanceof Error ? err.message : String(err));
     }
   };
+  // Flags that widen what the agent may do (validateLaunch 'risky-flag') are
+  // shown first, in danger styling, and marked in the argument list.
+  const riskyWarnings = view.warnings.filter((w) => w.kind === 'risky-flag');
+  const otherWarnings = view.warnings.filter((w) => w.kind !== 'risky-flag');
+  const riskyArgs = new Set(riskyWarnings.flatMap((w) => w.flags ?? []));
   const promptLines = (view.prompt ?? '').split('\n');
   const manyLines = promptLines.length > 6;
   // One long line wraps past the 7.5em box too; offer the expander for it as well.
@@ -83,7 +88,21 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           {[view.engine && `engine ${view.engine}`, view.mode && `mode ${view.mode}`, view.name && `name ${view.name}`].filter(Boolean).join(' · ')}
         </div>
 
-        {view.warnings.map((w) => (
+        {riskyWarnings.map((w) => (
+          <div
+            key={w.kind}
+            data-testid="launch-risky-warning"
+            role="alert"
+            style={{
+              display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, padding: '6px 8px', borderRadius: 6,
+              border: '1px solid var(--danger, red)', color: 'var(--danger, red)', fontWeight: 600,
+            }}
+          >
+            <AlertTriangle size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
+          </div>
+        ))}
+        {otherWarnings.map((w) => (
           <div key={w.kind} data-testid="launch-warning" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, color: 'var(--warn, var(--fg-0))' }}>
             <AlertTriangle size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
             <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
@@ -93,7 +112,16 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
         <div style={{ marginTop: 'var(--s-3)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Arguments (every one listed; you decide)</div>
         {view.args.length === 0 && <div style={{ fontSize: 'var(--t-xs)' }}>none</div>}
         {view.args.map((a, i) => (
-          <div key={i} data-testid="launch-arg" className="mono" style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '2px 0', borderBottom: '1px solid var(--line-1)' }}>{a}</div>
+          <div
+            key={i}
+            data-testid="launch-arg"
+            data-risky={riskyArgs.has(a) || undefined}
+            className="mono"
+            style={{
+              fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '2px 0', borderBottom: '1px solid var(--line-1)',
+              ...(riskyArgs.has(a) ? { color: 'var(--danger, red)', fontWeight: 600 } : {}),
+            }}
+          >{a}</div>
         ))}
 
         {view.prompt !== undefined && (

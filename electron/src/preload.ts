@@ -157,8 +157,8 @@ contextBridge.exposeInMainWorld('electronNativeTerminal', {
     ipcRenderer.on('native-term:copy', listener);
     return () => ipcRenderer.off('native-term:copy', listener);
   },
-  writeClipboard: (text: string): void => {
-    ipcRenderer.send('native-term:write-clipboard', { text });
+  writeClipboard: (text: string, html?: string): void => {
+    ipcRenderer.send('native-term:write-clipboard', { text, html });
   },
 });
 

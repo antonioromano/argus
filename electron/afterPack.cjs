@@ -38,6 +38,17 @@ exports.default = async function afterPack(context) {
   // are disabled to block ELECTRON_RUN_AS_NODE, --inspect, and NODE_OPTIONS
   // code-injection into the shipped app; EnableCookieEncryption turns on
   // OS-level encryption of the cookie store at rest.
+  //
+  // NOT yet flipped: OnlyLoadAppFromAsar and EnableEmbeddedAsarIntegrityValidation
+  // (together they stop a local attacker swapping app.asar or dropping an
+  // unpacked app/ folder into Resources). Prerequisites look met — electron-builder
+  // 25.1.8 writes ElectronAsarIntegrity into Info.plist (per-arch builds, not
+  // universal, so it isn't disabled), the app lives in app.asar, and nothing below
+  // modifies the asar. Flip them once a packaged build has been verified to boot
+  // with them on (the release.yml smoke test boots the packaged app on a clean
+  // runner); a mismatch makes Electron exit at launch. The ripgrep binary in
+  // app.asar.unpacked and the extraResources native addon are not app code and
+  // are unaffected.
   await flipFuses(appPath, {
     version: FuseVersion.V1,
     resetAdHocDarwinSignature: true,

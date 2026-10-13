@@ -118,17 +118,15 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
           case 'unknown': errorToast(w, `No launcher "${link.launcherId}"`); return;
           case 'invalid': errorToast(w, `Launcher "${link.launcherId}": ${r.error}`); return;
           case 'live': deps.highlight(w, r.sessionId); return;
-          case 'changed': addCard(r.validated, 'run', r.launcher.id, r.launcher.label); return;
+          // `ready` used to start immediately. But every link reaching the gate
+          // came from outside Argus (open-url / argv): any web page can fire
+          // argus://run/<id> for a saved launcher — repeatedly, at a moment of
+          // its choosing. Starting an agent therefore always takes a click on
+          // the card; a ready launcher just has no "changed" warning on it.
+          case 'changed':
           case 'ready':
-            try {
-              const s = await deps.launch(r.validated, w, r.launcher.id);
-              deps.toast(w, `Started ${r.launcher.label}`, 'ok');
-              deps.highlight(w, s.id);
-            } catch (e) {
-              const card = addCard(r.validated, 'run', r.launcher.id, r.launcher.label);
-              if (card) { card.view.state = 'error'; card.view.error = errMsg(e); deps.changed(card.windowId, 'updated'); }
-              else deps.toast(w, `Launcher "${r.launcher.label}" failed: ${errMsg(e)}`, 'danger');
-            }
+            addCard(r.validated, 'run', r.launcher.id, r.launcher.label);
+            return;
         }
       } finally {
         inFlightRuns.delete(link.launcherId);

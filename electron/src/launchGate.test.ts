@@ -100,7 +100,7 @@ test('parse errors toast the class only', async () => {
   assert.ok(log.some((l) => l.startsWith('toast:main:danger:') && l.includes('unknown-param')));
 });
 
-test('run: unknown → toast; live → highlight, no spawn; ready → direct launch + toast; changed → card', async () => {
+test('run: unknown → toast; live → highlight, no spawn; ready → card (no auto-start); changed → card', async () => {
   const launcher = { id: 'l1', label: 'L1', request: V().request, agentCommand: 'claude', folderConfigAtSave: [], createdAt: '' };
   const res: Record<string, any> = {
     nope: { kind: 'unknown' },
@@ -118,8 +118,12 @@ test('run: unknown → toast; live → highlight, no spawn; ready → direct lau
   assert.ok(!log.some((l) => l.startsWith('launch:')));
   advance(LIMITS.burstWindowMs + 1);
   await gate.handle(runLink('ready'));
-  assert.ok(log.includes('launch:main:l1'));
-  assert.ok(log.some((l) => l.startsWith('toast:main:ok:Started L1')));
+  // S6: an external run/<id> link never starts an agent without a click.
+  assert.ok(!log.some((l) => l.startsWith('launch:')));
+  const readyCard = gate.list('main')[0];
+  assert.equal(readyCard.source, 'run');
+  assert.equal(readyCard.state, 'pending');
+  gate.discard(readyCard.id);
   advance(LIMITS.burstWindowMs + 1);
   await gate.handle(runLink('changed'));
   const card = gate.list('main')[0];
@@ -215,18 +219,29 @@ test('unknown id: approve refused, has() false', async () => {
 const launcherL1 = () => ({ id: 'l1', label: 'L1', request: V().request, agentCommand: 'claude', folderConfigAtSave: [], createdAt: '' });
 const ready = () => ({ kind: 'ready' as const, launcher: launcherL1(), validated: V() });
 
-test('fix1: concurrent run links for one ready launcher spawn once', async () => {
+test('fix1: concurrent run links for one ready launcher yield one card, no spawn', async () => {
   const { gate, log } = make({ resolveRun: async () => ready() as any });
   await Promise.all([gate.handle(runLink('ready')), gate.handle(runLink('ready'))]);
-  assert.equal(log.filter((l) => l.startsWith('launch:')).length, 1);
+  assert.equal(gate.list('main').length, 1);
+  assert.equal(log.filter((l) => l.startsWith('launch:')).length, 0);
 });
 
 test('fix1: in-flight guard is released after completion', async () => {
-  const { gate, log, advance } = make({ resolveRun: async () => ready() as any });
+  const { gate, advance } = make({ resolveRun: async () => ready() as any });
   await gate.handle(runLink('ready'));
+  gate.discard(gate.list('main')[0].id);
   advance(LIMITS.burstWindowMs + 1);
   await gate.handle(runLink('ready'));
-  assert.equal(log.filter((l) => l.startsWith('launch:')).length, 2);
+  assert.equal(gate.list('main').length, 1);
+});
+
+test('S6: a ready launcher starts only once its card is approved', async () => {
+  const { gate, log } = make({ resolveRun: async () => ready() as any });
+  await gate.handle(runLink('ready'));
+  assert.ok(!log.some((l) => l.startsWith('launch:')));
+  const [card] = gate.list('main');
+  assert.deepEqual(await gate.approve(card.id), { ok: true });
+  assert.ok(log.includes('launch:main:l1'));
 });
 
 test('fix2: approve refuses a stale pending card without tick()', async () => {
@@ -241,15 +256,15 @@ test('fix2: approve refuses a stale pending card without tick()', async () => {
   assert.ok(!log.some((l) => l.startsWith('launch:')));
 });
 
-test('fix3: ready launch failure with a full cap still toasts the error', async () => {
+test('fix3: a ready run link with a full cap is refused with a toast, not started', async () => {
   const { gate, log, advance } = make({
     resolveRun: async (id) => (id === 'ready' ? ready() : { kind: 'unknown' }) as any,
-    launch: async () => { throw new Error('boom'); },
   });
   for (let i = 0; i < 5; i++) { await gate.handle(newLink({ prompt: `p${i}` })); advance(LIMITS.burstWindowMs); }
   await gate.handle(runLink('ready'));
   assert.equal(gate.list('main').length, 5);
-  assert.ok(log.some((l) => l.startsWith('toast:main:danger:') && l.includes('boom')));
+  assert.ok(log.some((l) => l.includes('Too many pending launches')));
+  assert.ok(!log.some((l) => l.startsWith('launch:')));
 });
 
 test('fix4: cap counts only non-expired entries', async () => {
@@ -326,9 +341,10 @@ test('fix10: changed run card can update its own launcher (overwrite forced); ot
   assert.ok(log.indexOf('save:l1') < log.indexOf('launch:main:l1'));
 });
 
-test('fix11: ready launch failure → card in error state with message', async () => {
+test('fix11: ready launch failure on approve → card in error state with message', async () => {
   const { gate } = make({ resolveRun: async () => ready() as any, launch: async () => { throw new Error('nope'); } });
   await gate.handle(runLink('ready'));
+  await gate.approve(gate.list('main')[0].id);
   const [card] = gate.list('main');
   assert.equal(card.state, 'error');
   assert.equal(card.error, 'nope');

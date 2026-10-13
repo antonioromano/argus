@@ -1224,6 +1224,41 @@ final class ShimTests: XCTestCase {
     XCTAssertTrue(copied[0].contains("hello world"))
   }
 
+  /// Bold cells reach the host wrapped in the bold-run marks, so the renderer's
+  /// HTML copy can keep bold the agent drew with SGR and no asterisks.
+  func testCopyMarksBoldRuns() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("  \u{1b}[1mDefinition:\u{1b}[0m plain text".utf8) as NSData)
+    var copied: [String] = []
+    c.onCopy = { copied.append($0 as String) }
+    c.debugSelectAllAndCopy()
+    XCTAssertEqual(copied.count, 1)
+    let on = DropAwareTerminalView.boldOn, off = DropAwareTerminalView.boldOff
+    XCTAssertTrue(copied[0].hasPrefix("  \(on)Definition:\(off) plain text"), copied.first ?? "")
+  }
+
+  /// The start column rides ahead of the text so the renderer can re-indent a
+  /// first row the drag entered mid-way; a drag from column 0 adds nothing.
+  func testWithStartColumnPrefixesOnlyAMidRowStart() {
+    let mark = String(Unicode.Scalar(UInt32(0xFDD3))!)
+    XCTAssertEqual(DropAwareTerminalView.withStartColumn("Hi team", 2), "\(mark)2\(mark)Hi team")
+    XCTAssertEqual(DropAwareTerminalView.withStartColumn("Hi team", 0), "Hi team")
+  }
+
+  /// A selection with no bold copies exactly as getSelection() returns it.
+  func testCopyWithoutBoldHasNoMarks() {
+    let (c, parent) = attachedController()
+    _ = parent
+    c.setFrame(x: 0, y: 0, width: 400, height: 240)
+    c.feed(data: Data("hello world".utf8) as NSData)
+    var copied: [String] = []
+    c.onCopy = { copied.append($0 as String) }
+    c.debugSelectAllAndCopy()
+    XCTAssertFalse(copied[0].contains(DropAwareTerminalView.boldOn))
+  }
+
   /// Finding 4: SwiftTerm's own `copy:` clears the pasteboard unconditionally
   /// before writing the (empty) selection, so falling back to `super.copy`
   /// when there is no selection emptied whatever the user had copied from

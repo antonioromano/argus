@@ -8,7 +8,9 @@ import { resolveRelativeWithinBase } from '../utils/pathScope.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { workRootOf } from '../utils/workRoot.js';
 
-function isSafeRef(ref: string): boolean {
+/** Ref names reach git as bare argv words: a leading `-` would be parsed as an
+ *  option (`--upload-pack=…`, `-f`), `..` as a range. Exported for tests. */
+export function isSafeRef(ref: string): boolean {
   return !ref.startsWith('-') && !ref.includes('..');
 }
 
@@ -333,8 +335,18 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     }
 
     const { branchName, baseBranch } = req.body as GitPullAndBranchRequest;
-    if (!branchName?.trim()) {
+    if (typeof branchName !== 'string' || !branchName.trim()) {
       res.status(400).json({ success: false, error: 'Branch name required' });
+      return;
+    }
+    // baseBranch goes straight into `git checkout <baseBranch>`: unvalidated, a
+    // value like `--orphan=x` or `-f` was option injection.
+    if (baseBranch !== undefined && (typeof baseBranch !== 'string' || !isSafeRef(baseBranch))) {
+      res.status(400).json({ success: false, error: 'Invalid base branch name' });
+      return;
+    }
+    if (!isSafeRef(branchName)) {
+      res.status(400).json({ success: false, error: 'Invalid branch name' });
       return;
     }
 

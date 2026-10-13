@@ -12,7 +12,7 @@ import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
 import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
-import { terminalSelectionToClipboard } from '../../hooks/terminalCopy.js';
+import { terminalCopyFlavors } from '../../hooks/terminalRichCopy.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -91,7 +91,7 @@ interface NativeBellBridge {
 /** The slice of the native-terminal preload bridge that formats copies. */
 interface NativeCopyBridge {
   onCopy?(cb: (sessionId: string, text: string) => void): () => void;
-  writeClipboard?(text: string): void;
+  writeClipboard?(text: string, html?: string): void;
 }
 
 interface TerminalShellProps {
@@ -343,14 +343,16 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   }, [session.id, props.socket]);
 
   // Copy: main already put the raw selection on the clipboard; replace it with
-  // the text an xterm tile would copy (gutter stripped, agent-wrapped rows
-  // rejoined — see terminalCopy.ts).
+  // what an xterm tile would copy (gutter stripped, agent-wrapped rows rejoined —
+  // see terminalCopy.ts — plus the HTML rendering from terminalRichCopy.ts, which
+  // turns the bold marks the native view put around bold runs into <b>).
   useEffect(() => {
     const bridge = (window as Window & { electronNativeTerminal?: NativeCopyBridge }).electronNativeTerminal;
     if (!bridge?.onCopy) return;
     return bridge.onCopy((id, text) => {
       if (id !== session.id) return;
-      bridge.writeClipboard?.(terminalSelectionToClipboard(text));
+      const flavors = terminalCopyFlavors(text);
+      bridge.writeClipboard?.(flavors.text, flavors.html);
     });
   }, [session.id]);
 

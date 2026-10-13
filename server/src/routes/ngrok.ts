@@ -35,13 +35,21 @@ export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthS
       return;
     }
 
+    // Password FIRST, tunnel second. The old order spawned ngrok and only then
+    // set the password, so for the ~1s it took ngrok to come up the public URL
+    // served an unauthenticated API — and any socket that connected in that
+    // window kept its session. Setting it first also revokes old tokens and
+    // drops sockets that hold none (AuthService.onEnforcementChange).
+    const hadPassword = authService.enabled;
+    authService.setPassword(password);
+    const token = authService.generateToken();
     try {
       const port = typeof req.body?.port === 'number' ? req.body.port : defaultTunnelPort;
       const publicUrl = await ngrokService.start(port);
-      authService.setPassword(password);
-      const token = authService.generateToken();
       res.json({ publicUrl, token });
     } catch (err) {
+      // No tunnel came up: don't leave a password the user never had before.
+      if (!hadPassword && !ngrokService.getStatus().publicUrl) authService.clearAuth();
       const message = err instanceof Error ? err.message : 'Failed to start ngrok';
       res.status(500).json({ error: message });
     }
