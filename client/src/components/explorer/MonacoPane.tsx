@@ -2,6 +2,7 @@ import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useEffect, useRef } from 'react';
 import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbolProviders.js';
+import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
 
@@ -121,6 +122,18 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealLine, revealNonce]);
 
+  // Own the model's lifetime (Editor gets keepCurrentModel): the same file can be
+  // open in both split groups on one shared model, and must not be disposed
+  // under the other group when one tab closes. See monacoModelRefs.ts.
+  useEffect(() => {
+    retainModel(path);
+    return () => {
+      releaseModel(path, () => {
+        monaco.editor.getModel(monaco.Uri.parse(path))?.dispose();
+      });
+    };
+  }, [path]);
+
   // Live-apply the code font size to the mounted editor.
   useEffect(() => {
     editorRef.current?.updateOptions({ fontSize: codeFontSize });
@@ -147,6 +160,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     <Editor
       value={value}
       path={path}
+      keepCurrentModel
       language={language}
       theme={theme === 'dark' ? 'argus-dark' : 'vs'}
       onChange={(v) => onChange(v ?? '')}
