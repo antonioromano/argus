@@ -13,7 +13,10 @@ const PUBLIC_PATHS = [
 
 export function createAuthMiddleware(authService: AuthService) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (!req.path.startsWith('/api/') || PUBLIC_PATHS.includes(req.path)) {
+    // Lowercased so the gate can never disagree with routing about what is an
+    // API path (index.ts also makes routing case-sensitive).
+    const p = req.path.toLowerCase();
+    if (!p.startsWith('/api/') || PUBLIC_PATHS.includes(p)) {
       next();
       return;
     }

@@ -3,6 +3,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { UpdateService } from '../services/UpdateService.js';
+import { clampGrid } from '../utils/clampGrid.js';
 import { EphemeralTerminalManager } from '../services/EphemeralTerminalManager.js';
 
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -179,8 +180,10 @@ export function setupSocketHandler(
       }
     });
 
-    socket.on('session:resize', ({ sessionId, cols, rows }) => {
-      if (!manager.getSession(sessionId)) return;
+    socket.on('session:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {
+      const grid = clampGrid(rawCols, rawRows);
+      if (!grid || !manager.getSession(sessionId)) return;
+      const { cols, rows } = grid;
       // Store this client's dimensions
       const sockets = clientDimensions.get(sessionId);
       if (sockets) {
@@ -219,8 +222,10 @@ export function setupSocketHandler(
       ephemeralManager.write(id, data);
     });
 
-    socket.on('ephemeral:resize', ({ id, cols, rows }) => {
-      ephemeralManager.resize(id, cols, rows);
+    socket.on('ephemeral:resize', ({ id, cols: rawCols, rows: rawRows }) => {
+      const grid = clampGrid(rawCols, rawRows);
+      if (!grid) return;
+      ephemeralManager.resize(id, grid.cols, grid.rows);
     });
 
     socket.on('ephemeral:kill', ({ id }) => {
@@ -280,7 +285,10 @@ export function setupSocketHandler(
       manager.companionTerminals.write(sessionId, data);
     });
 
-    socket.on('ct:resize', ({ sessionId, cols, rows }) => {
+    socket.on('ct:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {
+      const grid = clampGrid(rawCols, rawRows);
+      if (!grid) return;
+      const { cols, rows } = grid;
       const ctRoom = `ct:${sessionId}`;
       const sockets = clientDimensions.get(ctRoom);
       if (sockets) {
