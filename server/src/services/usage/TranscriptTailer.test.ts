@@ -184,3 +184,41 @@ test('the model string is capped', async () => {
   assert.equal(t.context!.model!.length, 100);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+/** Real file, but every read returns at most `max` bytes — many tiny chunks. */
+function trickleFs(max: number): TranscriptFs {
+  return {
+    stat: async (p) => { const st = (await import('fs')).statSync(p); return { size: st.size, ino: st.ino }; },
+    read: async (p, pos, len) => {
+      const fsm = await import('fs');
+      const n = Math.min(len, max);
+      const fd = fsm.openSync(p, 'r');
+      const b = Buffer.alloc(n);
+      const got = fsm.readSync(fd, b, 0, n, pos);
+      fsm.closeSync(fd);
+      return b.subarray(0, got);
+    },
+  };
+}
+
+test('lines delivered in tiny chunks parse exactly once', async () => {
+  const f = tmpFile();
+  writeFileSync(f, assistant('m1', { in: 3 }) + assistant('m2', { in: 4 }, { note: 'ünï✓' }));
+  const t = new TranscriptTailer(f, trickleFs(7));
+  await t.poll();
+  assert.equal(t.totals.input, 7);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('a multi-MB line in small chunks is linear, not quadratic', async () => {
+  const f = tmpFile();
+  writeFileSync(f, assistant('big', { in: 9 }, { blob: 'x'.repeat(4 * 1024 * 1024) }));
+  const t = new TranscriptTailer(f, trickleFs(4096)); // ~1000 chunks for one line
+  const t0 = performance.now();
+  await t.poll();
+  const ms = performance.now() - t0;
+  assert.equal(t.totals.input, 9);
+  // Re-concatenating per chunk copies ~2 GB here and takes seconds.
+  assert.ok(ms < 1500, `took ${ms.toFixed(0)}ms`);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});

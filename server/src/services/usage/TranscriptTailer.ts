@@ -94,7 +94,11 @@ export class TranscriptTailer {
   readonly path: string;
   private offset = 0;
   private ino?: number;
-  private leftover: Buffer = Buffer.alloc(0);
+  /** Bytes of the unterminated line after `offset`, in arrival order. Kept as
+   *  pieces and joined once the newline arrives, so a multi-MB line costs one
+   *  copy instead of one per chunk. */
+  private pieces: Buffer[] = [];
+  private pendingBytes = 0;
   private dropping = false;
   private seen = new Map<string, Contribution>();
   totals: UsageCounters = zero();
@@ -143,13 +147,13 @@ export class TranscriptTailer {
       return false; // not written yet, or deleted — keep what we have
     }
     let changed = false;
-    const readFrom = this.offset + this.leftover.length;
+    const readFrom = this.offset + this.pendingBytes;
     if ((this.ino !== undefined && st.ino !== this.ino) || st.size < readFrom) {
       changed = this.reset();
     }
     this.ino = st.ino;
 
-    let pos = this.offset + this.leftover.length;
+    let pos = this.offset + this.pendingBytes;
     while (pos < st.size) {
       const len = Math.min(READ_CHUNK, st.size - pos);
       const chunk = await this.fs.read(this.path, pos, len);
@@ -164,7 +168,8 @@ export class TranscriptTailer {
   private reset(): boolean {
     const had = this.pricedTurns + this.unpricedTurns > 0;
     this.offset = 0;
-    this.leftover = Buffer.alloc(0);
+    this.pieces = [];
+    this.pendingBytes = 0;
     this.dropping = false;
     this.seen.clear();
     this.totals = zero();
@@ -177,27 +182,40 @@ export class TranscriptTailer {
 
   private consume(chunk: Buffer): boolean {
     let changed = false;
-    let buf = this.leftover.length ? Buffer.concat([this.leftover, chunk]) : chunk;
     let start = 0;
+    // Only the new chunk is searched for newlines; earlier bytes of the pending
+    // line were already searched when they arrived.
     for (;;) {
-      const nl = buf.indexOf(0x0a, start);
+      const nl = chunk.indexOf(0x0a, start);
       if (nl === -1) break;
+      const tail = chunk.subarray(start, nl);
       if (this.dropping) {
         this.dropping = false; // end of an oversized line: resume with the next one
-      } else if (nl > start && this.line(buf.toString('utf8', start, nl))) {
-        changed = true;
+      } else {
+        const lineBuf = this.pieces.length ? Buffer.concat([...this.pieces, tail]) : tail;
+        if (lineBuf.length > 0 && this.line(lineBuf.toString('utf8'))) changed = true;
       }
+      this.offset += this.pendingBytes + (nl + 1 - start);
+      this.pieces = [];
+      this.pendingBytes = 0;
       start = nl + 1;
     }
-    this.offset += start;
-    buf = buf.subarray(start);
-    if (buf.length > MAX_LINE_BYTES) {
-      this.offset += buf.length;
-      buf = Buffer.alloc(0);
-      this.dropping = true;
+    const rest = chunk.subarray(start);
+    if (rest.length > 0) {
+      if (this.dropping) {
+        this.offset += rest.length; // still inside an oversized line: skip it
+      } else {
+        // Copy so the retained tail doesn't pin the whole chunk's memory.
+        this.pieces.push(Buffer.from(rest));
+        this.pendingBytes += rest.length;
+        if (this.pendingBytes > MAX_LINE_BYTES) {
+          this.offset += this.pendingBytes;
+          this.pieces = [];
+          this.pendingBytes = 0;
+          this.dropping = true;
+        }
+      }
     }
-    // Copy so the retained tail doesn't pin the whole chunk's memory.
-    this.leftover = Buffer.from(buf);
     return changed;
   }
 
