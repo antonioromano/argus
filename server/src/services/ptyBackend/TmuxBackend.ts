@@ -13,6 +13,19 @@ const TMUX_NAME_PREFIX = 'argus-';
  */
 export const WHEEL_COALESCE_MS = 16;
 
+/**
+ * How long a restore's one-shot pane snapshot answers per-session pane
+ * questions (dead? alternate screen?) before we ask tmux again. A restore asks
+ * them for every survivor within a few seconds of the snapshot; outside that
+ * window (a later restart, diagnostics) each question goes to tmux directly.
+ */
+export const PANE_SNAPSHOT_TTL_MS = 10_000;
+
+interface PaneSnapshot {
+  at: number;
+  panes: Map<string, { dead: boolean; alternate: boolean }>;
+}
+
 interface WheelBatch {
   /** Reports queued since the window opened (sent at its close). */
   pending: string;
@@ -34,6 +47,8 @@ export class TmuxBackend implements PtyBackend {
   readonly kind = 'tmux' as const;
 
   private wheel = new Map<string, WheelBatch>();
+  /** One `list-panes -a` per restore, shared by every survivor's checks. */
+  private paneSnapshot: PaneSnapshot | null = null;
 
   constructor(private pty: PtyManager) {}
 
@@ -60,10 +75,11 @@ export class TmuxBackend implements PtyBackend {
     if (!this.pty.isTmuxAvailable()) return;
     const name = tmuxSessionName(sessionId);
     try {
-      if (this.pty.isTmuxPaneDead(name)) return;
+      const snap = this.freshPane(name);
+      if (snap ? snap.dead : this.pty.isTmuxPaneDead(name)) return;
       // Alt-screen apps have no meaningful scrollback and the attach repaint
       // reconstructs them; a text seed would fight the repaint's ?1049h.
-      if (this.pty.captureState(name).alternate) return;
+      if (snap ? snap.alternate : this.pty.captureState(name).alternate) return;
       const seed = this.pty
         .capturePane(name, MIRROR_SCROLLBACK)
         .replace(/\n$/, '')
@@ -141,6 +157,9 @@ export class TmuxBackend implements PtyBackend {
   }
 
   stopSession(sessionId: string): void {
+    // A killed name must not answer from the snapshot: a respawn on the same id
+    // is a different (live, normal-screen) pane.
+    this.paneSnapshot?.panes.delete(tmuxSessionName(sessionId));
     if (this.pty.isTmuxAvailable()) this.pty.killTmuxSession(tmuxSessionName(sessionId));
   }
 
@@ -148,17 +167,37 @@ export class TmuxBackend implements PtyBackend {
     if (this.pty.isTmuxAvailable()) this.pty.killTmuxServer();
   }
 
+  /**
+   * One `list-panes -a` answers the whole restore: which survivors exist, and
+   * (cached for PANE_SNAPSHOT_TTL_MS) whether each is dead or on the alternate
+   * screen — instead of a list-sessions plus two forks per survivor.
+   */
   async listSurvivors(): Promise<Set<string>> {
     if (!this.pty.isTmuxAvailable()) return new Set();
+    const panes = this.pty.listPaneStates();
+    this.paneSnapshot = { at: Date.now(), panes };
     const ids = new Set<string>();
-    for (const name of this.pty.listArgusSessions()) {
+    for (const name of panes.keys()) {
       ids.add(name.startsWith(TMUX_NAME_PREFIX) ? name.slice(TMUX_NAME_PREFIX.length) : name);
     }
     return ids;
   }
 
   isSurvivorDead(sessionId: string): boolean {
-    return this.pty.isTmuxPaneDead(tmuxSessionName(sessionId));
+    const name = tmuxSessionName(sessionId);
+    const snap = this.freshPane(name);
+    return snap ? snap.dead : this.pty.isTmuxPaneDead(name);
+  }
+
+  /** The restore snapshot's entry for a session, if the snapshot is fresh. */
+  private freshPane(name: string): { dead: boolean; alternate: boolean } | undefined {
+    const snap = this.paneSnapshot;
+    if (!snap) return undefined;
+    if (Date.now() - snap.at > PANE_SNAPSHOT_TTL_MS) {
+      this.paneSnapshot = null;
+      return undefined;
+    }
+    return snap.panes.get(name);
   }
 
   async reapOrphans(knownIds: Set<string>): Promise<void> {

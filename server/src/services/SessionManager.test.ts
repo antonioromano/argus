@@ -242,10 +242,16 @@ test('restoreSessions calls spawnTmux exactly once when reattaching to a live su
   let spawnTmuxCalls = 0;
   (sm as any).ptyManager.isTmuxAvailable = () => true;
   (sm as any).ptyManager.listArgusSessions = () => new Set([tmuxName]);
+  (sm as any).ptyManager.listPaneStates = () => new Map([[tmuxName, { dead: false, alternate: false }]]);
   (sm as any).ptyManager.isTmuxPaneDead = () => false;
+  let attachedExisting = false;
   (sm as any).ptyManager.spawnTmux = () => { spawnTmuxCalls++; return fakePty; };
+  const origSpawn = (sm as any).backend.spawn.bind((sm as any).backend);
+  (sm as any).backend.spawn = (o: { attachExisting: boolean }) => { attachedExisting = o.attachExisting; return origSpawn(o); };
 
   await sm.restoreSessions();
+
+  assert.equal(attachedExisting, true, 'the live survivor must be re-attached, not respawned');
 
   assert.equal(spawnTmuxCalls, 1, 'reattach path must spawn exactly one client onto the survivor session');
 });

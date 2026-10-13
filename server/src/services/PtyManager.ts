@@ -384,6 +384,35 @@ export class PtyManager {
     }
   }
 
+  /**
+   * Pane state for EVERY argus-* session in one tmux round-trip
+   * (`list-panes -a`), keyed by session name. A restore used to ask per
+   * session — `list-panes -t` for pane_dead, `display-message` for
+   * alternate_on — which is two synchronous forks per survivor on the main
+   * thread. A session is dead if any of its panes is (matches isTmuxPaneDead);
+   * alternate reflects its first pane. Empty when no tmux server is running.
+   */
+  listPaneStates(): Map<string, { dead: boolean; alternate: boolean }> {
+    const map = new Map<string, { dead: boolean; alternate: boolean }>();
+    let out: string;
+    try {
+      out = this.runTmux(['list-panes', '-a', '-F', '#{session_name}\t#{pane_dead}\t#{alternate_on}']);
+    } catch {
+      return map; // no server running → no survivors
+    }
+    for (const line of out.split('\n')) {
+      const [name, dead, alt] = line.trim().split('\t');
+      if (!name || !name.startsWith(TMUX_NAME_PREFIX)) continue;
+      const prev = map.get(name);
+      if (prev) {
+        prev.dead ||= dead === '1';
+      } else {
+        map.set(name, { dead: dead === '1', alternate: alt === '1' });
+      }
+    }
+    return map;
+  }
+
   /** Names of all live argus-* tmux sessions (survivors from a previous run). */
   listArgusSessions(): Set<string> {
     const set = new Set<string>();
