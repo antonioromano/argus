@@ -10,6 +10,7 @@ import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
 import { createLaunchGate, type LaunchGate } from './launchGate.js';
+import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, type IpcSenderLike } from './ipcGuards.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
@@ -1015,10 +1016,22 @@ async function main() {
     priorOnSessionDeleted?.(id);
   };
 
+  // Every renderer → main handler below first checks the sender is the main
+  // frame of our own 127.0.0.1 page (ipcMain otherwise accepts any frame of any
+  // webContents) and that the payload has the expected shape.
+  const trusted = (e: IpcSenderLike) => isTrustedSender(e, appOrigin());
+  /** Common native-term guard: trusted sender + object payload with a valid sessionId. */
+  const ntArgs = (e: IpcSenderLike, arg: unknown): Record<string, unknown> & { sessionId: string } | null =>
+    trusted(e) && isPlainObject(arg) && isSessionId(arg.sessionId) ? (arg as Record<string, unknown> & { sessionId: string }) : null;
+
   // invoke (not send): the renderer must know whether an overlay is actually
   // live so it can fall back to xterm.js when attach fails instead of being
   // left staring at a permanently blank transparent hole.
-  ipcMain.handle('native-term:attach', (e, { sessionId, rect, fontSize }: { sessionId: string; rect: { x: number; y: number; width: number; height: number }; fontSize?: number }) => {
+  ipcMain.handle('native-term:attach', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a || !isRect(a.rect) || (a.fontSize !== undefined && !isFontPx(a.fontSize))) return false;
+    const { sessionId, rect } = a;
+    const fontSize = a.fontSize as number | undefined;
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return false;
     const handle = win.getNativeWindowHandle();
@@ -1034,7 +1047,10 @@ async function main() {
   // Scoped to the requesting window like detach below: when a session moves
   // windows, the tile it left collapses before it unmounts, and its 0x0 report
   // would otherwise hide the overlay the new window now owns.
-  ipcMain.on('native-term:rect', (e, { sessionId, rect }: { sessionId: string; rect: { x: number; y: number; width: number; height: number } }) => {
+  ipcMain.on('native-term:rect', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a || !isRect(a.rect)) return;
+    const { sessionId, rect } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     // Zoom is read here because every zoom change (menu, load restore, sibling propagation) reflows the hole and re-reports; setZoom no-ops when unchanged.
     if (win) nativeTerminal!.setZoom(win.getNativeWindowHandle(), win.webContents.getZoomFactor());
@@ -1050,42 +1066,61 @@ async function main() {
   // untrackNativeTermSession must only run when the host actually detached;
   // otherwise a stale, ignored call would wipe the *new* window's ownership
   // record out from under it.
-  ipcMain.on('native-term:detach', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:detach', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     const detached = nativeTerminal!.detach(sessionId, win?.getNativeWindowHandle());
     if (detached) untrackNativeTermSession(sessionId);
   });
-  ipcMain.handle('native-term:available', () => nativeTerminal!.isAvailable());
+  ipcMain.handle('native-term:available', (e) => trusted(e) && nativeTerminal!.isAvailable());
 
   // Find bar / focus — window-scoped too: the tile a session left behind in
   // its old window closes the find bar on unmount, and must not close the one
   // the new window has open. open/close take no search term — the renderer
   // only toggles SwiftTerm's own find bar (see NativeTerminalHost.openFindBar),
   // so both are fire-and-forget.
-  ipcMain.on('native-term:open-find-bar', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:open-find-bar', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.openFindBar(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:close-find-bar', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:close-find-bar', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.closeFindBar(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:focus', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:focus', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.focusOverlay(sessionId, win?.getNativeWindowHandle());
   });
   // A layout divider drag holds back the overlay's pty resizes (the xterm
   // path's suspendResize), so only the size the drag ends at reaches the agent.
-  ipcMain.on('native-term:set-resize-suspended', (e, { sessionId, suspended }: { sessionId: string; suspended: boolean }) => {
+  ipcMain.on('native-term:set-resize-suspended', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId, suspended } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.setResizeSuspended(sessionId, suspended === true, win?.getNativeWindowHandle());
   });
 
-  ipcMain.on('native-term:clear-scrollback', (_e, { sessionId }: { sessionId: string }) => {
-    nativeTerminal!.clearScrollback(sessionId);
+  ipcMain.on('native-term:clear-scrollback', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    nativeTerminal!.clearScrollback(a.sessionId);
   });
 
-  ipcMain.on('native-term:write-clipboard', (_e, { text }: { text: unknown }) => {
+  ipcMain.on('native-term:write-clipboard', (e, arg: unknown) => {
+    if (!trusted(e) || !isPlainObject(arg)) return;
+    const { text } = arg;
     if (typeof text === 'string' && text.length <= 10_000_000) clipboard.writeText(text);
   });
 
@@ -1093,20 +1128,26 @@ async function main() {
   // stale window's call is indistinguishable from the owner's. Fired by the
   // renderer both right after a successful attach and on every light/dark
   // toggle (TerminalShellNativeHole).
-  ipcMain.on('native-term:set-theme', (_e, { sessionId, theme }: { sessionId: string; theme: Theme }) => {
-    nativeTerminal!.setTheme(sessionId, theme);
+  ipcMain.on('native-term:set-theme', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a || !isPlainObject(a.theme)) return;
+    nativeTerminal!.setTheme(a.sessionId, a.theme as unknown as Theme);
   });
 
   // Unfocused-tile scrim. Window-scoped: dimming depends on which window the
   // tile is focused in, so a stale window's opinion must not win.
-  ipcMain.on('native-term:set-dimmed', (e, { sessionId, dimmed, isDark }: { sessionId: string; dimmed: boolean; isDark: boolean }) => {
+  ipcMain.on('native-term:set-dimmed', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
     const win = BrowserWindow.fromWebContents(e.sender);
-    nativeTerminal!.setDimmed(sessionId, dimmed, isDark, win?.getNativeWindowHandle());
+    nativeTerminal!.setDimmed(a.sessionId, a.dimmed === true, a.isDark === true, win?.getNativeWindowHandle());
   });
 
-  ipcMain.on('native-term:set-font-size', (e, { sessionId, px }: { sessionId: string; px: number }) => {
+  ipcMain.on('native-term:set-font-size', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a || !isFontPx(a.px)) return;
     const win = BrowserWindow.fromWebContents(e.sender);
-    nativeTerminal!.setFontSize(sessionId, px, win?.getNativeWindowHandle());
+    nativeTerminal!.setFontSize(a.sessionId, a.px, win?.getNativeWindowHandle());
   });
 
   // Suppression transport for the overlay-suppression hook (Phase 2, Task 6).
@@ -1117,36 +1158,47 @@ async function main() {
   // call — safe to wire unconditionally. Scoped to the requesting window for
   // the same reason as detach above: a stale suppress/unsuppress from a
   // session's old window must not touch the overlay its new window owns.
-  ipcMain.on('native-term:suppress', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:suppress', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.hide(sessionId, win?.getNativeWindowHandle());
   });
-  ipcMain.on('native-term:unsuppress', (e, { sessionId }: { sessionId: string }) => {
+  ipcMain.on('native-term:unsuppress', (e, arg: unknown) => {
+    const a = ntArgs(e, arg);
+    if (!a) return;
+    const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.show(sessionId, win?.getNativeWindowHandle());
   });
 
   // Native message box — used by the renderer for confirmations (delete, close session, etc.)
-  ipcMain.handle('dialog:showMessageBox', async (event, opts: Electron.MessageBoxOptions) => {
+  // Only whitelisted fields reach dialog.showMessageBox (no icon paths, signal…).
+  ipcMain.handle('dialog:showMessageBox', async (event, raw: unknown) => {
+    const opts = trusted(event) ? sanitizeMessageBoxOptions(raw) : null;
+    if (!opts) throw new Error('Refused: untrusted sender or bad message box options');
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     return dialog.showMessageBox(win!, opts);
   });
 
   // Open URLs in the system default browser (called from the xterm link
   // provider's click handler, and from a native overlay's requestOpenLink).
-  ipcMain.handle('shell:openExternal', (_event, url: string) => {
+  ipcMain.handle('shell:openExternal', (event, url: unknown) => {
+    if (!trusted(event) || typeof url !== 'string') return;
     openExternalAllowlisted(url);
   });
 
   // Relaunch to apply a startup-only setting (e.g. the pty backend switch).
-  ipcMain.on('app:relaunch', () => {
+  ipcMain.on('app:relaunch', (e) => {
+    if (!trusted(e)) return;
     app.relaunch();
     app.exit(0);
   });
 
   // Dock badge sync — renderer mirrors waiting-session count
-  ipcMain.on('dock:setBadge', (_event, count: number) => {
-    if (process.platform !== 'darwin') return;
+  ipcMain.on('dock:setBadge', (event, count: unknown) => {
+    if (process.platform !== 'darwin' || !trusted(event) || typeof count !== 'number') return;
     app.dock?.setBadge(count > 0 ? String(count) : '');
   });
 
@@ -1174,9 +1226,10 @@ async function main() {
   };
   terminalNotifierPath = resolveTerminalNotifier();
 
-  ipcMain.on('notif:show', (_e, payload: NotifPayload) => postNotification(payload));
+  ipcMain.on('notif:show', (e, payload: NotifPayload) => { if (trusted(e) && isPlainObject(payload)) postNotification(payload); });
 
-  ipcMain.on('notif:close', (_event, id: string) => {
+  ipcMain.on('notif:close', (event, id: unknown) => {
+    if (!trusted(event) || typeof id !== 'string') return;
     if (app.isPackaged && terminalNotifierPath) {
       // -sender so this -remove attributes to Argus (see deliverNotifClick):
       // an unattributed terminal-notifier spawn can source-fail and bounce Terminal.
@@ -1216,13 +1269,15 @@ async function main() {
   // a real change — setApplicationMenu recreates every item, which drops the
   // enabled/disabled state applyMenuAcceleratorGating owns, so it is re-applied
   // immediately after.
-  ipcMain.on('menu:set-shortcuts', (_e, shortcuts: Record<string, string>) => {
-    if (!setMenuShortcuts(shortcuts ?? {})) return;
+  ipcMain.on('menu:set-shortcuts', (e, raw: unknown) => {
+    const shortcuts = trusted(e) ? sanitizeShortcuts(raw ?? {}) : null;
+    if (!shortcuts || !setMenuShortcuts(shortcuts)) return;
     Menu.setApplicationMenu(buildAppMenu());
     applyMenuAcceleratorGating();
   });
 
-  ipcMain.on('editor-focus:changed', (e, focused: boolean) => {
+  ipcMain.on('editor-focus:changed', (e, focused: unknown) => {
+    if (!trusted(e)) return;
     const win = BrowserWindow.fromWebContents(e.sender);
     if (win) editorFocusByWindow.set(win, focused === true);
     applyMenuAcceleratorGating();
