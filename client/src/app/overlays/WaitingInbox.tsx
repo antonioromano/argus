@@ -7,7 +7,7 @@ import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
 
 interface WaitingInboxProps {
   sessions: SessionInfo[];
-  /** Display label of the inbox shortcut (e.g. ⌘⇧I). */
+  /** Display label of the inbox shortcut (e.g. ⌘⇧J). */
   shortcutLabel?: string;
   onClose: () => void;
   onJump: (id: string) => void;

@@ -37,7 +37,7 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'new-session', label: 'New session', category: 'Sessions', defaultCombo: 'mod+n' },
   { id: 'close-shell', label: 'Close active shell', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
   { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
-  { id: 'waiting-inbox', label: 'Waiting inbox (every shell that needs you)', category: 'Navigation', defaultCombo: 'mod+shift+i' },
+  { id: 'waiting-inbox', label: 'Waiting inbox (every shell that needs you)', category: 'Navigation', defaultCombo: 'mod+shift+j' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
   // Act on the focused shell — the tile whose terminal has focus in the mosaic,
   // or the open one in focus view. The ⋯ menu labels these from the same bindings.
