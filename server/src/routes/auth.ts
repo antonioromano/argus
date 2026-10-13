@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import type { AuthService } from '../services/AuthService.js';
-import { LoginRateLimiter } from '../services/LoginRateLimiter.js';
+import { LoginRateLimiter, loginClientKey } from '../services/LoginRateLimiter.js';
 import { validatePasswordStrength } from '../services/passwordStrength.js';
 import { hasProxyHeaders, isLoopbackAddress } from '../middleware/exposure.js';
 
-const limiter = new LoginRateLimiter();
+const defaultLimiter = new LoginRateLimiter();
 
 /** True when the request originated from the local machine (loopback). */
 export function isLoopbackRequest(remoteAddress: string | undefined): boolean {
@@ -39,7 +39,7 @@ export function canSetPassword(opts: {
   return { ok: true };
 }
 
-export function createAuthRoutes(authService: AuthService): Router {
+export function createAuthRoutes(authService: AuthService, limiter: LoginRateLimiter = defaultLimiter): Router {
   const router = Router();
 
   // Loopback-only, non-proxied password setup. Lets a LAN-exposed instance
@@ -101,7 +101,8 @@ export function createAuthRoutes(authService: AuthService): Router {
       return;
     }
 
-    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    // Per client behind a tunnel (not one shared 127.0.0.1 bucket), plus a global cap.
+    const ip = loginClientKey(req.headers, req.socket.remoteAddress);
     const blocked = limiter.check(ip);
     if (blocked) {
       res.status(429).json({ error: blocked });
