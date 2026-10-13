@@ -50,6 +50,7 @@ import { createAgentSignalRoutes } from './routes/agentSignals.js';
 import { getOrCreateSignalSecret } from './services/agentSignals/token.js';
 import { resolveSignalBin } from './services/agentSignals/resolveBin.js';
 import { registerProcessHandlers } from './process/globalHandlers.js';
+import { scrubParentAgentEnv } from './utils/scrubParentAgentEnv.js';
 
 registerProcessHandlers();
 
@@ -69,6 +70,11 @@ const _filesystemOptions: { pickFolder?: () => Promise<string | null> } = {};
 export function setPickFolderFn(fn: () => Promise<string | null>): void {
   _filesystemOptions.pickFolder = fn;
 }
+
+// Before anything spawns: an Argus started from a Claude Code terminal must not
+// pass that session's markers to its own agents (see scrubParentAgentEnv).
+const scrubbedEnv = scrubParentAgentEnv();
+if (scrubbedEnv.length > 0) console.log(`[env] dropped inherited Claude session markers: ${scrubbedEnv.join(', ')}`);
 
 const dataDir = (process.env.ARGUS_DATA_DIR || process.env.DATA_DIR)
   ? path.resolve(process.env.ARGUS_DATA_DIR || process.env.DATA_DIR || '')
