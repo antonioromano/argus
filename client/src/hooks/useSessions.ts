@@ -6,6 +6,7 @@ import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
 
 export function useSessions(socket: TypedSocket) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -18,12 +19,41 @@ export function useSessions(socket: TypedSocket) {
   const sessionsRef = useRef<SessionInfo[]>([]);
   useEffect(() => { sessionsRef.current = sessions; }, [sessions]);
 
+  // Every incremental change (socket delta or local optimistic edit) goes
+  // through applyDelta. While a REST snapshot is in flight the change is also
+  // recorded, and replayed on top of the snapshot when it lands: the GET may
+  // have been served before the change, and a bare setSessions(snapshot) would
+  // roll it back (e.g. a session stuck "idle" while it runs, after reconnect).
+  // All deltas are idempotent set/add/remove ops, so replaying one the snapshot
+  // already contains is harmless.
+  const pendingDeltasRef = useRef(new Set<SessionsUpdater[]>());
+  const applyDelta = useCallback((fn: SessionsUpdater) => {
+    for (const buf of pendingDeltasRef.current) buf.push(fn);
+    setSessions(fn);
+  }, []);
+
   // Load sessions on mount and after reconnect
   useEffect(() => {
-    api.getSessions().then(setSessions).catch(console.error).finally(() => setLoaded(true));
+    let started = 0;
+    let appliedSeq = 0;
+    const load = () => {
+      const seq = ++started;
+      const deltas: SessionsUpdater[] = [];
+      pendingDeltasRef.current.add(deltas);
+      return api.getSessions().then((snapshot) => {
+        // A newer GET already landed; this response is older than it.
+        if (seq < appliedSeq) return;
+        appliedSeq = seq;
+        setSessions(() => deltas.reduce((acc, fn) => fn(acc), snapshot));
+      }).finally(() => {
+        pendingDeltasRef.current.delete(deltas);
+      });
+    };
+
+    load().catch(console.error).finally(() => setLoaded(true));
 
     const handleReconnect = () => {
-      api.getSessions().then(setSessions).catch(console.error);
+      load().catch(console.error);
     };
     socket.on('connect', handleReconnect);
     return () => { socket.off('connect', handleReconnect); };
@@ -32,44 +62,44 @@ export function useSessions(socket: TypedSocket) {
   // Listen for socket events
   useEffect(() => {
     const handleStatus = ({ sessionId, status, lastPrompt }: { sessionId: string; status: SessionStatus; lastPrompt?: string }) => {
-      setSessions((prev) =>
+      applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt } : s)),
       );
     };
 
     const handleExit = ({ sessionId }: { sessionId: string; exitCode: number }) => {
-      setSessions((prev) =>
+      applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited' as const } : s)),
       );
     };
 
     const handleCreated = (session: SessionInfo) => {
-      setSessions((prev) => {
+      applyDelta((prev) => {
         if (prev.some((s) => s.id === session.id)) return prev;
         return [...prev, session];
       });
     };
 
     const handleDeleted = ({ sessionId }: { sessionId: string }) => {
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      applyDelta((prev) => prev.filter((s) => s.id !== sessionId));
     };
 
     const handleSessionError = ({ sessionId }: { sessionId: string; message: string }) => {
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      applyDelta((prev) => prev.filter((s) => s.id !== sessionId));
     };
 
     const handleRenamed = ({ sessionId, name }: { sessionId: string; name: string }) => {
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, name } : s)));
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, name } : s)));
     };
 
     const handleGitStatus = ({ sessionId, hasGitChanges }: { sessionId: string; hasGitChanges: boolean }) => {
-      setSessions((prev) =>
+      applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, hasGitChanges } : s)),
       );
     };
 
     const handleShellContext = ({ sessionId, cwd, shellGit }: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => {
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
     };
 
     socket.on('session:status', handleStatus);
@@ -91,16 +121,16 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
     };
-  }, [socket]);
+  }, [socket, applyDelta]);
 
   const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => {
     const session = await api.createSession({ folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine, runMode });
-    setSessions((prev) => {
+    applyDelta((prev) => {
       if (prev.some((s) => s.id === session.id)) return prev;
       return [...prev, session];
     });
     return session;
-  }, []);
+  }, [applyDelta]);
 
   // Optimistic: the name lands locally before the socket echo, so the surface
   // that just committed the edit never flickers back to the old label.
@@ -108,25 +138,25 @@ export function useSessions(socket: TypedSocket) {
     const trimmed = name.trim();
     if (!trimmed) return;
     const previous = sessionsRef.current.find((s) => s.id === id)?.name;
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)));
+    applyDelta((prev) => prev.map((s) => (s.id === id ? { ...s, name: trimmed } : s)));
     try {
       await api.renameSession(id, trimmed);
     } catch (err) {
       if (previous !== undefined) {
-        setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name: previous } : s)));
+        applyDelta((prev) => prev.map((s) => (s.id === id ? { ...s, name: previous } : s)));
       }
       pushToast(err instanceof Error ? err.message : 'Failed to rename shell', 'danger');
     }
-  }, []);
+  }, [applyDelta]);
 
   const deleteSession = useCallback(async (id: string) => {
     try {
       await api.deleteSession(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
+      applyDelta((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       pushToast(err instanceof Error ? err.message : 'Failed to delete session', 'danger');
     }
-  }, []);
+  }, [applyDelta]);
 
   return { sessions, loaded, createSession, deleteSession, renameSession };
 }
