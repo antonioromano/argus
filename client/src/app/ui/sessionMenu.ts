@@ -1,4 +1,4 @@
-import { CircleX, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -17,6 +17,9 @@ export interface SessionMenuActions {
   onOpen: (id: string) => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  /** Reopen the last Claude conversation; gated per session by `canResume`. */
+  onResume?: (session: SessionInfo) => void;
+  canResume?: (session: SessionInfo) => boolean;
   onToggleMinimize?: (id: string) => void;
   onDumpDiagnostics?: (session: SessionInfo) => void;
   showDiagnostics?: boolean;
@@ -83,6 +86,7 @@ export function buildSessionMenuItems(
     ...(a.onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => a.onClone!(session) }] : []),
     ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
     ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
+    ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume conversation', icon: History, onClick: () => a.onResume!(session) }] : []),
     { id: 'restart', label: 'Restart shell', icon: RotateCcw, onClick: () => a.onRestart(session) },
     ...(a.showDiagnostics && a.onDumpDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => a.onDumpDiagnostics!(session) }] : []),
     { separator: true },

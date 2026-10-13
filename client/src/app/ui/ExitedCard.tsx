@@ -1,4 +1,4 @@
-import { Power, RotateCcw } from 'lucide-react';
+import { History, Power, RotateCcw } from 'lucide-react';
 import type { RunMode } from '@argus/shared';
 import { Button } from '../../components/primitives/index.js';
 
@@ -15,11 +15,14 @@ export function ExitedCard({
   runMode,
   folderPath,
   onRestart,
+  onResume,
   onClone,
 }: {
   runMode?: RunMode;
   folderPath: string;
   onRestart: () => void;
+  /** Present when the last Claude conversation can be reopened (see canResume). */
+  onResume?: () => void;
   onClone?: () => void;
 }) {
   const stoppedWithArgus = runMode === 'direct';
@@ -70,10 +73,12 @@ export function ExitedCard({
         <div style={{ marginTop: 4, fontSize: 'var(--t-xs)', lineHeight: 1.45, color: 'var(--fg-2)' }}>
           {stoppedWithArgus ? 'The agent isn’t running. Native sessions stop when Argus quits.' : 'The agent process has ended.'}
           <br />
+          {onResume && <>Resume picks up the last conversation. </>}
           Restart starts a fresh agent in <span style={{ fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{folderPath}</span>.
         </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 14 }}>
-          <Button variant="primary" size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+          {onResume && <Button variant="primary" size="sm" icon={History} onClick={onResume}>Resume conversation</Button>}
+          <Button variant={onResume ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
           {onClone && <Button variant="outline" size="sm" onClick={onClone}>Clone…</Button>}
         </div>
       </div>

@@ -85,8 +85,13 @@ export function useSessions(socket: TypedSocket) {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
     };
 
+    const handleClaudeId = ({ sessionId, claudeSessionId }: { sessionId: string; claudeSessionId: string }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, claudeSessionId } : s)));
+    };
+
     socket.on('session:status', handleStatus);
     socket.on('session:usage', handleUsage);
+    socket.on('session:claudeId', handleClaudeId);
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
     socket.on('session:deleted', handleDeleted);
@@ -98,6 +103,7 @@ export function useSessions(socket: TypedSocket) {
     return () => {
       socket.off('session:status', handleStatus);
       socket.off('session:usage', handleUsage);
+      socket.off('session:claudeId', handleClaudeId);
       socket.off('session:exit', handleExit);
       socket.off('session:created', handleCreated);
       socket.off('session:deleted', handleDeleted);

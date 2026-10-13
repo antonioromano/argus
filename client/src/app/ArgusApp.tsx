@@ -17,7 +17,7 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
@@ -35,6 +35,7 @@ import { Overlay } from './overlays/Overlay.js';
 import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
+import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
 import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
@@ -51,6 +52,7 @@ import { insertBefore } from '../utils/reorder.js';
 import { deriveCounts } from './types.js';
 import type { SidebarKey } from './types.js';
 import { setSuppressionTransport } from '../hooks/nativeOverlayRegistry.js';
+import { canResume } from '../utils/resume.js';
 
 interface NativeTerminalSuppressionBridge {
   suppress: (sessionId: string) => void;
@@ -301,6 +303,14 @@ function DesktopInner() {
     } catch {
       pushToast('Failed to write diagnostics', 'warn');
     }
+  }, []);
+
+  // Resume an exited Claude session's last conversation. No confirm: the agent
+  // is already gone, so nothing running is interrupted.
+  const resumeSession = useCallback((s: SessionInfo) => {
+    api.restartSession(s.id, { resume: true }).catch((err) => {
+      pushToast(err instanceof Error ? err.message : 'Failed to resume conversation', 'danger');
+    });
   }, []);
 
   // Cmd+W → close the active terminal's shell. Registered once; reads latest state via ref.
@@ -766,6 +776,19 @@ function DesktopInner() {
     </>
   );
 
+  // Command palette actions. Built per render — the palette is only mounted
+  // while open, so this costs nothing the rest of the time.
+  const paletteCommands: PaletteCommand[] = [
+    ...orderedSessions.filter(canResume).map((s) => ({
+      id: `resume-${s.id}`,
+      label: `Resume conversation: ${s.name}`,
+      hint: s.folderPath.split('/').slice(-2).join('/'),
+      keywords: 'resume claude continue restart',
+      icon: History,
+      run: () => { app.closeOverlay(); resumeSession(s); },
+    })),
+  ];
+
   // One shell action menu for the whole app: every surface that shows a shell
   // name (tile header, focus header, sidebar row, minimized chip) opens this on
   // right-click, and Rename flips that surface into an inline editor.
@@ -773,6 +796,8 @@ function DesktopInner() {
     onOpen: openSessionGuarded,
     onKill: requestKill,
     onRestart: setPendingRestart,
+    onResume: resumeSession,
+    canResume,
     onToggleMinimize: mosaicVis.toggleMinimize,
     onDumpDiagnostics: (s: SessionInfo) => void handleDumpDiagnostics(s),
     showDiagnostics: config?.debugToolsEnabled ?? false,
@@ -895,6 +920,7 @@ function DesktopInner() {
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
+              onResume={resumeSession}
               onDumpDiagnostics={(s) => void handleDumpDiagnostics(s)}
               showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
@@ -950,6 +976,7 @@ function DesktopInner() {
               onClone={() => app.openOverlay({ kind: 'clone', folderPath: activeSession.folderPath, agentType: activeSession.agentType, terminalEngine: activeSession.terminalEngine, runMode: activeSession.runMode })}
               onKill={() => requestKill(activeSession)}
               onRestart={() => setPendingRestart(activeSession)}
+              onResume={canResume(activeSession) ? () => resumeSession(activeSession) : undefined}
               onDumpDiagnostics={() => void handleDumpDiagnostics(activeSession)}
               showDiagnostics={config?.debugToolsEnabled ?? false}
               shortcuts={shortcuts.resolved}
@@ -1001,6 +1028,7 @@ function DesktopInner() {
               app.closeOverlay();
               guardForeign(sessionId, () => app.openMaximized({ kind: 'diff', sessionId }));
             }}
+            commands={paletteCommands}
           />
         </Overlay>
       )}

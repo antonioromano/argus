@@ -277,6 +277,8 @@ export interface SessionInfo {
   shellGit?: ShellGitContext | null;
   /** Claude only: token / context / cost meter built from the agent's transcript. */
   usage?: SessionUsage;
+  /** Claude only: the conversation id the agent last reported (what Resume reopens). */
+  claudeSessionId?: string;
 }
 
 /**
@@ -333,6 +335,12 @@ export interface CreateSessionRequest {
 }
 
 export interface CreateSessionResponse extends SessionInfo {}
+
+/** PATCH /api/sessions/:id/restart. `resume` reopens the Claude conversation
+ *  (`claude --resume <claudeSessionId>`) instead of starting fresh. */
+export interface RestartSessionRequest {
+  resume?: boolean;
+}
 
 /** Display-name change for a live shell. The tmux session name derives from the
  *  session id, so a rename is purely cosmetic and never touches the backend pty. */
@@ -471,6 +479,8 @@ export interface ServerToClientEvents {
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
+  /** A Claude session reported a (new) conversation id — Resume reopens it. */
+  'session:claudeId': (payload: { sessionId: string; claudeSessionId: string }) => void;
   /** Filesystem change detected under a session's folder. `dirs` are the
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */

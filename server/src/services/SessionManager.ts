@@ -48,6 +48,7 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import type { GitService } from './GitService.js';
 import { SessionUsageTracker } from './usage/SessionUsageTracker.js';
+import { buildResumeFlags } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -867,9 +868,22 @@ export class SessionManager {
     this.onSessionDeleted?.(id);
   }
 
-  async restartSession(id: string): Promise<SessionInfo> {
+  /**
+   * Relaunch a session's agent. A plain restart is a fresh start; `resume`
+   * (Claude only) reopens the last conversation with `claude --resume <id>`,
+   * through exactly the same teardown/spawn path.
+   */
+  async restartSession(id: string, opts: { resume?: boolean } = {}): Promise<SessionInfo> {
     const session = this.sessions.get(id);
     if (!session) throw new Error(`Session ${id} not found`);
+    // Resolve the resume argv before tearing anything down, so a session with
+    // nothing to resume is refused with its agent (if any) left untouched.
+    let userFlags = session.flags;
+    if (opts.resume) {
+      if (session.agentType !== 'claude') throw new Error('Only Claude sessions can resume a conversation');
+      if (!session.claudeSessionId) throw new Error('No Claude conversation to resume yet');
+      userFlags = buildResumeFlags(session.flags, session.claudeSessionId);
+    }
 
     // Tear down old pty and companion terminal. Kill the tmux session too so the
     // surviving conversation is discarded — otherwise new-session -A would just
@@ -897,7 +911,8 @@ export class SessionManager {
 
     // Reset state
     session.rawTail?.clear();
-    session.usage?.clearCurrent(); // a fresh run starts with an empty context
+    // A fresh run starts with an empty context; a resume reopens the same one.
+    if (!opts.resume) session.usage?.clearCurrent();
     session.status = 'running';
     this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
@@ -931,7 +946,7 @@ export class SessionManager {
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
-    const inj = this.buildSignalInjection(id, session.agentType, session.flags);
+    const inj = this.buildSignalInjection(id, session.agentType, userFlags);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -944,7 +959,9 @@ export class SessionManager {
     session.nativeCoverage = inj ? new Set(inj.coverage) : undefined;
     session.nativeLastSeenAt = undefined;
     session.nativeState = undefined;
-    const spawnFlags = inj?.flags ?? session.flags;
+    // Spawn-only: the resume flags are never written back to session.flags, so
+    // the next plain Restart is still a fresh start.
+    const spawnFlags = inj?.flags ?? userFlags;
     const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(session.agentType) };
     await backend.ready?.();
     const ptyProcess = backend.spawn({
@@ -1208,6 +1225,7 @@ export class SessionManager {
     if (!session || session.agentType !== 'claude') return;
     if (meta.claudeSessionId && meta.claudeSessionId !== session.claudeSessionId) {
       session.claudeSessionId = meta.claudeSessionId;
+      this.io?.emit('session:claudeId', { sessionId: id, claudeSessionId: meta.claudeSessionId });
       this.persistSessions().catch(console.error);
     }
     if (meta.transcriptPath) {
@@ -2070,6 +2088,7 @@ export class SessionManager {
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot(),
+      claudeSessionId: session.claudeSessionId,
     };
   }
 

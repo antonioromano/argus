@@ -82,6 +82,8 @@ interface FocusProps {
   onClone: () => void;
   onKill: () => void;
   onRestart: () => void;
+  /** Reopen the last Claude conversation; pass only when it applies (canResume). */
+  onResume?: () => void;
   /** Write a diagnostics dump for this session to disk (debug action). */
   onDumpDiagnostics: () => void;
   /** Show the diagnostics dump button (gated by the developer-tools setting). */
@@ -116,6 +118,7 @@ export function Focus({
   onClone,
   onKill,
   onRestart,
+  onResume,
   onDumpDiagnostics,
   showDiagnostics,
   shortcuts,
@@ -357,7 +360,7 @@ export function Focus({
                 />
               </ErrorBoundary>
               {active.status === 'exited' && !useNativeTerminal && (
-                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onClone={onClone} />
+                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
               {(modalOpen || overlayHidden) && <ModalPlaceholder status={active.status} />}
             </div>

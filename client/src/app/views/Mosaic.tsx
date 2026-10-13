@@ -6,6 +6,7 @@ import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
+import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
@@ -77,6 +78,8 @@ interface MosaicProps {
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  /** Reopen the last Claude conversation (offered only when canResume). */
+  onResume?: (session: SessionInfo) => void;
   onDumpDiagnostics: (session: SessionInfo) => void;
   /** Show the per-tile diagnostics button (gated by the developer-tools setting). */
   showDiagnostics: boolean;
@@ -117,7 +120,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -232,9 +235,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -249,6 +252,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileOpen = useCallback((id: string) => propCbRef.current.onOpenSession(id), []);
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
+  const handleTileResume = useCallback((s: SessionInfo) => propCbRef.current.onResume?.(s), []);
   const handleTileDumpDiagnostics = useCallback((s: SessionInfo) => propCbRef.current.onDumpDiagnostics(s), []);
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
@@ -482,6 +486,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onOpen={handleTileOpen}
                   onKill={handleTileKill}
                   onRestart={handleTileRestart}
+                  onResume={onResume && canResume(s) ? handleTileResume : undefined}
                   onDumpDiagnostics={handleTileDumpDiagnostics}
                   showDiagnostics={showDiagnostics}
                   onMarkDone={onMarkDone ? handleTileMarkDone : undefined}
@@ -566,6 +571,8 @@ type MosaicTileSharedProps = {
   onOpen: (id: string) => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
+  /** Reopen the last Claude conversation (offered only when canResume). */
+  onResume?: (session: SessionInfo) => void;
   onDumpDiagnostics: (session: SessionInfo) => void;
   showDiagnostics: boolean;
   /** Mark-as-done handler; gated by `canMarkDone` for whether the button shows. */
@@ -708,6 +715,7 @@ function MosaicTileInner({
   onOpen,
   onKill,
   onRestart,
+  onResume,
   onDumpDiagnostics,
   showDiagnostics,
   onMarkDone,
@@ -796,6 +804,7 @@ function MosaicTileInner({
     {
       onRename: () => sessionMenu.beginRename(session.id, 'tile'),
       onOpen, onKill, onRestart, onToggleMinimize,
+      onResume, canResume: () => !!onResume,
       onDumpDiagnostics, showDiagnostics,
       onMarkDone, canMarkDone: () => !!canMarkDone,
       onMerge, canMerge: () => !!canMerge,
@@ -966,6 +975,7 @@ function MosaicTileInner({
             runMode={session.runMode}
             folderPath={session.folderPath}
             onRestart={() => onRestart(session)}
+            onResume={onResume ? () => onResume(session) : undefined}
             onClone={onClone ? () => onClone(session) : undefined}
           />
         )}
