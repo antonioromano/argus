@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useFileBuffer } from '../../hooks/useFileBuffer.js';
 import { MonacoPane } from './MonacoPane.js';
 import { MarkdownPreview } from './MarkdownPreview.js';
@@ -35,10 +35,11 @@ interface EditorTabProps {
   viewMode: ViewMode;
   revealLine?: number;
   revealNonce?: number;
-  /** Called whenever this tab's buffer state changes, so chrome can reflect it. */
-  onState?: (path: string, snap: TabBufferSnapshot) => void;
+  /** Called whenever this tab's buffer state changes, so chrome can reflect it.
+   *  `tabId` is unique per mounted tab: the same path can be open in both split groups. */
+  onState?: (path: string, snap: TabBufferSnapshot, tabId: string) => void;
   /** Called on unmount so the workbench can drop this tab's state entry. */
-  onUnmount?: (path: string) => void;
+  onUnmount?: (path: string, tabId: string) => void;
 }
 
 export function EditorTab({
@@ -57,6 +58,7 @@ export function EditorTab({
   // Images skip the text buffer entirely — the text endpoint rejects binaries.
   const buffer = useFileBuffer({ sessionId, filePath: isImage ? null : path });
   const kind = previewKind(path);
+  const tabId = useId();
 
   // Surface buffer state upward. save/reload are stable callbacks from the hook,
   // so this only re-fires when the primitive status fields actually change.
@@ -69,10 +71,10 @@ export function EditorTab({
       conflict: buffer.conflict,
       save: buffer.save,
       reload: buffer.reload,
-    });
-  }, [path, buffer.dirty, buffer.saving, buffer.loading, buffer.error, buffer.conflict, buffer.save, buffer.reload, onState]);
+    }, tabId);
+  }, [path, tabId, buffer.dirty, buffer.saving, buffer.loading, buffer.error, buffer.conflict, buffer.save, buffer.reload, onState]);
 
-  useEffect(() => () => onUnmount?.(path), [path, onUnmount]);
+  useEffect(() => () => onUnmount?.(path, tabId), [path, tabId, onUnmount]);
 
   return (
     <div
