@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -694,6 +694,34 @@ export const api = {
       body: JSON.stringify({ pids }),
     });
     return (await requireOk(res)).json();
+  },
+
+  /** F5: folders that have sessions or auto-approval rules. */
+  getAutoApprovalFolders: async (): Promise<AutoApprovalFolder[]> => {
+    const res = await authFetch(`${API_BASE}/auto-approval/folders`);
+    return ((await (await requireOk(res)).json()) as { folders: AutoApprovalFolder[] }).folders;
+  },
+
+  getAutoApprovalRules: async (folder: string): Promise<AutoApprovalFolderState> => {
+    const res = await authFetch(`${API_BASE}/auto-approval/rules?folder=${encodeURIComponent(folder)}`);
+    return (await requireOk(res)).json();
+  },
+
+  addAutoApprovalRule: async (req: AddAutoApprovalRuleRequest): Promise<AutoApprovalRule> => {
+    const res = await authFetch(`${API_BASE}/auto-approval/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  removeAutoApprovalRule: async (folder: string, id: string): Promise<void> => {
+    const res = await authFetch(
+      `${API_BASE}/auto-approval/rules/${encodeURIComponent(id)}?folder=${encodeURIComponent(folder)}`,
+      { method: 'DELETE' },
+    );
+    await requireOk(res);
   },
 
   gitInit: async (folderPath: string): Promise<void> => {
