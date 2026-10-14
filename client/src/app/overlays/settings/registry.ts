@@ -86,8 +86,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Shell header',
     group: 'Appearance',
     icon: PanelTop,
-    keys: ['tileQuickAction', 'tileRunningIndicator', 'showUsageMeter'],
-    keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'cost', 'context', 'meter', 'price', 'spend'],
+    keys: ['tileQuickAction', 'tileRunningIndicator', 'showUsageMeter', 'showPrStatus'],
+    keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'cost', 'context', 'meter', 'price', 'spend', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh'],
   },
   {
     id: 'toolbar',

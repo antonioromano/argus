@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -114,6 +114,10 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, cwd, shellGit } : s)));
     };
 
+    const handlePr = ({ sessionId, pr }: { sessionId: string; pr: SessionPr | null }) => {
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, pr: pr ?? undefined } : s)));
+    };
+
     const handleUsage = ({ sessionId, usage }: { sessionId: string; usage: SessionUsage }) => {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
     };
@@ -132,6 +136,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:error', handleSessionError);
     socket.on('session:gitStatus', handleGitStatus);
     socket.on('session:shellContext', handleShellContext);
+    socket.on('session:pr', handlePr);
 
     return () => {
       socket.off('session:status', handleStatus);
@@ -144,6 +149,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:error', handleSessionError);
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
+      socket.off('session:pr', handlePr);
     };
   }, [socket, applyDelta]);
 

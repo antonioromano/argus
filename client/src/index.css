@@ -923,6 +923,36 @@ body {
 .argus-shell-git-behind { color: var(--warn); flex-shrink: 0; }
 .argus-shell-git-changes { color: var(--dirty); flex-shrink: 0; }
 
+/* GitHub PR of the session branch: state icon + #number + CI dot. Hover
+   recolors the background only — the chip never changes size. */
+.argus-pr {
+  all: unset;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  padding: 1px var(--s-1);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.argus-pr:hover { background: var(--bg-3); color: var(--fg-1); }
+.argus-pr:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
+.argus-pr[data-state='open'] .argus-pr-icon { color: var(--ok); }
+.argus-pr[data-state='draft'] .argus-pr-icon { color: var(--fg-3); }
+.argus-pr[data-state='merged'] .argus-pr-icon { color: var(--accent); }
+.argus-pr[data-state='closed'] .argus-pr-icon { color: var(--danger); }
+.argus-pr-ci { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.argus-pr-ci[data-ci='pending'] { background: var(--warn); }
+.argus-pr-ci[data-ci='success'] { background: var(--ok); }
+.argus-pr-ci[data-ci='failure'] { background: var(--danger); }
+
 /* Claude usage meter: context % (colored as the window fills) + est. cost. */
 .argus-usage {
   flex-shrink: 0;

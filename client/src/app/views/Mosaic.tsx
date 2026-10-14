@@ -6,6 +6,7 @@ import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
+import { PrChip } from '../ui/PrChip.js';
 import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -908,6 +909,7 @@ function MosaicTileInner({
           </Tooltip>
         )}
 
+        {session.pr && <PrChip pr={session.pr} />}
         {showUsage && session.usage && <UsageChip usage={session.usage} />}
 
         <span className="argus-tile-status argus-status" data-status={session.status}>

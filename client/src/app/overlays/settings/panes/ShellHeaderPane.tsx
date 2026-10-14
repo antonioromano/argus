@@ -44,6 +44,12 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
         >
           <Toggle checked={config.showUsageMeter !== false} onChange={(v) => onSave({ showUsageMeter: v })} />
         </SettingRow>
+        <SettingRow
+          label="Pull request status"
+          hint="PR number, state and CI checks for shells on a branch with a GitHub PR. Needs the gh CLI, logged in"
+        >
+          <Toggle checked={config.showPrStatus !== false} onChange={(v) => onSave({ showPrStatus: v })} />
+        </SettingRow>
       </Section>
 
       {/* The preview sits in its own group below both controls: the quick action
