@@ -127,6 +127,8 @@ export interface AppConfig {
   launchFolderRoots?: string[];
   // Context % / cost chip on Claude tile headers (default: true).
   showUsageMeter?: boolean;
+  // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
+  showPrStatus?: boolean;
 }
 
 /** Every AppConfig key with its shipped default. The single source of truth for
@@ -163,6 +165,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
+  showPrStatus: true,
 };
 
 export interface AgentStatus {
@@ -285,6 +288,23 @@ export interface SessionInfo {
   waitingSince?: number;
   /** While waiting: the numbered menu choices on screen, when they could be read reliably. */
   promptOptions?: PromptOption[];
+  /** GitHub PR of the session's branch (via `gh`), when there is one. */
+  pr?: SessionPr;
+}
+
+/** Lifecycle of a pull request; `draft` is an open PR marked as draft. */
+export type PrState = 'open' | 'draft' | 'merged' | 'closed';
+/** Aggregate of a PR's checks. `none` = the PR has no checks at all. */
+export type PrCiStatus = 'pending' | 'success' | 'failure' | 'none';
+
+/** The pull request a session's branch belongs to (from `gh pr view`). */
+export interface SessionPr {
+  number: number;
+  state: PrState;
+  url: string;
+  ci: PrCiStatus;
+  /** Head branch of the PR. */
+  branch: string;
 }
 
 /** One numbered choice of a waiting agent's selection menu. Sending `key`
@@ -516,6 +536,8 @@ export interface ServerToClientEvents {
   'session:error': (payload: { sessionId: string; message: string }) => void;
   'session:gitStatus': (payload: { sessionId: string; hasGitChanges: boolean }) => void;
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
+  /** The session's PR / CI state changed; null = no PR (or the feature is off). */
+  'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
   /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

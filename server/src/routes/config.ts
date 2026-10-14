@@ -57,7 +57,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, showPrStatus } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -137,6 +137,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
         ? launchFolderRoots.map((r: string) => r.trim())
         : current.launchFolderRoots,
       showUsageMeter: showUsageMeter !== undefined ? !!showUsageMeter : current.showUsageMeter,
+      showPrStatus: showPrStatus !== undefined ? !!showPrStatus : current.showPrStatus,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

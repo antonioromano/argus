@@ -18,6 +18,7 @@ import type {
   SessionUsage,
   PromptOption,
   SessionStatusPayload,
+  SessionPr,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
@@ -50,6 +51,7 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
+import type { PrStatusService } from './PrStatusService.js';
 import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
@@ -197,6 +199,12 @@ const GIT_POLL_CONCURRENCY = 4;
 // Re-validate a folder's git-repo-ness this often, so a `git init` after startup
 // is eventually picked up without re-spawning `git rev-parse` every tick.
 const GIT_REPO_RECHECK_MS = 60_000;
+/** PR/CI sweep cadence. The PrStatusService cache decides when `gh` actually
+ *  runs (≈60 s while CI is pending, ≈5 min otherwise); this only bounds how
+ *  soon a fresh answer reaches the chip. */
+const PR_POLL_INTERVAL_MS = 30_000;
+/** Parallel `gh pr view` runs per sweep. */
+const PR_POLL_CONCURRENCY = 2;
 
 // How much raw pty output to keep per session for the diagnostics dump. This
 // used to be a 100KB rolling string (re-copied on every chunk) that also backed
@@ -386,6 +394,12 @@ export class SessionManager {
   private gitRepoCache = new Map<string, { isRepo: boolean; checkedAt: number }>();
   private gitPollRunning = false;
   private gitPollTimer: ReturnType<typeof setInterval> | null = null;
+  private prService: PrStatusService | null = null;
+  private prEnabled = true;
+  private prMap = new Map<string, SessionPr>();
+  private prPollRunning = false;
+  private prPollTimer: ReturnType<typeof setInterval> | null = null;
+  private prKickTimer: ReturnType<typeof setTimeout> | null = null;
   private idleTierTimer: ReturnType<typeof setInterval> | null = null;
   /** Shared with NgrokService and KeepAwakeService — see SleepPreventionService. */
   private readonly sleepPrevention: SleepPreventionService;
@@ -554,6 +568,73 @@ export class SessionManager {
     // Clear any prior timer so a second call doesn't orphan the first interval.
     if (this.gitPollTimer) clearInterval(this.gitPollTimer);
     this.gitPollTimer = setInterval(() => this.pollGitStatus(), GIT_POLL_INTERVAL_MS);
+  }
+
+  /** Wire the PR/CI chip source and start its sweep (index.ts; tests leave it unset). */
+  setPrStatusService(service: PrStatusService): void {
+    this.prService = service;
+    this.restartPrPoll();
+  }
+
+  /** Config `showPrStatus`. Off: stop polling and clear every chip. */
+  setPrStatusEnabled(enabled: boolean): void {
+    if (enabled === this.prEnabled) return;
+    this.prEnabled = enabled;
+    if (!enabled) {
+      this.prService?.clear();
+      for (const id of this.prMap.keys()) this.io?.emit('session:pr', { sessionId: id, pr: null });
+      this.prMap.clear();
+    }
+    this.restartPrPoll();
+  }
+
+  private restartPrPoll(): void {
+    this.stopPrPoll();
+    if (!this.prService || !this.prEnabled) return;
+    this.prPollTimer = setInterval(() => void this.pollPrStatus(), PR_POLL_INTERVAL_MS);
+    this.prPollTimer.unref?.();
+    // First answer soon after startup / re-enable rather than a full interval later.
+    this.prKickTimer = setTimeout(() => { this.prKickTimer = null; void this.pollPrStatus(); }, 2_000);
+    this.prKickTimer.unref?.();
+  }
+
+  private stopPrPoll(): void {
+    if (this.prPollTimer) { clearInterval(this.prPollTimer); this.prPollTimer = null; }
+    if (this.prKickTimer) { clearTimeout(this.prKickTimer); this.prKickTimer = null; }
+  }
+
+  /**
+   * One PR/CI sweep: one lookup per folder per tick (sessions sharing a folder
+   * share it; the service further dedupes per gitRoot+branch), bounded like the
+   * git poll. Emits `session:pr` only when a session's answer changed.
+   */
+  async pollPrStatus(): Promise<void> {
+    if (!this.prService || !this.prEnabled || this.prPollRunning) return;
+    const service = this.prService;
+    this.prPollRunning = true;
+    try {
+      const byFolder = new Map<string, Promise<SessionPr | null>>();
+      const live = Array.from(this.sessions.values()).filter((s) => s.status !== 'exited');
+      await runBounded(live, PR_POLL_CONCURRENCY, async (session) => {
+        // `gh` runs only inside a folder Argus manages (path-scope containment).
+        const folder = this.resolveWithinAnySession(workRootOf(session));
+        if (!folder) return;
+        let p = byFolder.get(folder);
+        if (!p) {
+          p = service.forFolder(folder);
+          byFolder.set(folder, p);
+        }
+        const pr = await p;
+        if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
+        const prev = this.prMap.get(session.id) ?? null;
+        if (JSON.stringify(prev) === JSON.stringify(pr)) return;
+        if (pr) this.prMap.set(session.id, pr);
+        else this.prMap.delete(session.id);
+        this.io?.emit('session:pr', { sessionId: session.id, pr });
+      });
+    } finally {
+      this.prPollRunning = false;
+    }
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
@@ -942,6 +1023,7 @@ export class SessionManager {
     this.companionTerminals.kill(id);
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
+    this.prMap.delete(id);
     const stillInUse = Array.from(this.sessions.values()).some((s) => s.folderPath === session.folderPath);
     if (!stillInUse) this.gitRepoCache.delete(session.folderPath);
     cleanupSessionDimensions(id);
@@ -2205,6 +2287,7 @@ export class SessionManager {
       agentType: session.agentType,
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
+      pr: this.prMap.get(session.id),
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
       lastPrompt: session.lastPrompt,
@@ -2299,6 +2382,7 @@ export class SessionManager {
       clearInterval(this.idleTierTimer);
       this.idleTierTimer = null;
     }
+    this.stopPrPoll();
     for (const session of this.sessions.values()) {
       try {
         if (session.tierTimer) { clearTimeout(session.tierTimer); session.tierTimer = undefined; }
