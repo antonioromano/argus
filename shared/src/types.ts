@@ -129,6 +129,8 @@ export interface AppConfig {
   showUsageMeter?: boolean;
   // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
   showPrStatus?: boolean;
+  // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
+  autoApprovalEnabled?: boolean;
 }
 
 /** Every AppConfig key with its shipped default. The single source of truth for
@@ -166,6 +168,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
   showPrStatus: true,
+  autoApprovalEnabled: false,
 };
 
 export interface AgentStatus {
@@ -1009,4 +1012,62 @@ export interface SearchResponse {
   results: SessionSearchResult[];
   /** The result cap or a time budget cut the search short. */
   truncated: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// F5 auto-approval rules (PreToolUse hook decision)
+// ---------------------------------------------------------------------------
+
+/** Tools a rule may name, and how each one's input is matched. `command` tools
+ *  match a command prefix, `file` tools a path glob inside the session folder.
+ *  Duplicated in server/src/constants/autoApproval.ts (check:deps keeps them in sync). */
+export const AUTO_APPROVAL_TOOLS = {
+  Bash: 'command',
+  Read: 'file',
+  Edit: 'file',
+  MultiEdit: 'file',
+  Write: 'file',
+  NotebookEdit: 'file',
+} as const;
+
+export type AutoApprovalTool = keyof typeof AUTO_APPROVAL_TOOLS;
+
+/** One allow rule for a session folder. Rules can only ever produce "allow". */
+export interface AutoApprovalRule {
+  id: string;
+  tool: AutoApprovalTool;
+  /** Bash only (required): the command must equal this or start with it plus a space. */
+  bashPrefix?: string;
+  /** File tools only: glob relative to the session folder (`*`, `**`, `?`). Default `**`. */
+  pathGlob?: string;
+  createdAt: string;
+}
+
+export interface AutoApprovalAuditEntry {
+  at: string;
+  sessionId: string;
+  tool: AutoApprovalTool;
+  ruleId: string;
+  /** Short, truncated summary of the tool input (the command or the relative path). */
+  summary: string;
+}
+
+export interface AutoApprovalFolder {
+  folder: string;
+  ruleCount: number;
+  /** True when a live (non-exited) session runs in this folder. */
+  hasSession: boolean;
+}
+
+export interface AutoApprovalFolderState {
+  folder: string;
+  rules: AutoApprovalRule[];
+  audit: AutoApprovalAuditEntry[];
+}
+
+export interface AddAutoApprovalRuleRequest {
+  folder: string;
+  tool: AutoApprovalTool;
+  bashPrefix?: string;
+  pathGlob?: string;
 }

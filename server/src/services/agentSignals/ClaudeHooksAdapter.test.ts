@@ -51,6 +51,11 @@ test('inject (no user --settings): writes the Argus settings file + adds the fla
   assert.match(content.hooks.Notification[0].hooks[0].command, /--hook-stdin --state waiting --prompt-from-stdin$/);
   // SessionStart forwards the session id / transcript path with no state.
   assert.match(content.hooks.SessionStart[0].hooks[0].command, /argus-signal" --session sess-1 --hook-stdin$/);
+  // F5: PreToolUse keeps its state hook and gains a separate, time-boxed approval hook.
+  assert.equal(content.hooks.PreToolUse.length, 2);
+  assert.match(content.hooks.PreToolUse[0].hooks[0].command, /--hook-stdin --state running$/);
+  assert.match(content.hooks.PreToolUse[1].hooks[0].command, /argus-signal" --session sess-1 --approve$/);
+  assert.equal(content.hooks.PreToolUse[1].hooks[0].timeout, 3);
 });
 
 test('inject (user --settings PATH): deep-merges, collapses to one flag, strips user flag', () => {

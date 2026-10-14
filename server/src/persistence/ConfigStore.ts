@@ -46,6 +46,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
   showPrStatus: true,
+  autoApprovalEnabled: false,
 };
 
 export class ConfigStore {

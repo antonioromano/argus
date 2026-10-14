@@ -35,6 +35,9 @@ import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
 import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
+import { createAutoApprovalRoutes } from './routes/autoApproval.js';
+import { AutoApprovalStore } from './persistence/AutoApprovalStore.js';
+import { AutoApprovalService } from './services/autoApproval/AutoApprovalService.js';
 import { NgrokService } from './services/NgrokService.js';
 import { SleepPreventionService } from './services/SleepPreventionService.js';
 import { KeepAwakeService } from './services/KeepAwakeService.js';
@@ -296,7 +299,21 @@ authService.setIo(io);
 // per-session HMAC + loopback-only + a tiny body cap (plan 2026-07-22-001, R5).
 const signalSecret = getOrCreateSignalSecret(path.join(dataDir, 'signal-secret'));
 sessionManager.setSignalConfig(signalSecret, resolveSignalBin());
-app.use('/api/agent-signals', createAgentSignalRoutes(sessionManager, () => signalSecret));
+// F5 auto-approval: rules live in the data dir (never a session folder), the
+// decision is made here from the session table, and the global switch is the
+// live config. Until the store has loaded it holds no rules, so nothing is allowed.
+const autoApprovalStore = new AutoApprovalStore(path.join(dataDir, 'auto-approval.json'));
+autoApprovalStore.load().catch((err) => console.warn('[autoApproval] store load failed:', err));
+const autoApprovalService = new AutoApprovalService({
+  store: autoApprovalStore,
+  isEnabled: () => currentConfig?.autoApprovalEnabled === true,
+  getSession: (id) => sessionManager.getSessionInfo(id),
+});
+app.use('/api/agent-signals', createAgentSignalRoutes(
+  sessionManager,
+  () => signalSecret,
+  (sessionId, hook) => autoApprovalService.decide(sessionId, hook),
+));
 
 // Auth middleware — before routes
 app.use(createAuthMiddleware(authService));
@@ -373,6 +390,11 @@ app.use('/api/maintenance', createMaintenanceRoutes(new OrphanJanitor({
 })));
 app.use('/api/auth', createAuthRoutes(authService));
 app.use('/api/config', createConfigRoutes(configStore, applyConfig));
+app.use('/api/auto-approval', createAutoApprovalRoutes({
+  store: autoApprovalStore,
+  service: autoApprovalService,
+  listSessions: () => sessionManager.getAllSessions(),
+}));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
 app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
