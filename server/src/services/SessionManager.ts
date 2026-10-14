@@ -51,6 +51,7 @@ import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import type { SearchTarget } from './search/crossSessionSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
@@ -1407,6 +1408,29 @@ export class SessionManager {
       if (s.launcherId === launcherId && s.status !== 'exited') return this.toSessionInfo(s);
     }
     return undefined;
+  }
+
+  /**
+   * Search sources for every session (F9). Reading them never wakes a
+   * hibernated mirror: a sleeping or exited session is searched from the frame
+   * it already stores.
+   */
+  searchTargets(): SearchTarget[] {
+    return Array.from(this.sessions.values()).map((session) => ({
+      sessionId: session.id,
+      sessionName: session.name,
+      agentType: session.agentType,
+      scrollback: () => {
+        if (session.exitedFrame) return { kind: 'frozen' as const, frame: session.exitedFrame.full };
+        const mirror = session.mirror;
+        if (!mirror || mirror.disposed) return null;
+        const frame = mirror.frozenFrame();
+        if (frame !== null) return { kind: 'frozen' as const, frame };
+        const rows = mirror.searchableRows();
+        return rows ? { kind: 'live' as const, rows } : null;
+      },
+      transcripts: () => session.usage?.transcriptPaths() ?? [],
+    }));
   }
 
   getAllSessions(): SessionInfo[] {

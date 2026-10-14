@@ -413,6 +413,32 @@ export class TerminalMirror {
   }
 
   /**
+   * Every row as plain text with its soft-wrap flag, for search — or null while
+   * hibernated or disposed. Never wakes the mirror: a search must not rebuild
+   * every sleeping emulator (use frozenFrame() instead).
+   */
+  searchableRows(): { text: string; wrapped: boolean }[] | null {
+    const term = this._term;
+    if (this.destroyed || this.frozen || !term) return null;
+    const buf = term.buffer.active;
+    const total = buf.baseY + term.rows;
+    const out: { text: string; wrapped: boolean }[] = [];
+    for (let y = 0; y < total; y++) {
+      const line = buf.getLine(y);
+      // A row that wraps onto the next keeps its trailing cells: a space at
+      // the wrap point is part of the logical line.
+      const continues = buf.getLine(y + 1)?.isWrapped ?? false;
+      out.push({ text: line?.translateToString(!continues) ?? '', wrapped: line?.isWrapped ?? false });
+    }
+    return out;
+  }
+
+  /** The full frame a hibernated mirror keeps, or null when it is awake. */
+  frozenFrame(): string | null {
+    return this.destroyed ? null : this.frozen?.full ?? null;
+  }
+
+  /**
    * Remove scrollback rows `[start, end)` — absolute buffer indices — keeping
    * everything else, including the visible screen. xterm has no row-range delete
    * and `\x1b[3J` is all-or-nothing, so the buffer is rebuilt: re-emit the rows

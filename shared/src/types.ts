@@ -950,3 +950,41 @@ export interface OrphanKillResponse {
   /** Pids still alive after the grace period, which got SIGKILL. */
   forceKilled: number[];
 }
+
+// ── Cross-session search (F9) ──────────────────────────────────────────────
+
+/** One match: a terminal line or a transcript message, with a short snippet. */
+export interface SearchHit {
+  source: 'scrollback' | 'transcript';
+  /** Plain text around the match (whitespace collapsed, at most ~160 chars). */
+  snippet: string;
+  /** Offset and length of the match inside `snippet`. */
+  matchStart: number;
+  matchLength: number;
+  /**
+   * Scrollback hits from a live mirror only: the buffer row the matching line
+   * starts on. Absent for a hibernated or exited session, which is searched
+   * from its stored frame, where row indices are not known.
+   */
+  line?: number;
+  /** Transcript hits: who wrote the message. */
+  role?: 'user' | 'assistant';
+}
+
+export interface SessionSearchResult {
+  sessionId: string;
+  sessionName: string;
+  agentType: AgentType;
+  /** How the scrollback was read: the live emulator, a stored frame (sleeping
+   *  or exited session, not woken for the search), or not at all. */
+  scrollback: 'live' | 'frozen' | 'none';
+  hits: SearchHit[];
+}
+
+/** GET /api/search?q=&limit= */
+export interface SearchResponse {
+  query: string;
+  results: SessionSearchResult[];
+  /** The result cap or a time budget cut the search short. */
+  truncated: boolean;
+}

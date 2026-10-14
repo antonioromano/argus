@@ -44,6 +44,7 @@ import { UpdateService } from './services/UpdateService.js';
 import { createConfigRoutes, createAgentRoutes } from './routes/config.js';
 import { createUpdateRoutes } from './routes/update.js';
 import { createWorktreeRoutes } from './routes/worktrees.js';
+import { createSearchRoutes } from './routes/search.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
 import { createOriginGuard } from './middleware/originGuard.js';
@@ -369,6 +370,7 @@ app.use('/api/config', createConfigRoutes(configStore, applyConfig));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
 app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
+app.use('/api/search', createSearchRoutes({ targets: () => sessionManager.searchTargets() }));
 app.use('/api/windows', createWindowRoutes(
   windowRegistry,
   () => sessionManager.getAllSessions().map((s) => s.id),
