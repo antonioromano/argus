@@ -128,3 +128,60 @@ test('no callbacks fire after stop', async () => {
     cleanup();
   }
 });
+
+test('sessions on the same folder share one native watcher (refcounted)', async () => {
+  const { dir, cleanup } = tmp();
+  const other = tmp();
+  const { svc, calls } = makeCollector();
+  try {
+    svc.watch('a', dir);
+    svc.watch('b', dir + '/'); // same root, different spelling
+    svc.watch('c', other.dir);
+    assert.equal(svc.size, 3);
+    assert.equal(svc.rootCount, 2, 'one watcher per distinct root');
+
+    await settle(300);
+    writeFileSync(join(dir, 'shared.txt'), 'x');
+    await settle(300);
+    const got = new Set(calls.map((c) => c.sessionId));
+    assert.ok(got.has('a') && got.has('b'), `both subscribers notified: ${JSON.stringify(calls)}`);
+    assert.ok(!got.has('c'), 'a session on another root is not notified');
+
+    // The shared watcher survives until its LAST subscriber stops.
+    await svc.stop('a');
+    assert.equal(svc.rootCount, 2);
+    calls.length = 0;
+    writeFileSync(join(dir, 'after-a.txt'), 'x');
+    await settle(300);
+    assert.ok(calls.some((c) => c.sessionId === 'b'), 'b still notified after a stops');
+    assert.ok(!calls.some((c) => c.sessionId === 'a'), 'a no longer notified');
+
+    await svc.stop('b');
+    assert.equal(svc.rootCount, 1, 'last subscriber closes the watcher');
+  } finally {
+    await svc.stopAll();
+    cleanup();
+    other.cleanup();
+  }
+});
+
+test('re-watching a stopped session on a new root moves it', async () => {
+  const a = tmp();
+  const b = tmp();
+  const { svc } = makeCollector();
+  try {
+    svc.watch('s', a.dir);
+    svc.watch('t', a.dir);
+    await svc.stop('s');
+    svc.watch('s', b.dir);
+    assert.equal(svc.rootCount, 2);
+    await svc.stop('t');
+    assert.equal(svc.rootCount, 1);
+    await svc.stop('s');
+    assert.equal(svc.rootCount, 0);
+  } finally {
+    await svc.stopAll();
+    a.cleanup();
+    b.cleanup();
+  }
+});

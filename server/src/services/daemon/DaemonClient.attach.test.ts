@@ -6,6 +6,7 @@ import path from 'path';
 import { mkdtempSync, rmSync } from 'fs';
 import { DaemonClient, DaemonPty } from './DaemonClient.js';
 import { resolveDaemonBin } from './resolveDaemonBin.js';
+import { DaemonBackend } from '../ptyBackend/DaemonBackend.js';
 
 const BIN = resolveDaemonBin();
 const guard = BIN ? undefined : { skip: 'argusd binary not built (run make -C daemon build)' };
@@ -26,7 +27,7 @@ function frame(kind: number, id: string, payload: Buffer): Buffer {
   return Buffer.concat([hdr, body]);
 }
 
-interface Ctl { op: string; id?: string; version?: number }
+interface Ctl { op: string; id?: string; version?: number; caps?: string[] }
 
 /**
  * A stand-in for argusd that records the control frames it receives and only
@@ -66,6 +67,7 @@ function fakeDaemon(opts: { closeWithoutHello?: boolean } = {}) {
     received,
     listening,
     ack: (id: string) => sock?.write(frame(KIND_CONTROL, '', Buffer.from(JSON.stringify({ op: 'attached', id })))),
+    control: (ctl: Ctl) => sock?.write(frame(KIND_CONTROL, '', Buffer.from(JSON.stringify(ctl)))),
     send: (id: string, data: string) => sock?.write(frame(KIND_DATA, id, Buffer.from(data, 'utf8'))),
     close: () => {
       sock?.destroy();
@@ -206,4 +208,65 @@ test('DaemonClient: a restore burst replays every session\'s backlog', { ...(gua
   c2.killAll();
   c2.dispose();
   cleanup();
+});
+
+test('DaemonClient: announces the resync capability right after the handshake', async () => {
+  const fake = fakeDaemon();
+  await fake.listening;
+  const client = new DaemonClient(fake.socketPath, '/nonexistent', 'test');
+  await client.ensureConnected();
+  // Without it the daemon keeps the legacy shared outbox, whose overflow drops
+  // the connection and re-attaches every session.
+  await waitFor(() => fake.received.some((c) => c.op === 'caps'));
+  assert.deepEqual(fake.received.find((c) => c.op === 'caps')?.caps, ['resync']);
+  client.dispose();
+  fake.close();
+});
+
+test('DaemonClient: a second attach for a session already queued is folded into it', async () => {
+  const fake = fakeDaemon();
+  await fake.listening;
+  const client = new DaemonClient(fake.socketPath, '/nonexistent', 'test');
+  await client.ensureConnected();
+
+  client.attach('a');
+  client.attach('b');
+  client.attach('b'); // e.g. a resync for a session still waiting its turn
+  fake.ack('a');
+  await waitFor(() => attaches(fake.received).length === 2);
+  fake.ack('b');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(attaches(fake.received), ['a', 'b']);
+
+  client.dispose();
+  fake.close();
+});
+
+test('DaemonBackend: a per-session resync re-attaches only that session, wiping it first', async () => {
+  const fake = fakeDaemon();
+  await fake.listening;
+  const backend = new DaemonBackend(fake.socketPath, '/nonexistent', 'test');
+  await backend.ready();
+  const wiped: string[] = [];
+  backend.onSessionResync((id) => wiped.push(id));
+  const opts = (sessionId: string) => ({
+    sessionId, folderPath: os.tmpdir(), command: 'cat', cols: 80, rows: 24, flags: [], extraEnv: {}, attachExisting: false,
+  });
+  backend.spawn(opts('busy'));
+  backend.spawn(opts('calm'));
+
+  fake.control({ op: 'resync', id: 'busy' });
+  await waitFor(() => attaches(fake.received).length === 1);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(attaches(fake.received), ['busy']);
+  assert.deepEqual(wiped, ['busy'], 'the mirror is wiped right before its replay, and no other');
+
+  // A resync for a session we no longer hold is ignored.
+  fake.ack('busy');
+  fake.control({ op: 'resync', id: 'gone' });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(attaches(fake.received), ['busy']);
+
+  (backend as unknown as { client: DaemonClient }).client.dispose();
+  fake.close();
 });

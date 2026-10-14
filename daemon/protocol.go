@@ -14,9 +14,10 @@ import (
 
 // Wire framing: [uint32 BE bodyLen][body]. body[0] = kind, body[1] = idLen,
 // body[2:2+idLen] = sessionId, body[2+idLen:] = payload.
-//   kind 'C' → payload is JSON `control` (session id usually empty)
-//   kind 'D' → payload is raw pty bytes for the tagged session (both directions:
-//              daemon→server is output, server→daemon is input)
+//
+//	kind 'C' → payload is JSON `control` (session id usually empty)
+//	kind 'D' → payload is raw pty bytes for the tagged session (both directions:
+//	           daemon→server is output, server→daemon is input)
 const (
 	kindControl = 'C'
 	kindData    = 'D'
@@ -40,48 +41,101 @@ type control struct {
 	Sessions []string          `json:"sessions,omitempty"`
 	Version  int               `json:"version,omitempty"`
 	Msg      string            `json:"msg,omitempty"`
+	// Caps (op "caps", server→daemon): optional behaviours the consumer
+	// understands. An older daemon ignores the op; an older server never sends
+	// it, and keeps the legacy flow control below.
+	Caps []string `json:"caps,omitempty"`
 }
 
+// capResync: the consumer handles {op:"resync", id} by re-attaching that
+// session. Without it the daemon cannot shed one session's backlog, so it falls
+// back to the legacy shared budget whose overflow drops the connection.
+const capResync = "resync"
+
 const (
-	// Bytes of un-sent output the daemon is willing to hold for one consumer.
-	// Past this the consumer is not slow, it is gone: we drop the connection
-	// rather than grow without bound. ~2 full session rings.
-	maxOutboxBytes = 8 << 20
-	// Frames the outbox can hold regardless of size, so a flood of tiny frames
-	// can't outrun the writer either.
-	maxOutboxFrames = 8192
+	// Live (non-replay) output one session may have queued and unsent. Past
+	// this the session — not the connection — is behind: its queued live frames
+	// are discarded and the server is told to resync it. Kept BELOW the ring
+	// capacity on purpose: the attach replay that follows covers the whole ring,
+	// so it re-delivers every discarded byte and the client sees no gap.
+	maxSessionLiveBytes = 1 << 20
+	// Replay (attach backlog) bytes the outbox holds at once. Replay waits for
+	// room under this rather than being dropped (see enqueueWait).
+	maxReplayBytes = 2 << 20
+	// Charged per queued frame on top of its bytes, so a flood of tiny frames
+	// is bounded by the same budgets as a few big ones.
+	frameOverhead = 64
 	// A single socket write that can't complete in this long means the consumer
 	// is wedged, not busy.
-	writeTimeout = 15 * time.Second
-	// How often a paced write re-checks for outbox room. Coarse on purpose: this
-	// runs on the control path, where a couple of milliseconds of latency per
-	// chunk is invisible next to the socket write it is waiting for.
+	defaultWriteTimeout = 15 * time.Second
+	// How often a paced write re-checks for outbox room.
 	outboxPollInterval = 2 * time.Millisecond
+	// Upper bound on one batched socket write (writev of queued frames).
+	maxWriteBatch = 1 << 20
+	// Shared outbox budget for a consumer that has not announced capResync
+	// (the pre-flow-control behaviour: overflow drops the connection).
+	legacyOutboxBytes = 8 << 20
 )
 
-var errOutboxFull = errors.New("outbox full — consumer not draining")
+// writeTimeout is a var so tests can shorten the wedge detector.
+var writeTimeout = defaultWriteTimeout
+
+var (
+	errOutboxFull = errors.New("outbox full — consumer not draining")
+	// errSessionResync: this session's live output is being discarded until the
+	// server re-attaches it. Not a connection failure.
+	errSessionResync = errors.New("session awaiting resync")
+)
+
+// outFrame is one encoded frame waiting for the writer.
+type outFrame struct {
+	buf  []byte
+	id   string // session the frame belongs to ("" for control)
+	live bool   // live pty output (droppable on per-session overflow)
+	cost int64
+}
 
 // framedConn serializes all writes to a connection (many pty read-loop
 // goroutines + control replies share one socket).
 //
 // Writes NEVER block the caller. A pty read loop that had to wait on the socket
-// would hold its session lock while it waited, and — because every session
-// shares this one connection — every other session's read loop would pile up
-// behind it, stalling the agents themselves and jamming the daemon's control
-// path (spawn/attach/resize/kill) daemon-wide. Instead frames go into a bounded
-// outbox drained by one writer goroutine; if the consumer stops draining, the
-// outbox fills and we close the connection. Sessions survive that close, so the
-// server reconnects and re-attaches, and each session's ring replays the gap.
+// would hold up every other session sharing it, stalling the agents themselves
+// and jamming the daemon's control path. Frames go into an outbox drained by one
+// writer goroutine instead.
+//
+// Flow control is PER SESSION. A session whose queued live output passes
+// maxSessionLiveBytes has those frames discarded and a {op:"resync", id} control
+// frame queued in their place; further live output for it is dropped until the
+// server re-attaches it (resumeLive), whose replay re-covers the gap from the
+// ring. Every other session keeps streaming. The previous design had one shared
+// 8MB budget whose overflow closed the whole connection — one busy session
+// reattached every session, and each reattach replayed and reparsed a 2MB ring
+// (a cascade that cost seconds of main-thread time in the app).
+//
+// A global safety cap sized to the session count remains: crossing it (only
+// possible through a pathological flood of control frames) still drops the
+// connection, as does a socket write that cannot complete in writeTimeout.
+//
+// Per-session resync is opt-in (capResync, announced by the consumer with
+// op "caps"): a consumer that never announced it would ignore the notice and
+// leave the session frozen, so it keeps the legacy shared 8MB budget.
 type framedConn struct {
 	w  io.Writer
-	mu sync.Mutex // guards w on the synchronous path (no outbox)
+	mu sync.Mutex // guards w on the synchronous path; the outbox on the async one
 
 	// Async path — set by newClientConn, nil for plain io.Writer wrapping.
-	conn   net.Conn
-	q      chan []byte
-	queued atomic.Int64
-	dead   chan struct{}
-	once   sync.Once
+	conn         net.Conn
+	sessionCount func() int
+	cond         *sync.Cond
+	q            []*outFrame
+	queued       int64            // total cost queued
+	replayQueued int64            // cost of queued replay frames
+	liveQueued   map[string]int64 // per-session cost of queued live frames
+	resyncing    map[string]bool  // sessions whose live output is suppressed
+	resyncs      atomic.Int64     // resync notices issued (tests/diagnostics)
+	resyncOK     atomic.Bool      // consumer announced capResync
+	dead         chan struct{}
+	once         sync.Once
 }
 
 // newFramedConn wraps a plain writer with synchronous framing (test helpers and
@@ -89,31 +143,103 @@ type framedConn struct {
 func newFramedConn(w io.Writer) *framedConn { return &framedConn{w: w} }
 
 // newClientConn wraps the active server connection and starts its writer
-// goroutine. All daemon→server frames go through the bounded outbox.
-func newClientConn(c net.Conn) *framedConn {
+// goroutine. sessionCount sizes the global safety cap (nil → treated as 1).
+func newClientConn(c net.Conn, sessionCount func() int) *framedConn {
 	fc := &framedConn{
-		w:    c,
-		conn: c,
-		q:    make(chan []byte, maxOutboxFrames),
-		dead: make(chan struct{}),
+		w:            c,
+		conn:         c,
+		sessionCount: sessionCount,
+		liveQueued:   map[string]int64{},
+		resyncing:    map[string]bool{},
+		dead:         make(chan struct{}),
 	}
+	fc.cond = sync.NewCond(&fc.mu)
 	go fc.writeLoop()
 	return fc
 }
 
-func (c *framedConn) writeLoop() {
-	for {
-		select {
-		case <-c.dead:
-			return
-		case buf := <-c.q:
-			c.queued.Add(-int64(len(buf)))
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-			if _, err := c.conn.Write(buf); err != nil {
-				c.drop()
-				return
-			}
+// globalCap bounds everything queued: every session at its live cap, the replay
+// window, plus one more session's worth of headroom for control frames. Called
+// WITHOUT c.mu held: sessionCount takes the daemon lock, and the two locks are
+// never nested.
+func (c *framedConn) globalCap() int64 {
+	if !c.resyncOK.Load() {
+		return legacyOutboxBytes
+	}
+	n := 1
+	if c.sessionCount != nil {
+		if k := c.sessionCount(); k > n {
+			n = k
 		}
+	}
+	return int64(n+1)*maxSessionLiveBytes + maxReplayBytes
+}
+
+// isDead reports whether the connection has been dropped. A synchronous
+// (test/client) wrapper is never dead.
+func (c *framedConn) isDead() bool {
+	if c.dead == nil {
+		return false
+	}
+	select {
+	case <-c.dead:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *framedConn) writeLoop() {
+	var batch net.Buffers
+	for {
+		c.mu.Lock()
+		for len(c.q) == 0 && !c.isDead() {
+			c.cond.Wait()
+		}
+		if c.isDead() {
+			c.mu.Unlock()
+			return
+		}
+		// Take a batch of frames and release their budget as they leave the
+		// queue: from here they belong to the socket, not the outbox.
+		batch = batch[:0]
+		size := 0
+		taken := 0
+		for _, f := range c.q {
+			if taken > 0 && size+len(f.buf) > maxWriteBatch {
+				break
+			}
+			batch = append(batch, f.buf)
+			size += len(f.buf)
+			taken++
+			c.release(f)
+		}
+		clear(c.q[:taken])
+		c.q = c.q[taken:]
+		c.mu.Unlock()
+
+		_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+		out := batch // WriteTo consumes its receiver; keep batch's backing array
+		_, err := out.WriteTo(c.conn)
+		clear(batch) // don't pin sent frames until the slots are reused
+		if err != nil {
+			c.drop()
+			return
+		}
+	}
+}
+
+// release returns a frame's cost to the budgets. Caller holds c.mu.
+func (c *framedConn) release(f *outFrame) {
+	c.queued -= f.cost
+	if f.live {
+		if v := c.liveQueued[f.id] - f.cost; v > 0 {
+			c.liveQueued[f.id] = v
+		} else {
+			delete(c.liveQueued, f.id)
+		}
+	} else if f.id != "" {
+		c.replayQueued -= f.cost
 	}
 }
 
@@ -125,68 +251,168 @@ func (c *framedConn) drop() {
 		if c.conn != nil {
 			_ = c.conn.Close()
 		}
+		if c.cond != nil {
+			c.mu.Lock()
+			c.q = nil
+			c.cond.Broadcast()
+			c.mu.Unlock()
+		}
 	})
 }
 
-// enqueue hands one encoded frame to the writer, never blocking.
-func (c *framedConn) enqueue(buf []byte) error {
-	if c.q == nil {
+// push appends a frame. Caller holds c.mu.
+func (c *framedConn) push(f *outFrame) {
+	c.q = append(c.q, f)
+	c.queued += f.cost
+	if f.live {
+		c.liveQueued[f.id] += f.cost
+	} else if f.id != "" {
+		c.replayQueued += f.cost
+	}
+	c.cond.Signal()
+}
+
+// enqueueControl queues a non-session frame, never blocking.
+func (c *framedConn) enqueueControl(buf []byte) error {
+	if c.cond == nil {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		_, err := c.w.Write(buf)
 		return err
 	}
-	select {
-	case <-c.dead:
+	f := &outFrame{buf: buf, cost: int64(len(buf)) + frameOverhead}
+	limit := c.globalCap()
+	c.mu.Lock()
+	if c.isDead() {
+		c.mu.Unlock()
 		return errOutboxFull
-	default:
 	}
-	if c.queued.Load()+int64(len(buf)) > maxOutboxBytes {
+	if c.queued+f.cost > limit {
+		c.mu.Unlock()
 		c.drop()
 		return errOutboxFull
 	}
-	select {
-	case c.q <- buf:
-		c.queued.Add(int64(len(buf)))
-		return nil
-	default:
+	c.push(f)
+	c.mu.Unlock()
+	return nil
+}
+
+// enqueueLive queues one session's live output, never blocking. A session past
+// its live budget is switched to resync instead of costing the connection.
+func (c *framedConn) enqueueLive(id string, data []byte) error {
+	if c.cond == nil {
+		return c.writeFrameSync(kindData, id, data)
+	}
+	buf, err := encodeFrame(kindData, id, data)
+	if err != nil {
+		return err
+	}
+	cost := int64(len(buf)) + frameOverhead
+	resyncOK := c.resyncOK.Load()
+	limit := c.globalCap()
+	c.mu.Lock()
+	if c.isDead() {
+		c.mu.Unlock()
+		return errOutboxFull
+	}
+	if c.resyncing[id] {
+		c.mu.Unlock()
+		return errSessionResync
+	}
+	if resyncOK && c.liveQueued[id]+cost > maxSessionLiveBytes {
+		c.startResyncLocked(id)
+		c.mu.Unlock()
+		return errSessionResync
+	}
+	if c.queued+cost > limit {
+		c.mu.Unlock()
 		c.drop()
 		return errOutboxFull
+	}
+	c.push(&outFrame{buf: buf, id: id, live: true, cost: cost})
+	c.mu.Unlock()
+	return nil
+}
+
+// startResyncLocked discards the session's queued live frames, suppresses its
+// live output and queues the resync notice. Caller holds c.mu.
+func (c *framedConn) startResyncLocked(id string) {
+	c.resyncing[id] = true
+	kept := c.q[:0]
+	for _, f := range c.q {
+		if f.live && f.id == id {
+			c.release(f)
+			continue
+		}
+		kept = append(kept, f)
+	}
+	clear(c.q[len(kept):])
+	c.q = kept
+	c.resyncs.Add(1)
+	if b, err := json.Marshal(control{Op: "resync", ID: id}); err == nil {
+		if buf, err := encodeFrame(kindControl, "", b); err == nil {
+			// Bypasses the global cap: it is tiny, one per session per episode,
+			// and losing it would leave the session frozen.
+			c.push(&outFrame{buf: buf, cost: int64(len(buf)) + frameOverhead})
+		}
 	}
 }
 
-// enqueueWait hands a frame to the writer, WAITING for outbox room instead of
-// declaring the consumer dead when the outbox is full.
-//
-// The non-blocking enqueue above is right for live output: a consumer that has
-// stopped draining must not cost unbounded memory, and a session read loop must
-// never block. Attach replay is the opposite case. It is a bounded, one-shot
-// backlog that the consumer *needs* — dropping it leaves a restored terminal
-// permanently blank — and it is produced on the connection's control goroutine,
-// where waiting costs nothing but this consumer's own throughput. Waiting turns
-// "consumer is behind" into backpressure rather than a dropped connection.
-//
-// The timeout still distinguishes slow from gone: a consumer that frees no room
-// at all within it is wedged, and we drop it exactly as before.
-func (c *framedConn) enqueueWait(buf []byte, timeout time.Duration) error {
-	if c.q == nil {
-		return c.enqueue(buf)
+// enableResync records that the consumer handles per-session resync.
+func (c *framedConn) enableResync() { c.resyncOK.Store(true) }
+
+// resumeLive ends a session's resync episode: the caller is about to replay its
+// ring (attach), after which live output flows again.
+func (c *framedConn) resumeLive(id string) {
+	if c.cond == nil {
+		return
 	}
+	c.mu.Lock()
+	delete(c.resyncing, id)
+	c.mu.Unlock()
+}
+
+// isResyncing reports whether a session's live output is suppressed.
+func (c *framedConn) isResyncing(id string) bool {
+	if c.cond == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.resyncing[id]
+}
+
+// enqueueWait hands a replay frame to the writer, WAITING for replay-window
+// room instead of dropping it.
+//
+// Live output is droppable (the ring re-covers it); attach replay is not — it
+// IS the ring, and dropping it leaves a restored terminal blank. It is a
+// bounded, one-shot backlog produced off the connection's read loop, so waiting
+// costs nothing but this consumer's own throughput. The timeout still
+// distinguishes slow from gone: a consumer that frees no room at all within it
+// is wedged, and we drop it.
+func (c *framedConn) enqueueWait(id string, buf []byte, timeout time.Duration) error {
+	if c.cond == nil {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		_, err := c.w.Write(buf)
+		return err
+	}
+	f := &outFrame{buf: buf, id: id, cost: int64(len(buf)) + frameOverhead}
 	deadline := time.Now().Add(timeout)
 	for {
-		select {
-		case <-c.dead:
+		c.mu.Lock()
+		if c.isDead() {
+			c.mu.Unlock()
 			return errOutboxFull
-		default:
 		}
-		if c.queued.Load()+int64(len(buf)) <= maxOutboxBytes {
-			select {
-			case c.q <- buf:
-				c.queued.Add(int64(len(buf)))
-				return nil
-			default:
-			}
+		// An empty replay window always admits one frame, however large.
+		if c.replayQueued == 0 || c.replayQueued+f.cost <= maxReplayBytes {
+			c.push(f)
+			c.mu.Unlock()
+			return nil
 		}
+		c.mu.Unlock()
 		if time.Now().After(deadline) {
 			c.drop()
 			return errOutboxFull
@@ -197,17 +423,11 @@ func (c *framedConn) enqueueWait(buf []byte, timeout time.Duration) error {
 
 // writeDataPaced is writeData for backlog replay: same frame, paced enqueue.
 func (c *framedConn) writeDataPaced(id string, data []byte, timeout time.Duration) error {
-	if len(id) > 255 {
-		return fmt.Errorf("session id too long: %d", len(id))
+	buf, err := encodeFrame(kindData, id, data)
+	if err != nil {
+		return err
 	}
-	body := make([]byte, 0, 2+len(id)+len(data))
-	body = append(body, kindData, byte(len(id)))
-	body = append(body, id...)
-	body = append(body, data...)
-	buf := make([]byte, 4+len(body))
-	binary.BigEndian.PutUint32(buf[:4], uint32(len(body)))
-	copy(buf[4:], body)
-	return c.enqueueWait(buf, timeout)
+	return c.enqueueWait(id, buf, timeout)
 }
 
 func (c *framedConn) writeControl(ctl control) error {
@@ -218,25 +438,43 @@ func (c *framedConn) writeControl(ctl control) error {
 	return c.writeFrame(kindControl, "", b)
 }
 
+// writeData queues live pty output for a session (droppable; see enqueueLive).
 func (c *framedConn) writeData(id string, data []byte) error {
-	return c.writeFrame(kindData, id, data)
+	return c.enqueueLive(id, data)
 }
 
 func (c *framedConn) writeFrame(kind byte, id string, payload []byte) error {
-	if len(id) > 255 {
-		return fmt.Errorf("session id too long: %d", len(id))
+	buf, err := encodeFrame(kind, id, payload)
+	if err != nil {
+		return err
 	}
-	body := make([]byte, 0, 2+len(id)+len(payload))
-	body = append(body, kind, byte(len(id)))
-	body = append(body, id...)
-	body = append(body, payload...)
+	return c.enqueueControl(buf)
+}
 
-	// One buffer, one write: the outbox hands the writer a complete frame, so a
-	// header can never be separated from its body by a concurrent producer.
-	buf := make([]byte, 4+len(body))
-	binary.BigEndian.PutUint32(buf[:4], uint32(len(body)))
-	copy(buf[4:], body)
-	return c.enqueue(buf)
+func (c *framedConn) writeFrameSync(kind byte, id string, payload []byte) error {
+	buf, err := encodeFrame(kind, id, payload)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, err = c.w.Write(buf)
+	return err
+}
+
+// encodeFrame builds one complete frame in a single buffer, so the writer can
+// never separate a header from its body.
+func encodeFrame(kind byte, id string, payload []byte) ([]byte, error) {
+	if len(id) > 255 {
+		return nil, fmt.Errorf("session id too long: %d", len(id))
+	}
+	buf := make([]byte, 4+2+len(id)+len(payload))
+	binary.BigEndian.PutUint32(buf[:4], uint32(2+len(id)+len(payload)))
+	buf[4] = kind
+	buf[5] = byte(len(id))
+	copy(buf[6:], id)
+	copy(buf[6+len(id):], payload)
+	return buf, nil
 }
 
 type frame struct {

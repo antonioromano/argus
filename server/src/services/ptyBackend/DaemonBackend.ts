@@ -30,6 +30,15 @@ export class DaemonBackend implements PtyBackend {
     // subscribed any more: every session must be re-attached or its terminal
     // stays frozen for the rest of the app's life.
     this.client.on('reconnected', () => this.reattachAll());
+    // Per-session flow control: we fell behind on ONE session and the daemon
+    // shed its queued live output. Re-attach just that session — same wipe +
+    // replay as a reconnect, without touching the others.
+    this.client.on('resync', (sessionId: string) => this.reattach(sessionId));
+  }
+
+  private reattach(sessionId: string): void {
+    if (!this.ptys.has(sessionId)) return; // stopped meanwhile: nothing to repaint
+    this.client.attach(sessionId, () => this.resyncCb?.(sessionId));
   }
 
   private reattachAll(): void {
@@ -40,7 +49,7 @@ export class DaemonBackend implements PtyBackend {
       // a time, so the wipe is deferred to the moment each one actually goes out
       // — wiping every mirror here would blank sessions still waiting their turn
       // for minutes, showing the user the very emptiness this pacing prevents.
-      this.client.attach(sessionId, () => this.resyncCb?.(sessionId));
+      this.reattach(sessionId);
     }
   }
 

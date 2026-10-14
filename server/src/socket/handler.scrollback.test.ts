@@ -34,6 +34,7 @@ function harness() {
     resizeSession: () => {},
     scheduleIdleGeometry: () => {},
     cancelIdleGeometry: () => {},
+    rehydrateMirror: () => {},
     companionTerminals: { resize: () => {} },
   } as unknown as SessionManager;
 

@@ -198,6 +198,9 @@ export function setupSocketHandler(
       if (replay) {
         socket.emit('session:replay', { sessionId, ...replay });
       }
+      // Answered from the frozen frame if the session's mirror was asleep (idle
+      // with nobody watching); wake it now that someone is.
+      manager.rehydrateMirror(sessionId);
     });
 
     // A client already in the room whose screen drifted out of alignment (refit,

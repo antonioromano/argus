@@ -61,3 +61,67 @@ test('without tmux the report is written to the pty', () => {
   b.writeWheel('s', { write: (d: string) => writes.push(d) } as any, UP);
   assert.deepEqual(writes, [UP]);
 });
+
+// --- restore: one list-panes -a per poll, not two forks per survivor (P4) ---
+
+function restorePty(panes: Record<string, { dead: boolean; alternate: boolean }>) {
+  const calls: string[] = [];
+  const pm = {
+    isTmuxAvailable: () => true,
+    listPaneStates: () => {
+      calls.push('list-panes -a');
+      return new Map(Object.entries(panes));
+    },
+    isTmuxPaneDead: (name: string) => {
+      calls.push(`pane_dead ${name}`);
+      return panes[name]?.dead ?? false;
+    },
+    captureState: (name: string) => {
+      calls.push(`display ${name}`);
+      return { cursorX: 0, cursorY: 0, alternate: panes[name]?.alternate ?? false, appMouse: false, sgr: true };
+    },
+    capturePane: () => '',
+    killTmuxSession: (name: string) => calls.push(`kill ${name}`),
+  };
+  return { pm: pm as any, calls };
+}
+
+test('restore answers every survivor from a single list-panes -a', async () => {
+  const { pm, calls } = restorePty({
+    'argus-a': { dead: false, alternate: false },
+    'argus-b': { dead: true, alternate: false },
+    'argus-c': { dead: false, alternate: true },
+  });
+  const b = new TmuxBackend(pm);
+  const ids = await b.listSurvivors();
+  assert.deepEqual([...ids].sort(), ['a', 'b', 'c']);
+  assert.equal(b.isSurvivorDead('a'), false);
+  assert.equal(b.isSurvivorDead('b'), true);
+  assert.equal(b.isSurvivorDead('c'), false);
+  const mirror = { markSeeding() {}, clearSeeding() {}, feed: async () => {} } as any;
+  for (const id of ['a', 'b', 'c']) b.seedMirror(id, mirror);
+  assert.deepEqual(calls, ['list-panes -a'], 'no per-session tmux forks during the restore');
+});
+
+test('a session missing from the snapshot, or a stale snapshot, asks tmux directly', async () => {
+  const { pm, calls } = restorePty({ 'argus-a': { dead: false, alternate: false } });
+  const b = new TmuxBackend(pm);
+  await b.listSurvivors();
+  b.isSurvivorDead('new');
+  assert.deepEqual(calls, ['list-panes -a', 'pane_dead argus-new']);
+
+  calls.length = 0;
+  (b as any).paneSnapshot.at -= 60_000; // long after the restore
+  b.isSurvivorDead('a');
+  assert.deepEqual(calls, ['pane_dead argus-a']);
+});
+
+test('stopping a session drops it from the snapshot (a respawn is a different pane)', async () => {
+  const { pm, calls } = restorePty({ 'argus-a': { dead: true, alternate: false } });
+  const b = new TmuxBackend(pm);
+  await b.listSurvivors();
+  b.stopSession('a');
+  calls.length = 0;
+  b.isSurvivorDead('a');
+  assert.deepEqual(calls, ['pane_dead argus-a']);
+});

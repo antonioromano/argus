@@ -29,6 +29,9 @@ const (
 	// than the consumer drains it can reach this; past it the backlog stops
 	// being a backlog.
 	replayMaxDuration = 30 * time.Second
+	// Attaches waiting for the replay worker. The server sends them one at a
+	// time; the depth only matters for a client that bursts them.
+	attachQueueDepth = 4096
 )
 
 type daemon struct {
@@ -162,7 +165,18 @@ func (d *daemon) cleanup() {
 // handleConn serves the single active server connection: handshake, then a frame
 // read loop. On disconnect, sessions survive (unsubscribed) — the whole point.
 func (d *daemon) handleConn(conn net.Conn) {
-	fc := newClientConn(conn)
+	fc := newClientConn(conn, d.sessionCount)
+	// Attach replay runs on its own goroutine: it paces a backlog of up to a
+	// whole ring against the consumer and can wait replayWriteTimeout per chunk,
+	// and on the read goroutine that wait froze input, resizes and spawns for
+	// every session. One worker (not one per attach) keeps the restore burst
+	// serialised, so the sessions' combined backlog never lands in one lump.
+	attaches := make(chan *session, attachQueueDepth)
+	go func() {
+		for s := range attaches {
+			replayAndSubscribe(fc, s)
+		}
+	}()
 	d.mu.Lock()
 	d.client = fc
 	d.lastActivity = time.Now()
@@ -172,7 +186,8 @@ func (d *daemon) handleConn(conn net.Conn) {
 	log.Println("server connected")
 
 	defer func() {
-		fc.drop() // stops the writer goroutine and closes the socket
+		fc.drop()       // stops the writer goroutine and closes the socket
+		close(attaches) // the worker finishes (fast: every write now fails) and exits
 		d.mu.Lock()
 		d.client = nil
 		d.lastActivity = time.Now()
@@ -203,11 +218,18 @@ func (d *daemon) handleConn(conn net.Conn) {
 		if err != nil {
 			continue
 		}
-		d.handleControl(fc, c)
+		d.handleControl(fc, c, attaches)
 	}
 }
 
-func (d *daemon) handleControl(fc *framedConn, c control) {
+// sessionCount sizes the connection's global outbox cap.
+func (d *daemon) sessionCount() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.sessions)
+}
+
+func (d *daemon) handleControl(fc *framedConn, c control, attaches chan<- *session) {
 	d.mu.Lock()
 	d.lastActivity = time.Now()
 	d.mu.Unlock()
@@ -240,7 +262,7 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 			_ = fc.writeControl(control{Op: "error", ID: c.ID, Msg: "no such session"})
 			return
 		}
-		replayAndSubscribe(fc, s)
+		attaches <- s
 
 	case "write":
 		d.mu.Lock()
@@ -280,6 +302,13 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 		d.cleanup()
 		os.Exit(0)
 
+	case "caps":
+		for _, cp := range c.Caps {
+			if cp == capResync {
+				fc.enableResync()
+			}
+		}
+
 	case "ping":
 		_ = fc.writeControl(control{Op: "pong", Version: protocolVersion})
 	}
@@ -288,7 +317,7 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 // replayAndSubscribe hands one session's backlog to the client and then puts it
 // back on the live stream.
 //
-// Runs on the connection's read goroutine, so it also serialises the restore
+// Runs on the connection's single replay worker, so it serialises the restore
 // burst: an app restart attaches every session at once, and replaying them one
 // at a time is what keeps their combined backlog (sessions x 2MB ring) from
 // being enqueued in a single lump the outbox can only answer by dropping the
@@ -299,6 +328,10 @@ func (d *daemon) handleControl(fc *framedConn, c control) {
 // those bytes up), so the client still sees one ordered stream, and the handoff
 // back to live happens under the same lock the read loop takes.
 func replayAndSubscribe(fc *framedConn, s *session) {
+	// This replay covers the whole ring, so it re-delivers whatever live output
+	// a resync discarded: the episode ends here, and the deadline cut-over below
+	// may already use the live path.
+	fc.resumeLive(s.id)
 	s.mu.Lock()
 	s.subscribed = false
 	mark := s.ring.oldest()
@@ -307,6 +340,13 @@ func replayAndSubscribe(fc *framedConn, s *session) {
 	deadline := time.Now().Add(replayMaxDuration)
 	for {
 		s.mu.Lock()
+		if fc.isDead() {
+			// The connection is gone (its teardown resets subscribed after this
+			// check, under this same lock). Subscribing now would leak this
+			// connection's live stream into the next one.
+			s.mu.Unlock()
+			return
+		}
 		chunk, next := s.ring.from(mark, replayChunkBytes)
 		if len(chunk) == 0 {
 			s.subscribed = true // caught up; live frames resume in order
@@ -365,6 +405,7 @@ func (d *daemon) readLoop(s *session) {
 			break
 		}
 	}
+	s.stop()
 	_ = s.cmd.Wait()
 	code := 0
 	if s.cmd.ProcessState != nil {

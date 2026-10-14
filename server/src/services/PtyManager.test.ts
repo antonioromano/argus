@@ -84,3 +84,33 @@ test('spawnTmux evicts an orphaned client left by a prior run before reattaching
   assert.equal(pm.hasTmuxSession(name), true);
   reattached.kill();
 });
+
+test('listPaneStates parses one list-panes -a into per-session state', () => {
+  const pm = Object.create(PtyManager.prototype) as PtyManager;
+  const seen: string[][] = [];
+  (pm as any).runTmux = (args: string[]) => {
+    seen.push(args);
+    return [
+      'argus-a\t0\t0',
+      'argus-a\t1\t0', // a second pane that died → the session counts as dead
+      'argus-b\t0\t1',
+      'other\t1\t1', // not ours
+      '',
+    ].join('\n');
+  };
+  const states = pm.listPaneStates();
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0]!.slice(0, 2), ['list-panes', '-a']);
+  assert.deepEqual(Object.fromEntries(states), {
+    'argus-a': { dead: true, alternate: false },
+    'argus-b': { dead: false, alternate: true },
+  });
+});
+
+test('listPaneStates is empty when no tmux server is running', () => {
+  const pm = Object.create(PtyManager.prototype) as PtyManager;
+  (pm as any).runTmux = () => {
+    throw new Error('no server running');
+  };
+  assert.equal(pm.listPaneStates().size, 0);
+});

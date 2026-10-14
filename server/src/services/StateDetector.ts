@@ -316,7 +316,9 @@ export class StateDetector {
     // recent one as a 'waiting' hint during settle(). Registered on the shared
     // emulator's parser (coexists with the mirror's own mode scanner).
     // `intermediates: ' '` matches the single-space intermediate in DECSCUSR.
-    this.mirror.term.parser.registerCsiHandler({ intermediates: ' ', final: 'q' }, () => {
+    // Through the mirror, which re-applies it if a sleeping mirror wakes into a
+    // fresh emulator.
+    this.mirror.registerCsiHandler({ intermediates: ' ', final: 'q' }, () => {
       this.lastCursorStyleAt = this.clock.now();
       return false; // fall through to default handling
     });
@@ -419,6 +421,7 @@ export class StateDetector {
     // After output settles, classify based on what's actually on the screen.
     if (this.idleTimer) this.clock.clearTimeout(this.idleTimer);
     this.idleTimer = this.clock.setTimeout(() => {
+      this.idleTimer = null;
       this.mirror.afterWrite().then(() => this.settle());
     }, IDLE_SETTLE_MS);
   }
@@ -667,6 +670,15 @@ export class StateDetector {
   getMenuOptions(): MenuOption[] | undefined {
     if (this.destroyed) return undefined;
     return parseMenuOptions(this.visibleRows(EXTRACT_SCAN_ROWS));
+  }
+
+  /**
+   * No classification pending: every timer has fired and no status change is
+   * waiting out its debounce. A quiescent detector reads nothing until the
+   * next feed — which is what lets an idle session's mirror sleep.
+   */
+  isQuiescent(): boolean {
+    return !this.destroyed && !this.idleTimer && !this.debounceTimer && !this.runningTimer && this.pendingStatus === null;
   }
 
   setExited(): void {

@@ -81,17 +81,17 @@ session persistence.
 |---|---|---|---|
 | P1 | HIGH | Git-dirty poll: serial, not deduped per folder, takes `index.lock` (collides with the agent's `git commit`) | ✅ `--no-optional-locks` on all read-only status calls; folder dedupe; concurrency 4 |
 | P2 | HIGH | Full 5000-row `serialize()` (~45 ms, synchronous) on every join, resync and dedup | ✅ cached per write generation |
-| P3 | HIGH | One ~14 MB mirror per session for its whole life, including exited sessions | ✅ exited sessions frozen to a string 5s after exit, mirror and watcher disposed. ⏳ idle-unviewed tiering |
-| P4 | HIGH | Restore: ~10 sync tmux calls + a full `sessions.json` rewrite per session | ✅ one persist at the end; mouse config once per tmux server. ⏳ batch `list-panes -a`, async tmux |
+| P3 | HIGH | One ~14 MB mirror per session for its whole life, including exited sessions | ✅ exited sessions frozen to a string 5s after exit, mirror and watcher disposed. ✅ idle-unviewed sessions hibernate their mirror after 60s (reversible, wakes on output/resize/read/join) |
+| P4 | HIGH | Restore: ~10 sync tmux calls + a full `sessions.json` rewrite per session | ✅ one persist at the end; mouse config once per tmux server; one `list-panes -a` snapshot per restore. ⏳ async tmux |
 | P5 | MED-HIGH | StateDetector: full classify (~90 row reads) per chunk | ✅ classify only when settled, rows read once (−80% detector overhead) |
 | P6 | MED | Legacy `outputBuffer` re-copied 100 KB per chunk | ✅ removed; 16 KB chunked `RawTail` kept for diagnostics |
 | P7 | MED | `ct:output` / `ephemeral:output` emit once per chunk (the starvation pattern) | ✅ 16 ms coalescer, flush-before-join and flush-before-exit |
 | P8 | MED | `ChangelistStore`/`CommitSelectionStore`: sync `git rev-parse` per request | ✅ async with a 30s cache (`utils/gitRoot.ts`) |
 | P9 | LOW (tmux fallback) | Blocking `tmux send-keys` per wheel event (5.4 ms × 60–120/s) | ✅ async, coalesced per 16 ms |
-| P10 | MED-HIGH | Daemon: one shared 8 MB outbox; overflow drops the connection and reseeds every session (cascade) | ⏳ per-session flow control |
-| P11 | MED | Daemon: input writes and the 30s replay run on the single read goroutine (head-of-line blocking) | ⏳ writer goroutine per session |
-| P12 | MED | One recursive FSEvents stream per session, `node_modules` filtered in JS | ⏳ refcount per root (exited sessions now stop theirs) |
-| P13 | LOW | `ring.go` copies byte by byte; `DaemonClient` re-concatenates buffers on every chunk | ⏳ |
+| P10 | MED-HIGH | Daemon: one shared 8 MB outbox; overflow drops the connection and reseeds every session (cascade) | ✅ per-session 1MB live budget → `resync` of that session only (opt-in `caps`, legacy budget otherwise) |
+| P11 | MED | Daemon: input writes and the 30s replay run on the single read goroutine (head-of-line blocking) | ✅ per-session input writer (bounded queue); replay on a per-connection worker |
+| P12 | MED | One recursive FSEvents stream per session, `node_modules` filtered in JS | ✅ one refcounted watcher per root |
+| P13 | LOW | `ring.go` copies byte by byte; `DaemonClient` re-concatenates buffers on every chunk | ✅ |
 | P14 | — | Renderer + GPU ~40% CPU with 2 busy sessions | ✅ re-render storm fixed (see C4). ⏳ take a renderer perf trace to find what's left (spinner repaints, animations) |
 | P15 | — | ~530 MB of native image/layer memory in main | ⏳ see §1 |
 

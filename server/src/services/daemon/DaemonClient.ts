@@ -42,7 +42,17 @@ interface Control {
   sessions?: string[];
   version?: number;
   msg?: string;
+  caps?: string[];
 }
+
+/**
+ * Optional daemon behaviours this client handles. `resync`: the daemon sheds a
+ * single session's live backlog when we fall behind and sends {op:'resync',id};
+ * we re-attach that one session. Without it the daemon keeps its legacy shared
+ * budget, whose overflow drops the whole connection. An older argusd ignores
+ * the announcement.
+ */
+const CLIENT_CAPS = ['resync'];
 
 /**
  * Client for a single argusd daemon (plan 2026-07-22-003). Ensures the daemon is
@@ -53,8 +63,7 @@ interface Control {
  */
 export class DaemonClient extends EventEmitter {
   private sock: net.Socket | null = null;
-  // Widened generic: subarray()/concat() return Buffer<ArrayBufferLike>.
-  private rx: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+  private rx = new FrameAssembler();
   private connected = false;
   private connecting: Promise<void> | null = null;
   private listPending: ((ids: string[]) => void)[] = [];
@@ -137,7 +146,7 @@ export class DaemonClient extends EventEmitter {
         // Wait for the hello frame before declaring the connection live so a
         // version mismatch is caught up front.
         this.sock = sock;
-        this.rx = Buffer.alloc(0);
+        this.rx = new FrameAssembler();
         sock.removeListener('error', onErr);
         // A daemon already serving another consumer accepts the connection and
         // closes it without a hello. Settling only on 'hello' left this promise
@@ -146,6 +155,7 @@ export class DaemonClient extends EventEmitter {
         const onHello = () => {
           if (settled) return;
           settled = true;
+          this.send({ op: 'caps', caps: CLIENT_CAPS });
           this.connected = true;
           this.emit('connected');
           this.pumpAttach();
@@ -229,15 +239,8 @@ export class DaemonClient extends EventEmitter {
   }
 
   private onBytes(chunk: Buffer): void {
-    this.rx = this.rx.length ? Buffer.concat([this.rx, chunk]) : chunk;
-    for (;;) {
-      if (this.rx.length < 4) return;
-      const len = this.rx.readUInt32BE(0);
-      if (this.rx.length < 4 + len) return;
-      const body = this.rx.subarray(4, 4 + len);
-      this.rx = this.rx.subarray(4 + len);
-      this.dispatchFrame(body);
-    }
+    this.rx.push(chunk);
+    for (let body = this.rx.next(); body; body = this.rx.next()) this.dispatchFrame(body);
   }
 
   private dispatchFrame(body: Buffer): void {
@@ -277,6 +280,12 @@ export class DaemonClient extends EventEmitter {
       case 'exit':
         if (ctl.id) this.emit(`exit:${ctl.id}`, ctl.code ?? 0);
         break;
+      case 'resync':
+        // We fell behind on this session and the daemon discarded its queued
+        // live output (the connection and every other session are untouched).
+        // Its live stream stays off until we re-attach it.
+        if (ctl.id) this.emit('resync', ctl.id);
+        break;
       case 'list': {
         const resolve = this.listPending.shift();
         if (resolve) resolve(ctl.sessions ?? []);
@@ -312,6 +321,9 @@ export class DaemonClient extends EventEmitter {
    * waiting its turn.
    */
   attach(id: string, beforeSend?: () => void): void {
+    // An attach already waiting for this session will replay the whole ring
+    // anyway; a second one would only replay (and wipe) it twice.
+    if (this.attachQueue.some((a) => a.id === id)) return;
     this.attachQueue.push({ id, beforeSend });
     this.pumpAttach();
   }
@@ -412,6 +424,93 @@ export class DaemonClient extends EventEmitter {
     }
     this.connected = false;
     this.removeAllListeners();
+  }
+}
+
+/**
+ * Reassembles `[uint32 BE len][body]` frames from socket chunks.
+ *
+ * Chunks are kept as a list with a running length and each frame is assembled
+ * ONCE, when all of its bytes are present. The previous `Buffer.concat([rx,
+ * chunk])` per socket chunk re-copied the whole partial frame on every read: a
+ * 256KB replay frame arriving in 64KB socket reads was copied 4 times over
+ * (quadratic in frames-per-chunk-boundary), on the Electron main thread.
+ * A frame that sits entirely inside one chunk is returned as a zero-copy view.
+ */
+export class FrameAssembler {
+  private chunks: Buffer[] = [];
+  private head = 0; // read offset into chunks[0]
+  private size = 0; // unread bytes across all chunks
+
+  push(chunk: Buffer): void {
+    if (chunk.length === 0) return;
+    this.chunks.push(chunk);
+    this.size += chunk.length;
+  }
+
+  /** Buffered bytes not yet returned as frames (tests / diagnostics). */
+  get length(): number {
+    return this.size;
+  }
+
+  /** The next complete frame body, or null until more bytes arrive. */
+  next(): Buffer | null {
+    if (this.size < 4) return null;
+    const len = this.peekUInt32();
+    if (this.size < 4 + len) return null;
+    this.skip(4);
+    return this.take(len);
+  }
+
+  private peekUInt32(): number {
+    const first = this.chunks[0]!;
+    if (first.length - this.head >= 4) return first.readUInt32BE(this.head);
+    let v = 0;
+    let ci = 0;
+    let off = this.head;
+    for (let i = 0; i < 4; i++) {
+      while (off >= this.chunks[ci]!.length) {
+        ci++;
+        off = 0;
+      }
+      v = v * 256 + this.chunks[ci]![off++]!;
+    }
+    return v;
+  }
+
+  private skip(n: number): void {
+    this.size -= n;
+    while (n > 0) {
+      const first = this.chunks[0]!;
+      const avail = first.length - this.head;
+      if (n < avail) {
+        this.head += n;
+        return;
+      }
+      n -= avail;
+      this.chunks.shift();
+      this.head = 0;
+    }
+  }
+
+  private take(n: number): Buffer {
+    const first = this.chunks[0];
+    if (n === 0 || !first) return Buffer.alloc(0);
+    if (first.length - this.head >= n) {
+      const out = first.subarray(this.head, this.head + n);
+      this.skip(n);
+      return out;
+    }
+    const out = Buffer.allocUnsafe(n);
+    let filled = 0;
+    while (filled < n) {
+      const c = this.chunks[0]!;
+      const k = Math.min(c.length - this.head, n - filled);
+      c.copy(out, filled, this.head, this.head + k);
+      filled += k;
+      this.skip(k);
+    }
+    return out;
   }
 }
 
