@@ -122,14 +122,11 @@ module.exports = {
   },
   // Electron fuses are flipped in electron/afterPack.cjs via @electron/fuses
   // (the `electronFuses` config key needs electron-builder 26; this repo is on
-  // 25.1.8). Flipped today: RunAsNode, EnableNodeCliInspectArguments,
-  // EnableNodeOptionsEnvironmentVariable (off) and EnableCookieEncryption (on).
-  // Still OFF: OnlyLoadAppFromAsar and EnableEmbeddedAsarIntegrityValidation.
-  // eb 25.1.8 does write the Info.plist ElectronAsarIntegrity hash those need
-  // (app-builder-lib/out/electron/electronMac.js, computed after the asar is
-  // packed and before afterPack, which never touches app.asar), so the remaining
-  // blocker is only a verified boot of a packaged build with them on — see the
-  // note in afterPack.cjs.
+  // 25.1.8): RunAsNode, EnableNodeCliInspectArguments and
+  // EnableNodeOptionsEnvironmentVariable off; EnableCookieEncryption,
+  // OnlyLoadAppFromAsar and EnableEmbeddedAsarIntegrityValidation on. The last
+  // two depend on the Info.plist ElectronAsarIntegrity hash eb writes after
+  // packing the asar — see the note in afterPack.cjs.
   // afterPack ad-hoc re-signs ONLY in the unsigned fallback (it no-ops when a
   // real signing pass runs, so it can't clobber the Developer ID signature).
   afterPack: 'electron/afterPack.cjs',
