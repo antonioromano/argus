@@ -45,6 +45,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
+  showPrStatus: true,
 };
 
 export class ConfigStore {

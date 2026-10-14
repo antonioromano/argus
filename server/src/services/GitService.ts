@@ -862,6 +862,18 @@ export class GitService {
     return parseShellContext(out, root.trim());
   }
 
+  /** Repo root and checked-out branch of `folder` in one `git rev-parse`;
+   *  branch is `HEAD` when detached. null when not a repo. */
+  async headInfo(folder: string): Promise<{ root: string; branch: string } | null> {
+    try {
+      const [root, branch] = (await execGit(['rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], folder))
+        .split('\n').map((l) => l.trim());
+      return root && branch ? { root, branch } : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getBranches(folderPath: string): Promise<GitBranchesResponse> {
     try {
       const output = await execGit(['branch'], folderPath);

@@ -16,6 +16,7 @@ import type {
 } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
+import { PrStatusService } from './services/PrStatusService.js';
 import { OrderStore } from './persistence/OrderStore.js';
 import { GroupStore } from './persistence/GroupStore.js';
 import { WindowStore } from './persistence/WindowStore.js';
@@ -140,6 +141,7 @@ let currentConfig: AppConfig | null = null;
 function applyConfig(cfg: AppConfig): void {
   currentConfig = cfg;
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
+  sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
@@ -308,6 +310,10 @@ ngrokService.onExposureChange = (exposed) => authService.setExposed(exposed);
 // Git service
 const gitService = new GitService();
 sessionManager.setGitService(gitService);
+sessionManager.setPrStatusService(new PrStatusService({
+  headInfo: (folder) => gitService.headInfo(folder),
+  defaultBranch: (root) => gitService.getDefaultBranch(root),
+}));
 
 // Changelist store
 const changelistStore = new ChangelistStore();

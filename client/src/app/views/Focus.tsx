@@ -6,6 +6,7 @@ import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
+import { PrChip } from '../ui/PrChip.js';
 import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
@@ -290,6 +291,7 @@ export function Focus({
             {active.shellGit !== undefined ? (
               active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
             ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
+            {active.pr && <PrChip pr={active.pr} />}
             {showUsage && active.usage && <UsageChip usage={active.usage} />}
             <div style={{ flex: 1 }} />
             <Button
