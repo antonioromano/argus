@@ -4,7 +4,7 @@ import type { AutoApprovalFolder, AutoApprovalFolderState } from '@argus/shared'
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { AutoApprovalStore } from '../persistence/AutoApprovalStore.js';
 import type { AutoApprovalService } from '../services/autoApproval/AutoApprovalService.js';
-import { realFolder } from '../services/autoApproval/AutoApprovalService.js';
+import { readClaudeDefaultMode, realFolder } from '../services/autoApproval/AutoApprovalService.js';
 import { validateRuleInput } from '../services/autoApproval/matcher.js';
 
 export interface AutoApprovalRouteDeps {
@@ -12,6 +12,8 @@ export interface AutoApprovalRouteDeps {
   service: Pick<AutoApprovalService, 'auditForSessions'>;
   /** Every session the server knows (id, folder, status). */
   listSessions: () => Array<{ id: string; folderPath: string; status: string }>;
+  /** The user's Claude default permission mode; injectable for tests. */
+  claudeDefaultMode?: () => string | null;
 }
 
 /**
@@ -48,6 +50,10 @@ export function createAutoApprovalRoutes(deps: AutoApprovalRouteDeps): Router {
     if (allowRuleOnly && deps.store.folderList().includes(stored)) return stored;
     return null;
   };
+
+  router.get('/claude-mode', (_req, res) => {
+    res.json({ defaultMode: (deps.claudeDefaultMode ?? readClaudeDefaultMode)() });
+  });
 
   router.get('/folders', (_req, res) => {
     const folders = sessionFolders();

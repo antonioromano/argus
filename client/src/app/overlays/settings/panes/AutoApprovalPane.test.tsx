@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getRules: vi.fn(),
   addRule: vi.fn(),
   removeRule: vi.fn(),
+  getMode: vi.fn(),
   push: vi.fn(),
 }));
 vi.mock('../../../../services/api.js', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../../../services/api.js', () => ({
     getAutoApprovalRules: mocks.getRules,
     addAutoApprovalRule: mocks.addRule,
     removeAutoApprovalRule: mocks.removeRule,
+    getClaudeDefaultMode: mocks.getMode,
   },
 }));
 vi.mock('../../../../components/primitives/index.js', async (orig) => ({
@@ -41,6 +43,7 @@ beforeEach(() => {
   mocks.getRules.mockReset().mockResolvedValue(STATE);
   mocks.addRule.mockReset().mockResolvedValue({ id: 'r2', tool: 'Read', pathGlob: 'src/**', createdAt: 'x' });
   mocks.removeRule.mockReset().mockResolvedValue(undefined);
+  mocks.getMode.mockReset().mockResolvedValue(null);
   mocks.push.mockReset();
   onSave = vi.fn().mockResolvedValue(DEFAULT_CONFIG);
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -111,6 +114,25 @@ describe('AutoApprovalPane', () => {
     type('git status; rm');
     await click(button('Add rule'));
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('shell operators');
+  });
+
+  it('says rules are inactive when the Claude default mode is auto (only while enabled)', async () => {
+    mocks.getMode.mockResolvedValue('auto');
+    await render({ autoApprovalEnabled: true });
+    const note = container.querySelector('[data-testid="auto-approval-inactive"]');
+    expect(note?.textContent).toContain('auto');
+    act(() => root.render(<></>));
+    await render({ autoApprovalEnabled: false });
+    expect(container.querySelector('[data-testid="auto-approval-inactive"]')).toBeNull();
+  });
+
+  it('no inactive notice in default mode or when the mode is unknown', async () => {
+    for (const mode of ['default', 'acceptEdits', null]) {
+      mocks.getMode.mockResolvedValue(mode);
+      act(() => root.render(<></>));
+      await render({ autoApprovalEnabled: true });
+      expect(container.querySelector('[data-testid="auto-approval-inactive"]')).toBeNull();
+    }
   });
 
   it('empty state with no session folders', async () => {

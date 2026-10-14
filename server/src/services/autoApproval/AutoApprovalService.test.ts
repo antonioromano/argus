@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import type { AutoApprovalRule } from '@argus/shared';
-import { AutoApprovalService, type AutoApprovalSessionView } from './AutoApprovalService.js';
+import { AutoApprovalService, defaultModeFromSettings, isActiveMode, readClaudeDefaultMode, type AutoApprovalSessionView } from './AutoApprovalService.js';
+import { writeFileSync } from 'fs';
 import { AUTO_APPROVAL_AUDIT_MAX } from '../../constants/autoApproval.js';
 
 let folder: string;
@@ -96,4 +97,32 @@ test('long commands are summarized, not stored whole', () => {
   const svc = make();
   svc.decide('s1', hook({ tool_input: { command: `npm test ${'a'.repeat(500)}` } }));
   assert.ok(svc.auditFor('s1')[0]!.summary.length <= 120);
+});
+
+test('defaultModeFromSettings reads permissions.defaultMode and ignores junk', () => {
+  assert.equal(defaultModeFromSettings({ permissions: { defaultMode: 'auto' } }), 'auto');
+  assert.equal(defaultModeFromSettings({ permissions: {} }), null);
+  assert.equal(defaultModeFromSettings({ permissions: { defaultMode: 3 } }), null);
+  assert.equal(defaultModeFromSettings(null), null);
+  assert.equal(defaultModeFromSettings('x'), null);
+});
+
+test('readClaudeDefaultMode reads ~/.claude/settings.json and is null when missing or broken', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'aa-home-'));
+  try {
+    assert.equal(readClaudeDefaultMode(home), null);
+    mkdirSync(path.join(home, '.claude'));
+    writeFileSync(path.join(home, '.claude', 'settings.json'), '{not json');
+    assert.equal(readClaudeDefaultMode(home), null);
+    writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+    assert.equal(readClaudeDefaultMode(home), 'auto');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('isActiveMode: rules act only in default and acceptEdits', () => {
+  assert.equal(isActiveMode('default'), true);
+  assert.equal(isActiveMode('acceptEdits'), true);
+  for (const m of ['auto', 'plan', 'bypassPermissions', 'dontAsk']) assert.equal(isActiveMode(m), false);
 });

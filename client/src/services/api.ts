@@ -696,6 +696,12 @@ export const api = {
     return (await requireOk(res)).json();
   },
 
+  /** F5: the user's Claude default permission mode (null when unset). */
+  getClaudeDefaultMode: async (): Promise<string | null> => {
+    const res = await authFetch(`${API_BASE}/auto-approval/claude-mode`);
+    return ((await (await requireOk(res)).json()) as { defaultMode: string | null }).defaultMode;
+  },
+
   /** F5: folders that have sessions or auto-approval rules. */
   getAutoApprovalFolders: async (): Promise<AutoApprovalFolder[]> => {
     const res = await authFetch(`${API_BASE}/auto-approval/folders`);

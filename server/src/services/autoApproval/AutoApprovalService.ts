@@ -1,4 +1,6 @@
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type { AutoApprovalAuditEntry } from '@argus/shared';
 import type { AutoApprovalStore } from '../../persistence/AutoApprovalStore.js';
 import { AUTO_APPROVAL_AUDIT_MAX } from '../../constants/autoApproval.js';
@@ -23,6 +25,33 @@ export interface AutoApprovalServiceDeps {
 /** Permission modes in which an "allow" means exactly "skip this prompt". In
  *  plan mode an allow could push an edit through, and the others need no help. */
 const ACTIVE_MODES = new Set(['default', 'acceptEdits']);
+
+/** True when rules can act in this permission mode. */
+export function isActiveMode(mode: string): boolean {
+  return ACTIVE_MODES.has(mode);
+}
+
+/** `permissions.defaultMode` from a parsed Claude settings file, or null. */
+export function defaultModeFromSettings(settings: unknown): string | null {
+  if (!settings || typeof settings !== 'object') return null;
+  const perms = (settings as { permissions?: unknown }).permissions;
+  if (!perms || typeof perms !== 'object') return null;
+  const mode = (perms as { defaultMode?: unknown }).defaultMode;
+  return typeof mode === 'string' && mode ? mode : null;
+}
+
+/**
+ * The user's Claude default permission mode (~/.claude/settings.json), or null
+ * when unset or unreadable. Used only to tell the user that rules are inactive
+ * (e.g. `auto` mode); decisions always use the mode in the hook payload.
+ */
+export function readClaudeDefaultMode(home: string = os.homedir()): string | null {
+  try {
+    return defaultModeFromSettings(JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf-8')));
+  } catch {
+    return null;
+  }
+}
 
 export function realFolder(folderPath: string): string | null {
   try {
