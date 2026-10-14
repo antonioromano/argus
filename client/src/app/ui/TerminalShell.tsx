@@ -403,12 +403,20 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
 function TerminalShellXterm({ session, socket, theme, status, focused, onFocusChange, framed = true, autoFocus = false, shortcuts, searchOpen = false, onOpenSearch, onCloseSearch, requestFocusToken, suspendResize = false }: TerminalShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken, suspendResize });
+  // Result listeners live here, not on an addon: useTerminal rebuilds the
+  // terminal (and its SearchAddon) on a fontsReady flip or StrictMode remount,
+  // and a subscription taken on the old addon would freeze the match count.
+  // useTerminal forwards every addon's results into this stable fan-out.
+  const searchResultListenersRef = useRef(new Set<(r: { index: number; count: number }) => void>());
+  const onSearchResults = useCallback((r: { resultIndex: number; resultCount: number }) => {
+    for (const cb of searchResultListenersRef.current) cb({ index: r.resultIndex, count: r.resultCount });
+  }, []);
+  const { terminalRef, searchAddonRef } = useTerminal(containerRef, { sessionId: session.id, socket, theme, onFocusChange, autoFocus, shortcuts, onRequestSearch: onOpenSearch, requestFocusToken, suspendResize, onSearchResults });
 
   // Backs the shared TerminalSearchBar with xterm's own SearchAddon +
   // decorations. Built on stable refs (identity never changes across
-  // renders), so this object stays referentially stable too — the bar's
-  // onResults effect only re-subscribes when the engine identity changes.
+  // renders), so this object stays referentially stable too. find/clear read
+  // the current addon lazily; onResults goes through the fan-out above.
   const xtermSearchEngine = useMemo<TerminalSearchEngine>(() => ({
     find: (term, direction, options) => {
       const addon = searchAddonRef.current;
@@ -420,10 +428,9 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
     },
     clear: () => searchAddonRef.current?.clearDecorations(),
     onResults: (cb) => {
-      const addon = searchAddonRef.current;
-      if (!addon) return () => {};
-      const sub = addon.onDidChangeResults((r) => cb({ index: r.resultIndex, count: r.resultCount }));
-      return () => sub.dispose();
+      const listeners = searchResultListenersRef.current;
+      listeners.add(cb);
+      return () => { listeners.delete(cb); };
     },
     focusTerminal: () => terminalRef.current?.focus(),
   }), [searchAddonRef, terminalRef]);

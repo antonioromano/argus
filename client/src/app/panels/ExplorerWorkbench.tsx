@@ -19,6 +19,7 @@ import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js'
 import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { EditorTab, type ViewMode, type TabBufferSnapshot } from '../../components/explorer/EditorTab.js';
 import { EditorTabStrip } from '../../components/explorer/EditorTabStrip.js';
+import { putTabState, dropTabState, tabStateFor, dirtyByPath, type TabStates } from '../../components/explorer/tabStates.js';
 import { useTheme } from '../../context/theme-context.js';
 import { previewKind } from '../../utils/langFromPath.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
@@ -69,7 +70,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   // A Shell keeps one tab layout per repo it visits (its root follows `cd`).
   const groups = useEditorGroups(session.shellGit ? `${session.id}@${workRoot(session)}` : session.id, initialFilePath ?? null);
 
-  const [tabStates, setTabStates] = useState<Record<string, TabBufferSnapshot>>({});
+  const [tabStates, setTabStates] = useState<TabStates>({});
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
   const [searchOpen, setSearchOpen] = useState(!!initialQuery);
   const [searchQuery, setSearchQuery] = useState<string | undefined>(initialQuery);
@@ -98,7 +99,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   const isSplit = gstate.groups.length === 2;
   const focusedGroup = gstate.groups[gstate.focused];
   const focusedPath = focusedGroup?.active ?? null;
-  const focusedSnap = focusedPath ? tabStates[focusedPath] : undefined;
+  const focusedSnap = focusedPath ? tabStateFor(tabStates, focusedPath) : undefined;
   const isPreviewable = !!focusedPath && previewKind(focusedPath) !== null;
 
   const viewModeFor = (path: string): ViewMode =>
@@ -123,8 +124,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   );
 
   const onTabState = useCallback(
-    (path: string, snap: TabBufferSnapshot) => {
-      setTabStates((s) => ({ ...s, [path]: snap }));
+    (path: string, snap: TabBufferSnapshot, tabId: string) => {
+      setTabStates((s) => putTabState(s, path, tabId, snap));
       // Editing a preview file promotes it to a permanent tab.
       if (snap.dirty) {
         const st = stateRef.current;
@@ -135,12 +136,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
     [groups],
   );
 
-  const onTabUnmount = useCallback((path: string) => {
-    setTabStates((s) => {
-      const next = { ...s };
-      delete next[path];
-      return next;
-    });
+  const onTabUnmount = useCallback((path: string, tabId: string) => {
+    setTabStates((s) => dropTabState(s, path, tabId));
   }, []);
 
   // Keep ⌘S pointed at the focused tab without re-binding the listener each render.
@@ -344,8 +341,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   const tree = useFileTree(workRoot(session), session.id);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
 
-  const dirtyMap: Record<string, boolean> = {};
-  for (const [p, s] of Object.entries(tabStates)) dirtyMap[p] = s.dirty;
+  const dirtyMap = dirtyByPath(tabStates);
 
   return (
     <div
