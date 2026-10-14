@@ -141,6 +141,18 @@ export class SessionUsageTracker {
     };
   }
 
+  /**
+   * Every transcript this session has written, re-validated now (still a
+   * regular file inside the transcript roots) — the only paths search may read.
+   */
+  transcriptPaths(): string[] {
+    const out: string[] = [];
+    for (const p of this.tailers.keys()) {
+      if (resolveTranscriptPath(p, this.roots) === p) out.push(p);
+    }
+    return out;
+  }
+
   /** The transcript Claude is writing now. A new path starts a new tailer. */
   setTranscript(reported: string): void {
     if (this.disposed) return;
