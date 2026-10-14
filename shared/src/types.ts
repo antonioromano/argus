@@ -902,3 +902,51 @@ export interface MoveFileRequest {
   fromPath: string;
   toPath: string;
 }
+
+// --- Agent janitor (F16) ---
+
+/** A daemon (argusd on this data dir, or this app's tmux server) that is not the active backend. */
+export interface OrphanDaemon {
+  kind: 'argusd' | 'tmux';
+  /** Socket label: argusd-<label>.sock, or tmux -L <label>. */
+  label: string;
+  pid: number;
+  alive: boolean;
+  /** Session ids its agents were spawned for (read from their --settings path), when visible. */
+  sessionIds: string[];
+  childPids: number[];
+  /** RSS of the daemon and every descendant, in KB. */
+  treeRssKb: number;
+}
+
+/** An agent process (claude / gemini / codex) running under an orphan daemon. */
+export interface OrphanAgent {
+  pid: number;
+  agent: string;
+  command: string;
+  cwd: string | null;
+  rssKb: number;
+  /** Pid of the orphan daemon it runs under. */
+  daemonPid: number;
+  sessionId: string | null;
+}
+
+export interface OrphanReport {
+  daemons: OrphanDaemon[];
+  agents: OrphanAgent[];
+  /** Sum of every orphan daemon's tree RSS, in KB. */
+  totalRssKb: number;
+  /** True only on the first startup check of this server process (drives the one-time toast). */
+  notify?: boolean;
+}
+
+export interface OrphanKillResponse {
+  /** Requested pids that were in the fresh orphan set. */
+  accepted: number[];
+  /** Requested pids that were not (never signalled). */
+  rejected: number[];
+  /** Every pid that got SIGTERM (requested pids plus their descendants). */
+  signalled: number[];
+  /** Pids still alive after the grace period, which got SIGKILL. */
+  forceKilled: number[];
+}

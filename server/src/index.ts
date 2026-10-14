@@ -38,6 +38,8 @@ import { NgrokService } from './services/NgrokService.js';
 import { SleepPreventionService } from './services/SleepPreventionService.js';
 import { KeepAwakeService } from './services/KeepAwakeService.js';
 import { createKeepAwakeRoutes } from './routes/keepAwake.js';
+import { OrphanJanitor } from './services/OrphanJanitor.js';
+import { createMaintenanceRoutes } from './routes/maintenance.js';
 import { UpdateService } from './services/UpdateService.js';
 import { createConfigRoutes, createAgentRoutes } from './routes/config.js';
 import { createUpdateRoutes } from './routes/update.js';
@@ -342,6 +344,26 @@ app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
+app.use('/api/maintenance', createMaintenanceRoutes(new OrphanJanitor({
+  context: () => {
+    const active = sessionManager.activeBackend();
+    let activeDaemonPid: number | null = null;
+    if (active.socketPath) {
+      try {
+        const pid = Number.parseInt(fs.readFileSync(`${active.socketPath}.pid`, 'utf-8').trim(), 10);
+        if (Number.isInteger(pid) && pid > 0) activeDaemonPid = pid;
+      } catch { /* daemon not up yet: the socket match still protects it */ }
+    }
+    return {
+      dataDir,
+      activeSocket: active.socketPath,
+      activeDaemonPid,
+      tmuxLabel: process.env.ARGUS_TMUX_SOCKET || 'argus',
+      tmuxActive: active.kind === 'tmux',
+      selfPid: process.pid,
+    };
+  },
+})));
 app.use('/api/auth', createAuthRoutes(authService));
 app.use('/api/config', createConfigRoutes(configStore, applyConfig));
 app.use('/api/agents', createAgentRoutes(agentRegistry));

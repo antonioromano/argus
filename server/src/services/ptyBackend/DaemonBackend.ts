@@ -23,7 +23,7 @@ export class DaemonBackend implements PtyBackend {
 
   private resyncCb: ((sessionId: string) => void) | null = null;
 
-  constructor(socketPath: string, binPath: string, socketLabel: string) {
+  constructor(readonly socketPath: string, binPath: string, socketLabel: string) {
     this.client = new DaemonClient(socketPath, binPath, socketLabel);
     // The daemon drops a consumer it judges dead (outbox overflow / write
     // timeout) and keeps the agents running. When we get back, nothing is
