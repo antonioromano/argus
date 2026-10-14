@@ -18,7 +18,7 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox, Send } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send, Search } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
@@ -37,6 +37,8 @@ import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
 import { CommandPalette } from './overlays/CommandPalette.js';
 import { WaitingInbox } from './overlays/WaitingInbox.js';
+import { SessionSearch } from './overlays/SessionSearch.js';
+import { requestTerminalReveal } from '../hooks/terminalReveal.js';
 import { BroadcastSheet } from './overlays/BroadcastSheet.js';
 import { formatCombo } from '../keyboard/combo.js';
 import type { PaletteCommand } from './overlays/paletteCommands.js';
@@ -342,6 +344,9 @@ function DesktopInner() {
     const timer = setTimeout(() => resolve({ ok: false, error: 'No answer from Argus — check the connection and try again' }), 5000);
     socket.emit('session:broadcast', req, (res) => { clearTimeout(timer); resolve(res); });
   }), [socket]);
+  const openSearch = useCallback(() => app.openOverlay({ kind: 'search' }), [app]);
+  const openSearchRef = useRef(openSearch);
+  useEffect(() => { openSearchRef.current = openSearch; }, [openSearch]);
   const openInboxRef = useRef(openInbox);
   useEffect(() => { openInboxRef.current = openInbox; }, [openInbox]);
   const openWhatsNewRef = useRef(openWhatsNew);
@@ -427,7 +432,8 @@ function DesktopInner() {
     // Open-only (never a toggle): the menu accelerator and the keydown path can
     // both fire for one keystroke, and two toggles would cancel out.
     const offInbox = bridge.onMenu('menu:waiting-inbox', () => openInboxRef.current());
-    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); };
+    const offSessionSearch = bridge.onMenu('menu:session-search', () => openSearchRef.current());
+    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); offSessionSearch(); };
   }, []);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
@@ -569,6 +575,10 @@ function DesktopInner() {
           e.preventDefault();
           openInbox();
           break;
+        case 'session-search':
+          e.preventDefault();
+          openSearch();
+          break;
         case 'terminal-search':
           // Fallback when no terminal owns the keystroke (e.g. focus is on the shell
           // chrome). Open search for the active terminal; useTerminal handles the
@@ -603,7 +613,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -813,6 +823,14 @@ function DesktopInner() {
       keywords: 'waiting prompt approve answer pending needs input',
       icon: Inbox,
       run: openInbox,
+    },
+    {
+      id: 'session-search',
+      label: 'Search all sessions…',
+      hint: formatCombo(shortcuts.resolved['session-search']),
+      keywords: 'find grep scrollback transcript history output everywhere',
+      icon: Search,
+      run: openSearch,
     },
     {
       id: 'broadcast',
@@ -1072,6 +1090,20 @@ function DesktopInner() {
               guardForeign(sessionId, () => app.openMaximized({ kind: 'diff', sessionId }));
             }}
             commands={paletteCommands}
+          />
+        </Overlay>
+      )}
+      {app.overlay?.kind === 'search' && (
+        <Overlay onClose={app.closeOverlay} align="top" label="Search all sessions">
+          <SessionSearch
+            search={api.searchSessions}
+            shortcutLabel={formatCombo(shortcuts.resolved['session-search'])}
+            onClose={app.closeOverlay}
+            onJump={(id, hit, query) => {
+              app.closeOverlay();
+              openSessionGuarded(id);
+              if (hit.source === 'scrollback') requestTerminalReveal(id, { query, line: hit.line });
+            }}
           />
         </Overlay>
       )}

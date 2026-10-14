@@ -8,6 +8,7 @@ export type Overlay =
   | { kind: 'clone'; folderPath: string; agentType?: string; terminalEngine?: TerminalEngine; runMode?: RunMode }
   | { kind: 'palette' }
   | { kind: 'inbox' }
+  | { kind: 'search' }
   | { kind: 'broadcast'; sessionIds: string[] }
   | { kind: 'update' }
   | { kind: 'settings'; initialTab?: string }

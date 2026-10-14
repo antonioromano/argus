@@ -15,6 +15,7 @@ export type MenuChannel =
   | 'menu:open-settings'
   | 'menu:toggle-palette'
   | 'menu:waiting-inbox'
+  | 'menu:session-search'
   | 'menu:toggle-theme'
   | 'menu:open-diff'
   | 'menu:open-files'

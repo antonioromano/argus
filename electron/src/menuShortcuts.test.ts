@@ -69,6 +69,12 @@ test('unknown ids are ignored', () => {
 
 // Not Cmd+Shift+I: Monaco binds it (Format Document), and as an app-menu
 // accelerator it would fire over a focused editor.
+// Cmd+Shift+F is free in Monaco (it binds Cmd+F, Alt+Cmd+F and Shift+Alt+F).
+test('cross-session search has a menu accelerator', () => {
+  assert.equal(MENU_SHORTCUT_DEFAULTS['session-search'], 'mod+shift+f');
+  assert.equal(menuAccelerator('session-search'), 'CmdOrCtrl+Shift+F');
+});
+
 test('the waiting inbox has a menu accelerator (it must reach native tiles too)', () => {
   assert.equal(MENU_SHORTCUT_DEFAULTS['waiting-inbox'], 'mod+shift+j');
   assert.equal(menuAccelerator('waiting-inbox'), 'CmdOrCtrl+Shift+J');

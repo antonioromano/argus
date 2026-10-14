@@ -12,6 +12,7 @@ import { terminalCopyFlavors, xtermSelectionWithBold } from './terminalRichCopy.
 import { createTerminalLinkProvider } from './terminalLinks.js';
 import { ResizeEmitGate } from './resizeGate.js';
 import { shouldPaintReplay, shouldRequestResync } from './replayPolicy.js';
+import { TERMINAL_REVEAL_EVENT, applyTerminalReveal, takeTerminalReveal } from './terminalReveal.js';
 import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
@@ -484,6 +485,19 @@ export function useTerminal(
     // Authoritative replay (join/reconnect/resync). Reconcile the wheel-forwarding
     // gate to tmux's truth BEFORE painting, then refresh once the frame parses so
     // the buffer-mode flip (?1049l/h in the frame) leaves no stale DOM rows.
+    // Cross-session search jump (F9): scroll to the hit once there is a
+    // painted buffer to search — now, or after the first replay lands.
+    let replayPainted = false;
+    const revealPending = () => {
+      const req = takeTerminalReveal(sessionId);
+      if (req) applyTerminalReveal(terminal, searchAddon, req);
+    };
+    const handleReveal = (e: Event) => {
+      if ((e as CustomEvent<{ sessionId: string }>).detail?.sessionId !== sessionId || !replayPainted) return;
+      revealPending();
+    };
+    window.addEventListener(TERMINAL_REVEAL_EVENT, handleReveal);
+
     const handleReplay = ({ sessionId: sid, data, appMouse, sgr, reason }: SessionReplay) => {
       if (sid !== sessionId) return;
       const buf = terminal.buffer.active;
@@ -498,6 +512,8 @@ export function useTerminal(
           // which case this lands at the top — still nearer than the tail.
           terminal.scrollLines(-lines);
         }
+        replayPainted = true;
+        revealPending(); // after the restore: a search jump wins
       });
     };
     socket.on('session:replay', handleReplay);
@@ -647,6 +663,7 @@ export function useTerminal(
       onDataDisposable?.dispose();
       socket.off('session:output', handleOutput);
       socket.off('session:replay', handleReplay);
+      window.removeEventListener(TERMINAL_REVEAL_EVENT, handleReveal);
       socket.off('session:status', handleStatus);
       socket.off('connect', handleReconnect);
       socket.emit('session:leave', sessionId);

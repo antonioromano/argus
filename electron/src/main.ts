@@ -802,6 +802,11 @@ function buildAppMenu(): Menu {
         accelerator: menuAccelerator('waiting-inbox'),
         click: () => sendMenuEvent('menu:waiting-inbox'),
       },
+      {
+        label: 'Search All Sessions',
+        accelerator: menuAccelerator('session-search'),
+        click: () => sendMenuEvent('menu:session-search'),
+      },
       { type: 'separator' },
       {
         label: 'Toggle Theme',

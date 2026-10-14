@@ -11,6 +11,7 @@ export type ShortcutActionId =
   | 'close-shell'
   | 'command-palette'
   | 'waiting-inbox'
+  | 'session-search'
   | 'open-settings'
   | 'open-diff'
   | 'open-files'
@@ -38,6 +39,9 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'close-shell', label: 'Close active shell', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
   { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
   { id: 'waiting-inbox', label: 'Waiting inbox (every shell that needs you)', category: 'Navigation', defaultCombo: 'mod+shift+j' },
+  // ⌘⇧F: Monaco binds ⌘F, ⌥⌘F and ⇧⌥F but not ⌘⇧F, so the menu accelerator
+  // never fires over a focused editor's own command.
+  { id: 'session-search', label: 'Search all sessions (scrollback + transcripts)', category: 'Navigation', defaultCombo: 'mod+shift+f' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
   // Act on the focused shell — the tile whose terminal has focus in the mosaic,
   // or the open one in focus view. The ⋯ menu labels these from the same bindings.
