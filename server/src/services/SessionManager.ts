@@ -33,6 +33,7 @@ import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
 import { DirectBackend } from './ptyBackend/DirectBackend.js';
+import { DaemonBackend } from './ptyBackend/DaemonBackend.js';
 import { InertPty } from './ptyBackend/InertPty.js';
 import type { PtyBackend } from './ptyBackend/types.js';
 import { buildReport, writeReport, type SessionDiagnosticsPayload } from './SessionDiagnostics.js';
@@ -439,6 +440,12 @@ export class SessionManager {
     if (this.sessions.size > 0) return;
     this.backend = makePtyBackend(this.ptyManager, this.dataDir, preference);
     this.wireBackend();
+  }
+
+  /** The persistent backend in use: its kind, and the argusd socket when it is the daemon. */
+  activeBackend(): { kind: PtyBackend['kind']; socketPath: string | null } {
+    const b = this.backend;
+    return { kind: b.kind, socketPath: b instanceof DaemonBackend ? b.socketPath : null };
   }
 
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */

@@ -13,6 +13,7 @@ import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
+import { checkOrphansOnStartup } from '../hooks/orphanStartupCheck.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
@@ -253,6 +254,9 @@ function DesktopInner() {
   useEffect(() => {
     window.electronApp?.setMenuShortcuts?.(shortcuts.resolved);
   }, [shortcuts.resolved]);
+
+  // F16: tell the user once per launch when stale daemons still run agents.
+  useEffect(() => { checkOrphansOnStartup(); }, []);
 
   // Which terminal is "active" for Cmd+W / Cmd+F: the focused mosaic tile on the
   // dashboard, or the open session in focus view. Mosaic reports its focused tile up.
