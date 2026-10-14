@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -672,6 +672,21 @@ export const api = {
   getMergePreview: async (sessionId: string, targetBranch?: string): Promise<WorktreeMergePreviewResponse> => {
     const q = targetBranch ? `?targetBranch=${encodeURIComponent(targetBranch)}` : '';
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-merge-preview${q}`);
+    return (await requireOk(res)).json();
+  },
+
+  /** F16 janitor scan. `startup` marks the once-per-launch check (server sets `notify`). */
+  getOrphans: async (startup = false): Promise<OrphanReport> => {
+    const res = await authFetch(`${API_BASE}/maintenance/orphans${startup ? '?startup=1' : ''}`);
+    return (await requireOk(res)).json();
+  },
+
+  killOrphans: async (pids: number[]): Promise<OrphanKillResponse> => {
+    const res = await authFetch(`${API_BASE}/maintenance/orphans/kill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pids }),
+    });
     return (await requireOk(res)).json();
   },
 

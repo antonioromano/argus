@@ -4,6 +4,7 @@ import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
 import type { PaneProps } from '../types.js';
+import { OrphanAgentsSection } from './OrphanAgentsSection.js';
 
 type Backend = 'auto' | 'tmux';
 
@@ -88,6 +89,8 @@ export function RuntimePane({ config, onSave }: PaneProps) {
           </p>
         </div>
       </Section>
+
+      <OrphanAgentsSection />
     </>
   );
 }
