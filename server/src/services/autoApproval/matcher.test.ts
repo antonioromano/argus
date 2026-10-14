@@ -192,3 +192,84 @@ test('allowHookOutput is the documented PreToolUse decision shape', () => {
     },
   });
 });
+
+// --- Security review regressions --------------------------------------------
+
+test('review: prefix matches only on token boundaries', () => {
+  assert.equal(matchBashPrefix('git status', 'git statusX'), false);
+  assert.equal(matchBashPrefix('git status', 'git status-foo'), false);
+  assert.equal(matchBashPrefix('git status', 'git status.sh'), false);
+  assert.equal(matchBashPrefix('git status', 'git status'), true);
+  assert.equal(matchBashPrefix('git status', 'git status --short'), true);
+});
+
+test('review: every chaining, redirection and substitution form falls through', () => {
+  const forms = [
+    'npm test; id', 'npm test && id', 'npm test || id', 'npm test | id', 'npm test & id', 'npm test &',
+    'npm test > out', 'npm test >> out', 'npm test < in', 'npm test 2>&1',
+    'npm test `id`', 'npm test $(id)', 'npm test ${IFS}id', 'npm test <(id)', 'npm test >(id)',
+    'npm test\nid', 'npm test\rid', 'npm test\u0000id',
+    // escaped or quoted variants
+    'npm test \; id', 'npm test ";" id', "npm test ';' id", 'npm test "&&" id', "npm test '|' id",
+    'npm test "$(id)"', "npm test '`id`'", 'npm test \\\nid', 'npm test "\n" id',
+  ];
+  for (const cmd of forms) assert.equal(matchBashPrefix('npm test', cmd), false, JSON.stringify(cmd));
+});
+
+test('review: env assignments and wrappers as the first token fall through', () => {
+  const forms = [
+    'FOO=bar npm test', 'NODE_OPTIONS=--require=x npm test',
+    'env npm test', '/usr/bin/env npm test', 'sudo npm test', 'xargs npm test', 'sh -c npm test',
+    'bash -c npm test', 'eval npm test', 'exec npm test', 'command npm test', 'nohup npm test',
+    'time npm test', '"sudo" npm test', "'env' npm test",
+  ];
+  for (const cmd of forms) {
+    assert.equal(matchBashPrefix('npm test', cmd), false, cmd);
+  }
+  // Even a rule that names the wrapper itself never matches.
+  for (const [prefix, cmd] of [['sudo', 'sudo ls'], ['env', 'env'], ['FOO=1 npm', 'FOO=1 npm test'], ['bash -c', 'bash -c ls']] as const) {
+    assert.equal(matchBashPrefix(prefix, cmd), false, prefix);
+    assert.equal(validateRuleInput({ tool: 'Bash', bashPrefix: prefix }).ok, false, `rule ${prefix}`);
+  }
+  // A wrapper word later in the command is just an argument.
+  assert.equal(matchBashPrefix('git log', 'git log --grep sudo'), true);
+});
+
+test('review: tool names match exactly and case-sensitively', () => {
+  const rules = [rule({ tool: 'Read', pathGlob: '**' })];
+  const input = { file_path: path.join(folder, 'src', 'a.ts') };
+  assert.ok(matchRules(rules, folder, 'Read', input));
+  for (const name of ['read', 'READ', 'Read ', 'Rea', 'ReadFile', 'Edit']) {
+    assert.equal(matchRules(rules, folder, name, input), null, name);
+  }
+});
+
+test('review: separator-aware containment (/a/foo never contains /a/foobar)', () => {
+  mkdirSync(`${folder}bar`, { recursive: true });
+  writeFileSync(path.join(`${folder}bar`, 'x.ts'), '');
+  assert.equal(relativeInside(folder, path.join(`${folder}bar`, 'x.ts')), null);
+  const rules = [rule({ tool: 'Read', pathGlob: '**' })];
+  assert.equal(matchRules(rules, folder, 'Read', { file_path: path.join(`${folder}bar`, 'x.ts') }), null);
+});
+
+test('review: new files resolve through the deepest existing ancestor; leftover .. is refused', () => {
+  // New file under a real dir: allowed.
+  assert.equal(relativeInside(folder, path.join(folder, 'src', 'deep', 'new', 'f.ts')), 'src/deep/new/f.ts');
+  // New file under a symlinked dir pointing out: refused.
+  assert.equal(relativeInside(folder, path.join(folder, 'link-out', 'deep', 'new.ts')), null);
+  // `..` anywhere in the raw path is refused, even when it would land inside.
+  assert.equal(relativeInside(folder, `${folder}/src/../src/a.ts`), null);
+  assert.equal(relativeInside(folder, `${folder}/src/./a.ts`), null);
+  assert.equal(relativeInside(folder, `${folder}/missing/../../secret/id_rsa`), null);
+  const rules = [rule({ tool: 'Write', pathGlob: '**' })];
+  assert.equal(matchRules(rules, folder, 'Write', { file_path: path.join(folder, 'link-out', 'evil.sh') }), null);
+});
+
+test('review: unicode is NFC-normalized and NUL is refused', () => {
+  const nfc = 'café.ts';
+  const nfd = 'café.ts';
+  assert.equal(relativeInside(folder, path.join(folder, 'src', nfd)), `src/${nfc}`);
+  assert.equal(globToRegExp(`src/${nfc}`).test(relativeInside(folder, path.join(folder, 'src', nfd))!), true);
+  assert.equal(relativeInside(folder, `${folder}/src/a.ts\u0000/../../secret/id_rsa`), null);
+  assert.equal(relativeInside(folder, `${folder}/src/a\u0000`), null);
+});

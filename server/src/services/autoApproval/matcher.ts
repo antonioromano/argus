@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { AutoApprovalRule, AutoApprovalTool } from '@argus/shared';
 import { AUTO_APPROVAL_TOOLS } from '../../constants/autoApproval.js';
+import { resolveWithinBase } from '../../utils/pathScope.js';
 
 /**
  * F5 auto-approval matcher. Pure decision logic, no I/O beyond realpath.
@@ -43,6 +44,28 @@ export function isAutoApprovalTool(v: unknown): v is AutoApprovalTool {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(AUTO_APPROVAL_TOOLS, v);
 }
 
+/**
+ * First tokens that run another command (`sudo rm`, `env X=1 sh`, `xargs rm`,
+ * `bash -c '…'`) and so would turn a narrow prefix into an open door. Compared
+ * against the basename, so `/usr/bin/env` counts too. A command or prefix that
+ * starts with one of these, or with a `NAME=value` assignment, never matches.
+ */
+const WRAPPERS = new Set([
+  'env', 'sudo', 'doas', 'su', 'xargs', 'sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'eval', 'exec',
+  'command', 'builtin', 'nohup', 'time', 'nice', 'timeout', 'watch', 'caffeinate', 'script', 'parallel',
+]);
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** True when the first token is a wrapper or an env assignment. */
+export function startsWithWrapper(cmd: string): boolean {
+  const first = normalizeCommand(cmd).split(' ')[0] ?? '';
+  if (!first) return false;
+  if (ENV_ASSIGNMENT.test(first)) return true;
+  // Quotes around the first word (`"sudo" ls`) still run the wrapper.
+  const bare = first.replace(/['"]/g, '');
+  return WRAPPERS.has(path.posix.basename(bare)) || bare !== first;
+}
+
 /** Trim and collapse runs of spaces/tabs, so spacing cannot dodge a prefix. */
 export function normalizeCommand(cmd: string): string {
   return cmd.replace(/[ \t]+/g, ' ').trim();
@@ -56,10 +79,11 @@ export function isPlainCommand(cmd: string): boolean {
 /** Prefix match on a word boundary: `git status` matches `git status -s`, not `git statusx`. */
 export function matchBashPrefix(prefix: string, rawCommand: unknown): boolean {
   if (typeof rawCommand !== 'string' || rawCommand.length === 0 || rawCommand.length > MAX_COMMAND) return false;
-  if (!isPlainCommand(rawCommand)) return false;
+  if (!isPlainCommand(rawCommand) || startsWithWrapper(rawCommand)) return false;
   const cmd = normalizeCommand(rawCommand);
   const p = normalizeCommand(prefix);
-  if (!p) return false;
+  if (!p || !isPlainCommand(p) || startsWithWrapper(p)) return false;
+  // Token boundary: the prefix is the whole command or is followed by a space.
   return cmd === p || cmd.startsWith(`${p} `);
 }
 
@@ -111,17 +135,29 @@ export function realpathNearest(target: string): string | null {
 }
 
 /**
- * The folder-relative path of `rawPath`, resolved through symlinks, or null if
- * it is not absolute, is the folder itself, or lands outside `folderReal`
- * (`..` segments, a symlink pointing out, a different volume path).
+ * The folder-relative path of `rawPath`, or null unless containment is proven.
+ *
+ * Two independent checks must both pass:
+ * 1. the repo's `resolveWithinBase` (pathScope): lexical containment after
+ *    resolving `..`, then a symlink-resolved re-check of the nearest existing
+ *    ancestor, both separator-aware (`/a/foo` never contains `/a/foobar`);
+ * 2. the canonical realpath (native, so the volume's real case) of the target,
+ *    or of its deepest existing ancestor plus the missing tail, must sit under
+ *    the folder's realpath with a separator-aware prefix.
+ * The path is NFC-normalized first; NUL/control characters and any `.`/`..`
+ * segment in the raw path are refused outright.
  */
 export function relativeInside(folderReal: string, rawPath: unknown): string | null {
   if (typeof rawPath !== 'string' || !rawPath || rawPath.length > 4096) return null;
-  if (!path.isAbsolute(rawPath) || /[\x00-\x1f\x7f]/.test(rawPath)) return null;
-  const real = realpathNearest(path.resolve(rawPath));
+  if (/[\x00-\x1f\x7f]/.test(rawPath)) return null;
+  const p = rawPath.normalize('NFC');
+  if (!path.isAbsolute(p)) return null;
+  if (p.split('/').some((seg) => seg === '..' || seg === '.')) return null;
+  if (resolveWithinBase(folderReal, p) === null) return null;
+  const real = realpathNearest(path.resolve(p));
   if (!real || !real.startsWith(folderReal + path.sep)) return null;
-  const rel = path.relative(folderReal, real);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  const rel = path.relative(folderReal, real).normalize('NFC');
+  if (!rel || path.isAbsolute(rel) || rel.split(path.sep).includes('..')) return null;
   return rel.split(path.sep).join('/');
 }
 
@@ -195,6 +231,9 @@ export function validateRuleInput(raw: { tool?: unknown; bashPrefix?: unknown; p
     if (prefix.length > MAX_PREFIX) return { ok: false, error: `prefix is longer than ${MAX_PREFIX} characters` };
     if (!isPlainCommand(prefix)) {
       return { ok: false, error: 'prefix may not contain shell operators ( ; & | ` $ < > \\ ( ) { } ) or non-ASCII characters' };
+    }
+    if (startsWithWrapper(prefix)) {
+      return { ok: false, error: 'prefix may not start with an env assignment or a wrapper such as sudo, env, xargs, sh or bash' };
     }
     return { ok: true, tool, bashPrefix: prefix };
   }
