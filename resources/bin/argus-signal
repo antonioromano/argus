@@ -8,6 +8,14 @@
 # Usage:
 #   argus-signal --session <id> --state <running|waiting|idle> [--prompt-from-stdin] [--hook-stdin]
 #   argus-signal --session <id> --hook-stdin            (metadata only, no state)
+#   argus-signal --session <id> --approve               (PreToolUse auto-approval, F5)
+#
+# --approve: forward the PreToolUse hook JSON to the server, which decides from
+# its own rules and session table. The ONLY thing ever written to stdout is the
+# server's reply when it is a hookSpecificOutput object; every failure (no
+# wiring, payload over the cap, server down, slow past 1s, non-200) prints
+# nothing, which leaves Claude's normal permission flow in charge. Silence
+# means "ask", never "allow".
 #
 # --hook-stdin: the hook's stdin is Claude's hook JSON; forward its session_id
 # and transcript_path (the usage meter and Resume read them). Without --state
@@ -22,12 +30,14 @@ SESSION=""
 STATE=""
 PROMPT_FROM_STDIN=0
 HOOK_STDIN=0
+APPROVE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) SESSION="${2:-}"; shift 2 ;;
     --state) STATE="${2:-}"; shift 2 ;;
     --prompt-from-stdin) PROMPT_FROM_STDIN=1; shift ;;
     --hook-stdin) HOOK_STDIN=1; shift ;;
+    --approve) APPROVE=1; shift ;;
     *) shift ;;
   esac
 done
@@ -37,6 +47,30 @@ done
 [ -n "${ARGUS_SIGNAL_URL:-}" ] || exit 0
 [ -n "${ARGUS_SIGNAL_TOKEN:-}" ] || exit 0
 [ -n "$SESSION" ] || exit 0
+
+if [ "$APPROVE" -eq 1 ]; then
+  # Cap a little under the server's 512 KB body limit. A bigger payload (a
+  # large Write) gets no decision; the remainder is drained so the hook never
+  # dies on EPIPE.
+  CAP=500000
+  HOOK=$(head -c "$CAP" 2>/dev/null || true)
+  EXTRA=$(head -c 1 2>/dev/null | wc -c | tr -d ' ')
+  cat >/dev/null 2>&1 || true
+  [ "${EXTRA:-0}" -eq 0 ] || exit 0
+  [ -n "$HOOK" ] || exit 0
+  # The hook JSON is embedded verbatim as the "hook" value; if it is not valid
+  # JSON the server rejects the body and we print nothing.
+  OUT=$(
+    { printf '{"token":"%s","hook":' "$(printf '%s' "${ARGUS_SIGNAL_TOKEN}" | sed 's/\\/\\\\/g; s/"/\\"/g')"; printf '%s' "$HOOK"; printf '}'; } \
+      | curl -s -f -m 1 -X POST -H 'Content-Type: application/json' --data-binary @- \
+          "${ARGUS_SIGNAL_URL%/}/$SESSION/pre-tool-use" 2>/dev/null
+  ) || exit 0
+  case "$OUT" in
+    '{"hookSpecificOutput":'*) printf '%s\n' "$OUT" ;;
+  esac
+  exit 0
+fi
+
 [ -n "$STATE" ] || [ "$HOOK_STDIN" -eq 1 ] || exit 0
 
 # JSON-escape backslashes and double quotes (minimal; values are simple).

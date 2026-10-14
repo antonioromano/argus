@@ -6,6 +6,8 @@ import type { AgentSignalAdapter, SignalInjection, SignalInjectionContext } from
 interface ClaudeHookCommand {
   type: 'command';
   command: string;
+  /** Seconds before Claude gives up on the hook (Claude's default is 60). */
+  timeout?: number;
 }
 interface ClaudeHookEntry {
   matcher?: string;
@@ -104,11 +106,18 @@ export class ClaudeHooksAdapter implements AgentSignalAdapter {
     const cmd = (rest: string): ClaudeHookEntry => ({
       hooks: [{ type: 'command', command: rest ? `${base} ${rest}` : base }],
     });
+    // F5: a second PreToolUse hook asks the server for an auto-approval. It is
+    // always injected (the global switch and the rules are read server-side at
+    // decision time, so toggling them reaches running sessions); with no match
+    // it prints nothing and Claude's normal permission flow runs.
+    const approve: ClaudeHookEntry = {
+      hooks: [{ type: 'command', command: `"${bin}" --session ${ctx.sessionId} --approve`, timeout: 3 }],
+    };
     return {
       SessionStart: [cmd('')],
       Stop: [cmd('--state idle')],
       UserPromptSubmit: [cmd('--state running')],
-      PreToolUse: [cmd('--state running')],
+      PreToolUse: [cmd('--state running'), approve],
       Notification: [cmd('--state waiting --prompt-from-stdin')],
     };
   }

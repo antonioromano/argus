@@ -177,6 +177,7 @@ function objectEntries(file, name) {
 
 const DUPLICATED_OBJECTS = [
   { name: 'DEFAULT_CONFIG', shared: 'shared/src/types.ts', server: 'server/src/persistence/ConfigStore.ts' },
+  { name: 'AUTO_APPROVAL_TOOLS', shared: 'shared/src/types.ts', server: 'server/src/constants/autoApproval.ts' },
 ];
 
 const objectDrift = [];

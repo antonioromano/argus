@@ -133,3 +133,64 @@ test('metadata needs a valid token too', async () => {
   assert.equal(res.status, 401);
   assert.equal(metas.length, 0);
 });
+
+// --- F5 PreToolUse decision route -------------------------------------------
+
+async function withDecider(
+  decide: (id: string, hook: unknown) => object | null,
+  fn: (url: string) => Promise<void>,
+): Promise<void> {
+  const app = express();
+  app.use('/api/agent-signals', createAgentSignalRoutes(fakeManager, () => SECRET, decide));
+  const s = await new Promise<Server>((resolve) => {
+    const srv = app.listen(0, '127.0.0.1', () => resolve(srv));
+  });
+  try {
+    await fn(`http://127.0.0.1:${(s.address() as AddressInfo).port}/api/agent-signals`);
+  } finally {
+    await new Promise<void>((resolve) => s.close(() => resolve()));
+  }
+}
+
+const ptu = (url: string, sessionId: string, body: unknown) =>
+  fetch(`${url}/${sessionId}/pre-tool-use`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+test('pre-tool-use: allow → 200 with the decision JSON, passing session id and hook through', async () => {
+  const seen: Array<{ id: string; hook: unknown }> = [];
+  const allow = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: 'r' } };
+  await withDecider((id, hook) => { seen.push({ id, hook }); return allow; }, async (url) => {
+    const res = await ptu(url, 'sess-p', { token: computeSignalToken(SECRET, 'sess-p'), hook: { tool_name: 'Bash' } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), allow);
+    assert.deepEqual(seen, [{ id: 'sess-p', hook: { tool_name: 'Bash' } }]);
+  });
+});
+
+test('pre-tool-use: no decision → 204 with an empty body', async () => {
+  await withDecider(() => null, async (url) => {
+    const res = await ptu(url, 'sess-p', { token: computeSignalToken(SECRET, 'sess-p'), hook: {} });
+    assert.equal(res.status, 204);
+    assert.equal(await res.text(), '');
+  });
+});
+
+test('pre-tool-use: bad token → 401 and the decider never runs', async () => {
+  let ran = false;
+  await withDecider(() => { ran = true; return {}; }, async (url) => {
+    const res = await ptu(url, 'sess-p', { token: computeSignalToken(SECRET, 'other'), hook: {} });
+    assert.equal(res.status, 401);
+    assert.equal(ran, false);
+  });
+});
+
+test('pre-tool-use: a throwing decider → 204, not an error that could be misread', async () => {
+  await withDecider(() => { throw new Error('boom'); }, async (url) => {
+    const res = await ptu(url, 'sess-p', { token: computeSignalToken(SECRET, 'sess-p'), hook: {} });
+    assert.equal(res.status, 204);
+  });
+});
+
+test('pre-tool-use: without a decider wired → 204', async () => {
+  const res = await ptu(base, 'sess-p', { token: computeSignalToken(SECRET, 'sess-p'), hook: {} });
+  assert.equal(res.status, 204);
+});

@@ -27,6 +27,7 @@ import {
   BatteryCharging,
   Wrench,
   Rocket,
+  ShieldCheck,
 } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
 
@@ -40,6 +41,7 @@ export type PaneId =
   | 'isolation'
   | 'launchers'
   | 'confirmations'
+  | 'auto-approval'
   | 'notifications'
   | 'keyboard'
   | 'runtime'
@@ -136,6 +138,14 @@ export const PANES: readonly PaneDef[] = [
     icon: ShieldAlert,
     keys: ['confirmCloseShell', 'exitSessionsOnQuit', 'confirmExitOnQuit', 'confirmQuitDirectSessions'],
     keywords: ['confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning', 'direct'],
+  },
+  {
+    id: 'auto-approval',
+    label: 'Auto-approval',
+    group: 'Behavior',
+    icon: ShieldCheck,
+    keys: ['autoApprovalEnabled'],
+    keywords: ['auto-approval', 'auto approve', 'approve', 'allow', 'permission', 'permissions', 'rules', 'hook', 'pretooluse', 'bash', 'prompt', 'audit'],
   },
   {
     id: 'notifications',

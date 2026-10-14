@@ -215,6 +215,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     launchFolderRoots: ['~/home'],
     showUsageMeter: false,
     showPrStatus: false,
+    autoApprovalEnabled: true,
   };
 
   // The list above used to be maintained by hand against a comment, and
@@ -285,4 +286,14 @@ test('launchFolderRoots entries are trimmed; an unrelated save leaves them uncha
   assert.deepEqual(body.launchFolderRoots, ['~/trim']);
   const after = await put({});
   assert.deepEqual(after.body.launchFolderRoots, ['~/trim']);
+});
+
+test('autoApprovalEnabled is off by default and only an explicit boolean changes it', async () => {
+  await put({ autoApprovalEnabled: false });
+  assert.equal((await get()).autoApprovalEnabled, false);
+  assert.equal((await put({ autoApprovalEnabled: 'yes' })).body.autoApprovalEnabled, false);
+  assert.equal((await put({ autoApprovalEnabled: 1 })).body.autoApprovalEnabled, false);
+  assert.equal((await put({ autoApprovalEnabled: true })).body.autoApprovalEnabled, true);
+  assert.equal((await put({})).body.autoApprovalEnabled, true, 'absent keeps the stored value');
+  await put({ autoApprovalEnabled: false });
 });

@@ -21,15 +21,56 @@ function isLoopback(addr: string | undefined): boolean {
  * never appears in logs. `getSecret` is a closure so the secret is read once at
  * startup and never travels through config/state that reaches a client.
  */
+/** The hook-side decider (AutoApprovalService.decide). */
+export type PreToolUseDecider = (sessionId: string, hook: unknown) => object | null;
+
+/** Body cap for a forwarded PreToolUse payload. A Write carries the whole file;
+ *  anything over this (argus-signal caps a little below) gets no decision. */
+export const PRE_TOOL_USE_BODY_LIMIT = '512kb';
+
 export function createAgentSignalRoutes(
   manager: SessionManager,
   getSecret: () => string,
+  decidePreToolUse?: PreToolUseDecider,
 ): Router {
   const router = Router();
   // Tiny dedicated cap — these payloads are a few fields of JSON.
-  router.use(express.json({ limit: '16kb' }));
+  const smallJson = express.json({ limit: '16kb' });
+  const hookJson = express.json({ limit: PRE_TOOL_USE_BODY_LIMIT });
 
-  router.post('/:sessionId', (req, res) => {
+  /**
+   * F5: `argus-signal --approve` forwards the PreToolUse hook JSON and prints
+   * whatever comes back. 200 + the hook output JSON means allow; 204 means
+   * "say nothing" (Claude's normal permission flow). Same gate as the signal
+   * route: loopback socket + per-session HMAC token. The session's folder and
+   * agent come from the session table, not from the payload.
+   */
+  router.post('/:sessionId/pre-tool-use', hookJson, (req, res) => {
+    if (!isLoopback(req.socket.remoteAddress)) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    const { sessionId } = req.params;
+    const body = (req.body ?? {}) as { token?: unknown; hook?: unknown };
+    if (typeof body.token !== 'string' || !verifySignalToken(getSecret(), sessionId, body.token)) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    let out: object | null = null;
+    try {
+      out = decidePreToolUse ? decidePreToolUse(sessionId, body.hook) : null;
+    } catch (err) {
+      console.warn('[autoApproval] decision failed:', err);
+      out = null;
+    }
+    if (!out) {
+      res.status(204).end();
+      return;
+    }
+    res.status(200).type('application/json').send(JSON.stringify(out));
+  });
+
+  router.post('/:sessionId', smallJson, (req, res) => {
     if (!isLoopback(req.socket.remoteAddress)) {
       res.status(403).json({ error: 'forbidden' });
       return;
