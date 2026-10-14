@@ -1,7 +1,6 @@
-import { v4 as uuidv4 } from 'uuid';
 import { access, mkdir } from 'fs/promises';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import path from 'path';
 import os from 'os';
 import type { IPty } from 'node-pty';
@@ -668,7 +667,7 @@ export class SessionManager {
     const agentDef = this.agentRegistry.getById(resolvedAgentType, config.customAgents);
     const command = agentDef?.command ?? resolvedAgentType;
 
-    const id = existingId ?? uuidv4();
+    const id = existingId ?? randomUUID();
     const sessionName = name || path.basename(effectiveFolderPath);
     const createdAt = existingCreatedAt ?? new Date().toISOString();
 

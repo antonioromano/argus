@@ -21,18 +21,21 @@
 import { readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 
-const PKG_DIR = join('node_modules', '@xterm', 'headless');
-const BUNDLES = ['lib-headless/xterm-headless.js', 'lib-headless/xterm-headless.mjs'];
+export const PKG_DIR = join('node_modules', '@xterm', 'headless');
+export const BUNDLES = ['lib-headless/xterm-headless.js', 'lib-headless/xterm-headless.mjs'];
 
-const PATCHES = [
+export const PATCHES = [
   {
     name: 'ED1 bottom-right row lookup',
+    // Present only once patched; scripts/check-dep-sync.mjs fails without it.
+    marker: /this\._activeBuffer\.x\+1>=this\._bufferService\.cols&&this\._activeBuffer\.lines\.get\(\w+\+1\)&&\(/,
     buggy: /this\._activeBuffer\.x\+1>=this\._bufferService\.cols&&\(this\._activeBuffer\.lines\.get\((\w+)\+1\)\.isWrapped=!1\)/g,
     fixed: (v) =>
       `this._activeBuffer.x+1>=this._bufferService.cols&&this._activeBuffer.lines.get(${v}+1)&&(this._activeBuffer.lines.get(${v}+1).isWrapped=!1)`,
   },
   {
     name: 'print cursor row lookup',
+    marker: /if\(!\w+\)return;this\._dirtyRowTracker\.markDirty\(this\._activeBuffer\.y\)/,
     buggy: /(\w+)=this\._activeBuffer\.lines\.get\(this\._activeBuffer\.ybase\+this\._activeBuffer\.y\);this\._dirtyRowTracker\.markDirty\(this\._activeBuffer\.y\)/g,
     fixed: (v) =>
       `${v}=this._activeBuffer.lines.get(this._activeBuffer.ybase+this._activeBuffer.y);if(!${v})return;this._dirtyRowTracker.markDirty(this._activeBuffer.y)`,

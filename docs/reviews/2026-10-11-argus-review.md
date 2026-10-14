@@ -1,7 +1,11 @@
 # Argus review — 2026-10-11 (v0.25.4 → branch `perf/memory-cpu`)
 
 A full review of the app: security, bugs, performance (measured on the live app), hygiene, feature ideas
-and architecture. Status: ✅ fixed on `perf/memory-cpu` · ⏳ open.
+and architecture. Status: ✅ fixed and merged to `main` (PRs #18–#23) · ⏳ open or in progress.
+
+Status updated 2026-10-13 from `main` (#18 perf/memory-cpu, #19 + #23 security, #20 client bugs,
+#22 session insights). Round-2 performance and client work is in progress on other branches; those rows
+stay ⏳ until they merge.
 
 ---
 
@@ -40,7 +44,8 @@ and architecture. Status: ✅ fixed on `perf/memory-cpu` · ⏳ open.
   re-spawned the same sessions.
 - ✅ Now detected and logged loudly (`findDuplicateDaemons`, `ptyBackend/index.ts`).
 - ⏳ The stale dev daemons (pids 63260 and 70443) still need killing by hand.
-- ⏳ Consider deriving the socket name from the data dir, or holding a per-data-dir lock.
+- ✅ argusd holds an exclusive per-data-dir lock (`<dataDir>/argusd.lock`), and the server adopts a daemon
+  already live on its data dir instead of starting another (`chooseDaemonSocket`, #18).
 
 ---
 
@@ -48,21 +53,21 @@ and architecture. Status: ✅ fixed on `perf/memory-cpu` · ⏳ open.
 
 | # | Sev | Where | Issue | Fix | Status |
 |---|---|---|---|---|---|
-| S1 | **CRITICAL** | `server/src/middleware/auth.ts:16` | Auth is bypassed by path case: `/API/...` skips `startsWith('/api/')`, but Express routing ignores case. Gives full unauthenticated API access over ngrok (read `.env`, write `~/.zshenv` → RCE). Reproduced. | `app.set('case sensitive routing', true)`, mount as `app.use('/api', auth)`, compare the lowercased path, default-deny | ⏳ |
-| S2 | **CRITICAL** | `index.ts:92-108`, `socket/handler.ts:83-94` | No Origin/Host check. In default local mode, any web page can open `ws://127.0.0.1:5757`, read session ids, `ct:join` and `ct:input "curl…\|sh"`. DNS rebinding and cross-site text/plain POSTs reach REST. | Host+Origin allowlist (`allowRequest` + Express), better a per-launch token injected via preload | ⏳ |
-| S3 | HIGH | `auth.ts:23-28`, `routes/ngrok.ts`, `handler.ts:83` | "Exposed" is only detected when Argus starts ngrok itself. Manual ngrok/cloudflared/tailscale leaves auth off. ~1s race before the flag flips; sockets that connect in that window stay authenticated. | Treat `X-Forwarded-*`/`Forwarded`/non-loopback Host as exposed; set password before the tunnel; drop unauthenticated sockets when enforcement starts | ⏳ |
-| S4 | MED | `handler.ts:182-194` | `session:resize` is unbounded: `{cols:100000}` → mirror OOM kills Electron main | Clamp to integers (cols 2..1000, rows 2..500); same for `ct:` and `ephemeral:` | ⏳ |
-| S5 | MED | `routes/filesystem.ts:451,474-490,503` | Delete, rename and move accept the session root → `rm -rf` of the project including `.git` | Reject `resolved === base` for destructive ops | ⏳ |
-| S6 | MED | `launch/validateLaunch.ts:58-76`, `launchGate.ts` | Deep links pass `--mcp-config=~/Downloads/x.json`, `--settings`, `--dangerously-skip-permissions` with no warning. Ready `run/<id>` launchers start with no approval. | Deny or red-flag risky flags; require a click for external `run/` | ⏳ |
-| S7 | LOW-MED | `routes/sessions.ts:102-119` | `folderPath` is not required to be absolute or realpath'd. A session at `$HOME` widens pathScope to the whole home dir. | Require absolute, store realpath, restrict roots for remote clients | ⏳ |
-| S8 | LOW | `routes/git.ts:328`, `GitService.ts:937` | `baseBranch` is not validated → git option injection | `isSafeRef` + `check-ref-format` | ⏳ |
-| S9 | LOW | `GitService.ts:1125` | `.gitignore` append keeps newlines (rule injection) | Reject CR/LF, write a repo-relative `/path` | ⏳ |
-| S10 | LOW | `handler.ts:197-228` | Ephemeral terminal ids are chosen by the client and not tied to the socket (and the client never uses the feature) | Remove it, or key by `socket.id` | ⏳ |
-| S11 | LOW | `AuthService.ts:34`, `handler.ts` | Tokens are not cleared on password change; sockets are never re-checked after the handshake | Clear tokens; re-check periodically | ⏳ |
-| S12 | LOW | `routes/auth.ts:111` | All tunnel users share one rate-limit bucket (lockout DoS) | Per-IP behind the tunnel + global cap | ⏳ |
-| S13 | LOW | `routes/filesystem.ts:206` | Per-route 2 MB body limit never applies (global 10 MB parser runs first) | Per-route parsers | ⏳ |
-| S14 | LOW | `electron/src/main.ts:1021-1219` | IPC handlers (`native-term:*`, `dialog:showMessageBox`, `menu:set-shortcuts`, `app:relaunch`) neither check the sender nor validate payload shape | Shared `assertTrustedSender` + shape guards | ⏳ |
-| S15 | LOW | `electron/afterPack.cjs:41-48` | Fuses `OnlyLoadAppFromAsar` and `EmbeddedAsarIntegrityValidation` are off; the "deferred" comment in `electron-builder.config.cjs` is stale | Flip them; re-check the entitlements | ⏳ |
+| S1 | **CRITICAL** | `server/src/middleware/auth.ts:16` | Auth is bypassed by path case: `/API/...` skips `startsWith('/api/')`, but Express routing ignores case. Gives full unauthenticated API access over ngrok (read `.env`, write `~/.zshenv` → RCE). Reproduced. | `app.set('case sensitive routing', true)`, mount as `app.use('/api', auth)`, compare the lowercased path, default-deny | ✅ #19 |
+| S2 | **CRITICAL** | `index.ts:92-108`, `socket/handler.ts:83-94` | No Origin/Host check. In default local mode, any web page can open `ws://127.0.0.1:5757`, read session ids, `ct:join` and `ct:input "curl…\|sh"`. DNS rebinding and cross-site text/plain POSTs reach REST. | Host+Origin allowlist (`allowRequest` + Express), better a per-launch token injected via preload | ✅ #19 |
+| S3 | HIGH | `auth.ts:23-28`, `routes/ngrok.ts`, `handler.ts:83` | "Exposed" is only detected when Argus starts ngrok itself. Manual ngrok/cloudflared/tailscale leaves auth off. ~1s race before the flag flips; sockets that connect in that window stay authenticated. | Treat `X-Forwarded-*`/`Forwarded`/non-loopback Host as exposed; set password before the tunnel; drop unauthenticated sockets when enforcement starts | ✅ #23 |
+| S4 | MED | `handler.ts:182-194` | `session:resize` is unbounded: `{cols:100000}` → mirror OOM kills Electron main | Clamp to integers (cols 2..1000, rows 2..500); same for `ct:` and `ephemeral:` | ✅ #19 |
+| S5 | MED | `routes/filesystem.ts:451,474-490,503` | Delete, rename and move accept the session root → `rm -rf` of the project including `.git` | Reject `resolved === base` for destructive ops | ✅ #19 |
+| S6 | MED | `launch/validateLaunch.ts:58-76`, `launchGate.ts` | Deep links pass `--mcp-config=~/Downloads/x.json`, `--settings`, `--dangerously-skip-permissions` with no warning. Ready `run/<id>` launchers start with no approval. | Deny or red-flag risky flags; require a click for external `run/` | ✅ #23 |
+| S7 | LOW-MED | `routes/sessions.ts:102-119` | `folderPath` is not required to be absolute or realpath'd. A session at `$HOME` widens pathScope to the whole home dir. | Require absolute, store realpath, restrict roots for remote clients | ✅ #23 |
+| S8 | LOW | `routes/git.ts:328`, `GitService.ts:937` | `baseBranch` is not validated → git option injection | `isSafeRef` + `check-ref-format` | ✅ #23 |
+| S9 | LOW | `GitService.ts:1125` | `.gitignore` append keeps newlines (rule injection) | Reject CR/LF, write a repo-relative `/path` | ✅ #23 |
+| S10 | LOW | `handler.ts:197-228` | Ephemeral terminal ids are chosen by the client and not tied to the socket (and the client never uses the feature) | Remove it, or key by `socket.id` | ✅ #23 (API removed) |
+| S11 | LOW | `AuthService.ts:34`, `handler.ts` | Tokens are not cleared on password change; sockets are never re-checked after the handshake | Clear tokens; re-check periodically | ✅ #23 |
+| S12 | LOW | `routes/auth.ts:111` | All tunnel users share one rate-limit bucket (lockout DoS) | Per-IP behind the tunnel + global cap | ✅ #23 |
+| S13 | LOW | `routes/filesystem.ts:206` | Per-route 2 MB body limit never applies (global 10 MB parser runs first) | Per-route parsers | ✅ #23 |
+| S14 | LOW | `electron/src/main.ts:1021-1219` | IPC handlers (`native-term:*`, `dialog:showMessageBox`, `menu:set-shortcuts`, `app:relaunch`) neither check the sender nor validate payload shape | Shared `assertTrustedSender` + shape guards | ✅ #23 |
+| S15 | LOW | `electron/afterPack.cjs:41-48` | Fuses `OnlyLoadAppFromAsar` and `EmbeddedAsarIntegrityValidation` are off; the "deferred" comment in `electron-builder.config.cjs` is stale | Flip them; re-check the entitlements | ⏳ stale comment fixed (#23); fuses still off until a packaged boot with them on is verified (see `afterPack.cjs`) |
 
 Done well, don't redo: agentType registry guard and `shquote`; `execFile` with `--` everywhere; pathScope
 realpath re-check; sandboxed renderer; launch IPC sender checks; HMAC agent-signal tokens; serialized
@@ -103,22 +108,22 @@ matters from ~25 sessions up; deferred until the native-memory question (P15) is
 
 | # | Sev | Where | Issue | Status |
 |---|---|---|---|---|
-| C1 | HIGH | `hooks/useTerminal.ts:385` | Un-cancelled rAF re-joins a session room after `session:leave`: a leaked subscription that receives output forever | ✅ (+ companion terminal; test) |
-| C2 | HIGH | `hooks/useFileBuffer.ts:136-163` | Typing during an in-flight save is marked clean → silent data loss on tab close | ⏳ |
-| C3 | HIGH | `hooks/useGitDiff.ts:109` | The change check leaves out untracked files → new files never appear in the Diff view | ⏳ |
-| C4 | MED-HIGH | `FontSettingsContext.tsx:30`, `SessionMenuProvider` | Context values change identity every render → every tile and terminal re-renders on each session update | ✅ (+ `ToastProvider`; tests) |
-| C5 | MED | `MonacoPane.tsx:113`, `registerSymbolProviders.ts` | Go-to-definition uses a global active path → wrong in a split editor | ⏳ |
-| C6 | MED | `hooks/useFileTree.ts:134-208` | A failed folder fetch spins forever; unhandled rejections | ⏳ |
-| C7 | MED | `hooks/useGitDiff.ts:48,167` | Manual `refresh()` dropped while a poll runs (stale stage/unstage); `expandFileContext` spinner can stick | ⏳ |
-| C8 | MED | `hooks/useSessions.ts:23` | REST snapshot overwrites newer socket deltas on reconnect | ⏳ |
-| C9 | MED | `primitives/Toast.tsx` | Error toasts vanish after 1.5s, can't be dismissed, polite role (fails WCAG 2.2.1) | ⏳ |
-| C10 | LOW | `views/Mosaic.tsx:174` | Minimize/restore timers never cleared | ✅ |
-| C11 | LOW | `useFileTree.ts:50` | `treeCache` never evicted for deleted sessions | ✅ |
+| C1 | HIGH | `hooks/useTerminal.ts:385` | Un-cancelled rAF re-joins a session room after `session:leave`: a leaked subscription that receives output forever | ✅ (+ companion terminal; test) #18 |
+| C2 | HIGH | `hooks/useFileBuffer.ts:136-163` | Typing during an in-flight save is marked clean → silent data loss on tab close | ✅ #20 |
+| C3 | HIGH | `hooks/useGitDiff.ts:109` | The change check leaves out untracked files → new files never appear in the Diff view | ✅ #20 |
+| C4 | MED-HIGH | `FontSettingsContext.tsx:30`, `SessionMenuProvider` | Context values change identity every render → every tile and terminal re-renders on each session update | ✅ (+ `ToastProvider`; tests) #18 |
+| C5 | MED | `MonacoPane.tsx:113`, `registerSymbolProviders.ts` | Go-to-definition uses a global active path → wrong in a split editor | ✅ #20 |
+| C6 | MED | `hooks/useFileTree.ts:134-208` | A failed folder fetch spins forever; unhandled rejections | ✅ #20 |
+| C7 | MED | `hooks/useGitDiff.ts:48,167` | Manual `refresh()` dropped while a poll runs (stale stage/unstage); `expandFileContext` spinner can stick | ✅ #20 |
+| C8 | MED | `hooks/useSessions.ts:23` | REST snapshot overwrites newer socket deltas on reconnect | ✅ #20 |
+| C9 | MED | `primitives/Toast.tsx` | Error toasts vanish after 1.5s, can't be dismissed, polite role (fails WCAG 2.2.1) | ✅ #20 |
+| C10 | LOW | `views/Mosaic.tsx:174` | Minimize/restore timers never cleared | ✅ #18 |
+| C11 | LOW | `useFileTree.ts:50` | `treeCache` never evicted for deleted sessions | ✅ #18 |
 | C12 | LOW | `useFileBuffer.ts:124,187` | Double `flush()` on unmount | ⏳ |
 | C13 | LOW | `TerminalShell.tsx:405` | The search bar's subscription stays on a disposed addon after a terminal rebuild | ⏳ |
-| C14 | LOW | `useCompanionTerminal.ts:147` | `ct:join` spawns at 120×30 before the real size arrives | ⏳ |
+| C14 | LOW | `useCompanionTerminal.ts:147` | `ct:join` spawns at 120×30 before the real size arrives | ✅ #20 |
 | C15 | LOW | `useNotifications.ts:61` | Every window notifies for all sessions (multi-window) | ⏳ verify |
-| C16 | ? | split editor | The same path open in both groups shares one Monaco model; closing one tab may dispose it under the other | ⏳ verify |
+| C16 | ? | split editor | The same path open in both groups shares one Monaco model; closing one tab may dispose it under the other | ✅ confirmed and fixed: models ref-counted per path (#20) |
 
 ---
 
@@ -157,14 +162,14 @@ matters from ~25 sessions up; deferred until the native-memory question (P15) is
 
 ---
 
-## 6. Feature ideas (checked: not already implemented)
+## 6. Feature ideas (checked: not already implemented at review time)
 
 | # | Idea | Effort | Plugs into |
 |---|---|---|---|
-| F1 | **Cost / token / context-% meter per tile.** The hooks already carry `transcript_path`; read the JSONL `usage` blocks | M | ClaudeHooksAdapter, SessionInfo, SessionCard |
-| F2 | **Resume instead of restart** (`claude --resume <id>`); needs the session id from hooks | S | ExitedCard, `restartSession` |
-| F3 | **Waiting inbox:** every pending prompt in one list, one-key approve and jump | S | StateDetector prompt extraction, CommandPalette |
-| F4 | **Broadcast input** to N selected sessions (`/compact`, "rebase on main") | S | `socket/handler`, Mosaic multi-select |
+| F1 | ✅ #22 **Cost / token / context-% meter per tile.** The hooks already carry `transcript_path`; read the JSONL `usage` blocks | M | ClaudeHooksAdapter, SessionInfo, SessionCard |
+| F2 | ✅ #22 **Resume instead of restart** (`claude --resume <id>`); needs the session id from hooks | S | ExitedCard, `restartSession` |
+| F3 | ✅ #22 **Waiting inbox:** every pending prompt in one list, one-key approve and jump | S | StateDetector prompt extraction, CommandPalette |
+| F4 | ✅ #22 **Broadcast input** to N selected sessions (`/compact`, "rebase on main") | S | `socket/handler`, Mosaic multi-select |
 | F5 | **Auto-approval rules** via a PreToolUse hook decision, per folder or launcher | M | ClaudeHooksAdapter, Settings |
 | F6 | **Activity timeline** from PostToolUse, SubagentStop and PreCompact hooks | M | agentSignals, a new EventStore |
 | F7 | **PR/CI chip** per worktree session (`gh pr view`) | M | GitService, git poll |
@@ -197,8 +202,8 @@ matters from ~25 sessions up; deferred until the native-memory question (P15) is
 
 ## 8. Suggested order
 
-1. **S1 + S2** (critical, small).
-2. S3–S5 → C2, C3 → kill the duplicate dev daemons.
+1. ✅ **S1 + S2** (critical, small).
+2. ✅ S3–S5 → ✅ C2, C3 → ⏳ kill the duplicate dev daemons.
 3. Confirm the native-memory suspect (P15) → renderer trace (P14).
-4. F1 + F2 → F3 + F4.
+4. ✅ F1 + F2 → ✅ F3 + F4 (#22).
 5. Daemon flow control (P10, P11) → utilityProcess move.

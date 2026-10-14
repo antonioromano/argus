@@ -27,7 +27,8 @@
     "build:native": "node scripts/build-native.mjs",
     "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && make -C daemon build && npm run build:native -- --arch=$(node -p process.arch) && node scripts/register-dev-scheme.mjs && ARGUS_PORT=5403 electron .",
-    "package:mac": "npm run check:deps && npm run build:all && make -C daemon build && npm run build:native && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
+    "package:mac": "npm run check:deps && npm run build:all && npm run package:mac:only",
+    "package:mac:only": "make -C daemon build && npm run build:native && npx electron-builder install-app-deps && electron-builder --mac -p never --config electron-builder.config.cjs"
   },
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",
@@ -38,8 +39,7 @@
     "fix-path": "^4.0.0",
     "node-pty": "^1.1.0",
     "semver": "^7.7.1",
-    "socket.io": "^4.8.3",
-    "uuid": "^11.1.0"
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@electron/fuses": "^2.1.3",

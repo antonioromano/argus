@@ -1,4 +1,5 @@
 import type { Terminal } from '@xterm/xterm';
+import { authFetch } from '../services/api';
 
 // DECSET/DECRST private modes for mouse tracking + extended encodings.
 //
@@ -253,7 +254,7 @@ export function installSelectableMouse(
     const fit = (window as Window & { __argusFit?: number }).__argusFit ?? 0;
     const body = `fit=${fit} buf=${terminal.buffer.active.type}\n${traceBuf.join('\n')}`;
     traceBuf = [];
-    fetch('/api/debug/scroll', { method: 'POST', body, keepalive: true }).catch(() => {});
+    authFetch('/api/debug/scroll', { method: 'POST', body, keepalive: true }).catch(() => {});
   };
   // xterm's own scroll (and its row-snap _refresh) shows up as scroll events on the viewport.
   const onVpScroll = () => {
