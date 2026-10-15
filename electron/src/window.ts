@@ -236,6 +236,15 @@ export function createAppWindow(windowId: string): BrowserWindow {
     app.dock?.show();
   });
 
+  // Drop the vibrancy while in native fullscreen. Nothing sits behind a
+  // fullscreen window, so the effect is invisible there, but its backdrop
+  // view leaks on every display reconfiguration (monitor unplug/replug, wake
+  // with an external display): measured +316 MB of CG image/CoreAnimation per
+  // replug in the main process for a fullscreen window, 0 for the same window
+  // un-fullscreened. Restored on leaving fullscreen.
+  win.on('enter-full-screen', () => win.setVibrancy(null));
+  win.on('leave-full-screen', () => win.setVibrancy('sidebar'));
+
   // Resolve this BrowserWindow's CURRENT registry id at event time — adoption
   // (adoptAsMain) re-keys a window from its uuid to 'main' after creation, so
   // the id captured at construction can go stale.
