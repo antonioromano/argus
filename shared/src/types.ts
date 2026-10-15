@@ -445,6 +445,72 @@ export interface HandoffResponse extends HandoffBriefStats {
   briefPath: string;
 }
 
+// ── Beta F10: multi-session templates ──────────────────────────────────────
+// Server copies live in server/src/constants/templates.ts (check-dep-sync pins them).
+/** Most session specs one template may hold. */
+export const TEMPLATE_MAX_SPECS = 8;
+/** Longest initial prompt a spec may carry, in characters. */
+export const TEMPLATE_PROMPT_MAX = 4000;
+/** Longest template name, in characters. */
+export const TEMPLATE_NAME_MAX = 60;
+
+/** One shell a template starts. */
+export interface TemplateSpec {
+  /** Agent id, checked against AgentRegistry. */
+  agent: string;
+  /** Absolute folder; stored realpath'd. */
+  folder: string;
+  /** Create a new worktree on this new branch (from HEAD) and start there. */
+  worktreeBranch?: string;
+  /** First prompt, passed on the agent's command line (quoted). */
+  prompt?: string;
+  /** Session name; defaults to the folder's basename. */
+  name?: string;
+}
+
+/** A saved template (server/data/templates.json — never config.json). */
+export interface SessionTemplate {
+  id: string;
+  name: string;
+  specs: TemplateSpec[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Body of POST /api/templates and PUT /api/templates/:id. */
+export interface SaveTemplateRequest {
+  name: string;
+  specs: TemplateSpec[];
+}
+
+/** 400 body of a save or a launch whose specs failed validation. */
+export interface TemplateErrorResponse {
+  error: string;
+  /** Per-spec errors, by index into `specs`. */
+  specErrors?: Array<{ index: number; error: string }>;
+}
+
+export interface TemplateListResponse {
+  templates: SessionTemplate[];
+}
+
+/** Body of POST /api/templates/:id/launch. */
+export interface LaunchTemplateRequest {
+  /** The window the new shells belong to (defaults to main). */
+  windowId?: string;
+}
+
+/** What happened to one spec of a launch. Best effort: no rollback. */
+export type TemplateSpecResult =
+  | { index: number; ok: true; session: SessionInfo }
+  | { index: number; ok: false; error: string };
+
+export interface LaunchTemplateResponse {
+  /** The new group holding every started shell; null when none started. */
+  group: SessionGroup | null;
+  results: TemplateSpecResult[];
+}
+
 /** Lifecycle of a pull request; `draft` is an open PR marked as draft. */
 export type PrState = 'open' | 'draft' | 'merged' | 'closed';
 /** Aggregate of a PR's checks. `none` = the PR has no checks at all. */
@@ -703,6 +769,8 @@ export interface ServerToClientEvents {
    *  absolute parent directories of changed entries (tree path scheme), so the
    *  client can re-fetch just those folders. */
   'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
+  /** groups.json was rewritten server-side (beta F10 template launch); refetch. */
+  'groups:changed': () => void;
   // Companion terminal responses
   'ct:output': (payload: { sessionId: string; data: string }) => void;
   'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;

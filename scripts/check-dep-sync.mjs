@@ -112,6 +112,9 @@ const DUPLICATED_CONSTS = [
   { name: 'SHELL_AGENT_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/agents.ts' },
   { name: 'BROADCAST_MAX_TEXT', shared: 'shared/src/types.ts', server: 'server/src/constants/broadcast.ts' },
   { name: 'BROADCAST_MAX_TARGETS', shared: 'shared/src/types.ts', server: 'server/src/constants/broadcast.ts' },
+  { name: 'TEMPLATE_MAX_SPECS', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
+  { name: 'TEMPLATE_PROMPT_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
+  { name: 'TEMPLATE_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
   // Renderer ↔ Electron main: main cannot import renderer code either.
   { name: 'TERMINAL_SCROLLBACK', shared: 'client/src/constants/terminal.ts', server: 'electron/src/nativeTerminal/constants.ts' },
 ];

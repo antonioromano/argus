@@ -19,6 +19,8 @@ import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
 import { isBetaEnabled } from './utils/betaFlags.js';
 import { createHandoffRoutes } from './routes/handoff.js';
+import { createTemplateRoutes } from './routes/templates.js';
+import { TemplateStore } from './persistence/TemplateStore.js';
 import { createActivityRoutes } from './routes/activity.js';
 import { cleanupOldHandoffs, typeWhenReady } from './services/handoff.js';
 import { BROADCAST_ENTER_DELAY_MS, SessionInputQueue } from './socket/broadcast.js';
@@ -392,6 +394,21 @@ app.use('/api/sessions', createHandoffRoutes({
   }),
 }));
 app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicOrderStore, groupStore, configStore));
+// Beta F10 session templates: /api/templates CRUD + launch (404 while the flag is off).
+// Own file (templates.json), never config.json; deliberately no deep-link path.
+app.use('/api/templates', createTemplateRoutes({
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaSessionTemplates'),
+  store: new TemplateStore(path.join(dataDir, 'templates.json')),
+  groupStore,
+  loadConfig: () => configStore.load(),
+  agentRegistry,
+  createSession: (spec, name, flags) => sessionManager.createSession(
+    spec.folder, name, spec.agent, flags, undefined, undefined, spec.worktreeBranch, undefined, false, undefined, undefined, false,
+    spec.prompt !== undefined ? { initialPrompt: spec.prompt } : {},
+  ),
+  assignWindow: (sessionId, windowId) => windowRegistry.assign(sessionId, windowId),
+  onGroupsChanged: () => io.emit('groups:changed'),
+}));
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).
