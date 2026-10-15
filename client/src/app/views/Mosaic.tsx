@@ -7,6 +7,7 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
 import { PrChip } from '../ui/PrChip.js';
+import { StaleChip } from '../ui/StaleChip.js';
 import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -86,6 +87,8 @@ interface MosaicProps {
   showDiagnostics: boolean;
   onMarkDone?: (session: SessionInfo) => void;
   onMerge?: (session: SessionInfo) => void;
+  /** Beta F8 "Finish…"; absent while the flag is off. */
+  onFinish?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -121,7 +124,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -236,9 +239,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -257,6 +260,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileDumpDiagnostics = useCallback((s: SessionInfo) => propCbRef.current.onDumpDiagnostics(s), []);
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
+  const handleTileFinish = useCallback((s: SessionInfo) => propCbRef.current.onFinish?.(s), []);
   const handleTileClone = useCallback((s: SessionInfo) => propCbRef.current.onClone?.(s), []);
   const handleTileFocusDiff = useCallback((id: string) => propCbRef.current.onFocusDiff?.(id), []);
   const handleTileFocusExplorer = useCallback((id: string) => propCbRef.current.onFocusExplorer?.(id), []);
@@ -494,6 +498,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   canMarkDone={!!onMarkDone && s.status === 'idle'}
                   onMerge={onMerge ? handleTileMerge : undefined}
                   canMerge={!!onMerge && !!s.worktreePath && mergingSessionId !== s.id}
+                  onFinish={onFinish && s.worktreePath && s.worktreeBranch ? handleTileFinish : undefined}
                   onClone={onClone ? handleTileClone : undefined}
                   onFocusDiff={onFocusDiff ? handleTileFocusDiff : undefined}
                   onFocusExplorer={onFocusExplorer ? handleTileFocusExplorer : undefined}
@@ -582,6 +587,8 @@ type MosaicTileSharedProps = {
   /** Merge handler; gated by `canMerge` for whether the button shows. */
   onMerge?: (session: SessionInfo) => void;
   canMerge?: boolean;
+  /** Beta F8 "Finish…"; set only for worktree shells while the flag is on. */
+  onFinish?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -723,6 +730,7 @@ function MosaicTileInner({
   canMarkDone,
   onMerge,
   canMerge,
+  onFinish,
   onClone,
   onFocusDiff,
   onFocusExplorer,
@@ -809,6 +817,7 @@ function MosaicTileInner({
       onDumpDiagnostics, showDiagnostics,
       onMarkDone, canMarkDone: () => !!canMarkDone,
       onMerge, canMerge: () => !!canMerge,
+      onFinish, canFinish: () => !!onFinish,
       onClone,
       onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff,
     },
@@ -894,6 +903,7 @@ function MosaicTileInner({
             <span className="argus-tile-branch">{session.worktreeBranch.replace(/^argus\//, '')}</span>
           </Tooltip>
         )}
+        <StaleChip staleDays={session.worktreeStaleDays} />
         {session.runMode === 'direct' && (
           <Tooltip content="Native terminal — stops when Argus quits">
             <span className="argus-tile-branch">Native</span>

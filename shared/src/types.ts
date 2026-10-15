@@ -329,6 +329,58 @@ export interface SessionInfo {
   promptOptions?: PromptOption[];
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
+  /** Beta F8: days since the worktree branch's last commit, set only once it
+   *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
+  worktreeStaleDays?: number;
+}
+
+// ── Beta F8: worktree lifecycle ────────────────────────────────────────────
+
+/** One step of "Finish…" on a worktree shell, always run in this order. */
+export type WorktreeFinishStep = 'commit' | 'push' | 'pr';
+
+/** What the Finish sheet shows before anything runs. */
+export interface WorktreeFinishInfo {
+  worktreePath: string;
+  branch: string;
+  /** e.g. `origin/feat/x`; null when the branch was never pushed. */
+  upstream: string | null;
+  /** The repo's default branch — the PR base and the "fully merged" target. */
+  defaultBranch: string;
+  /** Uncommitted changes in the worktree (offer the Commit step). */
+  dirty: boolean;
+  /** The branch's PR, when `gh` knows one. */
+  pr: SessionPr | null;
+  /** `gh` is installed and logged in, so "Open PR" can create one. */
+  ghAvailable: boolean;
+  /** GitHub compare URL — the fallback when `gh` is unavailable. */
+  compareUrl: string | null;
+  /** The branch's PR is merged, or the branch is fully merged into the default branch. */
+  merged: boolean;
+  /** Removal is allowed: PR merged or branch fully merged, and a clean tree. */
+  removable: boolean;
+  /** Why removal is not offered (dirty tree / not merged). */
+  removeBlockedReason?: string;
+}
+
+export interface WorktreeFinishRequest {
+  steps: WorktreeFinishStep[];
+  /** Commit message; required when `steps` includes `commit`. */
+  message?: string;
+}
+
+export interface WorktreeFinishStepResult {
+  step: WorktreeFinishStep;
+  /** `skipped`: an earlier step failed, so this one never ran. */
+  status: 'ok' | 'failed' | 'skipped';
+  detail?: string;
+  /** PR or compare URL produced by the `pr` step. */
+  url?: string;
+}
+
+export interface WorktreeFinishResponse {
+  ok: boolean;
+  results: WorktreeFinishStepResult[];
 }
 
 /** Lifecycle of a pull request; `draft` is an open PR marked as draft. */
@@ -577,6 +629,8 @@ export interface ServerToClientEvents {
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** The session's PR / CI state changed; null = no PR (or the feature is off). */
   'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
+  /** Beta F8: the worktree's stale marker changed; null = not stale (or the feature is off). */
+  'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
   /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

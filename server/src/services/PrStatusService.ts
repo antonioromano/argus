@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
 import type { PrCiStatus, PrState, SessionPr } from '@argus/shared';
+import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
  * PR / CI state of a session's branch, read with the GitHub CLI
@@ -16,7 +17,7 @@ import type { PrCiStatus, PrState, SessionPr } from '@argus/shared';
 
 /** `gh pr view` in `cwd`. Resolves stdout; rejects with the execFile error
  *  (carrying `code` and `stderr`) on a non-zero exit or a missing binary. */
-export type GhRunner = (args: string[], cwd: string) => Promise<string>;
+export type GhRunner = (args: string[], cwd: string, opts?: { timeoutMs?: number }) => Promise<string>;
 
 /** Current branch and repo root of a folder; null when not a repo / detached. */
 export interface HeadInfo {
@@ -39,6 +40,8 @@ export const PR_SETTLED_TTL_MS = 5 * 60_000;
 export const GH_UNAVAILABLE_RECHECK_MS = 10 * 60_000;
 const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
 const GH_TIMEOUT_MS = 8_000;
+/** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
+const PR_CREATE_TIMEOUT_MS = 60_000;
 
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', 'number,state,isDraft,url,statusCheckRollup,headRefName'];
 
@@ -142,7 +145,7 @@ async function findGh(): Promise<string | null> {
 /** The real runner: execFile with an argument array (no shell) and a timeout. */
 export function createGhRunner(): GhRunner {
   let ghPath: Promise<string | null> | null = null;
-  return async (args, cwd) => {
+  return async (args, cwd, opts) => {
     ghPath ??= findGh();
     const bin = await ghPath;
     if (!bin) {
@@ -152,7 +155,7 @@ export function createGhRunner(): GhRunner {
     return new Promise<string>((resolve, reject) => {
       execFile(bin, args, {
         cwd,
-        timeout: GH_TIMEOUT_MS,
+        timeout: opts?.timeoutMs ?? GH_TIMEOUT_MS,
         maxBuffer: 2 * 1024 * 1024,
         encoding: 'utf-8',
         env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' },
@@ -214,6 +217,38 @@ export class PrStatusService {
     const p = this.fetch(key, cwd).finally(() => this.inflight.delete(key));
     this.inflight.set(key, p);
     return p;
+  }
+
+  /**
+   * Beta F8: is `gh` installed and logged in? Asked only when the Finish sheet
+   * opens, never polled. Shares the "unavailable" back-off with the PR chips.
+   */
+  async ghAvailable(cwd: string): Promise<boolean> {
+    if (this.now() < this.unavailableUntil) return false;
+    try {
+      await this.runGh(['auth', 'status'], cwd);
+      return true;
+    } catch (err) {
+      if (isGhUnavailable(err)) this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+      return false;
+    }
+  }
+
+  /**
+   * Beta F8: `gh pr create --fill` for `branch` against `base`. Resolves the
+   * PR URL; rejects with gh's error. Drops the cached lookup so the chip picks
+   * the new PR up on the next sweep. Both refs are validated by the caller.
+   */
+  async createPr(gitRoot: string, cwd: string, branch: string, base: string): Promise<string> {
+    const stdout = await this.runGh(
+      ['pr', 'create', '--fill', '--base', base, '--head', branch],
+      cwd,
+      { timeoutMs: PR_CREATE_TIMEOUT_MS },
+    );
+    this.cache.delete(`${gitRoot}\0${branch}`);
+    const url = parsePrCreateUrl(stdout);
+    if (!url) throw new Error(stdout.trim() || 'gh pr create printed no PR URL');
+    return url;
   }
 
   /** Forget everything (the feature was switched off). */

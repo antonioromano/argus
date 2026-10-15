@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -673,6 +673,28 @@ export const api = {
     const q = targetBranch ? `?targetBranch=${encodeURIComponent(targetBranch)}` : '';
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-merge-preview${q}`);
     return (await requireOk(res)).json();
+  },
+
+  /** Beta F8: what the Finish sheet shows (branch, upstream, PR, removability). */
+  getWorktreeFinishInfo: async (sessionId: string): Promise<WorktreeFinishInfo> => {
+    const res = await authFetch(`${API_BASE}/worktrees/sessions/${sessionId}/finish`);
+    return (await requireOk(res)).json();
+  },
+
+  /** Beta F8: run Finish steps (server orders them and stops at the first failure). */
+  finishWorktree: async (sessionId: string, steps: WorktreeFinishStep[], message?: string): Promise<WorktreeFinishResponse> => {
+    const res = await authFetch(`${API_BASE}/worktrees/sessions/${sessionId}/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ steps, message }),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  /** Beta F8: end the session, then `git worktree remove` (never forced). */
+  removeFinishedWorktree: async (sessionId: string): Promise<void> => {
+    const res = await authFetch(`${API_BASE}/worktrees/sessions/${sessionId}/remove`, { method: 'POST' });
+    await requireOk(res);
   },
 
   /** F9 cross-session search over scrollback and transcripts. */

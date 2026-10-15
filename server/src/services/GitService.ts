@@ -16,6 +16,8 @@ function findGit(): string {
 const GIT_PATH = findGit();
 const TIMEOUT_MS = 10_000;
 const UNDO_TTL_MS = 30_000;
+/** `git push` (Beta F8 Finish) talks to the network; give it longer. */
+const PUSH_TIMEOUT_MS = 60_000;
 // blameCache keys on filePath+headSha, so every commit adds a fresh entry per
 // file touched instead of invalidating one — cap it so a long-lived session
 // with lots of commits doesn't grow the map unbounded.
@@ -566,6 +568,70 @@ export class GitService {
     const totalDeletions = files.reduce((s, f) => s + f.deletions, 0);
 
     return { files, totalAdditions, totalDeletions, sourceBranch, targetBranch };
+  }
+
+  // ── Beta F8: worktree lifecycle ──────────────────────────────────────────
+
+  /** The branch's upstream (`origin/feat/x`), or null when it has none. */
+  async upstreamOf(folder: string): Promise<string | null> {
+    try {
+      const out = (await execGit(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], folder)).trim();
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Epoch ms of HEAD's commit; null when there is none (or not a repo). */
+  async lastCommitTime(folder: string): Promise<number | null> {
+    try {
+      const secs = parseInt((await execGit(['log', '-1', '--format=%ct'], folder)).trim(), 10);
+      return Number.isFinite(secs) ? secs * 1000 : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** URL of a remote (default `origin`), or null. */
+  async remoteUrl(folder: string, remote = 'origin'): Promise<string | null> {
+    try {
+      const out = (await execGit(['remote', 'get-url', '--', remote], folder)).trim();
+      return out || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Stage everything (incl. untracked) and commit. */
+  async commitAll(folder: string, message: string): Promise<CommitResponse> {
+    try {
+      await execGitWithStderr(['add', '-A'], folder);
+    } catch (err) {
+      const e = err as { message?: string; stderr?: string };
+      return { success: false, error: e.stderr || e.message || 'git add failed' };
+    }
+    return this.commit(folder, message, false);
+  }
+
+  /**
+   * Push `branch`; with `setUpstream`, publish it to origin and track it. The
+   * caller validates `branch` (isSafeRef). Longer timeout than other git calls
+   * (a push talks to the network), and no credential prompt — it would hang
+   * with no terminal to answer it.
+   */
+  async pushBranch(folder: string, branch: string, setUpstream: boolean): Promise<PatchOperationResponse> {
+    const args = setUpstream ? ['push', '--set-upstream', 'origin', `refs/heads/${branch}:refs/heads/${branch}`] : ['push'];
+    return new Promise((resolve) => {
+      execFile(GIT_PATH, args, {
+        cwd: folder,
+        timeout: PUSH_TIMEOUT_MS,
+        maxBuffer: 5 * 1024 * 1024,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      }, (err, _stdout, stderr) => {
+        if (err) resolve({ success: false, error: (stderr || '').trim() || err.message || 'Push failed' });
+        else resolve({ success: true });
+      });
+    });
   }
 
   async init(folderPath: string): Promise<void> {

@@ -17,6 +17,7 @@ import type {
 import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
+import { isBetaEnabled } from './utils/betaFlags.js';
 import { OrderStore } from './persistence/OrderStore.js';
 import { GroupStore } from './persistence/GroupStore.js';
 import { WindowStore } from './persistence/WindowStore.js';
@@ -146,6 +147,7 @@ function applyConfig(cfg: AppConfig): void {
   currentConfig = cfg;
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
+  sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
@@ -328,10 +330,11 @@ ngrokService.onExposureChange = (exposed) => authService.setExposed(exposed);
 // Git service
 const gitService = new GitService();
 sessionManager.setGitService(gitService);
-sessionManager.setPrStatusService(new PrStatusService({
+const prStatusService = new PrStatusService({
   headInfo: (folder) => gitService.headInfo(folder),
   defaultBranch: (root) => gitService.getDefaultBranch(root),
-}));
+});
+sessionManager.setPrStatusService(prStatusService);
 
 // Changelist store
 const changelistStore = new ChangelistStore();
@@ -397,7 +400,10 @@ app.use('/api/auto-approval', createAutoApprovalRoutes({
 }));
 app.use('/api/agents', createAgentRoutes(agentRegistry));
 app.use('/api/update', createUpdateRoutes(updateService));
-app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService));
+app.use('/api/worktrees', createWorktreeRoutes(sessionManager, gitService, {
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaWorktreeLifecycle'),
+  prService: prStatusService,
+}));
 app.use('/api/search', createSearchRoutes({ targets: () => sessionManager.searchTargets() }));
 app.use('/api/windows', createWindowRoutes(
   windowRegistry,

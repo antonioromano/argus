@@ -50,6 +50,8 @@ import { IntroSheet, type IntroResult } from './intro/IntroSheet.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../constants/tileActions.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
+import { FinishWorktreeHost } from './overlays/FinishWorktreeSheet.js';
+import { isBetaEnabled } from '../utils/betaFlags.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
@@ -195,6 +197,7 @@ function DesktopInner() {
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
+  const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
   const groups = useGroups();
@@ -244,6 +247,8 @@ function DesktopInner() {
   const [pendingRestart, setPendingRestart] = useState<SessionInfo | null>(null);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
+  // Beta F8: the worktree shell whose Finish sheet is open.
+  const [finishSession, setFinishSession] = useState<SessionInfo | null>(null);
 
   // Resolved keyboard shortcuts (registry defaults + user overrides from config).
   const shortcuts = useShortcuts(config?.keyboardShortcuts);
@@ -868,6 +873,9 @@ function DesktopInner() {
     canMarkDone: (s: SessionInfo) => s.status === 'idle',
     onMerge: handleMerge,
     canMerge: (s: SessionInfo) => !!s.worktreePath && mergeFlow?.session.id !== s.id,
+    // Beta F8: no handler at all while the flag is off, so the entry never renders.
+    onFinish: worktreeLifecycle ? setFinishSession : undefined,
+    canFinish: (s: SessionInfo) => !!s.worktreePath && !!s.worktreeBranch,
     onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine, runMode: s.runMode }),
     onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
     onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
@@ -986,6 +994,7 @@ function DesktopInner() {
               showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
+              onFinish={worktreeLifecycle ? setFinishSession : undefined}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine, runMode: s.runMode })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
               onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
@@ -1213,6 +1222,18 @@ function DesktopInner() {
         }}
         onCancel={() => setPendingRestart(null)}
       />
+
+      {finishSession && (
+        <FinishWorktreeHost
+          config={config}
+          session={finishSession}
+          onClose={() => setFinishSession(null)}
+          onRemoved={(s) => {
+            if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
+            pushToast(`Removed worktree ${s.worktreeBranch ?? s.name}`, 'ok');
+          }}
+        />
+      )}
 
       {mergeFlow && (
         <MergePreviewSheet
