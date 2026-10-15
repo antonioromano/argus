@@ -18,7 +18,7 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox, Send, Search } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
 
@@ -201,9 +201,10 @@ function DesktopInner() {
   const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const handoffEnabled = isBetaEnabled(config, 'betaHandoff');
   const activityEnabled = isBetaEnabled(config, 'betaActivityTimeline');
+  const templatesEnabled = isBetaEnabled(config, 'betaSessionTemplates');
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
-  const groups = useGroups();
+  const groups = useGroups(socket);
 
   type MergeFlow =
     | null
@@ -850,6 +851,15 @@ function DesktopInner() {
       icon: Send,
       run: () => openBroadcast([]),
     },
+    // Beta F10: templates live in Settings → Launchers; listed only while the flag is on.
+    ...(templatesEnabled ? [{
+      id: 'launch-template',
+      label: 'Launch template…',
+      hint: 'several shells into a new group',
+      keywords: 'template multi session spawn group worktree start',
+      icon: LayoutTemplate,
+      run: () => app.openOverlay({ kind: 'settings', initialTab: 'launchers' }),
+    }] : []),
     ...orderedSessions.filter(canResume).map((s) => ({
       id: `resume-${s.id}`,
       label: `Resume conversation: ${s.name}`,

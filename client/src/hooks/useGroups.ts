@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
+import type { Socket } from 'socket.io-client';
+import type { SessionInfo, SessionGroup, FavoriteEntryMeta, ServerToClientEvents, ClientToServerEvents } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { api } from '../services/api.js';
 import { DEFAULT_GROUP_COLOR, OTHERS_DEFAULT_COLOR } from '../constants/groupColors.js';
@@ -26,13 +27,30 @@ export interface GroupedSessions {
   othersColor: string | null;
 }
 
-export function useGroups() {
+/**
+ * `socket` (optional) lets the server announce a groups.json rewrite it made
+ * itself — a beta F10 template launch adds a group — so this copy refetches
+ * instead of overwriting it with a stale list on the next local edit.
+ */
+export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEvents>) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     api.getGroups().then(setGroups).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const refetch = () => {
+      // A local edit still waiting to be saved would clobber the server's
+      // change; drop it — the server copy already has everything but that edit.
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      api.getGroups().then(setGroups).catch(console.error);
+    };
+    socket.on('groups:changed', refetch);
+    return () => { socket.off('groups:changed', refetch); };
+  }, [socket]);
 
   useEffect(() => {
     return () => {
