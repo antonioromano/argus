@@ -217,6 +217,11 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     showPrStatus: false,
     autoApprovalEnabled: true,
     claudeRenderer: 'classic',
+    betaActivityTimeline: true,
+    betaWorktreeLifecycle: true,
+    betaSessionTemplates: true,
+    betaHandoff: true,
+    betaSessionChains: true,
   };
 
   // The list above used to be maintained by hand against a comment, and
@@ -303,4 +308,18 @@ test('autoApprovalEnabled is off by default and only an explicit boolean changes
   assert.equal((await put({ autoApprovalEnabled: true })).body.autoApprovalEnabled, true);
   assert.equal((await put({})).body.autoApprovalEnabled, true, 'absent keeps the stored value');
   await put({ autoApprovalEnabled: false });
+});
+
+test('beta flags default off and accept only strict booleans', async () => {
+  const flags = ['betaActivityTimeline', 'betaWorktreeLifecycle', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'] as const;
+  for (const flag of flags) {
+    await put({ [flag]: false });
+    assert.equal((await get())[flag], false);
+    assert.equal((await put({ [flag]: 'true' })).body[flag], false, `${flag}: a string must not switch it on`);
+    assert.equal((await put({ [flag]: 1 })).body[flag], false, `${flag}: a number must not switch it on`);
+    assert.equal((await put({ [flag]: true })).body[flag], true);
+    assert.equal((await get())[flag], true, `${flag}: persisted`);
+    assert.equal((await put({})).body[flag], true, `${flag}: absent keeps the stored value`);
+    await put({ [flag]: false });
+  }
 });

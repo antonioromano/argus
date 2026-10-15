@@ -134,7 +134,24 @@ export interface AppConfig {
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
   // so it reaches new and restarted sessions only.
   claudeRenderer?: ClaudeRenderer;
+  // Beta features (Settings → Beta features). All default off; while a flag is
+  // off its feature is inert — no UI, no polling, no timers. See BetaFlag.
+  betaActivityTimeline?: boolean; // F6
+  betaWorktreeLifecycle?: boolean; // F8
+  betaSessionTemplates?: boolean; // F10
+  betaHandoff?: boolean; // F12
+  betaSessionChains?: boolean; // F13
 }
+
+/** The AppConfig keys that gate a beta feature. Each side reads them through its
+ *  own tiny helper (client `utils/betaFlags`, server `utils/betaFlags`) — the
+ *  server may only `import type` from here. */
+export type BetaFlag =
+  | 'betaActivityTimeline'
+  | 'betaWorktreeLifecycle'
+  | 'betaSessionTemplates'
+  | 'betaHandoff'
+  | 'betaSessionChains';
 
 /**
  * Claude Code's terminal renderer for sessions Argus spawns.
@@ -183,6 +200,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   showPrStatus: true,
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
+  betaActivityTimeline: false,
+  betaWorktreeLifecycle: false,
+  betaSessionTemplates: false,
+  betaHandoff: false,
+  betaSessionChains: false,
 };
 
 export interface AgentStatus {

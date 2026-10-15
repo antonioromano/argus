@@ -28,6 +28,7 @@ import {
   Wrench,
   Rocket,
   ShieldCheck,
+  FlaskConical,
 } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
 
@@ -47,7 +48,8 @@ export type PaneId =
   | 'runtime'
   | 'power'
   | 'remote'
-  | 'developer';
+  | 'developer'
+  | 'beta';
 
 export type PaneGroup = 'Appearance' | 'Workspace' | 'Behavior' | 'System';
 
@@ -195,6 +197,14 @@ export const PANES: readonly PaneDef[] = [
     keys: ['debugToolsEnabled'],
     keywords: ['developer', 'debug', 'diagnostics', 'dump', 'devtools'],
   },
+  {
+    id: 'beta',
+    label: 'Beta features',
+    group: 'System',
+    icon: FlaskConical,
+    keys: ['betaWorktreeLifecycle', 'betaActivityTimeline', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'],
+    keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'coming soon'],
+  },
 ];
 
 export const PANES_BY_ID: Record<PaneId, PaneDef> = Object.fromEntries(
@@ -296,6 +306,11 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'defaultRunMode',
   'confirmQuitDirectSessions',
   'claudeRenderer',
+  'betaActivityTimeline',
+  'betaWorktreeLifecycle',
+  'betaSessionTemplates',
+  'betaHandoff',
+  'betaSessionChains',
 ];
 
 export function resetPatch(): Partial<AppConfig> {
