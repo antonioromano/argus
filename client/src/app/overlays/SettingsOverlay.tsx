@@ -29,6 +29,7 @@ import { RuntimePane } from './settings/panes/RuntimePane.js';
 import { PowerPane } from './settings/panes/PowerPane.js';
 import { RemotePane } from './settings/panes/RemotePane.js';
 import { DeveloperPane } from './settings/panes/DeveloperPane.js';
+import { BetaPane } from './settings/panes/BetaPane.js';
 
 interface SettingsOverlayProps {
   config: AppConfig;
@@ -167,6 +168,7 @@ export function SettingsOverlay({
                 />
               )}
               {pane === 'developer' && <DeveloperPane {...paneProps} />}
+              {pane === 'beta' && <BetaPane {...paneProps} />}
             </div>
           </main>
         </div>

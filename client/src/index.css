@@ -902,6 +902,18 @@ body {
   border-radius: var(--r-1);
   padding: 1px var(--s-1);
 }
+/* Beta F8: a worktree whose branch has had no commit for 15+ days. Subtle on
+   purpose — muted text, dashed edge, no color alarm. */
+.argus-tile-stale {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: var(--tracking-eye);
+  color: var(--fg-3);
+  border: 1px dashed var(--line-3);
+  border-radius: var(--r-1);
+  padding: 0 var(--s-1);
+}
 /* Plain Shell git context: ⎇ branch ↑ahead ↓behind ●changes (follows cd). */
 .argus-shell-git {
   flex-shrink: 1;

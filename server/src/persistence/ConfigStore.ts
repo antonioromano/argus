@@ -48,6 +48,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   showPrStatus: true,
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
+  betaActivityTimeline: false,
+  betaWorktreeLifecycle: false,
+  betaSessionTemplates: false,
+  betaHandoff: false,
+  betaSessionChains: false,
 };
 
 export class ConfigStore {

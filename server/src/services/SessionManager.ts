@@ -54,6 +54,7 @@ import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import type { PrStatusService } from './PrStatusService.js';
+import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
@@ -208,6 +209,9 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const PR_POLL_INTERVAL_MS = 30_000;
 /** Parallel `gh pr view` runs per sweep. */
 const PR_POLL_CONCURRENCY = 2;
+/** Beta F8: re-read a worktree's last-commit time at most this often. Staleness
+ *  is measured in days, so a 10 s git-poll tick needs no fresh `git log`. */
+const STALE_RECHECK_MS = 5 * 60_000;
 
 // How much raw pty output to keep per session for the diagnostics dump. This
 // used to be a 100KB rolling string (re-copied on every chunk) that also backed
@@ -403,6 +407,10 @@ export class SessionManager {
   private prPollRunning = false;
   private prPollTimer: ReturnType<typeof setInterval> | null = null;
   private prKickTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Beta F8 (`betaWorktreeLifecycle`): stale-worktree marker. Off ⇒ never computed. */
+  private worktreeLifecycleEnabled = false;
+  private staleMap = new Map<string, number>();
+  private lastCommitCache = new Map<string, { at: number | null; checkedAt: number }>();
   private idleTierTimer: ReturnType<typeof setInterval> | null = null;
   /** Shared with NgrokService and KeepAwakeService — see SleepPreventionService. */
   private readonly sleepPrevention: SleepPreventionService;
@@ -591,6 +599,40 @@ export class SessionManager {
     this.restartPrPoll();
   }
 
+  /** Config `betaWorktreeLifecycle`. Off: drop every stale marker and the cache;
+   *  the git poll then skips the check entirely (no extra git, no timer). */
+  setWorktreeLifecycleEnabled(enabled: boolean): void {
+    if (enabled === this.worktreeLifecycleEnabled) return;
+    this.worktreeLifecycleEnabled = enabled;
+    if (!enabled) {
+      for (const id of this.staleMap.keys()) this.io?.emit('session:worktreeStale', { sessionId: id, staleDays: null });
+      this.staleMap.clear();
+      this.lastCommitCache.clear();
+    }
+  }
+
+  /**
+   * Beta F8: refresh one worktree session's stale marker during the git poll.
+   * One `git log -1` per worktree folder per STALE_RECHECK_MS, shared by every
+   * session on that folder; emits only when the marker changes.
+   */
+  private async refreshWorktreeStale(git: GitService, session: ManagedSession, now: number): Promise<void> {
+    const folder = session.worktreePath;
+    if (!folder) return;
+    let cached = this.lastCommitCache.get(folder);
+    if (!cached || now - cached.checkedAt >= STALE_RECHECK_MS) {
+      cached = { at: await git.lastCommitTime(folder), checkedAt: now };
+      this.lastCommitCache.set(folder, cached);
+    }
+    if (!this.worktreeLifecycleEnabled || this.sessions.get(session.id) !== session) return;
+    const days = staleDays(cached.at, now);
+    const prev = this.staleMap.get(session.id) ?? null;
+    if (days === prev) return;
+    if (days === null) this.staleMap.delete(session.id);
+    else this.staleMap.set(session.id, days);
+    this.io?.emit('session:worktreeStale', { sessionId: session.id, staleDays: days });
+  }
+
   private restartPrPoll(): void {
     this.stopPrPoll();
     if (!this.prService || !this.prEnabled) return;
@@ -722,6 +764,9 @@ export class SessionManager {
           if (dirty !== prev) {
             this.gitDirtyMap.set(session.id, dirty);
             this.io?.emit('session:gitStatus', { sessionId: session.id, hasGitChanges: dirty });
+          }
+          if (this.worktreeLifecycleEnabled && session.worktreeBranch) {
+            await this.refreshWorktreeStale(git, session, now);
           }
         } catch {
           // transient git error — ignore this tick
@@ -1027,6 +1072,7 @@ export class SessionManager {
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     this.prMap.delete(id);
+    this.staleMap.delete(id);
     const stillInUse = Array.from(this.sessions.values()).some((s) => s.folderPath === session.folderPath);
     if (!stillInUse) this.gitRepoCache.delete(session.folderPath);
     cleanupSessionDimensions(id);
@@ -2314,6 +2360,7 @@ export class SessionManager {
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
       pr: this.prMap.get(session.id),
+      worktreeStaleDays: this.staleMap.get(session.id),
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
       lastPrompt: session.lastPrompt,

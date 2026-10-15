@@ -118,6 +118,10 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, pr: pr ?? undefined } : s)));
     };
 
+    const handleWorktreeStale = ({ sessionId, staleDays }: { sessionId: string; staleDays: number | null }) => {
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, worktreeStaleDays: staleDays ?? undefined } : s)));
+    };
+
     const handleUsage = ({ sessionId, usage }: { sessionId: string; usage: SessionUsage }) => {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
     };
@@ -137,6 +141,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:gitStatus', handleGitStatus);
     socket.on('session:shellContext', handleShellContext);
     socket.on('session:pr', handlePr);
+    socket.on('session:worktreeStale', handleWorktreeStale);
 
     return () => {
       socket.off('session:status', handleStatus);
@@ -150,6 +155,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
       socket.off('session:pr', handlePr);
+      socket.off('session:worktreeStale', handleWorktreeStale);
     };
   }, [socket, applyDelta]);
 

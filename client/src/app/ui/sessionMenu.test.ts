@@ -95,4 +95,17 @@ describe('buildSessionMenuItems', () => {
     (items.find((e) => 'id' in e && e.id === 'resume') as { onClick: () => void }).onClick();
     expect(onResume).toHaveBeenCalledWith(session);
   });
+
+  it('offers Finish… (beta F8) only with a handler and only for a worktree shell', () => {
+    const wt: SessionInfo = { ...session, worktreePath: '/wt', worktreeBranch: 'feat/x' };
+    const canFinish = (s: SessionInfo) => !!s.worktreePath && !!s.worktreeBranch;
+    // Flag off ⇒ ArgusApp passes no handler ⇒ no entry.
+    expect(ids(buildSessionMenuItems(wt, actions({ canFinish })))).not.toContain('finish');
+    expect(ids(buildSessionMenuItems(session, actions({ onFinish: vi.fn(), canFinish })))).not.toContain('finish');
+    const onFinish = vi.fn();
+    const item = buildSessionMenuItems(wt, actions({ onFinish, canFinish })).find((e) => 'id' in e && e.id === 'finish');
+    expect(item).toBeTruthy();
+    (item as { onClick: () => void }).onClick();
+    expect(onFinish).toHaveBeenCalledWith(wt);
+  });
 });
