@@ -1,4 +1,4 @@
-import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -31,6 +31,8 @@ export interface SessionMenuActions {
   /** Beta F8 "Finish…" (commit / push / PR). Absent while the flag is off. */
   onFinish?: (session: SessionInfo) => void;
   canFinish?: (session: SessionInfo) => boolean;
+  /** Beta F12 "Hand off…" to a new shell. Absent while the flag is off. */
+  onHandoff?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -88,6 +90,7 @@ export function buildSessionMenuItems(
     ...(a.onMergeAllHere && a.canMergeAllHere ? [{ id: 'merge-all-windows', label: 'Merge All Windows Here', icon: Combine, onClick: () => a.onMergeAllHere!() }] : []),
     ...(a.onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => a.onClone!(session) }] : []),
     ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
+    ...(a.onHandoff ? [{ id: 'handoff', label: 'Hand off…', icon: Forward, onClick: () => a.onHandoff!(session) }] : []),
     ...(a.onFinish && a.canFinish?.(session) ? [{ id: 'finish', label: 'Finish…', icon: Flag, onClick: () => a.onFinish!(session) }] : []),
     ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
     ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume conversation', icon: History, onClick: () => a.onResume!(session) }] : []),

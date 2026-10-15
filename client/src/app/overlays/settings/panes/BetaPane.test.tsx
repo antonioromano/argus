@@ -45,10 +45,17 @@ describe('BetaPane', () => {
     expect(onSave).toHaveBeenLastCalledWith({ betaWorktreeLifecycle: false });
   });
 
+  it('toggles agent handoff (F12), which is no longer coming soon', () => {
+    render();
+    expect(row('betaHandoff').textContent).not.toMatch(/coming soon/i);
+    act(() => { track('betaHandoff').click(); });
+    expect(onSave).toHaveBeenLastCalledWith({ betaHandoff: true });
+  });
+
   it('keeps coming-soon features disabled and off, even if the config says on', () => {
     const soon = BETA_FEATURES.filter((f) => !f.available);
     expect(soon.map((f) => f.flag).sort()).toEqual(
-      ['betaActivityTimeline', 'betaHandoff', 'betaSessionChains', 'betaSessionTemplates'],
+      ['betaActivityTimeline', 'betaSessionChains', 'betaSessionTemplates'],
     );
     render(Object.fromEntries(soon.map((f) => [f.flag, true])));
     for (const f of soon) {

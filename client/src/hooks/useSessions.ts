@@ -168,6 +168,11 @@ export function useSessions(socket: TypedSocket) {
     return session;
   }, [applyDelta]);
 
+  /** Add a session created outside createSession (e.g. a beta F12 handoff) before its socket echo. */
+  const adoptSession = useCallback((session: SessionInfo) => {
+    applyDelta((prev) => (prev.some((s) => s.id === session.id) ? prev : [...prev, session]));
+  }, [applyDelta]);
+
   // Optimistic: the name lands locally before the socket echo, so the surface
   // that just committed the edit never flickers back to the old label.
   const renameSession = useCallback(async (id: string, name: string) => {
@@ -194,5 +199,5 @@ export function useSessions(socket: TypedSocket) {
     }
   }, [applyDelta]);
 
-  return { sessions, loaded, createSession, deleteSession, renameSession };
+  return { sessions, loaded, createSession, adoptSession, deleteSession, renameSession };
 }

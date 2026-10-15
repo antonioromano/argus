@@ -48,7 +48,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     ref: 'F12',
     label: 'Agent handoff',
     description: 'Start a new shell seeded with a summary and the diff of another.',
-    available: false,
+    available: true,
   },
   {
     flag: 'betaSessionChains',

@@ -89,6 +89,8 @@ interface MosaicProps {
   onMerge?: (session: SessionInfo) => void;
   /** Beta F8 "Finish…"; absent while the flag is off. */
   onFinish?: (session: SessionInfo) => void;
+  /** Beta F12 "Hand off…"; absent while the flag is off. */
+  onHandoff?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -124,7 +126,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, showUsage = true }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -239,9 +241,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -261,6 +263,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
   const handleTileFinish = useCallback((s: SessionInfo) => propCbRef.current.onFinish?.(s), []);
+  const handleTileHandoff = useCallback((s: SessionInfo) => propCbRef.current.onHandoff?.(s), []);
   const handleTileClone = useCallback((s: SessionInfo) => propCbRef.current.onClone?.(s), []);
   const handleTileFocusDiff = useCallback((id: string) => propCbRef.current.onFocusDiff?.(id), []);
   const handleTileFocusExplorer = useCallback((id: string) => propCbRef.current.onFocusExplorer?.(id), []);
@@ -499,6 +502,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onMerge={onMerge ? handleTileMerge : undefined}
                   canMerge={!!onMerge && !!s.worktreePath && mergingSessionId !== s.id}
                   onFinish={onFinish && s.worktreePath && s.worktreeBranch ? handleTileFinish : undefined}
+                  onHandoff={onHandoff ? handleTileHandoff : undefined}
                   onClone={onClone ? handleTileClone : undefined}
                   onFocusDiff={onFocusDiff ? handleTileFocusDiff : undefined}
                   onFocusExplorer={onFocusExplorer ? handleTileFocusExplorer : undefined}
@@ -589,6 +593,8 @@ type MosaicTileSharedProps = {
   canMerge?: boolean;
   /** Beta F8 "Finish…"; set only for worktree shells while the flag is on. */
   onFinish?: (session: SessionInfo) => void;
+  /** Beta F12 "Hand off…"; set only while the flag is on. */
+  onHandoff?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -731,6 +737,7 @@ function MosaicTileInner({
   onMerge,
   canMerge,
   onFinish,
+  onHandoff,
   onClone,
   onFocusDiff,
   onFocusExplorer,
@@ -818,6 +825,7 @@ function MosaicTileInner({
       onMarkDone, canMarkDone: () => !!canMarkDone,
       onMerge, canMerge: () => !!canMerge,
       onFinish, canFinish: () => !!onFinish,
+      onHandoff,
       onClone,
       onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff,
     },
