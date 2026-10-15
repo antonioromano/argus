@@ -383,6 +383,34 @@ export interface WorktreeFinishResponse {
   results: WorktreeFinishStepResult[];
 }
 
+// ── Beta F6: activity timeline ─────────────────────────────────────────────
+
+/** What an activity entry records (one Claude hook event each). */
+export type ActivityEventType = 'tool' | 'subagent' | 'compact' | 'prompt' | 'notification' | 'stop';
+
+/**
+ * One entry of a session's activity feed, built server-side from a capped hook
+ * payload. `summary` is at most 200 characters and never carries file contents
+ * or Write/Edit bodies — for file tools it is the path alone.
+ */
+export interface ActivityEvent {
+  /** Per-server monotonically increasing id (stable React key, dedupe). */
+  id: number;
+  /** Epoch ms when the server received the hook. */
+  at: number;
+  type: ActivityEventType;
+  /** Tool name, for `type: 'tool'`. */
+  tool?: string;
+  summary: string;
+  /** Absolute path of the file a file tool touched (Read/Write/Edit/NotebookEdit). */
+  filePath?: string;
+}
+
+/** `GET /api/sessions/:id/activity` — oldest first. */
+export interface ActivityListResponse {
+  events: ActivityEvent[];
+}
+
 /** Beta F12 — body of `POST /api/sessions/:id/handoff`. */
 export interface HandoffRequest {
   /** Agent for the new shell (default: the source shell's agent). */
@@ -665,6 +693,8 @@ export interface ServerToClientEvents {
   'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
   /** Beta F8: the worktree's stale marker changed; null = not stale (or the feature is off). */
   'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
+  /** Beta F6: one new activity entry, emitted only to the session's room. */
+  'session:activity': (payload: { sessionId: string; event: ActivityEvent }) => void;
   /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

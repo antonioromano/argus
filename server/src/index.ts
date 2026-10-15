@@ -19,6 +19,7 @@ import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
 import { isBetaEnabled } from './utils/betaFlags.js';
 import { createHandoffRoutes } from './routes/handoff.js';
+import { createActivityRoutes } from './routes/activity.js';
 import { cleanupOldHandoffs, typeWhenReady } from './services/handoff.js';
 import { BROADCAST_ENTER_DELAY_MS, SessionInputQueue } from './socket/broadcast.js';
 import { OrderStore } from './persistence/OrderStore.js';
@@ -151,6 +152,7 @@ function applyConfig(cfg: AppConfig): void {
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
   sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
+  sessionManager.setActivityTimelineEnabled(isBetaEnabled(cfg, 'betaActivityTimeline'));
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
@@ -365,6 +367,11 @@ if (process.env.NODE_ENV !== 'production') {
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', persistentSessions: sessionManager.isPersistent() });
 });
+// Beta F6 activity timeline: GET /api/sessions/:id/activity (404 while the flag is off).
+app.use('/api/sessions', createActivityRoutes({
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaActivityTimeline'),
+  getActivity: (id) => sessionManager.getActivity(id),
+}));
 // Beta F12 agent handoff: POST /api/sessions/:id/handoff (404 while the flag is off).
 const handoffDir = path.join(dataDir, 'handoffs');
 const handoffInput = new SessionInputQueue((id, data) => sessionManager.writeToSession(id, data));

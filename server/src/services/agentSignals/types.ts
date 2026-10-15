@@ -9,6 +9,8 @@ export interface SignalInjectionContext {
   signalDir: string;
   /** The user's own spawn flags for this session (may contain conflicting flags). */
   userFlags: string[];
+  /** Beta F6: also inject the activity-timeline hooks (Claude only). */
+  activity?: boolean;
 }
 
 /** A file the adapter needs written before spawn (e.g. a hooks settings file). */

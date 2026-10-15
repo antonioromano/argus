@@ -10,6 +10,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 const SECRET = 'test-secret-abc';
 const calls: Array<{ id: string; sig: any }> = [];
 const metas: Array<{ id: string; meta: any }> = [];
+const activity: Array<{ id: string; raw: string }> = [];
 
 const fakeManager = {
   applyNativeSignal: (id: string, sig: any) => {
@@ -17,6 +18,9 @@ const fakeManager = {
   },
   applyAgentMeta: (id: string, meta: any) => {
     metas.push({ id, meta });
+  },
+  recordActivityHook: (id: string, raw: string) => {
+    activity.push({ id, raw });
   },
 } as unknown as SessionManager;
 
@@ -193,4 +197,32 @@ test('pre-tool-use: a throwing decider → 204, not an error that could be misre
 test('pre-tool-use: without a decider wired → 204', async () => {
   const res = await ptu(base, 'sess-p', { token: computeSignalToken(SECRET, 'sess-p'), hook: {} });
   assert.equal(res.status, 204);
+});
+
+function postActivity(sessionId: string, text: string): Promise<Response> {
+  return fetch(`${base}/${sessionId}/activity`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: text });
+}
+
+test('activity: token line + capped hook head → 204, forwards the payload after the token', async () => {
+  activity.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const head = '{"hook_event_name":"PostToolUse","tool_name":"Write","tool_input":{"file_path":"/a","content":"xx';
+  const res = await postActivity('sess-1', `${token}\n${head}`);
+  assert.equal(res.status, 204);
+  assert.deepEqual(activity, [{ id: 'sess-1', raw: head }]);
+});
+
+test('activity: bad or missing token → 401, nothing recorded', async () => {
+  activity.length = 0;
+  assert.equal((await postActivity('sess-1', 'wrong\n{}')).status, 401);
+  assert.equal((await postActivity('sess-1', computeSignalToken(SECRET, 'sess-1'))).status, 401);
+  assert.equal(activity.length, 0);
+});
+
+test('activity: a body over the cap is refused (argus-signal sends at most 16 KB)', async () => {
+  activity.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const res = await postActivity('sess-1', `${token}\n${'x'.repeat(64 * 1024)}`);
+  assert.equal(res.status, 413);
+  assert.equal(activity.length, 0);
 });
