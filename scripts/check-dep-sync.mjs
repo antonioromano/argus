@@ -115,6 +115,9 @@ const DUPLICATED_CONSTS = [
   { name: 'TEMPLATE_MAX_SPECS', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
   { name: 'TEMPLATE_PROMPT_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
   { name: 'TEMPLATE_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
+  { name: 'CHAIN_PROMPT_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
+  { name: 'CHAIN_MAX_FIRES_PER_HOUR', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
+  { name: 'CHAIN_GLOBAL_MAX_FIRES_PER_HOUR', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
   // Renderer ↔ Electron main: main cannot import renderer code either.
   { name: 'TERMINAL_SCROLLBACK', shared: 'client/src/constants/terminal.ts', server: 'electron/src/nativeTerminal/constants.ts' },
 ];

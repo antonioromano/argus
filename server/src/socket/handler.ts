@@ -135,10 +135,16 @@ export function setupSocketHandler(
   manager: SessionManager,
   authService: AuthService,
   updateService: UpdateService,
+  opts: {
+    /** Shared with in-process writers (beta F13 chains) so their text and Enter never interleave with keystrokes. */
+    inputQueue?: SessionInputQueue;
+    /** A user keystroke reached a session (beta F13 waits for a quiet moment before typing). */
+    onUserInput?: (sessionId: string) => void;
+  } = {},
 ): void {
   // One input queue for all connections: keystrokes and broadcasts to a session
   // stay in order even when they come from different windows.
-  const inputQueue = new SessionInputQueue((id, data) => manager.writeToSession(id, data));
+  const inputQueue = opts.inputQueue ?? new SessionInputQueue((id, data) => manager.writeToSession(id, data));
 
   io.use((socket, next) => {
     const rawToken = socket.handshake.auth?.token;
@@ -247,6 +253,7 @@ export function setupSocketHandler(
       // Through the queue so a keystroke can't land between a broadcast's text
       // and its Enter; a write error (session exited meanwhile) is swallowed.
       inputQueue.write(sessionId, data);
+      opts.onUserInput?.(sessionId);
     });
 
     // Broadcast input (F4): same text into several shells. Validated (known ids,
