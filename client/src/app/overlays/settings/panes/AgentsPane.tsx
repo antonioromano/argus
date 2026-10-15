@@ -13,6 +13,7 @@ import {
 import { AgentGlyph } from '../../../ui/AgentGlyph.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import type { PaneProps } from '../types.js';
+import { ClaudeRendererSection } from './ClaudeRendererSection.js';
 
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 // Mirrors the server guard (config.ts) — custom agent commands are shell-spawned.
@@ -133,6 +134,8 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
           </div>
         </div>
       </Section>
+
+      <ClaudeRendererSection config={config} onSave={onSave} />
 
       <Section
         title="Installed agents"

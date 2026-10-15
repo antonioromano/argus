@@ -216,6 +216,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     showUsageMeter: false,
     showPrStatus: false,
     autoApprovalEnabled: true,
+    claudeRenderer: 'classic',
   };
 
   // The list above used to be maintained by hand against a comment, and
@@ -250,6 +251,12 @@ test('PUT /api/config rejects an unknown defaultRunMode and keeps the current va
   await put({ defaultRunMode: 'direct' });
   const { body } = await put({ defaultRunMode: 'sometimes' });
   assert.equal((body as Record<string, unknown>).defaultRunMode, 'direct');
+});
+
+test('PUT /api/config rejects an unknown claudeRenderer and keeps the current value', async () => {
+  await put({ claudeRenderer: 'inherit' });
+  const { body } = await put({ claudeRenderer: 'gpu' });
+  assert.equal((body as Record<string, unknown>).claudeRenderer, 'inherit');
 });
 
 test('custom agent promptFlag: unsafe rejected, safe accepted', async () => {

@@ -104,8 +104,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Agents',
     group: 'Workspace',
     icon: Cpu,
-    keys: ['defaultAgent', 'customAgents', 'agentFlags'],
-    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command'],
+    keys: ['defaultAgent', 'customAgents', 'agentFlags', 'claudeRenderer'],
+    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback'],
   },
   {
     id: 'groups',
@@ -295,6 +295,7 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'defaultTerminalEngine',
   'defaultRunMode',
   'confirmQuitDirectSessions',
+  'claudeRenderer',
 ];
 
 export function resetPatch(): Partial<AppConfig> {

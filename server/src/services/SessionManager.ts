@@ -19,10 +19,12 @@ import type {
   PromptOption,
   SessionStatusPayload,
   SessionPr,
+  AppConfig,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
 import { zshIntegrationEnv } from './shellIntegration.js';
+import { claudeRendererEnv } from './claudeRenderer.js';
 import { OscCwdParser } from './oscCwd.js';
 import { PtyManager, tmuxSessionName } from './PtyManager.js';
 import { StateDetector } from './StateDetector.js';
@@ -870,7 +872,7 @@ export class SessionManager {
       }
     }
     const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
-    const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(resolvedAgentType) };
+    const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
     // the tmux backend (diagnostics/legacy); the daemon backend keys off id.
@@ -1130,7 +1132,7 @@ export class SessionManager {
     // Spawn-only: the resume flags are never written back to session.flags, so
     // the next plain Restart is still a fresh start.
     const spawnFlags = inj?.flags ?? userFlags;
-    const spawnEnv = { ...(inj?.env ?? {}), ...this.shellIntegrationEnv(session.agentType) };
+    const spawnEnv = this.agentSpawnEnv(session.agentType, command, config, inj);
     await backend.ready?.();
     const ptyProcess = backend.spawn({
       sessionId: id,
@@ -2328,6 +2330,21 @@ export class SessionManager {
   }
 
   /** Env that turns on the zsh shell integration — Shell sessions only. */
+  /** The env every agent spawn carries: signal injection, shell integration
+   *  and, for Claude, the renderer choice (see claudeRendererEnv). */
+  private agentSpawnEnv(
+    agentType: string,
+    command: string,
+    config: Pick<AppConfig, 'claudeRenderer'>,
+    inj: { env: Record<string, string> } | null,
+  ): Record<string, string> {
+    return {
+      ...(inj?.env ?? {}),
+      ...this.shellIntegrationEnv(agentType),
+      ...claudeRendererEnv(command, config.claudeRenderer),
+    };
+  }
+
   private shellIntegrationEnv(agentType: string): Record<string, string> {
     if (agentType !== SHELL_AGENT_ID) return {};
     return zshIntegrationEnv(this.dataDir) ?? {};

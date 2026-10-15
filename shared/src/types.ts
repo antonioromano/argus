@@ -131,7 +131,20 @@ export interface AppConfig {
   showPrStatus?: boolean;
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
   autoApprovalEnabled?: boolean;
+  // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
+  // so it reaches new and restarted sessions only.
+  claudeRenderer?: ClaudeRenderer;
 }
+
+/**
+ * Claude Code's terminal renderer for sessions Argus spawns.
+ *  - fullscreen: alt-screen renderer; a resize re-lays out its own history, so
+ *    nothing stale reaches the terminal scrollback (no duplicated messages).
+ *  - classic: main-screen renderer with native scrollback; a width change makes
+ *    Claude reprint its transcript, leaving copies wrapped for the old width.
+ *  - inherit: Argus sets nothing; the user's own `tui` setting applies.
+ */
+export type ClaudeRenderer = 'fullscreen' | 'classic' | 'inherit';
 
 /** Every AppConfig key with its shipped default. The single source of truth for
  *  both the server store (a partial file is merged over this) and the settings
@@ -169,6 +182,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   showUsageMeter: true,
   showPrStatus: true,
   autoApprovalEnabled: false,
+  claudeRenderer: 'fullscreen',
 };
 
 export interface AgentStatus {

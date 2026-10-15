@@ -47,6 +47,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   showUsageMeter: true,
   showPrStatus: true,
   autoApprovalEnabled: false,
+  claudeRenderer: 'fullscreen',
 };
 
 export class ConfigStore {
