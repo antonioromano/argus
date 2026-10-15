@@ -511,6 +511,72 @@ export interface LaunchTemplateResponse {
   results: TemplateSpecResult[];
 }
 
+// ── Beta F13: session chains ───────────────────────────────────────────────
+// Server copies live in server/src/constants/chains.ts (check-dep-sync pins them).
+/** Longest prompt a chain may send, in characters. */
+export const CHAIN_PROMPT_MAX = 4000;
+/** A chain that fires this many times within an hour disarms itself. */
+export const CHAIN_MAX_FIRES_PER_HOUR = 10;
+/** All chains together fire at most this many times per hour; extra fires are dropped. */
+export const CHAIN_GLOBAL_MAX_FIRES_PER_HOUR = 30;
+
+/** The source status that fires a chain, on the edge into it. */
+export type ChainTrigger = 'idle' | 'waiting' | 'done';
+/** `once` disarms after the first fire; `repeat` stays armed. */
+export type ChainMode = 'once' | 'repeat';
+
+/** "When session A enters `trigger`, send `prompt` to session B" (server/data/chains.json). */
+export interface SessionChain {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  trigger: ChainTrigger;
+  mode: ChainMode;
+  prompt: string;
+  armed: boolean;
+  /** Why the chain is disarmed (auto-disarm after a once fire, or the rate cap). */
+  disarmedReason?: string;
+  createdAt: string;
+  lastFiredAt?: string;
+  fireCount: number;
+}
+
+/** Body of POST /api/chains. */
+export interface CreateChainRequest {
+  sourceId: string;
+  targetId: string;
+  trigger: ChainTrigger;
+  mode?: ChainMode;
+  prompt: string;
+}
+
+/** Body of PATCH /api/chains/:id. */
+export interface ArmChainRequest {
+  armed: boolean;
+}
+
+export type ChainFireOutcome = 'sent' | 'queued' | 'dropped';
+
+/** One entry of the in-memory fire audit (last 50, newest first). */
+export interface ChainFire {
+  at: string;
+  chainId: string;
+  sourceId: string;
+  targetId: string;
+  sourceName?: string;
+  targetName?: string;
+  outcome: ChainFireOutcome;
+  reason?: string;
+}
+
+export interface ChainListResponse {
+  chains: SessionChain[];
+}
+
+export interface ChainAuditResponse {
+  fires: ChainFire[];
+}
+
 /** Lifecycle of a pull request; `draft` is an open PR marked as draft. */
 export type PrState = 'open' | 'draft' | 'merged' | 'closed';
 /** Aggregate of a PR's checks. `none` = the PR has no checks at all. */
@@ -771,6 +837,8 @@ export interface ServerToClientEvents {
   'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
   /** groups.json was rewritten server-side (beta F10 template launch); refetch. */
   'groups:changed': () => void;
+  /** Beta F13: a chain was created, removed, armed, disarmed or fired; refetch. */
+  'chains:changed': () => void;
   // Companion terminal responses
   'ct:output': (payload: { sessionId: string; data: string }) => void;
   'ct:exit': (payload: { sessionId: string; exitCode: number }) => void;

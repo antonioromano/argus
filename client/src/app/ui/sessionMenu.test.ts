@@ -118,4 +118,14 @@ describe('buildSessionMenuItems', () => {
     (item as { onClick: () => void }).onClick();
     expect(onHandoff).toHaveBeenCalledWith(session);
   });
+
+  it('offers Chain to… (beta F13) only when a handler is passed, and not for an exited shell', () => {
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('chain');
+    const onChain = vi.fn();
+    const item = buildSessionMenuItems(session, actions({ onChain })).find((e) => 'id' in e && e.id === 'chain');
+    expect(item).toBeTruthy();
+    (item as { onClick: () => void }).onClick();
+    expect(onChain).toHaveBeenCalledWith(session);
+    expect(ids(buildSessionMenuItems({ ...session, status: 'exited' }, actions({ onChain })))).not.toContain('chain');
+  });
 });

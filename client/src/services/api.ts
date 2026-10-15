@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -841,5 +841,39 @@ export const api = {
       body: JSON.stringify({ windowId }),
     });
     return (await requireTemplateOk(res)).json();
+  },
+
+  /** Beta F13: session chains (404 while the flag is off). */
+  listChains: async (): Promise<SessionChain[]> => {
+    const res = await authFetch(`${API_BASE}/chains`);
+    return ((await requireOk(res)).json() as Promise<ChainListResponse>).then((b) => b.chains);
+  },
+
+  createChain: async (req: CreateChainRequest): Promise<SessionChain> => {
+    const res = await authFetch(`${API_BASE}/chains`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  setChainArmed: async (id: string, armed: boolean): Promise<SessionChain> => {
+    const res = await authFetch(`${API_BASE}/chains/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ armed }),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  deleteChain: async (id: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/chains/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  },
+
+  /** The last 50 fires, newest first (in memory on the server). */
+  chainAudit: async (): Promise<ChainFire[]> => {
+    const res = await authFetch(`${API_BASE}/chains/audit`);
+    return ((await requireOk(res)).json() as Promise<ChainAuditResponse>).then((b) => b.fires);
   },
 };

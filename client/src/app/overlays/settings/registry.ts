@@ -203,7 +203,7 @@ export const PANES: readonly PaneDef[] = [
     group: 'System',
     icon: FlaskConical,
     keys: ['betaWorktreeLifecycle', 'betaActivityTimeline', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'],
-    keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'coming soon'],
+    keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'chain to', 'loop'],
   },
 ];
 

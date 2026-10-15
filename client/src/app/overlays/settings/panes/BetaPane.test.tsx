@@ -5,6 +5,8 @@ import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
 import { BetaPane } from './BetaPane.js';
 import { BETA_FEATURES } from '../../../../utils/betaFlags.js';
 
+vi.mock('./ChainsSection.js', () => ({ ChainsSection: () => <div data-testid="chains-section-stub" /> }));
+
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
 let container: HTMLDivElement; let root: Root;
@@ -66,18 +68,17 @@ describe('BetaPane', () => {
     expect(onSave).toHaveBeenLastCalledWith({ betaActivityTimeline: true });
   });
 
-  it('keeps coming-soon features disabled and off, even if the config says on', () => {
-    const soon = BETA_FEATURES.filter((f) => !f.available);
-    expect(soon.map((f) => f.flag).sort()).toEqual(
-      ['betaSessionChains'],
-    );
-    render(Object.fromEntries(soon.map((f) => [f.flag, true])));
-    for (const f of soon) {
-      expect(row(f.flag).textContent).toMatch(/coming soon/i);
-      act(() => { track(f.flag).click(); });
-      // Rendered off: the knob sits at the start of the track.
-      expect((track(f.flag).firstElementChild as HTMLElement).style.transform).toBe('translateX(0)');
-    }
-    expect(onSave).not.toHaveBeenCalled();
+  it('toggles session chains (F13): every feature is available, none is coming soon', () => {
+    render();
+    expect(container.textContent).not.toMatch(/coming soon/i);
+    act(() => { track('betaSessionChains').click(); });
+    expect(onSave).toHaveBeenLastCalledWith({ betaSessionChains: true });
+  });
+
+  it('shows the Chains section only while session chains are on', () => {
+    render();
+    expect(container.querySelector('[data-testid="chains-section-stub"]')).toBeNull();
+    render({ betaSessionChains: true });
+    expect(container.querySelector('[data-testid="chains-section-stub"]')).toBeTruthy();
   });
 });

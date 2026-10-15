@@ -21,6 +21,9 @@ import { isBetaEnabled } from './utils/betaFlags.js';
 import { createHandoffRoutes } from './routes/handoff.js';
 import { createTemplateRoutes } from './routes/templates.js';
 import { TemplateStore } from './persistence/TemplateStore.js';
+import { ChainStore } from './persistence/ChainStore.js';
+import { ChainEngine } from './services/chains/ChainEngine.js';
+import { createChainRoutes } from './routes/chains.js';
 import { createActivityRoutes } from './routes/activity.js';
 import { cleanupOldHandoffs, typeWhenReady } from './services/handoff.js';
 import { BROADCAST_ENTER_DELAY_MS, SessionInputQueue } from './socket/broadcast.js';
@@ -224,6 +227,7 @@ const windowRegistry = new WindowRegistry(windowStore);
 windowRegistry.onChange((state) => io.emit('window:state', state));
 sessionManager.onSessionDeleted = (id) => {
   void windowRegistry.removeSession(id).catch(console.error);
+  chainEngine.handleSessionRemoved(id);
 };
 
 // Deep-link launchers (argus://run/<id>) — own file, never via PUT /api/config.
@@ -376,7 +380,9 @@ app.use('/api/sessions', createActivityRoutes({
 }));
 // Beta F12 agent handoff: POST /api/sessions/:id/handoff (404 while the flag is off).
 const handoffDir = path.join(dataDir, 'handoffs');
-const handoffInput = new SessionInputQueue((id, data) => sessionManager.writeToSession(id, data));
+// One input queue for every in-process writer and the socket handler: a typed
+// prompt's text and its delayed Enter never interleave with keystrokes.
+const sharedInputQueue = new SessionInputQueue((id, data) => sessionManager.writeToSession(id, data));
 app.use('/api/sessions', createHandoffRoutes({
   isEnabled: () => isBetaEnabled(currentConfig, 'betaHandoff'),
   handoffDir,
@@ -389,7 +395,7 @@ app.use('/api/sessions', createHandoffRoutes({
   ),
   typePrompt: (id, text) => typeWhenReady(id, text, {
     status: (sid) => sessionManager.getSessionInfo(sid)?.status,
-    write: (sid, data, pause) => handoffInput.write(sid, data, pause),
+    write: (sid, data, pause) => sharedInputQueue.write(sid, data, pause),
     enterDelayMs: BROADCAST_ENTER_DELAY_MS,
   }),
 }));
@@ -408,6 +414,25 @@ app.use('/api/templates', createTemplateRoutes({
   ),
   assignWindow: (sessionId, windowId) => windowRegistry.assign(sessionId, windowId),
   onGroupsChanged: () => io.emit('groups:changed'),
+}));
+// Beta F13 session chains: /api/chains (404 while the flag is off). Delivery
+// goes through sharedInputQueue, like keystrokes and broadcasts.
+const chainEngine = new ChainEngine({
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaSessionChains'),
+  store: new ChainStore(path.join(dataDir, 'chains.json')),
+  session: (id) => {
+    const s = sessionManager.getSession(id);
+    return s ? { status: s.status, agentType: s.agentType, name: s.name, menuOpen: !!s.promptOptions?.length } : undefined;
+  },
+  write: (id, data, pause) => sharedInputQueue.write(id, data, pause),
+  inputPending: (id) => sharedInputQueue.isPending(id),
+  enterDelayMs: BROADCAST_ENTER_DELAY_MS,
+  onChange: () => io.emit('chains:changed'),
+});
+sessionManager.onStatus((id, status) => chainEngine.handleStatus(id, status));
+app.use('/api/chains', createChainRoutes({
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaSessionChains'),
+  engine: chainEngine,
 }));
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
@@ -458,7 +483,10 @@ app.use('/api/windows', createWindowRoutes(
 ));
 
 // Socket.io
-setupSocketHandler(io, sessionManager, authService, updateService);
+setupSocketHandler(io, sessionManager, authService, updateService, {
+  inputQueue: sharedInputQueue,
+  onUserInput: (id) => chainEngine.noteUserInput(id),
+});
 
 // Production static file serving
 if (process.env.NODE_ENV === 'production') {
@@ -526,13 +554,15 @@ export async function startServer(): Promise<void> {
   });
   sessionsRestored = sessionManager
     .restoreSessions()
-    .then(() =>
-      windowRegistry.pruneToSessions(
-        new Set(sessionManager.getAllSessions().map((s) => s.id)),
-      ),
-    )
+    .then(async () => {
+      const ids = new Set(sessionManager.getAllSessions().map((s) => s.id));
+      await windowRegistry.pruneToSessions(ids);
+      // Beta F13: chains whose source or target did not come back are dropped.
+      await chainEngine.init((id) => ids.has(id));
+    })
     .catch((err) => {
       console.error('Failed to restore sessions:', err);
+      void chainEngine.init((id) => !!sessionManager.getSession(id)).catch(console.error);
     });
 }
 
