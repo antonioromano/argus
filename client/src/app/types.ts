@@ -27,6 +27,8 @@ export type SidePanel =
   | { kind: 'diff'; sessionId: string; maximized?: boolean; file?: string }
   | { kind: 'explorer'; sessionId: string; maximized?: boolean; filePath?: string; lineNumber?: number; query?: string }
   | { kind: 'terminal'; sessionId: string }
+  /** Beta F6 activity timeline, docked like the companion shell. */
+  | { kind: 'activity'; sessionId: string }
   | null;
 
 /** Tool-window kinds that support the full-view maximize. */

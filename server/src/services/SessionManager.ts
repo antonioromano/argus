@@ -20,8 +20,11 @@ import type {
   SessionStatusPayload,
   SessionPr,
   AppConfig,
+  ActivityEvent,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
+import { ActivityStore } from './activity/ActivityStore.js';
+import { activityFromPayload } from './activity/activitySummary.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
 import { zshIntegrationEnv } from './shellIntegration.js';
 import { claudeRendererEnv } from './claudeRenderer.js';
@@ -410,6 +413,9 @@ export class SessionManager {
   /** Beta F8 (`betaWorktreeLifecycle`): stale-worktree marker. Off ⇒ never computed. */
   private worktreeLifecycleEnabled = false;
   private staleMap = new Map<string, number>();
+  /** Beta F6 (`betaActivityTimeline`): per-session activity ring. Off ⇒ no hooks injected, nothing recorded. */
+  private activityTimelineEnabled = false;
+  private readonly activity = new ActivityStore();
   private lastCommitCache = new Map<string, { at: number | null; checkedAt: number }>();
   private idleTierTimer: ReturnType<typeof setInterval> | null = null;
   /** Shared with NgrokService and KeepAwakeService — see SleepPreventionService. */
@@ -504,7 +510,13 @@ export class SessionManager {
       /* dir may already exist */
     }
 
-    const inj = adapter.inject({ sessionId, signalBinPath: this.signalBinPath, signalDir, userFlags });
+    const inj = adapter.inject({
+      sessionId,
+      signalBinPath: this.signalBinPath,
+      signalDir,
+      userFlags,
+      activity: this.activityTimelineEnabled,
+    });
     return {
       flags: inj.flags,
       env: { ...inj.env, ARGUS_SIGNAL_URL: url, ARGUS_SIGNAL_TOKEN: token },
@@ -609,6 +621,33 @@ export class SessionManager {
       this.staleMap.clear();
       this.lastCommitCache.clear();
     }
+  }
+
+  /** Config `betaActivityTimeline`. Off: drop every ring. The activity hooks
+   *  are injected at spawn, so the change reaches a session on its next start. */
+  setActivityTimelineEnabled(enabled: boolean): void {
+    if (enabled === this.activityTimelineEnabled) return;
+    this.activityTimelineEnabled = enabled;
+    if (!enabled) this.activity.clear();
+  }
+
+  /** Beta F6: a session's activity, oldest first; undefined for an unknown session. */
+  getActivity(sessionId: string): ActivityEvent[] | undefined {
+    if (!this.sessions.has(sessionId)) return undefined;
+    return this.activity.list(sessionId);
+  }
+
+  /**
+   * Beta F6: record one hook payload forwarded by `argus-signal --activity`.
+   * Ignored while the feature is off, for unknown sessions, and for events the
+   * timeline does not keep. Emitted to the session's room only.
+   */
+  recordActivityHook(sessionId: string, raw: string): void {
+    if (!this.activityTimelineEnabled || !this.sessions.has(sessionId)) return;
+    const entry = activityFromPayload(raw);
+    if (!entry) return;
+    const event = this.activity.append(sessionId, entry);
+    this.io?.to(sessionId).emit('session:activity', { sessionId, event });
   }
 
   /**
@@ -1073,6 +1112,7 @@ export class SessionManager {
     this.gitDirtyMap.delete(id);
     this.prMap.delete(id);
     this.staleMap.delete(id);
+    this.activity.drop(id);
     const stillInUse = Array.from(this.sessions.values()).some((s) => s.folderPath === session.folderPath);
     if (!stillInUse) this.gitRepoCache.delete(session.folderPath);
     cleanupSessionDimensions(id);

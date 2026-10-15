@@ -22,6 +22,10 @@ vi.mock('../ui/TerminalShell.js', () => ({
 vi.mock('../../hooks/useCompanionTerminal.js', () => ({
   useCompanionTerminal: () => ({ terminalAlive: true }),
 }));
+// The activity panel has its own tests; here only whether Focus mounts it matters.
+vi.mock('../panels/ActivityPanel.js', () => ({
+  ActivityPanel: () => <aside data-testid="activity-panel" />,
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -45,7 +49,7 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
 function renderFocus(
   active: SessionInfo,
   onRestart: () => void = noop,
-  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation } = {},
+  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean } = {},
 ) {
   act(() => {
     root.render(
@@ -62,6 +66,8 @@ function renderFocus(
         onToggleDiff={noop}
         onToggleExplorer={noop}
         onToggleTerminal={noop}
+        activityEnabled={opts.activityEnabled}
+        onToggleActivity={noop}
         onExpandDiff={noop}
         onOpenFileInEditor={noop}
         onRestore={noop}
@@ -174,5 +180,22 @@ describe('Focus — companion shell placement', () => {
     expect(aside.style.flexShrink).toBe('1');
     expect(aside.style.minHeight).toBe('0px');
     expect(conversation.style.minHeight).toBe('200px');
+  });
+});
+
+describe('Focus — activity timeline (beta F6)', () => {
+  const activityButton = () =>
+    Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Activity');
+
+  it('shows the Activity button and the docked panel while the flag is on', () => {
+    renderFocus(session(), noop, { activityEnabled: true, sidePanel: { kind: 'activity', sessionId: 's1' } });
+    expect(activityButton()).toBeDefined();
+    expect(container.querySelector('[data-testid="activity-panel"]')).not.toBeNull();
+  });
+
+  it('renders neither the button nor the panel while the flag is off', () => {
+    renderFocus(session(), noop, { activityEnabled: false, sidePanel: { kind: 'activity', sessionId: 's1' } });
+    expect(activityButton()).toBeUndefined();
+    expect(container.querySelector('[data-testid="activity-panel"]')).toBeNull();
   });
 });

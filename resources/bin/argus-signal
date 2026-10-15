@@ -9,6 +9,14 @@
 #   argus-signal --session <id> --state <running|waiting|idle> [--prompt-from-stdin] [--hook-stdin]
 #   argus-signal --session <id> --hook-stdin            (metadata only, no state)
 #   argus-signal --session <id> --approve               (PreToolUse auto-approval, F5)
+#   argus-signal --session <id> --activity              (activity timeline, beta F6)
+#
+# --activity: observation only. Forward the first 16 KB of the hook JSON (a
+# PostToolUse for a big Write carries the whole file; the server builds a
+# <=200-character summary from named fields and reads no content) and print
+# NOTHING, so the hook can never change what Claude does. The body is
+# "<token>\n<capped hook JSON>" as text/plain: the payload may be cut mid-JSON,
+# so it cannot be embedded in a JSON body, and the token stays out of argv.
 #
 # --approve: forward the PreToolUse hook JSON to the server, which decides from
 # its own rules and session table. The ONLY thing ever written to stdout is the
@@ -31,6 +39,7 @@ STATE=""
 PROMPT_FROM_STDIN=0
 HOOK_STDIN=0
 APPROVE=0
+ACTIVITY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) SESSION="${2:-}"; shift 2 ;;
@@ -38,6 +47,7 @@ while [ $# -gt 0 ]; do
     --prompt-from-stdin) PROMPT_FROM_STDIN=1; shift ;;
     --hook-stdin) HOOK_STDIN=1; shift ;;
     --approve) APPROVE=1; shift ;;
+    --activity) ACTIVITY=1; shift ;;
     *) shift ;;
   esac
 done
@@ -47,6 +57,16 @@ done
 [ -n "${ARGUS_SIGNAL_URL:-}" ] || exit 0
 [ -n "${ARGUS_SIGNAL_TOKEN:-}" ] || exit 0
 [ -n "$SESSION" ] || exit 0
+
+if [ "$ACTIVITY" -eq 1 ]; then
+  HOOK=$(head -c 16384 2>/dev/null || true)
+  cat >/dev/null 2>&1 || true
+  [ -n "$HOOK" ] || exit 0
+  { printf '%s\n' "${ARGUS_SIGNAL_TOKEN}"; printf '%s' "$HOOK"; } \
+    | curl -s -m 1 -X POST -H 'Content-Type: text/plain' --data-binary @- \
+        "${ARGUS_SIGNAL_URL%/}/$SESSION/activity" >/dev/null 2>&1 || true
+  exit 0
+fi
 
 if [ "$APPROVE" -eq 1 ]; then
   # Cap a little under the server's 512 KB body limit. A bigger payload (a

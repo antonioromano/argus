@@ -28,6 +28,9 @@ export type PreToolUseDecider = (sessionId: string, hook: unknown) => object | n
  *  anything over this (argus-signal caps a little below) gets no decision. */
 export const PRE_TOOL_USE_BODY_LIMIT = '512kb';
 
+/** Body cap for a forwarded activity hook head (token + 16 KB). */
+export const ACTIVITY_BODY_LIMIT = '20kb';
+
 export function createAgentSignalRoutes(
   manager: SessionManager,
   getSecret: () => string,
@@ -37,6 +40,8 @@ export function createAgentSignalRoutes(
   // Tiny dedicated cap — these payloads are a few fields of JSON.
   const smallJson = express.json({ limit: '16kb' });
   const hookJson = express.json({ limit: PRE_TOOL_USE_BODY_LIMIT });
+  // argus-signal caps the hook head at 16 KB; a little headroom for the token.
+  const activityText = express.text({ type: 'text/plain', limit: ACTIVITY_BODY_LIMIT });
 
   /**
    * F5: `argus-signal --approve` forwards the PreToolUse hook JSON and prints
@@ -68,6 +73,32 @@ export function createAgentSignalRoutes(
       return;
     }
     res.status(200).type('application/json').send(JSON.stringify(out));
+  });
+
+  /**
+   * Beta F6: `argus-signal --activity` posts `<token>\n<hook JSON head>` as
+   * text/plain (the head may be cut mid-JSON). Same gate as the signal route.
+   * Always 204 once authenticated: the manager drops it while the feature is off.
+   */
+  router.post('/:sessionId/activity', activityText, (req, res) => {
+    if (!isLoopback(req.socket.remoteAddress)) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    const { sessionId } = req.params;
+    const body = typeof req.body === 'string' ? req.body : '';
+    const nl = body.indexOf('\n');
+    const token = nl >= 0 ? body.slice(0, nl).trim() : '';
+    if (!token || !verifySignalToken(getSecret(), sessionId, token)) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    try {
+      manager.recordActivityHook(sessionId, body.slice(nl + 1));
+    } catch (err) {
+      console.warn('[activity] record failed:', err);
+    }
+    res.status(204).end();
   });
 
   router.post('/:sessionId', smallJson, (req, res) => {

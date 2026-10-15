@@ -93,3 +93,26 @@ test('inject falls back to heuristics (no clobber) when user --settings is unrea
 test('coverage is full (running/waiting/idle)', () => {
   assert.deepEqual([...new ClaudeHooksAdapter().coverage], ['running', 'waiting', 'idle']);
 });
+
+test('beta F6: activity hooks are injected only when the flag is on, beside the existing hooks', () => {
+  const hooksOf = (activity: boolean) =>
+    JSON.parse(new ClaudeHooksAdapter(() => '{}').inject({ ...ctx([]), activity }).files[0]!.content).hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+  const commands = (h: ReturnType<typeof hooksOf>) =>
+    Object.values(h).flat().flatMap((e) => e.hooks.map((x) => x.command));
+
+  const off = hooksOf(false);
+  assert.ok(!commands(off).some((c) => c.includes('--activity')));
+  assert.equal(off.PostToolUse, undefined);
+  assert.equal(off.SubagentStop, undefined);
+  assert.equal(off.PreCompact, undefined);
+
+  const on = hooksOf(true);
+  for (const ev of ['PostToolUse', 'SubagentStop', 'PreCompact', 'UserPromptSubmit', 'Notification', 'Stop']) {
+    assert.ok(on[ev]!.some((e) => e.hooks[0]!.command.endsWith('--session sess-1 --activity')), ev);
+  }
+  // The state hooks and the F5 approval hook are unchanged.
+  assert.deepEqual(on.PreToolUse, off.PreToolUse);
+  assert.ok(on.PreToolUse!.some((e) => e.hooks[0]!.command.endsWith('--approve')));
+  assert.equal(on.Stop![0]!.hooks[0]!.command, off.Stop![0]!.hooks[0]!.command);
+  assert.equal(on.SessionStart!.length, 1);
+});

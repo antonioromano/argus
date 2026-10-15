@@ -1434,3 +1434,10 @@ body {
 /* Touch-momentum scroll for the terminal's own viewport (normal buffer). */
 .xterm-viewport { -webkit-overflow-scrolling: touch; }
 
+
+/* Beta F6 activity timeline. Hover changes the background only — rows never
+   change size (the open-file affordance is always laid out). */
+.argus-activity-row { display: flex; align-items: flex-start; gap: var(--s-2); padding: 5px var(--s-3); border-bottom: 1px solid var(--line-1, var(--line-2)); }
+.argus-activity-row:hover { background: var(--bg-2); }
+.argus-activity-row[data-clickable="true"] { cursor: pointer; }
+.argus-activity-row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }

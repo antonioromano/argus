@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -21,6 +21,7 @@ import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
+import { ActivityPanel } from '../panels/ActivityPanel.js';
 import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
 // Monaco-backed workbench panels are lazy-loaded so the heavy editor bundle is
 // only fetched when a user actually opens the code explorer / diff view
@@ -88,6 +89,9 @@ interface FocusProps {
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
   onToggleTerminal: () => void;
+  /** Beta F6 (`betaActivityTimeline`): show the Activity button and panel. Off ⇒ nothing renders. */
+  activityEnabled?: boolean;
+  onToggleActivity?: () => void;
   /** Maximize the diff tool window over the shell (optionally focused on a file). */
   onExpandDiff: (file?: string) => void;
   /** Open a file in the Monaco editor at a line (cmd+click go-to-def from the diff). */
@@ -128,6 +132,8 @@ export function Focus({
   onToggleDiff,
   onToggleExplorer,
   onToggleTerminal,
+  activityEnabled = false,
+  onToggleActivity,
   onExpandDiff,
   onOpenFileInEditor,
   onRestore,
@@ -232,9 +238,11 @@ export function Focus({
   }, [isResizing, stacked]);
 
   const panelForActive =
-    sidePanel && sidePanel.sessionId === active.id ? sidePanel : null;
+    sidePanel && sidePanel.sessionId === active.id && (sidePanel.kind !== 'activity' || activityEnabled)
+      ? sidePanel
+      : null;
   const maximized =
-    panelForActive && panelForActive.kind !== 'terminal' && panelForActive.maximized
+    panelForActive && (panelForActive.kind === 'diff' || panelForActive.kind === 'explorer') && panelForActive.maximized
       ? panelForActive
       : null;
   const dockedOpen = !!panelForActive && !maximized;
@@ -346,6 +354,16 @@ export function Focus({
             >
               Files
             </Button>
+            {activityEnabled && onToggleActivity && (
+              <Button
+                variant={!maximized && panelForActive?.kind === 'activity' ? 'solid' : 'ghost'}
+                size="sm"
+                icon={Activity}
+                onClick={onToggleActivity}
+              >
+                Activity
+              </Button>
+            )}
             <Button
               variant={!maximized && sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
               size="sm"
@@ -502,6 +520,15 @@ export function Focus({
             theme={theme}
             placement={stacked ? 'bottom' : 'side'}
             size={stacked ? bottomPanelHeight : sidePanelWidth}
+          />
+        )}
+        {dockedOpen && panelForActive?.kind === 'activity' && (
+          <ActivityPanel
+            session={active}
+            socket={socket}
+            placement={stacked ? 'bottom' : 'side'}
+            size={stacked ? bottomPanelHeight : sidePanelWidth}
+            onOpenFile={(filePath) => onOpenFileInEditor(filePath)}
           />
         )}
       </div>

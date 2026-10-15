@@ -52,10 +52,17 @@ describe('BetaPane', () => {
     expect(onSave).toHaveBeenLastCalledWith({ betaHandoff: true });
   });
 
+  it('toggles the activity timeline (F6), which is no longer coming soon', () => {
+    render();
+    expect(row('betaActivityTimeline').textContent).not.toMatch(/coming soon/i);
+    act(() => { track('betaActivityTimeline').click(); });
+    expect(onSave).toHaveBeenLastCalledWith({ betaActivityTimeline: true });
+  });
+
   it('keeps coming-soon features disabled and off, even if the config says on', () => {
     const soon = BETA_FEATURES.filter((f) => !f.available);
     expect(soon.map((f) => f.flag).sort()).toEqual(
-      ['betaActivityTimeline', 'betaSessionChains', 'betaSessionTemplates'],
+      ['betaSessionChains', 'betaSessionTemplates'],
     );
     render(Object.fromEntries(soon.map((f) => [f.flag, true])));
     for (const f of soon) {

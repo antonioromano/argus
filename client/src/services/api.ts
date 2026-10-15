@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -715,6 +715,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
     });
+    return (await requireOk(res)).json();
+  },
+
+  /** Beta F6: a session's activity entries, oldest first (404 while the flag is off). */
+  getSessionActivity: async (sessionId: string, signal?: AbortSignal): Promise<ActivityListResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/activity`, { signal });
     return (await requireOk(res)).json();
   },
 

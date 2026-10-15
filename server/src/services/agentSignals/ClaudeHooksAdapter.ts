@@ -113,13 +113,29 @@ export class ClaudeHooksAdapter implements AgentSignalAdapter {
     const approve: ClaudeHookEntry = {
       hooks: [{ type: 'command', command: `"${bin}" --session ${ctx.sessionId} --approve`, timeout: 3 }],
     };
-    return {
+    const hooks: ClaudeHooks = {
       SessionStart: [cmd('')],
       Stop: [cmd('--state idle')],
       UserPromptSubmit: [cmd('--state running')],
       PreToolUse: [cmd('--state running'), approve],
       Notification: [cmd('--state waiting --prompt-from-stdin')],
     };
+    if (ctx.activity) {
+      // Beta F6: observation-only hooks for the activity timeline. They print
+      // nothing (so they can never steer Claude), forward a capped head of the
+      // payload and exit 0 whatever happens. Separate entries, so the state and
+      // F5 approval hooks above are untouched; no matcher = every tool / trigger.
+      const activity: ClaudeHookEntry = {
+        hooks: [{ type: 'command', command: `"${bin}" --session ${ctx.sessionId} --activity`, timeout: 3 }],
+      };
+      hooks.PostToolUse = [activity];
+      hooks.SubagentStop = [activity];
+      hooks.PreCompact = [activity];
+      hooks.UserPromptSubmit!.push(activity);
+      hooks.Notification!.push(activity);
+      hooks.Stop!.push(activity);
+    }
+    return hooks;
   }
 
   inject(ctx: SignalInjectionContext): SignalInjection {
