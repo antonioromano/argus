@@ -19,7 +19,7 @@ export interface AppViewApi extends AppViewState {
   closeOverlay: () => void;
   openSidePanel: (next: NonNullable<SidePanel>) => void;
   closeSidePanel: () => void;
-  toggleSidePanel: (kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => void;
+  toggleSidePanel: (kind: 'diff' | 'explorer' | 'terminal' | 'activity', sessionId: string) => void;
   /** Open (or switch to) a diff/explorer tool window in full-view over the shell. */
   maximizeSidePanel: (panel: MaximizablePanel) => void;
   /** Open a maximized tool window AND remember the current view as its origin, so
@@ -75,7 +75,7 @@ export function persistView(view: View, activeSessionId: string | null): void {
 /** Toggle a side panel; switching kind always drops any `maximized` flag. */
 export function toggleSidePanelState(
   s: AppViewState,
-  kind: 'diff' | 'explorer' | 'terminal',
+  kind: 'diff' | 'explorer' | 'terminal' | 'activity',
   sessionId: string,
 ): AppViewState {
   const current = s.sidePanel;
@@ -172,7 +172,7 @@ export function useAppView(): AppViewApi {
     setState((s) => ({ ...s, sidePanel: null }));
   }, []);
 
-  const toggleSidePanel = useCallback((kind: 'diff' | 'explorer' | 'terminal', sessionId: string) => {
+  const toggleSidePanel = useCallback((kind: 'diff' | 'explorer' | 'terminal' | 'activity', sessionId: string) => {
     setState((s) => toggleSidePanelState(s, kind, sessionId));
   }, []);
 
@@ -195,7 +195,7 @@ export function useAppView(): AppViewApi {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };
           // A maximized tool window closes back to its launch origin (mosaic/shell).
-          if (s.sidePanel && s.sidePanel.kind !== 'terminal' && s.sidePanel.maximized) {
+          if (s.sidePanel && (s.sidePanel.kind === 'diff' || s.sidePanel.kind === 'explorer') && s.sidePanel.maximized) {
             return dismissMaximizedState(s);
           }
           if (s.sidePanel) return { ...s, sidePanel: null };

@@ -200,6 +200,7 @@ function DesktopInner() {
   const { config, updateConfig } = useConfig();
   const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const handoffEnabled = isBetaEnabled(config, 'betaHandoff');
+  const activityEnabled = isBetaEnabled(config, 'betaActivityTimeline');
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
   const groups = useGroups();
@@ -1047,6 +1048,8 @@ function DesktopInner() {
                 ? app.dismissMaximized()
                 : app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id })}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
+              activityEnabled={activityEnabled}
+              onToggleActivity={() => app.toggleSidePanel('activity', activeSession.id)}
               onExpandDiff={(file) => app.maximizeSidePanel({ kind: 'diff', sessionId: activeSession.id, file })}
               onOpenFileInEditor={(filePath, lineNumber) =>
                 app.openMaximized({ kind: 'explorer', sessionId: activeSession.id, filePath, lineNumber })}

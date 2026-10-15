@@ -34,7 +34,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     ref: 'F6',
     label: 'Activity timeline',
     description: 'A per-shell timeline of tool calls, subagents and compactions from the agent hooks.',
-    available: false,
+    available: true,
   },
   {
     flag: 'betaSessionTemplates',
