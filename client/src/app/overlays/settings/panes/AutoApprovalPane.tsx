@@ -29,6 +29,9 @@ function formatTime(iso: string): string {
  * settings; unmatched calls fall through to Claude's normal prompt. The
  * server owns the rules and makes every decision — this pane only edits them.
  */
+/** Permission modes in which rules act (mirrors the server's ACTIVE_MODES). */
+const RULE_MODES = ['default', 'acceptEdits'];
+
 export function AutoApprovalPane({ config, onSave }: PaneProps) {
   const enabled = config.autoApprovalEnabled === true;
   const [confirmEnable, setConfirmEnable] = useState(false);
@@ -41,6 +44,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
   const [addError, setAddError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [claudeMode, setClaudeMode] = useState<string | null>(null);
 
   const loadFolders = useCallback(() => api.getAutoApprovalFolders().then(
     (list) => {
@@ -60,6 +64,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
   }, []);
 
   useEffect(() => { void loadFolders(); }, [loadFolders]);
+  useEffect(() => { api.getClaudeDefaultMode().then(setClaudeMode, () => setClaudeMode(null)); }, []);
   useEffect(() => { void loadRules(folder); }, [folder, loadRules]);
 
   const isCommand = AUTO_APPROVAL_TOOLS[tool] === 'command';
@@ -122,6 +127,12 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
         action={<Button size="sm" variant="ghost" onClick={() => { void loadFolders(); void loadRules(folder); }}>Refresh</Button>}
       >
         <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', fontSize: 'var(--t-xs)' }}>
+          {enabled && claudeMode && !RULE_MODES.includes(claudeMode) && (
+            <p role="status" data-testid="auto-approval-inactive" style={{ margin: 0, color: 'var(--warning, var(--fg-2))' }}>
+              Inactive for your sessions: your Claude default permission mode is <code>{claudeMode}</code>. Rules only act in
+              <code> default</code> and <code>acceptEdits</code> modes, where an allow means skipping a prompt you would otherwise see.
+            </p>
+          )}
           {loadError && <p role="alert" style={{ margin: 0, color: 'var(--danger)' }}>{loadError}</p>}
           {folders && folders.length === 0 && (
             <p style={{ margin: 0, color: 'var(--fg-3)' }}>No session folders yet. Open a session to add rules for its folder.</p>
