@@ -108,4 +108,14 @@ describe('buildSessionMenuItems', () => {
     (item as { onClick: () => void }).onClick();
     expect(onFinish).toHaveBeenCalledWith(wt);
   });
+
+  it('offers Hand off… (beta F12) only when a handler is passed', () => {
+    // Flag off ⇒ ArgusApp passes no handler ⇒ no entry.
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('handoff');
+    const onHandoff = vi.fn();
+    const item = buildSessionMenuItems(session, actions({ onHandoff })).find((e) => 'id' in e && e.id === 'handoff');
+    expect(item).toBeTruthy();
+    (item as { onClick: () => void }).onClick();
+    expect(onHandoff).toHaveBeenCalledWith(session);
+  });
 });
