@@ -52,6 +52,8 @@ import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
 import { FinishWorktreeHost } from './overlays/FinishWorktreeSheet.js';
 import { HandoffHost } from './overlays/HandoffSheet.js';
+import { ChainHost } from './overlays/ChainSheet.js';
+import { useChains } from '../hooks/useChains.js';
 import { isBetaEnabled } from '../utils/betaFlags.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
@@ -200,11 +202,14 @@ function DesktopInner() {
   const { config, updateConfig } = useConfig();
   const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const handoffEnabled = isBetaEnabled(config, 'betaHandoff');
+  const chainsEnabled = isBetaEnabled(config, 'betaSessionChains');
   const activityEnabled = isBetaEnabled(config, 'betaActivityTimeline');
   const templatesEnabled = isBetaEnabled(config, 'betaSessionTemplates');
   const { getOrderedSessions, reorder: reorderSession } = useSessionOrder();
   const { getOrderedSessions: getMosaicOrderedSessions, reorder: reorderMosaic } = useMosaicOrder();
   const groups = useGroups(socket);
+  // Beta F13: fetches nothing and listens to nothing while the flag is off.
+  const { countsBySource: chainCounts } = useChains(chainsEnabled, socket);
 
   type MergeFlow =
     | null
@@ -255,6 +260,8 @@ function DesktopInner() {
   const [finishSession, setFinishSession] = useState<SessionInfo | null>(null);
   // Beta F12: the shell whose Hand off sheet is open.
   const [handoffSession, setHandoffSession] = useState<SessionInfo | null>(null);
+  // Beta F13: the shell whose Chain to sheet is open.
+  const [chainSession, setChainSession] = useState<SessionInfo | null>(null);
 
   // Resolved keyboard shortcuts (registry defaults + user overrides from config).
   const shortcuts = useShortcuts(config?.keyboardShortcuts);
@@ -893,6 +900,7 @@ function DesktopInner() {
     canFinish: (s: SessionInfo) => !!s.worktreePath && !!s.worktreeBranch,
     // Beta F12: same gating — no handler while the flag is off.
     onHandoff: handoffEnabled ? setHandoffSession : undefined,
+    onChain: chainsEnabled ? setChainSession : undefined,
     onClone: (s: SessionInfo) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine, runMode: s.runMode }),
     onFocusDiff: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'diff', sessionId: id })),
     onFocusExplorer: (id: string) => guardForeign(id, () => app.openMaximized({ kind: 'explorer', sessionId: id })),
@@ -1013,6 +1021,8 @@ function DesktopInner() {
               onMerge={handleMerge}
               onFinish={worktreeLifecycle ? setFinishSession : undefined}
               onHandoff={handoffEnabled ? setHandoffSession : undefined}
+              onChain={chainsEnabled ? setChainSession : undefined}
+              chainCounts={chainsEnabled ? chainCounts : undefined}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine, runMode: s.runMode })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
               onFocusDiff={(id) => app.openMaximized({ kind: 'diff', sessionId: id })}
@@ -1265,6 +1275,16 @@ function DesktopInner() {
             void claimForThisWindow(created.id).then(() => app.openSession(created.id));
             pushToast(`Handed off to ${created.name}`, 'ok');
           }}
+        />
+      )}
+
+      {chainSession && (
+        <ChainHost
+          config={config}
+          session={chainSession}
+          sessions={sessions}
+          onClose={() => setChainSession(null)}
+          onCreated={() => pushToast(`Chain armed from ${chainSession.name}`, 'ok')}
         />
       )}
 

@@ -16,9 +16,6 @@ export interface BetaFeature {
   ref: string;
   label: string;
   description: string;
-  /** False until the feature ships: its toggle stays disabled ("coming soon"),
-   *  so nobody can switch on something that does nothing. */
-  available: boolean;
 }
 
 export const BETA_FEATURES: readonly BetaFeature[] = [
@@ -27,34 +24,29 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     ref: 'F8',
     label: 'Worktree lifecycle',
     description: 'Finish a worktree shell in one go — commit, push, open a PR — remove merged worktrees, and flag stale ones.',
-    available: true,
   },
   {
     flag: 'betaActivityTimeline',
     ref: 'F6',
     label: 'Activity timeline',
     description: 'A per-shell timeline of tool calls, subagents and compactions from the agent hooks.',
-    available: true,
   },
   {
     flag: 'betaSessionTemplates',
     ref: 'F10',
     label: 'Session templates',
     description: 'Save a set of shells — agent, folder, optional new worktree and first prompt — and start them together into a new group (Settings → Launchers).',
-    available: true,
   },
   {
     flag: 'betaHandoff',
     ref: 'F12',
     label: 'Agent handoff',
     description: 'Start a new shell seeded with a summary and the diff of another.',
-    available: true,
   },
   {
     flag: 'betaSessionChains',
     ref: 'F13',
     label: 'Session chains',
-    description: 'When one shell goes idle, send a prompt to another.',
-    available: false,
+    description: 'When one shell goes idle, waiting or done, type a prompt into another (right-click a shell → Chain to…). Loop-guarded and rate-capped.',
   },
 ];

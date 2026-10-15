@@ -914,6 +914,17 @@ body {
   border-radius: var(--r-1);
   padding: 0 var(--s-1);
 }
+/* Beta F13: chains leaving this shell. Static size, no hover change (no reflow). */
+.argus-tile-chain {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  padding: 0 var(--s-1);
+  white-space: nowrap;
+}
 /* Plain Shell git context: ⎇ branch ↑ahead ↓behind ●changes (follows cd). */
 .argus-shell-git {
   flex-shrink: 1;

@@ -1,4 +1,4 @@
-import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2 } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -33,6 +33,8 @@ export interface SessionMenuActions {
   canFinish?: (session: SessionInfo) => boolean;
   /** Beta F12 "Hand off…" to a new shell. Absent while the flag is off. */
   onHandoff?: (session: SessionInfo) => void;
+  /** Beta F13 "Chain to…" another shell. Absent while the flag is off. */
+  onChain?: (session: SessionInfo) => void;
   onClone?: (session: SessionInfo) => void;
   onFocusDiff?: (id: string) => void;
   onFocusExplorer?: (id: string) => void;
@@ -91,6 +93,7 @@ export function buildSessionMenuItems(
     ...(a.onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => a.onClone!(session) }] : []),
     ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
     ...(a.onHandoff ? [{ id: 'handoff', label: 'Hand off…', icon: Forward, onClick: () => a.onHandoff!(session) }] : []),
+    ...(a.onChain && session.status !== 'exited' ? [{ id: 'chain', label: 'Chain to…', icon: Link2, onClick: () => a.onChain!(session) }] : []),
     ...(a.onFinish && a.canFinish?.(session) ? [{ id: 'finish', label: 'Finish…', icon: Flag, onClick: () => a.onFinish!(session) }] : []),
     ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
     ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume conversation', icon: History, onClick: () => a.onResume!(session) }] : []),
