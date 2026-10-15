@@ -124,7 +124,10 @@ jobs:
             fi
             "$@" "$APP/Contents/MacOS/Argus" > "smoke-$ARCH_LABEL.log" 2>&1 &
             APP_PID=$!
-            for i in $(seq 1 60); do
+            # 120s: the x64 app runs under Rosetta on the arm64 runner and its
+            # cold start (translation + first daemon spawn) took ~59s in v0.27.0,
+            # so a 60s budget failed v0.27.1 on timing alone.
+            for i in $(seq 1 120); do
               if curl -sf http://127.0.0.1:5757/api/health > /dev/null; then
                 echo "✔ [$ARCH_LABEL] packaged app healthy after ~${i}s"
                 kill "$APP_PID" 2>/dev/null || true
