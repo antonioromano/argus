@@ -11,14 +11,18 @@ interface CompanionTerminalPanelProps {
   session: SessionInfo;
   socket: TypedSocket;
   theme: 'dark' | 'light';
-  width?: number;
+  /** 'side' docks to the right of the conversation, 'bottom' below it (stacked layout). */
+  placement?: 'side' | 'bottom';
+  /** Width when docked to the side, height when docked to the bottom. */
+  size?: number;
 }
 
 export function CompanionTerminalPanel({
   session,
   socket,
   theme,
-  width = 320,
+  placement = 'side',
+  size = 320,
 }: CompanionTerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { terminalAlive } = useCompanionTerminal(containerRef, { sessionId: session.id, socket, theme });
@@ -27,10 +31,12 @@ export function CompanionTerminalPanel({
   return (
     <aside
       style={{
-        width,
-        flexShrink: 0,
+        // Docked below, the height is a preference: the panel shrinks when the
+        // window is too short, so the conversation above keeps its min height.
+        ...(placement === 'bottom'
+          ? { height: size, flexShrink: 1, minHeight: 0, borderTop: '1px solid var(--line-2)' }
+          : { width: size, flexShrink: 0, borderLeft: '1px solid var(--line-2)' }),
         background: 'var(--bg-1)',
-        borderLeft: '1px solid var(--line-2)',
         display: 'flex',
         flexDirection: 'column',
       }}
