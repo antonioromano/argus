@@ -383,6 +383,40 @@ export interface WorktreeFinishResponse {
   results: WorktreeFinishStepResult[];
 }
 
+/** Beta F12 — body of `POST /api/sessions/:id/handoff`. */
+export interface HandoffRequest {
+  /** Agent for the new shell (default: the source shell's agent). */
+  agentType?: string;
+  /** Folder for the new shell (default: the source shell's folder). */
+  folderPath?: string;
+  /** Last N user/assistant messages from a Claude source's transcript (0–50, default 10). */
+  messageCount?: number;
+  /** Include `git diff` (capped) on top of status and stat (default true). */
+  includeDiff?: boolean;
+  /** Free-text note, added to the brief and to the first prompt. */
+  note?: string;
+  /** Build the brief and report its size without creating anything. */
+  preview?: boolean;
+}
+
+/** What the brief would contain (`preview: true`), and what was written otherwise. */
+export interface HandoffBriefStats {
+  bytes: number;
+  messages: number;
+  isGitRepo: boolean;
+  diffTruncated: boolean;
+}
+
+export interface HandoffPreviewResponse extends HandoffBriefStats {
+  preview: true;
+}
+
+export interface HandoffResponse extends HandoffBriefStats {
+  preview: false;
+  session: SessionInfo;
+  briefPath: string;
+}
+
 /** Lifecycle of a pull request; `draft` is an open PR marked as draft. */
 export type PrState = 'open' | 'draft' | 'merged' | 'closed';
 /** Aggregate of a PR's checks. `none` = the PR has no checks at all. */

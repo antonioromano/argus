@@ -18,6 +18,9 @@ import { SessionManager } from './services/SessionManager.js';
 import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
 import { isBetaEnabled } from './utils/betaFlags.js';
+import { createHandoffRoutes } from './routes/handoff.js';
+import { cleanupOldHandoffs, typeWhenReady } from './services/handoff.js';
+import { BROADCAST_ENTER_DELAY_MS, SessionInputQueue } from './socket/broadcast.js';
 import { OrderStore } from './persistence/OrderStore.js';
 import { GroupStore } from './persistence/GroupStore.js';
 import { WindowStore } from './persistence/WindowStore.js';
@@ -362,6 +365,25 @@ if (process.env.NODE_ENV !== 'production') {
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', persistentSessions: sessionManager.isPersistent() });
 });
+// Beta F12 agent handoff: POST /api/sessions/:id/handoff (404 while the flag is off).
+const handoffDir = path.join(dataDir, 'handoffs');
+const handoffInput = new SessionInputQueue((id, data) => sessionManager.writeToSession(id, data));
+app.use('/api/sessions', createHandoffRoutes({
+  isEnabled: () => isBetaEnabled(currentConfig, 'betaHandoff'),
+  handoffDir,
+  loadConfig: () => configStore.load(),
+  agentRegistry,
+  manager: sessionManager,
+  createSession: (folder, name, agentType, flags, initialPrompt) => sessionManager.createSession(
+    folder, name, agentType, flags, undefined, undefined, undefined, undefined, false, undefined, undefined, false,
+    initialPrompt !== undefined ? { initialPrompt } : {},
+  ),
+  typePrompt: (id, text) => typeWhenReady(id, text, {
+    status: (sid) => sessionManager.getSessionInfo(sid)?.status,
+    write: (sid, data, pause) => handoffInput.write(sid, data, pause),
+    enterDelayMs: BROADCAST_ENTER_DELAY_MS,
+  }),
+}));
 app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicOrderStore, groupStore, configStore));
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
@@ -474,6 +496,10 @@ export async function startServer(): Promise<void> {
   // creation on this made a large session set look/act like a startup
   // crash. Clients already handle sessions arriving progressively via the
   // 'session:created' socket event, so there's no ordering requirement here.
+  // Handoff briefs (beta F12) are single-use; drop week-old ones.
+  void cleanupOldHandoffs(handoffDir).then((n) => {
+    if (n > 0) console.log(`[handoff] removed ${n} old brief(s)`);
+  });
   sessionsRestored = sessionManager
     .restoreSessions()
     .then(() =>

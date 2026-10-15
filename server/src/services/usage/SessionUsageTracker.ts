@@ -153,6 +153,15 @@ export class SessionUsageTracker {
     return out;
   }
 
+  /** transcriptPaths() with the transcript Claude is writing now moved last,
+   *  so the newest conversation is read first from the end (handoff, F12). */
+  transcriptPathsCurrentLast(): string[] {
+    const all = this.transcriptPaths();
+    const i = this.current ? all.indexOf(this.current) : -1;
+    if (i >= 0) all.push(...all.splice(i, 1));
+    return all;
+  }
+
   /** The transcript Claude is writing now. A new path starts a new tailer. */
   setTranscript(reported: string): void {
     if (this.disposed) return;

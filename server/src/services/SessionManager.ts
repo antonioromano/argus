@@ -1563,6 +1563,11 @@ export class SessionManager {
     }));
   }
 
+  /** Validated transcripts of a session, the current one last (F12 handoff). */
+  handoffTranscripts(id: string): string[] {
+    return this.sessions.get(id)?.usage?.transcriptPathsCurrentLast() ?? [];
+  }
+
   getAllSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).map((s) => this.toSessionInfo(s));
   }
