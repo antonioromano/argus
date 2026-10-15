@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
 import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
+import { isBetaEnabled } from '../../../../utils/betaFlags.js';
+import { TemplatesSection } from './TemplatesSection.js';
 
 /** The deep-link scheme main registered (argus / argus-dev); main is the source of truth. */
 const scheme = () => window.electronLaunch?.scheme || 'argus';
@@ -105,6 +107,8 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
           </div>
         ))}
       </Section>
+      {/* Beta F10: not rendered (and nothing fetched) while the flag is off. */}
+      {isBetaEnabled(config, 'betaSessionTemplates') && <TemplatesSection config={config} />}
       <Section title="Launch links">
         <SettingRow label="Folder roots" hint="One per line. Links to folders outside these get a warning on the approval card (never blocked).">
           <textarea

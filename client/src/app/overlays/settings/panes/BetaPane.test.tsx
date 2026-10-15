@@ -52,6 +52,13 @@ describe('BetaPane', () => {
     expect(onSave).toHaveBeenLastCalledWith({ betaHandoff: true });
   });
 
+  it('toggles session templates (F10), which is no longer coming soon', () => {
+    render();
+    expect(row('betaSessionTemplates').textContent).not.toMatch(/coming soon/i);
+    act(() => { track('betaSessionTemplates').click(); });
+    expect(onSave).toHaveBeenLastCalledWith({ betaSessionTemplates: true });
+  });
+
   it('toggles the activity timeline (F6), which is no longer coming soon', () => {
     render();
     expect(row('betaActivityTimeline').textContent).not.toMatch(/coming soon/i);
@@ -62,7 +69,7 @@ describe('BetaPane', () => {
   it('keeps coming-soon features disabled and off, even if the config says on', () => {
     const soon = BETA_FEATURES.filter((f) => !f.available);
     expect(soon.map((f) => f.flag).sort()).toEqual(
-      ['betaSessionChains', 'betaSessionTemplates'],
+      ['betaSessionChains'],
     );
     render(Object.fromEntries(soon.map((f) => [f.flag, true])));
     for (const f of soon) {

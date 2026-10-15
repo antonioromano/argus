@@ -40,8 +40,8 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     flag: 'betaSessionTemplates',
     ref: 'F10',
     label: 'Session templates',
-    description: 'One link spawns several shells at once, each in its own worktree.',
-    available: false,
+    description: 'Save a set of shells — agent, folder, optional new worktree and first prompt — and start them together into a new group (Settings → Launchers).',
+    available: true,
   },
   {
     flag: 'betaHandoff',

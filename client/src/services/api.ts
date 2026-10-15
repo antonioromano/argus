@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -31,6 +31,23 @@ async function parseError(res: Response): Promise<string> {
   } catch {
     return res.statusText || `HTTP ${res.status}`;
   }
+}
+
+/** A rejected template save/launch; `specErrors` index into the specs sent (beta F10). */
+export class TemplateApiError extends ApiError {
+  readonly specErrors: NonNullable<TemplateErrorResponse['specErrors']>;
+  constructor(status: number, message: string, specErrors: TemplateErrorResponse['specErrors']) {
+    super(status, message);
+    this.specErrors = specErrors ?? [];
+    this.name = 'TemplateApiError';
+  }
+}
+
+async function requireTemplateOk(res: Response): Promise<Response> {
+  if (res.ok) return res;
+  let body: TemplateErrorResponse | null = null;
+  try { body = await res.json() as TemplateErrorResponse; } catch { /* not JSON */ }
+  throw new TemplateApiError(res.status, body?.error || res.statusText || `HTTP ${res.status}`, body?.specErrors);
 }
 
 async function requireOk(res: Response): Promise<Response> {
@@ -786,5 +803,43 @@ export const api = {
       body: JSON.stringify({ folderPath }),
     });
     await requireOk(res);
+  },
+
+  /** Beta F10: saved multi-session templates (404 while the flag is off). */
+  listTemplates: async (): Promise<SessionTemplate[]> => {
+    const res = await authFetch(`${API_BASE}/templates`);
+    return ((await requireOk(res)).json() as Promise<TemplateListResponse>).then((b) => b.templates);
+  },
+
+  createTemplate: async (req: SaveTemplateRequest): Promise<SessionTemplate> => {
+    const res = await authFetch(`${API_BASE}/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    return (await requireTemplateOk(res)).json();
+  },
+
+  updateTemplate: async (id: string, req: SaveTemplateRequest): Promise<SessionTemplate> => {
+    const res = await authFetch(`${API_BASE}/templates/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    return (await requireTemplateOk(res)).json();
+  },
+
+  deleteTemplate: async (id: string): Promise<void> => {
+    await requireOk(await authFetch(`${API_BASE}/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+  },
+
+  /** Start every spec into a new group; per-spec results, no rollback. */
+  launchTemplate: async (id: string, windowId: string): Promise<LaunchTemplateResponse> => {
+    const res = await authFetch(`${API_BASE}/templates/${encodeURIComponent(id)}/launch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ windowId }),
+    });
+    return (await requireTemplateOk(res)).json();
   },
 };
