@@ -19,14 +19,7 @@ export function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0)}M`;
 }
 
-/** $0.004 → "<$0.01", $1.234 → "$1.23", $123.4 → "$123". */
-export function formatCost(usd: number): string {
-  if (usd < 0.01) return '<$0.01';
-  if (usd < 100) return `$${usd.toFixed(2)}`;
-  return `$${Math.round(usd)}`;
-}
-
-/** Tooltip body: the breakdown behind the two numbers on the chip. */
+/** Tooltip body: the breakdown behind the number on the chip. */
 export function describeUsage(u: SessionUsage): string {
   const parts: string[] = [];
   if (u.contextTokens !== undefined) {
@@ -40,11 +33,6 @@ export function describeUsage(u: SessionUsage): string {
     `${formatTokens(u.totalTokens)} tokens: ${formatTokens(u.inputTokens)} in, ${formatTokens(u.outputTokens)} out, `
       + `${formatTokens(u.cacheReadTokens)} cache read, ${formatTokens(u.cacheCreationTokens)} cache write`,
   );
-  if (u.costUsd !== undefined) {
-    parts.push(`≈ ${formatCost(u.costUsd)} at API prices${u.costPartial ? ' (some turns unpriced)' : ''}`);
-  } else {
-    parts.push('No price for this model');
-  }
   if (u.model) parts.push(u.model);
   return parts.join(' · ');
 }

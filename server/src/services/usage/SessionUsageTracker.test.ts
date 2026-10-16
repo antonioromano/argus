@@ -47,8 +47,7 @@ test('aggregates across transcripts; context comes from the current one', async 
   assert.equal(u.contextTokens, 5);
   assert.equal(u.contextWindow, 1_000_000);
   assert.equal(u.model, 'claude-opus-5-5');
-  assert.ok(u.costUsd !== undefined && u.costUsd > 0);
-  assert.equal(u.costPartial, undefined);
+  assert.equal('costUsd' in u, false, 'the cost estimate is gone');
 
   // Back to the first transcript (resume): it continues, nothing double counts.
   appendFileSync(a, line('a2', 1));
@@ -59,7 +58,7 @@ test('aggregates across transcripts; context comes from the current one', async 
   rmSync(d, { recursive: true, force: true });
 });
 
-test('unpriced turns are marked partial; all-unpriced has no cost', async () => {
+test('a model with no known window still counts tokens, with no context %', async () => {
   const d = dir();
   const a = path.join(d, 'a.jsonl');
   writeFileSync(a, line('a1', 10, 0, 'claude-mystery'));
@@ -67,13 +66,13 @@ test('unpriced turns are marked partial; all-unpriced has no cost', async () => 
   t.setTranscript(a);
   await t.pollNow();
   let u = t.snapshot()!;
-  assert.equal(u.costUsd, undefined);
+  assert.equal(u.inputTokens, 10);
   assert.equal(u.contextPct, undefined, 'unknown window → no percentage');
   appendFileSync(a, line('a2', 10));
   await t.pollNow();
   u = t.snapshot()!;
-  assert.ok(u.costUsd !== undefined);
-  assert.equal(u.costPartial, true);
+  assert.equal(u.inputTokens, 20);
+  assert.equal(u.contextWindow, 1_000_000);
   t.dispose();
   rmSync(d, { recursive: true, force: true });
 });

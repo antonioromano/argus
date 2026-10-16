@@ -976,7 +976,7 @@ body {
 .argus-pr-ci[data-ci='success'] { background: var(--ok); }
 .argus-pr-ci[data-ci='failure'] { background: var(--danger); }
 
-/* Claude usage meter: context % (colored as the window fills) + est. cost. */
+/* Claude usage meter: context % (colored as the window fills). */
 .argus-usage {
   flex-shrink: 0;
   display: inline-flex;
@@ -994,7 +994,6 @@ body {
 }
 .argus-usage-ctx[data-level='warn'] { color: var(--warn); }
 .argus-usage-ctx[data-level='high'] { color: var(--danger); }
-.argus-usage-cost { color: var(--fg-3); }
 
 /* Waiting inbox: one answer button per numbered menu option. Hover recolors
    only — the chip never changes size. */

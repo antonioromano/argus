@@ -69,7 +69,7 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 
 ### Session Insights
 
-- **Usage meter** — Claude sessions show a usage chip with context-window %, tokens and an estimated cost, read from the session's transcript
+- **Usage meter** — Claude sessions show a usage chip with context-window %, read from the session's transcript
 - **Waiting inbox** — `⌘⇧J` (also in the View menu and Find & Jump) lists every session waiting on input, longest-waiting first, with its question. `↑↓` picks, `↵` jumps to the shell, and a digit answers a numbered menu prompt without leaving the inbox
 - **Broadcast input** — Send one line (`/compact`, "rebase on main", `y`) to several shells at once, optionally followed by Enter. Pick targets in Find & Jump or mark them with Space in the waiting inbox and press `B`; a confirmation step shows the exact text and every target first
 

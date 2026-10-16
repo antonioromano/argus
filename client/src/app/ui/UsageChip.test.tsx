@@ -28,22 +28,18 @@ const base: SessionUsage = {
 };
 
 describe('UsageChip', () => {
-  it('shows context % with its level and the cost', () => {
-    act(() => root.render(<UsageChip usage={{ ...base, contextPct: 87.4, contextTokens: 874_000, contextWindow: 1_000_000, costUsd: 2.5 }} />));
+  it('shows context % with its level and no cost', () => {
+    act(() => root.render(<UsageChip usage={{ ...base, contextPct: 87.4, contextTokens: 874_000, contextWindow: 1_000_000 }} />));
     const ctx = container.querySelector('.argus-usage-ctx')!;
     expect(ctx.textContent).toBe('87%');
     expect(ctx.getAttribute('data-level')).toBe('high');
-    expect(container.querySelector('.argus-usage-cost')!.textContent).toBe('$2.50');
+    expect(container.textContent).not.toContain('$');
   });
 
-  it('falls back to total tokens and no cost for an unknown model', () => {
+  it('falls back to total tokens for an unknown model', () => {
     act(() => root.render(<UsageChip usage={{ ...base, totalTokens: 12_345 }} />));
     expect(container.querySelector('.argus-usage-ctx')!.textContent).toBe('12k');
     expect(container.querySelector('.argus-usage-cost')).toBeNull();
   });
 
-  it('marks a partial cost', () => {
-    act(() => root.render(<UsageChip usage={{ ...base, costUsd: 1, costPartial: true }} />));
-    expect(container.querySelector('.argus-usage-cost')!.textContent).toBe('$1.00+');
-  });
 });

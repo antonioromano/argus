@@ -37,7 +37,7 @@ test('sums usage across assistant entries and ignores other lines', async () => 
   const t = new TranscriptTailer(f);
   assert.equal(await t.poll(), true);
   assert.deepEqual(t.totals, { input: 11, output: 7, cacheRead: 103, cacheCreation: 54 });
-  assert.equal(t.pricedTurns, 2);
+  assert.equal(t.turns, 2);
   assert.deepEqual(t.context, { tokens: 1 + 3 + 4, model: 'claude-opus-5-5' });
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
@@ -51,12 +51,12 @@ test('dedupes streamed entries of one message by id; the last one wins', async (
   const t = new TranscriptTailer(f);
   await t.poll();
   assert.deepEqual(t.totals, { input: 10, output: 90, cacheRead: 100, cacheCreation: 0 });
-  assert.equal(t.pricedTurns, 1);
+  assert.equal(t.turns, 1);
   // A later repeat in a separate poll still replaces, not adds.
   appendFileSync(f, assistant('m1', { in: 10, out: 95, read: 100 }));
   await t.poll();
   assert.equal(t.totals.output, 95);
-  assert.equal(t.pricedTurns, 1);
+  assert.equal(t.turns, 1);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 
@@ -133,7 +133,7 @@ test('a truncated or replaced file is re-read from the start', async () => {
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 
-test('sidechain turns count toward cost but not the main context', async () => {
+test('sidechain turns count toward the totals but not the main context', async () => {
   const f = tmpFile();
   writeFileSync(f,
     assistant('m1', { in: 1, read: 1000 })
@@ -145,15 +145,14 @@ test('sidechain turns count toward cost but not the main context', async () => {
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 
-test('unpriced models and synthetic messages', async () => {
+test('unknown models still count; synthetic messages are skipped', async () => {
   const f = tmpFile();
   writeFileSync(f,
     assistant('m1', { in: 10 }, { model: 'claude-mystery-1' })
     + assistant('m2', { in: 10 }, { model: '<synthetic>' }));
   const t = new TranscriptTailer(f);
   await t.poll();
-  assert.equal(t.unpricedTurns, 1);
-  assert.equal(t.pricedTurns, 0);
+  assert.equal(t.turns, 1);
   assert.equal(t.totals.input, 10, 'synthetic message skipped');
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
@@ -167,7 +166,7 @@ test('serialize/restore resumes at the offset and still dedupes the last message
   appendFileSync(f, assistant('m1', { in: 10, out: 9 }) + assistant('m2', { in: 1 }));
   await restored.poll();
   assert.deepEqual(restored.totals, { input: 11, output: 9, cacheRead: 0, cacheCreation: 0 });
-  assert.equal(restored.pricedTurns, 2);
+  assert.equal(restored.turns, 2);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 
@@ -220,5 +219,18 @@ test('a multi-MB line in small chunks is linear, not quadratic', async () => {
   assert.equal(t.totals.input, 9);
   // Re-concatenating per chunk copies ~2 GB here and takes seconds.
   assert.ok(ms < 1500, `took ${ms.toFixed(0)}ms`);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('restores state written before the cost estimate was removed', async () => {
+  const f = tmpFile();
+  writeFileSync(f, assistant('m1', { in: 10, out: 1 }));
+  const legacy = {
+    path: f, offset: 0, totals: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+    cost: 1.5, pricedTurns: 2, unpricedTurns: 1, recent: [['x', { input: 1, output: 1, cacheRead: 0, cacheCreation: 0, cost: 0.1 }]],
+  };
+  const t = TranscriptTailer.restore(legacy as never);
+  assert.equal(t.turns, 3);
+  assert.equal('cost' in t.serialize(), false);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });

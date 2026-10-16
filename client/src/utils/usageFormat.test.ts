@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SessionUsage } from '@argus/shared';
-import { contextLevel, describeUsage, formatCost, formatTokens } from './usageFormat.js';
+import { contextLevel, describeUsage, formatTokens } from './usageFormat.js';
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   inputTokens: 1200,
@@ -29,22 +29,12 @@ describe('usageFormat', () => {
     expect(formatTokens(45_600_000)).toBe('46M');
   });
 
-  it('formats cost', () => {
-    expect(formatCost(0.004)).toBe('<$0.01');
-    expect(formatCost(1.234)).toBe('$1.23');
-    expect(formatCost(123.4)).toBe('$123');
-  });
-
-  it('describes the breakdown, the window and the price basis', () => {
-    const text = describeUsage(usage({ contextTokens: 420_000, contextWindow: 1_000_000, contextPct: 42, costUsd: 3.21, model: 'claude-opus-5-5' }));
+  it('describes the breakdown and the window, with no price', () => {
+    const text = describeUsage(usage({ contextTokens: 420_000, contextWindow: 1_000_000, contextPct: 42, model: 'claude-opus-5-5' }));
     expect(text).toContain('Context 420k of 1.0M (42%)');
     expect(text).toContain('1.2k in, 34k out, 2.4M cache read, 50k cache write');
-    expect(text).toContain('≈ $3.21 at API prices');
+    expect(text).not.toContain('$');
     expect(text).toContain('claude-opus-5-5');
   });
 
-  it('says when a model has no price, or only some turns were priced', () => {
-    expect(describeUsage(usage())).toContain('No price for this model');
-    expect(describeUsage(usage({ costUsd: 1, costPartial: true }))).toContain('some turns unpriced');
-  });
 });

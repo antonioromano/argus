@@ -40,7 +40,7 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
         </SettingRow>
         <SettingRow
           label="Usage meter"
-          hint="Context used and estimated API cost on Claude shells, read from the session transcript"
+          hint="Context used on Claude shells, read from the session transcript"
         >
           <Toggle checked={config.showUsageMeter !== false} onChange={(v) => onSave({ showUsageMeter: v })} />
         </SettingRow>

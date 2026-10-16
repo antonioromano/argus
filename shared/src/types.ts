@@ -125,7 +125,7 @@ export interface AppConfig {
   confirmQuitDirectSessions?: boolean;
   // Launch links outside these roots get a warning on the approval card.
   launchFolderRoots?: string[];
-  // Context % / cost chip on Claude tile headers (default: true).
+  // Context % chip on Claude tile headers (default: true).
   showUsageMeter?: boolean;
   // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
   showPrStatus?: boolean;
@@ -319,7 +319,7 @@ export interface SessionInfo {
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
-  /** Claude only: token / context / cost meter built from the agent's transcript. */
+  /** Claude only: token / context meter built from the agent's transcript. */
   usage?: SessionUsage;
   /** Claude only: the conversation id the agent last reported (what Resume reopens). */
   claudeSessionId?: string;
@@ -619,10 +619,6 @@ export interface SessionUsage {
   contextWindow?: number;
   /** contextTokens / contextWindow × 100, when the window is known. */
   contextPct?: number;
-  /** Estimated USD at API list prices. Absent when no turn's model is priced. */
-  costUsd?: number;
-  /** True when some turns used a model with no price, so costUsd undercounts. */
-  costPartial?: boolean;
   /** Epoch ms of the last change. */
   updatedAt: number;
 }
