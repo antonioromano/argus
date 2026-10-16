@@ -158,6 +158,7 @@ function applyConfig(cfg: AppConfig): void {
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
   sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
   sessionManager.setActivityTimelineEnabled(isBetaEnabled(cfg, 'betaActivityTimeline'));
+  sessionManager.setUsageMeterConfig({ enabled: cfg.showUsageMeter !== false, plan: true });
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
@@ -442,6 +443,10 @@ app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
+// Plan usage per agent account (the usage meter); live updates ride `usage:plan`.
+app.get('/api/usage/plan', (_req, res) => {
+  res.json(sessionManager.getPlanUsage());
+});
 app.use('/api/maintenance', createMaintenanceRoutes(new OrphanJanitor({
   context: () => {
     const active = sessionManager.activeBackend();

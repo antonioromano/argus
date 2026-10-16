@@ -11,6 +11,10 @@ export interface SignalInjectionContext {
   userFlags: string[];
   /** Beta F6: also inject the activity-timeline hooks (Claude only). */
   activity?: boolean;
+  /** Plan usage meter: wrap the status line to capture rate limits (Claude only). */
+  statusLine?: boolean;
+  /** The session's working folder (project settings are read from it). */
+  folderPath?: string;
 }
 
 /** A file the adapter needs written before spawn (e.g. a hooks settings file). */

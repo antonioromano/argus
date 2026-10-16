@@ -28,6 +28,9 @@ export type PreToolUseDecider = (sessionId: string, hook: unknown) => object | n
  *  anything over this (argus-signal caps a little below) gets no decision. */
 export const PRE_TOOL_USE_BODY_LIMIT = '512kb';
 
+/** Body cap for a forwarded status line `rate_limits` object (token + 4 KB). */
+export const STATUSLINE_BODY_LIMIT = '8kb';
+
 /** Body cap for a forwarded activity hook head (token + 16 KB). */
 export const ACTIVITY_BODY_LIMIT = '20kb';
 
@@ -42,6 +45,7 @@ export function createAgentSignalRoutes(
   const hookJson = express.json({ limit: PRE_TOOL_USE_BODY_LIMIT });
   // argus-signal caps the hook head at 16 KB; a little headroom for the token.
   const activityText = express.text({ type: 'text/plain', limit: ACTIVITY_BODY_LIMIT });
+  const statusLineText = express.text({ type: 'text/plain', limit: STATUSLINE_BODY_LIMIT });
 
   /**
    * F5: `argus-signal --approve` forwards the PreToolUse hook JSON and prints
@@ -97,6 +101,39 @@ export function createAgentSignalRoutes(
       manager.recordActivityHook(sessionId, body.slice(nl + 1));
     } catch (err) {
       console.warn('[activity] record failed:', err);
+    }
+    res.status(204).end();
+  });
+
+  /**
+   * Plan usage: `argus-signal --statusline` posts `<token>\n<rate_limits JSON>`
+   * as text/plain from the background of Claude's status line. Same gate as the
+   * signal route. Always 204 once authenticated; malformed JSON is dropped.
+   */
+  router.post('/:sessionId/statusline', statusLineText, (req, res) => {
+    if (!isLoopback(req.socket.remoteAddress)) {
+      res.status(403).json({ error: 'forbidden' });
+      return;
+    }
+    const { sessionId } = req.params;
+    const body = typeof req.body === 'string' ? req.body : '';
+    const nl = body.indexOf('\n');
+    const token = nl >= 0 ? body.slice(0, nl).trim() : '';
+    if (!token || !verifySignalToken(getSecret(), sessionId, token)) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+    let rateLimits: unknown;
+    try {
+      rateLimits = JSON.parse(body.slice(nl + 1));
+    } catch {
+      res.status(204).end();
+      return;
+    }
+    try {
+      manager.applyStatusLineRateLimits(sessionId, rateLimits);
+    } catch (err) {
+      console.warn('[planUsage] status line reading failed:', err);
     }
     res.status(204).end();
   });

@@ -16,6 +16,7 @@ import type {
   RunMode,
   ShellGitContext,
   SessionUsage,
+  PlanUsageMap,
   PromptOption,
   SessionStatusPayload,
   SessionPr,
@@ -59,6 +60,16 @@ import type { GitService } from './GitService.js';
 import type { PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
+import {
+  CodexRolloutTailer,
+  assignRollouts,
+  codexSessionsRoot,
+  confineRollout,
+  scanCodexRollouts,
+  type CodexUsageState,
+  type RolloutCandidate,
+} from './usage/codexRollout.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
@@ -75,6 +86,8 @@ export interface CreateSessionOpts {
    *  before `session:created` goes out so clients see Resume and the chip at once. */
   claudeSessionId?: string;
   usage?: SessionUsageTrackerState;
+  /** Restore only: a Codex shell's spawn time and matched rollout log. */
+  codexUsage?: CodexUsageState;
 }
 
 interface ManagedSession {
@@ -188,7 +201,12 @@ interface ManagedSession {
   promptOptions?: PromptOption[];
   /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
   usage?: SessionUsageTracker;
+  /** Codex only: the rollout log this shell writes, once matched. */
+  codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
+
+/** Codex rollout logs are polled (matched, then tailed) this often. */
+const CODEX_POLL_MS = 2_000;
 
 /** sessions.json is rewritten at most this often for usage-meter progress alone
  *  (every lifecycle change and shutdown persist it anyway). */
@@ -427,6 +445,18 @@ export class SessionManager {
   });
   private preventSleepWhileRunning = false;
   private usagePersistTimer?: ReturnType<typeof setTimeout>;
+  /** Usage meter on with its Plan usage part: Claude spawns get the status line
+   *  wrapper. Applied at spawn, so it reaches new and restarted sessions. */
+  private planUsageEnabled = false;
+  /** Usage meter master switch. Off: Codex rollout logs are not read. */
+  private usageMeterEnabled = false;
+  private codexTimer: ReturnType<typeof setInterval> | null = null;
+  private codexPolling = false;
+  /** Rollout files already judged by the matcher (path → candidate | not one). */
+  private codexSeen = new Map<string, RolloutCandidate | null>();
+  private readonly codexRoot = codexSessionsRoot();
+  /** Plan usage per agent account, shared by every shell of that agent. */
+  private readonly planUsage = new PlanUsageStore((agent, plan) => this.io?.emit('usage:plan', { agent, plan }));
 
   private readonly dataDir: string;
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
@@ -495,6 +525,7 @@ export class SessionManager {
     sessionId: string,
     agentType: string,
     userFlags: string[],
+    folderPath?: string,
   ): { flags: string[]; env: Record<string, string>; files: InjectionFile[]; coverage: readonly AgentSignalState[] } | null {
     if (!this.signalSecret || !this.signalBinPath) return null;
     const adapter = getSignalAdapter(agentType);
@@ -516,6 +547,8 @@ export class SessionManager {
       signalDir,
       userFlags,
       activity: this.activityTimelineEnabled,
+      statusLine: this.planUsageEnabled,
+      folderPath,
     });
     return {
       flags: inj.flags,
@@ -629,6 +662,101 @@ export class SessionManager {
     if (enabled === this.activityTimelineEnabled) return;
     this.activityTimelineEnabled = enabled;
     if (!enabled) this.activity.clear();
+  }
+
+  /**
+   * Config: the usage meter master switch and its Plan usage part. The plan
+   * part is read at spawn (Claude's status line wrapper); the master switch
+   * starts and stops the Codex rollout poll.
+   */
+  setUsageMeterConfig(cfg: { enabled: boolean; plan: boolean }): void {
+    this.planUsageEnabled = cfg.enabled && cfg.plan;
+    if (cfg.enabled === this.usageMeterEnabled) return;
+    this.usageMeterEnabled = cfg.enabled;
+    this.refreshCodexPoll();
+  }
+
+  /** Run the Codex poll while the meter is on and any Codex shell exists. */
+  private refreshCodexPoll(): void {
+    const want = this.usageMeterEnabled && [...this.sessions.values()].some((s) => s.codex);
+    if (want && !this.codexTimer) {
+      this.codexTimer = setInterval(() => { void this.pollCodex(); }, CODEX_POLL_MS);
+      this.codexTimer.unref?.();
+    } else if (!want && this.codexTimer) {
+      clearInterval(this.codexTimer);
+      this.codexTimer = null;
+    }
+  }
+
+  /** A fresh Codex run: forget the old log and match a new one. */
+  private startCodexUsage(session: ManagedSession): void {
+    if (session.agentType !== 'codex') return;
+    session.codex = { spawnedAt: Date.now(), updatedAt: Date.now() };
+    this.refreshCodexPoll();
+  }
+
+  /**
+   * One Codex pass: match waiting shells to new rollout logs (cwd + start time
+   * after spawn), then read what every matched log appended.
+   */
+  async pollCodex(): Promise<void> {
+    if (this.codexPolling || !this.usageMeterEnabled) return;
+    this.codexPolling = true;
+    try {
+      const codex = [...this.sessions.values()].filter((s) => s.codex);
+      const waiting = codex.filter((s) => !s.codex!.tailer && s.status !== 'exited');
+      if (waiting.length > 0) {
+        const since = Math.min(...waiting.map((s) => s.codex!.spawnedAt));
+        const candidates = await scanCodexRollouts(this.codexRoot, since, this.codexSeen);
+        const claimed = new Set(codex.map((s) => s.codex!.tailer?.path).filter((p): p is string => !!p));
+        const picks = assignRollouts(
+          waiting.map((s) => ({ id: s.id, cwd: s.cwd ?? s.folderPath, spawnedAt: s.codex!.spawnedAt })),
+          candidates,
+          claimed,
+        );
+        for (const [id, file] of picks) {
+          const s = this.sessions.get(id);
+          if (s?.codex && !s.codex.tailer) {
+            s.codex.tailer = new CodexRolloutTailer(file);
+            this.persistSessions().catch(console.error);
+          }
+        }
+      }
+      for (const s of codex) {
+        const c = s.codex;
+        if (!c?.tailer) continue;
+        let changed = false;
+        try {
+          changed = await c.tailer.poll();
+        } catch (err) {
+          console.warn('[usage] codex rollout read failed:', err instanceof Error ? err.message : err);
+        }
+        if (!changed || this.sessions.get(s.id) !== s) continue;
+        c.updatedAt = Date.now();
+        const usage = c.tailer.snapshot(c.updatedAt);
+        if (usage) this.onUsageChange(s, usage);
+        const plan = c.tailer.takePlan();
+        if (plan) this.planUsage.update('codex', plan);
+      }
+    } finally {
+      this.codexPolling = false;
+    }
+  }
+
+  /** Latest plan usage per agent account (resets already applied). */
+  getPlanUsage(): PlanUsageMap {
+    return this.planUsage.all();
+  }
+
+  /**
+   * Plan usage forwarded by a Claude session's status line wrapper: Claude's
+   * `rate_limits` object. Ignored for unknown and non-Claude sessions.
+   */
+  applyStatusLineRateLimits(sessionId: string, rateLimits: unknown): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.agentType !== 'claude') return;
+    const plan = parseClaudeRateLimits(rateLimits, Date.now());
+    if (plan) this.planUsage.update('claude', plan);
   }
 
   /** Beta F6: a session's activity, oldest first; undefined for an unknown session. */
@@ -945,7 +1073,7 @@ export class SessionManager {
       if (!pa) throw new Error(`Agent "${resolvedAgentType}" does not accept an initial prompt`);
       promptTail = pa;
     }
-    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags);
+    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags, effectiveFolderPath);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -1055,6 +1183,8 @@ export class SessionManager {
 
     this.applyRestoredInsights(session, opts);
     this.sessions.set(id, session);
+    if (!attachExisting && !restoreExited && !session.codex) this.startCodexUsage(session);
+    else this.refreshCodexPoll();
     this.fileWatcher.watch(id, session.folderPath);
     this.refreshSleepPrevention();
     if (!opts.skipPersist) await this.persistSessions();
@@ -1113,6 +1243,7 @@ export class SessionManager {
     this.prMap.delete(id);
     this.staleMap.delete(id);
     this.activity.drop(id);
+    this.refreshCodexPoll();
     const stillInUse = Array.from(this.sessions.values()).some((s) => s.folderPath === session.folderPath);
     if (!stillInUse) this.gitRepoCache.delete(session.folderPath);
     cleanupSessionDimensions(id);
@@ -1168,6 +1299,7 @@ export class SessionManager {
     session.rawTail?.clear();
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
+    this.startCodexUsage(session);
     session.status = 'running';
     this.refreshSleepPrevention();
     session.suppressDonePromotion = false; // fresh run must promote to 'done' normally
@@ -1202,7 +1334,7 @@ export class SessionManager {
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
-    const inj = this.buildSignalInjection(id, session.agentType, userFlags);
+    const inj = this.buildSignalInjection(id, session.agentType, userFlags, session.folderPath);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -1445,6 +1577,8 @@ export class SessionManager {
     if (session.nativeRing.length > NATIVE_RING_SIZE) session.nativeRing.shift();
     // Every hook marks transcript activity; Stop (idle) ends a turn.
     this.nudgeUsage(session, signal.state === 'idle');
+    // Codex's only native signal is turn-complete: its log just got a token count.
+    if (session.codex) void this.pollCodex();
 
     // A native event is a turn boundary — cancel any pending heuristic done-grace.
     if (session.doneTimer) {
@@ -2342,7 +2476,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2362,7 +2496,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2381,6 +2515,13 @@ export class SessionManager {
 
   /** Carry a restored Claude session's conversation id and usage meter over a restart. */
   private applyRestoredInsights(session: ManagedSession, opts: CreateSessionOpts): void {
+    if (session.agentType === 'codex' && opts.codexUsage && Number.isFinite(opts.codexUsage.spawnedAt)) {
+      const file = opts.codexUsage.path ? confineRollout(opts.codexUsage.path, this.codexRoot) : undefined;
+      // Re-read the matched log from the start: it is the source of truth and
+      // carries the newest plan reading.
+      session.codex = { spawnedAt: opts.codexUsage.spawnedAt, updatedAt: Date.now(), tailer: file ? new CodexRolloutTailer(file) : undefined };
+      return;
+    }
     if (session.agentType !== 'claude') return;
     if (opts.claudeSessionId && isClaudeSessionId(opts.claudeSessionId)) session.claudeSessionId = opts.claudeSessionId;
     if (opts.usage) {
@@ -2414,7 +2555,7 @@ export class SessionManager {
       launcherId: session.launcherId,
       cwd: session.cwd,
       shellGit: session.shellGit,
-      usage: session.usage?.snapshot(),
+      usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
       claudeSessionId: session.claudeSessionId,
       waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
       promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
@@ -2507,6 +2648,7 @@ export class SessionManager {
    */
   async shutdown(): Promise<void> {
     if (this.usagePersistTimer) { clearTimeout(this.usagePersistTimer); this.usagePersistTimer = undefined; }
+    if (this.codexTimer) { clearInterval(this.codexTimer); this.codexTimer = null; }
     if (this.gitPollTimer) {
       clearInterval(this.gitPollTimer);
       this.gitPollTimer = null;
@@ -2561,6 +2703,7 @@ export class SessionManager {
         launcherId: s.launcherId,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
+        codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,
       }));
       await this.store.save(data);
     });

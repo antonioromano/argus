@@ -2,6 +2,10 @@ import path from 'path';
 import { readFileSync as fsReadFileSync } from 'fs';
 import type { AgentSignalState } from '@argus/shared';
 import type { AgentSignalAdapter, SignalInjection, SignalInjectionContext } from './types.js';
+import { resolveUserStatusLine, statusLineFrom, type UserStatusLine } from './userStatusLine.js';
+
+/** Env var carrying the user's own status line command (base64) to the wrapper. */
+export const USER_STATUSLINE_ENV = 'ARGUS_USER_STATUSLINE';
 
 interface ClaudeHookCommand {
   type: 'command';
@@ -93,8 +97,34 @@ function loadUserSettings(
 export class ClaudeHooksAdapter implements AgentSignalAdapter {
   readonly coverage: readonly AgentSignalState[] = ['running', 'waiting', 'idle'];
 
-  /** Injectable for tests; defaults to fs.readFileSync utf8. */
-  constructor(private readFileSync: (p: string) => string = defaultRead) {}
+  /** Injectable for tests; defaults to fs.readFileSync utf8 and the real home dir. */
+  constructor(
+    private readFileSync: (p: string) => string = defaultRead,
+    private statusLineOpts: { home?: string; env?: NodeJS.ProcessEnv; realpathSync?: (p: string) => string } = {},
+  ) {}
+
+  /**
+   * Plan usage: Argus's status line wrapper replaces the user's (a `--settings`
+   * key outranks every settings file), and runs the user's own command — taken
+   * from their `--settings` first, then the settings files — so the line they
+   * see is unchanged. Padding is carried over.
+   */
+  private statusLine(
+    ctx: SignalInjectionContext,
+    userSettings: ClaudeSettings | null,
+  ): { setting: Record<string, unknown>; env: Record<string, string> } {
+    const user: UserStatusLine | undefined = statusLineFrom(userSettings)
+      ?? (ctx.folderPath
+        ? resolveUserStatusLine(ctx.folderPath, { readFileSync: this.readFileSync, ...this.statusLineOpts })
+        : undefined);
+    const setting: Record<string, unknown> = {
+      type: 'command',
+      command: `"${ctx.signalBinPath}" --session ${ctx.sessionId} --statusline`,
+    };
+    if (user?.padding !== undefined) setting.padding = user.padding;
+    const env: Record<string, string> = user ? { [USER_STATUSLINE_ENV]: Buffer.from(user.command, 'utf8').toString('base64') } : {};
+    return { setting, env };
+  }
 
   private argusHooks(ctx: SignalInjectionContext): ClaudeHooks {
     const bin = ctx.signalBinPath;
@@ -144,8 +174,9 @@ export class ClaudeHooksAdapter implements AgentSignalAdapter {
     const { value: userSettingsFlag, rest } = extractSettingsFlag(ctx.userFlags);
 
     let content: ClaudeSettings = { hooks: argusHooks };
+    let user: ClaudeSettings | null = null;
     if (userSettingsFlag !== undefined) {
-      const user = loadUserSettings(userSettingsFlag, this.readFileSync);
+      user = loadUserSettings(userSettingsFlag, this.readFileSync);
       if (user) {
         content = mergeClaudeSettings(user, argusHooks);
       } else {
@@ -160,9 +191,16 @@ export class ClaudeHooksAdapter implements AgentSignalAdapter {
       }
     }
 
+    let env: Record<string, string> = {};
+    if (ctx.statusLine) {
+      const sl = this.statusLine(ctx, user);
+      content = { ...content, statusLine: sl.setting };
+      env = sl.env;
+    }
+
     return {
       flags: [...rest, '--settings', settingsPath],
-      env: {},
+      env,
       files: [{ path: settingsPath, content: JSON.stringify(content, null, 2) }],
     };
   }

@@ -3,6 +3,7 @@ import path from 'path';
 import { atomicWrite } from '../utils/atomicWrite.js';
 import type { RunMode, TerminalEngine } from '@argus/shared';
 import type { SessionUsageTrackerState } from '../services/usage/SessionUsageTracker.js';
+import type { CodexUsageState } from '../services/usage/codexRollout.js';
 
 export interface PersistedSession {
   id: string;
@@ -20,6 +21,8 @@ export interface PersistedSession {
   claudeSessionId?: string;
   /** Claude only: usage-meter tail state (offsets + totals per transcript). */
   usage?: SessionUsageTrackerState;
+  /** Codex only: spawn time and matched rollout log (usage meter). */
+  codexUsage?: CodexUsageState;
 }
 
 export class SessionStore {
