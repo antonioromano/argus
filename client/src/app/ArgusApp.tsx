@@ -9,6 +9,8 @@ import { useGroups } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
+import { usePlanUsage } from '../hooks/usePlanUsage.js';
+import { usageMeterView, type UsageMeterState } from '../utils/usageFormat.js';
 import { useUpdate } from '../hooks/useUpdate.js';
 import { useNotifications } from '../hooks/useNotifications.js';
 import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
@@ -200,6 +202,13 @@ function DesktopInner() {
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
+  // Usage meter: one stable object for every shell header (tiles are memoized).
+  const meterView = useMemo(() => usageMeterView(config), [config]);
+  const planUsage = usePlanUsage(socket, meterView !== null);
+  const usageMeter = useMemo<UsageMeterState | null>(
+    () => (meterView ? { ...meterView, plans: planUsage } : null),
+    [meterView, planUsage],
+  );
   const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const handoffEnabled = isBetaEnabled(config, 'betaHandoff');
   const chainsEnabled = isBetaEnabled(config, 'betaSessionChains');
@@ -1042,14 +1051,14 @@ function DesktopInner() {
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
               defaultTerminalEngine={config?.defaultTerminalEngine}
-              showUsage={config?.showUsageMeter !== false}
+              usageMeter={usageMeter}
             />
           )}
 
           {app.view === 'focus' && activeSession && (
             <Focus
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
-              showUsage={config?.showUsageMeter !== false}
+              usageMeter={usageMeter}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
               sessions={orderedSessions}
               active={activeSession}

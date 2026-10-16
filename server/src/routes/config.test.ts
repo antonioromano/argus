@@ -214,6 +214,9 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     confirmQuitDirectSessions: false,
     launchFolderRoots: ['~/home'],
     showUsageMeter: false,
+    usageMeterParts: [{ id: 'model', on: true }, { id: 'ctx', on: true }, { id: 'tok', on: true }, { id: 'plan', on: false }],
+    usageWarnContext: { amber: 60, red: 85 },
+    usageWarnPlan: { amber: 50, red: 75 },
     showPrStatus: false,
     autoApprovalEnabled: true,
     claudeRenderer: 'classic',
@@ -322,4 +325,51 @@ test('beta flags default off and accept only strict booleans', async () => {
     assert.equal((await put({})).body[flag], true, `${flag}: absent keeps the stored value`);
     await put({ [flag]: false });
   }
+});
+
+// ── Usage meter ─────────────────────────────────────────────────────────────
+
+test('usage meter defaults: context + plan on, tokens + model off; 70/90 and 80/95', async () => {
+  const fresh = new ConfigStore(join(dir, 'fresh-usage.json'));
+  const cfg = await fresh.load();
+  assert.equal(cfg.showUsageMeter, true);
+  assert.deepEqual(cfg.usageMeterParts, [{ id: 'ctx', on: true }, { id: 'plan', on: true }, { id: 'tok', on: false }, { id: 'model', on: false }]);
+  assert.deepEqual(cfg.usageWarnContext, { amber: 70, red: 90 });
+  assert.deepEqual(cfg.usageWarnPlan, { amber: 80, red: 95 });
+});
+
+test('migration: an old config with showUsageMeter:false stays off and gains the new defaults', async () => {
+  const { writeFile } = await import('fs/promises');
+  const file = join(dir, 'old-usage.json');
+  await writeFile(file, JSON.stringify({ showUsageMeter: false, defaultAgent: 'claude' }));
+  const cfg = await new ConfigStore(file).load();
+  assert.equal(cfg.showUsageMeter, false);
+  assert.deepEqual(cfg.usageMeterParts, DEFAULT_CONFIG.usageMeterParts);
+  assert.deepEqual(cfg.usageWarnPlan, { amber: 80, red: 95 });
+});
+
+test('usageMeterParts: every id exactly once with a boolean, else 400 and unchanged', async () => {
+  const good = [{ id: 'plan', on: true }, { id: 'ctx', on: false }, { id: 'model', on: false }, { id: 'tok', on: true }];
+  assert.equal((await put({ usageMeterParts: good })).status, 200);
+  const bad: unknown[] = [
+    'ctx,plan',
+    [{ id: 'ctx', on: true }],
+    [{ id: 'ctx', on: true }, { id: 'ctx', on: true }, { id: 'tok', on: true }, { id: 'model', on: true }],
+    [{ id: 'ctx', on: 'yes' }, { id: 'plan', on: true }, { id: 'tok', on: true }, { id: 'model', on: true }],
+    [{ id: 'cost', on: true }, { id: 'plan', on: true }, { id: 'tok', on: true }, { id: 'model', on: true }],
+    [{ id: 'ctx', on: true, extra: 1 }, { id: 'plan', on: true }, { id: 'tok', on: true }, { id: 'model', on: true }],
+  ];
+  for (const b of bad) assert.equal((await put({ usageMeterParts: b })).status, 400, JSON.stringify(b));
+  assert.deepEqual((await get()).usageMeterParts, good);
+});
+
+test('warn thresholds: 5..99 with red above amber, else 400 and unchanged', async () => {
+  assert.equal((await put({ usageWarnContext: { amber: 5, red: 99 }, usageWarnPlan: { amber: 80, red: 95 } })).status, 200);
+  for (const b of [{ amber: 90, red: 90 }, { amber: 95, red: 80 }, { amber: 4, red: 50 }, { amber: 50, red: 100 }, { amber: '50', red: 60 }, { amber: 50 }, null, [50, 60]]) {
+    assert.equal((await put({ usageWarnContext: b })).status, 400, JSON.stringify(b));
+    assert.equal((await put({ usageWarnPlan: b })).status, 400, JSON.stringify(b));
+  }
+  const cfg = await get();
+  assert.deepEqual(cfg.usageWarnContext, { amber: 5, red: 99 });
+  assert.deepEqual(cfg.usageWarnPlan, { amber: 80, red: 95 });
 });

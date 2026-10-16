@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { TileQuickAction } from '@argus/shared';
 import { Info, Minus, Maximize2, MoreHorizontal, CircleX } from 'lucide-react';
 import { Sheet, Button, Kbd, StatusDot } from '../../components/primitives/index.js';
@@ -153,9 +153,17 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
 export function QuickActionPreview({
   action,
   runningIndicator = 'hairline',
+  agent = 'claude',
+  name = 'argus',
+  chip,
 }: {
   action: TileQuickAction;
   runningIndicator?: 'hairline' | 'off';
+  /** Agent glyph in the preview header. */
+  agent?: string;
+  name?: string;
+  /** Optional header chip (the usage meter preview). */
+  chip?: ReactNode;
 }) {
   const meta = action === 'none' ? null : tileActionMeta(action);
   const Icon = meta?.icon;
@@ -163,7 +171,6 @@ export function QuickActionPreview({
     <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-0)' }}>
       <div className="eyebrow" style={{ padding: '5px var(--s-2) 3px', color: 'var(--fg-4)' }}>preview</div>
       <div
-        aria-hidden
         style={{
           position: 'relative',
           height: 28,
@@ -175,11 +182,12 @@ export function QuickActionPreview({
           borderTop: '1px solid var(--line-2)',
         }}
       >
-        <AgentGlyph agent="claude" size={14} />
+        <AgentGlyph agent={agent} size={14} />
         <StatusDot status="running" size={7} />
         <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          argus
+          {name}
         </span>
+        {chip}
         <span className="argus-tile-status argus-status" data-status="running">{STATUS_LABELS.running}</span>
         <span style={{ display: 'flex', alignItems: 'center', color: 'var(--fg-2)' }}>
           {Icon && (

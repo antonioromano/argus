@@ -52,6 +52,7 @@ import { NgrokService } from './services/NgrokService.js';
 import { SleepPreventionService } from './services/SleepPreventionService.js';
 import { KeepAwakeService } from './services/KeepAwakeService.js';
 import { createKeepAwakeRoutes } from './routes/keepAwake.js';
+import { isPlanPartOn } from './utils/usageMeter.js';
 import { OrphanJanitor } from './services/OrphanJanitor.js';
 import { createMaintenanceRoutes } from './routes/maintenance.js';
 import { UpdateService } from './services/UpdateService.js';
@@ -158,7 +159,7 @@ function applyConfig(cfg: AppConfig): void {
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
   sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
   sessionManager.setActivityTimelineEnabled(isBetaEnabled(cfg, 'betaActivityTimeline'));
-  sessionManager.setUsageMeterConfig({ enabled: cfg.showUsageMeter !== false, plan: true });
+  sessionManager.setUsageMeterConfig({ enabled: cfg.showUsageMeter !== false, plan: isPlanPartOn(cfg) });
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).

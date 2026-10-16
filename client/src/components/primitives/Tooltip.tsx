@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect, cloneElement } from 'react';
-import type { ReactElement, CSSProperties, MouseEvent as RMouseEvent, FocusEvent as RFocusEvent } from 'react';
+import type { ReactElement, ReactNode, CSSProperties, MouseEvent as RMouseEvent, FocusEvent as RFocusEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 
 interface TooltipProps {
-  content: string;
+  /** Usually a string; a node for a structured breakdown (e.g. the usage chip). */
+  content: ReactNode;
   children: ReactElement<{
     onMouseEnter?: (e: RMouseEvent) => void;
     onMouseLeave?: (e: RMouseEvent) => void;

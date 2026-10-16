@@ -127,6 +127,12 @@ export interface AppConfig {
   launchFolderRoots?: string[];
   // Usage meter master switch: context % / plan usage chip on Claude and Codex shell headers (default: true).
   showUsageMeter?: boolean;
+  // What the usage chip shows, in order; each id exactly once (default: context + plan usage).
+  usageMeterParts?: UsageMeterPart[];
+  // Chip turns amber, then red, as a shell's context fills (percent, 5..99, red > amber).
+  usageWarnContext?: UsageWarnThresholds;
+  // Chip turns amber, then red, as plan usage nears the limit (percent, 5..99, red > amber).
+  usageWarnPlan?: UsageWarnThresholds;
   // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
   showPrStatus?: boolean;
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
@@ -141,6 +147,21 @@ export interface AppConfig {
   betaSessionTemplates?: boolean; // F10
   betaHandoff?: boolean; // F12
   betaSessionChains?: boolean; // F13
+}
+
+/** A usage chip part: context %, plan usage (+ reset), session tokens, model. */
+export type UsageMeterPartId = 'ctx' | 'plan' | 'tok' | 'model';
+export const USAGE_METER_PART_IDS: readonly UsageMeterPartId[] = ['ctx', 'plan', 'tok', 'model'];
+
+export interface UsageMeterPart {
+  id: UsageMeterPartId;
+  on: boolean;
+}
+
+/** Warning thresholds in percent: amber at `amber`, red at `red` (5..99, red > amber). */
+export interface UsageWarnThresholds {
+  amber: number;
+  red: number;
 }
 
 /** The AppConfig keys that gate a beta feature. Each side reads them through its
@@ -197,6 +218,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
+  usageMeterParts: [{ id: 'ctx', on: true }, { id: 'plan', on: true }, { id: 'tok', on: false }, { id: 'model', on: false }],
+  usageWarnContext: { amber: 70, red: 90 },
+  usageWarnPlan: { amber: 80, red: 95 },
   showPrStatus: true,
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',

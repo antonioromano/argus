@@ -69,7 +69,7 @@ If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `b
 
 ### Session Insights
 
-- **Usage meter** — Claude sessions show a usage chip with context-window %, read from the session's transcript
+- **Usage meter** — Claude and Codex shells show a usage chip: context-window % (Claude's transcript, Codex's `~/.codex/sessions` rollout log) and your plan usage with its reset time (Claude via a status-line wrapper that keeps your own status line unchanged; Codex from its rollout log). Plan usage is per account, so every shell of an agent shows the same value. Settings → Shell header picks the parts (drag to reorder, click to hide) and the amber/red thresholds. Gemini reports no usage, so its shells show no chip
 - **Waiting inbox** — `⌘⇧J` (also in the View menu and Find & Jump) lists every session waiting on input, longest-waiting first, with its question. `↑↓` picks, `↵` jumps to the shell, and a digit answers a numbered menu prompt without leaving the inbox
 - **Broadcast input** — Send one line (`/compact`, "rebase on main", `y`) to several shells at once, optionally followed by Enter. Pick targets in Find & Jump or mark them with Space in the waiting inbox and press `B`; a confirmation step shows the exact text and every target first
 

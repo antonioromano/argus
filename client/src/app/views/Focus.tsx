@@ -6,6 +6,7 @@ import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
+import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
 import { workRoot } from '../../utils/workRoot.js';
@@ -67,8 +68,8 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 interface FocusProps {
   /** Progress hairline under the header while running — same setting as the mosaic tiles. */
   runningIndicator?: TileRunningIndicator;
-  /** Claude usage chip in the header (config `showUsageMeter`, default true). */
-  showUsage?: boolean;
+  /** Usage chip in the header (Claude, Codex); null/absent when the meter is off. */
+  usageMeter?: UsageMeterState | null;
   /** Mosaic layout setting: 'vertical' (stacked) docks the companion shell below the conversation instead of beside it. */
   orientation?: MosaicOrientation;
   sessions: SessionInfo[];
@@ -115,7 +116,7 @@ interface FocusProps {
 
 export function Focus({
   runningIndicator = 'hairline',
-  showUsage = true,
+  usageMeter,
   orientation = 'horizontal',
   sessions,
   active,
@@ -336,7 +337,9 @@ export function Focus({
             ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
             <StaleChip staleDays={active.worktreeStaleDays} />
             {active.pr && <PrChip pr={active.pr} />}
-            {showUsage && active.usage && <UsageChip usage={active.usage} />}
+            {usageMeter && (
+              <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
+            )}
             <div style={{ flex: 1 }} />
             <Button
               variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
