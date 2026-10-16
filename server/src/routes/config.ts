@@ -3,6 +3,7 @@ import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { AgentRegistry } from '../services/AgentRegistry.js';
 import type { AgentDefinition, AgentFlag, AppConfig, TileQuickAction } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
+import { isUsageMeterParts, isWarnThresholds } from '../utils/usageMeter.js';
 
 const TILE_QUICK_ACTIONS: readonly TileQuickAction[] = ['diff', 'files', 'shell', 'clone', 'restart', 'done', 'apply', 'none'];
 
@@ -57,11 +58,23 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, showPrStatus, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
       return;
+    }
+
+    // Usage meter: strict. A malformed value is an error, never a silent default.
+    if (usageMeterParts !== undefined && !isUsageMeterParts(usageMeterParts)) {
+      res.status(400).json({ error: 'usageMeterParts must list ctx, plan, tok and model exactly once, each as { id, on: boolean }.' });
+      return;
+    }
+    for (const [key, value] of [['usageWarnContext', usageWarnContext], ['usageWarnPlan', usageWarnPlan]] as const) {
+      if (value !== undefined && !isWarnThresholds(value)) {
+        res.status(400).json({ error: `${key} must be { amber, red }: numbers from 5 to 99, red above amber.` });
+        return;
+      }
     }
 
     if (agentFlags) {
@@ -137,6 +150,11 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
         ? launchFolderRoots.map((r: string) => r.trim())
         : current.launchFolderRoots,
       showUsageMeter: showUsageMeter !== undefined ? !!showUsageMeter : current.showUsageMeter,
+      usageMeterParts: usageMeterParts !== undefined
+        ? (usageMeterParts as AppConfig['usageMeterParts'])!.map((p) => ({ id: p.id, on: p.on }))
+        : current.usageMeterParts,
+      usageWarnContext: usageWarnContext !== undefined ? { amber: usageWarnContext.amber, red: usageWarnContext.red } : current.usageWarnContext,
+      usageWarnPlan: usageWarnPlan !== undefined ? { amber: usageWarnPlan.amber, red: usageWarnPlan.red } : current.usageWarnPlan,
       showPrStatus: showPrStatus !== undefined ? !!showPrStatus : current.showPrStatus,
       // Strict boolean: only an explicit true turns the feature on.
       autoApprovalEnabled: typeof autoApprovalEnabled === 'boolean' ? autoApprovalEnabled : current.autoApprovalEnabled,

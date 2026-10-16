@@ -976,7 +976,9 @@ body {
 .argus-pr-ci[data-ci='success'] { background: var(--ok); }
 .argus-pr-ci[data-ci='failure'] { background: var(--danger); }
 
-/* Claude usage meter: context % (colored as the window fills) + est. cost. */
+/* Usage meter (Claude, Codex): context bar + %, plan usage + reset, tokens,
+   model. The chip takes the worst warning level; each part colors its own
+   value. Hover only shows the tooltip — nothing here changes size on hover. */
 .argus-usage {
   flex-shrink: 0;
   display: inline-flex;
@@ -991,10 +993,67 @@ body {
   padding: 1px var(--s-1);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  outline: none;
 }
-.argus-usage-ctx[data-level='warn'] { color: var(--warn); }
-.argus-usage-ctx[data-level='high'] { color: var(--danger); }
-.argus-usage-cost { color: var(--fg-3); }
+.argus-usage[data-level='warn'] { border-color: color-mix(in srgb, var(--warn) 55%, var(--line-2)); }
+.argus-usage[data-level='high'] { border-color: color-mix(in srgb, var(--danger) 60%, var(--line-2)); }
+.argus-usage:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+.argus-usage-part { display: inline-flex; align-items: center; gap: 3px; }
+.argus-usage-part[data-level='warn'] { color: var(--warn); }
+.argus-usage-part[data-level='high'] { color: var(--danger); }
+.argus-usage-sep { color: var(--fg-4); margin: 0 1px; }
+.argus-usage-bar {
+  display: inline-block;
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.argus-usage-bar > i { display: block; height: 100%; background: currentColor; opacity: 0.85; }
+.argus-usage-pop { display: grid; grid-template-columns: auto auto; gap: 2px 10px; padding: 2px 0; }
+.argus-usage-pop-row { display: contents; }
+.argus-usage-pop-row > b { color: var(--fg-3); font-weight: 500; }
+
+/* Settings → Shell header: usage meter part pills. Hover recolors only. */
+.argus-usage-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.argus-usage-pill {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  color: var(--fg-0);
+  font-size: var(--t-tiny);
+  cursor: grab;
+  user-select: none;
+}
+.argus-usage-pill:hover { background: var(--bg-3); }
+.argus-usage-pill:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+.argus-usage-pill[aria-pressed='false'] { color: var(--fg-3); border-style: dashed; background: transparent; }
+.argus-usage-pill[aria-pressed='false'] .argus-usage-pill-name { text-decoration: line-through; }
+.argus-usage-pill[data-dragging='true'] { opacity: 0.45; }
+.argus-usage-pill-grip { color: var(--fg-4); font-size: 10px; letter-spacing: -1px; }
+.argus-usage-nest { border-left: 2px solid var(--line-2); margin-left: var(--s-4); }
+.argus-usage-nest[data-off='true'] { opacity: 0.45; pointer-events: none; }
+.argus-usage-stepper { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-tiny); color: var(--fg-3); }
+.argus-usage-stepper-box { display: inline-flex; align-items: center; border: 1px solid var(--line-3); border-radius: var(--r-2); overflow: hidden; }
+.argus-usage-stepper-box > button {
+  all: unset;
+  width: 20px;
+  height: 22px;
+  text-align: center;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.argus-usage-stepper-box > button:hover { background: var(--bg-3); }
+.argus-usage-stepper-box > button:disabled { color: var(--fg-4); cursor: default; background: none; }
+.argus-usage-stepper-box > span { min-width: 34px; text-align: center; color: var(--fg-0); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* Waiting inbox: one answer button per numbered menu option. Hover recolors
    only — the chip never changes size. */

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionUsage } from '@argus/shared';
+import { DEFAULT_CONFIG, type PlanUsage, type SessionUsage } from '@argus/shared';
 import { UsageChip } from './UsageChip.js';
+import { usageMeterView, type UsageMeterView } from '../../utils/usageFormat.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -23,27 +24,70 @@ afterEach(() => {
   container.remove();
 });
 
+const NOW = 1_800_000_000_000;
 const base: SessionUsage = {
-  inputTokens: 10, outputTokens: 10, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 20, updatedAt: 0,
+  inputTokens: 10, outputTokens: 10, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 19_900_000, updatedAt: 0,
+  contextPct: 47, contextTokens: 94_000, contextWindow: 200_000, model: 'claude-opus-5-5',
 };
+const plan = (usedPct: number): PlanUsage => ({ observedAt: NOW, primary: { usedPct, resetsAt: NOW + (2 * 60 + 19) * 60_000, windowMinutes: 300 } });
+const defaults = usageMeterView(DEFAULT_CONFIG)!;
+
+function render(props: { agentType?: string; usage?: SessionUsage; plan?: PlanUsage; view?: UsageMeterView }) {
+  act(() => root.render(
+    <UsageChip agentType={props.agentType ?? 'claude'} usage={props.usage} plan={props.plan} view={props.view ?? defaults} now={NOW} />,
+  ));
+  return container.querySelector('[data-testid="usage-chip"]');
+}
 
 describe('UsageChip', () => {
-  it('shows context % with its level and the cost', () => {
-    act(() => root.render(<UsageChip usage={{ ...base, contextPct: 87.4, contextTokens: 874_000, contextWindow: 1_000_000, costUsd: 2.5 }} />));
-    const ctx = container.querySelector('.argus-usage-ctx')!;
-    expect(ctx.textContent).toBe('87%');
-    expect(ctx.getAttribute('data-level')).toBe('high');
-    expect(container.querySelector('.argus-usage-cost')!.textContent).toBe('$2.50');
+  it('default parts: context bar + % and plan usage with its reset', () => {
+    const chip = render({ usage: base, plan: plan(20) })!;
+    expect(chip.textContent).toBe('ctx 47%·plan 20%·↻ 2h19m');
+    expect(chip.querySelector('.argus-usage-bar > i')!.getAttribute('style')).toContain('width: 47%');
+    expect(chip.getAttribute('data-level')).toBe('ok');
+    expect(chip.textContent).not.toContain('$');
   });
 
-  it('falls back to total tokens and no cost for an unknown model', () => {
-    act(() => root.render(<UsageChip usage={{ ...base, totalTokens: 12_345 }} />));
-    expect(container.querySelector('.argus-usage-ctx')!.textContent).toBe('12k');
-    expect(container.querySelector('.argus-usage-cost')).toBeNull();
+  it('follows the part order and visibility', () => {
+    const view = { ...defaults, parts: [{ id: 'model', on: true }, { id: 'tok', on: true }, { id: 'ctx', on: false }, { id: 'plan', on: true }] } as UsageMeterView;
+    const chip = render({ usage: base, plan: plan(20), view })!;
+    expect([...chip.querySelectorAll('.argus-usage-part')].map((e) => e.getAttribute('data-part'))).toEqual(['model', 'tok', 'plan']);
+    expect(chip.textContent).toContain('opus-5-5');
+    expect(chip.textContent).toContain('20M tok');
   });
 
-  it('marks a partial cost', () => {
-    act(() => root.render(<UsageChip usage={{ ...base, costUsd: 1, costPartial: true }} />));
-    expect(container.querySelector('.argus-usage-cost')!.textContent).toBe('$1.00+');
+  it('thresholds turn parts amber / red and the chip takes the worst', () => {
+    let chip = render({ usage: { ...base, contextPct: 72 }, plan: plan(20) })!;
+    expect(chip.querySelector('[data-part="ctx"]')!.getAttribute('data-level')).toBe('warn');
+    expect(chip.getAttribute('data-level')).toBe('warn');
+    chip = render({ usage: { ...base, contextPct: 72 }, plan: plan(96) })!;
+    expect(chip.querySelector('[data-part="plan"]')!.getAttribute('data-level')).toBe('high');
+    expect(chip.getAttribute('data-level')).toBe('high');
+    const strict = { ...defaults, warnContext: { amber: 40, red: 45 } };
+    chip = render({ usage: base, plan: plan(20), view: strict })!;
+    expect(chip.getAttribute('data-level')).toBe('high');
+  });
+
+  it('a stale plan window shows as reset (0%) with no countdown', () => {
+    const stale: PlanUsage = { observedAt: NOW - 1, primary: { usedPct: 97, resetsAt: NOW - 1, windowMinutes: 300 } };
+    const chip = render({ usage: base, plan: stale })!;
+    expect(chip.textContent).toBe('ctx 47%·plan 0%');
+    expect(chip.getAttribute('data-level')).toBe('ok');
+  });
+
+  it('Codex shows context and plan usage too', () => {
+    const chip = render({ agentType: 'codex', usage: { ...base, model: 'gpt-5.5' }, plan: plan(23) })!;
+    expect(chip.textContent).toBe('ctx 47%·plan 23%·↻ 2h19m');
+  });
+
+  it('Gemini (and any other agent) shows no chip', () => {
+    expect(render({ agentType: 'gemini', usage: base, plan: plan(20) })).toBeNull();
+    expect(render({ agentType: 'shell', usage: base })).toBeNull();
+  });
+
+  it('nothing to show → no chip', () => {
+    expect(render({})).toBeNull();
+    const onlyTok = { ...defaults, parts: defaults.parts.map((p) => ({ ...p, on: p.id === 'tok' })) };
+    expect(render({ plan: plan(10), view: onlyTok })).toBeNull();
   });
 });

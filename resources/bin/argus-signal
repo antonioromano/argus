@@ -10,6 +10,16 @@
 #   argus-signal --session <id> --hook-stdin            (metadata only, no state)
 #   argus-signal --session <id> --approve               (PreToolUse auto-approval, F5)
 #   argus-signal --session <id> --activity              (activity timeline, beta F6)
+#   argus-signal --session <id> --statusline            (Claude status line wrapper, plan usage)
+#
+# --statusline: Claude's statusLine command for an Argus session. Its stdin is
+# Claude's status JSON. The script (1) sends the `rate_limits` object of that
+# JSON to the server in the BACKGROUND (curl -m 1, output discarded; it never
+# delays the status line), then (2) runs the user's own status line command —
+# base64 in ARGUS_USER_STATUSLINE, resolved by the server from their settings
+# at spawn — through `sh -c` with the very same stdin bytes, so its output and
+# exit status reach Claude unchanged. No user command: print nothing. This
+# mode runs even without signal wiring, so the user's line never disappears.
 #
 # --activity: observation only. Forward the first 16 KB of the hook JSON (a
 # PostToolUse for a big Write carries the whole file; the server builds a
@@ -40,6 +50,7 @@ PROMPT_FROM_STDIN=0
 HOOK_STDIN=0
 APPROVE=0
 ACTIVITY=0
+STATUSLINE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --session) SESSION="${2:-}"; shift 2 ;;
@@ -48,9 +59,64 @@ while [ $# -gt 0 ]; do
     --hook-stdin) HOOK_STDIN=1; shift ;;
     --approve) APPROVE=1; shift ;;
     --activity) ACTIVITY=1; shift ;;
+    --statusline) STATUSLINE=1; shift ;;
     *) shift ;;
   esac
 done
+
+if [ "$STATUSLINE" -eq 1 ]; then
+  # Stdin is kept byte-exact in a temp file (a $(...) capture would strip
+  # trailing newlines the user's script may rely on), capped at 1 MB (the status
+  # JSON is a few KB). The file is opened twice — fd 3 for the user's command,
+  # fd 4 for the sender, each with its own offset — and unlinked at once, so
+  # neither reader races the other and nothing is left behind.
+  HAVE_IN=0
+  IN=$(mktemp "${TMPDIR:-/tmp}/argus-statusline.XXXXXX" 2>/dev/null) || IN=""
+  if [ -n "$IN" ]; then
+    head -c 1048576 >"$IN" 2>/dev/null || true
+    cat >/dev/null 2>&1 || true
+    if exec 3<"$IN" 4<"$IN"; then HAVE_IN=1; fi
+    rm -f "$IN"
+  fi
+  if [ "$HAVE_IN" -eq 1 ] && [ -n "${ARGUS_SIGNAL_URL:-}" ] && [ -n "${ARGUS_SIGNAL_TOKEN:-}" ] && [ -n "$SESSION" ]; then
+    (
+      # The balanced {...} after the first "rate_limits" key. Brace counting is
+      # enough: the object holds numbers and plain keys only, and the server
+      # validates every field anyway.
+      RL=$(tr '\n\r' '  ' <&4 | awk '{
+        i = match($0, /"rate_limits"[ \t]*:[ \t]*\{/)
+        if (i == 0) exit
+        if (i > 1 && substr($0, i - 1, 1) == "\\") exit
+        s = substr($0, i + RLENGTH - 1); d = 0
+        for (k = 1; k <= length(s); k++) {
+          c = substr(s, k, 1)
+          if (c == "{") d++
+          else if (c == "}") { d--; if (d == 0) { print substr(s, 1, k); exit } }
+          if (k > 4096) exit
+        }
+      }' 2>/dev/null)
+      [ -n "$RL" ] || exit 0
+      { printf '%s\n' "${ARGUS_SIGNAL_TOKEN}"; printf '%s' "$RL"; } \
+        | curl -s -m 1 -X POST -H 'Content-Type: text/plain' --data-binary @- \
+            "${ARGUS_SIGNAL_URL%/}/$SESSION/statusline" >/dev/null 2>&1
+      exit 0
+    ) 3<&- </dev/null >/dev/null 2>&1 &
+  fi
+  RC=0
+  if [ -n "${ARGUS_USER_STATUSLINE:-}" ]; then
+    CMD=$(printf '%s' "$ARGUS_USER_STATUSLINE" | base64 -d 2>/dev/null) \
+      || CMD=$(printf '%s' "$ARGUS_USER_STATUSLINE" | base64 -D 2>/dev/null) || CMD=""
+    if [ -n "$CMD" ]; then
+      if [ "$HAVE_IN" -eq 1 ]; then
+        sh -c "$CMD" <&3 4<&-
+      else
+        sh -c "$CMD" </dev/null
+      fi
+      RC=$?
+    fi
+  fi
+  exit "$RC"
+fi
 
 # Missing wiring (feature off, or invoked outside a signal-enabled session):
 # stay silent and succeed so the agent is unaffected.

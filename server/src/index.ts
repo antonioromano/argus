@@ -52,6 +52,7 @@ import { NgrokService } from './services/NgrokService.js';
 import { SleepPreventionService } from './services/SleepPreventionService.js';
 import { KeepAwakeService } from './services/KeepAwakeService.js';
 import { createKeepAwakeRoutes } from './routes/keepAwake.js';
+import { isPlanPartOn } from './utils/usageMeter.js';
 import { OrphanJanitor } from './services/OrphanJanitor.js';
 import { createMaintenanceRoutes } from './routes/maintenance.js';
 import { UpdateService } from './services/UpdateService.js';
@@ -158,6 +159,7 @@ function applyConfig(cfg: AppConfig): void {
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
   sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
   sessionManager.setActivityTimelineEnabled(isBetaEnabled(cfg, 'betaActivityTimeline'));
+  sessionManager.setUsageMeterConfig({ enabled: cfg.showUsageMeter !== false, plan: isPlanPartOn(cfg) });
 }
 
 // Quit-time getters consumed by electron/src/main.ts (in-process, no IPC).
@@ -442,6 +444,10 @@ app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
+// Plan usage per agent account (the usage meter); live updates ride `usage:plan`.
+app.get('/api/usage/plan', (_req, res) => {
+  res.json(sessionManager.getPlanUsage());
+});
 app.use('/api/maintenance', createMaintenanceRoutes(new OrphanJanitor({
   context: () => {
     const active = sessionManager.activeBackend();

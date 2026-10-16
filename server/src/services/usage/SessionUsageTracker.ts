@@ -2,7 +2,7 @@ import path from 'path';
 import os from 'os';
 import { realpathSync, statSync } from 'fs';
 import type { SessionUsage } from '@argus/shared';
-import { contextWindowFor } from './pricing.js';
+import { contextWindowFor } from './contextWindows.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
 
 /**
@@ -250,19 +250,15 @@ export class SessionUsageTracker {
     let output = 0;
     let cacheRead = 0;
     let cacheCreation = 0;
-    let cost = 0;
-    let priced = 0;
-    let unpriced = 0;
+    let turns = 0;
     for (const t of this.tailers.values()) {
       input += t.totals.input;
       output += t.totals.output;
       cacheRead += t.totals.cacheRead;
       cacheCreation += t.totals.cacheCreation;
-      cost += t.cost;
-      priced += t.pricedTurns;
-      unpriced += t.unpricedTurns;
+      turns += t.turns;
     }
-    if (priced + unpriced === 0) return undefined;
+    if (turns === 0) return undefined;
 
     const usage: SessionUsage = {
       inputTokens: input,
@@ -272,10 +268,6 @@ export class SessionUsageTracker {
       totalTokens: input + output + cacheRead + cacheCreation,
       updatedAt: this.updatedAt || Date.now(),
     };
-    if (priced > 0) {
-      usage.costUsd = Math.round(cost * 10_000) / 10_000;
-      if (unpriced > 0) usage.costPartial = true;
-    }
     const ctx = this.current ? this.tailers.get(this.current)?.context : undefined;
     if (ctx) {
       usage.model = ctx.model;

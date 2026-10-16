@@ -35,8 +35,12 @@ const FEATURE_TITLES = ['Worktree lifecycle', 'Activity timeline', 'Session temp
 describe('IntroSheet — What’s new', () => {
   it('walks intro → one slide per beta feature in order → summary, with Back', () => {
     render('whatsNew');
+    expect(title()).toContain('Plan usage in the shell header');
+    expect(title()).toContain('ctx 47% · plan 20% · ↻ 2h19m');
+    expect(document.querySelector('[aria-label="Step 1 of 8"]')).toBeTruthy();
+    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    next();
     expect(title()).toContain('Five beta features to try');
-    expect(document.querySelector('[aria-label="Step 1 of 7"]')).toBeTruthy();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     for (const t of FEATURE_TITLES) {
       next();
@@ -54,6 +58,7 @@ describe('IntroSheet — What’s new', () => {
 
   it('starts with every Turn on box unchecked and keeps ticks across Back/Next', () => {
     render('whatsNew');
+    next(); // past the Usage meter slide
     next();
     const box = checkbox('betaWorktreeLifecycle')!;
     expect(box.checked).toBe(false);
@@ -66,6 +71,7 @@ describe('IntroSheet — What’s new', () => {
 
   it('Done saves only the ticked flags, and the summary lists them', () => {
     const onDone = render('whatsNew');
+    next(); // past the Usage meter slide
     next(2); // Activity timeline
     act(() => checkbox('betaActivityTimeline')!.click());
     next(3); // Session chains
@@ -83,6 +89,7 @@ describe('IntroSheet — What’s new', () => {
 
   it('a box ticked then cleared is not saved', () => {
     const onDone = render('whatsNew');
+    next(); // past the Usage meter slide
     next();
     act(() => checkbox('betaWorktreeLifecycle')!.click());
     act(() => checkbox('betaWorktreeLifecycle')!.click());
@@ -94,6 +101,7 @@ describe('IntroSheet — What’s new', () => {
 
   it('Skip turns nothing on, even with boxes ticked', () => {
     const onDone = render('whatsNew');
+    next(); // past the Usage meter slide
     next();
     act(() => checkbox('betaWorktreeLifecycle')!.click());
     act(() => button('Skip').click());

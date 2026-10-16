@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import type { SessionUsage } from '@argus/shared';
-import { contextLevel, describeUsage, formatCost, formatTokens } from './usageFormat.js';
+import { DEFAULT_CONFIG, type AppConfig, type SessionUsage } from '@argus/shared';
+import {
+  describeUsage,
+  effectiveWindow,
+  formatResetIn,
+  formatTokens,
+  meterAgent,
+  normalizeParts,
+  usageLevel,
+  usageMeterView,
+  worstLevel,
+} from './usageFormat.js';
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   inputTokens: 1200,
@@ -11,40 +21,69 @@ const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   updatedAt: 0,
   ...over,
 });
+const view = usageMeterView(DEFAULT_CONFIG)!;
+const NOW = 1_800_000_000_000;
 
 describe('usageFormat', () => {
-  it('bands context % into ok / warn / high', () => {
-    expect(contextLevel(0)).toBe('ok');
-    expect(contextLevel(59.9)).toBe('ok');
-    expect(contextLevel(60)).toBe('warn');
-    expect(contextLevel(85)).toBe('high');
-    expect(contextLevel(100)).toBe('high');
+  it('maps a percentage to ok / amber / red by the thresholds', () => {
+    const t = { amber: 70, red: 90 };
+    expect(usageLevel(69.9, t)).toBe('ok');
+    expect(usageLevel(70, t)).toBe('warn');
+    expect(usageLevel(90, t)).toBe('high');
+    expect(usageLevel(undefined, t)).toBe('ok');
+    expect(worstLevel('ok', 'high', 'warn')).toBe('high');
+    expect(worstLevel()).toBe('ok');
   });
 
-  it('formats token counts compactly', () => {
+  it('only Claude and Codex report usage', () => {
+    expect(meterAgent('claude')).toBe('claude');
+    expect(meterAgent('codex')).toBe('codex');
+    expect(meterAgent('gemini')).toBeNull();
+    expect(meterAgent('shell')).toBeNull();
+  });
+
+  it('formats token counts and reset times compactly', () => {
     expect(formatTokens(999)).toBe('999');
     expect(formatTokens(1234)).toBe('1.2k');
-    expect(formatTokens(45_600)).toBe('46k');
     expect(formatTokens(4_560_000)).toBe('4.6M');
-    expect(formatTokens(45_600_000)).toBe('46M');
+    expect(formatResetIn(30_000)).toBe('<1m');
+    expect(formatResetIn(45 * 60_000)).toBe('45m');
+    expect(formatResetIn((2 * 60 + 19) * 60_000)).toBe('2h19m');
+    expect(formatResetIn(6 * 86_400_000)).toBe('6d');
   });
 
-  it('formats cost', () => {
-    expect(formatCost(0.004)).toBe('<$0.01');
-    expect(formatCost(1.234)).toBe('$1.23');
-    expect(formatCost(123.4)).toBe('$123');
+  it('a window past its reset reads as reset, 0%', () => {
+    expect(effectiveWindow({ usedPct: 80, resetsAt: NOW - 1, windowMinutes: 300 }, NOW)).toEqual({ usedPct: 0, windowMinutes: 300, reset: true });
+    expect(effectiveWindow({ usedPct: 80, resetsAt: NOW + 1 }, NOW)!.usedPct).toBe(80);
   });
 
-  it('describes the breakdown, the window and the price basis', () => {
-    const text = describeUsage(usage({ contextTokens: 420_000, contextWindow: 1_000_000, contextPct: 42, costUsd: 3.21, model: 'claude-opus-5-5' }));
-    expect(text).toContain('Context 420k of 1.0M (42%)');
+  it('view: off when the master switch is off; parts normalized; bad thresholds fall back', () => {
+    expect(usageMeterView({ ...DEFAULT_CONFIG, showUsageMeter: false })).toBeNull();
+    expect(normalizeParts([{ id: 'model', on: true }, { id: 'model', on: false }] as never)).toEqual([
+      { id: 'model', on: true }, { id: 'ctx', on: true }, { id: 'plan', on: true }, { id: 'tok', on: false },
+    ]);
+    const v = usageMeterView({ ...DEFAULT_CONFIG, usageWarnPlan: { amber: 90, red: 50 } } as AppConfig)!;
+    expect(v.warnPlan).toEqual({ amber: 80, red: 95 });
+  });
+
+  it('the breakdown spells out context, both windows with resets, tokens, model and thresholds; no price', () => {
+    const rows = describeUsage(
+      usage({ contextTokens: 420_000, contextWindow: 1_000_000, contextPct: 42, model: 'claude-opus-5-5' }),
+      {
+        observedAt: NOW,
+        primary: { usedPct: 20, resetsAt: NOW + (2 * 60 + 19) * 60_000, windowMinutes: 300 },
+        secondary: { usedPct: 31, resetsAt: NOW - 5, windowMinutes: 10_080 },
+      },
+      view,
+      NOW,
+    );
+    const text = rows.map((r) => `${r.label}: ${r.value}`).join('\n');
+    expect(text).toContain('Context: 420k of 1.0M (42%)');
+    expect(text).toContain('Plan usage: 20% of the 5-hour window · resets in 2h19m');
+    expect(text).toContain('Plan usage: 0% of the 7-day window · reset, waiting for a fresh reading');
     expect(text).toContain('1.2k in, 34k out, 2.4M cache read, 50k cache write');
-    expect(text).toContain('≈ $3.21 at API prices');
-    expect(text).toContain('claude-opus-5-5');
-  });
-
-  it('says when a model has no price, or only some turns were priced', () => {
-    expect(describeUsage(usage())).toContain('No price for this model');
-    expect(describeUsage(usage({ costUsd: 1, costPartial: true }))).toContain('some turns unpriced');
+    expect(text).toContain('Model: claude-opus-5-5');
+    expect(text).toContain('Warns at: context 70/90% · plan 80/95%');
+    expect(text).not.toContain('$');
   });
 });

@@ -125,8 +125,14 @@ export interface AppConfig {
   confirmQuitDirectSessions?: boolean;
   // Launch links outside these roots get a warning on the approval card.
   launchFolderRoots?: string[];
-  // Context % / cost chip on Claude tile headers (default: true).
+  // Usage meter master switch: context % / plan usage chip on Claude and Codex shell headers (default: true).
   showUsageMeter?: boolean;
+  // What the usage chip shows, in order; each id exactly once (default: context + plan usage).
+  usageMeterParts?: UsageMeterPart[];
+  // Chip turns amber, then red, as a shell's context fills (percent, 5..99, red > amber).
+  usageWarnContext?: UsageWarnThresholds;
+  // Chip turns amber, then red, as plan usage nears the limit (percent, 5..99, red > amber).
+  usageWarnPlan?: UsageWarnThresholds;
   // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
   showPrStatus?: boolean;
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
@@ -141,6 +147,21 @@ export interface AppConfig {
   betaSessionTemplates?: boolean; // F10
   betaHandoff?: boolean; // F12
   betaSessionChains?: boolean; // F13
+}
+
+/** A usage chip part: context %, plan usage (+ reset), session tokens, model. */
+export type UsageMeterPartId = 'ctx' | 'plan' | 'tok' | 'model';
+export const USAGE_METER_PART_IDS: readonly UsageMeterPartId[] = ['ctx', 'plan', 'tok', 'model'];
+
+export interface UsageMeterPart {
+  id: UsageMeterPartId;
+  on: boolean;
+}
+
+/** Warning thresholds in percent: amber at `amber`, red at `red` (5..99, red > amber). */
+export interface UsageWarnThresholds {
+  amber: number;
+  red: number;
 }
 
 /** The AppConfig keys that gate a beta feature. Each side reads them through its
@@ -197,6 +218,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   confirmQuitDirectSessions: true,
   launchFolderRoots: ['~/development'],
   showUsageMeter: true,
+  usageMeterParts: [{ id: 'ctx', on: true }, { id: 'plan', on: true }, { id: 'tok', on: false }, { id: 'model', on: false }],
+  usageWarnContext: { amber: 70, red: 90 },
+  usageWarnPlan: { amber: 80, red: 95 },
   showPrStatus: true,
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
@@ -319,7 +343,7 @@ export interface SessionInfo {
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
-  /** Claude only: token / context / cost meter built from the agent's transcript. */
+  /** Claude and Codex: token / context meter built from the agent's transcript (Claude) or rollout log (Codex). */
   usage?: SessionUsage;
   /** Claude only: the conversation id the agent last reported (what Resume reopens). */
   claudeSessionId?: string;
@@ -619,13 +643,38 @@ export interface SessionUsage {
   contextWindow?: number;
   /** contextTokens / contextWindow × 100, when the window is known. */
   contextPct?: number;
-  /** Estimated USD at API list prices. Absent when no turn's model is priced. */
-  costUsd?: number;
-  /** True when some turns used a model with no price, so costUsd undercounts. */
-  costPartial?: boolean;
   /** Epoch ms of the last change. */
   updatedAt: number;
 }
+
+/** Agent kinds whose plan (subscription) usage the meter shows. */
+export type PlanUsageAgent = 'claude' | 'codex';
+
+/** One plan usage window, as the agent reported it. */
+export interface PlanWindow {
+  /** 0..100. */
+  usedPct: number;
+  /** Epoch ms when the window resets, when known. */
+  resetsAt?: number;
+  /** Window length in minutes (300 = 5 hours, 10080 = 7 days), when known. */
+  windowMinutes?: number;
+  /** The reset time has passed: shown as 0% until a fresh reading arrives. */
+  reset?: boolean;
+}
+
+/**
+ * Plan usage of one agent account (all shells of that agent share it). Claude:
+ * `primary` = 5-hour window, `secondary` = 7-day window (claude.ai plans only).
+ * Codex: its `primary` / `secondary` rate-limit windows.
+ */
+export interface PlanUsage {
+  primary?: PlanWindow;
+  secondary?: PlanWindow;
+  /** Epoch ms of the reading. */
+  observedAt: number;
+}
+
+export type PlanUsageMap = Partial<Record<PlanUsageAgent, PlanUsage>>;
 
 /** Git state of a plain Shell's current directory (follows `cd`). */
 export interface ShellGitContext {
@@ -827,8 +876,10 @@ export interface ServerToClientEvents {
   'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
   /** Beta F6: one new activity entry, emitted only to the session's room. */
   'session:activity': (payload: { sessionId: string; event: ActivityEvent }) => void;
-  /** A Claude session's usage meter changed (throttled to at most ~1/s per session). */
+  /** A Claude or Codex session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
+  /** An agent account's plan usage changed (shared by every shell of that agent). */
+  'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */
   'session:claudeId': (payload: { sessionId: string; claudeSessionId: string }) => void;
   /** Filesystem change detected under a session's folder. `dirs` are the
