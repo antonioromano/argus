@@ -37,6 +37,20 @@ describe('BetaPane', () => {
     }
   });
 
+  it('shows each feature’s HOW line and its caveat chips, marking the warning ones', () => {
+    render();
+    for (const f of BETA_FEATURES) {
+      const how = row(f.flag).querySelector(`[data-testid="beta-how-${f.flag}"]`) as HTMLElement;
+      expect(how.textContent).toBe(`HOW${f.how}`);
+      const chips = [...row(f.flag).querySelectorAll('[data-testid="beta-caveat"]')];
+      expect(chips.map((c) => c.textContent)).toEqual(f.caveats.map((c) => c.text));
+      expect(chips.map((c) => c.getAttribute('data-warn') === 'true')).toEqual(f.caveats.map((c) => !!c.warn));
+    }
+    expect(row('betaSessionChains').textContent).toContain('Right-click a shell → Chain to…');
+    const warn = row('betaSessionChains').querySelector('[data-warn="true"]');
+    expect(warn?.textContent).toBe('Types into the target shell');
+  });
+
   it('toggles worktree lifecycle on and off as a strict boolean', () => {
     render();
     act(() => { track('betaWorktreeLifecycle').click(); });
