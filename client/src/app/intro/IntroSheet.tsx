@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
-import { Activity, Check, Forward, GitBranch, LayoutGrid, Link, type LucideIcon } from 'lucide-react';
+import { Activity, Check, Forward, Gauge, GitBranch, LayoutGrid, Link, SlidersHorizontal, type LucideIcon } from 'lucide-react';
 import { Sheet, Button } from '../../components/primitives/index.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
@@ -105,6 +105,11 @@ export function IntroSheet({
         },
       ]
     : [
+        {
+          title: 'Plan usage in the shell header',
+          text: 'Claude and Codex shells now show how full the context is and how much of your plan’s usage window is left, with its reset time. The cost estimate is gone. Applies to new or restarted shells.',
+          body: <UsagePicture />,
+        },
         {
           title: 'Five beta features to try',
           text: 'Early features, all off by default. Next: what each one does and where to find it. Tick the ones you want.',
@@ -321,6 +326,17 @@ function TermAndFeed({ lines, feed }: { lines: string[]; feed: [string, string][
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function UsagePicture() {
+  const chip = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' } as const;
+  return (
+    <div style={column}>
+      <MiniRow lead={<Gauge size={13} />} name={<span style={chip}>ctx 47% · plan 20% · ↻ 2h19m</span>} detail="Hover the chip for the full breakdown" />
+      <MiniRow lead={<SlidersHorizontal size={13} />} name="Settings → Shell header" detail="Reorder or hide parts, set amber/red warnings" />
+      <MiniRow lead="–" name="No more cost estimate" detail="It was priced at API rates, not what a Pro/Max plan pays" />
     </div>
   );
 }
