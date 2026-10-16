@@ -243,3 +243,6 @@ jobs:
           gh pr create --repo antonioromano/argus --base main --head "$BRANCH" \
             --title "chore: bump cask to ${VERSION}" \
             --body "Automated cask bump for v${VERSION} (new DMG checksums)."
+          # Merge it right away: Homebrew users only see the new version once
+          # the cask is on main. The PR stays as the audit trail.
+          gh pr merge "$BRANCH" --repo antonioromano/argus --merge --delete-branch
