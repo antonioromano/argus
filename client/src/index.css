@@ -4,6 +4,14 @@
   box-sizing: border-box;
 }
 
+/* Chromium only starts a native drag from an element whose -webkit-user-drag is
+   `element`; its UA sheet sets that for [draggable=true]. `all: unset` (pills,
+   chips, rows) resets it to `auto`, which silently makes the element undraggable.
+   !important so no reset-style rule can win again. */
+[draggable='true'] {
+  -webkit-user-drag: element !important;
+}
+
 /* ===== Settings — grouped-card topics (Section / SettingRow primitives) =====
    A quiet title sits above a single rounded card; rows inside are split only by
    the faintest hairline. Replaces the old per-topic eyebrow-header + border. */
