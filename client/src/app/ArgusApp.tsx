@@ -389,6 +389,8 @@ function DesktopInner() {
       ...(result.defaults
         ? { defaultRunMode: result.defaults.runMode, defaultTerminalEngine: result.defaults.terminalEngine }
         : {}),
+      // What's new: the beta features ticked "Turn on", in the same single save.
+      ...result.betaFlags,
     });
     if (result.openCreate) app.openOverlay({ kind: 'create' });
     else app.closeOverlay();

@@ -16,6 +16,15 @@ describe('introToShow', () => {
     expect(introToShow({ introSeen: 'older-intro', quickActionPromptedAt: '' }, '0.24.0')).toBe('whatsNew');
   });
 
+  it('re-shows What’s new to a user who finished the previous terminal-kinds intro', () => {
+    expect(CURRENT_INTRO_ID).toBe('beta-features');
+    expect(introToShow({ introSeen: 'terminal-kinds', quickActionPromptedAt: '0.27.0' }, '0.29.0')).toBe('whatsNew');
+  });
+
+  it('still welcomes a brand-new user rather than showing What’s new', () => {
+    expect(introToShow({ introSeen: '', quickActionPromptedAt: '' }, '0.29.0')).toBe('welcome');
+  });
+
   it('shows nothing once the current intro has been seen', () => {
     expect(introToShow({ introSeen: CURRENT_INTRO_ID, quickActionPromptedAt: '0.22.0' }, '0.24.0')).toBeNull();
   });
