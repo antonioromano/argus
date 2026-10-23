@@ -7,7 +7,7 @@ import type { AppConfig } from '@argus/shared';
  * new to show and every existing user sees it once. An id rather than the app
  * version, so a patch release doesn't re-show the same content.
  */
-export const CURRENT_INTRO_ID = 'beta-features';
+export const CURRENT_INTRO_ID = 'chat-view';
 
 export type IntroFlow = 'whatsNew' | 'welcome';
 
