@@ -1,6 +1,12 @@
 /* Argus OS — Design tokens
  * Power-user telemetry aesthetic. Warm near-black + cream paper.
  * All values exposed via CSS custom props. No tailwind, no CSS-in-JS.
+ *
+ * Contrast contract (WCAG 2.1 AA), enforced by tokens/contrast.test.ts:
+ *   text tokens (--fg-0..3, status, semantic, syntax) >= 4.5:1 on --bg-0..3/inset;
+ *   --fg-4 (disabled / decorative) and --line-control (form-control edges) >= 3:1.
+ *   --line-1..3 are decorative hairlines and are deliberately exempt.
+ * Canvas-painted mirrors (xterm, Monaco) live in tokens/paint.ts.
  */
 
 /* ===== DARK (default) ===== */
@@ -19,14 +25,16 @@
   --line-2: rgba(255, 255, 255, 0.10);  /* default border */
   --line-3: rgba(255, 255, 255, 0.16);  /* emphasized */
   --line-grid: rgba(255, 255, 255, 0.035);
+  --line-control: rgba(255, 255, 255, 0.34);  /* input / switch / checkbox edge — 3:1 */
 
   /* Text */
   --fg-0: #f1f3f5;          /* primary */
   --fg-1: #c7cad1;          /* body */
-  --fg-2: #8b919c;          /* secondary */
-  --fg-3: #5b606b;          /* muted / placeholder */
-  --fg-4: #3a3e47;          /* disabled */
+  --fg-2: #a0a6b0;          /* secondary */
+  --fg-3: #868b98;          /* muted / placeholder — AA on every surface */
+  --fg-4: #666e7d;          /* disabled / decorative — 3:1 */
   --fg-on-accent: #2A1A00;
+  --fg-on-danger: #2A0808;
 
   /* Accent — amber (waiting / focus / brand) */
   --accent: #FFB454;
@@ -41,12 +49,12 @@
   --status-waiting-bg: rgba(255, 180, 84, 0.10);
   --status-running: #7DD3FC;          /* electric blue */
   --status-running-bg: rgba(125, 211, 252, 0.10);
-  --status-idle: #5b606b;             /* graphite, recedes */
-  --status-idle-bg: rgba(91, 96, 107, 0.10);
+  --status-idle: #8e939f;             /* graphite, recedes (still AA) */
+  --status-idle-bg: rgba(142, 147, 159, 0.08);
   --status-done: #7CFFB2;             /* mint green — finished, unseen */
   --status-done-bg: rgba(124, 255, 178, 0.10);
-  --status-exited: #6b4e3a;           /* burnt amber, dim */
-  --status-exited-bg: rgba(107, 78, 58, 0.10);
+  --status-exited: #b28c71;           /* burnt amber, dim (still AA) */
+  --status-exited-bg: rgba(178, 140, 113, 0.08);
 
   /* Semantic */
   --danger: #FF6B6B;
@@ -54,15 +62,16 @@
   --warn: #FFD23F;
   --warn-bg: rgba(255, 210, 63, 0.10);
   --info: #7DD3FC;
+  --info-bg: rgba(125, 211, 252, 0.08);
   --ok: #7CFFB2;
   --dirty: #FF9F45;                   /* hasGitChanges */
   --dirty-bg: rgba(255, 159, 69, 0.10);
 
   /* Diff */
   --diff-add: #1f3a2a;
-  --diff-add-tok: #2d7a4f;
+  --diff-add-tok: #3f9c66;
   --diff-del: #3a1f23;
-  --diff-del-tok: #a14248;
+  --diff-del-tok: #c4545b;
   --diff-add-fg: #b6f0c9;
   --diff-del-fg: #ffb8be;
 
@@ -76,7 +85,7 @@
   --syn-str: #7CFFB2;
   --syn-num: #FFD23F;
   --syn-fn:  #7DD3FC;
-  --syn-cm:  #5b606b;
+  --syn-cm:  #868b98;
   --syn-pn:  #8b919c;
 
   /* Shadow */
@@ -92,65 +101,68 @@
   --bg-1: #ebe7dd;
   --bg-2: #ffffff;
   --bg-3: #faf7f2;
-  --bg-inset: #1a1b1f;      /* code wells stay dark even in light */
+  --bg-inset: #efebe3;      /* code well — follows the theme so --fg-* stay readable on it */
   --bg-overlay: rgba(20, 18, 14, 0.5);
 
   --line-1: rgba(20, 15, 8, 0.07);
   --line-2: rgba(20, 15, 8, 0.13);
   --line-3: rgba(20, 15, 8, 0.22);
   --line-grid: rgba(20, 15, 8, 0.05);
+  --line-control: rgba(20, 15, 8, 0.46);
 
   --fg-0: #14110c;
   --fg-1: #3a342a;
-  --fg-2: #6a6258;
-  --fg-3: #7a7268;          /* AA on cream paper */
-  --fg-4: #c5beaf;
+  --fg-2: #5c554c;
+  --fg-3: #6c655c;          /* AA on cream paper, panel and inset */
+  --fg-4: #8a8277;          /* disabled / decorative — 3:1 */
   --fg-on-accent: #ffffff;
+  --fg-on-danger: #ffffff;
 
-  --accent: #B26A00;          /* deep amber reads in light */
-  --accent-hi: #C77D12;
-  --accent-lo: #965800;
-  --accent-edge: rgba(178, 106, 0, 0.5);
-  --accent-glow: rgba(178, 106, 0, 0.16);
-  --accent-bg: rgba(178, 106, 0, 0.08);
+  --accent: #8C5300;          /* deep amber — AA as text on --bg-1 */
+  --accent-hi: #A05F00;
+  --accent-lo: #744500;
+  --accent-edge: rgba(140, 83, 0, 0.5);
+  --accent-glow: rgba(140, 83, 0, 0.16);
+  --accent-bg: rgba(140, 83, 0, 0.08);
 
-  --status-waiting: #B26A00;
-  --status-waiting-bg: rgba(178, 106, 0, 0.10);
-  --status-running: #1668B3;
-  --status-running-bg: rgba(22, 104, 179, 0.10);
-  --status-idle: #6a6258;
-  --status-idle-bg: rgba(106, 98, 88, 0.10);
-  --status-done: #0E7F4D;
-  --status-done-bg: rgba(14, 127, 77, 0.10);
+  --status-waiting: #8C5300;
+  --status-waiting-bg: rgba(140, 83, 0, 0.08);
+  --status-running: #1562A9;
+  --status-running-bg: rgba(21, 98, 169, 0.08);
+  --status-idle: #675F56;
+  --status-idle-bg: rgba(103, 95, 86, 0.08);
+  --status-done: #0C6E43;
+  --status-done-bg: rgba(12, 110, 67, 0.08);
   --status-exited: #6a4928;
-  --status-exited-bg: rgba(106, 73, 40, 0.10);
+  --status-exited-bg: rgba(106, 73, 40, 0.08);
 
-  --danger: #B8332D;
-  --danger-bg: rgba(184, 51, 45, 0.08);
-  --warn: #B8821A;
-  --warn-bg: rgba(184, 130, 26, 0.10);
-  --info: #1668B3;
-  --ok: #0E7F4D;
-  --dirty: #C2611C;
-  --dirty-bg: rgba(194, 97, 28, 0.10);
+  --danger: #B1312B;
+  --danger-bg: rgba(177, 49, 43, 0.08);
+  --warn: #7F5912;
+  --warn-bg: rgba(127, 89, 18, 0.08);
+  --info: #1562A9;
+  --info-bg: rgba(21, 98, 169, 0.08);
+  --ok: #0C6E43;
+  --dirty: #974C16;
+  --dirty-bg: rgba(151, 76, 22, 0.08);
 
   --diff-add: #DCF1E2;
-  --diff-add-tok: #88CFA1;
+  --diff-add-tok: #2F8A55;
   --diff-del: #F4DADC;
-  --diff-del-tok: #E69098;
+  --diff-del-tok: #B8434C;
   --diff-add-fg: #0a4a25;
   --diff-del-fg: #6e1b1f;
 
   /* Agent brand colors */
-  --agent-claude: #C85C42;
-  --agent-gemini: #1668B3;
+  --agent-claude: #A94831;
+  --agent-gemini: #1562A9;
   --agent-codex:  #6E40B8;
 
   --syn-kw: #6E40B8;
-  --syn-str: #0E7F4D;
-  --syn-num: #B8821A;
-  --syn-fn:  #1668B3;
-  --syn-cm:  #9a9286;
+  --syn-str: #0C6E43;
+  --syn-num: #7F5912;
+  --syn-fn:  #1562A9;
+  --syn-cm:  #6d655b;
   --syn-pn:  #6a6258;
 
   --shadow-1: 0 1px 0 rgba(255,255,255,.6), 0 1px 2px rgba(20,15,8,.08);

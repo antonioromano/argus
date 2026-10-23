@@ -31,7 +31,7 @@ export function TriStateCheckbox({ checked, onChange, size = 14, disabled = fals
         minWidth: scaledPx(size),
         borderRadius: 'var(--r-1)',
         background: filled ? 'var(--accent)' : 'transparent',
-        border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
+        border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-control)'}`,
         cursor: disabled ? 'not-allowed' : 'pointer',
         flexShrink: 0,
         opacity: disabled ? 0.5 : 1,
