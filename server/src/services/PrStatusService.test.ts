@@ -9,6 +9,7 @@ import {
   PR_SETTLED_TTL_MS,
   GH_UNAVAILABLE_RECHECK_MS,
   PR_VIEW_ARGS,
+  prViewArgsForUrl,
   type GhRunner,
   type HeadInfo,
 } from './PrStatusService.js';
@@ -230,5 +231,22 @@ describe('PrStatusService', () => {
     service.clear();
     await service.forFolder('/repo');
     assert.equal(calls.length, 2);
+  });
+
+  test('forUrl looks a PR up by its URL, from any folder, cached per URL', async () => {
+    const url = 'https://github.com/o/other/pull/9';
+    const { service, calls } = harness({ gh: async () => prJson({ number: 9, url, headRefName: 'feat/b' }) });
+    const pr = await service.forUrl(url, '/hub');
+    assert.deepEqual(pr, { number: 9, state: 'open', url, ci: 'success', branch: 'feat/b' });
+    await service.forUrl(url, '/elsewhere');
+    assert.deepEqual(calls, [{ args: prViewArgsForUrl(url), cwd: '/hub' }]);
+    assert.equal(calls[0].args[2], url);
+  });
+
+  test('forUrl stays quiet while gh is unavailable', async () => {
+    const { service, calls } = harness({ gh: async () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); } });
+    assert.equal(await service.forUrl('https://github.com/o/r/pull/1', '/hub'), null);
+    assert.equal(await service.forUrl('https://github.com/o/r/pull/2', '/hub'), null);
+    assert.equal(calls.length, 1);
   });
 });

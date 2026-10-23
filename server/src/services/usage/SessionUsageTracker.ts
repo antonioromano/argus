@@ -180,6 +180,11 @@ export class SessionUsageTracker {
     this.schedule();
   }
 
+  /** The PR the current conversation last created or pushed to, if any. */
+  linkedPrUrl(): string | undefined {
+    return this.current ? this.tailers.get(this.current)?.prUrl : undefined;
+  }
+
   /** A fresh (non-resume) restart: the next run's context starts empty. */
   clearCurrent(): void {
     if (this.current === undefined) return;

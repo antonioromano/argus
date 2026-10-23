@@ -43,7 +43,10 @@ const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
 
-export const PR_VIEW_ARGS = ['pr', 'view', '--json', 'number,state,isDraft,url,statusCheckRollup,headRefName'];
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName';
+export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
+/** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
+export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
 
 // ── statusCheckRollup → one aggregate ─────────────────────────────────────
 
@@ -208,13 +211,30 @@ export class PrStatusService {
   }
 
   /** Cached, deduped `gh pr view` for one (gitRoot, branch), run in `cwd`. */
-  async lookup(gitRoot: string, branch: string, cwd: string): Promise<SessionPr | null> {
-    const key = `${gitRoot}\0${branch}`;
+  lookup(gitRoot: string, branch: string, cwd: string): Promise<SessionPr | null> {
+    return this.cached(`${gitRoot}\0${branch}`, PR_VIEW_ARGS, cwd);
+  }
+
+  /**
+   * A PR by its URL — the one a session's transcript says it worked on, which
+   * may live in a different repo than the session folder. The caller passes a
+   * validated github.com PR URL. Never throws.
+   */
+  async forUrl(url: string, cwd: string): Promise<SessionPr | null> {
+    if (this.now() < this.unavailableUntil) return null;
+    try {
+      return await this.cached(`url\0${url}`, prViewArgsForUrl(url), cwd);
+    } catch {
+      return null;
+    }
+  }
+
+  private async cached(key: string, args: string[], cwd: string): Promise<SessionPr | null> {
     const hit = this.cache.get(key);
     if (hit && this.now() < hit.expiresAt) return hit.value;
     const running = this.inflight.get(key);
     if (running) return running;
-    const p = this.fetch(key, cwd).finally(() => this.inflight.delete(key));
+    const p = this.fetch(key, args, cwd).finally(() => this.inflight.delete(key));
     this.inflight.set(key, p);
     return p;
   }
@@ -257,11 +277,11 @@ export class PrStatusService {
     this.defaultBranches.clear();
   }
 
-  private async fetch(key: string, cwd: string): Promise<SessionPr | null> {
+  private async fetch(key: string, args: string[], cwd: string): Promise<SessionPr | null> {
     if (this.now() < this.unavailableUntil) return null;
     let value: SessionPr | null = null;
     try {
-      value = parsePrView(await this.runGh(PR_VIEW_ARGS, cwd));
+      value = parsePrView(await this.runGh(args, cwd));
     } catch (err) {
       if (isGhUnavailable(err)) {
         this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
