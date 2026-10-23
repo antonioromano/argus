@@ -62,6 +62,7 @@ import { createWorktreeRoutes } from './routes/worktrees.js';
 import { createSearchRoutes } from './routes/search.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createChatImageRoutes } from './routes/chatImages.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { createJsonBodyParser } from './middleware/bodyParsers.js';
@@ -402,6 +403,10 @@ app.use('/api/sessions', createHandoffRoutes({
   }),
 }));
 app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicOrderStore, groupStore, configStore));
+// B1 Chat view: clipboard images pasted in the composer, saved to a private temp dir.
+app.use('/api/sessions', createChatImageRoutes({
+  isChatSession: (id) => sessionManager.getSessionInfo(id)?.agentType === 'claude',
+}));
 // Beta F10 session templates: /api/templates CRUD + launch (404 while the flag is off).
 // Own file (templates.json), never config.json; deliberately no deep-link path.
 app.use('/api/templates', createTemplateRoutes({

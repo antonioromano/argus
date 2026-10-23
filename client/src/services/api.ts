@@ -173,6 +173,17 @@ export const api = {
     return data.completions;
   },
 
+  /** Chat view: save a clipboard image server-side; resolves the file's path. */
+  uploadChatImage: async (sessionId: string, image: Blob): Promise<string> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/chat-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': image.type },
+      body: image,
+    });
+    const data: { path: string } = await (await requireOk(res)).json();
+    return data.path;
+  },
+
   openPath: async (sessionId: string, filePath: string, reveal = false): Promise<void> => {
     const res = await authFetch(`${API_BASE}/fs/open`, {
       method: 'POST',

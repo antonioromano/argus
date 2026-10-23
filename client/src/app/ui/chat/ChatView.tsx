@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
+import { api } from '../../../services/api.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
@@ -134,6 +135,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         }
         model={session.usage?.model}
         modelSet={chat.modelSet}
+        onUploadImage={(file) => api.uploadChatImage(session.id, file)}
         onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}
       />
