@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -13,6 +13,9 @@ import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
+import { ChatView } from '../ui/chat/ChatView.js';
+import { useChatViewMode } from '../../hooks/useChatViewMode.js';
+import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
@@ -175,6 +178,11 @@ export function Focus({
   const sendInput = (data: string) => {
     socket.emit('session:input', { sessionId: active.id, data });
   };
+
+  // Chat view (B1): Claude sessions only, terminal by default, chosen per session.
+  const chatCapable = supportsChatView(active.agentType);
+  const [viewMode, setViewMode] = useChatViewMode(active.id);
+  const chatMode = chatCapable && viewMode === 'chat';
 
   useEffect(() => {
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
@@ -341,6 +349,28 @@ export function Focus({
               <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
             )}
             <div style={{ flex: 1 }} />
+            {chatCapable && (
+              <div role="group" aria-label="Session view" className="argus-view-toggle">
+                <Button
+                  title="Show the terminal"
+                  variant={!chatMode ? 'solid' : 'ghost'}
+                  size="sm"
+                  icon={SquareTerminal}
+                  onClick={() => setViewMode('terminal')}
+                >
+                  Terminal
+                </Button>
+                <Button
+                  title="Show the conversation as chat (read from Claude's transcript)"
+                  variant={chatMode ? 'solid' : 'ghost'}
+                  size="sm"
+                  icon={MessagesSquare}
+                  onClick={() => setViewMode('chat')}
+                >
+                  Chat
+                </Button>
+              </div>
+            )}
             <Button
               variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
               size="sm"
@@ -421,10 +451,22 @@ export function Focus({
               {active.status === 'exited' && !useNativeTerminal && (
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
-              {(modalOpen || overlayHidden) && <ModalPlaceholder status={active.status} />}
+              {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
+              {/* The terminal stays mounted under the chat, so switching back is instant. */}
+              {chatMode && !maximized && (
+                <ChatView
+                  key={active.id}
+                  session={active}
+                  socket={socket}
+                  onSend={sendInput}
+                  onShowTerminal={() => setViewMode('terminal')}
+                  aboveComposer={active.status === 'waiting' ? <ReplyBar session={active} onSend={sendInput} /> : undefined}
+                  autoFocus
+                />
+              )}
             </div>
 
-            {!maximized && <ReplyBar session={active} onSend={sendInput} />}
+            {!maximized && !chatMode && <ReplyBar session={active} onSend={sendInput} />}
 
             {maximized && (
               <>
