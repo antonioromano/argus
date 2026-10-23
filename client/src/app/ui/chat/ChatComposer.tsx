@@ -23,32 +23,46 @@ interface ChatComposerProps {
   model?: string;
   /** Display name of the model last set with `/model` (from the transcript); wins over `model`. */
   modelSet?: string;
+  /** Save an image with no file behind it (pasted from the clipboard) and resolve its path. */
+  onUploadImage?: (file: File) => Promise<string>;
   /** Show the terminal (the full /model picker lives there). */
   onShowTerminal?: () => void;
   autoFocus?: boolean;
 }
 
 interface Attachment {
-  path: string;
+  key: string;
+  /** Absolute path sent to Claude; undefined while a pasted image uploads. */
+  path?: string;
   name: string;
   /** blob: URL of an image, for the thumbnail. */
   preview?: string;
+  /** The upload failed: shown as an error, never sent. */
+  failed?: boolean;
 }
 
 type ElectronFiles = { getPath: (name: string) => string | undefined };
 
-/** Picked or dropped files with their absolute paths. Only Electron's preload
- *  can see the paths (it records them on drop and file-input change). */
-function toAttachments(files: FileList | File[] | null): Attachment[] {
+let nextKey = 0;
+const newKey = () => `att-${++nextKey}`;
+const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
+const isImageFile = (f: File) => /^image\/(png|jpeg|gif|webp)$/.test(f.type);
+
+/**
+ * Split picked or dropped files into those with a path on disk (only Electron's
+ * preload can see it: it records paths on drop and file-input change) and
+ * images without one (a screenshot dragged from its preview), which get uploaded.
+ */
+function sortFiles(files: FileList | File[] | null): { withPath: Attachment[]; toUpload: File[] } {
   const bridge = (window as Window & { electronFiles?: ElectronFiles }).electronFiles;
-  if (!bridge || !files) return [];
-  const out: Attachment[] = [];
-  for (const f of Array.from(files)) {
-    const path = bridge.getPath(f.name);
-    if (!path) continue;
-    out.push({ path, name: f.name, preview: isImagePath(path) && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined });
+  const withPath: Attachment[] = [];
+  const toUpload: File[] = [];
+  for (const f of Array.from(files ?? [])) {
+    const path = bridge?.getPath(f.name);
+    if (path) withPath.push({ key: newKey(), path, name: f.name, preview: isImagePath(path) ? previewOf(f) : undefined });
+    else if (isImageFile(f)) toUpload.push(f);
   }
-  return out;
+  return { withPath, toUpload };
 }
 
 const revoke = (list: Attachment[]) => list.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
@@ -63,7 +77,7 @@ type Menu = { kind: 'mode' | 'model'; x: number; y: number };
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onShowTerminal, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -89,10 +103,12 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
 
   useEffect(() => () => revoke(attachmentsRef.current), []);
 
-  const canSend = !exited && (text.trim().length > 0 || attachments.length > 0);
+  const uploading = attachments.some((a) => !a.path && !a.failed);
+  const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
+  const canSend = !exited && !uploading && (text.trim().length > 0 || ready.length > 0);
   const send = () => {
     if (!canSend) return;
-    onSubmit([formatPathsForPty(attachments.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
     revoke(attachments);
     setAttachments([]);
     setText('');
@@ -101,18 +117,39 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const attach = (list: Attachment[]) => {
     if (list.length === 0) return;
     setAttachments((cur) => {
-      const have = new Set(cur.map((a) => a.path));
-      const fresh = list.filter((a) => !have.has(a.path));
-      revoke(list.filter((a) => have.has(a.path)));
+      const have = new Set(cur.map((a) => a.path).filter(Boolean));
+      const fresh = list.filter((a) => !a.path || !have.has(a.path));
+      revoke(list.filter((a) => !fresh.includes(a)));
       return cur.concat(fresh);
     });
     ref.current?.focus();
   };
 
-  const remove = (path: string) =>
+  const update = (key: string, patch: Partial<Attachment>) =>
+    setAttachments((cur) => cur.map((a) => (a.key === key ? { ...a, ...patch } : a)));
+
+  /** Show images right away and upload them; each gets its path when saved. */
+  const upload = (files: File[], name?: string) => {
+    if (!onUploadImage || files.length === 0) return;
+    const list = files.map((f) => ({ key: newKey(), name: name ?? f.name, preview: previewOf(f) }));
+    attach(list);
+    files.forEach((f, i) => {
+      onUploadImage(f)
+        .then((path) => update(list[i].key, { path }))
+        .catch(() => update(list[i].key, { failed: true }));
+    });
+  };
+
+  const addFiles = (files: FileList | File[] | null) => {
+    const { withPath, toUpload } = sortFiles(files);
+    attach(withPath);
+    upload(toUpload);
+  };
+
+  const remove = (key: string) =>
     setAttachments((cur) => {
-      revoke(cur.filter((a) => a.path === path));
-      return cur.filter((a) => a.path !== path);
+      revoke(cur.filter((a) => a.key === key));
+      return cur.filter((a) => a.key !== key);
     });
 
   const openMenu = (kind: Menu['kind'], e: React.MouseEvent<HTMLButtonElement>) => {
@@ -170,16 +207,19 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
         onDrop={(e) => {
           setDragOver(false);
           if (exited) return;
-          const list = toAttachments(e.dataTransfer.files);
-          if (list.length === 0) return;
+          if (e.dataTransfer.files.length === 0) return;
           e.preventDefault();
-          attach(list);
+          addFiles(e.dataTransfer.files);
         }}
       >
         {attachments.length > 0 && (
           <div className="argus-chat-attachments" aria-label="Attached files">
             {attachments.map((a) => (
-              <div key={a.path} className="argus-chat-attachment" title={a.path}>
+              <div
+                key={a.key}
+                className={`argus-chat-attachment${a.path ? '' : a.failed ? ' is-failed' : ' is-uploading'}`}
+                title={a.failed ? 'Upload failed — remove it and try again' : (a.path ?? 'Uploading…')}
+              >
                 {a.preview ? (
                   <img src={a.preview} alt={a.name} />
                 ) : (
@@ -188,7 +228,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                     <span>{a.name}</span>
                   </div>
                 )}
-                <button type="button" className="argus-chat-attachment-remove" aria-label={`Remove ${a.name}`} onClick={() => remove(a.path)}>
+                <button type="button" className="argus-chat-attachment-remove" aria-label={`Remove ${a.name}`} onClick={() => remove(a.key)}>
                   <Icon icon={X} size={10} aria-hidden />
                 </button>
               </div>
@@ -203,6 +243,13 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
           aria-label="Message"
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            // A screenshot on the clipboard is only bytes: upload it to get a path.
+            const images = Array.from(e.clipboardData.files).filter(isImageFile);
+            if (images.length === 0 || !onUploadImage || exited) return;
+            e.preventDefault();
+            upload(images, 'Pasted image');
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -221,7 +268,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                 hidden
                 data-testid="chat-file-input"
                 onChange={(e) => {
-                  attach(toAttachments(e.target.files));
+                  addFiles(e.target.files);
                   e.target.value = '';
                 }}
               />

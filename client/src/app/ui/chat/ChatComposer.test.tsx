@@ -16,6 +16,7 @@ interface Props {
   permissionMode?: string;
   model?: string;
   modelSet?: string;
+  onUploadImage?: (file: File) => Promise<string>;
   onSetMode?: (mode: string) => Promise<boolean>;
 }
 
@@ -29,6 +30,7 @@ function render(props: Props = {}) {
         permissionMode={props.permissionMode}
         model={props.model}
         modelSet={props.modelSet}
+        onUploadImage={props.onUploadImage}
         onSetMode={props.onSetMode}
       />,
     ),
@@ -140,3 +142,49 @@ describe('ChatComposer — attachments', () => {
     expect(container.querySelector('.argus-chat-attachment')).toBeNull();
   });
 });
+
+describe('ChatComposer — pasted images', () => {
+  function paste(files: File[]) {
+    const box = container.querySelector('textarea')!;
+    const event = new Event('paste', { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
+    event.clipboardData = { files, getData: () => '' };
+    act(() => { box.dispatchEvent(event); });
+    return event;
+  }
+
+  it('uploads a clipboard screenshot, previews it, and sends its saved path', async () => {
+    let resolve!: (p: string) => void;
+    const onUploadImage = vi.fn(() => new Promise<string>((r) => { resolve = r; }));
+    const onSubmit = render({ onUploadImage });
+    const shot = new File(['x'], 'image.png', { type: 'image/png' });
+    const event = paste([shot]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(onUploadImage).toHaveBeenCalledWith(shot);
+    expect(container.querySelector('.argus-chat-attachment.is-uploading img')).not.toBeNull();
+    const send = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+
+    await act(async () => { resolve('/tmp/argus-chat-images/abc.png'); });
+    expect(container.querySelector('.argus-chat-attachment.is-uploading')).toBeNull();
+    act(() => send.click());
+    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus-chat-images/abc.png');
+  });
+
+  it('marks a failed upload and never sends it', async () => {
+    const onUploadImage = vi.fn(() => Promise.reject(new Error('nope')));
+    render({ onUploadImage });
+    paste([new File(['x'], 'image.png', { type: 'image/png' })]);
+    await act(async () => {});
+    expect(container.querySelector('.argus-chat-attachment.is-failed')).not.toBeNull();
+    expect((container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('leaves plain text pastes alone', () => {
+    const onUploadImage = vi.fn();
+    render({ onUploadImage });
+    const event = paste([]);
+    expect(event.defaultPrevented).toBe(false);
+    expect(onUploadImage).not.toHaveBeenCalled();
+  });
+});
+

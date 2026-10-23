@@ -1685,3 +1685,16 @@ body {
   color: var(--fg-0);
   cursor: pointer;
 }
+.argus-chat-attachment.is-uploading img { opacity: 0.5; }
+.argus-chat-attachment.is-uploading::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  animation: argus-pulse-bar 1.2s ease-in-out infinite;
+}
+.argus-chat-attachment.is-failed { border-color: var(--danger); }
+.argus-chat-attachment.is-failed img { opacity: 0.4; }
