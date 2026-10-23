@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import type { ChangeBlock } from './changeBlocks.js';
-import { Tooltip } from '../../../components/primitives/index.js';
+import { Tooltip, Icon } from '../../../components/primitives/index.js';
 import { RevertConfirmCard } from './ConfirmRevert.js';
 import { useSkipRevertConfirm } from '../../../hooks/useSkipRevertConfirm.js';
 import { SuppressWhileMounted } from '../../../hooks/useOverlaySuppression.js';
@@ -100,7 +100,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
             color: isChecked ? 'var(--bg-0)' : 'var(--fg-3)',
           }}
         >
-          {isChecked && <Check size={12} strokeWidth={2.5} />}
+          {isChecked && <Icon icon={Check} size={12} strokeWidth={2.5} />}
         </button>
       </Tooltip>
       <Tooltip content="Revert change">
@@ -110,7 +110,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
           disabled={busy}
           style={{ ...btnStyle, color: busy ? 'var(--fg-4)' : 'var(--fg-3)' }}
         >
-          <RotateCcw size={12} strokeWidth={1.8} />
+          <Icon icon={RotateCcw} size={12} strokeWidth={1.8} />
         </button>
       </Tooltip>
       {pendingRevert && popupAnchor && (

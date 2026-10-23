@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Settings, Plus } from 'lucide-react';
+import { Icon } from '../../components/primitives/index.js';
 
 export type MobileTab = 'sessions' | 'settings';
 
@@ -59,7 +60,7 @@ export function BottomNav({ active, onChange, onCreate, doneCount = 0, waitingCo
           cursor: 'pointer',
         }}
       >
-        <Plus size={24} strokeWidth={2.2} />
+        <Icon icon={Plus} size={24} strokeWidth={2.2} />
       </button>
 
       <TabButton tab={tabs[1]} active={active === tabs[1].id} onClick={() => onChange(tabs[1].id)} />
@@ -101,7 +102,7 @@ function NavBadge({ count, type, shiftLeft }: { count: number; type: 'done' | 'w
 }
 
 function TabButton({ tab, active, onClick, doneCount = 0, waitingCount = 0 }: { tab: { id: MobileTab; icon: LucideIcon; label: string }; active: boolean; onClick: () => void; doneCount?: number; waitingCount?: number }) {
-  const Icon = tab.icon;
+  const Glyph = tab.icon;
   const showBadges = tab.id === 'sessions';
   return (
     <button
@@ -125,7 +126,7 @@ function TabButton({ tab, active, onClick, doneCount = 0, waitingCount = 0 }: { 
       }}
     >
       <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Icon size={20} strokeWidth={active ? 2 : 1.6} />
+        <Icon icon={Glyph} size={20} strokeWidth={active ? 2 : 1.6} />
         {showBadges && (
           <>
             <NavBadge count={doneCount} type="done" shiftLeft={waitingCount > 0} />

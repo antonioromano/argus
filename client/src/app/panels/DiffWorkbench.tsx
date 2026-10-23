@@ -23,6 +23,7 @@ import {
   EmptyState,
   ErrorState,
   Tooltip,
+  Icon,
 } from '../../components/primitives/index.js';
 
 interface DiffWorkbenchProps {
@@ -380,7 +381,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           flexShrink: 0,
         }}
       >
-        <GitBranch size={14} strokeWidth={1.6} color="var(--dirty)" />
+        <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--dirty)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · DIFF</div>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
           {session.name}
@@ -392,13 +393,13 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
             onClick={() => setViewMode('split')}
             style={modeBtn(viewMode === 'split')}
           >
-            <SplitSquareHorizontal size={11} strokeWidth={1.6} /> SPLIT
+            <Icon icon={SplitSquareHorizontal} size={11} strokeWidth={1.6} /> SPLIT
           </button>
           <button
             onClick={() => setViewMode('unified')}
             style={modeBtn(viewMode === 'unified')}
           >
-            <AlignLeft size={11} strokeWidth={1.6} /> UNIFIED
+            <Icon icon={AlignLeft} size={11} strokeWidth={1.6} /> UNIFIED
           </button>
         </div>
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
@@ -727,7 +728,7 @@ function FileCheckbox({ visible, state, disabled, onClick }: FileCheckboxProps) 
           opacity: disabled ? 0.4 : 1,
         }}
       >
-        {state === 'all' && <Check size={10} strokeWidth={2.5} />}
+        {state === 'all' && <Icon icon={Check} size={10} strokeWidth={2.5} />}
         {state === 'partial' && (
           <span
             style={{
@@ -753,7 +754,7 @@ interface SidebarChipButtonProps {
   onActivate: () => void;
 }
 
-function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }: SidebarChipButtonProps) {
+function SidebarChipButton({ label, icon: Glyph, tone, busy, title, onActivate }: SidebarChipButtonProps) {
   const color = busy
     ? 'var(--fg-3)'
     : tone === 'accent'
@@ -789,7 +790,7 @@ function SidebarChipButton({ label, icon: Icon, tone, busy, title, onActivate }:
           fontSize: 'var(--t-micro)',
         }}
       >
-        <Icon size={10} strokeWidth={2} />
+        <Icon icon={Glyph} size={10} strokeWidth={2} />
         {label}
       </span>
     </Tooltip>

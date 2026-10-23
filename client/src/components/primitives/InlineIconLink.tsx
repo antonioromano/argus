@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { Tooltip } from './Tooltip.js';
+import { Icon } from './Icon.js';
 
 interface InlineIconLinkProps {
   icon: LucideIcon;
@@ -12,7 +13,7 @@ interface InlineIconLinkProps {
 }
 
 export function InlineIconLink({
-  icon: Icon,
+  icon: Glyph,
   label,
   onClick,
   size = 13,
@@ -30,7 +31,7 @@ export function InlineIconLink({
           ['--rest-opacity' as string]: String(opacity),
         } as CSSProperties}
       >
-        <Icon size={size} strokeWidth={1.6} />
+        <Icon icon={Glyph} size={size} strokeWidth={1.6} />
       </button>
     </Tooltip>
   );

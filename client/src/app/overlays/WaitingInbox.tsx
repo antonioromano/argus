@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { Inbox } from 'lucide-react';
-import { Checkbox, Kbd } from '../../components/primitives/index.js';
+import { Checkbox, Kbd, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
 
@@ -101,7 +101,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
-        <Inbox size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <Icon icon={Inbox} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-md)', color: 'var(--fg-0)' }}>Waiting on you</span>
         <span
           style={{
@@ -134,7 +134,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
               fontSize: 'var(--t-sm)',
             }}
           >
-            <Inbox size={22} strokeWidth={1.2} />
+            <Icon icon={Inbox} size={22} strokeWidth={1.2} />
             <span>Nothing is waiting on you.</span>
           </div>
         )}

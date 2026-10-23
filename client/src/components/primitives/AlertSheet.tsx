@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Check } from 'lucide-react';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
+import { Icon } from './Icon.js';
 
 interface AlertSheetProps {
   isOpen: boolean;
@@ -173,7 +174,7 @@ export function AlertSheet({
                 color: rememberChoice.checked ? 'var(--bg-0)' : 'transparent',
               }}
             >
-              {rememberChoice.checked && <Check size={11} strokeWidth={2.5} />}
+              {rememberChoice.checked && <Icon icon={Check} size={11} strokeWidth={2.5} />}
             </span>
             {rememberChoice.label}
           </button>

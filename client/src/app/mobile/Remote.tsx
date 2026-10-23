@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ChevronLeft, Wifi, WifiOff, AlertTriangle, Copy, Check } from 'lucide-react';
 import { useNgrok } from '../../hooks/useNgrok.js';
 import { useSocket } from '../../hooks/useSocket.js';
-import { Button, StatusDot, TextInput, Field } from '../../components/primitives/index.js';
+import { Button, StatusDot, TextInput, Field, Icon } from '../../components/primitives/index.js';
 
 interface RemoteProps {
   onBack: () => void;
@@ -59,7 +59,7 @@ export function Remote({ onBack }: RemoteProps) {
             fontSize: 'var(--t-tiny)',
           }}
         >
-          <ChevronLeft size={14} strokeWidth={1.6} /> BACK
+          <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} /> BACK
         </button>
         <div className="eyebrow" style={{ flex: 1, textAlign: 'center', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
           REMOTE ACCESS
@@ -88,12 +88,12 @@ export function Remote({ onBack }: RemoteProps) {
             {connected ? (
               <>
                 <StatusDot status="running" size={8} />
-                <Wifi size={14} strokeWidth={1.6} color="var(--accent)" />
+                <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
                 <span className="eyebrow" style={{ color: 'var(--accent)' }}>TUNNEL ACTIVE</span>
               </>
             ) : (
               <>
-                <WifiOff size={14} strokeWidth={1.6} color="var(--fg-3)" />
+                <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
                 <span className="eyebrow">NO TUNNEL</span>
               </>
             )}
@@ -129,7 +129,7 @@ export function Remote({ onBack }: RemoteProps) {
               color: 'var(--danger)',
             }}
           >
-            <AlertTriangle size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
             {error}
           </div>
         )}

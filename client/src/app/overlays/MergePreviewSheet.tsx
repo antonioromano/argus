@@ -3,7 +3,7 @@ import parseDiff from 'parse-diff';
 import type { File as DiffFile } from 'parse-diff';
 import { X, GitMerge, CheckCircle, AlertCircle, ChevronDown } from 'lucide-react';
 import type { WorktreeMergePreviewResponse, MergePreviewFile, SessionInfo } from '@argus/shared';
-import { LoadingState, EmptyState, Button, IconButton } from '../../components/primitives/index.js';
+import { LoadingState, EmptyState, Button, IconButton, Icon } from '../../components/primitives/index.js';
 import { SplitDiff } from './SplitDiff.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
@@ -194,7 +194,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
-                <ChevronDown size={10} style={{ position: 'absolute', right: 6, pointerEvents: 'none', color: 'var(--accent)' }} />
+                <Icon icon={ChevronDown} size={10} style={{ position: 'absolute', right: 6, pointerEvents: 'none', color: 'var(--accent)' }} />
               </div>
             ) : (
               <span style={{
@@ -243,7 +243,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
             borderBottom: '1px solid color-mix(in srgb, var(--ok) 30%, transparent)',
             flexShrink: 0,
           }}>
-            <CheckCircle size={16} color="var(--ok)" strokeWidth={1.6} />
+            <Icon icon={CheckCircle} size={16} color="var(--ok)" strokeWidth={1.6} />
             <span style={{ fontSize: 'var(--t-sm)', color: 'var(--ok)', fontWeight: 500 }}>
               {mergeFlow.mergedBranch} merged into <strong>{mergeFlow.targetBranch}</strong>
             </span>
@@ -348,7 +348,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
             flexShrink: 0,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}>
-              <AlertCircle size={13} color="var(--danger)" strokeWidth={1.6} />
+              <Icon icon={AlertCircle} size={13} color="var(--danger)" strokeWidth={1.6} />
               <span style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--danger)' }}>Merge failed</span>
             </div>
             <pre style={{

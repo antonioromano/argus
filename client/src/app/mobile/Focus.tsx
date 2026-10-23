@@ -8,6 +8,7 @@ import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
 import { Diff } from './Diff.js';
 import { MobileKeyboard } from './keyboard/MobileKeyboard.js';
+import { Icon } from '../../components/primitives/index.js';
 
 interface FocusProps {
   session: SessionInfo;
@@ -191,7 +192,7 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
             fontWeight: 600,
           }}
         >
-          <Keyboard size={18} />
+          <Icon icon={Keyboard} size={18} />
         </button>
       )}
       {showChanges && (

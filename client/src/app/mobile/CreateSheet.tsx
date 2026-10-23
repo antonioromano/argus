@@ -4,7 +4,7 @@ import { X, CornerDownLeft, FolderSearch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { useConfig } from '../../hooks/useConfig.js';
 import { FolderBrowser } from './FolderBrowser.js';
-import { Switch } from '../../components/primitives/index.js';
+import { Switch, Icon } from '../../components/primitives/index.js';
 
 interface CreateSheetProps {
   sessions: SessionInfo[];
@@ -151,7 +151,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--s-2) var(--s-4) var(--s-3)', borderBottom: '1px solid var(--line-1)' }}>
           <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>NEW SHELL</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--fg-2)', cursor: 'pointer', padding: 4 }}>
-            <X size={18} strokeWidth={1.8} />
+            <Icon icon={X} size={18} strokeWidth={1.8} />
           </button>
         </div>
 
@@ -173,7 +173,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
               aria-label="Browse folders"
               style={{ flexShrink: 0, width: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', color: 'var(--accent)', cursor: 'pointer' }}
             >
-              <FolderSearch size={18} strokeWidth={1.6} />
+              <Icon icon={FolderSearch} size={18} strokeWidth={1.6} />
             </button>
           </div>
           {completions.length > 0 && folderTrimmed && completions[0] !== folderTrimmed && (
@@ -300,7 +300,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             }}
           >
-            <CornerDownLeft size={16} strokeWidth={2} />
+            <Icon icon={CornerDownLeft} size={16} strokeWidth={2} />
             {creating ? 'Creating…' : 'Create shell'}
           </button>
         </div>

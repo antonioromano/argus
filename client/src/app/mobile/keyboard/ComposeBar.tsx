@@ -1,6 +1,7 @@
 import { forwardRef } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { COMPOSE_MAX_H, autoGrowCompose } from './compose.js';
+import { Icon } from '../../../components/primitives/index.js';
 
 interface ComposeBarProps {
   value: string;
@@ -78,7 +79,7 @@ export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
             flexShrink: 0,
           }}
         >
-          <ArrowUp size={16} strokeWidth={2} />
+          <Icon icon={ArrowUp} size={16} strokeWidth={2} />
         </button>
       </form>
     );

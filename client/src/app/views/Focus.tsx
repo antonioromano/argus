@@ -17,7 +17,7 @@ import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
@@ -497,11 +497,11 @@ export function Focus({
                     fontSize: 'var(--t-tiny)',
                   }}
                 >
-                  <Terminal size={12} strokeWidth={1.6} />
+                  <Icon icon={Terminal} size={12} strokeWidth={1.6} />
                   <span>Shell · collapsed</span>
                   <div style={{ flex: 1 }} />
                   <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <ChevronUp size={12} strokeWidth={1.8} /> RETURN
+                    <Icon icon={ChevronUp} size={12} strokeWidth={1.8} /> RETURN
                   </span>
                 </button>
               </>

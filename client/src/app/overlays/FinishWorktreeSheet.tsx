@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { File as DiffFile } from 'parse-diff';
 import { AlertCircle, CheckCircle, Circle, ExternalLink, Flag, Loader2, MinusCircle, Trash2 } from 'lucide-react';
 import type { AppConfig, SessionInfo, WorktreeFinishInfo, WorktreeFinishStep } from '@argus/shared';
-import { Button, Checkbox, LoadingState, Sheet } from '../../components/primitives/index.js';
+import { Button, Checkbox, LoadingState, Sheet, Icon } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { SplitDiff } from './SplitDiff.js';
@@ -287,14 +287,14 @@ function StepRow({ step, checked, disabled, hint, state, onChange }: {
   state?: StepState;
   onChange: (v: boolean) => void;
 }) {
-  const Icon = state ? STATUS_ICON[state.status] : null;
+  const Glyph = state ? STATUS_ICON[state.status] : null;
   return (
     <div data-testid={`finish-step-${step}`} data-status={state?.status ?? 'idle'} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
         <Checkbox checked={checked} onChange={onChange} disabled={disabled} />
         <span style={{ fontSize: 'var(--t-sm)', color: disabled && !checked ? 'var(--fg-3)' : 'var(--fg-0)' }}>{STEP_LABEL[step]}</span>
         <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)', flex: 1, minWidth: 0 }}>{hint}</span>
-        {Icon && <Icon size={14} color={STATUS_COLOR[state!.status]} strokeWidth={1.8} aria-label={state!.status} />}
+        {Glyph && <Icon icon={Glyph} size={14} color={STATUS_COLOR[state!.status]} strokeWidth={1.8} aria-label={state!.status} />}
       </div>
       {state?.status === 'ok' && (state.detail || state.url) && (
         <div style={{ marginLeft: 24, fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>

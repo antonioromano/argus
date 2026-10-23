@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@argus/shared';
 import { ChevronLeft, MoreVertical, GitBranch } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusPill, DirtyBadge } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, Icon } from '../../components/primitives/index.js';
 
 interface FocusHeaderProps {
   session: SessionInfo;
@@ -44,7 +44,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           fontSize: 'var(--t-tiny)',
         }}
       >
-        <ChevronLeft size={14} strokeWidth={1.6} />
+        <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} />
         <span className="mobile-back-label">BACK</span>
       </button>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, justifyContent: 'center' }}>
@@ -88,7 +88,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           flexShrink: 0,
         }}
       >
-        <GitBranch size={16} strokeWidth={1.6} />
+        <Icon icon={GitBranch} size={16} strokeWidth={1.6} />
       </button>
       <button
         onClick={onActions}
@@ -107,7 +107,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           flexShrink: 0,
         }}
       >
-        <MoreVertical size={16} strokeWidth={1.6} />
+        <Icon icon={MoreVertical} size={16} strokeWidth={1.6} />
       </button>
     </div>
   );

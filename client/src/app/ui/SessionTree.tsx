@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { ChevronRight, Plus, Trash2, CircleX, Check, X, Eye, EyeOff, Star, RotateCcw } from 'lucide-react';
-import { StatusDot, Tooltip } from '../../components/primitives/index.js';
+import { StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
@@ -178,7 +178,7 @@ export function SessionTree({
         />
       ) : (
         <button type="button" onClick={() => setCreating(true)} style={createBtnStyle}>
-          <Plus size={12} strokeWidth={1.8} />
+          <Icon icon={Plus} size={12} strokeWidth={1.8} />
           <span>New group</span>
         </button>
       )}
@@ -233,7 +233,7 @@ function FavoritesNode({
       >
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
-            <ChevronRight
+            <Icon icon={ChevronRight}
               size={12}
               strokeWidth={2}
               style={{ transform: favorites.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
@@ -241,7 +241,7 @@ function FavoritesNode({
           </button>
         </Tooltip>
 
-        <Star size={10} strokeWidth={2} fill={starColor} style={{ color: starColor, flexShrink: 0 }} />
+        <Icon icon={Star} size={10} strokeWidth={2} fill={starColor} style={{ color: starColor, flexShrink: 0 }} />
 
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-1)' }}>Favourites</span>
 
@@ -340,7 +340,7 @@ function GroupNode({
       >
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
-            <ChevronRight
+            <Icon icon={ChevronRight}
               size={12}
               strokeWidth={2}
               style={{ transform: group.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
@@ -379,14 +379,14 @@ function GroupNode({
             style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
               color: active ? 'var(--accent)' : 'var(--fg-3)' }}
           >
-            {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
+            {active ? <Icon icon={EyeOff} size={13} strokeWidth={1.8} /> : <Icon icon={Eye} size={13} strokeWidth={1.8} />}
           </button>
         </Tooltip>
 
         {/* hover actions — always rendered, opacity toggled so the row never reflows */}
         <span style={{ ...actionsStyle, opacity: hover && !editing ? 1 : 0, pointerEvents: hover && !editing ? 'auto' : 'none' }}>
-          <Act title="Kill all in group" onClick={onKill}><CircleX size={11} strokeWidth={1.8} /></Act>
-          <Act title="Delete group" onClick={onDelete}><Trash2 size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in group" onClick={onKill}><Icon icon={CircleX} size={11} strokeWidth={1.8} /></Act>
+          <Act title="Delete group" onClick={onDelete}><Icon icon={Trash2} size={11} strokeWidth={1.8} /></Act>
         </span>
       </div>
 
@@ -476,7 +476,7 @@ function OthersNode({
       >
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
-            <ChevronRight size={12} strokeWidth={2}
+            <Icon icon={ChevronRight} size={12} strokeWidth={2}
               style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }} />
           </button>
         </Tooltip>
@@ -500,13 +500,13 @@ function OthersNode({
             style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
               color: active ? 'var(--accent)' : 'var(--fg-3)' }}
           >
-            {active ? <EyeOff size={13} strokeWidth={1.8} /> : <Eye size={13} strokeWidth={1.8} />}
+            {active ? <Icon icon={EyeOff} size={13} strokeWidth={1.8} /> : <Icon icon={Eye} size={13} strokeWidth={1.8} />}
           </button>
         </Tooltip>
 
         {/* hover-revealed kill */}
         <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
-          <Act title="Kill all in Others" onClick={onKill}><CircleX size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in Others" onClick={onKill}><Icon icon={CircleX} size={11} strokeWidth={1.8} /></Act>
         </span>
       </div>
 
@@ -641,7 +641,7 @@ function Leaf({
                 pointerEvents: isFavorite || hover ? 'auto' : 'none',
               }}
             >
-              <Star
+              <Icon icon={Star}
                 size={11}
                 strokeWidth={1.8}
                 fill={isFavorite ? starColor : 'none'}
@@ -687,7 +687,7 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
           {label}
         </span>
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
-          <RotateCcw size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
+          <Icon icon={RotateCcw} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
       </div>
     </Tooltip>
@@ -710,8 +710,8 @@ function NameInput({ initial = '', placeholder, onCommit, onCancel, inline }: {
         style={{ flex: 1, minWidth: 0, background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
           color: 'var(--fg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: '3px 6px' }}
       />
-      <Act title="Save" onClick={() => onCommit(val)}><Check size={11} strokeWidth={2} /></Act>
-      <Act onClick={onCancel}><X size={11} strokeWidth={2} /></Act>
+      <Act title="Save" onClick={() => onCommit(val)}><Icon icon={Check} size={11} strokeWidth={2} /></Act>
+      <Act onClick={onCancel}><Icon icon={X} size={11} strokeWidth={2} /></Act>
     </div>
   );
 }

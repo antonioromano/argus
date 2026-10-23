@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Coffee, Check, PowerOff } from 'lucide-react';
 import type { KeepAwakeStatus } from '@argus/shared';
-import { Tooltip, ContextMenu } from '../../components/primitives/index.js';
+import { Tooltip, ContextMenu, Icon } from '../../components/primitives/index.js';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { KEEP_AWAKE_OPTIONS, formatRemaining, remainingMs } from './keepAwakeFormat.js';
 
@@ -138,7 +138,7 @@ function KeepAwakeButtonInner({ status, onArm, onDisarm }: KeepAwakeButtonProps)
           style={active ? armedPill : idleBtn}
           aria-label={tooltip}
         >
-          <Coffee size={13} strokeWidth={1.6} />
+          <Icon icon={Coffee} size={13} strokeWidth={1.6} />
           {active && <span style={{ minWidth: 44, textAlign: 'right' }}>{countdown}</span>}
         </button>
       </Tooltip>

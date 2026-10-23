@@ -1,7 +1,7 @@
 import { Check, Wifi, Bell } from 'lucide-react';
 import { useKeyboardMode, type KeyboardMode } from '../../hooks/useKeyboardMode.js';
 import { useTheme, type ThemeMode } from '../../context/theme-context.js';
-import { StatusDot, Switch } from '../../components/primitives/index.js';
+import { StatusDot, Switch, Icon } from '../../components/primitives/index.js';
 
 interface MobileSettingsProps {
   publicUrl: string | null;
@@ -96,7 +96,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotify(!notify)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Bell size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell needs you</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → waiting transition while this tab is in the background.</span>
@@ -109,7 +109,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotifyDone(!notifyDone)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Bell size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → done transition while this tab is in the background.</span>
@@ -157,7 +157,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     color: 'var(--fg-on-accent)',
                   }}
                 >
-                  {selected && <Check size={12} strokeWidth={3} />}
+                  {selected && <Icon icon={Check} size={12} strokeWidth={3} />}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', fontWeight: 600, color: 'var(--fg-0)' }}>{opt.title}</div>
@@ -173,7 +173,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
         <div style={{ padding: '0 var(--s-3) var(--s-6)' }}>
           <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', background: 'var(--bg-1)', padding: 'var(--s-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
-              <Wifi size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+              <Icon icon={Wifi} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>
                   {publicUrl ? 'Tunnel connected' : 'Tunnel not active'}

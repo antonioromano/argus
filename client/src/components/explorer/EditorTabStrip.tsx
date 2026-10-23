@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
+import { Icon } from '../primitives/index.js';
 
 export interface EditorTabStripProps {
   groupIndex: number;
@@ -79,7 +80,7 @@ export function EditorTabStrip({
         onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--fg-0)')}
         onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-3)')}
       >
-        <Plus size={14} strokeWidth={1.6} />
+        <Icon icon={Plus} size={14} strokeWidth={1.6} />
       </button>
     </div>
   );
@@ -155,7 +156,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
         {dirty && !closeHover ? (
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--dirty)' }} />
         ) : hover || active || closeHover ? (
-          <X size={12} strokeWidth={2} />
+          <Icon icon={X} size={12} strokeWidth={2} />
         ) : null}
       </span>
     </div>

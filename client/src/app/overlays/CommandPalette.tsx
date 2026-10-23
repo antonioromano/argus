@@ -4,7 +4,7 @@ import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, Terminal, 
 import { filterCommands, type PaletteCommand } from './paletteCommands.js';
 import { isMac, isPrimaryModifier } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
-import { Kbd, Tooltip, StatusPill } from '../../components/primitives/index.js';
+import { Kbd, Tooltip, StatusPill, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
@@ -25,10 +25,10 @@ interface CommandPaletteProps {
 }
 
 function ResultIcon({ ext }: { ext: string }) {
-  const style: React.CSSProperties = { width: 14, height: 14, flexShrink: 0, color: 'var(--fg-3)' };
-  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <FileCode style={style} />;
-  if (ext === '.json') return <FileJson style={style} />;
-  return <FileText style={style} />;
+  const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
+  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={14} style={style} />;
+  if (ext === '.json') return <Icon icon={FileJson} size={14} style={style} />;
+  return <Icon icon={FileText} size={14} style={style} />;
 }
 
 export function CommandPalette({
@@ -268,7 +268,7 @@ export function CommandPalette({
           borderBottom: '1px solid var(--line-2)',
         }}
       >
-        <Search size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <Icon icon={Search} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
         {scopedSession && (
           <span
             style={{
@@ -286,7 +286,7 @@ export function CommandPalette({
               whiteSpace: 'nowrap',
             }}
           >
-            <FolderOpen size={11} strokeWidth={1.6} />
+            <Icon icon={FolderOpen} size={11} strokeWidth={1.6} />
             {scopedSession.name}
             <button
               aria-label="Clear scope"
@@ -407,7 +407,7 @@ export function CommandPalette({
                       borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
                     }}
                   >
-                    <Terminal size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
+                    <Icon icon={Terminal} size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
                     <span
                       style={{
                         fontFamily: 'var(--font-mono)',
@@ -445,7 +445,7 @@ export function CommandPalette({
               {visibleCommands.map((c, idx) => {
                 const i = idx + commandsStart;
                 const isSelected = selectedIndex === i;
-                const Icon = c.icon ?? ChevronRight;
+                const Glyph = c.icon ?? ChevronRight;
                 return (
                   <div
                     key={c.id}
@@ -464,7 +464,7 @@ export function CommandPalette({
                       borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
                     }}
                   >
-                    <Icon size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
+                    <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
                     <span
                       style={{
                         fontFamily: 'var(--font-mono)',
@@ -567,7 +567,7 @@ export function CommandPalette({
                           flexShrink: 0,
                         }}
                       >
-                        <GitCommit size={12} strokeWidth={1.6} />
+                        <Icon icon={GitCommit} size={12} strokeWidth={1.6} />
                       </button>
                     </Tooltip>
                   </div>
@@ -578,13 +578,13 @@ export function CommandPalette({
 
           {!showResultsRegion && scope === 'files' && !scopedSession && (
             <div className="empty-hint" style={emptyHintStyle}>
-              <FolderOpen size={22} strokeWidth={1.2} />
+              <Icon icon={FolderOpen} size={22} strokeWidth={1.2} />
               <span>Pick a session first to search its files.</span>
             </div>
           )}
           {!searching && query.trim() && total === 0 && !(scope === 'files' && !scopedSession) && (
             <div className="empty-hint" style={emptyHintStyle}>
-              <Search size={22} strokeWidth={1.2} />
+              <Icon icon={Search} size={22} strokeWidth={1.2} />
               <span>No results</span>
             </div>
           )}
@@ -662,11 +662,11 @@ interface PalettePreviewPaneProps {
 
 function PalettePreviewPane({ command, fileResult, session, content, loading }: PalettePreviewPaneProps) {
   if (command) {
-    const Icon = command.icon ?? ChevronRight;
+    const Glyph = command.icon ?? ChevronRight;
     return (
       <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', padding: 'var(--s-5)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-          <Icon size={16} strokeWidth={1.6} style={{ color: 'var(--accent)' }} />
+          <Icon icon={Glyph} size={16} strokeWidth={1.6} style={{ color: 'var(--accent)' }} />
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-lg)', fontWeight: 600, color: 'var(--fg-0)' }}>
             {command.label}
           </span>
@@ -721,7 +721,7 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
   return (
     <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
-        <FileText size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+        <Icon icon={FileText} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {fileResult.name}
         </span>

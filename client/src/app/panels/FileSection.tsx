@@ -7,6 +7,7 @@ import type { FileModel } from '../overlays/diff/diffModel.js';
 import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
 import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { DiffViewer } from './DiffViewer.js';
+import { Icon } from '../../components/primitives/index.js';
 
 export interface FileSectionProps {
   file: FileModel;
@@ -50,7 +51,7 @@ export interface FileSectionProps {
 
 function HeaderChip({
   label,
-  icon: Icon,
+  icon: Glyph,
   tone = 'muted',
   busy = false,
   active = false,
@@ -100,7 +101,7 @@ function HeaderChip({
         fontSize: 'var(--t-micro)',
       }}
     >
-      {partial ? <Minus size={10} strokeWidth={2.5} /> : <Icon size={10} strokeWidth={2} />}
+      {partial ? <Icon icon={Minus} size={10} strokeWidth={2.5} /> : <Icon icon={Glyph} size={10} strokeWidth={2} />}
       {label}
     </span>
   );
@@ -193,7 +194,7 @@ export function FileSection({
         }}
         onClick={toggleCollapsed}
       >
-        <ChevronRight
+        <Icon icon={ChevronRight}
           size={14}
           strokeWidth={2}
           style={{

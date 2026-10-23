@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   ChevronRight,
@@ -16,9 +16,11 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatusCode } from '@argus/shared';
 import type { VisibleNode, TreeEdit } from '../../hooks/useFileTree.js';
-import { Tooltip } from '../primitives/index.js';
+import { Tooltip, Icon } from '../primitives/index.js';
+import { useFontSettings, DEFAULT_UI_FONT_SIZE } from '../../context/font-settings-context.js';
 
-const ROW_HEIGHT = 22;
+/** Row height at the default interface font; scaled with it (the virtualizer needs px). */
+const BASE_ROW_HEIGHT = 22;
 const INDENT_PX = 12;
 
 interface FileTreeViewProps {
@@ -46,13 +48,17 @@ export function FileTreeView({
   onContextMenu,
 }: FileTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const { uiFontSize } = useFontSettings();
+  const rowHeight = Math.round(BASE_ROW_HEIGHT * uiFontSize / DEFAULT_UI_FONT_SIZE);
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
   const virtualizer = useVirtualizer({
     count: nodes.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 8,
   });
+  // Rows are estimate-sized only, so a font change must drop the cached sizes.
+  useEffect(() => { virtualizer.measure(); }, [virtualizer, rowHeight]);
 
   // Keyboard cursor over the flat visible-node list. Distinct from `selectedPath`
   // (the file currently open in the editor) — arrows move this cursor; Enter acts.
@@ -140,7 +146,7 @@ export function FileTreeView({
             top: vRow.start,
             left: 0,
             right: 0,
-            height: ROW_HEIGHT,
+            height: rowHeight,
             display: 'flex',
             alignItems: 'center',
             gap: 4,
@@ -282,7 +288,7 @@ function ChevronCell({ node }: { node: VisibleNode }) {
   if (node.entry.isFile) return <span style={{ width: 12, flexShrink: 0 }} />;
   if (node.loading) {
     return (
-      <Loader2
+      <Icon icon={Loader2}
         size={12}
         strokeWidth={1.6}
         color="var(--fg-3)"
@@ -294,20 +300,19 @@ function ChevronCell({ node }: { node: VisibleNode }) {
     // Same 12px cell as the chevron, so the row never changes size.
     return (
       <span title="Couldn't load this folder — click to retry" style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <TriangleAlert size={12} strokeWidth={1.8} color="var(--danger)" />
+        <Icon icon={TriangleAlert} size={12} strokeWidth={1.8} color="var(--danger)" />
       </span>
     );
   }
-  const Icon = node.expanded ? ChevronDown : ChevronRight;
-  return <Icon size={12} strokeWidth={1.8} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
+  const Glyph = node.expanded ? ChevronDown : ChevronRight;
+  return <Icon icon={Glyph} size={12} strokeWidth={1.8} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
 }
 
 function IconCell({ node }: { node: VisibleNode }) {
   if (!node.entry.isFile) {
-    const FolderIcon = node.expanded ? FolderOpen : Folder;
-    return createElement(FolderIcon, { size: 12, strokeWidth: 1.6, color: 'var(--accent)', style: { flexShrink: 0 } });
+    return <Icon icon={node.expanded ? FolderOpen : Folder} size={12} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />;
   }
-  return createElement(fileIcon(node.entry.ext), { size: 12, strokeWidth: 1.6, color: 'var(--fg-3)', style: { flexShrink: 0 } });
+  return <Icon icon={fileIcon(node.entry.ext)} size={12} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
 }
 
 function fileIcon(ext: string): LucideIcon {

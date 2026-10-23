@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { GitBranch, Trash2 } from 'lucide-react';
-import { Section, Button, AlertSheet } from '../../../../components/primitives/index.js';
+import { Section, Button, AlertSheet, Icon } from '../../../../components/primitives/index.js';
 import { api } from '../../../../services/api.js';
 
 /** Not a preferences pane — a janitor. It lists the worktrees Argus created and
@@ -82,7 +82,7 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
                   borderBottom: last ? 'none' : '1px solid var(--line-1)',
                 }}
               >
-                <GitBranch size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', fontWeight: 500 }}>
                     {s.worktreeBranch}
@@ -107,7 +107,7 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
                     onClick={() => void handleDeleteClick(s)}
                     title={isLive ? 'Close session first' : 'Delete worktree'}
                   >
-                    <Trash2 size={12} />
+                    <Icon icon={Trash2} size={12} />
                   </Button>
                 </div>
               </div>

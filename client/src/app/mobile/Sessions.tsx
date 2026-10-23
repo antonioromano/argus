@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import { ChevronRight, MoreVertical, Plus, Play } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusDot, StatusPill, DirtyBadge } from '../../components/primitives/index.js';
+import { StatusDot, StatusPill, DirtyBadge, Icon } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 
@@ -67,7 +67,7 @@ function Section({ title, color, sessions, ghosts, filter, collidingKeys, onSele
           border: 'none', borderBottom: '1px solid var(--line-1)', cursor: 'pointer',
         }}
       >
-        <ChevronRight size={12} strokeWidth={2}
+        <Icon icon={ChevronRight} size={12} strokeWidth={2}
           style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms ease', color: 'var(--fg-3)' }} />
         {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />}
         <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
@@ -120,7 +120,7 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
           background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--accent)', flexShrink: 0,
         }}
       >
-        <Play size={18} strokeWidth={1.8} />
+        <Icon icon={Play} size={18} strokeWidth={1.8} />
       </button>
     </div>
   );
@@ -228,7 +228,7 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
           flexShrink: 0,
         }}
       >
-        <MoreVertical size={18} strokeWidth={1.6} />
+        <Icon icon={MoreVertical} size={18} strokeWidth={1.6} />
       </button>
     </div>
   );
@@ -420,7 +420,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 cursor: 'pointer',
               }}
             >
-              <Plus size={16} strokeWidth={2} /> Create your first shell
+              <Icon icon={Plus} size={16} strokeWidth={2} /> Create your first shell
             </button>
           </div>
         ) : (

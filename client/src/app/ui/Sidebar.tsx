@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
-import { Kbd, StatusDot, Tooltip } from '../../components/primitives/index.js';
+import { Kbd, StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 
 const COLLAPSE_KEY = 'argus-sidebar-collapsed';
@@ -253,7 +253,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
           onClick={toggleCollapsed}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <PanelLeftOpen size={20} strokeWidth={1.6} /> : <PanelLeftClose size={20} strokeWidth={1.6} />}
+          {collapsed ? <Icon icon={PanelLeftOpen} size={20} strokeWidth={1.6} /> : <Icon icon={PanelLeftClose} size={20} strokeWidth={1.6} />}
         </button>
       </Tooltip>
 
@@ -330,7 +330,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 }
 
 function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean; collapsed: boolean; onClick: () => void }) {
-  const Icon = item.icon;
+  const Glyph = item.icon;
   const btn = (
     <button
       type="button"
@@ -339,7 +339,7 @@ function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean
       data-highlight={item.highlight || undefined}
       onClick={onClick}
     >
-      <Icon size={20} strokeWidth={1.6} color={item.highlight ? 'var(--accent)' : 'currentColor'} />
+      <Icon icon={Glyph} size={20} strokeWidth={1.6} color={item.highlight ? 'var(--accent)' : 'currentColor'} />
       <span className="argus-sidebar-label">{item.label}</span>
       {item.count !== undefined && item.count > 0 && (
         <span className="argus-sidebar-count">{item.count}</span>

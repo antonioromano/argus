@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { Icon } from '../../components/primitives/index.js';
 
 interface ActionSheetProps {
   session: SessionInfo | null;
@@ -100,7 +101,7 @@ export function ActionSheet({
 }
 
 function Row({
-  icon: Icon, label, sub, danger, done, iconFill, onClick,
+  icon: Glyph, label, sub, danger, done, iconFill, onClick,
 }: { icon: LucideIcon; label: string; sub?: string; danger?: boolean; done?: boolean; iconFill?: boolean; onClick: () => void }) {
   const color = danger ? 'var(--danger)' : done ? 'var(--status-done)' : 'var(--fg-0)';
   const iconColor = danger ? 'var(--danger)' : done ? 'var(--status-done)' : 'var(--fg-2)';
@@ -114,7 +115,7 @@ function Row({
         textAlign: 'left', color, minHeight: 48,
       }}
     >
-      <Icon size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
+      <Icon icon={Glyph} size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
       <span style={{ fontSize: 'var(--t-md)', fontFamily: 'var(--font-sans)' }}>
         {label}
         {sub && <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>{sub}</span>}

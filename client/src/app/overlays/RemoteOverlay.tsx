@@ -10,6 +10,7 @@ import {
   PasswordFields,
   NGROK_PW_MIN,
   isNgrokPasswordValid,
+  Icon,
 } from '../../components/primitives/index.js';
 
 interface RemoteOverlayProps {
@@ -95,12 +96,12 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
           {connected ? (
             <>
               <StatusDot status="running" size={8} />
-              <Wifi size={14} strokeWidth={1.6} color="var(--accent)" />
+              <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
               <span className="eyebrow" style={{ color: 'var(--accent)' }}>ACTIVE</span>
             </>
           ) : (
             <>
-              <WifiOff size={14} strokeWidth={1.6} color="var(--fg-3)" />
+              <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
               <span className="eyebrow">OFFLINE</span>
             </>
           )}
@@ -124,7 +125,7 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
               fontSize: 'var(--t-sm)',
             }}
           >
-            <AlertTriangle size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
             {error}
           </div>
         )}
@@ -164,7 +165,7 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
                   className="eyebrow"
                   style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                 >
-                  <ExternalLink size={11} strokeWidth={1.6} /> OPEN
+                  <Icon icon={ExternalLink} size={11} strokeWidth={1.6} /> OPEN
                 </a>
               </div>
             </Field>

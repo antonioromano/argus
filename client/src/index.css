@@ -49,7 +49,7 @@
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  height: 28px;
+  height: var(--ctl-h-md);
   padding: 0 var(--s-2);
   background: var(--bg-2);
   border: 1px solid var(--line-2);
@@ -607,7 +607,7 @@ body {
 }
 /* ── Stable collapsed ── */
 .argus-sidebar[data-collapsed="true"] {
-  width: 56px;
+  width: var(--w-rail);
   padding-bottom: 9px; /* 3px less than default 12px lets settings land at exact vbox position */
 }
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
@@ -680,7 +680,7 @@ body {
 
 /* ── Collapse phase 2: sidebar shrinks; tree + vbox heights via inline JS ── */
 .argus-sidebar[data-animating="collapsing-2"] {
-  width: 56px;
+  width: var(--w-rail);
   transition: width 520ms cubic-bezier(.4,0,.6,1);
 }
 .argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-label,
@@ -1031,7 +1031,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
+  height: var(--ctl-h-sm);
   padding: 0 8px;
   border: 1px solid var(--line-3);
   border-radius: var(--r-2);
@@ -1053,8 +1053,8 @@ body {
 .argus-usage-stepper-box { display: inline-flex; align-items: center; border: 1px solid var(--line-3); border-radius: var(--r-2); overflow: hidden; }
 .argus-usage-stepper-box > button {
   all: unset;
-  width: 20px;
-  height: 22px;
+  width: var(--ctl-h-xs);
+  height: calc(22px * var(--ui-scale));
   text-align: center;
   color: var(--fg-2);
   cursor: pointer;

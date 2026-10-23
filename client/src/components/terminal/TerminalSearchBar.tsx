@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Icon } from '../primitives/index.js';
 
 /**
  * Engine-agnostic backing for the search box: xterm.js (its SearchAddon,
@@ -181,9 +182,9 @@ export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarPro
       </span>
       <button type="button" title="Match case" aria-pressed={caseSensitive} onClick={toggleCase} style={toggleBtn(caseSensitive)}>Aa</button>
       <button type="button" title="Use regular expression" aria-pressed={regex} onClick={toggleRegex} style={toggleBtn(regex)}>.*</button>
-      <button type="button" title="Previous match (Shift+Enter)" onClick={() => find('prev')} style={iconBtn}><ChevronUp size={14} /></button>
-      <button type="button" title="Next match (Enter)" onClick={() => find('next')} style={iconBtn}><ChevronDown size={14} /></button>
-      <button type="button" title="Close (Esc)" onClick={close} style={iconBtn}><X size={14} /></button>
+      <button type="button" title="Previous match (Shift+Enter)" onClick={() => find('prev')} style={iconBtn}><Icon icon={ChevronUp} size={14} /></button>
+      <button type="button" title="Next match (Enter)" onClick={() => find('next')} style={iconBtn}><Icon icon={ChevronDown} size={14} /></button>
+      <button type="button" title="Close (Esc)" onClick={close} style={iconBtn}><Icon icon={X} size={14} /></button>
     </div>
   );
 });
