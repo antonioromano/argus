@@ -5,6 +5,7 @@ import { Terminal } from 'lucide-react';
 import { useCompanionTerminal } from '../../hooks/useCompanionTerminal.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { Icon } from '../../components/primitives/index.js';
+import { terminalBackground } from '../../tokens/paint.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -27,7 +28,7 @@ export function CompanionTerminalPanel({
 }: CompanionTerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { terminalAlive } = useCompanionTerminal(containerRef, { sessionId: session.id, socket, theme });
-  const termBg = theme === 'dark' ? '#1a1b26' : '#f5f5f5';
+  const termBg = terminalBackground(theme);
 
   return (
     <aside

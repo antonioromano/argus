@@ -72,7 +72,7 @@ export function AlertSheet({
   // only rendered while isOpen, giving it the correct mount/unmount lifetime.
 
   const confirmBg = confirmDestructive ? 'var(--danger)' : 'var(--accent)';
-  const confirmFg = confirmDestructive ? '#ffffff' : 'var(--fg-on-accent)';
+  const confirmFg = confirmDestructive ? 'var(--fg-on-danger)' : 'var(--fg-on-accent)';
 
   const ghostBtn: React.CSSProperties = {
     flex: 1,

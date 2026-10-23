@@ -18,6 +18,8 @@ import { useFontSettings } from '../context/font-settings-context.js';
 import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
 
 import '@xterm/xterm/css/xterm.css';
+import { TERMINAL_THEMES } from '../tokens/paint.js';
+import type { TerminalTheme } from '../tokens/paint.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -59,54 +61,11 @@ interface UseTerminalOptions {
 // patch rather than as a lighter or darker surface. The rest of the palette is
 // still Tokyo Night.
 //
-// Kept in sync by hand with tokens.css (--bg-2) and with TerminalShell's
-// `termBg`. The native overlay derives from these via toNativeTheme, so both
-// engines move together.
-const DARK_THEME = {
-  background: '#191b20',
-  foreground: '#c0caf5',
-  cursor: '#c0caf5',
-  selectionBackground: '#33467c',
-  black: '#15161e',
-  red: '#f7768e',
-  green: '#9ece6a',
-  yellow: '#e0af68',
-  blue: '#7aa2f7',
-  magenta: '#bb9af7',
-  cyan: '#7dcfff',
-  white: '#a9b1d6',
-  brightBlack: '#414868',
-  brightRed: '#f7768e',
-  brightGreen: '#9ece6a',
-  brightYellow: '#e0af68',
-  brightBlue: '#7aa2f7',
-  brightMagenta: '#bb9af7',
-  brightCyan: '#7dcfff',
-  brightWhite: '#c0caf5',
-};
-
-const LIGHT_THEME = {
-  background: '#ffffff',
-  foreground: '#343b58',
-  cursor: '#343b58',
-  selectionBackground: '#b4d5fe',
-  black: '#0f0f14',
-  red: '#8c4351',
-  green: '#485e30',
-  yellow: '#8f5e15',
-  blue: '#1e3a8a',
-  magenta: '#5a4a78',
-  cyan: '#0f4b6e',
-  white: '#343b58',
-  brightBlack: '#565f7c',
-  brightRed: '#8c4351',
-  brightGreen: '#485e30',
-  brightYellow: '#8f5e15',
-  brightBlue: '#1e3a8a',
-  brightMagenta: '#5a4a78',
-  brightCyan: '#0f4b6e',
-  brightWhite: '#343b58',
-};
+// The palettes live in tokens/paint.ts, mirrored from tokens.css and checked
+// against it (and against WCAG AA) by tokens/contrast.test.ts. The native
+// overlay derives from these via toNativeTheme, so both engines move together.
+const DARK_THEME = TERMINAL_THEMES.dark;
+const LIGHT_THEME = TERMINAL_THEMES.light;
 
 /** Shape of the SwiftTerm-side theme payload (mirrors preload's NativeTerminalTheme). */
 export interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
@@ -114,7 +73,7 @@ export interface NativeTerminalTheme { background: string; foreground: string; c
 // ANSI order matches xterm's own convention: black, red, green, yellow, blue,
 // magenta, cyan, white, then the bright variants — the same order SwiftTerm's
 // `installColors(_:)` expects (see OverlayController.setTheme).
-function toNativeTheme(t: typeof DARK_THEME): NativeTerminalTheme {
+function toNativeTheme(t: TerminalTheme): NativeTerminalTheme {
   return {
     background: t.background,
     foreground: t.foreground,
