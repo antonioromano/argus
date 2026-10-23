@@ -212,6 +212,19 @@ export function setupSocketHandler(
         .catch((err) => console.error('[chat] subscribe failed:', err));
     });
 
+    socket.on('session:chat:setMode', (payload, ack) => {
+      const { sessionId, mode } = (payload ?? {}) as { sessionId?: unknown; mode?: unknown };
+      const reply = typeof ack === 'function' ? ack : () => {};
+      if (typeof sessionId !== 'string' || typeof mode !== 'string' || !chatSubs.has(sessionId)) {
+        reply({ ok: false });
+        return;
+      }
+      manager
+        .setPermissionMode(sessionId, mode, (data) => inputQueue.write(sessionId, data))
+        .then((ok) => reply({ ok }))
+        .catch(() => reply({ ok: false }));
+    });
+
     socket.on('session:chat:unsubscribe', (sessionId: string) => {
       if (typeof sessionId === 'string') unsubscribeChat(sessionId);
     });

@@ -20,6 +20,11 @@ function harness(opts: { claude?: boolean } = {}) {
       return opts.claude === false ? undefined : { available: true, messages: [{ id: 'u1', role: 'user', blocks: [] }] };
     },
     closeChat: (id: string) => { calls.push(`close:${id}`); },
+    setPermissionMode: async (id: string, mode: string, write: (d: string) => void) => {
+      calls.push(`mode:${id}:${mode}`);
+      write('\x1b[Z');
+      return mode === 'plan';
+    },
   } as unknown as SessionManager;
 
   let connection: ((socket: Socket) => void) | undefined;
@@ -88,4 +93,18 @@ test('unknown sessions error; non-Claude sessions answer unavailable and leave t
   assert.equal(h.inRoom(), false);
   const chat = h.emits.find((e) => e.ev === 'session:chat');
   assert.deepEqual(chat?.payload, { sessionId: 'sess-a', reset: true, available: false, messages: [] });
+});
+
+test('setMode is only for subscribed sessions and goes through the input queue', async () => {
+  const h = harness();
+  const acks: unknown[] = [];
+  h.fire('session:chat:setMode', { sessionId: 'sess-a', mode: 'plan' }, (r: unknown) => acks.push(r));
+  assert.deepEqual(acks, [{ ok: false }], 'not subscribed');
+  h.fire('session:chat:subscribe', 'sess-a');
+  await tick();
+  h.fire('session:chat:setMode', { sessionId: 'sess-a', mode: 'plan' }, (r: unknown) => acks.push(r));
+  h.fire('session:chat:setMode', { sessionId: 'sess-a', mode: 42 }, (r: unknown) => acks.push(r));
+  await tick();
+  assert.deepEqual(acks, [{ ok: false }, { ok: false }, { ok: true }]);
+  assert.ok(h.calls.includes('mode:sess-a:plan'));
 });

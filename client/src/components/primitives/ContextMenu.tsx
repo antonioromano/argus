@@ -20,6 +20,8 @@ interface ContextMenuProps {
   y: number;
   items: ContextMenuEntry[];
   onClose: () => void;
+  /** 'above' opens upward from (x, y) — for menus anchored to a control near the bottom. */
+  placement?: 'below' | 'above';
 }
 
 function isSeparator(entry: ContextMenuEntry): entry is { separator: true } {
@@ -32,7 +34,7 @@ function isHeader(entry: ContextMenuEntry): entry is { header: string } {
 
 const MENU_W = 200;
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, placement = 'below' }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -46,9 +48,9 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const nx = Math.min(x, window.innerWidth - rect.width - 8);
-    const ny = Math.min(y, window.innerHeight - rect.height - 8);
+    const ny = Math.min(placement === 'above' ? y - rect.height : y, window.innerHeight - rect.height - 8);
     setPos({ x: Math.max(8, nx), y: Math.max(8, ny) });
-  }, [x, y]);
+  }, [x, y, placement]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {

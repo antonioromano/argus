@@ -42,7 +42,8 @@ export function applyChatUpdate(
 }
 
 const MODE_LABELS: Record<string, string> = {
-  default: 'Default',
+  // Claude Code's footer calls the default mode "manual".
+  default: 'Manual',
   acceptEdits: 'Accept edits',
   plan: 'Plan',
   auto: 'Auto',
@@ -64,8 +65,22 @@ export function modelLabel(model: string): string {
   return `${name} ${parts.slice(i).join('.')}`;
 }
 
-/** Shift+Tab: Claude Code cycles its permission mode on it. */
-export const CYCLE_MODE_KEY = '\x1b[Z';
+/** Modes offered in the Chat view's picker, in Claude Code's Shift+Tab order. */
+export const PICKABLE_MODES = ['default', 'acceptEdits', 'plan', 'auto'] as const;
+
+/** Models offered in the Chat view's picker (`/model <id>`); the rest via the terminal picker. */
+export const PICKABLE_MODELS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
+];
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|heic)$/i;
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXT.test(path);
+}
 
 /** Agents whose sessions offer the Chat view (Gemini and Codex stay terminal-only). */
 export function supportsChatView(agentType: AgentType): boolean {

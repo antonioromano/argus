@@ -192,6 +192,8 @@ const DEBOUNCE_MS = 300;
 const ACTIVITY_WINDOW_MS = 150;
 const ACTIVITY_MIN_FEEDS = 3;
 const SCAN_ROWS = 15;                 // rows from the bottom of the visible window to scan
+/** Bottom rows handed to onSettled (the Claude footer sits on the last one or two). */
+const FOOTER_ROWS = 3;
 const EXTRACT_SCAN_ROWS = 25;         // deeper window for notification-body extraction only —
                                       // tall AskUserQuestion menus push the question line above
                                       // the 15-row state-detection window
@@ -267,6 +269,8 @@ export class StateDetector {
   private onPromptUpdate: ((text: string) => void) | null = null;
   /** Fired on every settle while stably waiting (the menu may have repainted). */
   private onWaitingRepaint: (() => void) | null = null;
+  /** Fired after every settle with the bottom rows (Claude footer → permission mode). */
+  private onSettled: ((rows: string[]) => void) | null = null;
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
   private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
@@ -334,6 +338,10 @@ export class StateDetector {
    */
   setOnPromptUpdate(cb: (text: string) => void): void {
     this.onPromptUpdate = cb;
+  }
+
+  setOnSettled(cb: (rows: string[]) => void): void {
+    this.onSettled = cb;
   }
 
   setOnWaitingRepaint(cb: () => void): void {
@@ -455,6 +463,7 @@ export class StateDetector {
     } else {
       this.scheduleStatus('idle');
     }
+    this.onSettled?.(this.visibleRows(FOOTER_ROWS));
 
     if (process.env['DEBUG_STATE']) {
       const d = this.getDiagnostics();

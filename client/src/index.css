@@ -1605,7 +1605,6 @@ body {
 .argus-chat-composer-box.is-drag-over { border-color: var(--accent-edge); }
 .argus-chat-composer textarea {
   resize: none;
-  min-height: calc(var(--ctl-h-lg) + var(--s-2));
   max-height: calc(240px * var(--ui-scale));
   padding: var(--s-3) var(--s-3) var(--s-2);
   background: transparent;
@@ -1631,6 +1630,9 @@ body {
 }
 .argus-chat-meta-btn {
   all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   cursor: pointer;
   padding: 2px var(--s-1);
   border-radius: var(--r-2);
@@ -1639,3 +1641,47 @@ body {
 .argus-chat-meta-btn:hover:not(:disabled) { background: var(--bg-2); color: var(--fg-0); }
 .argus-chat-meta-btn:disabled { cursor: default; }
 .argus-chat-meta-model { color: var(--fg-2); }
+.argus-chat-attachments { display: flex; flex-wrap: wrap; gap: var(--s-2); padding: var(--s-3) var(--s-3) 0; }
+.argus-chat-attachment {
+  position: relative;
+  width: calc(64px * var(--ui-scale));
+  height: calc(64px * var(--ui-scale));
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.argus-chat-attachment img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.argus-chat-attachment-file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+  color: var(--fg-2);
+}
+.argus-chat-attachment-file span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-xs);
+}
+.argus-chat-attachment-remove {
+  all: unset;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(16px * var(--ui-scale));
+  height: calc(16px * var(--ui-scale));
+  border-radius: 999px;
+  background: var(--bg-overlay);
+  color: var(--fg-0);
+  cursor: pointer;
+}

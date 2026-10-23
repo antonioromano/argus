@@ -154,4 +154,13 @@ describe('ChatView', () => {
     render(session({ status: 'exited' }), socket);
     expect(container.querySelector('textarea')?.disabled).toBe(true);
   });
+
+  it('shows the permission mode from the snapshot, then live from the screen', () => {
+    const { socket, fire } = fakeSocket();
+    render(session(), socket);
+    fire('session:chat', update({ permissionMode: 'default' }));
+    expect(container.querySelector('.argus-chat-composer-meta')?.textContent).toContain('Manual');
+    fire('session:chatMode', { sessionId: 's1', permissionMode: 'plan' });
+    expect(container.querySelector('.argus-chat-composer-meta')?.textContent).toContain('Plan');
+  });
 });

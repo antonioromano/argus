@@ -54,6 +54,7 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { chatRoom } from '../socket/rooms.js';
+import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, permissionModeFromFooter } from './claudeFooter.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
@@ -204,9 +205,16 @@ interface ManagedSession {
   usage?: SessionUsageTracker;
   /** Claude only: open Chat views (B1); the chat feed runs while this is > 0. */
   chatViewers?: number;
+  /** Claude only: permission mode read from the footer on screen (B1). */
+  permissionMode?: string;
+  /** Resolved whenever `permissionMode` changes (setPermissionMode waits on it). */
+  modeWaiters?: Set<() => void>;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
+
+/** How long one Shift+Tab may take to show a new mode in the footer (output settle is 500ms). */
+const MODE_SWITCH_TIMEOUT_MS = 2_500;
 
 /** Codex rollout logs are polled (matched, then tailed) this often. */
 const CODEX_POLL_MS = 2_000;
@@ -1056,6 +1064,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
+    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -1339,6 +1348,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
+    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
@@ -1669,9 +1679,56 @@ export class SessionManager {
     const tracker = this.usageTracker(session);
     await tracker.openChat((update) => {
       if (this.sessions.get(id) !== session) return;
+      // The footer on screen is fresher than the transcript's last user entry.
+      if (session.permissionMode) delete update.permissionMode;
       this.io?.to(chatRoom(id)).emit('session:chat', { sessionId: id, ...update });
     });
-    return tracker.chatSnapshot();
+    const snap = tracker.chatSnapshot();
+    if (session.permissionMode) snap.permissionMode = session.permissionMode;
+    return snap;
+  }
+
+  /** A settled Claude screen: track the permission mode its footer shows. */
+  private applyFooter(id: string, rows: string[]): void {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return;
+    const mode = permissionModeFromFooter(rows);
+    if (!mode || mode === session.permissionMode) return;
+    session.permissionMode = mode;
+    if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
+    const waiters = session.modeWaiters;
+    session.modeWaiters = undefined;
+    waiters?.forEach((w) => w());
+  }
+
+  /**
+   * Switch a Claude session's permission mode the way the user would: Shift+Tab
+   * until the footer shows `mode` (Claude Code has no command for it). Resolves
+   * false for an unknown mode, a session not at its prompt, or when the footer
+   * stops changing.
+   */
+  async setPermissionMode(id: string, mode: string, write: (data: string) => void): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude' || !SETTABLE_PERMISSION_MODES.includes(mode)) return false;
+    for (let i = 0; i <= SETTABLE_PERMISSION_MODES.length; i++) {
+      if (session.permissionMode === mode) return true;
+      // On a permission menu Shift+Tab means something else.
+      if (session.status === 'waiting' || session.status === 'exited' || this.sessions.get(id) !== session) return false;
+      const changed = new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          session.modeWaiters?.delete(done);
+          resolve(false);
+        }, MODE_SWITCH_TIMEOUT_MS);
+        const done = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        (session.modeWaiters ??= new Set()).add(done);
+      });
+      write(CYCLE_MODE_KEY);
+      if (!(await changed)) return false;
+    }
+    return session.permissionMode === mode;
   }
 
   /** A Chat view closed; the last one stops the feed and frees its messages. */

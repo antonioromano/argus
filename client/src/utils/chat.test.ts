@@ -60,6 +60,7 @@ describe('permission mode', () => {
 
   it('has readable labels, unknown modes as written', () => {
     expect(permissionModeLabel('auto')).toBe('Auto');
+    expect(permissionModeLabel('default')).toBe('Manual');
     expect(permissionModeLabel('acceptEdits')).toBe('Accept edits');
     expect(permissionModeLabel('futureMode')).toBe('futureMode');
   });

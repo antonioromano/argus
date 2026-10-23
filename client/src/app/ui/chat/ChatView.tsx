@@ -128,7 +128,13 @@ export function ChatView({ session, socket, onSend, onShowTerminal, aboveCompose
         status={session.status}
         onSend={onSend}
         permissionMode={chat.permissionMode}
+        onSetMode={(mode) =>
+          new Promise<boolean>((resolve) => {
+            socket.emit('session:chat:setMode', { sessionId: session.id, mode }, (r) => resolve(r.ok));
+          })
+        }
         model={session.usage?.model}
+        onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}
       />
     </div>

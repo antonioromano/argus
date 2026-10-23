@@ -20,12 +20,18 @@ export function useChat(socket: TypedSocket, sessionId: string, enabled: boolean
       if (update.sessionId !== sessionId) return;
       setState((prev) => ({ sessionId, chat: applyChatUpdate(prev.sessionId === sessionId ? prev.chat : EMPTY_CHAT, update) }));
     };
+    const onMode = ({ sessionId: id, permissionMode }: { sessionId: string; permissionMode: string }) => {
+      if (id !== sessionId) return;
+      setState((prev) => (prev.sessionId === sessionId ? { sessionId, chat: { ...prev.chat, permissionMode } } : prev));
+    };
     const subscribe = () => socket.emit('session:chat:subscribe', sessionId);
     socket.on('session:chat', onChat);
+    socket.on('session:chatMode', onMode);
     socket.on('connect', subscribe);
     if (socket.connected) subscribe();
     return () => {
       socket.off('session:chat', onChat);
+      socket.off('session:chatMode', onMode);
       socket.off('connect', subscribe);
       socket.emit('session:chat:unsubscribe', sessionId);
     };

@@ -853,6 +853,8 @@ export interface ClientToServerEvents {
   /** Start receiving `session:chat` updates for a Claude session (B1 Chat view). */
   'session:chat:subscribe': (sessionId: string) => void;
   'session:chat:unsubscribe': (sessionId: string) => void;
+  /** Switch Claude Code's permission mode (Shift+Tab until the footer shows `mode`). */
+  'session:chat:setMode': (payload: { sessionId: string; mode: string }, ack?: (result: { ok: boolean }) => void) => void;
   'ct:join': (sessionId: string, size?: { cols: number; rows: number }) => void;
   'ct:leave': (sessionId: string) => void;
   'ct:input': (payload: { sessionId: string; data: string }) => void;
@@ -924,6 +926,8 @@ export interface ServerToClientEvents {
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** Chat view messages for a subscribed Claude session (see ChatUpdate). */
   'session:chat': (payload: ChatUpdate) => void;
+  /** The permission mode Claude Code shows on screen changed (Chat view subscribers only). */
+  'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
   /** An agent account's plan usage changed (shared by every shell of that agent). */
   'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */
