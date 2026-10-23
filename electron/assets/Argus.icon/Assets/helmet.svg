@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Helmet with the eye slits cut out (evenodd), so the background shows
+       through them in every appearance instead of a baked-in amber fill.
+       Geometry: icon_spartan_amber_v2.svg at 2x (512 → 1024 canvas). -->
+  <path transform="scale(2)" fill-rule="evenodd" fill="#1A1A1A" d="
+    M 128 168
+    Q 256 -22 384 168
+    L 440 168
+    L 440 328
+    Q 428 412 346 442
+    Q 312 454 256 456
+    Q 200 454 166 442
+    Q 84 412 72 328
+    L 72 168
+    Z
+    M 142 214 H 226 Q 236 214 236 224 V 250 Q 236 260 226 260 H 142 Q 132 260 132 250 V 224 Q 132 214 142 214 Z
+    M 286 214 H 370 Q 380 214 380 224 V 250 Q 380 260 370 260 H 286 Q 276 260 276 250 V 224 Q 276 214 286 214 Z"/>
+</svg>
