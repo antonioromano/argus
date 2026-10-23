@@ -414,17 +414,36 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   // the current addon lazily; onResults goes through the fan-out above.
   // Highlights follow the theme through a ref so the engine keeps its identity.
   const themeRef = useRef(theme);
-  useEffect(() => { themeRef.current = theme; }, [theme]);
+  // The last query the bar ran, so a theme switch can repaint its highlights.
+  const lastSearchRef = useRef<{ term: string; options: { caseSensitive: boolean; regex: boolean } } | null>(null);
+  const searchOpenRef = useRef(searchOpen);
+  useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
+  useEffect(() => {
+    themeRef.current = theme;
+    // xterm keeps a match's decoration colors from the find() that drew it, so
+    // after a theme switch the old theme's highlight would sit under the new
+    // foreground (dark→light: ~1.5:1). Redraw the open search in place —
+    // incremental findNext stays on the current match.
+    const addon = searchAddonRef.current;
+    const last = lastSearchRef.current;
+    if (!addon || !last || !searchOpenRef.current) return;
+    addon.clearDecorations();
+    addon.findNext(last.term, { ...last.options, decorations: TERMINAL_SEARCH_DECORATIONS[theme], incremental: true });
+  }, [theme, searchAddonRef]);
   const xtermSearchEngine = useMemo<TerminalSearchEngine>(() => ({
     find: (term, direction, options) => {
       const addon = searchAddonRef.current;
       if (!addon) return undefined;
+      lastSearchRef.current = { term, options: { caseSensitive: options.caseSensitive, regex: options.regex } };
       const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: TERMINAL_SEARCH_DECORATIONS[themeRef.current] };
       if (direction === 'next') addon.findNext(term, { ...opts, incremental: true });
       else addon.findPrevious(term, opts);
       return undefined;
     },
-    clear: () => searchAddonRef.current?.clearDecorations(),
+    clear: () => {
+      lastSearchRef.current = null;
+      searchAddonRef.current?.clearDecorations();
+    },
     onResults: (cb) => {
       const listeners = searchResultListenersRef.current;
       listeners.add(cb);
