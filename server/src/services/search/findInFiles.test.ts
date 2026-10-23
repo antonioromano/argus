@@ -42,8 +42,8 @@ test('buildRgArgs keeps globs glued to --glob= and puts mandatory exclusions las
   const userInclude = args.indexOf('--glob=node_modules/**');
   const mandatory = args.indexOf('--glob=!**/node_modules/**');
   assert.ok(userInclude >= 0 && mandatory > userInclude, 'the later glob must be the exclusion');
-  assert.ok(args.includes('--glob=!*.map'));
-  assert.ok(args.includes('--glob=!*.png'));
+  assert.ok(args.includes('--iglob=!*.map'));
+  assert.ok(args.includes('--iglob=!*.png'));
 });
 
 test('toMatch converts byte offsets to UTF-16 offsets and trims indentation', () => {
@@ -63,4 +63,12 @@ test('toMatch windows a long line around the first match', () => {
   const [[a, b]] = m.ranges;
   assert.equal(m.preview.slice(a, b), 'needle');
   assert.equal(m.column, 1001);
+});
+
+test('toMatch maps several multibyte-offset submatches in one pass', () => {
+  // "€" is 3 bytes: byte offsets 0/3 and 6/9 wrap the two "€" characters' neighbours.
+  const m = toMatch('a€b€c', 1, [{ start: 1, end: 4 }, { start: 5, end: 8 }]);
+  assert.deepEqual(m.ranges, [[1, 2], [3, 4]]);
+  assert.equal(m.preview.slice(1, 2), '€');
+  assert.equal(m.preview.slice(3, 4), '€');
 });

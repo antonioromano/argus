@@ -56,8 +56,8 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'open-diff', label: 'Diff for the focused shell', category: 'Navigation', defaultCombo: 'mod+d' },
   { id: 'open-files', label: 'Files for the focused shell', category: 'Navigation', defaultCombo: 'mod+e' },
   { id: 'open-shell', label: 'Terminal for the focused shell', category: 'Navigation', defaultCombo: 'mod+t' },
-  // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): the
-  // explorer claims it while open and the app-wide handler skips scoped actions.
+  // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): while
+  // the explorer scope is active its action wins (see keyboard/scopes).
   { id: 'find-in-files', label: 'Find in files', category: 'Explorer', defaultCombo: 'mod+shift+f', scope: 'explorer', note: 'While the file explorer is open' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },

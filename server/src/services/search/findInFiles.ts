@@ -35,8 +35,6 @@ export const DEFAULT_FIND_LIMITS: FindInFilesLimits = {
 const PREVIEW_MAX = 240;
 /** Context kept before the first match when a long line is windowed. */
 const PREVIEW_LEAD = 40;
-/** Files bigger than this are skipped (minified bundles, data dumps). */
-const MAX_FILESIZE = '1M';
 
 export class FindInFilesError extends Error {}
 
@@ -82,7 +80,6 @@ export function buildRgArgs(opts: FindInFilesOptions, limits: FindInFilesLimits 
     '--no-config',
     '--hidden',
     '--no-messages',
-    '--max-filesize', MAX_FILESIZE,
     '--max-count', String(limits.maxPerFile),
     opts.caseSensitive ? '--case-sensitive' : '--ignore-case',
   ];
@@ -91,14 +88,28 @@ export function buildRgArgs(opts: FindInFilesOptions, limits: FindInFilesLimits 
   for (const g of opts.include) args.push(`--glob=${g}`);
   for (const g of opts.exclude) args.push(`--glob=!${g.replace(/^!+/, '')}`);
   for (const d of EXCLUDED_SEARCH_DIRS) args.push(`--glob=!**/${d}/**`);
-  for (const ext of [...EXCLUDED_SEARCH_EXTS, ...BINARY_EXTENSIONS]) args.push(`--glob=!*${ext}`);
+  // --iglob: the extension rule is case-insensitive (`.PNG` is skipped like `.png`).
+  for (const ext of [...EXCLUDED_SEARCH_EXTS, ...BINARY_EXTENSIONS]) args.push(`--iglob=!*${ext}`);
   args.push('-e', opts.query, '--', '.');
   return args;
 }
 
-/** UTF-16 length of the first `bytes` bytes of `buf` (rg reports byte offsets). */
-function charOffset(buf: Buffer, bytes: number): number {
-  return buf.subarray(0, bytes).toString('utf8').length;
+/**
+ * Map byte offsets into `buf` (rg reports byte offsets) to UTF-16 offsets in one
+ * pass: each byte segment is decoded once, so a huge line with many submatches
+ * stays linear.
+ */
+function charOffsets(buf: Buffer, bytes: number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  let prevByte = 0;
+  let chars = 0;
+  for (const b of [...new Set(bytes)].sort((x, y) => x - y)) {
+    const end = Math.min(Math.max(b, prevByte), buf.length);
+    chars += buf.subarray(prevByte, end).toString('utf8').length;
+    prevByte = end;
+    out.set(b, chars);
+  }
+  return out;
 }
 
 /**
@@ -108,7 +119,8 @@ function charOffset(buf: Buffer, bytes: number): number {
 export function toMatch(lineText: string, lineNumber: number, submatches: { start: number; end: number }[]): FindInFilesMatch {
   const buf = Buffer.from(lineText, 'utf8');
   let text = lineText.replace(/\r?\n$/, '');
-  let ranges: [number, number][] = submatches.map((s) => [charOffset(buf, s.start), charOffset(buf, s.end)]);
+  const offs = charOffsets(buf, submatches.flatMap((s) => [s.start, s.end]));
+  let ranges: [number, number][] = submatches.map((s) => [offs.get(s.start)!, offs.get(s.end)!]);
   const column = (ranges[0]?.[0] ?? 0) + 1;
 
   const lead = text.length - text.trimStart().length;
@@ -195,9 +207,11 @@ export function findInFiles(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      // Exit 1 == no matches; 2 == error (bad regex), unless we killed it ourselves.
-      if (code === 2 && !truncated && total === 0) {
-        reject(new FindInFilesError(stderr.trim().replace(/^rg: /, '') || 'search failed'));
+      // Exit 1 == no matches; 2 == an error. --no-messages silences per-file errors
+      // (an unreadable file also exits 2), so only a message on stderr — a bad
+      // regex — makes the search itself fail.
+      if (code === 2 && !truncated && total === 0 && stderr.trim()) {
+        reject(new FindInFilesError(stderr.trim().replace(/^rg: /, '')));
         return;
       }
       resolve({ query: opts.query, files, totalMatches: total, truncated });

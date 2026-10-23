@@ -42,8 +42,8 @@ import { WaitingInbox } from './overlays/WaitingInbox.js';
 import { SessionSearch } from './overlays/SessionSearch.js';
 import { requestTerminalReveal } from '../hooks/terminalReveal.js';
 import { BroadcastSheet } from './overlays/BroadcastSheet.js';
-import { formatCombo, comboMatches } from '../keyboard/combo.js';
-import { explorerShortcuts } from '../keyboard/explorerShortcuts.js';
+import { formatCombo } from '../keyboard/combo.js';
+import { activeScopes, scopedHandler, createMenuEchoGuard } from '../keyboard/scopes.js';
 import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
@@ -284,8 +284,8 @@ function DesktopInner() {
   useEffect(() => {
     window.electronApp?.setMenuShortcuts?.(shortcuts.resolved);
   }, [shortcuts.resolved]);
-  const shortcutsRef = useRef(shortcuts);
-  useEffect(() => { shortcutsRef.current = shortcuts; }, [shortcuts]);
+  // Drops the app-menu echo of a keystroke a scoped shortcut already handled.
+  const [menuEcho] = useState(createMenuEchoGuard);
 
   // F16: tell the user once per launch when stale daemons still run agents.
   useEffect(() => { checkOrphansOnStartup(); }, []);
@@ -464,18 +464,13 @@ function DesktopInner() {
     // Open-only (never a toggle): the menu accelerator and the keydown path can
     // both fire for one keystroke, and two toggles would cancel out.
     const offInbox = bridge.onMenu('menu:waiting-inbox', () => openInboxRef.current());
+    // A scoped shortcut (⌘⇧F → Find in Files in the explorer) may share a menu
+    // item's accelerator; the menu's echo of that keystroke is dropped.
     const offSessionSearch = bridge.onMenu('menu:session-search', () => {
-      // The menu accelerator carries the session-search combo; while an explorer
-      // is open and Find in Files shares that combo, the explorer owns the key.
-      const { resolved } = shortcutsRef.current;
-      if (explorerShortcuts.findInFiles && resolved['find-in-files'] === resolved['session-search']) {
-        explorerShortcuts.findInFiles();
-        return;
-      }
-      openSearchRef.current();
+      if (!menuEcho.isEcho()) openSearchRef.current();
     });
     return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); offSessionSearch(); };
-  }, []);
+  }, [menuEcho]);
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
 
@@ -597,13 +592,18 @@ function DesktopInner() {
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable
       );
-      // Explorer-scoped actions win over a global action on the same combo.
-      if (explorerShortcuts.findInFiles && comboMatches(e, shortcuts.resolved['find-in-files'])) {
+      // Scoped actions (e.g. the explorer's) win over a global one on the same
+      // combo — but not while an overlay covers the view that owns the scope.
+      const scopes = app.overlay ? undefined : activeScopes();
+      const action = shortcuts.match(e, scopes);
+      const scoped = action && scopes ? scopedHandler(action) : null;
+      if (scoped) {
         e.preventDefault();
-        explorerShortcuts.findInFiles();
+        menuEcho.claim();
+        scoped();
         return;
       }
-      switch (shortcuts.match(e)) {
+      switch (action) {
         case 'new-session':
           if (isTyping) return;
           e.preventDefault();
@@ -660,7 +660,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId

@@ -335,7 +335,9 @@ export function createFilesystemRoutes(
       // parsed as a flag. --: end options before the path operand.
       const [cmd, args] = rg
         ? [rg, [
-          '--no-config', '--hidden', '--no-heading', '-n', '--color', 'never', '--max-count', '1', '-F',
+          // --no-ignore: grep searched gitignored files and the filename walk above
+          // still does, so content hits must not silently drop them.
+          '--no-config', '--hidden', '--no-ignore', '--no-heading', '-n', '--color', 'never', '--max-count', '1', '-F',
           ...[...EXCLUDED_SEARCH_DIRS].map((d) => `--glob=!**/${d}/**`),
           '-e', query, '--', resolved,
         ]]

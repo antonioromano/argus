@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FindInFilesResponse } from '@argus/shared';
 import { Search, X, CaseSensitive, WholeWord, Regex, Ellipsis, ChevronRight, ChevronDown } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import { api, ApiError, type FindInFilesQuery } from '../../services/api.js';
-import { Icon, scaledPx } from '../primitives/index.js';
+import { Icon, IconButton, scaledPx } from '../primitives/index.js';
+import { relativeTo } from '../../utils/pathFormat.js';
 import { ResultIcon } from './FileSearchPanel.js';
 import { splitHighlights, flattenRows, type Row } from './findInFilesRows.js';
 
@@ -37,35 +37,6 @@ function writeOptions(o: Options): void {
   } catch {
     /* storage unavailable — options just don't persist */
   }
-}
-
-function ToggleButton({ icon, label, active, onClick }: { icon: LucideIcon; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      style={{
-        all: 'unset',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 'var(--ctl-h-xs)',
-        height: 'var(--ctl-h-xs)',
-        flexShrink: 0,
-        borderRadius: 'var(--r-1)',
-        color: active ? 'var(--accent)' : 'var(--fg-3)',
-        background: active ? 'var(--accent-bg)' : 'transparent',
-        border: `1px solid ${active ? 'var(--accent-edge)' : 'transparent'}`,
-        boxSizing: 'border-box',
-      }}
-    >
-      <Icon icon={icon} size={14} strokeWidth={1.6} />
-    </button>
-  );
 }
 
 export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce, onOpenMatch, onClose }: FindInFilesPanelProps) {
@@ -183,7 +154,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
     return () => document.removeEventListener('keydown', onKey, true);
   });
 
-  const relPath = (abs: string) => (abs.startsWith(folderPath) ? abs.slice(folderPath.length).replace(/^\//, '') : abs);
+  const relPath = (abs: string) => relativeTo(folderPath, abs);
 
   let status: string | null = null;
   if (error) status = error;
@@ -215,7 +186,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
           <span style={{ flex: 1, fontSize: 'var(--t-tiny)', letterSpacing: 'var(--tracking-eye)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
             FIND IN FILES
           </span>
-          <ToggleButton icon={Ellipsis} label="Toggle include/exclude filters" active={options.showFilters} onClick={() => patch({ showFilters: !options.showFilters })} />
+          <IconButton icon={Ellipsis} label="Toggle include/exclude filters" size="sm" active={options.showFilters} pressed={options.showFilters} onClick={() => patch({ showFilters: !options.showFilters })} />
           <button
             type="button"
             onClick={onClose}
@@ -237,9 +208,9 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
             spellCheck={false}
             style={inputStyle}
           />
-          <ToggleButton icon={CaseSensitive} label="Match case" active={caseSensitive} onClick={() => patch({ caseSensitive: !caseSensitive })} />
-          <ToggleButton icon={WholeWord} label="Match whole word" active={wholeWord} onClick={() => patch({ wholeWord: !wholeWord })} />
-          <ToggleButton icon={Regex} label="Use regular expression" active={regex} onClick={() => patch({ regex: !regex })} />
+          <IconButton icon={CaseSensitive} label="Match case" size="sm" active={caseSensitive} pressed={caseSensitive} onClick={() => patch({ caseSensitive: !caseSensitive })} />
+          <IconButton icon={WholeWord} label="Match whole word" size="sm" active={wholeWord} pressed={wholeWord} onClick={() => patch({ wholeWord: !wholeWord })} />
+          <IconButton icon={Regex} label="Use regular expression" size="sm" active={regex} pressed={regex} onClick={() => patch({ regex: !regex })} />
         </div>
         {options.showFilters && (
           <>
@@ -356,8 +327,8 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
 const fieldBox: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  height: 'var(--ctl-h-sm)',
-  padding: '0 4px 0 6px',
+  height: 'var(--ctl-h-md)',
+  padding: '0 2px 0 6px',
   background: 'var(--bg-2)',
   border: '1px solid var(--line-2)',
   borderRadius: 'var(--r-1)',

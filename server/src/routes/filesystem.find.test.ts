@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir, realpath } from 'fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, realpath, chmod } from 'fs/promises';
 import { tmpdir } from 'os';
 import path, { join } from 'path';
 import express from 'express';
@@ -27,6 +27,14 @@ before(async () => {
   await writeFile(join(dir, 'bundle.js.map'), 'needle\n');
   await mkdir(join(dir, 'node_modules', 'pkg'), { recursive: true });
   await writeFile(join(dir, 'node_modules', 'pkg', 'index.ts'), 'needle\n');
+  await writeFile(join(dir, 'LOGO.SVG'), '<svg>needle</svg>\n');
+  // Bigger than the old 1M cap: must still be searched.
+  await writeFile(join(dir, 'big.txt'), 'x'.repeat(1_500_000) + '\nbigtoken\n');
+  await writeFile(join(dir, '.gitignore'), 'ignored.txt\n');
+  await writeFile(join(dir, 'ignored.txt'), 'quickonly\n');
+  // Unreadable: rg exits 2 for it, which must not turn into an error.
+  await writeFile(join(dir, 'locked.txt'), 'secret\n');
+  await chmod(join(dir, 'locked.txt'), 0o000);
 
   const fakeSm = {
     resolveWithinAnySession(rawPath: string): string | null {
@@ -45,6 +53,7 @@ before(async () => {
 });
 
 after(async () => {
+  await chmod(join(dir, 'locked.txt'), 0o644);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await rm(dir, { recursive: true, force: true });
 });
@@ -109,4 +118,21 @@ test('find validates the query and globs', async () => {
   assert.equal((await find({ q: 'a\nb' })).status, 400);
   assert.equal((await find({ q: 'x'.repeat(501) })).status, 400);
   assert.equal((await find({ q: 'x', include: 'y'.repeat(300) })).status, 400);
+});
+
+test('an unreadable file does not turn a no-match search into an error', { skip: !rg }, async () => {
+  const { status, body } = await find({ q: 'zzz-no-such-text' });
+  assert.equal(status, 200);
+  assert.deepEqual(body.files, []);
+});
+
+test('find searches files over 1 MB and skips uppercase excluded extensions', { skip: !rg }, async () => {
+  assert.deepEqual((await find({ q: 'bigtoken' })).body.files.map((f: any) => rel(f.path)), ['big.txt']);
+  assert.ok(!(await find({ q: 'needle' })).body.files.some((f: any) => rel(f.path) === 'LOGO.SVG'));
+});
+
+test('quick-open content search still finds gitignored files', { skip: !rg }, async () => {
+  const qs = new URLSearchParams({ path: dir, q: 'quickonly' }).toString();
+  const body = await (await fetch(`${base}/search?${qs}`)).json() as any;
+  assert.deepEqual(body.results.map((r: any) => [rel(r.path), r.matchType]), [['ignored.txt', 'content']]);
 });

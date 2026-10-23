@@ -19,7 +19,7 @@ import { useEditorGroups } from '../../hooks/useEditorGroups.js';
 import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
 import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
 import { FindInFilesPanel } from '../../components/explorer/FindInFilesPanel.js';
-import { explorerShortcuts } from '../../keyboard/explorerShortcuts.js';
+import { registerScope } from '../../keyboard/scopes.js';
 import { EditorTab, type ViewMode, type TabBufferSnapshot } from '../../components/explorer/EditorTab.js';
 import { EditorTabStrip } from '../../components/explorer/EditorTabStrip.js';
 import { putTabState, dropTabState, tabStateFor, dirtyByPath, type TabStates } from '../../components/explorer/tabStates.js';
@@ -183,12 +183,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
     setFindOpen(true);
     setFindNonce((n) => n + 1);
   }, []);
-  useEffect(() => {
-    explorerShortcuts.findInFiles = openFind;
-    return () => {
-      if (explorerShortcuts.findInFiles === openFind) explorerShortcuts.findInFiles = null;
-    };
-  }, [openFind]);
+  useEffect(() => registerScope('explorer', { 'find-in-files': openFind }), [openFind]);
 
   // ⌘S / ⌘K — capture phase so ⌘K beats the global CommandPalette handler.
   useEffect(() => {
