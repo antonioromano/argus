@@ -124,7 +124,13 @@ export function ChatView({ session, socket, onSend, onShowTerminal, aboveCompose
         )}
       </div>
       {aboveComposer}
-      <ChatComposer status={session.status} onSend={onSend} autoFocus={autoFocus} />
+      <ChatComposer
+        status={session.status}
+        onSend={onSend}
+        permissionMode={chat.permissionMode}
+        model={session.usage?.model}
+        autoFocus={autoFocus}
+      />
     </div>
   );
 }

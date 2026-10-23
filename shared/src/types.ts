@@ -680,6 +680,12 @@ export interface ChatUpdate {
   reset: boolean;
   available: boolean;
   messages: ChatMessage[];
+  /**
+   * Claude Code's permission mode as of the latest user entry (`default`,
+   * `acceptEdits`, `plan`, `auto`, `bypassPermissions`, …), when known. Sent on
+   * a reset and whenever it changes.
+   */
+  permissionMode?: string;
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */

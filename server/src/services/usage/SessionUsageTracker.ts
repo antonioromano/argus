@@ -44,6 +44,7 @@ export type ChatSink = (update: Omit<ChatUpdate, 'sessionId'>) => void;
 export interface ChatSnapshot {
   available: boolean;
   messages: ChatMessage[];
+  permissionMode?: string;
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
@@ -337,7 +338,10 @@ export class SessionUsageTracker {
 
   chatSnapshot(): ChatSnapshot {
     const available = !!this.chat && this.chat.path === this.current;
-    return { available, messages: available ? [...this.chat!.messages] : [] };
+    if (!available) return { available, messages: [] };
+    const snap: ChatSnapshot = { available, messages: [...this.chat!.messages] };
+    if (this.chat!.permissionMode) snap.permissionMode = this.chat!.permissionMode;
+    return snap;
   }
 
   /** Queue one chat read behind any in flight; resolves when it is done. */
@@ -369,8 +373,10 @@ export class SessionUsageTracker {
     // Closed, or moved to another transcript, while reading: that read is stale.
     if (this.chatSink !== sink || this.chat !== chat) return;
     const delta = chat.drain();
-    if (delta.reset ? !swallow : delta.messages.length > 0) {
-      sink({ reset: delta.reset, available: true, messages: delta.messages });
+    if (delta.reset ? !swallow : delta.messages.length > 0 || delta.permissionMode !== undefined) {
+      const update: Parameters<ChatSink>[0] = { reset: delta.reset, available: true, messages: delta.messages };
+      if (delta.permissionMode !== undefined) update.permissionMode = delta.permissionMode;
+      sink(update);
     }
   }
 

@@ -109,3 +109,19 @@ test('the safety-net poll picks up lines written without a hook', async () => {
   t.dispose();
   rmSync(d, { recursive: true, force: true });
 });
+
+test('the permission mode reaches the snapshot and the sink', async () => {
+  const { d, t, updates, sink, done } = setup();
+  const a = path.join(d, 'a.jsonl');
+  const withMode = (uuid: string, mode: string) =>
+    JSON.stringify({ type: 'user', uuid, permissionMode: mode, message: { role: 'user', content: uuid } }) + '\n';
+  writeFileSync(a, withMode('u1', 'auto'));
+  t.setTranscript(a);
+  await t.openChat(sink);
+  assert.equal(t.chatSnapshot().permissionMode, 'auto');
+  appendFileSync(a, withMode('u2', 'acceptEdits'));
+  await t.pollNow();
+  await t.openChat(sink);
+  assert.equal(updates.at(-1)?.permissionMode, 'acceptEdits');
+  done();
+});

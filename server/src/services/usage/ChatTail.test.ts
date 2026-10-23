@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, parseChatEntry } from './ChatTail.js';
+import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, parseChatEntry, parseChatLine } from './ChatTail.js';
 
 const user = (uuid: string, content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', uuid, timestamp: '2026-10-23T16:00:00.000Z', message: { role: 'user', content }, ...extra });
@@ -112,4 +112,31 @@ test('ChatTail keeps only the newest messages', async () => {
   assert.equal(t.messages.length, MAX_CHAT_MESSAGES);
   assert.equal(t.messages[0].id, 'u5');
   rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail reports the permission mode on a reset and when it changes', async () => {
+  const f = tmpFile();
+  // A tool-result entry is not a message but still carries the mode.
+  writeFileSync(f, user('u1', 'one', { permissionMode: 'default' }) + '\n' + user('u2', [{ type: 'tool_result' }], { permissionMode: 'auto' }) + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  let d = t.drain();
+  assert.equal(d.permissionMode, 'auto');
+  assert.deepEqual(d.messages.map((m) => m.id), ['u1']);
+
+  appendFileSync(f, user('u3', 'same mode', { permissionMode: 'auto' }) + '\n');
+  await t.poll();
+  d = t.drain();
+  assert.equal(d.permissionMode, undefined, 'unchanged mode is not resent');
+
+  appendFileSync(f, user('u4', [{ type: 'tool_result' }], { permissionMode: 'plan' }) + '\n');
+  assert.equal(await t.poll(), true);
+  d = t.drain();
+  assert.deepEqual(d, { reset: false, messages: [], permissionMode: 'plan' });
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('sidechain entries do not change the permission mode', () => {
+  assert.equal(parseChatLine(user('s1', 'x', { isSidechain: true, permissionMode: 'plan' })), undefined);
+  assert.deepEqual(parseChatLine(user('u1', 'x', { isMeta: true, permissionMode: 'plan' })), { message: undefined, permissionMode: 'plan' });
 });

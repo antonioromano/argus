@@ -9,6 +9,8 @@ export interface ChatState {
   /** False while the session has no readable transcript (fall back to the terminal). */
   available: boolean;
   messages: ChatMessage[];
+  /** Claude Code's permission mode, when the transcript recorded one. */
+  permissionMode?: string;
 }
 
 export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages: [] };
@@ -18,17 +20,52 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
  * append adds messages not seen yet (a snapshot and an append can overlap
  * when a second viewer subscribes mid-read, so ids are deduped).
  */
-export function applyChatUpdate(prev: ChatState, update: Pick<ChatUpdate, 'reset' | 'available' | 'messages'>): ChatState {
+export function applyChatUpdate(
+  prev: ChatState,
+  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode'>,
+): ChatState {
   if (update.reset) {
-    return { loaded: true, available: update.available, messages: update.messages.slice(-MAX_CLIENT_CHAT_MESSAGES) };
+    return {
+      loaded: true,
+      available: update.available,
+      messages: update.messages.slice(-MAX_CLIENT_CHAT_MESSAGES),
+      permissionMode: update.permissionMode,
+    };
   }
-  if (update.messages.length === 0) return { ...prev, loaded: true, available: update.available };
+  // Appends carry the mode only when it changed.
+  const permissionMode = update.permissionMode ?? prev.permissionMode;
   const seen = new Set(prev.messages.map((m) => m.id));
   const fresh = update.messages.filter((m) => !seen.has(m.id));
-  if (fresh.length === 0 && prev.loaded && prev.available === update.available) return prev;
-  const messages = prev.messages.concat(fresh);
-  return { loaded: true, available: update.available, messages: messages.slice(-MAX_CLIENT_CHAT_MESSAGES) };
+  if (fresh.length === 0 && prev.loaded && prev.available === update.available && prev.permissionMode === permissionMode) return prev;
+  const messages = fresh.length ? prev.messages.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : prev.messages;
+  return { loaded: true, available: update.available, messages, permissionMode };
 }
+
+const MODE_LABELS: Record<string, string> = {
+  default: 'Default',
+  acceptEdits: 'Accept edits',
+  plan: 'Plan',
+  auto: 'Auto',
+  bypassPermissions: 'Bypass permissions',
+  dontAsk: "Don't ask",
+};
+
+/** Display name of a Claude Code permission mode; unknown modes show as written. */
+export function permissionModeLabel(mode: string): string {
+  return MODE_LABELS[mode] ?? mode;
+}
+
+/** "claude-opus-5-5" → "Opus 5.5", "claude-haiku-4-5-20251001" → "Haiku 4.5". */
+export function modelLabel(model: string): string {
+  const parts = model.replace(/^claude-/, '').replace(/-\d{8}$/, '').split('-');
+  const i = parts.findIndex((p) => /^\d+$/.test(p));
+  if (i <= 0) return model;
+  const name = parts.slice(0, i).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  return `${name} ${parts.slice(i).join('.')}`;
+}
+
+/** Shift+Tab: Claude Code cycles its permission mode on it. */
+export const CYCLE_MODE_KEY = '\x1b[Z';
 
 /** Agents whose sessions offer the Chat view (Gemini and Codex stay terminal-only). */
 export function supportsChatView(agentType: AgentType): boolean {

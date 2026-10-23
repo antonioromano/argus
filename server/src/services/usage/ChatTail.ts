@@ -82,11 +82,20 @@ function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
   return out;
 }
 
+const MAX_MODE = 40;
+
+/** What one transcript line contributes to the chat. */
+export interface ChatLine {
+  message?: ChatMessage;
+  /** Permission mode recorded on a main-thread user entry. */
+  permissionMode?: string;
+}
+
 /**
- * One transcript line → a chat message, or undefined when the line is not one
- * (other entry types, meta prompts, tool results, malformed JSON).
+ * One transcript line → its chat message and/or permission mode, or undefined
+ * when it carries neither (other entry types, malformed JSON, …).
  */
-export function parseChatEntry(text: string): ChatMessage | undefined {
+export function parseChatLine(text: string): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
   if (!text.includes('"user"') && !text.includes('"assistant"')) return undefined;
   let entry: any;
@@ -98,6 +107,22 @@ export function parseChatEntry(text: string): ChatMessage | undefined {
   if (!entry || typeof entry !== 'object') return undefined;
   const role = entry.type;
   if (role !== 'user' && role !== 'assistant') return undefined;
+  if (entry.isSidechain) return undefined;
+  const permissionMode =
+    role === 'user' && typeof entry.permissionMode === 'string' && entry.permissionMode
+      ? entry.permissionMode.slice(0, MAX_MODE)
+      : undefined;
+  const message = toMessage(entry, role);
+  if (!message && !permissionMode) return undefined;
+  return { message, permissionMode };
+}
+
+/** One transcript line → a chat message, or undefined when it is not one. */
+export function parseChatEntry(text: string): ChatMessage | undefined {
+  return parseChatLine(text)?.message;
+}
+
+function toMessage(entry: any, role: 'user' | 'assistant'): ChatMessage | undefined {
   if (entry.isSidechain || entry.isMeta || entry.isCompactSummary || entry.isVisibleInTranscriptOnly) return undefined;
   if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
   const msg = entry.message;
@@ -115,6 +140,8 @@ export interface ChatDelta {
   /** The file was rewritten (or this is the first read): `messages` is everything. */
   reset: boolean;
   messages: ChatMessage[];
+  /** Set on a reset, and when the permission mode changed since the last drain. */
+  permissionMode?: string;
 }
 
 /**
@@ -125,16 +152,25 @@ export interface ChatDelta {
 export class ChatTail extends JsonlTailer {
   /** The newest MAX_CHAT_MESSAGES messages. */
   messages: ChatMessage[] = [];
+  /** Latest permission mode seen on a user entry. */
+  permissionMode?: string;
   private fresh: ChatMessage[] = [];
   private wasReset = true;
+  private modeChanged = false;
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
     super(path, fs);
   }
 
   protected line(text: string): boolean {
-    const m = parseChatEntry(text);
-    if (!m) return false;
+    const parsed = parseChatLine(text);
+    if (!parsed) return false;
+    if (parsed.permissionMode && parsed.permissionMode !== this.permissionMode) {
+      this.permissionMode = parsed.permissionMode;
+      this.modeChanged = true;
+    }
+    const m = parsed.message;
+    if (!m) return this.modeChanged;
     this.messages.push(m);
     if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
     if (!this.wasReset) {
@@ -148,6 +184,7 @@ export class ChatTail extends JsonlTailer {
     const had = this.messages.length > 0;
     this.messages = [];
     this.fresh = [];
+    this.permissionMode = undefined;
     this.wasReset = true;
     return had;
   }
@@ -157,8 +194,10 @@ export class ChatTail extends JsonlTailer {
     const delta: ChatDelta = this.wasReset
       ? { reset: true, messages: [...this.messages] }
       : { reset: false, messages: this.fresh };
+    if ((this.wasReset || this.modeChanged) && this.permissionMode) delta.permissionMode = this.permissionMode;
     this.fresh = [];
     this.wasReset = false;
+    this.modeChanged = false;
     return delta;
   }
 }

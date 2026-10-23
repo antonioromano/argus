@@ -221,6 +221,14 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
     expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
   });
 
+  it('keeps chat after leaving and re-entering Focus', () => {
+    renderFocus(session({ status: 'running' }));
+    act(() => toggle('Chat')!.click());
+    act(() => root.render(<></>));
+    renderFocus(session({ status: 'running' }));
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
   it('remembers the chat choice for the session', () => {
     window.localStorage.setItem('argus.sessionViewMode', JSON.stringify({ s1: 'chat' }));
     renderFocus(session({ status: 'running' }));

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, chatInputBytes, supportsChatView } from './chat.js';
+import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, chatInputBytes, modelLabel, permissionModeLabel, supportsChatView } from './chat.js';
 
 const msg = (id: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, blocks: [{ kind: 'text', text: id }] });
 
@@ -45,5 +45,31 @@ describe('supportsChatView', () => {
     expect(supportsChatView('claude')).toBe(true);
     expect(supportsChatView('codex')).toBe(false);
     expect(supportsChatView('gemini')).toBe(false);
+  });
+});
+
+describe('permission mode', () => {
+  it('comes with a reset and survives appends that do not carry it', () => {
+    const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [], permissionMode: 'auto' });
+    const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('a')] });
+    expect(s1.permissionMode).toBe('auto');
+    const s2 = applyChatUpdate(s1, { reset: false, available: true, messages: [], permissionMode: 'plan' });
+    expect(s2.permissionMode).toBe('plan');
+    expect(s2.messages).toBe(s1.messages);
+  });
+
+  it('has readable labels, unknown modes as written', () => {
+    expect(permissionModeLabel('auto')).toBe('Auto');
+    expect(permissionModeLabel('acceptEdits')).toBe('Accept edits');
+    expect(permissionModeLabel('futureMode')).toBe('futureMode');
+  });
+});
+
+describe('modelLabel', () => {
+  it('turns model ids into names', () => {
+    expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(modelLabel('claude-fable-5-1')).toBe('Fable 5.1');
+    expect(modelLabel('mystery')).toBe('mystery');
   });
 });

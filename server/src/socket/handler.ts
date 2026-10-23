@@ -201,7 +201,13 @@ export function setupSocketHandler(
         .then((snap) => {
           if (!chatSubs.has(sessionId)) return; // unsubscribed meanwhile
           if (!snap) unsubscribeChat(sessionId); // not a Claude session
-          socket.emit('session:chat', { sessionId, reset: true, available: snap?.available ?? false, messages: snap?.messages ?? [] });
+          socket.emit('session:chat', {
+            sessionId,
+            reset: true,
+            available: snap?.available ?? false,
+            messages: snap?.messages ?? [],
+            ...(snap?.permissionMode ? { permissionMode: snap.permissionMode } : {}),
+          });
         })
         .catch((err) => console.error('[chat] subscribe failed:', err));
     });
