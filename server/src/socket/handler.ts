@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { SessionManager } from '../services/SessionManager.js';
+import { chatRoom } from './rooms.js';
 import { authVerdict, type AuthService } from '../services/AuthService.js';
 import { isExposedRequest } from '../middleware/exposure.js';
 import type { UpdateService } from '../services/UpdateService.js';
@@ -177,6 +178,37 @@ export function setupSocketHandler(
     // then trigger a fresh check (cooldown-guarded to avoid hammering GitHub)
     updateService.broadcastToSocket(socket);
     void updateService.checkForUpdate();
+
+    // Chat view (B1): sessions this socket has the Chat view open for.
+    const chatSubs = new Set<string>();
+    const unsubscribeChat = (sessionId: string): void => {
+      if (!chatSubs.delete(sessionId)) return;
+      void socket.leave(chatRoom(sessionId));
+      manager.closeChat(sessionId);
+    };
+
+    socket.on('session:chat:subscribe', (sessionId: string) => {
+      if (typeof sessionId !== 'string' || chatSubs.has(sessionId)) return;
+      if (!manager.getSession(sessionId)) {
+        socket.emit('session:error', { sessionId, message: 'Session not found' });
+        return;
+      }
+      chatSubs.add(sessionId);
+      // Join before the first read so no update can fall between it and the snapshot.
+      void socket.join(chatRoom(sessionId));
+      manager
+        .openChat(sessionId)
+        .then((snap) => {
+          if (!chatSubs.has(sessionId)) return; // unsubscribed meanwhile
+          if (!snap) unsubscribeChat(sessionId); // not a Claude session
+          socket.emit('session:chat', { sessionId, reset: true, available: snap?.available ?? false, messages: snap?.messages ?? [] });
+        })
+        .catch((err) => console.error('[chat] subscribe failed:', err));
+    });
+
+    socket.on('session:chat:unsubscribe', (sessionId: string) => {
+      if (typeof sessionId === 'string') unsubscribeChat(sessionId);
+    });
 
     socket.on('session:join', (sessionId: string) => {
       if (!manager.getSession(sessionId)) {
@@ -399,6 +431,7 @@ export function setupSocketHandler(
 
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
+      for (const sessionId of [...chatSubs]) unsubscribeChat(sessionId);
       // Clean up dimensions for all sessions and companion terminals this socket was part of
       for (const [roomKey, sockets] of clientDimensions) {
         if (sockets.has(socket.id)) {

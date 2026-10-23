@@ -1,8 +1,9 @@
 import path from 'path';
 import os from 'os';
 import { realpathSync, statSync } from 'fs';
-import type { SessionUsage } from '@argus/shared';
+import type { ChatMessage, ChatUpdate, SessionUsage } from '@argus/shared';
 import { contextWindowFor } from './contextWindows.js';
+import { ChatTail } from './ChatTail.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
 
 /**
@@ -32,12 +33,24 @@ export interface SessionUsageTrackerOpts {
   emitThrottleMs?: number;
   /** Directories a transcript must live under (default: transcriptRoots()). */
   roots?: readonly string[];
+  /** Chat view safety-net poll while a chat is open (hooks drive the rest). */
+  chatPollMs?: number;
+}
+
+/** A chat view update without its session id (the caller adds it). */
+export type ChatSink = (update: Omit<ChatUpdate, 'sessionId'>) => void;
+
+/** What a new chat viewer is sent first. */
+export interface ChatSnapshot {
+  available: boolean;
+  messages: ChatMessage[];
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
 const MAX_TRANSCRIPTS = 32;
 const DEFAULT_DEBOUNCE_MS = 400;
 const DEFAULT_EMIT_THROTTLE_MS = 1000;
+const DEFAULT_CHAT_POLL_MS = 1000;
 /** Message ids remembered for cross-transcript dedupe (oldest dropped first). */
 const MAX_OWNED_IDS = 50_000;
 
@@ -97,6 +110,15 @@ export class SessionUsageTracker {
   private disposed = false;
   private roots: readonly string[];
   private updatedAt = 0;
+  // Chat view (B1): a separate reader of the current transcript, alive only
+  // while someone has the Chat view open. Reads are serialized on chatQueue.
+  private chat?: ChatTail;
+  private chatSink?: ChatSink;
+  private chatQueue: Promise<void> = Promise.resolve();
+  private chatTimer?: ReturnType<typeof setInterval>;
+  private chatPollMs: number;
+  /** The first read after openChat() is answered by chatSnapshot(), not the sink. */
+  private chatSwallowReset = false;
   /** message id → the transcript that counts it. A conversation resumed into a
    *  new file can repeat its history there; only the first file counts it. */
   private owners = new Map<string, string>();
@@ -113,6 +135,7 @@ export class SessionUsageTracker {
     this.debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     this.emitThrottleMs = opts.emitThrottleMs ?? DEFAULT_EMIT_THROTTLE_MS;
     this.roots = opts.roots ?? transcriptRoots();
+    this.chatPollMs = opts.chatPollMs ?? DEFAULT_CHAT_POLL_MS;
   }
 
   static restore(
@@ -191,6 +214,7 @@ export class SessionUsageTracker {
     this.current = undefined;
     this.updatedAt = Date.now();
     this.emitSoon();
+    void this.readChatSoon();
   }
 
   /** Debounced read of the current transcript. `delayMs` overrides the debounce. */
@@ -211,6 +235,7 @@ export class SessionUsageTracker {
   async pollNow(): Promise<void> {
     const tailer = this.current ? this.tailers.get(this.current) : undefined;
     if (!tailer || this.disposed) return;
+    void this.readChatSoon();
     this.polling = true;
     try {
       if (await tailer.poll()) {
@@ -286,7 +311,71 @@ export class SessionUsageTracker {
     return usage;
   }
 
+  /**
+   * Start the chat feed. Later changes (new messages, or a reset when Claude
+   * moves to another transcript) go to `sink`; the state as of the first read
+   * is what chatSnapshot() returns once this resolves.
+   */
+  async openChat(sink: ChatSink): Promise<void> {
+    if (this.disposed) return;
+    if (!this.chatSink) {
+      this.chatSwallowReset = true;
+      this.chatTimer = setInterval(() => void this.readChatSoon(), this.chatPollMs);
+      this.chatTimer.unref?.();
+    }
+    this.chatSink = sink;
+    await this.readChatSoon();
+  }
+
+  /** Stop the chat feed and drop its messages (nobody is looking). */
+  closeChat(): void {
+    if (this.chatTimer) clearInterval(this.chatTimer);
+    this.chatTimer = undefined;
+    this.chatSink = undefined;
+    this.chat = undefined;
+  }
+
+  chatSnapshot(): ChatSnapshot {
+    const available = !!this.chat && this.chat.path === this.current;
+    return { available, messages: available ? [...this.chat!.messages] : [] };
+  }
+
+  /** Queue one chat read behind any in flight; resolves when it is done. */
+  private readChatSoon(): Promise<void> {
+    if (!this.chatSink) return this.chatQueue;
+    this.chatQueue = this.chatQueue.then(() => this.readChat());
+    return this.chatQueue;
+  }
+
+  private async readChat(): Promise<void> {
+    const sink = this.chatSink;
+    if (!sink || this.disposed) return;
+    const swallow = this.chatSwallowReset;
+    this.chatSwallowReset = false;
+    if (!this.current) {
+      if (this.chat) {
+        this.chat = undefined;
+        if (!swallow) sink({ reset: true, available: false, messages: [] });
+      }
+      return;
+    }
+    if (this.chat?.path !== this.current) this.chat = new ChatTail(this.current, this.fs);
+    const chat = this.chat;
+    try {
+      await chat.poll();
+    } catch (err) {
+      console.warn('[chat] transcript read failed:', err instanceof Error ? err.message : err);
+    }
+    // Closed, or moved to another transcript, while reading: that read is stale.
+    if (this.chatSink !== sink || this.chat !== chat) return;
+    const delta = chat.drain();
+    if (delta.reset ? !swallow : delta.messages.length > 0) {
+      sink({ reset: delta.reset, available: true, messages: delta.messages });
+    }
+  }
+
   dispose(): void {
+    this.closeChat();
     this.disposed = true;
     if (this.pollTimer) clearTimeout(this.pollTimer);
     if (this.emitTimer) clearTimeout(this.emitTimer);

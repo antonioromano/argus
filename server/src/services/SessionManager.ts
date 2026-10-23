@@ -53,13 +53,14 @@ import { SleepPreventionService } from './SleepPreventionService.js';
 import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
+import { chatRoom } from '../socket/rooms.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import type { PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
-import { SessionUsageTracker, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { SessionUsageTracker, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
 import {
   CodexRolloutTailer,
@@ -201,6 +202,8 @@ interface ManagedSession {
   promptOptions?: PromptOption[];
   /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
   usage?: SessionUsageTracker;
+  /** Claude only: open Chat views (B1); the chat feed runs while this is > 0. */
+  chatViewers?: number;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
@@ -1651,6 +1654,32 @@ export class SessionManager {
     if (meta.transcriptPath) {
       this.usageTracker(session).setTranscript(meta.transcriptPath);
     }
+  }
+
+  /**
+   * A client opened the Chat view of a Claude session (B1). Starts the chat
+   * feed on the first viewer; updates go to the `chatRoom(id)` socket room.
+   * Resolves with what this viewer should paint first, or undefined for an
+   * unknown or non-Claude session.
+   */
+  async openChat(id: string): Promise<ChatSnapshot | undefined> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return undefined;
+    session.chatViewers = (session.chatViewers ?? 0) + 1;
+    const tracker = this.usageTracker(session);
+    await tracker.openChat((update) => {
+      if (this.sessions.get(id) !== session) return;
+      this.io?.to(chatRoom(id)).emit('session:chat', { sessionId: id, ...update });
+    });
+    return tracker.chatSnapshot();
+  }
+
+  /** A Chat view closed; the last one stops the feed and frees its messages. */
+  closeChat(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session || !session.chatViewers) return;
+    session.chatViewers -= 1;
+    if (session.chatViewers === 0) session.usage?.closeChat();
   }
 
   private usageTracker(session: ManagedSession): SessionUsageTracker {
