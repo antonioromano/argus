@@ -1,0 +1,3 @@
+# Icon Composer sources are hashed byte-for-byte into Assets.car.sha256
+# (scripts/build-icon.mjs) — never let EOL normalization rewrite them.
+electron/assets/Argus.icon/** -text

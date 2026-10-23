@@ -1451,12 +1451,16 @@ async function main() {
     return launchService.remove(id);
   });
 
-  if (process.platform === 'darwin') {
+  // Dev only: the unbundled Electron binary would show the Electron atom. A
+  // packaged build must keep the bundle icon (Assets.car via CFBundleIconName) —
+  // setIcon overrides it with a flat bitmap and loses the Dark/Tinted/Clear
+  // variants while the app runs.
+  if (process.platform === 'darwin' && !app.isPackaged) {
     const dockIcon = nativeImage.createFromPath(join(__dirname, '..', 'assets', 'icon.png'));
     app.dock?.setIcon(dockIcon);
     // Mark the dev instance so it's distinguishable from the installed app when
     // both run at once.
-    if (!app.isPackaged) app.dock?.setBadge('dev');
+    app.dock?.setBadge('dev');
   }
 
   // Full restore: one BrowserWindow per persisted registry window. Main first

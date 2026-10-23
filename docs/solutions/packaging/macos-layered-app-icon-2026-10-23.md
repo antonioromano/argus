@@ -25,13 +25,16 @@ from an Icon Composer document.
   `helmet.svg` with the eye slits cut out via `evenodd`) whose fill flips to
   amber in `dark` and to white in `tinted` (Tinted and Clear derive from it).
 - `npm run build:icon` runs `xcrun actool` (Xcode 26+) and writes the
-  **committed** `electron/assets/Assets.car` plus `Assets.car.sha256` (hash of
-  the `.icon` sources). CI doesn't need Xcode 26; `electron/src/appIcon.test.ts`
-  fails if the sources changed without a recompile.
+  **committed** `electron/assets/Assets.car`, `Argus.icns` and `Assets.car.sha256`
+  (hash of the `.icon` sources + actool flags; `.gitattributes` keeps the sources
+  out of EOL normalization). CI doesn't need Xcode 26;
+  `electron/src/appIcon.test.ts` fails if either changed without a recompile.
 - `electron-builder.config.cjs` ships it via `extraResources` →
   `Contents/Resources/Assets.car` and sets `mac.extendInfo.CFBundleIconName:
-  'Argus'` (must equal the `.icon` basename). `mac.icon: icon.png` still produces
-  `icon.icns` / `CFBundleIconFile` as the fallback.
+  'Argus'` (must equal the `.icon` basename). `mac.icon: Argus.icns` (actool's
+  render of the same layers) becomes `icon.icns` / `CFBundleIconFile`, the fallback.
+- `electron/src/main.ts` only calls `app.dock.setIcon()` in dev: on a packaged
+  build it would replace the bundle icon with a flat bitmap while the app runs.
 
 Preview every appearance without opening Icon Composer:
 

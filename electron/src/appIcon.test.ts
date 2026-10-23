@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Compiled to electron/dist/, so the repo root is two levels up.
@@ -48,8 +48,8 @@ test('committed Assets.car is compiled from the current Argus.icon', () => {
 
 test('bundle ships Assets.car via CFBundleIconName and keeps the .icns fallback', () => {
   const config = createRequire(import.meta.url)(join(repoRoot, 'electron-builder.config.cjs'));
-  assert.equal(config.mac.extendInfo.CFBundleIconName, 'Argus', 'must match the Argus.icon basename');
-  assert.equal(config.mac.icon, 'electron/assets/icon.png', '.icns fallback source');
+  assert.equal(config.mac.extendInfo.CFBundleIconName, basename(iconDoc, '.icon'), 'must match the .icon basename');
+  assert.equal(config.mac.icon, 'electron/assets/Argus.icns', '.icns fallback rendered from the same .icon');
   assert.ok(
     config.extraResources.some(
       (r: { from: string; to: string }) => r.from === 'electron/assets/Assets.car' && r.to === 'Assets.car',

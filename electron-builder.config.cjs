@@ -108,11 +108,12 @@ module.exports = {
   mac: {
     category: 'public.app-category.developer-tools',
     target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
-    // Fallback .icns (CFBundleIconFile), generated from the flat PNG. Shown by
-    // anything that can't read the Assets.car catalog; on macOS 26 the system
-    // prefers CFBundleIconName so the Dark appearance gets the amber glyph
-    // instead of black-on-black.
-    icon: 'electron/assets/icon.png',
+    // Fallback .icns (CFBundleIconFile), rendered by actool from the same
+    // Argus.icon layers (`npm run build:icon`). Shown by anything that can't
+    // read the Assets.car catalog; on macOS 26 the system prefers
+    // CFBundleIconName so the Dark appearance gets the amber glyph instead of
+    // black-on-black.
+    icon: 'electron/assets/Argus.icns',
     extendInfo: {
       // Must match the Argus.icon basename (scripts/build-icon.mjs ICON_NAME).
       CFBundleIconName: 'Argus',
