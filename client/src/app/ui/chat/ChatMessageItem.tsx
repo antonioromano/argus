@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatBlock, ChatMessage } from '@argus/shared';
 import { Image as ImageIcon, Wrench, HelpCircle } from 'lucide-react';
+import { Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
 
@@ -52,19 +53,19 @@ function Block({ block }: { block: ChatBlock }) {
     case 'tool':
       return (
         <span className="argus-chat-chip" title="Tool call">
-          <Wrench size={12} aria-hidden /> {block.name}
+          <Icon icon={Wrench} size={12} aria-hidden /> {block.name}
         </span>
       );
     case 'image':
       return (
         <span className="argus-chat-chip">
-          <ImageIcon size={12} aria-hidden /> image
+          <Icon icon={ImageIcon} size={12} aria-hidden /> image
         </span>
       );
     default:
       return (
         <span className="argus-chat-chip argus-chat-chip-muted" title="Not shown in the Chat view — see the terminal">
-          <HelpCircle size={12} aria-hidden /> {block.type}
+          <Icon icon={HelpCircle} size={12} aria-hidden /> {block.type}
         </span>
       );
   }

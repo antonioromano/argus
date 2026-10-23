@@ -5,7 +5,7 @@ import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@a
 import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
-import { Button, EmptyState, LoadingState } from '../../../components/primitives/index.js';
+import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
 
@@ -119,7 +119,7 @@ export function ChatView({ session, socket, onSend, onShowTerminal, aboveCompose
               virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
             }}
           >
-            <ArrowDown size={12} aria-hidden /> Latest
+            <Icon icon={ArrowDown} size={12} aria-hidden /> Latest
           </button>
         )}
       </div>

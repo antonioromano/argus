@@ -1593,9 +1593,9 @@ body {
 .argus-chat-composer textarea {
   flex: 1;
   resize: none;
-  min-height: 24px;
-  max-height: 200px;
-  padding: 6px 10px;
+  min-height: var(--ctl-h-sm);
+  max-height: calc(200px * var(--ui-scale));
+  padding: var(--s-1) var(--s-2);
   background: var(--bg-0);
   color: var(--fg-0);
   border: 1px solid var(--line-2);
