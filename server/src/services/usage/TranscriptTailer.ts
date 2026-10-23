@@ -124,10 +124,9 @@ export class TranscriptTailer extends JsonlTailer {
 
   /** Apply one JSONL entry. True when it changed the totals or context. */
   protected line(text: string): boolean {
-    if (text.includes('"pr-link"')) {
-      this.prLink(text);
-      return false; // not a usage change
-    }
+    // A pr-link entry is not a usage change. Other lines that merely contain the
+    // string (a Grep for it, say) fall through to the usage parse below.
+    if (text.includes('"pr-link"') && this.prLink(text)) return false;
     // Cheap prefilter: most lines (user turns, tool results, attachments) carry no usage.
     if (!text.includes('"usage"') || !text.includes('"assistant"')) return false;
     let entry: any;
@@ -174,14 +173,17 @@ export class TranscriptTailer extends JsonlTailer {
     return true;
   }
 
-  private prLink(text: string): void {
+  /** Apply a `pr-link` entry. True when the line was one (valid URL or not). */
+  private prLink(text: string): boolean {
     let entry: any;
     try {
       entry = JSON.parse(text);
     } catch {
-      return;
+      return false;
     }
-    if (entry?.type === 'pr-link' && isGithubPrUrl(entry.prUrl)) this.prUrl = entry.prUrl;
+    if (entry?.type !== 'pr-link') return false;
+    if (isGithubPrUrl(entry.prUrl)) this.prUrl = entry.prUrl;
+    return true;
   }
 
   private apply(c: Contribution, sign: 1 | -1): void {

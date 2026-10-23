@@ -266,3 +266,21 @@ test('ignores pr-link entries whose URL is not a github.com PR', async () => {
   assert.equal(isGithubPrUrl('https://github.com/o/r/pull/new/feat'), false);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+test('an assistant entry that merely mentions "pr-link" still counts its usage', async () => {
+  const f = tmpFile();
+  const grep = JSON.stringify({
+    type: 'assistant',
+    message: {
+      id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 5 },
+      content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'pr-link' } }],
+    },
+  }) + '\n';
+  writeFileSync(f, grep);
+  const t = new TranscriptTailer(f);
+  assert.equal(await t.poll(), true);
+  assert.equal(t.turns, 1);
+  assert.deepEqual(t.totals, { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 });
+  assert.equal(t.prUrl, undefined);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
