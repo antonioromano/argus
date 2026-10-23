@@ -18,6 +18,21 @@ document.addEventListener(
   { capture: true },
 );
 
+// Same for files picked through an <input type="file"> (the Chat view's "+").
+document.addEventListener(
+  'change',
+  (e) => {
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.files) return;
+    pathMap.clear();
+    for (const file of Array.from(input.files)) {
+      const fullPath = webUtils.getPathForFile(file);
+      if (fullPath) pathMap.set(file.name, fullPath);
+    }
+  },
+  { capture: true },
+);
+
 contextBridge.exposeInMainWorld('electronFiles', {
   getPath: (name: string): string | undefined => pathMap.get(name),
 });

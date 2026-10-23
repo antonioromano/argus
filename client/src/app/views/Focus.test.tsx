@@ -27,6 +27,11 @@ vi.mock('../panels/ActivityPanel.js', () => ({
   ActivityPanel: () => <aside data-testid="activity-panel" />,
 }));
 
+// The chat view subscribes over the socket; here only whether Focus mounts it matters.
+vi.mock('../ui/chat/ChatView.js', () => ({
+  ChatView: () => <section data-testid="chat-view" />,
+}));
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -197,5 +202,45 @@ describe('Focus — activity timeline (beta F6)', () => {
     renderFocus(session(), noop, { activityEnabled: false, sidePanel: { kind: 'activity', sessionId: 's1' } });
     expect(activityButton()).toBeUndefined();
     expect(container.querySelector('[data-testid="activity-panel"]')).toBeNull();
+  });
+});
+
+describe('Focus — Terminal/Chat toggle (B1)', () => {
+  const toggle = (label: string) =>
+    Array.from(container.querySelectorAll('[aria-label="Session view"] button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined;
+
+  beforeEach(() => window.localStorage.clear());
+
+  it('starts on the terminal and switches a Claude session to chat and back', () => {
+    renderFocus(session({ status: 'running' }));
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+    act(() => toggle('Chat')!.click());
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+    expect(window.localStorage.getItem('argus.sessionViewMode')).toContain('"s1":"chat"');
+    act(() => toggle('Terminal')!.click());
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+  });
+
+  it('keeps chat after leaving and re-entering Focus', () => {
+    renderFocus(session({ status: 'running' }));
+    act(() => toggle('Chat')!.click());
+    act(() => root.render(<></>));
+    renderFocus(session({ status: 'running' }));
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
+  it('remembers the chat choice for the session', () => {
+    window.localStorage.setItem('argus.sessionViewMode', JSON.stringify({ s1: 'chat' }));
+    renderFocus(session({ status: 'running' }));
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
+  it('offers no chat for Codex or Gemini sessions, even with a stored choice', () => {
+    window.localStorage.setItem('argus.sessionViewMode', JSON.stringify({ s1: 'chat' }));
+    for (const agentType of ['codex', 'gemini']) {
+      renderFocus(session({ agentType }));
+      expect(container.querySelector('[aria-label="Session view"]')).toBeNull();
+      expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+    }
   });
 });

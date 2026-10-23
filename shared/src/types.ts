@@ -647,6 +647,53 @@ export interface SessionUsage {
   updatedAt: number;
 }
 
+/**
+ * One content block of a chat message (B1 Chat view). Parsed tolerantly from
+ * the Claude Code transcript, which is not a public API: anything the parser
+ * does not recognise becomes `unknown` instead of breaking the view.
+ */
+export type ChatBlock =
+  | { kind: 'text'; text: string }
+  /** A tool call; only the tool name is shown in phase 1. */
+  | { kind: 'tool'; name: string }
+  | { kind: 'image' }
+  | { kind: 'unknown'; type: string };
+
+/** One transcript entry rendered by the Chat view. */
+export interface ChatMessage {
+  /** The entry's uuid (unique per JSONL line). */
+  id: string;
+  role: 'user' | 'assistant';
+  /** Epoch ms, when the entry carries a timestamp. */
+  ts?: number;
+  blocks: ChatBlock[];
+}
+
+/**
+ * Chat view update for one session. `reset` replaces the client's list (first
+ * snapshot, or a different transcript after /clear or resume); otherwise the
+ * messages are appended, deduped by id. `available` is false while the session
+ * has no readable transcript yet, so the client can fall back to the shell.
+ */
+export interface ChatUpdate {
+  sessionId: string;
+  reset: boolean;
+  available: boolean;
+  messages: ChatMessage[];
+  /**
+   * Claude Code's permission mode as of the latest user entry (`default`,
+   * `acceptEdits`, `plan`, `auto`, `bypassPermissions`, …), when known. Sent on
+   * a reset and whenever it changes.
+   */
+  permissionMode?: string;
+  /**
+   * Display name of the model last set with `/model` in this conversation
+   * (e.g. "Opus 5.5", from Claude Code's "Set model to …" output). Same
+   * delivery as `permissionMode`.
+   */
+  modelSet?: string;
+}
+
 /** Agent kinds whose plan (subscription) usage the meter shows. */
 export type PlanUsageAgent = 'claude' | 'codex';
 
@@ -809,6 +856,16 @@ export interface ClientToServerEvents {
   'session:answer': (payload: { sessionId: string; key: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */
+  /** Start receiving `session:chat` updates for a Claude session (B1 Chat view). */
+  'session:chat:subscribe': (sessionId: string) => void;
+  'session:chat:unsubscribe': (sessionId: string) => void;
+  /**
+   * Type a Chat view message (or slash command) into a subscribed Claude session
+   * and submit it; the server re-presses Enter if the text stayed in the input box.
+   */
+  'session:chat:send': (payload: { sessionId: string; text: string }, ack?: (result: { ok: boolean }) => void) => void;
+  /** Switch Claude Code's permission mode (Shift+Tab until the footer shows `mode`). */
+  'session:chat:setMode': (payload: { sessionId: string; mode: string }, ack?: (result: { ok: boolean }) => void) => void;
   'ct:join': (sessionId: string, size?: { cols: number; rows: number }) => void;
   'ct:leave': (sessionId: string) => void;
   'ct:input': (payload: { sessionId: string; data: string }) => void;
@@ -878,6 +935,10 @@ export interface ServerToClientEvents {
   'session:activity': (payload: { sessionId: string; event: ActivityEvent }) => void;
   /** A Claude or Codex session's usage meter changed (throttled to at most ~1/s per session). */
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
+  /** Chat view messages for a subscribed Claude session (see ChatUpdate). */
+  'session:chat': (payload: ChatUpdate) => void;
+  /** The permission mode Claude Code shows on screen changed (Chat view subscribers only). */
+  'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
   /** An agent account's plan usage changed (shared by every shell of that agent). */
   'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */
