@@ -17,7 +17,6 @@ const STICK_THRESHOLD = 48;
 interface ChatViewProps {
   session: SessionInfo;
   socket: TypedSocket;
-  onSend: (data: string) => void;
   /** Switch this session back to the terminal (the fallback when the chat can't be read). */
   onShowTerminal: () => void;
   /** Rendered between the messages and the composer (e.g. the waiting reply buttons). */
@@ -39,7 +38,7 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
  * transcript, rendered as messages, with a composer that types into the pty.
  * The terminal stays mounted underneath; this only covers it.
  */
-export function ChatView({ session, socket, onSend, onShowTerminal, aboveComposer, autoFocus }: ChatViewProps) {
+export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -126,7 +125,7 @@ export function ChatView({ session, socket, onSend, onShowTerminal, aboveCompose
       {aboveComposer}
       <ChatComposer
         status={session.status}
-        onSend={onSend}
+        onSubmit={(text) => socket.emit('session:chat:send', { sessionId: session.id, text })}
         permissionMode={chat.permissionMode}
         onSetMode={(mode) =>
           new Promise<boolean>((resolve) => {
@@ -134,6 +133,7 @@ export function ChatView({ session, socket, onSend, onShowTerminal, aboveCompose
           })
         }
         model={session.usage?.model}
+        modelSet={chat.modelSet}
         onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}
       />

@@ -3,10 +3,8 @@ import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
 import type { SessionStatus } from '@argus/shared';
 import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
-  CHAT_ENTER_DELAY_MS,
   PICKABLE_MODELS,
   PICKABLE_MODES,
-  chatInputBytes,
   isImagePath,
   modelLabel,
   permissionModeLabel,
@@ -15,14 +13,16 @@ import { formatPathsForPty } from '../../../utils/pathFormat.js';
 
 interface ChatComposerProps {
   status: SessionStatus;
-  /** Raw pty input, same path as ReplyBar and the terminal. */
-  onSend: (data: string) => void;
+  /** Type `text` into Claude's prompt and submit it (the server presses Enter). */
+  onSubmit: (text: string) => void;
   /** Claude Code's permission mode (footer on screen, else the transcript). */
   permissionMode?: string;
   /** Ask the server to switch the permission mode; resolves false when it couldn't. */
   onSetMode?: (mode: string) => Promise<boolean>;
   /** Model of the latest turn, from the usage meter. */
   model?: string;
+  /** Display name of the model last set with `/model` (from the transcript); wins over `model`. */
+  modelSet?: string;
   /** Show the terminal (the full /model picker lives there). */
   onShowTerminal?: () => void;
   autoFocus?: boolean;
@@ -58,23 +58,22 @@ type Menu = { kind: 'mode' | 'model'; x: number; y: number };
 
 /**
  * The Chat view's prompt box. Text goes to the agent through the pty, exactly
- * as if typed in the terminal: the text first, then Enter as a separate write.
- * Enter sends, Shift+Enter adds a line. Attached files are sent as their paths
+ * as if typed in the terminal (the server types it, presses Enter and checks it
+ * was submitted). Enter sends, Shift+Enter adds a line. Attached files are sent as their paths
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSend, permissionMode, onSetMode, model, onShowTerminal, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onShowTerminal, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
-  // A model picked here shows until the next turn reports the real one.
-  const [picked, setPicked] = useState<{ id: string; over?: string } | null>(null);
-  if (picked && picked.over !== model) setPicked(null);
+  // A model picked here shows until the transcript (or the next turn) reports the real one.
+  const [picked, setPicked] = useState<{ id: string; set?: string; model?: string } | null>(null);
+  if (picked && (picked.set !== modelSet || picked.model !== model)) setPicked(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const enterTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Latest attachments for the unmount cleanup (their blob URLs).
   const attachmentsRef = useRef(attachments);
   useEffect(() => {
@@ -88,24 +87,12 @@ export function ChatComposer({ status, onSend, permissionMode, onSetMode, model,
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
 
-  useEffect(
-    () => () => {
-      clearTimeout(enterTimer.current);
-      revoke(attachmentsRef.current);
-    },
-    [],
-  );
-
-  const type = (data: string) => {
-    onSend(chatInputBytes(data));
-    clearTimeout(enterTimer.current);
-    enterTimer.current = setTimeout(() => onSend('\r'), CHAT_ENTER_DELAY_MS);
-  };
+  useEffect(() => () => revoke(attachmentsRef.current), []);
 
   const canSend = !exited && (text.trim().length > 0 || attachments.length > 0);
   const send = () => {
     if (!canSend) return;
-    type([formatPathsForPty(attachments.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
+    onSubmit([formatPathsForPty(attachments.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
     revoke(attachments);
     setAttachments([]);
     setText('');
@@ -147,16 +134,16 @@ export function ChatComposer({ status, onSend, permissionMode, onSetMode, model,
     })),
   ];
 
-  const current = picked?.id ?? model;
+  const currentLabel = picked ? modelLabel(picked.id) : (modelSet ?? (model ? modelLabel(model) : undefined));
   const modelItems: ContextMenuEntry[] = [
     { header: 'Model' },
     ...PICKABLE_MODELS.map((m) => ({
       id: m.id,
       label: m.label,
-      shortcut: current && modelLabel(current) === m.label ? '✓' : undefined,
+      shortcut: currentLabel === m.label ? '✓' : undefined,
       onClick: () => {
-        type(`/model ${m.id}`);
-        setPicked({ id: m.id, over: model });
+        onSubmit(`/model ${m.id}`);
+        setPicked({ id: m.id, set: modelSet, model });
       },
     })),
     { separator: true },
@@ -165,7 +152,7 @@ export function ChatComposer({ status, onSend, permissionMode, onSetMode, model,
       label: 'More models… (terminal)',
       onClick: () => {
         onShowTerminal?.();
-        type('/model');
+        onSubmit('/model');
       },
     },
   ];
@@ -263,10 +250,10 @@ export function ChatComposer({ status, onSend, permissionMode, onSetMode, model,
           type="button"
           className="argus-chat-meta-btn"
           disabled={!atPrompt}
-          title={current ?? 'Model'}
+          title="Model"
           onClick={(e) => openMenu('model', e)}
         >
-          {current ? modelLabel(current) : 'Model'}
+          {currentLabel ?? 'Model'}
           <Icon icon={ChevronDown} size={10} aria-hidden />
         </button>
       </div>

@@ -3,7 +3,6 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionStatus } from '@argus/shared';
 import { ChatComposer } from './ChatComposer.js';
-import { CHAT_ENTER_DELAY_MS } from '../../../utils/chat.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -16,23 +15,25 @@ interface Props {
   status?: SessionStatus;
   permissionMode?: string;
   model?: string;
+  modelSet?: string;
   onSetMode?: (mode: string) => Promise<boolean>;
 }
 
 function render(props: Props = {}) {
-  const onSend = vi.fn();
+  const onSubmit = vi.fn();
   act(() =>
     root.render(
       <ChatComposer
         status={props.status ?? 'idle'}
-        onSend={onSend}
+        onSubmit={onSubmit}
         permissionMode={props.permissionMode}
         model={props.model}
+        modelSet={props.modelSet}
         onSetMode={props.onSetMode}
       />,
     ),
   );
-  return onSend;
+  return onSubmit;
 }
 
 const button = (text: string) =>
@@ -59,7 +60,6 @@ afterEach(() => {
   container.remove();
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
   delete (window as Window & { electronFiles?: unknown }).electronFiles;
-  vi.useRealTimers();
 });
 
 describe('ChatComposer — mode and model', () => {
@@ -78,14 +78,30 @@ describe('ChatComposer — mode and model', () => {
   });
 
   it('switches model with /model and shows the pick until the next turn', () => {
-    vi.useFakeTimers();
-    const onSend = render({ model: 'claude-opus-5-5' });
+    const onSubmit = render({ model: 'claude-opus-5-5' });
     act(() => button('Opus 5.5')!.click());
     act(() => menuItem('Sonnet 5.5')!.click());
-    expect(onSend).toHaveBeenCalledWith('/model claude-sonnet-5-5');
-    act(() => { vi.advanceTimersByTime(CHAT_ENTER_DELAY_MS); });
-    expect(onSend).toHaveBeenLastCalledWith('\r');
+    expect(onSubmit).toHaveBeenCalledWith('/model claude-sonnet-5-5');
     expect(button('Sonnet 5.5')).toBeDefined();
+    // Quick switch back: sent again, and the label follows.
+    act(() => button('Sonnet 5.5')!.click());
+    act(() => menuItem('Opus 5.5')!.click());
+    expect(onSubmit).toHaveBeenLastCalledWith('/model claude-opus-5-5');
+    expect(button('Opus 5.5')).toBeDefined();
+  });
+});
+
+describe('ChatComposer — model label', () => {
+  it('prefers the model set with /model over the last turn, and confirms a pick', () => {
+    render({ model: 'claude-opus-5-5', modelSet: 'Sonnet 5.5' });
+    expect(button('Sonnet 5.5')).toBeDefined();
+    act(() => button('Sonnet 5.5')!.click());
+    expect(menuItem('Sonnet 5.5')?.textContent).toContain('✓');
+    act(() => menuItem('Opus 5.5')!.click());
+    expect(button('Opus 5.5')).toBeDefined();
+    // The transcript reports something else: the truth wins over the optimistic pick.
+    render({ model: 'claude-opus-5-5', modelSet: 'Haiku 5.5' });
+    expect(button('Haiku 5.5')).toBeDefined();
   });
 });
 
@@ -96,9 +112,8 @@ describe('ChatComposer — attachments', () => {
   });
 
   it('previews picked files and sends their paths ahead of the text', () => {
-    vi.useFakeTimers();
     const file = pick('shot.png', '/Users/me/My Shots/shot.png');
-    const onSend = render();
+    const onSubmit = render();
     const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
     Object.defineProperty(input, 'files', { configurable: true, value: [file] });
     act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -109,7 +124,7 @@ describe('ChatComposer — attachments', () => {
 
     const send = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
     act(() => send.click());
-    expect(onSend).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"');
+    expect(onSubmit).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"');
     expect(container.querySelector('.argus-chat-attachment')).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
   });

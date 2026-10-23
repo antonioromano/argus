@@ -207,6 +207,7 @@ export function setupSocketHandler(
             available: snap?.available ?? false,
             messages: snap?.messages ?? [],
             ...(snap?.permissionMode ? { permissionMode: snap.permissionMode } : {}),
+            ...(snap?.modelSet ? { modelSet: snap.modelSet } : {}),
           });
         })
         .catch((err) => console.error('[chat] subscribe failed:', err));
@@ -220,7 +221,21 @@ export function setupSocketHandler(
         return;
       }
       manager
-        .setPermissionMode(sessionId, mode, (data) => inputQueue.write(sessionId, data))
+        .setPermissionMode(sessionId, mode, (data, pauseAfter) => inputQueue.write(sessionId, data, pauseAfter))
+        .then((ok) => reply({ ok }))
+        .catch(() => reply({ ok: false }));
+    });
+
+    socket.on('session:chat:send', (payload, ack) => {
+      const { sessionId, text } = (payload ?? {}) as { sessionId?: unknown; text?: unknown };
+      const reply = typeof ack === 'function' ? ack : () => {};
+      if (typeof sessionId !== 'string' || typeof text !== 'string' || !chatSubs.has(sessionId)) {
+        reply({ ok: false });
+        return;
+      }
+      opts.onUserInput?.(sessionId);
+      manager
+        .submitChatInput(sessionId, text, (data, pauseAfter) => inputQueue.write(sessionId, data, pauseAfter))
         .then((ok) => reply({ ok }))
         .catch(() => reply({ ok: false }));
     });

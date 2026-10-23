@@ -140,3 +140,17 @@ test('sidechain entries do not change the permission mode', () => {
   assert.equal(parseChatLine(user('s1', 'x', { isSidechain: true, permissionMode: 'plan' })), undefined);
   assert.deepEqual(parseChatLine(user('u1', 'x', { isMeta: true, permissionMode: 'plan' })), { message: undefined, permissionMode: 'plan' });
 });
+
+test('ChatTail reports the model set with /model', async () => {
+  const f = tmpFile();
+  const reply = (uuid: string, label: string) =>
+    user(uuid, `<local-command-stdout>Set model to \`${label}\` and saved as your default for new sessions</local-command-stdout>`);
+  writeFileSync(f, reply('r1', 'Sonnet 5.5') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  assert.equal(t.drain().modelSet, 'Sonnet 5.5');
+  appendFileSync(f, reply('r2', 'Opus 5.5') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain(), { reset: false, messages: [], modelSet: 'Opus 5.5' });
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});

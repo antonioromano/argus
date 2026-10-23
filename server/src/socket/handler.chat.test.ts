@@ -20,6 +20,11 @@ function harness(opts: { claude?: boolean } = {}) {
       return opts.claude === false ? undefined : { available: true, messages: [{ id: 'u1', role: 'user', blocks: [] }] };
     },
     closeChat: (id: string) => { calls.push(`close:${id}`); },
+    submitChatInput: async (id: string, text: string, write: (d: string, pause?: number) => void) => {
+      calls.push(`send:${id}:${text}`);
+      write(text, 60);
+      return true;
+    },
     setPermissionMode: async (id: string, mode: string, write: (d: string) => void) => {
       calls.push(`mode:${id}:${mode}`);
       write('\x1b[Z');
@@ -107,4 +112,17 @@ test('setMode is only for subscribed sessions and goes through the input queue',
   await tick();
   assert.deepEqual(acks, [{ ok: false }, { ok: false }, { ok: true }]);
   assert.ok(h.calls.includes('mode:sess-a:plan'));
+});
+
+test('send submits through the manager only for subscribed sessions', async () => {
+  const h = harness();
+  const acks: unknown[] = [];
+  h.fire('session:chat:send', { sessionId: 'sess-a', text: 'hi' }, (r: unknown) => acks.push(r));
+  h.fire('session:chat:subscribe', 'sess-a');
+  await tick();
+  h.fire('session:chat:send', { sessionId: 'sess-a', text: 'hi' }, (r: unknown) => acks.push(r));
+  h.fire('session:chat:send', { sessionId: 'sess-a', text: null }, (r: unknown) => acks.push(r));
+  await tick();
+  assert.deepEqual(acks, [{ ok: false }, { ok: false }, { ok: true }]);
+  assert.ok(h.calls.includes('send:sess-a:hi'));
 });

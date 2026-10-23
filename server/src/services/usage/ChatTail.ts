@@ -83,12 +83,16 @@ function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
 }
 
 const MAX_MODE = 40;
+/** Claude Code's reply to `/model`: "Set model to `Opus 5.5` and saved as …". */
+const MODEL_SET_RE = /<local-command-stdout>Set model to `?([^`<\n]{1,60}?)`?(?: and |<|\n|$)/;
 
 /** What one transcript line contributes to the chat. */
 export interface ChatLine {
   message?: ChatMessage;
   /** Permission mode recorded on a main-thread user entry. */
   permissionMode?: string;
+  /** Model display name from a `/model` reply. */
+  modelSet?: string;
 }
 
 /**
@@ -112,9 +116,13 @@ export function parseChatLine(text: string): ChatLine | undefined {
     role === 'user' && typeof entry.permissionMode === 'string' && entry.permissionMode
       ? entry.permissionMode.slice(0, MAX_MODE)
       : undefined;
+  const content = entry.message?.content;
+  const modelSet = role === 'user' && typeof content === 'string' ? MODEL_SET_RE.exec(content)?.[1]?.trim() : undefined;
   const message = toMessage(entry, role);
-  if (!message && !permissionMode) return undefined;
-  return { message, permissionMode };
+  if (!message && !permissionMode && !modelSet) return undefined;
+  const out: ChatLine = { message, permissionMode };
+  if (modelSet) out.modelSet = modelSet;
+  return out;
 }
 
 /** One transcript line → a chat message, or undefined when it is not one. */
@@ -142,6 +150,8 @@ export interface ChatDelta {
   messages: ChatMessage[];
   /** Set on a reset, and when the permission mode changed since the last drain. */
   permissionMode?: string;
+  /** Same, for the model set with `/model`. */
+  modelSet?: string;
 }
 
 /**
@@ -154,8 +164,11 @@ export class ChatTail extends JsonlTailer {
   messages: ChatMessage[] = [];
   /** Latest permission mode seen on a user entry. */
   permissionMode?: string;
+  /** Latest model set with `/model`. */
+  modelSet?: string;
   private fresh: ChatMessage[] = [];
   private wasReset = true;
+  /** The permission mode or the /model pick changed since the last drain. */
   private modeChanged = false;
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
@@ -167,6 +180,10 @@ export class ChatTail extends JsonlTailer {
     if (!parsed) return false;
     if (parsed.permissionMode && parsed.permissionMode !== this.permissionMode) {
       this.permissionMode = parsed.permissionMode;
+      this.modeChanged = true;
+    }
+    if (parsed.modelSet && parsed.modelSet !== this.modelSet) {
+      this.modelSet = parsed.modelSet;
       this.modeChanged = true;
     }
     const m = parsed.message;
@@ -185,6 +202,7 @@ export class ChatTail extends JsonlTailer {
     this.messages = [];
     this.fresh = [];
     this.permissionMode = undefined;
+    this.modelSet = undefined;
     this.wasReset = true;
     return had;
   }
@@ -194,7 +212,10 @@ export class ChatTail extends JsonlTailer {
     const delta: ChatDelta = this.wasReset
       ? { reset: true, messages: [...this.messages] }
       : { reset: false, messages: this.fresh };
-    if ((this.wasReset || this.modeChanged) && this.permissionMode) delta.permissionMode = this.permissionMode;
+    if (this.wasReset || this.modeChanged) {
+      if (this.permissionMode) delta.permissionMode = this.permissionMode;
+      if (this.modelSet) delta.modelSet = this.modelSet;
+    }
     this.fresh = [];
     this.wasReset = false;
     this.modeChanged = false;

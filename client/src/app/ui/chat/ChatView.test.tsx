@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { ChatView } from './ChatView.js';
-import { CHAT_ENTER_DELAY_MS } from '../../../utils/chat.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -41,13 +40,11 @@ const update = (over: Partial<ChatUpdate>): ChatUpdate => ({ sessionId: 's1', re
 let container: HTMLDivElement;
 let root: Root;
 
-function render(s: SessionInfo, socket: Socket<any, any>, onSend = vi.fn(), onShowTerminal = vi.fn()) { // eslint-disable-line @typescript-eslint/no-explicit-any
+function render(s: SessionInfo, socket: Socket<any, any>, onShowTerminal = vi.fn()) { // eslint-disable-line @typescript-eslint/no-explicit-any
   act(() => {
-    root.render(
-      <ChatView session={s} socket={socket} onSend={onSend} onShowTerminal={onShowTerminal} />,
-    );
+    root.render(<ChatView session={s} socket={socket} onShowTerminal={onShowTerminal} />);
   });
-  return { onSend, onShowTerminal };
+  return { onShowTerminal };
 }
 
 // jsdom has no layout; the virtualizer sizes its viewport from offsetWidth/Height.
@@ -130,10 +127,9 @@ describe('ChatView', () => {
     expect(container.querySelectorAll('.argus-chat-msg')).toHaveLength(2);
   });
 
-  it('sends the composer text through the pty, then Enter as a separate write', () => {
-    vi.useFakeTimers();
-    const { socket, fire } = fakeSocket();
-    const { onSend } = render(session(), socket);
+  it('submits the composer text with session:chat:send', () => {
+    const { socket, fire, emitted } = fakeSocket();
+    render(session(), socket);
     fire('session:chat', update({ messages: [] }));
     const box = container.querySelector('textarea')!;
     act(() => {
@@ -142,10 +138,7 @@ describe('ChatView', () => {
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
     act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
-    expect(onSend).toHaveBeenCalledWith('hello');
-    expect(onSend).not.toHaveBeenCalledWith('\r');
-    act(() => { vi.advanceTimersByTime(CHAT_ENTER_DELAY_MS); });
-    expect(onSend).toHaveBeenLastCalledWith('\r');
+    expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: 'hello' }]);
     expect(box.value).toBe('');
   });
 

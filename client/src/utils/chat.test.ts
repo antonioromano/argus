@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, chatInputBytes, modelLabel, permissionModeLabel, supportsChatView } from './chat.js';
+import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, modelLabel, permissionModeLabel, supportsChatView } from './chat.js';
 
 const msg = (id: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, blocks: [{ kind: 'text', text: id }] });
 
@@ -30,16 +30,6 @@ describe('applyChatUpdate', () => {
   });
 });
 
-describe('chatInputBytes', () => {
-  it('sends a single line as typed', () => {
-    expect(chatInputBytes('hello')).toBe('hello');
-  });
-
-  it('sends multi-line text as a bracketed paste with LF newlines', () => {
-    expect(chatInputBytes('a\r\nb\rc')).toBe('\x1b[200~a\nb\nc\x1b[201~');
-  });
-});
-
 describe('supportsChatView', () => {
   it('is Claude only', () => {
     expect(supportsChatView('claude')).toBe(true);
@@ -56,6 +46,13 @@ describe('permission mode', () => {
     const s2 = applyChatUpdate(s1, { reset: false, available: true, messages: [], permissionMode: 'plan' });
     expect(s2.permissionMode).toBe('plan');
     expect(s2.messages).toBe(s1.messages);
+  });
+
+  it('keeps the /model pick across appends', () => {
+    const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [], modelSet: 'Sonnet 5.5' });
+    const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('a')] });
+    expect(s1.modelSet).toBe('Sonnet 5.5');
+    expect(applyChatUpdate(s1, { reset: false, available: true, messages: [], modelSet: 'Opus 5.5' }).modelSet).toBe('Opus 5.5');
   });
 
   it('has readable labels, unknown modes as written', () => {

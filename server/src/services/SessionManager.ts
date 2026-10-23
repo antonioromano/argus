@@ -54,7 +54,8 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { chatRoom } from '../socket/rooms.js';
-import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, permissionModeFromFooter } from './claudeFooter.js';
+import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, chatInputBytes, inputStillPending, permissionModeFromFooter } from './claudeScreen.js';
+import { BROADCAST_ENTER_DELAY_MS } from '../socket/broadcast.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
@@ -207,14 +208,23 @@ interface ManagedSession {
   chatViewers?: number;
   /** Claude only: permission mode read from the footer on screen (B1). */
   permissionMode?: string;
-  /** Resolved whenever `permissionMode` changes (setPermissionMode waits on it). */
-  modeWaiters?: Set<() => void>;
+  /** Called with the bottom rows of the next settled screen (mode switch, chat submit). */
+  settleWaiters?: Set<(rows: string[]) => void>;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
 
 /** How long one Shift+Tab may take to show a new mode in the footer (output settle is 500ms). */
 const MODE_SWITCH_TIMEOUT_MS = 2_500;
+/** Chat submit: how long to wait for a settled screen before checking the input box. */
+const CHAT_SUBMIT_CHECK_MS = 2_000;
+/** Chat submit: extra Enters pressed when the text is still in the input box. */
+const CHAT_ENTER_RETRIES = 2;
+/** Longest Chat view message accepted (characters). */
+const MAX_CHAT_INPUT = 100_000;
+
+/** A pty write through the socket input queue; `pauseAfter` holds later writes back (ms). */
+export type ChatWrite = (data: string, pauseAfter?: number) => void;
 
 /** Codex rollout logs are polled (matched, then tailed) this often. */
 const CODEX_POLL_MS = 2_000;
@@ -1693,12 +1703,26 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return;
     const mode = permissionModeFromFooter(rows);
-    if (!mode || mode === session.permissionMode) return;
-    session.permissionMode = mode;
-    if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
-    const waiters = session.modeWaiters;
-    session.modeWaiters = undefined;
-    waiters?.forEach((w) => w());
+    if (mode && mode !== session.permissionMode) {
+      session.permissionMode = mode;
+      if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
+    }
+    const waiters = session.settleWaiters;
+    session.settleWaiters = undefined;
+    waiters?.forEach((w) => w(rows));
+  }
+
+  /** Bottom rows of the session's next settled screen, or undefined after `timeoutMs`. */
+  private nextSettle(session: ManagedSession, timeoutMs: number): Promise<string[] | undefined> {
+    return new Promise((resolve) => {
+      const done = (rows: string[] | undefined) => {
+        clearTimeout(timer);
+        session.settleWaiters?.delete(done);
+        resolve(rows);
+      };
+      const timer = setTimeout(() => done(undefined), timeoutMs);
+      (session.settleWaiters ??= new Set()).add(done);
+    });
   }
 
   /**
@@ -1707,28 +1731,43 @@ export class SessionManager {
    * false for an unknown mode, a session not at its prompt, or when the footer
    * stops changing.
    */
-  async setPermissionMode(id: string, mode: string, write: (data: string) => void): Promise<boolean> {
+  async setPermissionMode(id: string, mode: string, write: ChatWrite): Promise<boolean> {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || !SETTABLE_PERMISSION_MODES.includes(mode)) return false;
     for (let i = 0; i <= SETTABLE_PERMISSION_MODES.length; i++) {
       if (session.permissionMode === mode) return true;
       // On a permission menu Shift+Tab means something else.
       if (session.status === 'waiting' || session.status === 'exited' || this.sessions.get(id) !== session) return false;
-      const changed = new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => {
-          session.modeWaiters?.delete(done);
-          resolve(false);
-        }, MODE_SWITCH_TIMEOUT_MS);
-        const done = () => {
-          clearTimeout(timer);
-          resolve(true);
-        };
-        (session.modeWaiters ??= new Set()).add(done);
-      });
+      const before = session.permissionMode;
       write(CYCLE_MODE_KEY);
-      if (!(await changed)) return false;
+      const deadline = Date.now() + MODE_SWITCH_TIMEOUT_MS;
+      while (session.permissionMode === before) {
+        const left = deadline - Date.now();
+        if (left <= 0 || !(await this.nextSettle(session, left))) return false;
+      }
     }
     return session.permissionMode === mode;
+  }
+
+  /**
+   * Type a Chat view message (or slash command) into a Claude session and
+   * submit it: the text, then Enter as a separate write. Claude's input reads
+   * text and Enter arriving close together as one paste, so the Enter can end
+   * up as a newline; when the settled screen still shows the text in the input
+   * box, Enter is pressed again (at most twice).
+   */
+  async submitChatInput(id: string, text: string, write: ChatWrite): Promise<boolean> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
+    if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    write(chatInputBytes(text), BROADCAST_ENTER_DELAY_MS);
+    write('\r');
+    for (let i = 0; i < CHAT_ENTER_RETRIES; i++) {
+      const rows = await this.nextSettle(session, CHAT_SUBMIT_CHECK_MS);
+      if (!rows || this.sessions.get(id) !== session || !inputStillPending(rows, text)) return true;
+      write('\r');
+    }
+    return true;
   }
 
   /** A Chat view closed; the last one stops the feed and frees its messages. */

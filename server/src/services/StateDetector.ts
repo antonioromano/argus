@@ -192,8 +192,8 @@ const DEBOUNCE_MS = 300;
 const ACTIVITY_WINDOW_MS = 150;
 const ACTIVITY_MIN_FEEDS = 3;
 const SCAN_ROWS = 15;                 // rows from the bottom of the visible window to scan
-/** Bottom rows handed to onSettled (the Claude footer sits on the last one or two). */
-const FOOTER_ROWS = 3;
+/** Bottom rows handed to onSettled: the Claude input box, status line and mode footer. */
+const FOOTER_ROWS = 12;
 const EXTRACT_SCAN_ROWS = 25;         // deeper window for notification-body extraction only —
                                       // tall AskUserQuestion menus push the question line above
                                       // the 15-row state-detection window

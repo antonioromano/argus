@@ -45,6 +45,7 @@ export interface ChatSnapshot {
   available: boolean;
   messages: ChatMessage[];
   permissionMode?: string;
+  modelSet?: string;
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
@@ -341,6 +342,7 @@ export class SessionUsageTracker {
     if (!available) return { available, messages: [] };
     const snap: ChatSnapshot = { available, messages: [...this.chat!.messages] };
     if (this.chat!.permissionMode) snap.permissionMode = this.chat!.permissionMode;
+    if (this.chat!.modelSet) snap.modelSet = this.chat!.modelSet;
     return snap;
   }
 
@@ -373,9 +375,11 @@ export class SessionUsageTracker {
     // Closed, or moved to another transcript, while reading: that read is stale.
     if (this.chatSink !== sink || this.chat !== chat) return;
     const delta = chat.drain();
-    if (delta.reset ? !swallow : delta.messages.length > 0 || delta.permissionMode !== undefined) {
+    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined;
+    if (delta.reset ? !swallow : delta.messages.length > 0 || meta) {
       const update: Parameters<ChatSink>[0] = { reset: delta.reset, available: true, messages: delta.messages };
       if (delta.permissionMode !== undefined) update.permissionMode = delta.permissionMode;
+      if (delta.modelSet !== undefined) update.modelSet = delta.modelSet;
       sink(update);
     }
   }

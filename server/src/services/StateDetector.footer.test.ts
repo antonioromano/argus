@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { StateDetector } from './StateDetector.js';
 import { FakeClock } from './StateDetector.testClock.js';
-import { permissionModeFromFooter } from './claudeFooter.js';
+import { permissionModeFromFooter } from './claudeScreen.js';
 
 test('every settle hands the bottom rows to onSettled (Chat view mode tracking)', async () => {
   const clock = new FakeClock();

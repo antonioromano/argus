@@ -686,6 +686,12 @@ export interface ChatUpdate {
    * a reset and whenever it changes.
    */
   permissionMode?: string;
+  /**
+   * Display name of the model last set with `/model` in this conversation
+   * (e.g. "Opus 5.5", from Claude Code's "Set model to …" output). Same
+   * delivery as `permissionMode`.
+   */
+  modelSet?: string;
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */
@@ -853,6 +859,11 @@ export interface ClientToServerEvents {
   /** Start receiving `session:chat` updates for a Claude session (B1 Chat view). */
   'session:chat:subscribe': (sessionId: string) => void;
   'session:chat:unsubscribe': (sessionId: string) => void;
+  /**
+   * Type a Chat view message (or slash command) into a subscribed Claude session
+   * and submit it; the server re-presses Enter if the text stayed in the input box.
+   */
+  'session:chat:send': (payload: { sessionId: string; text: string }, ack?: (result: { ok: boolean }) => void) => void;
   /** Switch Claude Code's permission mode (Shift+Tab until the footer shows `mode`). */
   'session:chat:setMode': (payload: { sessionId: string; mode: string }, ack?: (result: { ok: boolean }) => void) => void;
   'ct:join': (sessionId: string, size?: { cols: number; rows: number }) => void;
