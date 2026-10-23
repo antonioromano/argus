@@ -57,8 +57,9 @@ export function KeyCap({ label, sub, tone = 'default', onPress, ariaLabel, grow,
       }}
     >
       <span>{label}</span>
+      {/* On the accent fill --fg-2 drops to ~1.5:1; take the key's on-accent ink. */}
       {sub && (
-        <span style={{ fontSize: '8px', fontWeight: 500, color: 'var(--fg-2)', fontFamily: 'var(--font-sans)', letterSpacing: 'var(--tracking-eye)' }}>
+        <span style={{ fontSize: '8px', fontWeight: 500, color: tone === 'accent' ? 'inherit' : 'var(--fg-2)', fontFamily: 'var(--font-sans)', letterSpacing: 'var(--tracking-eye)' }}>
           {sub}
         </span>
       )}
