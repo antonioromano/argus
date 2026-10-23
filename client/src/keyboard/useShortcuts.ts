@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { comboMatches, normalizeCombo } from './combo.js';
-import { SHORTCUTS, type ShortcutActionId } from './registry.js';
+import { SHORTCUTS, scopeOf, type ShortcutActionId } from './registry.js';
 
 export type ResolvedShortcuts = Record<ShortcutActionId, string>;
 
@@ -19,20 +19,22 @@ export function resolveShortcuts(overrides?: Record<string, string>): ResolvedSh
   return out;
 }
 
-/** First action (in registry order) whose resolved combo matches the event, else null. */
+/** First global action (in registry order) whose resolved combo matches the event, else null.
+ *  Scoped actions are matched by their owner (see explorerShortcuts). */
 export function matchEvent(e: KeyboardEvent, resolved: ResolvedShortcuts): ShortcutActionId | null {
   for (const a of SHORTCUTS) {
-    if (comboMatches(e, resolved[a.id])) return a.id;
+    if (scopeOf(a) === 'global' && comboMatches(e, resolved[a.id])) return a.id;
   }
   return null;
 }
 
-/** Action ids that resolve to the same combo as another action (for conflict warnings). */
+/** Action ids that resolve to the same combo as another action in the same scope (for
+ *  conflict warnings). A scoped action shadowing a global one is intended, not a conflict. */
 export function findConflicts(resolved: ResolvedShortcuts): Set<ShortcutActionId> {
   const seen = new Map<string, ShortcutActionId>();
   const conflicting = new Set<ShortcutActionId>();
   for (const a of SHORTCUTS) {
-    const combo = resolved[a.id];
+    const combo = `${scopeOf(a)}:${resolved[a.id]}`;
     const prev = seen.get(combo);
     if (prev) {
       conflicting.add(prev);

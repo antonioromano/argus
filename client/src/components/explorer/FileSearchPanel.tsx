@@ -12,7 +12,7 @@ interface FileSearchPanelProps {
   onClose: () => void;
 }
 
-function ResultIcon({ ext }: { ext: string }) {
+export function ResultIcon({ ext }: { ext: string }) {
   const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
   if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={13} style={style} />;
   if (ext === '.json') return <Icon icon={FileJson} size={13} style={style} />;

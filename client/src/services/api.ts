@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -48,6 +48,15 @@ async function requireTemplateOk(res: Response): Promise<Response> {
   let body: TemplateErrorResponse | null = null;
   try { body = await res.json() as TemplateErrorResponse; } catch { /* not JSON */ }
   throw new TemplateApiError(res.status, body?.error || res.statusText || `HTTP ${res.status}`, body?.specErrors);
+}
+
+/** Find in Files options; include/exclude are comma-separated glob lists. */
+export interface FindInFilesQuery {
+  regex: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  include: string;
+  exclude: string;
 }
 
 async function requireOk(res: Response): Promise<Response> {
@@ -199,6 +208,17 @@ export const api = {
   searchFiles: async (rootPath: string, query: string): Promise<FileSearchResponse> => {
     const params = new URLSearchParams({ path: rootPath, q: query });
     const res = await authFetch(`${API_BASE}/fs/search?${params}`);
+    return (await requireOk(res)).json();
+  },
+
+  findInFiles: async (rootPath: string, query: string, opts: FindInFilesQuery, signal?: AbortSignal): Promise<FindInFilesResponse> => {
+    const params = new URLSearchParams({ path: rootPath, q: query });
+    if (opts.regex) params.set('regex', '1');
+    if (opts.caseSensitive) params.set('case', '1');
+    if (opts.wholeWord) params.set('word', '1');
+    if (opts.include.trim()) params.set('include', opts.include.trim());
+    if (opts.exclude.trim()) params.set('exclude', opts.exclude.trim());
+    const res = await authFetch(`${API_BASE}/fs/find?${params}`, { signal });
     return (await requireOk(res)).json();
   },
 

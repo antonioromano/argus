@@ -42,7 +42,8 @@ import { WaitingInbox } from './overlays/WaitingInbox.js';
 import { SessionSearch } from './overlays/SessionSearch.js';
 import { requestTerminalReveal } from '../hooks/terminalReveal.js';
 import { BroadcastSheet } from './overlays/BroadcastSheet.js';
-import { formatCombo } from '../keyboard/combo.js';
+import { formatCombo, comboMatches } from '../keyboard/combo.js';
+import { explorerShortcuts } from '../keyboard/explorerShortcuts.js';
 import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
@@ -283,6 +284,8 @@ function DesktopInner() {
   useEffect(() => {
     window.electronApp?.setMenuShortcuts?.(shortcuts.resolved);
   }, [shortcuts.resolved]);
+  const shortcutsRef = useRef(shortcuts);
+  useEffect(() => { shortcutsRef.current = shortcuts; }, [shortcuts]);
 
   // F16: tell the user once per launch when stale daemons still run agents.
   useEffect(() => { checkOrphansOnStartup(); }, []);
@@ -461,7 +464,16 @@ function DesktopInner() {
     // Open-only (never a toggle): the menu accelerator and the keydown path can
     // both fire for one keystroke, and two toggles would cancel out.
     const offInbox = bridge.onMenu('menu:waiting-inbox', () => openInboxRef.current());
-    const offSessionSearch = bridge.onMenu('menu:session-search', () => openSearchRef.current());
+    const offSessionSearch = bridge.onMenu('menu:session-search', () => {
+      // The menu accelerator carries the session-search combo; while an explorer
+      // is open and Find in Files shares that combo, the explorer owns the key.
+      const { resolved } = shortcutsRef.current;
+      if (explorerShortcuts.findInFiles && resolved['find-in-files'] === resolved['session-search']) {
+        explorerShortcuts.findInFiles();
+        return;
+      }
+      openSearchRef.current();
+    });
     return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); offSessionSearch(); };
   }, []);
 
@@ -585,6 +597,12 @@ function DesktopInner() {
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable
       );
+      // Explorer-scoped actions win over a global action on the same combo.
+      if (explorerShortcuts.findInFiles && comboMatches(e, shortcuts.resolved['find-in-files'])) {
+        e.preventDefault();
+        explorerShortcuts.findInFiles();
+        return;
+      }
       switch (shortcuts.match(e)) {
         case 'new-session':
           if (isTyping) return;
