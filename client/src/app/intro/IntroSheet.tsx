@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
-import { MessagesSquare, Paperclip, SquareTerminal } from 'lucide-react';
-import { Sheet, Button, Icon } from '../../components/primitives/index.js';
+import { Sheet, Button } from '../../components/primitives/index.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { KIND_LABEL, kindOf, settingsFor, type TerminalKind } from '../ui/terminalKind.js';
 import type { IntroFlow } from './intro.js';
+import chatViewShot from './assets/chat-view.webp';
 
 export interface IntroResult {
   /** Present when the user kept "Use … for new shells" ticked on the terminal step. */
@@ -215,32 +215,13 @@ function FirstShellPicture() {
 
 // ── What's new ──────────────────────────────────────────────────────────────
 
-const column = { ...frame, flexDirection: 'column', gap: 6 } as const;
-
-const bubble = {
-  padding: '6px 10px', fontSize: 'var(--t-xs)', lineHeight: 1.5, color: 'var(--fg-1)',
-  border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)',
-} as const;
-
-/** Focus header toggle, a short exchange and the composer with its mode/model row. */
+/** A real Focus screenshot (dark theme, 2x), reply text kept generic. */
 function ChatPicture() {
   return (
-    <div style={column}>
-      <MiniTabs items={[<><Icon icon={SquareTerminal} size={12} /> Terminal</>, <><Icon icon={MessagesSquare} size={12} /> Chat</>]} on={1} />
-      <div style={{ ...bubble, alignSelf: 'flex-start', background: 'var(--bg-2)' }}>Why does the login test fail?</div>
-      <div style={{ ...bubble, border: 'none', padding: '2px 0' }}>
-        <div style={{ fontWeight: 600, color: 'var(--fg-0)' }}>The token expires too early</div>
-        <div style={{ ...box(22), marginTop: 4, padding: '2px 8px', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>
-          expiresIn: '24h'
-        </div>
-      </div>
-      <div style={{ ...box(30), marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-        <Icon icon={Paperclip} size={12} /> Message Claude…
-      </div>
-      <div style={{ display: 'flex', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>
-        <span>Auto</span>
-        <span style={{ marginLeft: 'auto' }}>Opus 5.5</span>
-      </div>
-    </div>
+    <img
+      src={chatViewShot}
+      alt="A Claude shell in Focus with the Chat view on: a short exchange and the composer"
+      style={{ display: 'block', width: '100%', height: 'auto', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)' }}
+    />
   );
 }

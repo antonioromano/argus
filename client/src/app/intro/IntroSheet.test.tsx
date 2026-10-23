@@ -33,7 +33,7 @@ describe('IntroSheet — What’s new', () => {
   it('shows only the Chat view slide, without the terminal step or beta opt-ins', () => {
     render('whatsNew');
     expect(title()).toContain('Chat view for Claude shells');
-    expect(title()).toContain('Message Claude…');
+    expect(document.querySelector('img[alt^="A Claude shell in Focus"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Step 1 of 1"]')).toBeTruthy();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     expect(title()).not.toContain('Pick your terminal');
