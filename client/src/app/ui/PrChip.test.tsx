@@ -34,7 +34,7 @@ describe('PrChip', () => {
     expect(chip.textContent).toBe('#42');
     expect(chip.getAttribute('data-state')).toBe('open');
     expect(container.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('failure');
-    expect(chip.getAttribute('aria-label')).toBe('Open PR #42 · checks failing — click to open on GitHub');
+    expect(chip.getAttribute('aria-label')).toBe('Open PR o/r#42 · checks failing — click to open on GitHub');
   });
 
   it('hides the CI dot for a merged PR and when there are no checks', () => {
@@ -56,6 +56,6 @@ describe('PrChip', () => {
   });
 
   it('describes drafts and pending checks', () => {
-    expect(describePr({ ...pr, state: 'draft', ci: 'pending' })).toBe('Draft PR #42 · checks running — click to open on GitHub');
+    expect(describePr({ ...pr, state: 'draft', ci: 'pending' })).toBe('Draft PR o/r#42 · checks running — click to open on GitHub');
   });
 });

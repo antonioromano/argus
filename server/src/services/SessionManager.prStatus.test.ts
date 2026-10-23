@@ -30,11 +30,16 @@ function fixture() {
   const lookups: string[] = [];
   let answer: SessionPr | null = PR;
   // Set the service directly: setPrStatusService would also arm the interval.
+  const urlLookups: string[] = [];
   (sm as any).prService = {
     forFolder: async (f: string) => { lookups.push(f); return answer; },
+    forUrl: async (url: string) => { urlLookups.push(url); return { ...PR, number: 99, url, branch: 'feat/other' }; },
     clear: () => {},
   };
-  return { sm, emitted, lookups, folder, setAnswer: (a: SessionPr | null) => { answer = a; } };
+  const linkPr = (id: string, url: string | undefined) => {
+    (sm as any).sessions.get(id).usage = { linkedPrUrl: () => url, snapshot: () => undefined };
+  };
+  return { sm, emitted, lookups, urlLookups, linkPr, folder, setAnswer: (a: SessionPr | null) => { answer = a; } };
 }
 
 const prEvents = (emitted: Array<{ event: string; payload: any }>) => emitted.filter((e) => e.event === 'session:pr');
@@ -74,4 +79,23 @@ test('turning the setting off clears chips and stops lookups', async () => {
   ]);
   await f.sm.pollPrStatus();
   assert.equal(f.lookups.length, 1);
+});
+
+test('no PR on the folder branch: the PR the transcript links is shown instead', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  const url = 'https://github.com/o/other/pull/99';
+  f.linkPr('a', url);
+  await f.sm.pollPrStatus();
+  assert.deepEqual(f.urlLookups, [url]);
+  assert.equal(f.sm.getSessionInfo('a')?.pr?.url, url);
+  assert.equal(f.sm.getSessionInfo('b')?.pr, undefined);
+});
+
+test('the folder branch PR wins over a transcript-linked one', async () => {
+  const f = fixture();
+  f.linkPr('a', 'https://github.com/o/other/pull/99');
+  await f.sm.pollPrStatus();
+  assert.deepEqual(f.urlLookups, []);
+  assert.deepEqual(f.sm.getSessionInfo('a')?.pr, PR);
 });

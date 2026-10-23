@@ -46,6 +46,8 @@ export interface TranscriptTailerState {
   /** The newest few message contributions, so a message straddling a restart
    *  still dedupes instead of counting twice. */
   recent: [string, Contribution][];
+  /** Latest PR Claude Code linked to this conversation (`pr-link` entry). */
+  prUrl?: string;
 }
 
 /** Message ids remembered for dedupe. Repeats of one message are written back
@@ -53,6 +55,13 @@ export interface TranscriptTailerState {
 const SEEN_CAP = 256;
 const RECENT_PERSISTED = 8;
 const MAX_MODEL_LEN = 100;
+
+/** A github.com pull request URL — the only shape handed on to `gh pr view`. */
+const PR_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]{1,9}$/;
+
+export function isGithubPrUrl(v: unknown): v is string {
+  return typeof v === 'string' && v.length <= 300 && PR_URL_RE.test(v);
+}
 
 const zero = (): UsageCounters => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
@@ -62,6 +71,12 @@ export class TranscriptTailer extends JsonlTailer {
   totals: UsageCounters = zero();
   turns = 0;
   context?: TranscriptContext;
+  /**
+   * The PR this conversation last created or pushed to. Claude Code writes a
+   * `pr-link` entry for those (not for PRs it only reads), so this finds the
+   * PR even when the work happened in another repo than the session folder.
+   */
+  prUrl?: string;
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs, private claim?: ClaimMessage) {
     super(path, fs);
@@ -77,6 +92,7 @@ export class TranscriptTailer extends JsonlTailer {
     const legacy = state as Partial<{ pricedTurns: number; unpricedTurns: number }>;
     t.turns = num(state.turns) || num(legacy.pricedTurns) + num(legacy.unpricedTurns);
     t.context = state.context;
+    if (isGithubPrUrl(state.prUrl)) t.prUrl = state.prUrl;
     for (const [id, c] of state.recent ?? []) {
       t.seen.set(id, { input: num(c.input), output: num(c.output), cacheRead: num(c.cacheRead), cacheCreation: num(c.cacheCreation) });
     }
@@ -92,6 +108,7 @@ export class TranscriptTailer extends JsonlTailer {
       turns: this.turns,
       context: this.context,
       recent: [...this.seen.entries()].slice(-RECENT_PERSISTED),
+      prUrl: this.prUrl,
     };
   }
 
@@ -101,11 +118,15 @@ export class TranscriptTailer extends JsonlTailer {
     this.totals = zero();
     this.turns = 0;
     this.context = undefined;
+    this.prUrl = undefined;
     return had;
   }
 
   /** Apply one JSONL entry. True when it changed the totals or context. */
   protected line(text: string): boolean {
+    // A pr-link entry is not a usage change. Other lines that merely contain the
+    // string (a Grep for it, say) fall through to the usage parse below.
+    if (text.includes('"pr-link"') && this.prLink(text)) return false;
     // Cheap prefilter: most lines (user turns, tool results, attachments) carry no usage.
     if (!text.includes('"usage"') || !text.includes('"assistant"')) return false;
     let entry: any;
@@ -149,6 +170,19 @@ export class TranscriptTailer extends JsonlTailer {
     if (!entry.isSidechain) {
       this.context = { tokens: c.input + c.cacheRead + c.cacheCreation, model };
     }
+    return true;
+  }
+
+  /** Apply a `pr-link` entry. True when the line was one (valid URL or not). */
+  private prLink(text: string): boolean {
+    let entry: any;
+    try {
+      entry = JSON.parse(text);
+    } catch {
+      return false;
+    }
+    if (entry?.type !== 'pr-link') return false;
+    if (isGithubPrUrl(entry.prUrl)) this.prUrl = entry.prUrl;
     return true;
   }
 

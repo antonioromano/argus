@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, renameSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { TranscriptTailer, type TranscriptFs } from './TranscriptTailer.js';
+import { TranscriptTailer, isGithubPrUrl, type TranscriptFs } from './TranscriptTailer.js';
 
 function tmpFile(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-tailer-'));
@@ -232,5 +232,55 @@ test('restores state written before the cost estimate was removed', async () => 
   const t = TranscriptTailer.restore(legacy as never);
   assert.equal(t.turns, 3);
   assert.equal('cost' in t.serialize(), false);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+const prLink = (prUrl: string): string =>
+  JSON.stringify({ type: 'pr-link', sessionId: 's', prNumber: 1, prUrl, prRepository: 'o/r', timestamp: 't' }) + '\n';
+
+test('tracks the latest pr-link without touching usage; persists it', async () => {
+  const f = tmpFile();
+  writeFileSync(f, assistant('m1', { in: 1 }) + prLink('https://github.com/o/r/pull/1') + prLink('https://github.com/o/s/pull/22'));
+  const t = new TranscriptTailer(f);
+  await t.poll();
+  assert.equal(t.prUrl, 'https://github.com/o/s/pull/22');
+  assert.equal(t.turns, 1);
+  appendFileSync(f, prLink('https://github.com/o/r/pull/3'));
+  assert.equal(await t.poll(), false, 'a pr-link is not a usage change');
+  assert.equal(t.prUrl, 'https://github.com/o/r/pull/3');
+  const restored = TranscriptTailer.restore(JSON.parse(JSON.stringify(t.serialize())));
+  assert.equal(restored.prUrl, 'https://github.com/o/r/pull/3');
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ignores pr-link entries whose URL is not a github.com PR', async () => {
+  const f = tmpFile();
+  writeFileSync(f, prLink('https://github.com/o/r/pull/1')
+    + prLink('https://evil.example/o/r/pull/2')
+    + prLink('https://github.com/o/r/pull/3 --repo x')
+    + JSON.stringify({ type: 'user', message: { content: 'see "pr-link" https://github.com/o/r/pull/4' } }) + '\n');
+  const t = new TranscriptTailer(f);
+  await t.poll();
+  assert.equal(t.prUrl, 'https://github.com/o/r/pull/1');
+  assert.equal(TranscriptTailer.restore({ ...t.serialize(), prUrl: 'javascript:alert(1)' }).prUrl, undefined);
+  assert.equal(isGithubPrUrl('https://github.com/o/r/pull/new/feat'), false);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('an assistant entry that merely mentions "pr-link" still counts its usage', async () => {
+  const f = tmpFile();
+  const grep = JSON.stringify({
+    type: 'assistant',
+    message: {
+      id: 'm1', model: 'claude-opus-5-5', usage: { input_tokens: 10, output_tokens: 5 },
+      content: [{ type: 'tool_use', name: 'Grep', input: { pattern: 'pr-link' } }],
+    },
+  }) + '\n';
+  writeFileSync(f, grep);
+  const t = new TranscriptTailer(f);
+  assert.equal(await t.poll(), true);
+  assert.equal(t.turns, 1);
+  assert.deepEqual(t.totals, { input: 10, output: 5, cacheRead: 0, cacheCreation: 0 });
+  assert.equal(t.prUrl, undefined);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });

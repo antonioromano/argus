@@ -836,7 +836,12 @@ export class SessionManager {
           p = service.forFolder(folder);
           byFolder.set(folder, p);
         }
-        const pr = await p;
+        let pr = await p;
+        // No PR on the folder's branch: fall back to the PR the conversation
+        // itself created or pushed to — e.g. a hub session on `main` that works
+        // in other repos. Several sessions on one PR share the service cache.
+        const linked = pr ? undefined : session.usage?.linkedPrUrl();
+        if (linked) pr = await service.forUrl(linked, folder);
         if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
         const prev = this.prMap.get(session.id) ?? null;
         if (JSON.stringify(prev) === JSON.stringify(pr)) return;

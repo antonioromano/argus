@@ -8,7 +8,15 @@ const CI_LABEL: Record<PrCiStatus, string> = {
   none: 'no checks',
 };
 
+/** `owner/repo` of a github.com PR URL — the chip can show a PR from another
+ *  repo than the session folder (one the conversation created or pushed to). */
+function repoOf(url: string): string | null {
+  const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\//.exec(url);
+  return m ? m[1] : null;
+}
+
 export function describePr(pr: SessionPr): string {
   const ci = pr.state === 'open' || pr.state === 'draft' ? ` · ${CI_LABEL[pr.ci]}` : '';
-  return `${STATE_LABEL[pr.state]} PR #${pr.number}${ci} — click to open on GitHub`;
+  const repo = repoOf(pr.url);
+  return `${STATE_LABEL[pr.state]} PR ${repo ?? ''}#${pr.number}${ci} — click to open on GitHub`;
 }
