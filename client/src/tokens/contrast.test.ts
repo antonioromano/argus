@@ -175,3 +175,17 @@ describe('group colors', () => {
     expect(failing).toEqual([]);
   });
 });
+
+describe('input placeholders', () => {
+  it('use the AA --fg-3 token at full opacity in both themes', () => {
+    const interactions = readFileSync(new URL('./interactions.css', import.meta.url), 'utf8');
+    const rules = [...interactions.matchAll(/([^{}]*::placeholder)\s*\{([^}]*)\}/g)];
+    expect(rules.length).toBeGreaterThan(0);
+    for (const [, selector, body] of rules) {
+      const opacity = /opacity:\s*([\d.]+)/.exec(body);
+      expect(opacity ? Number(opacity[1]) : 1, selector.trim()).toBe(1);
+      const c = /(?:^|[\s;])color:\s*([^;]+);/.exec(body);
+      if (c) expect(c[1].trim(), selector.trim()).toBe('var(--fg-3)');
+    }
+  });
+});
