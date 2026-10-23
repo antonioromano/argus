@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { Icon } from '../../../components/primitives/index.js';
 
 export interface RevertConfirmCardProps {
   title?: string;
@@ -47,7 +48,7 @@ export function RevertConfirmCard({
             color: skip ? 'var(--bg-0)' : 'transparent',
           }}
         >
-          {skip && <Check size={9} strokeWidth={2.5} />}
+          {skip && <Icon icon={Check} size={9} strokeWidth={2.5} />}
         </span>
         <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>Don't ask again</span>
       </label>

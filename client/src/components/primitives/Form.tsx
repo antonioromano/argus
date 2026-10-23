@@ -1,5 +1,7 @@
 import type { ReactNode, CSSProperties } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { Icon } from './Icon.js';
+import { scaledPx } from './iconSize.js';
 
 /* ===== Field — labeled wrapper ===== */
 interface FieldProps {
@@ -91,7 +93,7 @@ export function TextInput({
   onChange,
   placeholder,
   mono,
-  icon: Icon,
+  icon: Glyph,
   suffix,
   autoFocus,
   style,
@@ -121,7 +123,7 @@ export function TextInput({
       opacity: disabled ? 0.5 : 1,
       ...style,
     }}>
-      {Icon && <Icon size={13} strokeWidth={1.6} color="var(--fg-3)" />}
+      {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-3)" />}
       <input
         type={type}
         autoFocus={autoFocus}
@@ -231,8 +233,8 @@ export function Checkbox({ checked, onChange, size = 16, indeterminate, disabled
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: size,
-        height: size,
+        width: scaledPx(size),
+        height: scaledPx(size),
         borderRadius: 'var(--r-1)',
         background: filled ? 'var(--accent)' : 'transparent',
         border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
@@ -243,9 +245,9 @@ export function Checkbox({ checked, onChange, size = 16, indeterminate, disabled
       }}
     >
       {indeterminate ? (
-        <span style={{ width: size * 0.5, height: 2, background: 'var(--fg-on-accent)' }} />
+        <span style={{ width: scaledPx(size * 0.5), height: 2, background: 'var(--fg-on-accent)' }} />
       ) : checked ? (
-        <svg width={size - 4} height={size - 4} viewBox="0 0 24 24" fill="none" stroke="var(--fg-on-accent)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+        <svg style={{ width: scaledPx(size - 4), height: scaledPx(size - 4) }} viewBox="0 0 24 24" fill="none" stroke="var(--fg-on-accent)" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
           <polyline points="4 12 10 18 20 6" />
         </svg>
       ) : null}

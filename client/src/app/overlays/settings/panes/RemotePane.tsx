@@ -10,6 +10,7 @@ import {
   PasswordFields,
   NGROK_PW_MIN,
   isNgrokPasswordValid,
+  Icon,
 } from '../../../../components/primitives/index.js';
 
 interface RemotePaneProps {
@@ -68,12 +69,12 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
         {connected ? (
           <>
             <StatusDot status="running" size={8} />
-            <Wifi size={14} strokeWidth={1.6} color="var(--accent)" />
+            <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
             <span className="eyebrow" style={{ color: 'var(--accent)' }}>ACTIVE</span>
           </>
         ) : (
           <>
-            <WifiOff size={14} strokeWidth={1.6} color="var(--fg-3)" />
+            <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
             <span className="eyebrow">OFFLINE</span>
           </>
         )}
@@ -106,7 +107,7 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
             fontSize: 'var(--t-sm)',
           }}
         >
-          <AlertTriangle size={12} strokeWidth={1.6} />
+          <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
           {ngrokError}
         </div>
       )}
@@ -131,7 +132,7 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
                 className="eyebrow"
                 style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               >
-                <ExternalLink size={11} strokeWidth={1.6} /> OPEN
+                <Icon icon={ExternalLink} size={11} strokeWidth={1.6} /> OPEN
               </a>
             </div>
           </SettingRow>

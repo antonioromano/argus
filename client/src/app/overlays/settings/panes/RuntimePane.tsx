@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Icon } from '../../../../components/primitives/index.js';
 import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
@@ -54,7 +54,7 @@ export function RuntimePane({ config, onSave }: PaneProps) {
           lineHeight: 1.5,
         }}
       >
-        <AlertTriangle size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <Icon icon={AlertTriangle} size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
           Runtime changes apply to shells hosted after the next app launch. Running shells keep the
           backend and engine they were created with.

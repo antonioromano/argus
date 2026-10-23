@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchHit, SearchResponse } from '@argus/shared';
 import { Search, Loader2 } from 'lucide-react';
-import { Kbd } from '../../components/primitives/index.js';
+import { Kbd, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 export const SEARCH_DEBOUNCE_MS = 250;
@@ -112,8 +112,8 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
         {loading
-          ? <Loader2 size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0, animation: 'argus-spin 0.9s linear infinite' }} />
-          : <Search size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
+          ? <Icon icon={Loader2} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0, animation: 'argus-spin 0.9s linear infinite' }} />
+          : <Icon icon={Search} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
         <input
           ref={inputRef}
           type="text"

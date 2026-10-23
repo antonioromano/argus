@@ -1,4 +1,6 @@
+import type { CSSProperties } from 'react';
 import { SHELL_AGENT_ID, type AgentType } from '@argus/shared';
+import { scaledPx } from '../../components/primitives/index.js';
 
 interface AgentGlyphProps {
   agent: AgentType;
@@ -18,10 +20,16 @@ function customMeta(agent: string): { glyph: string; color: string } {
   return { glyph, color };
 }
 
+/** `size` is the glyph's px at the default interface font; it scales with it. */
+function glyphBox(size: number): CSSProperties {
+  const dim = scaledPx(size);
+  return { width: dim, height: dim, flexShrink: 0 };
+}
+
 function ClaudeIcon({ size }: { size: number }) {
   const sw = Math.max(1.2, size * 0.1);
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+    <svg viewBox="0 0 16 16" fill="none" style={glyphBox(size)}>
       <g stroke="var(--agent-claude)" strokeWidth={sw} strokeLinecap="round">
         <line x1="8" y1="8" x2="8" y2="2.5" />
         <line x1="8" y1="8" x2="13.4" y2="6.3" />
@@ -35,7 +43,7 @@ function ClaudeIcon({ size }: { size: number }) {
 
 function GeminiIcon({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+    <svg viewBox="0 0 16 16" fill="none" style={glyphBox(size)}>
       <path
         d="M8 1.5 C8 1.5 8 7.5 14 8 C8 8.5 8 14.5 8 14.5 C8 14.5 8 8.5 2 8 C8 7.5 8 1.5 8 1.5 Z"
         fill="var(--agent-gemini)"
@@ -47,7 +55,7 @@ function GeminiIcon({ size }: { size: number }) {
 function CodexIcon({ size }: { size: number }) {
   const sw = Math.max(1, size * 0.08);
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+    <svg viewBox="0 0 16 16" fill="none" style={glyphBox(size)}>
       <polygon
         points="8,1.5 13.2,4.75 13.2,11.25 8,14.5 2.8,11.25 2.8,4.75"
         stroke="var(--agent-codex)"
@@ -64,7 +72,7 @@ function CodexIcon({ size }: { size: number }) {
 function ShellIcon({ size }: { size: number }) {
   const sw = Math.max(1.1, size * 0.09);
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+    <svg viewBox="0 0 16 16" fill="none" style={glyphBox(size)}>
       <g stroke="var(--fg-2)" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
         <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
         <polyline points="4.75,6.25 6.75,8 4.75,9.75" />
@@ -87,15 +95,15 @@ export function AgentGlyph({ agent, size = 18 }: AgentGlyphProps) {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: size,
-        height: size,
+        width: scaledPx(size),
+        height: scaledPx(size),
         background: `color-mix(in srgb, ${meta.color} 13%, transparent)`,
         color: meta.color,
         border: `1px solid color-mix(in srgb, ${meta.color} 40%, transparent)`,
         borderRadius: 'var(--r-1)',
         fontFamily: 'var(--font-mono)',
         fontWeight: 'var(--fw-semibold)',
-        fontSize: size <= 16 ? 10 : size <= 20 ? 11 : 13,
+        fontSize: scaledPx(size <= 16 ? 10 : size <= 20 ? 11 : 13),
         lineHeight: 1,
         flexShrink: 0,
       }}

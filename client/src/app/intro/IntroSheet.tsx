@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
 import { Activity, Check, Forward, Gauge, GitBranch, LayoutGrid, Link, SlidersHorizontal, type LucideIcon } from 'lucide-react';
-import { Sheet, Button } from '../../components/primitives/index.js';
+import { Sheet, Button, Icon } from '../../components/primitives/index.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { KIND_LABEL, kindOf, settingsFor, type TerminalKind } from '../ui/terminalKind.js';
@@ -334,8 +334,8 @@ function UsagePicture() {
   const chip = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' } as const;
   return (
     <div style={column}>
-      <MiniRow lead={<Gauge size={13} />} name={<span style={chip}>ctx 47% · plan 20% · ↻ 2h19m</span>} detail="Hover the chip for the full breakdown" />
-      <MiniRow lead={<SlidersHorizontal size={13} />} name="Settings → Shell header" detail="Reorder or hide parts, set amber/red warnings" />
+      <MiniRow lead={<Icon icon={Gauge} size={13} />} name={<span style={chip}>ctx 47% · plan 20% · ↻ 2h19m</span>} detail="Hover the chip for the full breakdown" />
+      <MiniRow lead={<Icon icon={SlidersHorizontal} size={13} />} name="Settings → Shell header" detail="Reorder or hide parts, set amber/red warnings" />
       <MiniRow lead="–" name="No more cost estimate" detail="It was priced at API rates, not what a Pro/Max plan pays" />
     </div>
   );
@@ -345,8 +345,8 @@ function BetaListPicture() {
   return (
     <div style={column}>
       {BETA_FEATURES.map((f) => {
-        const Icon = BETA_SLIDES[f.flag].icon;
-        return <MiniRow key={f.flag} lead={<Icon size={13} />} name={f.label} />;
+        const Glyph = BETA_SLIDES[f.flag].icon;
+        return <MiniRow key={f.flag} lead={<Icon icon={Glyph} size={13} />} name={f.label} />;
       })}
     </div>
   );
@@ -355,8 +355,8 @@ function BetaListPicture() {
 function WorktreePicture() {
   return (
     <div style={column}>
-      <MiniRow lead={<Check size={13} />} name="Commit" detail="smoke: add f8.txt" />
-      <MiniRow lead={<Check size={13} />} name="Push" detail="origin/feat-x" />
+      <MiniRow lead={<Icon icon={Check} size={13} />} name="Commit" detail="smoke: add f8.txt" />
+      <MiniRow lead={<Icon icon={Check} size={13} />} name="Push" detail="origin/feat-x" />
       <MiniRow lead="◌" name="Open PR" detail="via gh" />
     </div>
   );
@@ -376,7 +376,7 @@ function TemplatesPicture() {
     <Centered>
       <div style={{ width: '100%' }}>
         <MiniRow
-          lead={<LayoutGrid size={13} />}
+          lead={<Icon icon={LayoutGrid} size={13} />}
           name="API + client + reviewer"
           detail="3 shells · 2 new worktrees"
           trail={<Button variant="primary" size="sm">Launch</Button>}
@@ -400,7 +400,7 @@ function ChainsPicture() {
     <div style={column}>
       <MiniRow lead="A" name="api-tests → idle" />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-        <Link size={12} /> types “review the failing tests”
+        <Icon icon={Link} size={12} /> types “review the failing tests”
       </div>
       <MiniRow lead="B" name="reviewer" />
     </div>
@@ -411,7 +411,7 @@ function SummaryPicture({ on }: { on: string[] }) {
   return (
     <div style={column} data-testid="intro-summary">
       {on.length
-        ? on.map((label) => <MiniRow key={label} lead={<Check size={13} />} name={label} detail="turned on" />)
+        ? on.map((label) => <MiniRow key={label} lead={<Icon icon={Check} size={13} />} name={label} detail="turned on" />)
         : <MiniRow name="Nothing turned on" detail="All five stay off" />}
     </div>
   );

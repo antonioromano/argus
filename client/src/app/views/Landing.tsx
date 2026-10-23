@@ -1,5 +1,5 @@
 import { Plus, Play, RotateCcw } from 'lucide-react';
-import { Button } from '../../components/primitives/index.js';
+import { Button, Icon } from '../../components/primitives/index.js';
 
 interface LandingProps {
   /** 'empty' — no shells exist. 'all-minimized' — shells exist but every tile is minimized. */
@@ -29,7 +29,7 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll }: Landin
       <div className="argus-landing-inner">
         <div className="argus-landing-ring" aria-hidden>
           <div className="argus-landing-core">
-            <CoreIcon size={28} strokeWidth={1.8} />
+            <Icon icon={CoreIcon} size={28} strokeWidth={1.8} />
           </div>
         </div>
         <h2 className="argus-landing-title">{title}</h2>

@@ -14,6 +14,7 @@ import {
   ErrorState,
   LoadingState,
   AlertSheet,
+  Icon,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
@@ -430,7 +431,7 @@ export function CreateSheet({
                       boxSizing: 'border-box',
                     }}
                   >
-                    <Folder size={13} strokeWidth={1.5} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                    <Icon icon={Folder} size={13} strokeWidth={1.5} color="var(--fg-3)" style={{ flexShrink: 0 }} />
                     <span style={{
                       flex: 1,
                       fontFamily: 'var(--font-mono)',
@@ -468,7 +469,7 @@ export function CreateSheet({
                       }}
                     >
                       Recents
-                      <ChevronDown
+                      <Icon icon={ChevronDown}
                         size={11}
                         strokeWidth={2.5}
                         style={{ transition: 'transform 0.15s', transform: recentsOpen ? 'rotate(180deg)' : 'none' }}
@@ -530,7 +531,7 @@ export function CreateSheet({
                               transition: 'background 0.08s',
                             }}
                           >
-                            <Folder
+                            <Icon icon={Folder}
                               size={12}
                               strokeWidth={1.5}
                               color={isActive ? 'var(--accent)' : 'var(--fg-3)'}
@@ -563,7 +564,7 @@ export function CreateSheet({
                               <span style={{ fontSize: 10, color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                                 {relativeTime(entry.lastOpened)}
                               </span>
-                              {isActive && <Check size={11} strokeWidth={2.5} color="var(--accent)" />}
+                              {isActive && <Icon icon={Check} size={11} strokeWidth={2.5} color="var(--accent)" />}
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleRemoveRecent(entry.path); }}
@@ -592,7 +593,7 @@ export function CreateSheet({
                                   (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)';
                                 }}
                               >
-                                <X size={11} strokeWidth={2.5} />
+                                <Icon icon={X} size={11} strokeWidth={2.5} />
                               </button>
                             </div>
                           </div>
@@ -713,14 +714,14 @@ export function CreateSheet({
                     Branch name
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <GitBranch size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
                   </div>
                   <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
                     Base branch
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <GitBranch size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
                     <TextInput value={worktreeBase} onChange={setWorktreeBase} placeholder="HEAD" mono list="create-base-branches" />
                     <datalist id="create-base-branches">
                       {repoBranches.map((b) => <option key={b} value={b} />)}

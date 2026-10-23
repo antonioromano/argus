@@ -4,6 +4,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import type { TileQuickAction } from '@argus/shared';
 import { PICKABLE_QUICK_ACTIONS, tileActionMeta } from '../../constants/tileActions.js';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
+import { Icon } from '../../components/primitives/index.js';
 
 interface QuickActionPickerProps {
   value: TileQuickAction;
@@ -128,9 +129,9 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
           fontSize: 'var(--t-sm)',
         }}
       >
-        <CurrentIcon size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-2)' }} />
+        <Icon icon={CurrentIcon} size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-2)' }} />
         <span style={{ flex: 1, minWidth: 0 }}>{label(value)}</span>
-        <ChevronDown size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-3)' }} />
+        <Icon icon={ChevronDown} size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-3)' }} />
       </button>
 
       {open && createPortal(
@@ -164,7 +165,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
           <SuppressWhileMounted target={() => listRef.current?.getBoundingClientRect() ?? null} />
           {PICKABLE_QUICK_ACTIONS.map((id) => {
             const meta = tileActionMeta(id);
-            const Icon = meta.icon;
+            const Glyph = meta.icon;
             const selected = id === value;
             return (
               <button
@@ -187,14 +188,14 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
                   color: selected ? 'var(--accent)' : 'var(--fg-1)',
                 }}
               >
-                <Icon size={13} strokeWidth={1.7} style={{ flexShrink: 0 }} />
+                <Icon icon={Glyph} size={13} strokeWidth={1.7} style={{ flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 'var(--t-sm)' }}>{label(id)}</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-micro)', color: 'var(--fg-4)', marginTop: 1 }}>
                     {meta.hint}
                   </span>
                 </span>
-                <Check
+                <Icon icon={Check}
                   size={12}
                   strokeWidth={2}
                   style={{ flexShrink: 0, opacity: selected ? 1 : 0, color: 'var(--accent)' }}

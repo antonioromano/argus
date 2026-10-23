@@ -1,7 +1,7 @@
 import { Globe, Sun, Moon, Settings, ArrowUp, Columns2, Rows2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import type { KeepAwakeStatus, MosaicOrientation } from '@argus/shared';
-import { Tooltip } from '../../components/primitives/index.js';
+import { Tooltip, Icon } from '../../components/primitives/index.js';
 import { KeepAwakeButton } from './KeepAwakeButton.js';
 
 function formatTime(date: Date, showSeconds: boolean): string {
@@ -58,8 +58,8 @@ const iconBtn = (active = false): React.CSSProperties => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 28,
-  height: 28,
+  width: 'var(--ctl-h-md)',
+  height: 'var(--ctl-h-md)',
   border: `1px solid ${active ? 'var(--accent-edge)' : 'transparent'}`,
   borderRadius: 'var(--r-2)',
   background: active ? 'var(--accent-bg)' : 'transparent',
@@ -119,7 +119,7 @@ export function ElectronToolbar({
               WebkitAppRegion: 'no-drag',
             }}
           >
-            <ArrowUp size={10} strokeWidth={2} /> v{updateVersion}
+            <Icon icon={ArrowUp} size={10} strokeWidth={2} /> v{updateVersion}
           </button>
         )}
 
@@ -139,7 +139,7 @@ export function ElectronToolbar({
               color: ngrokConnected ? 'var(--accent)' : 'var(--fg-2)',
             }}
           >
-            <Globe size={13} strokeWidth={1.6} />
+            <Icon icon={Globe} size={13} strokeWidth={1.6} />
             {ngrokConnected && (
               <span
                 style={{
@@ -161,23 +161,23 @@ export function ElectronToolbar({
         {mosaicOrientation && onToggleMosaicOrientation && (
           <Tooltip content={mosaicOrientation === 'vertical' ? 'Arrange shells side by side' : 'Stack shells vertically'}>
             <button onClick={onToggleMosaicOrientation} style={iconBtn()}>
-              {/* Icon shows the layout you switch TO, like the theme toggle. */}
+              {/* The icon shows the layout you switch TO, like the theme toggle. */}
               {mosaicOrientation === 'vertical'
-                ? <Columns2 size={13} strokeWidth={1.6} />
-                : <Rows2 size={13} strokeWidth={1.6} />}
+                ? <Icon icon={Columns2} size={13} strokeWidth={1.6} />
+                : <Icon icon={Rows2} size={13} strokeWidth={1.6} />}
             </button>
           </Tooltip>
         )}
 
         <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
           <button onClick={onToggleTheme} style={iconBtn()}>
-            {isDark ? <Sun size={13} strokeWidth={1.6} /> : <Moon size={13} strokeWidth={1.6} />}
+            {isDark ? <Icon icon={Sun} size={13} strokeWidth={1.6} /> : <Icon icon={Moon} size={13} strokeWidth={1.6} />}
           </button>
         </Tooltip>
 
         <Tooltip content="Settings">
           <button onClick={onOpenSettings} style={iconBtn()}>
-            <Settings size={13} strokeWidth={1.6} />
+            <Icon icon={Settings} size={13} strokeWidth={1.6} />
           </button>
         </Tooltip>
     </div>

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react';
 import { api, setToken } from '../services/api.js';
 import { reconnectSocket } from '../hooks/useSocket.js';
-import { Button, Field, TextInput } from '../components/primitives/index.js';
+import { Button, Field, TextInput, Icon } from '../components/primitives/index.js';
 import { useOverlaySuppression } from '../hooks/useOverlaySuppression.js';
 
 interface PasswordGateProps {
@@ -84,7 +84,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
             marginBottom: 'var(--s-4)',
           }}
         >
-          <Lock size={11} strokeWidth={1.6} /> REMOTE ACCESS
+          <Icon icon={Lock} size={11} strokeWidth={1.6} /> REMOTE ACCESS
         </div>
         <h1
           style={{
@@ -131,7 +131,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
                   display: 'flex',
                 }}
               >
-                {showPassword ? <EyeOff size={14} strokeWidth={1.6} /> : <Eye size={14} strokeWidth={1.6} />}
+                {showPassword ? <Icon icon={EyeOff} size={14} strokeWidth={1.6} /> : <Icon icon={Eye} size={14} strokeWidth={1.6} />}
               </button>
             </div>
           </Field>
@@ -153,7 +153,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
               color: 'var(--danger)',
             }}
           >
-            <AlertTriangle size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
             {error}
           </div>
         )}

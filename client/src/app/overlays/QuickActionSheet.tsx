@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { TileQuickAction } from '@argus/shared';
 import { Info, Minus, Maximize2, MoreHorizontal, CircleX } from 'lucide-react';
-import { Sheet, Button, Kbd, StatusDot } from '../../components/primitives/index.js';
+import { Sheet, Button, Kbd, StatusDot, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
   DEFAULT_TILE_QUICK_ACTION,
@@ -56,7 +56,7 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
       >
         {PROMPT_QUICK_ACTIONS.map((id) => {
           const meta = tileActionMeta(id);
-          const Icon = meta.icon;
+          const Glyph = meta.icon;
           const selected = choice === id;
           const isDefault = id === DEFAULT_TILE_QUICK_ACTION;
           return (
@@ -104,7 +104,7 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
                   color: selected ? 'var(--accent)' : 'var(--fg-2)',
                 }}
               >
-                <Icon size={14} strokeWidth={1.8} />
+                <Icon icon={Glyph} size={14} strokeWidth={1.8} />
               </span>
               <span style={{ minWidth: 0 }}>
                 <b style={{ display: 'block', color: 'var(--fg-0)', fontSize: 'var(--t-sm)', fontWeight: 'var(--fw-semibold)' }}>
@@ -133,7 +133,7 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
           lineHeight: 1.5,
         }}
       >
-        <Info size={14} strokeWidth={1.8} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
+        <Icon icon={Info} size={14} strokeWidth={1.8} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
         <span>Change it any time in <b>Settings → Shell header</b>. <Kbd>⌘,</Kbd></span>
       </div>
     </Sheet>
@@ -166,7 +166,7 @@ export function QuickActionPreview({
   chip?: ReactNode;
 }) {
   const meta = action === 'none' ? null : tileActionMeta(action);
-  const Icon = meta?.icon;
+  const Glyph = meta?.icon;
   return (
     <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-0)' }}>
       <div className="eyebrow" style={{ padding: '5px var(--s-2) 3px', color: 'var(--fg-4)' }}>preview</div>
@@ -190,17 +190,17 @@ export function QuickActionPreview({
         {chip}
         <span className="argus-tile-status argus-status" data-status="running">{STATUS_LABELS.running}</span>
         <span style={{ display: 'flex', alignItems: 'center', color: 'var(--fg-2)' }}>
-          {Icon && (
+          {Glyph && (
             <>
-              <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon size={13} strokeWidth={1.7} /></span>
+              <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Glyph} size={13} strokeWidth={1.7} /></span>
               <span className="argus-tile-winsep" />
             </>
           )}
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Minus size={13} strokeWidth={1.7} /></span>
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Maximize2 size={13} strokeWidth={1.7} /></span>
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><CircleX size={13} strokeWidth={1.7} /></span>
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size={13} strokeWidth={1.7} /></span>
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size={13} strokeWidth={1.7} /></span>
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size={13} strokeWidth={1.7} /></span>
           <span className="argus-tile-winsep" />
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><MoreHorizontal size={13} strokeWidth={1.7} /></span>
+          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size={13} strokeWidth={1.7} /></span>
         </span>
         {runningIndicator === 'hairline' && <span className="argus-tile-prog"><i /></span>}
       </div>

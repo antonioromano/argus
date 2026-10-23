@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowBigUp, Delete, CornerDownLeft } from 'lucide-react';
 import { KeyCap } from './KeyCap.js';
+import { Icon } from '../../../components/primitives/index.js';
 
 interface CustomQwertyProps {
   onChar: (c: string) => void;
@@ -34,13 +35,13 @@ export function CustomQwerty({ onChar, onBackspace, onNewline, onSubmit }: Custo
         return (
           <div key={i} style={{ display: 'flex', gap: 'var(--s-1)', justifyContent: 'center' }}>
             {isLastRow && !symbols && (
-              <KeyCap label={<ArrowBigUp size={16} fill={shift ? 'currentColor' : 'none'} />} tone={shift ? 'accent' : 'default'} grow={1.5} ariaLabel="Shift" onPress={() => setShift((v) => !v)} />
+              <KeyCap label={<Icon icon={ArrowBigUp} size={16} fill={shift ? 'currentColor' : 'none'} />} tone={shift ? 'accent' : 'default'} grow={1.5} ariaLabel="Shift" onPress={() => setShift((v) => !v)} />
             )}
             {chars.map((c) => (
               <KeyCap key={c} label={shift && !symbols ? c.toUpperCase() : c} grow={1} onPress={() => press(c)} />
             ))}
             {isLastRow && (
-              <KeyCap label={<Delete size={16} />} grow={1.5} ariaLabel="Backspace" onPress={onBackspace} />
+              <KeyCap label={<Icon icon={Delete} size={16} />} grow={1.5} ariaLabel="Backspace" onPress={onBackspace} />
             )}
           </div>
         );
@@ -49,7 +50,7 @@ export function CustomQwerty({ onChar, onBackspace, onNewline, onSubmit }: Custo
       <div style={{ display: 'flex', gap: 'var(--s-1)' }}>
         <KeyCap label={symbols ? 'abc' : '123'} grow={1.4} ariaLabel="Toggle symbols" onPress={() => { setSymbols((v) => !v); setShift(false); }} />
         <KeyCap label="space" grow={4} ariaLabel="Space" onPress={() => onChar(' ')} />
-        <KeyCap label={<CornerDownLeft size={16} />} grow={1.4} ariaLabel="Insert newline" onPress={onNewline} />
+        <KeyCap label={<Icon icon={CornerDownLeft} size={16} />} grow={1.4} ariaLabel="Insert newline" onPress={onNewline} />
         <KeyCap label="send" tone="accent" grow={1.6} ariaLabel="Send" onPress={onSubmit} />
       </div>
     </div>

@@ -4,6 +4,7 @@ import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@a
 import { Terminal } from 'lucide-react';
 import { useCompanionTerminal } from '../../hooks/useCompanionTerminal.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { Icon } from '../../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -53,7 +54,7 @@ export function CompanionTerminalPanel({
           flexShrink: 0,
         }}
       >
-        <Terminal size={13} strokeWidth={1.6} color="var(--fg-2)" />
+        <Icon icon={Terminal} size={13} strokeWidth={1.6} color="var(--fg-2)" />
         <span
           style={{
             fontFamily: 'var(--font-mono)',

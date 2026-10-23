@@ -1,6 +1,6 @@
 import { History, Power, RotateCcw } from 'lucide-react';
 import type { RunMode } from '@argus/shared';
-import { Button } from '../../components/primitives/index.js';
+import { Button, Icon } from '../../components/primitives/index.js';
 
 /**
  * Laid over an exited session's terminal so the empty screen explains itself
@@ -65,7 +65,7 @@ export function ExitedCard({
             color: 'var(--accent)',
           }}
         >
-          <Power size={16} strokeWidth={2} />
+          <Icon icon={Power} size={16} strokeWidth={2} />
         </div>
         <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
           {stoppedWithArgus ? 'Session stopped' : 'Agent exited'}

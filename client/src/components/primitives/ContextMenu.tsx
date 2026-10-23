@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
+import { Icon } from './Icon.js';
 
 export interface ContextMenuItem {
   id: string;
@@ -103,7 +104,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             </div>
           );
         }
-        const Icon = entry.icon;
+        const Glyph = entry.icon;
         return (
           <button
             key={entry.id}
@@ -131,7 +132,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
               cursor: entry.disabled ? 'default' : 'pointer',
             }}
           >
-            {Icon && <Icon size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />}
+            {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />}
             <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{entry.label}</span>
             {entry.shortcut && (
               <span style={{ marginLeft: 'auto', color: 'var(--fg-3)' }}>{entry.shortcut}</span>

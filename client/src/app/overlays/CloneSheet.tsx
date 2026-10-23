@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Copy, GitBranch } from 'lucide-react';
 import { api } from '../../services/api.js';
-import { Toggle } from '../../components/primitives/index.js';
+import { Toggle, Icon } from '../../components/primitives/index.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
 import {
   Sheet,
@@ -280,7 +280,7 @@ export function CloneSheet({
                     Branch name
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <GitBranch size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
                   </div>
                 </div>

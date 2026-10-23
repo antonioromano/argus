@@ -13,6 +13,7 @@ import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.j
 import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import { terminalCopyFlavors } from '../../hooks/terminalRichCopy.js';
+import { scaledPx } from '../../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -528,8 +529,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
         >
           <div className="argus-drop-pill">
             <svg
-              width="16"
-              height="16"
+              style={{ width: scaledPx(16), height: scaledPx(16) }}
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

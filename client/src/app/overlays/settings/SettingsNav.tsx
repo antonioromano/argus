@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react';
 import { GROUP_ORDER, PANES, paneMatches, type PaneDef, type PaneId } from './registry.js';
+import { Icon } from '../../../components/primitives/index.js';
 
 interface SettingsNavProps {
   active: PaneId;
@@ -52,7 +53,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
     >
       <div style={{ padding: 'var(--s-3) var(--s-3) var(--s-2)' }}>
         <div className="settings-nav-search">
-          <Search size={13} strokeWidth={1.6} color="var(--fg-3)" />
+          <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" />
           <input
             type="search"
             value={query}
@@ -77,7 +78,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
             <div key={group}>
               <div className="settings-nav-group">{group}</div>
               {panes.map((p) => {
-                const Icon = p.icon;
+                const Glyph = p.icon;
                 const on = p.id === active;
                 return (
                   <button
@@ -88,7 +89,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
                     onClick={() => onSelect(p.id)}
                     className={`settings-nav-item${on ? ' is-active' : ''}`}
                   >
-                    <Icon size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                    <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
                     <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
                     {modified.has(p.id) && (
                       <span

@@ -1,6 +1,6 @@
 import { Minus, Maximize2, CircleX, MoreHorizontal, GitBranch } from 'lucide-react';
 import type { AppConfig } from '@argus/shared';
-import { StatusDot } from '../../components/primitives/index.js';
+import { StatusDot, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 
@@ -81,13 +81,13 @@ export function WaitingStylePreview({ style }: { style: WaitingStyle }) {
             {STATUS_LABELS.waiting}
           </span>
           <span className="argus-tile-actions" style={{ color: 'var(--fg-2)' }}>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><GitBranch size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={GitBranch} size={13} strokeWidth={1.7} /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Minus size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Maximize2 size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><CircleX size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size={13} strokeWidth={1.7} /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><MoreHorizontal size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size={13} strokeWidth={1.7} /></span>
           </span>
         </div>
         {/* Stand-in for the terminal fill: the breathing style's ::after sits

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from './Button.js';
+import { Icon } from './Icon.js';
 
 interface EmptyStateProps {
   icon: LucideIcon;
@@ -10,7 +11,7 @@ interface EmptyStateProps {
   action?: ReactNode;
 }
 
-export function EmptyState({ icon: Icon, title, hint, action }: EmptyStateProps) {
+export function EmptyState({ icon: Glyph, title, hint, action }: EmptyStateProps) {
   return (
     <div style={{
       flex: 1,
@@ -33,7 +34,7 @@ export function EmptyState({ icon: Icon, title, hint, action }: EmptyStateProps)
         justifyContent: 'center',
         color: 'var(--fg-3)',
       }}>
-        <Icon size={24} strokeWidth={1.6} />
+        <Icon icon={Glyph} size={24} strokeWidth={1.6} />
       </div>
       <div style={{ fontSize: 'var(--t-md)', color: 'var(--fg-0)', fontWeight: 500 }}>{title}</div>
       {hint && <div style={{ fontSize: 'var(--t-sm)', maxWidth: 280 }}>{hint}</div>}
@@ -109,7 +110,7 @@ export function ErrorState({ title = 'Process exited', detail, onRetry }: ErrorS
         alignItems: 'center',
         gap: 6,
       }}>
-        <AlertTriangle size={12} strokeWidth={1.6} /> ERROR
+        <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} /> ERROR
       </div>
       <div style={{ fontSize: 'var(--t-md)', color: 'var(--fg-0)', fontWeight: 500 }}>{title}</div>
       {detail && (

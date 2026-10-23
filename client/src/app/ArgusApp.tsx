@@ -22,7 +22,7 @@ import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
-import { AlertSheet, Button, ToastProvider, pushToast, Tooltip } from '../components/primitives/index.js';
+import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
@@ -171,7 +171,7 @@ function DesktopRoot() {
           background: 'var(--bg-0)',
         }}
       >
-        <Loader2
+        <Icon icon={Loader2}
           size={24}
           style={{ color: 'var(--fg-3)', animation: 'argus-spin 0.9s linear infinite' }}
         />
@@ -958,7 +958,7 @@ function DesktopInner() {
             flexShrink: 0,
           }}
         >
-          <WifiOff size={13} strokeWidth={1.6} />
+          <Icon icon={WifiOff} size={13} strokeWidth={1.6} />
           CONNECTION LOST — RECONNECTING…
         </div>
       )}

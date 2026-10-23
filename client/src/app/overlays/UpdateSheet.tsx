@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { UpdateStatus, UpdateProgress, SessionInfo } from '@argus/shared';
-import { ArrowRight, AlertTriangle, Info } from 'lucide-react';
-import { Sheet, Button, Kbd } from '../../components/primitives/index.js';
+import { ArrowRight, AlertTriangle, Info, type LucideIcon } from 'lucide-react';
+import { Sheet, Button, Kbd, Icon } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { ENGINE_SHORT, ENGINE_NOTE_UPDATE } from '../ui/terminalEngineCopy.js';
 import type { UpdateFailure } from '../../hooks/useUpdate.js';
@@ -103,7 +103,7 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
           <Badge label="Current" version={status.currentVersion} />
-          <ArrowRight size={16} strokeWidth={1.6} color="var(--fg-3)" />
+          <Icon icon={ArrowRight} size={16} strokeWidth={1.6} color="var(--fg-3)" />
           <Badge label="Latest" version={status.latestVersion ?? ''} highlight />
         </div>
 
@@ -306,11 +306,11 @@ function Badge({ label, version, highlight }: { label: string; version: string; 
 
 function Notice({
   kind,
-  icon: Icon,
+  icon: Glyph,
   children,
 }: {
   kind: 'warn' | 'info' | 'ok' | 'danger';
-  icon?: React.ComponentType<{ size?: number; strokeWidth?: number; color?: string }>;
+  icon?: LucideIcon;
   children: React.ReactNode;
 }) {
   const palette = {
@@ -335,7 +335,7 @@ function Notice({
         lineHeight: 1.5,
       }}
     >
-      {Icon && <Icon size={14} strokeWidth={1.6} color={palette.fg} />}
+      {Glyph && <Icon icon={Glyph} size={14} strokeWidth={1.6} color={palette.fg} />}
       <div style={{ flex: 1 }}>{children}</div>
     </div>
   );

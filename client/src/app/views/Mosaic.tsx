@@ -16,7 +16,7 @@ import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu } from '../../components/primitives/index.js';
+import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu, Icon } from '../../components/primitives/index.js';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
@@ -916,7 +916,7 @@ function MosaicTileInner({
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
               style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
             >
-              {copied && <Check size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
+              {copied && <Icon icon={Check} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
               {copied ? 'Copied path' : shellLabel(session)}
             </span>
           </Tooltip>

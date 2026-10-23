@@ -1,6 +1,6 @@
 import { GitBranch } from 'lucide-react';
 import type { ShellGitContext } from '@argus/shared';
-import { Tooltip } from '../../components/primitives/index.js';
+import { Tooltip, Icon } from '../../components/primitives/index.js';
 import { describeShellGit } from '../../utils/shellGit.js';
 
 /**
@@ -11,7 +11,7 @@ export function ShellGitChip({ cwd, git }: { cwd: string; git: ShellGitContext }
   return (
     <Tooltip content={describeShellGit(cwd, git)}>
       <span className="argus-shell-git" data-testid="shell-git">
-        <GitBranch size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
+        <Icon icon={GitBranch} size={10} strokeWidth={2} style={{ flexShrink: 0 }} />
         <span className="argus-shell-git-branch">{git.branch ?? 'empty'}</span>
         {!!git.ahead && <span className="argus-shell-git-ahead">↑{git.ahead}</span>}
         {!!git.behind && <span className="argus-shell-git-behind">↓{git.behind}</span>}

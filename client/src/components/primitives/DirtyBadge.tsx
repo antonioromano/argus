@@ -1,5 +1,6 @@
 import { GitBranch } from 'lucide-react';
 import { Tooltip } from './Tooltip.js';
+import { Icon } from './Icon.js';
 
 interface DirtyBadgeProps {
   size?: 'sm' | 'md';
@@ -26,7 +27,7 @@ export function DirtyBadge({ size = 'md', onClick }: DirtyBadgeProps) {
           cursor: interactive ? 'pointer' : 'default',
         }}
       >
-        <GitBranch size={px} strokeWidth={1.8} />
+        <Icon icon={GitBranch} size={px} strokeWidth={1.8} />
       </span>
     </Tooltip>
   );

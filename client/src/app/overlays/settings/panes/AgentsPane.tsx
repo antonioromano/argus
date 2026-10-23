@@ -9,6 +9,7 @@ import {
   Button,
   TextInput,
   AlertSheet,
+  Icon,
 } from '../../../../components/primitives/index.js';
 import { AgentGlyph } from '../../../ui/AgentGlyph.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
@@ -203,8 +204,8 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                   </>
                 )}
                 {expanded
-                  ? <ChevronDown size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
-                  : <ChevronRight size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                  ? <Icon icon={ChevronDown} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                  : <Icon icon={ChevronRight} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
                 }
               </div>
               {expanded && (

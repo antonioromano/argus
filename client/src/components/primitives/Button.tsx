@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Spinner } from './Spinner.js';
 import { Tooltip } from './Tooltip.js';
+import { Icon } from './Icon.js';
+import { scaledPx } from './iconSize.js';
 
 export type ButtonVariant = 'primary' | 'solid' | 'outline' | 'ghost' | 'danger' | 'secondary';
 
@@ -32,10 +34,11 @@ const PALETTE: Record<ButtonVariant, { bg: string; fg: string; border: string }>
   secondary: { bg: 'transparent',       fg: 'var(--fg-1)',         border: 'var(--line-2)' },
 };
 
-const SIZES: Record<'sm' | 'md' | 'lg', { padding: string; height: number; font: string }> = {
-  sm: { padding: '0 var(--s-2)', height: 24, font: 'var(--t-xs)' },
-  md: { padding: '0 var(--s-3)', height: 30, font: 'var(--t-sm)' },
-  lg: { padding: '0 var(--s-4)', height: 36, font: 'var(--t-base)' },
+// Heights scale with the interface font, like the label inside them.
+const SIZES: Record<'sm' | 'md' | 'lg', { padding: string; height: string; font: string }> = {
+  sm: { padding: '0 var(--s-2)', height: 'var(--ctl-h-sm)', font: 'var(--t-xs)' },
+  md: { padding: '0 var(--s-3)', height: scaledPx(30), font: 'var(--t-sm)' },
+  lg: { padding: '0 var(--s-4)', height: scaledPx(36), font: 'var(--t-base)' },
 };
 
 export function Button({
@@ -46,7 +49,7 @@ export function Button({
   onClick,
   type = 'button',
   children,
-  icon: Icon,
+  icon: Glyph,
   iconRight: IconRight,
   danger,
   full,
@@ -91,9 +94,9 @@ export function Button({
         ...style,
       }}
     >
-      {loading ? <Spinner size={iconSize} /> : (Icon && <Icon size={iconSize} strokeWidth={1.6} />)}
+      {loading ? <Spinner size={iconSize} /> : (Glyph && <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />)}
       {children}
-      {IconRight && <IconRight size={iconSize} strokeWidth={1.6} />}
+      {IconRight && <Icon icon={IconRight} size={iconSize} strokeWidth={1.6} />}
     </button>
   );
   return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;

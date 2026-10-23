@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Activity, Archive, Bell, Bot, CircleStop, MessageSquare, Wrench } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { ACTIVITY_CLIENT_CAP, relativeTime } from './activityFormat.js';
+import { Icon } from '../../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -114,7 +115,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
           flexShrink: 0,
         }}
       >
-        <Activity size={13} strokeWidth={1.6} color="var(--fg-2)" />
+        <Icon icon={Activity} size={13} strokeWidth={1.6} color="var(--fg-2)" />
         <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-1)', flex: 1, minWidth: 0 }}>Activity</span>
         <select
           aria-label="Filter activity by type"
@@ -147,7 +148,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
         )}
         {shown.map((e) => {
           const meta = TYPE_META[e.type];
-          const Icon = meta.icon;
+          const Glyph = meta.icon;
           const open = e.filePath && onOpenFile ? () => onOpenFile(e.filePath!) : undefined;
           const title = e.tool ?? meta.label.replace(/s$/, '');
           return (
@@ -162,7 +163,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
               onClick={open}
               onKeyDown={open ? (ev) => { if (ev.key === 'Enter') open(); } : undefined}
             >
-              <Icon size={13} strokeWidth={1.6} color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 2 }} aria-label={meta.label} />
+              <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 2 }} aria-label={meta.label} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', fontWeight: 500 }}>{title}</div>
                 {e.summary && (

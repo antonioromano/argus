@@ -1,6 +1,7 @@
 import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight, ChevronsDown } from 'lucide-react';
 import type { KeyId } from './keys.js';
 import { KeyCap } from './KeyCap.js';
+import { Icon } from '../../../components/primitives/index.js';
 
 interface SpecialPadProps {
   onKey: (id: KeyId) => void;
@@ -24,11 +25,11 @@ export function SpecialPad({ onKey, onAbc, onClose }: SpecialPadProps) {
       {/* Directional cluster */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s-2)' }}>
         <KeyCap label="⇧⇥" sub="mode" ariaLabel="Shift Tab" onPress={() => onKey('shifttab')} />
-        <KeyCap label={<ChevronUp size={ARROW_ICON} />} ariaLabel="Up" onPress={() => onKey('up')} />
+        <KeyCap label={<Icon icon={ChevronUp} size={ARROW_ICON} />} ariaLabel="Up" onPress={() => onKey('up')} />
         <span />
-        <KeyCap label={<ChevronLeft size={ARROW_ICON} />} ariaLabel="Left" onPress={() => onKey('left')} />
-        <KeyCap label={<ChevronDown size={ARROW_ICON} />} ariaLabel="Down" onPress={() => onKey('down')} />
-        <KeyCap label={<ChevronRight size={ARROW_ICON} />} ariaLabel="Right" onPress={() => onKey('right')} />
+        <KeyCap label={<Icon icon={ChevronLeft} size={ARROW_ICON} />} ariaLabel="Left" onPress={() => onKey('left')} />
+        <KeyCap label={<Icon icon={ChevronDown} size={ARROW_ICON} />} ariaLabel="Down" onPress={() => onKey('down')} />
+        <KeyCap label={<Icon icon={ChevronRight} size={ARROW_ICON} />} ariaLabel="Right" onPress={() => onKey('right')} />
       </div>
 
       {/* Control grid — fixed 2×4, same keys in every mode */}
@@ -59,7 +60,7 @@ export function SpecialPad({ onKey, onAbc, onClose }: SpecialPadProps) {
           )}
           {onClose && (
             <KeyCap
-              label={<ChevronsDown size={ARROW_ICON} />}
+              label={<Icon icon={ChevronsDown} size={ARROW_ICON} />}
               sub="hide"
               ariaLabel="Hide keyboard"
               onPress={onClose}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Eye, EyeOff, Check, Minus } from 'lucide-react';
 import { Field, TextInput } from './Form.js';
 import { NGROK_PW_MIN, isNgrokPasswordValid } from './passwordRules.js';
+import { Icon } from './Icon.js';
 
 interface PasswordFieldsProps {
   password: string;
@@ -34,7 +35,7 @@ function RevealButton({ shown, onToggle }: { shown: boolean; onToggle: () => voi
         display: 'flex',
       }}
     >
-      {shown ? <EyeOff size={14} strokeWidth={1.6} /> : <Eye size={14} strokeWidth={1.6} />}
+      {shown ? <Icon icon={EyeOff} size={14} strokeWidth={1.6} /> : <Icon icon={Eye} size={14} strokeWidth={1.6} />}
     </button>
   );
 }
@@ -53,7 +54,7 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
         transition: 'color var(--dur-fast)',
       }}
     >
-      {met ? <Check size={12} strokeWidth={2} /> : <Minus size={12} strokeWidth={1.6} />}
+      {met ? <Icon icon={Check} size={12} strokeWidth={2} /> : <Icon icon={Minus} size={12} strokeWidth={1.6} />}
       {label}
     </div>
   );

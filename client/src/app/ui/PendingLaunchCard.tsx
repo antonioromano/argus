@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { LaunchActionResult, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
-import { Button } from '../../components/primitives/index.js';
+import { Button, Icon } from '../../components/primitives/index.js';
 
 export const START_DELAY_MS = 1000;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'launcher';
@@ -98,13 +98,13 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               border: '1px solid var(--danger, red)', color: 'var(--danger, red)', fontWeight: 600,
             }}
           >
-            <AlertTriangle size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+            <Icon icon={AlertTriangle} size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
             <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
           </div>
         ))}
         {otherWarnings.map((w) => (
           <div key={w.kind} data-testid="launch-warning" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, color: 'var(--warn, var(--fg-0))' }}>
-            <AlertTriangle size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
+            <Icon icon={AlertTriangle} size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
             <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
           </div>
         ))}

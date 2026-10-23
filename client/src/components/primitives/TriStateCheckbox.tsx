@@ -1,4 +1,6 @@
 import { Check } from 'lucide-react';
+import { Icon } from './Icon.js';
+import { scaledPx } from './iconSize.js';
 
 interface TriStateCheckboxProps {
   checked: boolean | 'indeterminate';
@@ -24,9 +26,9 @@ export function TriStateCheckbox({ checked, onChange, size = 14, disabled = fals
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: size,
-        height: size,
-        minWidth: size,
+        width: scaledPx(size),
+        height: scaledPx(size),
+        minWidth: scaledPx(size),
         borderRadius: 'var(--r-1)',
         background: filled ? 'var(--accent)' : 'transparent',
         border: `1px solid ${filled ? 'var(--accent)' : 'var(--line-3)'}`,
@@ -37,9 +39,9 @@ export function TriStateCheckbox({ checked, onChange, size = 14, disabled = fals
       }}
     >
       {isMixed ? (
-        <span style={{ width: size * 0.5, height: 2, background: 'var(--fg-on-accent)' }} />
+        <span style={{ width: scaledPx(size * 0.5), height: 2, background: 'var(--fg-on-accent)' }} />
       ) : isOn ? (
-        <Check size={size - 4} strokeWidth={2.5} color="var(--fg-on-accent)" />
+        <Icon icon={Check} size={size - 4} strokeWidth={2.5} color="var(--fg-on-accent)" />
       ) : null}
     </span>
   );

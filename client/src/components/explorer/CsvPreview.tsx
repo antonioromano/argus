@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import Papa from 'papaparse';
+import { Icon } from '../primitives/index.js';
 
 interface CsvPreviewProps {
   source: string;
@@ -217,7 +218,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
           Fit to screen
         </label>
         <div style={findGroupStyle}>
-          <Search size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)' }} />
+          <Icon icon={Search} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)' }} />
           <input
             ref={inputRef}
             value={query}
@@ -246,7 +247,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(-1)}
             style={navBtnStyle(!matches.length)}
           >
-            <ChevronUp size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronUp} size={12} strokeWidth={1.8} />
           </button>
           <button
             type="button"
@@ -255,7 +256,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(1)}
             style={navBtnStyle(!matches.length)}
           >
-            <ChevronDown size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronDown} size={12} strokeWidth={1.8} />
           </button>
         </div>
       </div>

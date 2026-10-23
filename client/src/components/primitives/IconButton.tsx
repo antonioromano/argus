@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import { Tooltip } from './Tooltip.js';
+import { Icon } from './Icon.js';
 
 interface IconButtonProps {
   icon: LucideIcon;
@@ -14,7 +15,7 @@ interface IconButtonProps {
 }
 
 export function IconButton({
-  icon: Icon,
+  icon: Glyph,
   label,
   onClick,
   variant = 'ghost',
@@ -24,7 +25,7 @@ export function IconButton({
   className,
   style,
 }: IconButtonProps) {
-  const dim = size === 'sm' ? 24 : 28;
+  const dim = size === 'sm' ? 'var(--ctl-h-sm)' : 'var(--ctl-h-md)';
   const iconSize = size === 'sm' ? 12 : 14;
   const base: React.CSSProperties = {
     display: 'inline-flex',
@@ -53,7 +54,7 @@ export function IconButton({
         className={btnClass}
         style={base}
       >
-        <Icon size={iconSize} strokeWidth={1.6} />
+        <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />
       </button>
     </Tooltip>
   );

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, AlertTriangle, AlertOctagon, X } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
+import { Icon } from './Icon.js';
 
 export type ToastTone = 'ok' | 'warn' | 'danger';
 
@@ -136,7 +137,7 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
   const shown = visible && !leaving;
 
   const palette = TONE[item.tone];
-  const Icon = palette.icon;
+  const Glyph = palette.icon;
 
   return (
     <div
@@ -164,7 +165,7 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
       onFocus={dismissible ? () => setPaused(true) : undefined}
       onBlur={dismissible ? () => setPaused(false) : undefined}
     >
-      <Icon size={12} strokeWidth={1.8} />
+      <Icon icon={Glyph} size={12} strokeWidth={1.8} />
       <span>{item.message}</span>
       {dismissible && (
         // Always rendered (never hover-revealed) so the toast never changes size.
@@ -189,7 +190,7 @@ function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => 
             flexShrink: 0,
           }}
         >
-          <X size={12} strokeWidth={1.8} />
+          <Icon icon={X} size={12} strokeWidth={1.8} />
         </button>
       )}
     </div>

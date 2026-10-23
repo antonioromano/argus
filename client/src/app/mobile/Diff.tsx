@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
-import { EmptyState, LoadingState, ErrorState } from '../../components/primitives/index.js';
+import { EmptyState, LoadingState, ErrorState, Icon } from '../../components/primitives/index.js';
 import { GitBranch, ChevronLeft, ChevronRight } from 'lucide-react';
 import parseDiff from 'parse-diff';
 
@@ -45,7 +45,7 @@ export function Diff({ session, onBack }: DiffProps) {
           className="eyebrow"
           style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '0 12px', minHeight: 44, display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--t-tiny)' }}
         >
-          <ChevronLeft size={14} strokeWidth={1.6} /> BACK
+          <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} /> BACK
         </button>
         <span className="eyebrow" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-0)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {session.name} — changes
@@ -74,7 +74,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
         onClick={onToggle}
         style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', width: '100%', padding: 'var(--s-3) var(--s-4)', background: open ? 'var(--bg-2)' : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
       >
-        <ChevronRight size={12} strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease', color: 'var(--fg-3)', flexShrink: 0 }} />
+        <Icon icon={ChevronRight} size={12} strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease', color: 'var(--fg-3)', flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {file.to ?? file.from}
         </span>

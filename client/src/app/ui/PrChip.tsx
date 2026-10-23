@@ -1,6 +1,6 @@
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
 import type { PrState, SessionPr } from '@argus/shared';
-import { Tooltip } from '../../components/primitives/index.js';
+import { Tooltip, Icon } from '../../components/primitives/index.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { describePr } from '../../utils/prFormat.js';
 
@@ -17,7 +17,7 @@ const STATE_ICON = {
  * Fixed content — hover recolors only, never resizes the header row.
  */
 export function PrChip({ pr }: { pr: SessionPr }) {
-  const Icon = STATE_ICON[pr.state];
+  const Glyph = STATE_ICON[pr.state];
   const showCi = (pr.state === 'open' || pr.state === 'draft') && pr.ci !== 'none';
   return (
     <Tooltip content={describePr(pr)}>
@@ -29,7 +29,7 @@ export function PrChip({ pr }: { pr: SessionPr }) {
         aria-label={describePr(pr)}
         onClick={(e) => { e.stopPropagation(); openExternal(pr.url); }}
       >
-        <Icon size={10} strokeWidth={2} className="argus-pr-icon" style={{ flexShrink: 0 }} />
+        <Icon icon={Glyph} size={10} strokeWidth={2} className="argus-pr-icon" style={{ flexShrink: 0 }} />
         <span>#{pr.number}</span>
         {showCi && <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />}
       </button>

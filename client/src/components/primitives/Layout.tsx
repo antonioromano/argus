@@ -1,6 +1,7 @@
 import type { ReactNode, CSSProperties } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { X } from 'lucide-react';
+import { Icon } from './Icon.js';
 
 export function HRule() {
   return <div style={{ height: 1, background: 'var(--line-2)' }} />;
@@ -69,7 +70,7 @@ interface ChipProps {
   style?: CSSProperties;
 }
 
-export function Chip({ children, icon: Icon, dot, onRemove, active, onClick, style }: ChipProps) {
+export function Chip({ children, icon: Glyph, dot, onRemove, active, onClick, style }: ChipProps) {
   return (
     <span
       onClick={onClick}
@@ -90,14 +91,14 @@ export function Chip({ children, icon: Icon, dot, onRemove, active, onClick, sty
       }}
     >
       {dot && <span style={{ width: 5, height: 5, borderRadius: '50%', background: dot }} />}
-      {Icon && <Icon size={11} strokeWidth={1.6} />}
+      {Glyph && <Icon icon={Glyph} size={11} strokeWidth={1.6} />}
       {children}
       {onRemove && (
         <span
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           style={{ cursor: 'pointer', opacity: 0.6, display: 'inline-flex' }}
         >
-          <X size={10} strokeWidth={1.6} />
+          <Icon icon={X} size={10} strokeWidth={1.6} />
         </span>
       )}
     </span>

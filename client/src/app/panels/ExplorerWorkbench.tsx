@@ -11,7 +11,7 @@ import {
   AlertTriangle,
   Search,
 } from 'lucide-react';
-import { Button, IconButton, Chip, LoadingState } from '../../components/primitives/index.js';
+import { Button, IconButton, Chip, LoadingState, Icon } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
 import { useEditorGroups } from '../../hooks/useEditorGroups.js';
@@ -370,7 +370,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           flexShrink: 0,
         }}
       >
-        <FolderOpen size={14} strokeWidth={1.6} color="var(--accent)" />
+        <Icon icon={FolderOpen} size={14} strokeWidth={1.6} color="var(--accent)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · EXPLORER</div>
         <span
           style={{
@@ -643,7 +643,7 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
     <div style={{ display: 'inline-flex', borderRadius: 'var(--r-2)', overflow: 'hidden', border: '1px solid var(--line-2)' }}>
       {items.map((it) => {
         const active = value === it.id;
-        const Icon = it.icon;
+        const Glyph = it.icon;
         return (
           <button
             key={it.id}
@@ -662,7 +662,7 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
               letterSpacing: 'var(--tracking-eye)',
             }}
           >
-            <Icon size={11} strokeWidth={1.6} /> {it.label}
+            <Icon icon={Glyph} size={11} strokeWidth={1.6} /> {it.label}
           </button>
         );
       })}
@@ -687,7 +687,7 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
         flexShrink: 0,
       }}
     >
-      <AlertTriangle size={13} strokeWidth={1.6} />
+      <Icon icon={AlertTriangle} size={13} strokeWidth={1.6} />
       File changed on disk
       <div style={{ flex: 1 }} />
       <Button variant="ghost" size="sm" onClick={onReload}>Reload from disk</Button>

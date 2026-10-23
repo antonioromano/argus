@@ -3,6 +3,7 @@ import type { FileSearchResult } from '@argus/shared';
 import { Search, FileText, FileCode, FileJson, X } from 'lucide-react';
 import { isMac } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
+import { Icon } from '../primitives/index.js';
 
 interface FileSearchPanelProps {
   folderPath: string;
@@ -12,10 +13,10 @@ interface FileSearchPanelProps {
 }
 
 function ResultIcon({ ext }: { ext: string }) {
-  const style: React.CSSProperties = { width: 13, height: 13, flexShrink: 0, color: 'var(--fg-3)' };
-  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <FileCode style={style} />;
-  if (ext === '.json') return <FileJson style={style} />;
-  return <FileText style={style} />;
+  const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
+  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={13} style={style} />;
+  if (ext === '.json') return <Icon icon={FileJson} size={13} style={style} />;
+  return <Icon icon={FileText} size={13} style={style} />;
 }
 
 export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClose }: FileSearchPanelProps) {
@@ -132,7 +133,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
           flexShrink: 0,
         }}
       >
-        <Search size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+        <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
         <input
           ref={inputRef}
           value={query}
@@ -176,7 +177,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
             flexShrink: 0,
           }}
         >
-          <X size={13} strokeWidth={1.6} />
+          <Icon icon={X} size={13} strokeWidth={1.6} />
         </button>
       </div>
 

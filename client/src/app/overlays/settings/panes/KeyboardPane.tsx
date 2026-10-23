@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, SettingRow } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Icon } from '../../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
@@ -78,7 +78,7 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
                     {conflict && (
                       <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>
-                        <AlertTriangle size={14} />
+                        <Icon icon={AlertTriangle} size={14} />
                       </span>
                     )}
                     <span style={comboPill(conflict)}>
@@ -100,7 +100,7 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                           title="Reset to default"
                           onClick={() => overridden && resetOne(a.id)}
                         >
-                          <RotateCcw size={13} />
+                          <Icon icon={RotateCcw} size={13} />
                         </button>
                       </>
                     )}
