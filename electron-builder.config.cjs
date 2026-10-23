@@ -96,11 +96,27 @@ module.exports = {
       to: 'native-terminal',
       filter: ['**/*'],
     },
+    // Layered macOS 26 app icon (Default / Dark / Tinted / Clear), compiled
+    // from electron/assets/Argus.icon by `npm run build:icon` and committed.
+    // Lands at Contents/Resources/Assets.car, where CFBundleIconName (below)
+    // points the system. Plain data — codesign seals it like any resource.
+    {
+      from: 'electron/assets/Assets.car',
+      to: 'Assets.car',
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',
     target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
+    // Fallback .icns (CFBundleIconFile), generated from the flat PNG. Shown by
+    // anything that can't read the Assets.car catalog; on macOS 26 the system
+    // prefers CFBundleIconName so the Dark appearance gets the amber glyph
+    // instead of black-on-black.
     icon: 'electron/assets/icon.png',
+    extendInfo: {
+      // Must match the Argus.icon basename (scripts/build-icon.mjs ICON_NAME).
+      CFBundleIconName: 'Argus',
+    },
     // null forces ad-hoc; undefined lets electron-builder pick the imported
     // Developer ID Application identity from the temp keychain.
     identity: hasSigningCert ? undefined : null,

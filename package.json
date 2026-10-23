@@ -25,6 +25,7 @@
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
     "build:electron": "tsc -p electron/tsconfig.json",
     "build:native": "node scripts/build-native.mjs",
+    "build:icon": "node scripts/build-icon.mjs",
     "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",
     "electron:dev": "npm run build:all && make -C daemon build && npm run build:native -- --arch=$(node -p process.arch) && node scripts/register-dev-scheme.mjs && ARGUS_PORT=5403 electron .",
     "package:mac": "npm run check:deps && npm run build:all && npm run package:mac:only",
