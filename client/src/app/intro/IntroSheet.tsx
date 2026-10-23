@@ -215,7 +215,7 @@ function FirstShellPicture() {
 
 // ── What's new ──────────────────────────────────────────────────────────────
 
-/** A real Focus screenshot (dark theme, 2x), reply text kept generic. */
+/** A real Focus screenshot (dark theme, 2x). */
 function ChatPicture() {
   return (
     <img
