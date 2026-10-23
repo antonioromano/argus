@@ -86,7 +86,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
         <div style={{ background: 'var(--bg-inset)', overflowX: 'auto' }}>
           {file.chunks.map((chunk, ci) => (
             <div key={ci}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10.5px', color: 'var(--syn-fn)', padding: '4px var(--s-3)', background: 'rgba(125,211,252,.06)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10.5px', color: 'var(--syn-fn)', padding: '4px var(--s-3)', background: 'var(--info-bg)' }}>
                 {chunk.content}
               </div>
               {chunk.changes.map((change, li) => {

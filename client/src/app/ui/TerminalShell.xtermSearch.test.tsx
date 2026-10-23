@@ -6,7 +6,7 @@ import type { SessionInfo } from '@argus/shared';
 
 // Every SearchAddon the shell creates, in order, with its results listeners.
 // dispose() mirrors xterm: a disposed addon's emitter never fires again.
-const addons: Array<{ listeners: Set<(r: any) => void>; disposed: boolean; fire(i: number, n: number): void }> = [];
+const addons: Array<{ listeners: Set<(r: any) => void>; disposed: boolean; fire(i: number, n: number): void; calls: Array<[string, ...any[]]> }> = [];
 
 vi.mock('@xterm/xterm', () => {
   const disposable = () => ({ dispose: () => {} });
@@ -42,6 +42,7 @@ vi.mock('@xterm/addon-search', () => ({
   SearchAddon: class {
     listeners = new Set<(r: any) => void>();
     disposed = false;
+    calls: Array<[string, ...any[]]> = [];
     constructor() { addons.push(this); }
     onDidChangeResults(cb: (r: any) => void) {
       this.listeners.add(cb);
@@ -51,9 +52,9 @@ vi.mock('@xterm/addon-search', () => ({
       if (this.disposed) return;
       for (const cb of this.listeners) cb({ resultIndex: i, resultCount: n });
     }
-    findNext() {}
-    findPrevious() {}
-    clearDecorations() {}
+    findNext(term: string, opts: any) { this.calls.push(['findNext', term, opts]); }
+    findPrevious(term: string, opts: any) { this.calls.push(['findPrevious', term, opts]); }
+    clearDecorations() { this.calls.push(['clearDecorations']); }
     dispose() { this.disposed = true; this.listeners.clear(); }
   },
 }));
@@ -64,6 +65,7 @@ vi.mock('../../hooks/terminalMouse.js', () => ({
 vi.mock('../../hooks/terminalLinks.js', () => ({ createTerminalLinkProvider: () => ({}) }));
 
 import { TerminalShell } from './TerminalShell.js';
+import { TERMINAL_SEARCH_DECORATIONS } from '../../tokens/paint.js';
 
 const session = { id: 's1', status: 'idle' } as unknown as SessionInfo;
 const socket = { emit: vi.fn(), on: vi.fn(), off: vi.fn() } as any;
@@ -118,5 +120,35 @@ describe('TerminalShell xterm search — terminal rebuild', () => {
 
     act(() => addons[1].fire(1, 5));
     expect(countText()).toContain('2/5');
+  });
+});
+
+describe('TerminalShell xterm search — theme switch', () => {
+  const typeQuery = (value: string) => {
+    const input = container.querySelector('input') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    act(() => { setter.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+
+  it('redraws open-search highlights in the new theme\'s colors', () => {
+    act(() => root.render(<TerminalShell session={session} socket={socket} theme="dark" searchOpen onCloseSearch={() => {}} />));
+    typeQuery('foo');
+    const calls = addons[0].calls;
+    expect(calls.at(-1)).toEqual(['findNext', 'foo', expect.objectContaining({ decorations: TERMINAL_SEARCH_DECORATIONS.dark })]);
+
+    calls.length = 0;
+    act(() => root.render(<TerminalShell session={session} socket={socket} theme="light" searchOpen onCloseSearch={() => {}} />));
+    expect(calls[0]).toEqual(['clearDecorations']);
+    expect(calls[1]).toEqual(['findNext', 'foo', expect.objectContaining({ decorations: TERMINAL_SEARCH_DECORATIONS.light, incremental: true })]);
+  });
+
+  it('does not search on a theme switch once the query was cleared', () => {
+    act(() => root.render(<TerminalShell session={session} socket={socket} theme="dark" searchOpen onCloseSearch={() => {}} />));
+    typeQuery('foo');
+    typeQuery('');
+    const calls = addons[0].calls;
+    calls.length = 0;
+    act(() => root.render(<TerminalShell session={session} socket={socket} theme="light" searchOpen onCloseSearch={() => {}} />));
+    expect(calls).toEqual([]);
   });
 });

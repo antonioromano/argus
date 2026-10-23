@@ -74,13 +74,11 @@
   border-color: var(--accent) !important;
 }
 
+/* --fg-3 is the placeholder token: AA on every surface in both themes. (Light
+   used to fade --fg-2 to 45% opacity, which landed near 2:1.) */
 .text-input-wrap input::placeholder {
-  color: var(--fg-2);
+  color: var(--fg-3);
   opacity: 1;
-}
-
-[data-theme="light"] .text-input-wrap input::placeholder {
-  opacity: 0.45;
 }
 
 /* === HOVER UTILITIES === */

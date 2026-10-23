@@ -585,8 +585,8 @@ export function CreateSheet({
                                   transition: 'opacity 0.1s, color 0.1s, background 0.1s',
                                 }}
                                 onMouseEnter={(e) => {
-                                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(220,80,80,0.15)';
-                                  (e.currentTarget as HTMLButtonElement).style.color = '#e05d5d';
+                                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--danger-bg)';
+                                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--danger)';
                                 }}
                                 onMouseLeave={(e) => {
                                   (e.currentTarget as HTMLButtonElement).style.background = 'transparent';

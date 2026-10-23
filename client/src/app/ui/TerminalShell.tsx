@@ -14,16 +14,10 @@ import type { TerminalSearchEngine } from '../../components/terminal/TerminalSea
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import { terminalCopyFlavors } from '../../hooks/terminalRichCopy.js';
 import { scaledPx } from '../../components/primitives/index.js';
+import { TERMINAL_SEARCH_DECORATIONS, terminalBackground } from '../../tokens/paint.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
-// Decoration colors (must be #RRGGBB). Tokens aren't usable here — xterm paints these directly.
-const XTERM_SEARCH_DECORATIONS = {
-  matchBackground: '#3d59a1',
-  matchOverviewRuler: '#3d59a1',
-  activeMatchBackground: '#e0af68',
-  activeMatchColorOverviewRuler: '#e0af68',
-};
 
 /** The slice of the native-terminal preload bridge this shell drives directly
  *  to CLOSE SwiftTerm's OWN find bar (a plain control action on an
@@ -418,16 +412,38 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   // decorations. Built on stable refs (identity never changes across
   // renders), so this object stays referentially stable too. find/clear read
   // the current addon lazily; onResults goes through the fan-out above.
+  // Highlights follow the theme through a ref so the engine keeps its identity.
+  const themeRef = useRef(theme);
+  // The last query the bar ran, so a theme switch can repaint its highlights.
+  const lastSearchRef = useRef<{ term: string; options: { caseSensitive: boolean; regex: boolean } } | null>(null);
+  const searchOpenRef = useRef(searchOpen);
+  useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
+  useEffect(() => {
+    themeRef.current = theme;
+    // xterm keeps a match's decoration colors from the find() that drew it, so
+    // after a theme switch the old theme's highlight would sit under the new
+    // foreground (dark→light: ~1.5:1). Redraw the open search in place —
+    // incremental findNext stays on the current match.
+    const addon = searchAddonRef.current;
+    const last = lastSearchRef.current;
+    if (!addon || !last || !searchOpenRef.current) return;
+    addon.clearDecorations();
+    addon.findNext(last.term, { ...last.options, decorations: TERMINAL_SEARCH_DECORATIONS[theme], incremental: true });
+  }, [theme, searchAddonRef]);
   const xtermSearchEngine = useMemo<TerminalSearchEngine>(() => ({
     find: (term, direction, options) => {
       const addon = searchAddonRef.current;
       if (!addon) return undefined;
-      const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: XTERM_SEARCH_DECORATIONS };
+      lastSearchRef.current = { term, options: { caseSensitive: options.caseSensitive, regex: options.regex } };
+      const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: TERMINAL_SEARCH_DECORATIONS[themeRef.current] };
       if (direction === 'next') addon.findNext(term, { ...opts, incremental: true });
       else addon.findPrevious(term, opts);
       return undefined;
     },
-    clear: () => searchAddonRef.current?.clearDecorations(),
+    clear: () => {
+      lastSearchRef.current = null;
+      searchAddonRef.current?.clearDecorations();
+    },
     onResults: (cb) => {
       const listeners = searchResultListenersRef.current;
       listeners.add(cb);
@@ -490,10 +506,9 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   const edge = STATUS_COLORS[st];
   // Match xterm's own theme background so the sub-row gutter left by FitAddon's
   // whole-cell rounding (most visible at the bottom) blends in instead of
-  // showing as a dark band. Same values as DARK_THEME/LIGHT_THEME in
-  // useTerminal.ts, which are themselves --bg-2 — the tile card the terminal
-  // sits in.
-  const termBg = theme === 'dark' ? '#191b20' : '#ffffff';
+  // showing as a dark band. Same paint token as useTerminal.ts's palette,
+  // itself --bg-2 — the tile card the terminal sits in.
+  const termBg = terminalBackground(theme);
 
   return (
     <div

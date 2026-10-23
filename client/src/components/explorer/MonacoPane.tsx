@@ -5,6 +5,7 @@ import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbo
 import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
+import { PAINT_SURFACES } from '../../tokens/paint.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -96,15 +97,15 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   };
 
-  // Register the Argus editor theme once. Background matches --bg-inset (#0a0b0d)
-  // so the editor well lines up with the inset terminals/code wells.
+  // Register the Argus editor theme once. Background is the --bg-inset paint
+  // token so the editor well lines up with the inset terminals/code wells.
   useEffect(() => {
     monaco.editor.defineTheme('argus-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [],
       colors: {
-        'editor.background': '#0a0b0d',
+        'editor.background': PAINT_SURFACES.dark.inset,
       },
     });
   }, []);

@@ -13,10 +13,6 @@ import { insertionPoint } from '../../utils/reorder.js';
 
 const OTHERS = '__others__';
 
-// Amber star color (matches the 'amber' group color key)
-const STAR_COLOR_DARK = '#FFB454';
-const STAR_COLOR_LIGHT = '#B26A00';
-
 interface SessionTreeProps {
   grouped: GroupedSessions;
   activeGroupId: string | null;
@@ -88,7 +84,9 @@ export function SessionTree({
   const onLeafDragOver = (sessionId: string, edge: 'top' | 'bottom') => setLeafDrop({ id: sessionId, edge });
   const onLeafDragLeave = (sessionId: string) => setLeafDrop((d) => (d?.id === sessionId ? null : d));
 
-  const starColor = isDark ? STAR_COLOR_DARK : STAR_COLOR_LIGHT;
+  // A CSS var, so the SVG stars fill via currentColor (presentation attributes
+  // don't resolve var()).
+  const starColor = 'var(--accent)';
 
   return (
     <div style={{ margin: '2px 0 var(--s-2)' }}>
@@ -241,7 +239,7 @@ function FavoritesNode({
           </button>
         </Tooltip>
 
-        <Icon icon={Star} size={10} strokeWidth={2} fill={starColor} style={{ color: starColor, flexShrink: 0 }} />
+        <Icon icon={Star} size={10} strokeWidth={2} fill="currentColor" style={{ color: starColor, flexShrink: 0 }} />
 
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-1)' }}>Favourites</span>
 
@@ -644,7 +642,7 @@ function Leaf({
               <Icon icon={Star}
                 size={11}
                 strokeWidth={1.8}
-                fill={isFavorite ? starColor : 'none'}
+                fill={isFavorite ? 'currentColor' : 'none'}
                 style={{ color: isFavorite ? starColor : 'var(--fg-3)' }}
               />
             </button>

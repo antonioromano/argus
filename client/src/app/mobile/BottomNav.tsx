@@ -71,7 +71,9 @@ export function BottomNav({ active, onChange, onCreate, doneCount = 0, waitingCo
 function NavBadge({ count, type, shiftLeft }: { count: number; type: 'done' | 'waiting'; shiftLeft?: boolean }) {
   if (count <= 0) return null;
   const bg = type === 'done' ? 'var(--status-done)' : 'var(--status-waiting)';
-  const textColor = type === 'done' ? '#002a14' : '#1a0f00';
+  // Both status fills are accent-weight (light in dark, deep in light), so the
+  // on-accent ink reads on either.
+  const textColor = 'var(--fg-on-accent)';
   return (
     <span
       aria-label={`${count} ${type}`}

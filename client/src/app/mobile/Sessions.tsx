@@ -4,6 +4,7 @@ import { ChevronRight, MoreVertical, Plus, Play } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { StatusDot, StatusPill, DirtyBadge, Icon } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
+import { useTheme } from '../../context/theme-context.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 
 interface SessionsProps {
@@ -235,6 +236,8 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
 }
 
 export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onSpawnFavorite, onCreate }: SessionsProps) {
+  // Group dots follow the theme — the dark-mode swatches vanish on light paper.
+  const { isDark } = useTheme();
   const [filter, setFilter] = useState<StatusFilter>('all');
   const truncatedUrl = publicUrl
     ? publicUrl.replace(/^https?:\/\//, '').slice(0, 28) + (publicUrl.length > 32 ? '…' : '')
@@ -428,7 +431,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
             {grouped.favorites && (
               <Section
                 title="Favourites"
-                color={resolveGroupColor('amber', true)}
+                color={resolveGroupColor('amber', isDark)}
                 sessions={grouped.favorites.items.filter((i): i is SessionInfo => !('ghost' in i))}
                 ghosts={grouped.favorites.items.filter((i): i is GhostFavorite => 'ghost' in i)}
                 filter={filter}
@@ -442,7 +445,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
               <Section
                 key={group.id}
                 title={group.name}
-                color={resolveGroupColor(group.color, true)}
+                color={resolveGroupColor(group.color, isDark)}
                 sessions={gs}
                 filter={filter}
                 collidingKeys={collidingKeys}
@@ -450,7 +453,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 onAction={onAction}
               />
             ))}
-            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, true) : null} sessions={grouped.others} filter={filter} collidingKeys={collidingKeys} onSelect={onSelect} onAction={onAction} />
+            <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, isDark) : null} sessions={grouped.others} filter={filter} collidingKeys={collidingKeys} onSelect={onSelect} onAction={onAction} />
             {filter !== 'all' && counts[filter] === 0 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--s-8) var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
                 No {filter} shells
