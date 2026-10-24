@@ -152,3 +152,32 @@ test('listSessionPrs: reads at most SESSION_PRS_MAX PRs, the newest', async () =
   assert.equal(res?.prs[0].url, urls[urls.length - 1]);
   assert.equal(f.urlLookups.length, SESSION_PRS_MAX);
 });
+
+test('listSessionPrs: a folder PR linked long ago stays in the capped list, marked linked', async () => {
+  const f = fixture();
+  const urls = [PR.url, ...Array.from({ length: SESSION_PRS_MAX + 2 }, (_, i) => `https://github.com/o/r/pull/${100 + i}`)];
+  linkPrs(f, 'a', urls);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.prs.length, SESSION_PRS_MAX);
+  const last = res!.prs[SESSION_PRS_MAX - 1];
+  assert.deepEqual([last.url, last.folderBranch, last.linked], [PR.url, true, true]);
+  assert.equal(f.urlLookups.includes(PR.url), false);
+});
+
+test('listSessionPrs: the folder PR matches a pr-link spelled with another case', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/O/R/pull/7']);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.prs.length, 1);
+  assert.equal(res?.prs[0].folderBranch, true);
+  assert.deepEqual(f.urlLookups, []);
+});
+
+test('a change the chip does not render (title, mergeable) is stored but not broadcast', async () => {
+  const f = fixture();
+  await f.sm.pollPrStatus();
+  f.setAnswer({ ...PR, title: 'New title', mergeable: 'mergeable' });
+  await f.sm.pollPrStatus();
+  assert.equal(prEvents(f.emitted).length, 2);
+  assert.equal(f.sm.getSessionInfo('a')?.pr?.title, 'New title');
+});

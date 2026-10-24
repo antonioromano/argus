@@ -24,10 +24,20 @@ export function prRepo(url: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Number of a PR URL (`…/pull/42` → 42); 0 when it has none. */
+export function prNumberOf(url: string): number {
+  return Number(/\/pull\/(\d+)$/.exec(url)?.[1] ?? 0);
+}
+
+/** `owner/repo#n` of a PR URL (just `#n` when the URL is not github.com). */
+export function prRef(url: string, number = prNumberOf(url)): string {
+  const repo = prRepo(url);
+  return repo ? `${repo}#${number}` : `#${number}`;
+}
+
 export function describePr(pr: SessionPr): string {
   const ci = pr.state === 'open' || pr.state === 'draft' ? ` · ${PR_CI_LABEL[pr.ci]}` : '';
-  const repo = prRepo(pr.url);
-  return `${PR_STATE_LABEL[pr.state]} PR ${repo ?? ''}#${pr.number}${ci} — click to open on GitHub`;
+  return `${PR_STATE_LABEL[pr.state]} PR ${prRef(pr.url, pr.number)}${ci} — click to open on GitHub`;
 }
 
 export const PR_REVIEW_LABEL: Record<PrReviewDecision, string> = {

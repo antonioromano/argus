@@ -302,6 +302,13 @@ describe('GitHub section', () => {
     expect(glance.textContent).toContain('3 PRs');
     expect(glance.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('failure');
     expect(glance.getAttribute('title')).toBe('2 open, 1 merged · checks failing');
+
+    // The chip's live answer wins over the remembered reading while collapsed.
+    await render({ collapsed: ['github'], session: session({ pr: { ...FAILING, ci: 'success' } }) });
+    const live = sectionEl('github').querySelector<HTMLElement>('.argus-inspector-section-summary [title]')!;
+    expect(live.textContent).toContain('3 PRs');
+    expect(live.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('success');
+    expect(getSessionPrs).toHaveBeenCalledTimes(1);
   });
 });
 

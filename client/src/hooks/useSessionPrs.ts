@@ -7,12 +7,16 @@ import { api } from '../services/api.js';
 export const SESSION_PRS_POLL_MS = 30_000;
 
 // The last list each session's card read, kept so the collapsed card's glance
-// can still count PRs without fetching anything itself.
+// can still count PRs without fetching anything itself. Bounded, least
+// recently read first out, so deleted sessions don't pile up.
 const lastLists = new Map<string, SessionPrEntry[]>();
+export const MAX_REMEMBERED_LISTS = 64;
 const listeners = new Set<() => void>();
 
 function remember(sessionId: string, prs: SessionPrEntry[]): void {
+  lastLists.delete(sessionId); // re-insert as most recent
   lastLists.set(sessionId, prs);
+  if (lastLists.size > MAX_REMEMBERED_LISTS) lastLists.delete(lastLists.keys().next().value as string);
   for (const l of listeners) l();
 }
 

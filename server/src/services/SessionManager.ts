@@ -407,6 +407,15 @@ export interface SessionReplayFrame {
  * Run `fn` over `items` with at most `limit` calls in flight. Resolves once all
  * have settled; `fn` is expected to handle its own errors.
  */
+/** The SessionPr fields the header chip renders (see pollPrStatus). */
+function chipKey(pr: SessionPr | null): string {
+  return pr ? `${pr.url}\0${pr.number}\0${pr.state}\0${pr.ci}\0${pr.branch}` : '';
+}
+
+/** PR URLs compared case-insensitively: GitHub owner/repo names are, and a
+ *  `pr-link` may spell them differently from gh's canonical URL. */
+const samePrUrl = (a: string, b: string | undefined): boolean => !!b && a.toLowerCase() === b.toLowerCase();
+
 async function runBounded<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -872,6 +881,9 @@ export class SessionManager {
         if (JSON.stringify(prev) === JSON.stringify(pr)) return;
         if (pr) this.prMap.set(session.id, pr);
         else this.prMap.delete(session.id);
+        // Broadcast only what the chip shows: a title edit or GitHub recomputing
+        // mergeability after a push is not worth a re-render in every window.
+        if (chipKey(prev) === chipKey(pr)) return;
         this.io?.emit('session:pr', { sessionId: session.id, pr });
       });
     } finally {
@@ -896,16 +908,21 @@ export class SessionManager {
     if (!folder) return { enabled: true, prs: [] };
 
     const folderPr = await service.forFolder(folder);
-    const linked = (session.usage?.linkedPrUrls() ?? []).slice(-SESSION_PRS_MAX).reverse();
-    const prs: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: url === folderPr?.url, linked: true }));
+    const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
+    const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
+    // The newest SESSION_PRS_MAX, the folder PR always among them (in its own
+    // place when it is within the cap, else last: it is the oldest kept).
+    const prs = all.slice(0, SESSION_PRS_MAX);
+    const own = all.find((e) => e.folderBranch);
+    if (own && !prs.includes(own)) prs.splice(SESSION_PRS_MAX - 1, 1, own);
+    if (folderPr && !own) {
+      if (prs.length >= SESSION_PRS_MAX) prs.pop();
+      prs.unshift({ url: folderPr.url, pr: folderPr, folderBranch: true, linked: false });
+    }
+    if (own) own.pr = folderPr;
     await runBounded(prs.filter((e) => !e.folderBranch), PR_POLL_CONCURRENCY, async (e) => {
       e.pr = await service.forUrl(e.url, folder);
     });
-    if (folderPr) {
-      const own = prs.find((e) => e.folderBranch);
-      if (own) own.pr = folderPr;
-      else prs.unshift({ url: folderPr.url, pr: folderPr, folderBranch: true, linked: false });
-    }
     return { enabled: true, prs };
   }
 

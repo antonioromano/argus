@@ -3,20 +3,11 @@ import type { SessionPrEntry } from '@argus/shared';
 import { Icon } from '../../components/primitives/index.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
-  PR_CI_LABEL, PR_REVIEW_LABEL, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prRepo, summarizePrStates, worstCi,
+  PR_CI_LABEL, PR_REVIEW_LABEL, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, summarizePrStates, worstCi,
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
 import { InspectorEmpty } from './InspectorRow.js';
-
-const prNumberOf = (url: string): number => Number(/\/pull\/(\d+)$/.exec(url)?.[1] ?? 0);
-
-/** `owner/repo#n` of a PR URL (just `#n` when the URL is not github.com). */
-function prRef(url: string, number?: number): string {
-  const n = number ?? prNumberOf(url);
-  const repo = prRepo(url);
-  return repo ? `${repo}#${n}` : `#${n}`;
-}
 
 /**
  * What the card shows before (or instead of) the full list: the header chip's
@@ -101,14 +92,34 @@ export function GitHubBody({ session, ctx }: InspectorSectionProps) {
 }
 
 /**
- * Collapsed-header glance, no fetch: the list the card last read (else the
- * header chip's PR). One PR → its number; several → a count. Either way the
+ * The list the card last read with the header chip's PR — which the server
+ * sweep keeps live — laid over it, so a collapsed card's glance follows the
+ * chip instead of freezing at the last reading. A chip PR the list doesn't
+ * have yet goes on top (it is the newest).
+ */
+function withLiveChip(remembered: readonly SessionPrEntry[] | undefined, session: InspectorSectionProps['session']): SessionPrEntry[] {
+  const chip = session.pr;
+  if (!remembered || remembered.length === 0) return chipEntries(session);
+  if (!chip) return [...remembered];
+  const key = chip.url.toLowerCase();
+  let found = false;
+  const list = remembered.map((e) => {
+    if (e.url.toLowerCase() !== key) return e;
+    found = true;
+    return { ...e, pr: chip };
+  });
+  return found ? list : [chipEntries(session)[0], ...list];
+}
+
+/**
+ * Collapsed-header glance, no fetch: the list the card last read, with the
+ * live header chip's PR merged in (see withLiveChip). One PR → its number; several → a count. Either way the
  * dot is the worst checks state of the PRs still open.
  */
 export function GitHubGlance({ session, ctx }: InspectorSectionProps) {
   const remembered = useLastSessionPrs(session.id);
   if (!ctx.prStatusEnabled) return null;
-  const list = remembered && remembered.length > 0 ? remembered : chipEntries(session);
+  const list = withLiveChip(remembered, session);
   if (list.length === 0) return null;
   const prs = list.map((e) => e.pr);
   const ci = worstCi(prs);
