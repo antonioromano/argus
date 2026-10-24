@@ -381,40 +381,27 @@ export function Focus({
                 </Button>
               </div>
             )}
-            <Button
-              variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
-              size="sm"
-              icon={GitCompare}
-              onClick={onToggleDiff}
-            >
-              Diff
-            </Button>
-            <Button
-              variant={sidePanel?.kind === 'explorer' ? 'solid' : 'ghost'}
-              size="sm"
-              icon={FolderOpen}
-              onClick={onToggleExplorer}
-            >
-              Files
-            </Button>
+            {/* Tool windows: icon-only toggles, named by their tooltip. */}
+            <IconButton icon={GitCompare} label="Diff" size="sm" active={sidePanel?.kind === 'diff'} pressed={sidePanel?.kind === 'diff'} onClick={onToggleDiff} />
+            <IconButton icon={FolderOpen} label="Files" size="sm" active={sidePanel?.kind === 'explorer'} pressed={sidePanel?.kind === 'explorer'} onClick={onToggleExplorer} />
             {activityEnabled && onToggleActivity && (
-              <Button
-                variant={!maximized && panelForActive?.kind === 'activity' ? 'solid' : 'ghost'}
-                size="sm"
+              <IconButton
                 icon={Activity}
+                label="Activity"
+                size="sm"
+                active={!maximized && panelForActive?.kind === 'activity'}
+                pressed={!maximized && panelForActive?.kind === 'activity'}
                 onClick={onToggleActivity}
-              >
-                Activity
-              </Button>
+              />
             )}
-            <Button
-              variant={!maximized && sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
-              size="sm"
+            <IconButton
               icon={Terminal}
+              label="Shell"
+              size="sm"
+              active={!maximized && sidePanel?.kind === 'terminal'}
+              pressed={!maximized && sidePanel?.kind === 'terminal'}
               onClick={onShellClick}
-            >
-              Shell
-            </Button>
+            />
             <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
             <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
             <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />

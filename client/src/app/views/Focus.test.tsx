@@ -219,7 +219,7 @@ describe('Focus — Session Inspector', () => {
 
 describe('Focus — activity timeline (beta F6)', () => {
   const activityButton = () =>
-    Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Activity');
+    container.querySelector('button[aria-label="Activity"]') ?? undefined;
 
   it('shows the Activity button and the docked panel while the flag is on', () => {
     renderFocus(session(), noop, { activityEnabled: true, sidePanel: { kind: 'activity', sessionId: 's1' } });
