@@ -10,6 +10,7 @@ import {
   SplitSquareHorizontal,
   AlertTriangle,
   Search,
+  TextSearch,
 } from 'lucide-react';
 import { Button, IconButton, Chip, LoadingState, Icon } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
@@ -17,6 +18,8 @@ import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
 import { useEditorGroups } from '../../hooks/useEditorGroups.js';
 import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
 import { FileSearchPanel } from '../../components/explorer/FileSearchPanel.js';
+import { FindInFilesPanel } from '../../components/explorer/FindInFilesPanel.js';
+import { registerScope } from '../../keyboard/scopes.js';
 import { EditorTab, type ViewMode, type TabBufferSnapshot } from '../../components/explorer/EditorTab.js';
 import { EditorTabStrip } from '../../components/explorer/EditorTabStrip.js';
 import { putTabState, dropTabState, tabStateFor, dirtyByPath, type TabStates } from '../../components/explorer/tabStates.js';
@@ -73,7 +76,11 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   const [tabStates, setTabStates] = useState<TabStates>({});
   const [viewModes, setViewModes] = useState<Record<string, ViewMode>>({});
   const [searchOpen, setSearchOpen] = useState(!!initialQuery);
-  const [searchQuery, setSearchQuery] = useState<string | undefined>(initialQuery);
+  const [searchQuery] = useState<string | undefined>(initialQuery);
+  // Find in Files (⌘⇧F). The query lives here so closing and reopening keeps it.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findNonce, setFindNonce] = useState(0);
   const [reveal, setReveal] = useState<RevealTarget | null>(
     initialFilePath ? { path: initialFilePath, line: initialLine, nonce: 1 } : null,
   );
@@ -162,10 +169,21 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   useEffect(() => {
     symbolNavContext.onOpen = (path, line) => onPickFile(path, line);
     symbolNavContext.searchFor = (q) => {
-      setSearchQuery(q);
-      setSearchOpen(true);
+      setSearchOpen(false);
+      setFindQuery(q);
+      setFindOpen(true);
+      setFindNonce((n) => n + 1);
     };
   }, [onPickFile]);
+
+  // Open-only (never a toggle): the menu accelerator and the keydown path can
+  // both deliver one ⌘⇧F, and two toggles would cancel out.
+  const openFind = useCallback(() => {
+    setSearchOpen(false);
+    setFindOpen(true);
+    setFindNonce((n) => n + 1);
+  }, []);
+  useEffect(() => registerScope('explorer', { 'find-in-files': openFind }), [openFind]);
 
   // ⌘S / ⌘K — capture phase so ⌘K beats the global CommandPalette handler.
   useEffect(() => {
@@ -180,6 +198,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
       if (k === 'k') {
         e.preventDefault();
         e.stopPropagation();
+        setFindOpen(false);
         setSearchOpen((o) => !o);
       }
       if (k === 'w') {
@@ -394,7 +413,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             onChange={(v) => setViewModes((m) => ({ ...m, [focusedPath]: v }))}
           />
         )}
-        <IconButton icon={Search} label="Search files (⌘K)" size="sm" onClick={() => setSearchOpen((o) => !o)} />
+        <IconButton icon={Search} label="Search files (⌘K)" size="sm" onClick={() => { setFindOpen(false); setSearchOpen((o) => !o); }} />
+        <IconButton icon={TextSearch} label="Find in files" size="sm" onClick={() => (findOpen ? setFindOpen(false) : openFind())} />
         <IconButton icon={RefreshCw} label="Refresh tree" size="sm" onClick={tree.refresh} />
         <Button
           variant={focusedSnap?.dirty ? 'primary' : 'ghost'}
@@ -440,6 +460,16 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
               initialQuery={searchQuery}
               onSelectFile={(path, line) => onPickFile(path, line)}
               onClose={() => setSearchOpen(false)}
+            />
+          )}
+          {findOpen && !searchOpen && (
+            <FindInFilesPanel
+              folderPath={workRoot(session)}
+              query={findQuery}
+              onQueryChange={setFindQuery}
+              focusNonce={findNonce}
+              onOpenMatch={(path, line) => onPickFile(path, line)}
+              onClose={() => setFindOpen(false)}
             />
           )}
         </aside>

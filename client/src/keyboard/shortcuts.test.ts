@@ -57,3 +57,26 @@ describe('waiting inbox shortcut', () => {
     expect(resolveShortcuts()['waiting-inbox']).toBe('mod+shift+j');
   });
 });
+
+describe('find in files shortcut', () => {
+  it('defaults to ⌘⇧F, scoped to the explorer', () => {
+    expect(resolveShortcuts()['find-in-files']).toBe('mod+shift+f');
+    expect(SHORTCUTS_BY_ID['find-in-files'].scope).toBe('explorer');
+  });
+
+  it('leaves ⌘⇧F to session search in the app-wide handler', () => {
+    expect(matchEvent(press('F', { shiftKey: true }), resolveShortcuts())).toBe('session-search');
+  });
+
+  it('never matches a scoped action app-wide, even when rebound', () => {
+    const resolved = resolveShortcuts({ 'find-in-files': 'mod+alt+g' });
+    expect(matchEvent(press('g', { altKey: true }), resolved)).toBeNull();
+  });
+
+  it('flags a clash inside the explorer scope but not one with a global action', () => {
+    expect(findConflicts(resolveShortcuts()).has('find-in-files')).toBe(false);
+    // Two global actions on the same combo still conflict.
+    const clash = findConflicts(resolveShortcuts({ 'open-diff': 'mod+e' }));
+    expect(clash.has('open-diff') && clash.has('open-files')).toBe(true);
+  });
+});

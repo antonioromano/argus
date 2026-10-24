@@ -1186,6 +1186,33 @@ export interface FileSearchResponse {
   query: string;
 }
 
+// Find in Files (⌘⇧F in the explorer): ripgrep content search with options.
+
+export interface FindInFilesMatch {
+  /** 1-based line, matching Monaco. */
+  line: number;
+  /** 1-based column (UTF-16 units) of the first match on the line. */
+  column: number;
+  /** The matched line, trimmed and windowed around the first match. */
+  preview: string;
+  /** Highlight ranges inside `preview`, as [start, end) UTF-16 offsets. */
+  ranges: [number, number][];
+}
+
+export interface FindInFilesFile {
+  path: string;
+  matches: FindInFilesMatch[];
+}
+
+export interface FindInFilesResponse {
+  query: string;
+  files: FindInFilesFile[];
+  /** Matching lines returned (sum of every file's matches). */
+  totalMatches: number;
+  /** True when a result cap or the timeout cut the search short. */
+  truncated: boolean;
+}
+
 // Symbol navigation (heuristic go-to-definition / find-usages). Text-based, no
 // LSP — same-named symbols may collide; the client surfaces multiple candidates.
 

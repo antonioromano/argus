@@ -23,3 +23,10 @@ export function formatPathsForPty(paths: string[]): string {
     .map(formatPathForPty)
     .join(' ');
 }
+
+/** `abs` relative to `root` for display; paths outside `root` (including a sibling
+ *  that merely shares its prefix, like `/repo2` for `/repo`) are returned as-is. */
+export function relativeTo(root: string, abs: string): string {
+  const base = root.endsWith('/') ? root : `${root}/`;
+  return abs.startsWith(base) ? abs.slice(base.length) : abs;
+}

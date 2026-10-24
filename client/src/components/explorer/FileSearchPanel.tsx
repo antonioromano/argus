@@ -3,6 +3,7 @@ import type { FileSearchResult } from '@argus/shared';
 import { Search, FileText, FileCode, FileJson, X } from 'lucide-react';
 import { isMac } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
+import { relativeTo } from '../../utils/pathFormat.js';
 import { Icon } from '../primitives/index.js';
 
 interface FileSearchPanelProps {
@@ -12,7 +13,7 @@ interface FileSearchPanelProps {
   onClose: () => void;
 }
 
-function ResultIcon({ ext }: { ext: string }) {
+export function ResultIcon({ ext }: { ext: string }) {
   const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
   if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={13} style={style} />;
   if (ext === '.json') return <Icon icon={FileJson} size={13} style={style} />;
@@ -104,9 +105,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
     return () => document.removeEventListener('keydown', onKey, true);
   }, [results, selectedIndex, onSelectFile, onClose]);
 
-  const relPath = (abs: string) => abs.startsWith(folderPath)
-    ? abs.slice(folderPath.length).replace(/^\//, '')
-    : abs;
+  const relPath = (abs: string) => relativeTo(folderPath, abs);
 
   const shortcut = isMac ? '⌘K' : 'Ctrl+K';
 

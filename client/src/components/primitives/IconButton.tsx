@@ -9,6 +9,8 @@ interface IconButtonProps {
   variant?: 'ghost' | 'outlined';
   size?: 'sm' | 'md';
   active?: boolean;
+  /** Toggle buttons: exposes `active` as aria-pressed. */
+  pressed?: boolean;
   disabled?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -21,6 +23,7 @@ export function IconButton({
   variant = 'ghost',
   size = 'md',
   active = false,
+  pressed,
   disabled = false,
   className,
   style,
@@ -49,6 +52,7 @@ export function IconButton({
     <Tooltip content={label} position="top">
       <button
         aria-label={label}
+        aria-pressed={pressed}
         onClick={disabled ? undefined : onClick}
         disabled={disabled}
         className={btnClass}
