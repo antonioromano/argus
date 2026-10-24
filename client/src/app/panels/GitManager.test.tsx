@@ -168,6 +168,55 @@ describe('GitManager', () => {
     expect(container.querySelector('.argus-git-list-end')!.textContent).toBe('3 commits');
   });
 
+  it('appending a page doesn’t pull the list back to the selected commit', async () => {
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(1), commit(2)], hasMore: true });
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(3)], hasMore: false });
+    await render();
+    const scrolledRows = () => (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mock.contexts
+      .filter((el) => (el as Element).getAttribute?.('role') === 'option');
+    // Once for the initial selection; the page appended by the sentinel adds none.
+    expect(rows()).toHaveLength(3);
+    expect(scrolledRows()).toHaveLength(1);
+    await click(rows()[2]);
+    expect(scrolledRows()).toHaveLength(2);
+  });
+
+  it('a failed page offers a retry that loads it, without retrying on its own', async () => {
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(1)], hasMore: true });
+    getGitHistory.mockRejectedValueOnce(new Error('timed out'));
+    await render();
+    const retry = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Couldn’t load more — retry')!;
+    expect(retry).toBeDefined();
+    expect(getGitHistory).toHaveBeenCalledTimes(2);
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(2)], hasMore: false });
+    await click(retry);
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('a failed refresh keeps the list and retries the refresh, not a page', async () => {
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(1)], hasMore: false });
+    await render();
+    getGitHistory.mockRejectedValueOnce(new Error('index locked'));
+    const refresh = container.querySelector<HTMLElement>('button[aria-label="Refresh"]')!;
+    await click(refresh);
+    const retry = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Couldn’t refresh the history — retry')!;
+    expect(retry).toBeDefined();
+    expect(rows()).toHaveLength(1);
+    getGitHistory.mockResolvedValueOnce({ commits: [commit(0), commit(1)], hasMore: false });
+    await click(retry);
+    expect(getGitHistory).toHaveBeenLastCalledWith('s1', { limit: 50, ref: undefined });
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('a commit that failed to load can be retried', async () => {
+    getGitCommitDetail.mockRejectedValueOnce(new Error('boom'));
+    await render();
+    expect(container.textContent).toContain('Couldn’t read the commit');
+    const retry = Array.from(container.querySelectorAll('button')).find((b) => /retry/i.test(b.textContent ?? ''))!;
+    await click(retry);
+    expect(container.querySelector('.argus-git-detail-head')!.textContent).toContain('commit 1');
+  });
+
   it('says when a commit’s diff was too large, listing its files instead', async () => {
     getGitCommitDetail.mockImplementation(async () => detail(commit(1), {
       diff: '', truncated: true, files: [{ path: 'big.json', additions: 90000, deletions: 0 }, { path: 'img.png', additions: null, deletions: null }],

@@ -4,7 +4,7 @@ import { execFileSync } from 'child_process';
 import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import { GitService, parseDecorations, parseGitLog, parseCommitDetail, parseNumstatFiles, parseGitRefs, parseWorktreeList } from './GitService.js';
+import { GitService, GitUnknownRefError, parseDecorations, parseGitLog, parseCommitDetail, parseNumstatFiles, parseGitRefs, parseWorktreeList } from './GitService.js';
 
 function makeRepo(): { dir: string; git: (...a: string[]) => string } {
   const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'argus-githistory-')));
@@ -43,7 +43,15 @@ test('history: pages newest first, with refs, and reports hasMore', async () => 
     const fromRef = await svc.history(dir, { skip: 0, limit: 10, ref: 'HEAD~3' });
     assert.deepEqual(fromRef.commits!.map((c) => c.subject), ['commit 2', 'commit 1']);
 
-    await assert.rejects(svc.history(dir, { skip: 0, limit: 10, ref: 'nope' }));
+    await assert.rejects(svc.history(dir, { skip: 0, limit: 10, ref: 'nope' }), GitUnknownRefError);
+
+    // A path keeps only the commits touching it.
+    writeFileSync(path.join(dir, 'other.txt'), 'x\n');
+    git('add', '.');
+    git('commit', '-qm', 'other file');
+    const onlyOther = await svc.history(dir, { skip: 0, limit: 10, path: 'other.txt' });
+    assert.deepEqual(onlyOther.commits!.map((c) => c.subject), ['other file']);
+    assert.equal((await svc.history(dir, { skip: 0, limit: 10, path: 'f.txt' })).commits!.length, 5);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -191,7 +199,7 @@ test('parseDecorations: detached HEAD, remotes (minus origin/HEAD), stash droppe
 });
 
 test('parseCommitDetail: keeps the whole message and rejects garbage', () => {
-  const out = ['c'.repeat(40), 'ccccccc', '', 'A', 'a@x', '1', '', 'C', 'c@x', '2', 'Subj\n\nBody\n\n'].join('\0') + '\0';
+  const out = ['c'.repeat(40), 'ccccccc', '', 'A', 'a@x', '1', '', 'C', 'c@x', '2', 'Subj', 'Subj\n\nBody\n\n'].join('\0') + '\0';
   const d = parseCommitDetail(out)!;
   assert.equal(d.message, 'Subj\n\nBody');
   assert.equal(d.subject, 'Subj');
@@ -241,4 +249,23 @@ test('parseWorktreeList: main, detached, locked, prunable, bare', () => {
     ['/w2', 'feat/x', false, false, false, false, true],
   ]);
   assert.deepEqual(parseWorktreeList('', '/r'), []);
+});
+
+test('commitDetail: a subject wrapped over two lines reads the same as in the log (%s)', async () => {
+  const { dir, git } = makeRepo();
+  try {
+    writeFileSync(path.join(dir, 'a.txt'), '1\n');
+    git('add', '.');
+    git('commit', '-qm', 'Fix the thing that\nbroke the other thing\n\nWhy.');
+    const svc = new GitService();
+    const [listed] = (await svc.history(dir, { skip: 0, limit: 1 })).commits!;
+    const d = await svc.commitDetail(dir, listed.hash);
+    assert.equal(d?.subject, 'Fix the thing that broke the other thing');
+    assert.equal(d?.subject, listed.subject);
+    assert.equal(d?.message, 'Fix the thing that\nbroke the other thing\n\nWhy.');
+    // A tree is not a commit.
+    assert.equal(await svc.commitDetail(dir, git('rev-parse', 'HEAD^{tree}').trim()), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

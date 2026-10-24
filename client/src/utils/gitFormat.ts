@@ -1,3 +1,5 @@
+import { relativeTime } from '../app/panels/activityFormat.js';
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
@@ -5,15 +7,9 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  * "12d ago", then the date ("Mar 4", or "Mar 4, 2024" in another year).
  */
 export function commitAge(at: number, now: number): string {
-  const s = Math.floor((now - at) / 1000);
   // A commit dated in the future (clock skew) reads as fresh, not negative.
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
+  if (now - at < 60_000) return 'just now';
+  if (now - at < 30 * 86_400_000) return `${relativeTime(at, now)} ago`;
   const date = new Date(at);
   const day = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
   return date.getFullYear() === new Date(now).getFullYear() ? day : `${day}, ${date.getFullYear()}`;

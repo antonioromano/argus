@@ -11,16 +11,18 @@ interface CommitDetailViewProps {
   folderPath: string;
   hash: string | null;
   mode: 'split' | 'unified';
+  /** Moves when the repo may have changed: refetches the commit (its refs). */
+  refreshKey?: unknown;
   /** Select another commit (a parent link). */
   onSelectCommit: (hash: string) => void;
 }
 
 /** One commit: full message, metadata and its diff (read-only). */
-export function CommitDetailView({ sessionId, folderPath, hash, mode, onSelectCommit }: CommitDetailViewProps) {
-  const { detail, error } = useGitCommitDetail(sessionId, hash);
+export function CommitDetailView({ sessionId, folderPath, hash, mode, refreshKey, onSelectCommit }: CommitDetailViewProps) {
+  const { detail, error, retry } = useGitCommitDetail(sessionId, hash, refreshKey);
 
   if (!hash) return <EmptyState icon={GitCommit} title="No commit selected" hint="Pick a commit on the left." />;
-  if (error) return <ErrorState title="Couldn’t read the commit" detail={error} />;
+  if (error) return <ErrorState title="Couldn’t read the commit" detail={error} onRetry={retry} />;
   if (!detail) return <LoadingState label="Loading commit" />;
 
   return (
@@ -47,7 +49,9 @@ function emptyLabel(d: GitCommitDetail): string {
 }
 
 function CommitHeader({ detail: d, onSelectCommit }: { detail: GitCommitDetail; onSelectCommit: (hash: string) => void }) {
-  const body = d.message.slice(d.subject.length).replace(/^\n+/, '');
+  // The subject is git's %s — the whole first paragraph — so the body starts after it.
+  const para = d.message.indexOf('\n\n');
+  const body = para < 0 ? '' : d.message.slice(para).replace(/^\n+/, '');
   const sameCommitter = d.committerName === d.authorName && d.committerEmail === d.authorEmail;
   const adds = d.files.reduce((n, f) => n + (f.additions ?? 0), 0);
   const dels = d.files.reduce((n, f) => n + (f.deletions ?? 0), 0);

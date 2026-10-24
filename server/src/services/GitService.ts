@@ -973,24 +973,30 @@ export class GitService {
   // --end-of-options, so even a value that slipped through can't be an option.
 
   /**
-   * One page of `git log` for `folder`, newest first. `commits` is null when
-   * the folder isn't a repo and [] on a repo with no commits yet. Throws on an
-   * unknown `ref`.
+   * One page of `git log` for `folder`, newest first, optionally limited to
+   * the commits touching `path` (relative to `folder`; callers contain it with
+   * pathScope). `commits` is null when the folder isn't a repo and [] on a repo
+   * with no commits yet. Throws GitUnknownRefError on an unknown `ref`, and
+   * git's own error on anything else.
    */
-  async history(folder: string, opts: { skip: number; limit: number; ref?: string }): Promise<GitHistoryResponse> {
-    if (!(await this.isGitRepo(folder))) return { commits: null, hasMore: false };
+  async history(folder: string, opts: { skip: number; limit: number; ref?: string; path?: string }): Promise<GitHistoryResponse> {
     const skip = Math.max(0, Math.floor(opts.skip));
     const limit = Math.min(Math.max(1, Math.floor(opts.limit)), GIT_HISTORY_MAX_LIMIT);
     let out: string;
     try {
       out = await execGit(
         // One extra commit tells whether another page follows.
-        ['log', '-z', '--decorate=full', `--format=${LOG_FORMAT}`, `--skip=${skip}`, `-n${limit + 1}`, '--end-of-options', opts.ref ?? 'HEAD', '--'],
+        // :(literal) keeps a path from being read as pathspec magic.
+        ['log', '-z', '--decorate=full', `--format=${LOG_FORMAT}`, `--skip=${skip}`, `-n${limit + 1}`, '--end-of-options', opts.ref ?? 'HEAD', '--',
+          ...(opts.path ? [`:(literal)${opts.path}`] : [])],
         folder,
       );
     } catch (err) {
-      // An unborn HEAD (fresh `git init`) has no history rather than a bad ref.
+      // Only a failure pays for working out why: not a repo, an unborn HEAD
+      // (fresh `git init`, no history rather than an error), or a bad ref.
+      if (!(await this.isGitRepo(folder))) return { commits: null, hasMore: false };
       if (!opts.ref && !(await this.resolveCommit(folder, 'HEAD'))) return { commits: [], hasMore: false };
+      if (opts.ref && !(await this.resolveCommit(folder, opts.ref))) throw new GitUnknownRefError(opts.ref);
       throw err;
     }
     const commits = parseGitLog(out);
@@ -1014,21 +1020,27 @@ export class GitService {
    * is dropped (`truncated`), leaving the file list. null for an unknown commit.
    */
   async commitDetail(folder: string, rev: string): Promise<GitCommitDetail | null> {
-    const sha = await this.resolveCommit(folder, rev);
-    if (!sha) return null;
+    // The metadata read doubles as the lookup: `^{commit}` refuses a tree or
+    // blob, and the full hash it prints names the commit for the diff reads.
+    let meta: string;
+    try {
+      meta = await execGit(['show', '-s', '-z', '--decorate=full', `--format=${DETAIL_FORMAT}`, '--end-of-options', `${rev}^{commit}`], folder);
+    } catch {
+      return null;
+    }
+    const detail = parseCommitDetail(meta);
+    if (!detail) return null;
+    const sha = detail.hash;
     // Same diff options for the file list and the patch, so they agree.
     const diffOpts = ['-M', '--diff-merges=first-parent', '--no-color', '--no-ext-diff', '--no-textconv'];
     const oversized = new Set<string>();
-    const [meta, numstat, diff] = await Promise.all([
-      execGit(['show', '-s', '-z', '--decorate=full', `--format=${DETAIL_FORMAT}`, sha], folder),
+    const [numstat, diff] = await Promise.all([
       execGit(['show', '--format=', '--numstat', '-z', ...diffOpts, sha], folder),
       diffCapped(['show', '--format=', ...diffOpts, sha], folder, oversized).catch((err: unknown) => {
         if (isMaxBuffer(err) || (err instanceof Error && err.message === 'diff too large to display')) return null;
         throw err;
       }),
     ]);
-    const detail = parseCommitDetail(meta);
-    if (!detail) return null;
     return {
       ...detail,
       files: parseNumstatFiles(numstat),
@@ -1464,6 +1476,16 @@ export function parseShellContext(out: string, root: string): ShellGitContext {
 
 // ── Git Manager, read-only (B5): formats and parsers ─────────────────────────
 
+/** history() was given a ref that names no commit. */
+export class GitUnknownRefError extends Error {
+  readonly ref: string;
+  constructor(ref: string) {
+    super(`Unknown ref: ${ref}`);
+    this.ref = ref;
+    this.name = 'GitUnknownRefError';
+  }
+}
+
 /** Largest page `history()` returns. */
 export const GIT_HISTORY_MAX_LIMIT = 200;
 
@@ -1471,7 +1493,8 @@ export const GIT_HISTORY_MAX_LIMIT = 200;
 // but the free-text message can hold a NUL, and the message is always last.
 const LOG_FIELDS = ['%H', '%h', '%P', '%an', '%ae', '%at', '%D', '%s'];
 const LOG_FORMAT = LOG_FIELDS.join('%x00');
-const DETAIL_FORMAT = [...LOG_FIELDS.slice(0, 7), '%cn', '%ce', '%ct', '%B'].join('%x00');
+// %s as in the log (the whole first paragraph, joined), so list and detail agree.
+const DETAIL_FORMAT = [...LOG_FIELDS.slice(0, 7), '%cn', '%ce', '%ct', '%s', '%B'].join('%x00');
 // for-each-ref has no -z: NUL between fields, one ref per line (a subject is one line).
 const REF_FORMAT = [
   '%(refname)', '%(refname:short)', '%(objectname:short)', '%(HEAD)', '%(upstream:short)',
@@ -1533,12 +1556,11 @@ export function parseGitLog(out: string): GitCommitSummary[] {
 /** Parse `git show -s -z --format=DETAIL_FORMAT`. Exported for tests. */
 export function parseCommitDetail(out: string): Omit<GitCommitDetail, 'files' | 'diff'> | null {
   const f = out.replace(/\0+$/, '').split('\0');
-  if (f.length < 11 || !/^[0-9a-f]{7,64}$/.test(f[0])) return null;
+  if (f.length < 12 || !/^[0-9a-f]{7,64}$/.test(f[0])) return null;
   // The message may itself hold no NUL, but rejoin defensively.
-  const message = f.slice(10).join('\0').trimEnd();
-  const subject = message.split('\n', 1)[0] ?? '';
+  const message = f.slice(11).join('\0').trimEnd();
   return {
-    ...summaryFrom([...f.slice(0, 7), subject]),
+    ...summaryFrom([...f.slice(0, 7), f[10]]),
     committerName: f[7],
     committerEmail: f[8],
     commitDate: Number(f[9]) * 1000,

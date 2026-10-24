@@ -5,6 +5,8 @@ import { api } from '../services/api.js';
 export const GIT_HISTORY_PAGE = 50;
 /** The server's largest page; a refresh reloads at most this many commits. */
 const GIT_HISTORY_MAX_PAGE = 200;
+/** How often the tip is checked for commits the session's git signals missed. */
+export const GIT_HISTORY_POLL_MS = 10_000;
 
 export interface GitHistoryState {
   /** undefined until the first answer; null when the work root isn't a repo. */
@@ -12,23 +14,34 @@ export interface GitHistoryState {
   hasMore: boolean;
   /** A further page is being fetched. */
   loading: boolean;
+  /** The last (re)load of the shown pages failed; what's shown is the previous reading. */
   error: string | null;
+  /** The last "load more" failed; `loadMore` retries it. */
+  loadMoreError: string | null;
   loadMore: () => void;
   refresh: () => void;
+}
+
+/** What identifies the history's tip: its hash and what points at it. */
+function tipOf(commits: GitCommitSummary[] | null | undefined): string {
+  const top = commits?.[0];
+  return top ? `${top.hash}|${top.refs.map((r) => `${r.kind}:${r.name}:${r.current ? 1 : 0}`).join(',')}` : '';
 }
 
 /**
  * Paginated `git log` of a session (Git Manager, Inspector History card).
  * `ref` restarts from another branch/tag (default HEAD). `refreshKey` reloads
  * the pages already shown — pass something that moves with the session's git
- * state so a new commit appears without a manual refresh.
+ * state so a new commit appears at once. Commits those signals can't see (one
+ * made while the tree stays dirty, a reset, a branch moved elsewhere) are
+ * caught by a cheap one-commit check of the tip every GIT_HISTORY_POLL_MS.
  */
 export function useGitHistory(
   sessionId: string,
-  { ref, refreshKey, pageSize = GIT_HISTORY_PAGE }: { ref?: string; refreshKey?: unknown; pageSize?: number } = {},
+  { ref, refreshKey, pageSize = GIT_HISTORY_PAGE, pollMs = GIT_HISTORY_POLL_MS }: { ref?: string; refreshKey?: unknown; pageSize?: number; pollMs?: number } = {},
 ): GitHistoryState {
-  const [state, setState] = useState<{ key: string; commits: GitCommitSummary[] | null | undefined; hasMore: boolean; error: string | null }>(
-    { key: '', commits: undefined, hasMore: false, error: null },
+  const [state, setState] = useState<{ key: string; commits: GitCommitSummary[] | null | undefined; hasMore: boolean; error: string | null; loadMoreError: string | null }>(
+    { key: '', commits: undefined, hasMore: false, error: null, loadMoreError: null },
   );
   // Only "load more" reports loading; the first page shows as commits === undefined.
   const [loading, setLoading] = useState(false);
@@ -36,8 +49,8 @@ export function useGitHistory(
   const key = `${sessionId}|${ref ?? ''}`;
   // Requests from a previous session/ref (or an older reload) must not land.
   const seq = useRef(0);
-  // How many commits are shown, so a reload brings back as many.
-  const loadedRef = useRef({ key: '', n: 0 });
+  // How many commits are shown (so a reload brings back as many) and their tip.
+  const loadedRef = useRef({ key: '', n: 0, tip: '' });
 
   useEffect(() => {
     const my = ++seq.current;
@@ -46,16 +59,36 @@ export function useGitHistory(
     api.getGitHistory(sessionId, { limit, ref })
       .then((r) => {
         if (seq.current !== my) return;
-        loadedRef.current = { key, n: r.commits?.length ?? 0 };
-        setState({ key, commits: r.commits, hasMore: r.hasMore, error: null });
+        loadedRef.current = { key, n: r.commits?.length ?? 0, tip: tipOf(r.commits) };
+        setState({ key, commits: r.commits, hasMore: r.hasMore, error: null, loadMoreError: null });
       })
       .catch((err: unknown) => {
-        if (seq.current === my) setState((prev) => ({ ...(prev.key === key ? prev : { commits: undefined, hasMore: false }), key, error: err instanceof Error ? err.message : String(err) }));
+        if (seq.current !== my) return;
+        const error = err instanceof Error ? err.message : String(err);
+        setState((prev) => (prev.key === key
+          ? { ...prev, error }
+          : { key, commits: undefined, hasMore: false, error, loadMoreError: null }));
       })
       .finally(() => { if (seq.current === my) setLoading(false); });
   }, [sessionId, ref, key, pageSize, refreshKey, tick]);
 
-  const current = state.key === key ? state : { commits: undefined, hasMore: false, error: null };
+  // Reload when the tip moved behind the signals' back.
+  useEffect(() => {
+    if (pollMs <= 0) return;
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (loadedRef.current.key !== key) return;
+      const before = loadedRef.current.tip;
+      api.getGitHistory(sessionId, { limit: 1, ref })
+        .then((r) => {
+          if (loadedRef.current.key === key && loadedRef.current.tip === before && tipOf(r.commits) !== before) setTick((n) => n + 1);
+        })
+        .catch(() => { /* the next full reload reports errors */ });
+    }, pollMs);
+    return () => clearInterval(t);
+  }, [sessionId, ref, key, pollMs]);
+
+  const current = state.key === key ? state : { commits: undefined, hasMore: false, error: null, loadMoreError: null };
 
   const loadMore = useCallback(() => {
     if (loading || !current.hasMore || !current.commits) return;
@@ -68,51 +101,62 @@ export function useGitHistory(
         setState((prev) => {
           if (prev.key !== key || !prev.commits) return prev;
           const commits = [...prev.commits.slice(0, skip), ...(r.commits ?? [])];
-          loadedRef.current = { key, n: commits.length };
-          return { key, commits, hasMore: r.hasMore, error: null };
+          loadedRef.current = { key, n: commits.length, tip: tipOf(commits) };
+          return { ...prev, commits, hasMore: r.hasMore, loadMoreError: null };
         });
       })
-      .catch((err: unknown) => { if (seq.current === my) setState((prev) => ({ ...prev, error: err instanceof Error ? err.message : String(err) })); })
+      .catch((err: unknown) => {
+        if (seq.current === my) setState((prev) => ({ ...prev, loadMoreError: err instanceof Error ? err.message : String(err) }));
+      })
       .finally(() => { if (seq.current === my) setLoading(false); });
   }, [loading, current.hasMore, current.commits, sessionId, pageSize, ref, key]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
-  return { commits: current.commits, hasMore: current.hasMore, error: current.error, loading, loadMore, refresh };
+  return { commits: current.commits, hasMore: current.hasMore, error: current.error, loadMoreError: current.loadMoreError, loading, loadMore, refresh };
 }
 
-// A commit's content never changes: keep the last few details so stepping
-// back and forth through the history doesn't refetch them.
+// A commit's content never changes, but what points at it (its refs) does:
+// keep the last few details so stepping through the history doesn't refetch
+// them, and refetch one when `refreshKey` moves.
 const DETAIL_CACHE_MAX = 30;
-const detailCache = new Map<string, GitCommitDetail>();
+const detailCache = new Map<string, { detail: GitCommitDetail; token: string }>();
 
 export interface GitCommitDetailState {
   detail: GitCommitDetail | undefined;
   error: string | null;
+  /** Fetch again (after an error, or to update refs). */
+  retry: () => void;
 }
 
 /** Message, files and diff of one commit; `hash` null shows nothing. */
-export function useGitCommitDetail(sessionId: string, hash: string | null): GitCommitDetailState {
+export function useGitCommitDetail(sessionId: string, hash: string | null, refreshKey?: unknown): GitCommitDetailState {
   const cacheKey = hash ? `${sessionId}:${hash}` : '';
   const [state, setState] = useState<{ key: string; detail?: GitCommitDetail; error: string | null }>({ key: '', error: null });
+  const [tick, setTick] = useState(0);
+  const token = `${String(refreshKey ?? '')}|${tick}`;
 
   useEffect(() => {
-    if (!hash || detailCache.has(cacheKey)) return;
+    if (!hash || detailCache.get(cacheKey)?.token === token) return;
     let alive = true;
     api.getGitCommitDetail(sessionId, hash)
       .then((detail) => {
-        detailCache.set(cacheKey, detail);
+        // Re-insert so the cache drops the least recently fetched entry.
+        detailCache.delete(cacheKey);
+        detailCache.set(cacheKey, { detail, token });
         while (detailCache.size > DETAIL_CACHE_MAX) detailCache.delete(detailCache.keys().next().value!);
         if (alive) setState({ key: cacheKey, detail, error: null });
       })
       .catch((err: unknown) => { if (alive) setState({ key: cacheKey, error: err instanceof Error ? err.message : String(err) }); });
     return () => { alive = false; };
-  }, [sessionId, hash, cacheKey]);
+  }, [sessionId, hash, cacheKey, token]);
 
-  const cached = cacheKey ? detailCache.get(cacheKey) : undefined;
-  if (cached) return { detail: cached, error: null };
-  if (state.key !== cacheKey) return { detail: undefined, error: null };
-  return { detail: state.detail, error: state.error };
+  const retry = useCallback(() => setTick((t) => t + 1), []);
+  // A cached reading shows at once, even while a refetch is in flight.
+  const cached = cacheKey ? detailCache.get(cacheKey)?.detail : undefined;
+  if (cached) return { detail: cached, error: null, retry };
+  if (state.key !== cacheKey) return { detail: undefined, error: null, retry };
+  return { detail: state.detail, error: state.error, retry };
 }
 
 /** Test hook: forget cached commit details. */

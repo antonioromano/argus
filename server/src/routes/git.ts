@@ -1,4 +1,5 @@
 import express, { Router } from 'express';
+import nodePath from 'path';
 import type { SessionManager } from '../services/SessionManager.js';
 import type { GitService } from '../services/GitService.js';
 import type { ChangelistStore } from '../persistence/ChangelistStore.js';
@@ -7,6 +8,7 @@ import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreat
 import { resolveRelativeWithinBase } from '../utils/pathScope.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { workRootOf } from '../utils/workRoot.js';
+import { GitUnknownRefError } from '../services/GitService.js';
 
 /** Ref names reach git as bare argv words: a leading `-` would be parsed as an
  *  option (`--upload-pack=…`, `-f`), `..` as a range. Exported for tests. */
@@ -21,10 +23,19 @@ export function isCommitHash(s: string): boolean {
 }
 
 /** A ref the history may start from: a branch, remote branch, tag or HEAD,
- *  optionally with ~n/^n. No options, ranges, reflog (`@{…}`) or pathspec
- *  magic. Exported for tests. */
+ *  optionally with ~n/^n. The name follows git's refname rules
+ *  (git-check-ref-format), so any real branch passes — `user@feature`,
+ *  `fix/café` — while options, ranges, reflog (`@{…}`), `:` pathspec magic,
+ *  globs and whitespace don't. Exported for tests. */
 export function isLogRef(s: string): boolean {
-  return s.length > 0 && s.length <= 255 && isSafeRef(s) && /^[A-Za-z0-9._/+-]+(?:[~^]\d*)*$/.test(s);
+  if (s.length === 0 || s.length > 255 || !isSafeRef(s)) return false;
+  const name = s.replace(/(?:[~^]\d*)+$/, '');
+  if (!name || name === '@' || name.includes('@{') || name.includes('//')) return false;
+  // Control chars, space, ~ ^ : ? * [ \ and DEL are never part of a refname.
+  if (/[\x00-\x20\x7f~^:?*[\\]/.test(name)) return false;
+  // No component may start with '.' or end with '.lock'; no trailing '/' or '.'.
+  if (name.split('/').some((c) => c === '' || c.startsWith('.') || c.endsWith('.lock'))) return false;
+  return !name.endsWith('.');
 }
 
 export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore, commitSelectionStore: CommitSelectionStore): Router {
@@ -569,8 +580,9 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
   }));
 
   // ── Git Manager, read-only (B5) ─────────────────────────────────────────
-  // No client-supplied path reaches git here: every route works on the
-  // session's own work root, and hashes/refs are validated before git sees them.
+  // Every route works on the session's own work root; the one client-supplied
+  // path (git-history's `path` filter) is contained by pathScope, and
+  // hashes/refs are validated before git sees them.
 
   router.get('/sessions/:id/git-history', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
@@ -579,6 +591,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     const skip = req.query.skip === undefined ? 0 : Number(req.query.skip);
     const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
     const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : undefined;
+    const rawPath = typeof req.query.path === 'string' && req.query.path ? req.query.path : undefined;
     if (!Number.isInteger(skip) || skip < 0 || !Number.isInteger(limit) || limit < 1) {
       res.status(400).json({ error: 'skip and limit must be non-negative integers' });
       return;
@@ -588,12 +601,29 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
+    const root = workRootOf(session);
+    let filePath: string | undefined;
+    if (rawPath !== undefined) {
+      const abs = resolveRelativeWithinBase(root, rawPath);
+      if (!abs) {
+        res.status(400).json({ error: 'Invalid path' });
+        return;
+      }
+      filePath = nodePath.relative(root, abs) || '.';
+    }
+
     try {
-      const result = await gitService.history(workRootOf(session), { skip, limit, ref });
+      const result = await gitService.history(root, { skip, limit, ref, ...(filePath ? { path: filePath } : {}) });
       res.setHeader('Cache-Control', 'no-cache');
       res.json(result);
-    } catch {
-      res.status(400).json({ error: ref ? `Unknown ref: ${ref}` : 'Couldn’t read the history' });
+    } catch (err) {
+      if (err instanceof GitUnknownRefError) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
+      // A timeout or a broken repo is a server-side failure, not a bad request.
+      console.error('[git-history]', err);
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Couldn’t read the history' });
     }
   }));
 

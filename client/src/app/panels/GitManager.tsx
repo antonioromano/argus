@@ -38,6 +38,8 @@ export function GitManager({ session, onClose, initialCommit, initialTab }: GitM
   const [from, setFrom] = useState<{ ref: string; name: string } | null>(null);
   const [selected, setSelected] = useState<string | null>(initialCommit ?? null);
   const [mode, setMode] = useState<'split' | 'unified'>('split');
+  // Bumped by the Refresh button, so the open commit's refs are re-read too.
+  const [manualRefresh, setManualRefresh] = useState(0);
 
   // Re-entering with a new target (another commit clicked in the Inspector)
   // reuses this instance: follow it.
@@ -58,6 +60,7 @@ export function GitManager({ session, onClose, initialCommit, initialTab }: GitM
   const refreshAll = () => {
     history.refresh();
     refsState.refresh();
+    setManualRefresh((n) => n + 1);
   };
 
   // With nothing chosen, show the newest commit.
@@ -125,6 +128,7 @@ export function GitManager({ session, onClose, initialCommit, initialTab }: GitM
               folderPath={workRoot(session)}
               hash={shown}
               mode={mode}
+              refreshKey={`${refreshKey}|${manualRefresh}`}
               onSelectCommit={setSelected}
             />
           </div>
@@ -147,7 +151,7 @@ function CommitList({ history, from, onClearFrom, selected, onSelect }: {
   selected: string | null;
   onSelect: (hash: string) => void;
 }) {
-  const { commits, hasMore, loading, error, loadMore, refresh } = history;
+  const { commits, hasMore, loading, error, loadMoreError, loadMore, refresh } = history;
   const now = useNow();
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -156,17 +160,26 @@ function CommitList({ history, from, onClearFrom, selected, onSelect }: {
   useEffect(() => {
     const root = listRef.current;
     const el = sentinelRef.current;
-    if (!root || !el || !hasMore) return;
+    // After a failed page, wait for the retry button instead of hammering the server.
+    if (!root || !el || !hasMore || loadMoreError) return;
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) loadMore();
     }, { root, rootMargin: '200px 0px' });
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, loadMore]);
+  }, [hasMore, loadMore, loadMoreError]);
 
-  // Keep the selected row in view (keyboard stepping, a commit opened from the Inspector).
+  // Bring the selected row into view when the selection changes (keyboard
+  // stepping, a commit opened from the Inspector) — once per selection, so a
+  // page appended while scrolling doesn't pull the list back to it. A commit
+  // not loaded yet is scrolled to once its page arrives.
+  const scrolledToRef = useRef<string | null>(null);
   useEffect(() => {
-    listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+    if (!selected || scrolledToRef.current === selected) return;
+    const row = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!row) return;
+    scrolledToRef.current = selected;
+    row.scrollIntoView({ block: 'nearest' });
   }, [selected, commits]);
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -193,7 +206,9 @@ function CommitList({ history, from, onClearFrom, selected, onSelect }: {
         ))}
         <div ref={sentinelRef} className="argus-git-list-end">
           {error ? (
-            <button type="button" className="argus-git-link" onClick={loadMore}>Couldn’t load more — retry</button>
+            <button type="button" className="argus-git-link" title={error} onClick={refresh}>Couldn’t refresh the history — retry</button>
+          ) : loadMoreError ? (
+            <button type="button" className="argus-git-link" title={loadMoreError} onClick={loadMore}>Couldn’t load more — retry</button>
           ) : hasMore ? (
             loading ? 'Loading…' : <button type="button" className="argus-git-link" onClick={loadMore}>Load more</button>
           ) : `${commits.length} ${commits.length === 1 ? 'commit' : 'commits'}`}

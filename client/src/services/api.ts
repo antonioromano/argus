@@ -924,12 +924,14 @@ export const api = {
 
   // ── Git Manager, read-only (B5) ──────────────────────────────────────────
 
-  /** One page of the session's commit history, newest first; `ref` defaults to HEAD. */
-  getGitHistory: async (sessionId: string, opts: { skip?: number; limit?: number; ref?: string } = {}): Promise<GitHistoryResponse> => {
+  /** One page of the session's commit history, newest first; `ref` defaults to HEAD,
+   *  `path` (relative to the work root) keeps the commits touching it. */
+  getGitHistory: async (sessionId: string, opts: { skip?: number; limit?: number; ref?: string; path?: string } = {}): Promise<GitHistoryResponse> => {
     const q = new URLSearchParams();
     if (opts.skip) q.set('skip', String(opts.skip));
     if (opts.limit) q.set('limit', String(opts.limit));
     if (opts.ref) q.set('ref', opts.ref);
+    if (opts.path) q.set('path', opts.path);
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-history${q.size ? `?${q}` : ''}`);
     return (await requireOk(res)).json();
   },
