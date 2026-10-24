@@ -1,9 +1,9 @@
-import { ExternalLink, FileDiff } from 'lucide-react';
+import { ExternalLink, FileDiff, GitPullRequest } from 'lucide-react';
 import type { SessionPrEntry } from '@argus/shared';
 import { Icon } from '../../components/primitives/index.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
-  PR_CI_LABEL, PR_REVIEW_LABEL, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, summarizePrStates, worstCi,
+  PR_CI_LABEL, PR_REVIEW_LABEL, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prTone, summarizePrStates, worstCi,
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
@@ -18,47 +18,47 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
 }
 
 /**
- * One PR: title (opens it on GitHub), `owner/repo#n`, state, checks, review
- * and mergeability. B4 extension point: when `ctx.onOpenPrDiff` is wired the
- * row offers "Files" to open the PR's changed files and diff.
+ * One PR: state glyph, title (opens it on GitHub), `owner/repo#n`, then a
+ * status line — state, checks, review, mergeability, "this branch". When
+ * `ctx.onOpenPrDiff` is wired (B4) the row offers "Changed files".
  */
 export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessionId: string; ctx: InspectorContext }) {
   const { pr, url } = entry;
   const ref = prRef(url, pr?.number);
   const live = !!pr && isLivePr(pr);
   return (
-    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'}>
-      <button type="button" className="argus-inspector-pr" data-state={pr?.state} onClick={() => openExternal(url)} title={`Open ${ref} on GitHub`}>
-        {pr && <Icon icon={PR_STATE_ICON[pr.state]} size={13} strokeWidth={2} className="argus-pr-icon" style={{ flexShrink: 0 }} />}
-        <span className="argus-inspector-pr-title">{pr?.title || ref}</span>
-        <Icon icon={ExternalLink} size={11} strokeWidth={1.8} style={{ flexShrink: 0, marginLeft: 'auto' }} />
-      </button>
-      <div className="argus-inspector-pr-meta">
-        {pr?.title && <span className="argus-inspector-ellipsis">{ref}</span>}
-        {pr ? (
-          <span className="argus-inspector-pr-badge" data-tone={pr.state}>{PR_STATE_LABEL[pr.state]}</span>
-        ) : (
-          <span className="argus-inspector-dim">status unavailable</span>
-        )}
-        {live && (
-          <span className="argus-inspector-ci" data-ci={pr.ci}>
-            {pr.ci !== 'none' && <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />}
-            {PR_CI_LABEL[pr.ci]}
-          </span>
-        )}
-        {live && pr.review && pr.review !== 'none' && (
-          <span className="argus-inspector-pr-review" data-review={pr.review}>{PR_REVIEW_LABEL[pr.review]}</span>
-        )}
-        {live && pr.mergeable === 'conflicting' && <span className="argus-inspector-pr-conflict">conflicts</span>}
-        {entry.folderBranch && (
-          <span className="argus-inspector-tag" title={pr?.branch ? `PR of ${pr.branch}, the branch checked out in the session folder` : undefined}>
-            this branch
-          </span>
-        )}
+    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined}>
+      <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} className="argus-inspector-pr-glyph" />
+      <div className="argus-inspector-pr-body">
+        <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`Open ${ref} on GitHub`}>
+          <span className="argus-inspector-pr-title">{pr?.title || ref}</span>
+          <Icon icon={ExternalLink} size={11} strokeWidth={1.8} className="argus-inspector-pr-ext" />
+        </button>
+        {pr?.title && <span className="argus-inspector-pr-ref">{ref}</span>}
+        <div className="argus-inspector-pr-meta">
+          {pr ? (
+            <span className="argus-inspector-pr-badge" data-tone={prTone(pr)}>{PR_STATE_LABEL[pr.state]}</span>
+          ) : (
+            <span>status unavailable</span>
+          )}
+          {live && (
+            <span className="argus-inspector-ci" data-ci={pr.ci}>
+              {pr.ci !== 'none' && <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />}
+              {PR_CI_LABEL[pr.ci]}
+            </span>
+          )}
+          {live && pr.review && pr.review !== 'none' && (
+            <span className="argus-inspector-pr-review" data-review={pr.review}>{PR_REVIEW_LABEL[pr.review]}</span>
+          )}
+          {live && pr.mergeable === 'conflicting' && <span className="argus-inspector-pr-conflict">conflicts</span>}
+          {entry.folderBranch && (
+            <span title={pr?.branch ? `PR of ${pr.branch}, the branch checked out in the session folder` : undefined}>this branch</span>
+          )}
+        </div>
         {ctx.onOpenPrDiff && (
-          <button type="button" className="argus-inspector-link argus-inspector-pr-files" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
-            <Icon icon={FileDiff} size={11} strokeWidth={1.8} />
-            Files
+          <button type="button" className="argus-inspector-pr-files" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
+            <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
+            Changed files
           </button>
         )}
       </div>

@@ -22,6 +22,7 @@ import type {
   SessionPr,
   SessionPrEntry,
   SessionPrsResponse,
+  SessionPrDiffResponse,
   AppConfig,
   ActivityEvent,
 } from '@argus/shared';
@@ -62,7 +63,7 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
-import type { PrStatusService } from './PrStatusService.js';
+import { PrDiffError, type PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
@@ -415,6 +416,11 @@ function chipKey(pr: SessionPr | null): string {
 /** PR URLs compared case-insensitively: GitHub owner/repo names are, and a
  *  `pr-link` may spell them differently from gh's canonical URL. */
 const samePrUrl = (a: string, b: string | undefined): boolean => !!b && a.toLowerCase() === b.toLowerCase();
+
+/** sessionPrDiff's answer: the diff, or the HTTP status and message to reply with. */
+export type PrDiffOutcome =
+  | { ok: true; diff: SessionPrDiffResponse }
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
 
 async function runBounded<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
@@ -907,6 +913,19 @@ export class SessionManager {
     const folder = this.resolveWithinAnySession(workRootOf(session));
     if (!folder) return { enabled: true, prs: [] };
 
+    const prs = await this.sessionPrEntries(session, folder, service);
+    await runBounded(prs.filter((e) => !e.folderBranch), PR_POLL_CONCURRENCY, async (e) => {
+      e.pr = await service.forUrl(e.url, folder);
+    });
+    return { enabled: true, prs };
+  }
+
+  /**
+   * The PRs listSessionPrs shows, before their status is read: only the
+   * folder PR (one cached lookup) carries `pr`. Also the allow-list of PRs
+   * whose diff may be read (sessionPrDiff).
+   */
+  private async sessionPrEntries(session: ManagedSession, folder: string, service: PrStatusService): Promise<SessionPrEntry[]> {
     const folderPr = await service.forFolder(folder);
     const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
     const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
@@ -920,10 +939,31 @@ export class SessionManager {
       prs.unshift({ url: folderPr.url, pr: folderPr, folderBranch: true, linked: false });
     }
     if (own) own.pr = folderPr;
-    await runBounded(prs.filter((e) => !e.folderBranch), PR_POLL_CONCURRENCY, async (e) => {
-      e.pr = await service.forUrl(e.url, folder);
-    });
-    return { enabled: true, prs };
+    return prs;
+  }
+
+  /**
+   * B4: the changed files and diff of one of the session's PRs. `url` is only
+   * matched against the session's own PR list (listSessionPrs) — the one gh
+   * is handed comes from that list, never from the request — and gh runs in
+   * the session's work root, resolved through pathScope.
+   */
+  async sessionPrDiff(id: string, url: string): Promise<PrDiffOutcome> {
+    const session = this.sessions.get(id);
+    if (!session) return { ok: false, status: 404, error: 'Session not found' };
+    if (!this.prService || !this.prEnabled) return { ok: false, status: 409, error: 'Pull request status is off' };
+    const service = this.prService;
+    const folder = this.resolveWithinAnySession(workRootOf(session));
+    if (!folder) return { ok: false, status: 404, error: 'The session folder is not available' };
+    const entry = (await this.sessionPrEntries(session, folder, service)).find((e) => samePrUrl(url, e.url));
+    if (!entry) return { ok: false, status: 404, error: 'Not a pull request of this session' };
+    try {
+      return { ok: true, diff: await service.prDiff(entry.url, folder) };
+    } catch (err) {
+      if (!(err instanceof PrDiffError)) throw err;
+      const status = err.kind === 'unavailable' ? 503 : err.kind === 'timeout' ? 504 : 502;
+      return { ok: false, status, error: err.message };
+    }
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */

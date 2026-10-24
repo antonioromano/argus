@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr } from '@argus/shared';
+import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
@@ -17,7 +17,7 @@ import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /** `gh pr view` in `cwd`. Resolves stdout; rejects with the execFile error
  *  (carrying `code` and `stderr`) on a non-zero exit or a missing binary. */
-export type GhRunner = (args: string[], cwd: string, opts?: { timeoutMs?: number }) => Promise<string>;
+export type GhRunner = (args: string[], cwd: string, opts?: { timeoutMs?: number; maxBuffer?: number }) => Promise<string>;
 
 /** Current branch and repo root of a folder; null when not a repo / detached. */
 export interface HeadInfo {
@@ -44,6 +44,13 @@ const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
 const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
+/** B4: a PR diff larger than this is not shown; only its file list is. */
+export const PR_DIFF_MAX_BYTES = 8 * 1024 * 1024;
+/** `gh pr diff` downloads the whole patch; allow it longer than a lookup. */
+export const PR_DIFF_TIMEOUT_MS = 30_000;
+/** Paths listed for a diff over the size limit. */
+export const PR_DIFF_MAX_FILES = 3_000;
+const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
 const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
@@ -152,6 +159,30 @@ export function isGhUnavailable(err: unknown): boolean {
   return /gh auth login|not logged in|authentication required/i.test(stderr);
 }
 
+/** Why a PR diff couldn't be read: gh missing / logged out, too slow, or it failed. */
+export class PrDiffError extends Error {
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+    super(message);
+  }
+}
+
+/** execFile killed the child for exceeding `maxBuffer`. */
+const isMaxBuffer = (err: unknown): boolean =>
+  (err as { code?: unknown })?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+
+/** execFile killed the child for exceeding `timeout`. */
+const isTimeout = (err: unknown): boolean => {
+  const e = (err ?? {}) as { killed?: unknown; signal?: unknown };
+  return e.killed === true && e.signal === 'SIGTERM';
+};
+
+/** gh's own explanation (first stderr line), short enough for a UI message. */
+function ghMessage(err: unknown): string {
+  const e = (err ?? {}) as { stderr?: unknown; message?: unknown };
+  const line = typeof e.stderr === 'string' ? e.stderr.trim().split('\n')[0] : '';
+  return (line || (typeof e.message === 'string' ? e.message : 'gh failed')).slice(0, 300);
+}
+
 // ── the gh binary ─────────────────────────────────────────────────────────
 
 const GH_CANDIDATES = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
@@ -188,7 +219,7 @@ export function createGhRunner(): GhRunner {
       execFile(bin, args, {
         cwd,
         timeout: opts?.timeoutMs ?? GH_TIMEOUT_MS,
-        maxBuffer: 2 * 1024 * 1024,
+        maxBuffer: opts?.maxBuffer ?? GH_STDOUT_MAX_BYTES,
         encoding: 'utf-8',
         env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' },
       }, (err, stdout, stderr) => {
@@ -213,6 +244,7 @@ export class PrStatusService {
   private readonly now: () => number;
   private cache = new Map<string, CacheEntry>();
   private inflight = new Map<string, Promise<SessionPr | null>>();
+  private diffInflight = new Map<string, Promise<SessionPrDiffResponse>>();
   private defaultBranches = new Map<string, { branch: string; at: number }>();
   /** Epoch ms until which `gh` is considered unusable (missing / logged out). */
   private unavailableUntil = 0;
@@ -298,6 +330,62 @@ export class PrStatusService {
     const url = parsePrCreateUrl(stdout);
     if (!url) throw new Error(stdout.trim() || 'gh pr create printed no PR URL');
     return url;
+  }
+
+  /**
+   * B4: `gh pr diff <url>` — every changed file of one PR as a raw unified
+   * diff. Not cached: it is asked for only when the user opens the diff, but
+   * a run already in flight for the same PR is shared (repeated Refresh, two
+   * windows). Over PR_DIFF_MAX_BYTES only the changed paths come back. The
+   * caller passes a validated github.com PR URL. Rejects with PrDiffError.
+   */
+  prDiff(url: string, cwd: string): Promise<SessionPrDiffResponse> {
+    const key = url.toLowerCase();
+    const running = this.diffInflight.get(key);
+    if (running) return running;
+    const p = this.readPrDiff(url, cwd).finally(() => this.diffInflight.delete(key));
+    this.diffInflight.set(key, p);
+    return p;
+  }
+
+  private async readPrDiff(url: string, cwd: string): Promise<SessionPrDiffResponse> {
+    if (this.now() < this.unavailableUntil) throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    try {
+      const diff = await this.runGh(['pr', 'diff', url, '--color', 'never'], cwd, {
+        timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES,
+      });
+      return { url, diff };
+    } catch (err) {
+      if (isMaxBuffer(err)) return { url, diff: '', truncated: { files: await this.prFileNames(url, cwd), limitBytes: PR_DIFF_MAX_BYTES } };
+      if (isGhUnavailable(err)) {
+        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+        throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+      }
+      if (isTimeout(err)) throw new PrDiffError('timeout', `gh pr diff took longer than ${PR_DIFF_TIMEOUT_MS / 1000}s`);
+      throw new PrDiffError('failed', ghMessage(err));
+    }
+  }
+
+  /**
+   * Changed paths of a PR whose diff is too large to show, from the PR's file
+   * list (`gh pr view --json files`) — not `gh pr diff --name-only`, which
+   * downloads the whole patch again. Empty if gh can't say (the UI then
+   * points to GitHub).
+   */
+  private async prFileNames(url: string, cwd: string): Promise<string[]> {
+    try {
+      const out = await this.runGh(['pr', 'view', url, '--json', 'files'], cwd, {
+        timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES,
+      });
+      const files = (JSON.parse(out) as { files?: unknown }).files;
+      if (!Array.isArray(files)) return [];
+      return files
+        .map((f) => (f as { path?: unknown })?.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0)
+        .slice(0, PR_DIFF_MAX_FILES);
+    } catch {
+      return [];
+    }
   }
 
   /** Forget everything (the feature was switched off). */

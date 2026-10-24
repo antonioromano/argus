@@ -1,5 +1,8 @@
 import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap, GitSummaryResponse, SessionPrsResponse } from '@argus/shared';
 
+// PR diff (B4) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
+import type { SessionPrDiffResponse } from '@argus/shared';
+
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
 
@@ -456,6 +459,12 @@ export const api = {
   /** B3: every PR of a session with its live status (Inspector GitHub card). */
   getSessionPrs: async (sessionId: string): Promise<SessionPrsResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/prs`);
+    return (await requireOk(res)).json();
+  },
+
+  /** B4: changed files + diff of one of the session's PRs (`url` from getSessionPrs). */
+  getSessionPrDiff: async (sessionId: string, url: string): Promise<SessionPrDiffResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/pr-diff?url=${encodeURIComponent(url)}`);
     return (await requireOk(res)).json();
   },
 
