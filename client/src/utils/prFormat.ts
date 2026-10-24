@@ -49,6 +49,32 @@ export const PR_REVIEW_LABEL: Record<PrReviewDecision, string> = {
 
 export const isLivePr = (pr: SessionPr): boolean => pr.state === 'open' || pr.state === 'draft';
 
+/**
+ * The color a PR is shown in: merged purple, closed red, draft grey. An open
+ * PR is amber when it can't be merged (conflicts or failing checks), green
+ * when it is ready (checks passed or none, mergeable, no review outstanding)
+ * and grey-blue while it is still on its way (checks running, review asked
+ * for, mergeability not computed yet). A draft stays grey whatever its checks say.
+ */
+export type PrTone = 'ready' | 'pending' | 'blocked' | 'draft' | 'merged' | 'closed';
+
+/** prTone as a color token, for glyphs styled inline (the CSS rules use data-tone). */
+export const PR_TONE_COLOR: Record<PrTone, string> = {
+  ready: 'var(--ok)',
+  pending: 'var(--pr-pending)',
+  blocked: 'var(--accent)',
+  draft: 'var(--fg-3)',
+  merged: 'var(--pr-merged)',
+  closed: 'var(--danger)',
+};
+
+export function prTone(pr: SessionPr): PrTone {
+  if (pr.state !== 'open') return pr.state;
+  if (pr.mergeable === 'conflicting' || pr.ci === 'failure') return 'blocked';
+  const reviewDone = pr.review !== 'review_required' && pr.review !== 'changes_requested';
+  return pr.ci !== 'pending' && pr.mergeable === 'mergeable' && reviewDone ? 'ready' : 'pending';
+}
+
 const CI_RANK: Record<PrCiStatus, number> = { none: 0, success: 1, pending: 2, failure: 3 };
 
 /** Worst checks state over the PRs still open (merged/closed checks no longer

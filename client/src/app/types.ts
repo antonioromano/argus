@@ -1,4 +1,4 @@
-import type { RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
+import type { RunMode, SessionInfo, SessionPrEntry, TerminalEngine } from '@argus/shared';
 import type { IntroFlow } from './intro/intro.js';
 
 export type View = 'dashboard' | 'focus';
@@ -29,15 +29,26 @@ export type SidePanel =
   | { kind: 'terminal'; sessionId: string }
   /** Beta F6 activity timeline, docked like the companion shell. */
   | { kind: 'activity'; sessionId: string }
+  /** One pull request's changed files and diff (B4): full-view only. */
+  | { kind: 'prdiff'; sessionId: string; maximized?: boolean; pr: SessionPrEntry }
   | null;
 
 /** Tool-window kinds that support the full-view maximize. */
-export type MaximizableKind = 'diff' | 'explorer';
+export type MaximizableKind = 'diff' | 'explorer' | 'prdiff';
+
+// A Record, so adding a MaximizableKind without listing it here fails to compile.
+const MAXIMIZABLE: Record<MaximizableKind, true> = { diff: true, explorer: true, prdiff: true };
+
+/** A tool window open in full-view over the shell (Focus renders it, Esc closes it). */
+export function isMaximizedPanel(p: SidePanel): p is Extract<NonNullable<SidePanel>, { kind: MaximizableKind }> {
+  return !!p && Object.hasOwn(MAXIMIZABLE, p.kind) && (p as { maximized?: boolean }).maximized === true;
+}
 
 /** Payload for opening a diff/explorer tool window directly in full-view. */
 export type MaximizablePanel =
   | { kind: 'diff'; sessionId: string; file?: string }
-  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string };
+  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string }
+  | { kind: 'prdiff'; sessionId: string; pr: SessionPrEntry };
 
 export type SidebarKey =
   | 'sessions'

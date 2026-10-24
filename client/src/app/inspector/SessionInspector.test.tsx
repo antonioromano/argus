@@ -256,6 +256,8 @@ describe('GitHub section', () => {
     expect(rows[2].textContent).toContain('Merged');
     expect(rows[2].textContent).not.toContain('checks');
     expect(rows[3].textContent).toContain('status unavailable');
+    // Tone: failing checks / conflicts amber, mergeable green, merged purple, unknown untinted.
+    expect(rows.map((r) => r.getAttribute('data-tone'))).toEqual(['blocked', 'ready', 'merged', null]);
     act(() => rows[2].querySelector<HTMLButtonElement>('.argus-inspector-pr')!.click());
     expect(openExternal).toHaveBeenCalledWith(OTHER.url);
     // No "Files" action until B4 wires onOpenPrDiff.

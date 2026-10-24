@@ -661,6 +661,18 @@ export interface SessionPrsResponse {
   prs: SessionPrEntry[];
 }
 
+/** GET /api/sessions/:id/pr-diff?url=… (B4) — one PR's changes (`gh pr diff`).
+ *  The URL must be one of the session's PRs (see SessionPrsResponse). */
+export interface SessionPrDiffResponse {
+  /** The PR, as the session's list spells it. */
+  url: string;
+  /** Raw unified diff of every changed file; empty when `truncated`. */
+  diff: string;
+  /** The diff exceeded `limitBytes`: only the changed paths are listed —
+   *  every one when `complete`, else a partial list (possibly empty). */
+  truncated?: { files: string[]; complete: boolean; limitBytes: number };
+}
+
 /** One numbered choice of a waiting agent's selection menu. Sending `key`
  *  (a single digit) to the session picks it. */
 export interface PromptOption {

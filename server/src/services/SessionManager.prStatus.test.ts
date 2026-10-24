@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import type { SessionPr } from '@argus/shared';
 import { SessionManager, SESSION_PRS_MAX } from './SessionManager.js';
+import { PrDiffError } from './PrStatusService.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -31,15 +32,22 @@ function fixture() {
   let answer: SessionPr | null = PR;
   // Set the service directly: setPrStatusService would also arm the interval.
   const urlLookups: string[] = [];
+  const diffs: Array<[string, string]> = [];
+  let diffAnswer = (url: string): unknown => ({ url, diff: 'diff --git a/x b/x\n' });
   (sm as any).prService = {
     forFolder: async (f: string) => { lookups.push(f); return answer; },
     forUrl: async (url: string) => { urlLookups.push(url); return { ...PR, number: 99, url, branch: 'feat/other' }; },
     clear: () => {},
+    prDiff: async (url: string, cwd: string) => { diffs.push([url, cwd]); return diffAnswer(url); },
   };
   const linkPr = (id: string, url: string | undefined) => {
     (sm as any).sessions.get(id).usage = { linkedPrUrl: () => url, snapshot: () => undefined };
   };
-  return { sm, emitted, lookups, urlLookups, linkPr, folder, setAnswer: (a: SessionPr | null) => { answer = a; } };
+  return {
+    sm, emitted, lookups, urlLookups, linkPr, folder, diffs,
+    setAnswer: (a: SessionPr | null) => { answer = a; },
+    setDiff: (fn: (url: string) => unknown) => { diffAnswer = fn; },
+  };
 }
 
 const prEvents = (emitted: Array<{ event: string; payload: any }>) => emitted.filter((e) => e.event === 'session:pr');
@@ -180,4 +188,58 @@ test('a change the chip does not render (title, mergeable) is stored but not bro
   await f.sm.pollPrStatus();
   assert.equal(prEvents(f.emitted).length, 2);
   assert.equal(f.sm.getSessionInfo('a')?.pr?.title, 'New title');
+});
+
+// ── B4: one PR's diff ───────────────────────────────────────────────────────
+
+test('sessionPrDiff: a linked PR, matched case-insensitively, is read by the list\'s URL in the folder', async () => {
+  const f = fixture();
+  const linked = 'https://github.com/o/other/pull/3';
+  linkPrs(f, 'a', [linked]);
+  const res = await f.sm.sessionPrDiff('a', 'https://github.com/O/Other/pull/3');
+  assert.deepEqual(res, { ok: true, diff: { url: linked, diff: 'diff --git a/x b/x\n' } });
+  assert.deepEqual(f.diffs, [[linked, f.folder]]);
+  assert.deepEqual(f.urlLookups, [], 'no status lookups just to authorize a diff');
+  assert.deepEqual(f.lookups, [], 'a recent linked PR needs no folder lookup either');
+});
+
+test('sessionPrDiff: the folder branch PR is allowed even when never linked', async () => {
+  const f = fixture();
+  const res = await f.sm.sessionPrDiff('a', PR.url);
+  assert.equal(res.ok, true);
+  assert.deepEqual(f.diffs, [[PR.url, f.folder]]);
+});
+
+test('sessionPrDiff: a PR outside the session list, an unknown session or the feature off → refused, gh never runs', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/o/r/pull/1']);
+  assert.deepEqual(await f.sm.sessionPrDiff('a', 'https://github.com/o/r/pull/2'), { ok: false, status: 404, error: 'Not a pull request of this session' });
+  assert.equal((await f.sm.sessionPrDiff('nope', PR.url)).ok, false);
+  f.sm.setPrStatusEnabled(false);
+  assert.deepEqual(await f.sm.sessionPrDiff('a', PR.url), { ok: false, status: 409, error: 'Pull request status is off' });
+  assert.deepEqual(f.diffs, []);
+});
+
+test('sessionPrDiff: a session folder outside every managed root says so', async () => {
+  const f = fixture();
+  (f.sm as any).resolveWithinAnySession = () => null;
+  assert.deepEqual(await f.sm.sessionPrDiff('a', PR.url), { ok: false, status: 404, error: 'The session folder is not available' });
+  assert.deepEqual(f.diffs, []);
+});
+
+test('sessionPrDiff: a PR beyond the capped list is refused', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  const urls = Array.from({ length: SESSION_PRS_MAX + 1 }, (_, i) => `https://github.com/o/r/pull/${i + 1}`);
+  linkPrs(f, 'a', urls);
+  assert.equal((await f.sm.sessionPrDiff('a', urls[0])).ok, false, 'the oldest fell off the list');
+  assert.equal((await f.sm.sessionPrDiff('a', urls[1])).ok, true);
+});
+
+test('sessionPrDiff: gh errors map to 503 / 504 / 502', async () => {
+  const f = fixture();
+  for (const [kind, status] of [['unavailable', 503], ['timeout', 504], ['failed', 502]] as const) {
+    f.setDiff(() => { throw new PrDiffError(kind, `gh ${kind}`); });
+    assert.deepEqual(await f.sm.sessionPrDiff('a', PR.url), { ok: false, status, error: `gh ${kind}` });
+  }
 });

@@ -87,7 +87,7 @@ const PAIRS: Pair[] = [
   ...on('text hierarchy', ['--fg-0', '--fg-1', '--fg-2', '--fg-3'], TEXT),
   ...on('disabled / decorative text', ['--fg-4'], UI),
   ...on('accent text (links, active nav, Remote URL)', ['--accent'], TEXT),
-  ...on('semantic text', ['--danger', '--warn', '--info', '--ok', '--dirty'], TEXT),
+  ...on('semantic text', ['--danger', '--warn', '--info', '--ok', '--dirty', '--pr-merged', '--pr-pending'], TEXT),
   ...on('status labels', ['--status-waiting', '--status-running', '--status-idle', '--status-done', '--status-exited'], TEXT),
   ...on('agent glyphs / labels', ['--agent-claude', '--agent-gemini', '--agent-codex'], TEXT),
   ...on('syntax (markdown, mobile diff)', ['--syn-kw', '--syn-str', '--syn-num', '--syn-fn', '--syn-cm', '--syn-pn'], TEXT),

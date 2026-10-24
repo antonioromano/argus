@@ -36,9 +36,12 @@ const DiffWorkbench = lazy(() =>
 const ExplorerWorkbench = lazy(() =>
   import('../panels/ExplorerWorkbench.js').then((m) => ({ default: m.ExplorerWorkbench })),
 );
+const PrDiffView = lazy(() =>
+  import('../panels/PrDiffView.js').then((m) => ({ default: m.PrDiffView })),
+);
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
-import type { SidePanel } from '../types.js';
+import { isMaximizedPanel, type SidePanel } from '../types.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
@@ -258,10 +261,7 @@ export function Focus({
     sidePanel && sidePanel.sessionId === active.id && (sidePanel.kind !== 'activity' || activityEnabled)
       ? sidePanel
       : null;
-  const maximized =
-    panelForActive && (panelForActive.kind === 'diff' || panelForActive.kind === 'explorer') && panelForActive.maximized
-      ? panelForActive
-      : null;
+  const maximized = isMaximizedPanel(panelForActive) ? panelForActive : null;
   const dockedOpen = !!panelForActive && !maximized;
 
   // Restore the split and re-focus / re-fit the terminal (keeps xterm mounted while
@@ -493,7 +493,15 @@ export function Focus({
                       </div>
                     }
                   >
-                    {maximized.kind === 'diff' ? (
+                    {maximized.kind === 'prdiff' ? (
+                      <PrDiffView
+                        // Another PR clicked while one is open: start over.
+                        key={maximized.pr.url}
+                        session={active}
+                        entry={maximized.pr}
+                        onClose={restoreToShell}
+                      />
+                    ) : maximized.kind === 'diff' ? (
                       <DiffWorkbench
                         key={workRoot(active)}
                         session={active}
