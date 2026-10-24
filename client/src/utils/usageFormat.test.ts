@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_CONFIG, type AppConfig, type SessionUsage } from '@argus/shared';
 import {
   describeUsage,
+  friendlyModel,
   effectiveWindow,
   formatResetIn,
   formatTokens,
@@ -85,5 +86,18 @@ describe('usageFormat', () => {
     expect(text).toContain('Model: claude-opus-5-5');
     expect(text).toContain('Warns at: context 70/90% · plan 80/95%');
     expect(text).not.toContain('$');
+  });
+});
+
+describe('friendlyModel', () => {
+  it.each([
+    ['claude-opus-5-5', 'Opus 5.5'],
+    ['claude-sonnet-4-5-20250929', 'Sonnet 4.5'],
+    ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
+    ['claude-haiku-4-5[1m]', 'Haiku 4.5'],
+    ['claude-fable-5-1', 'Fable 5.1'],
+    ['gpt-5.5', 'gpt-5.5'],
+  ])('%s → %s', (model, want) => {
+    expect(friendlyModel(model)).toBe(want);
   });
 });

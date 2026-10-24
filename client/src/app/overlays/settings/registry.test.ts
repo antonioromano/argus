@@ -27,10 +27,20 @@ describe('pane registry', () => {
     const owned = PANES.flatMap((p) => p.keys);
     expect(new Set(owned).size).toBe(owned.length);
 
-    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen']);
+    // Layout state the inspector remembers by itself (dragged width, collapsed
+    // sections): no pane edits it, so none owns it.
+    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen', 'inspectorWidth', 'inspectorCollapsed']);
     const uncovered = (Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[])
       .filter((k) => !bookkeeping.has(k) && !owned.includes(k));
     expect(uncovered).toEqual([]);
+  });
+
+  it('lets Shell header own the inspector toggle but not its layout state, findable by name', () => {
+    expect(PANES_BY_ID['shell-header'].keys).toContain('inspectorSide');
+    expect(PANES_BY_ID['shell-header'].keys).toContain('inspectorVisible');
+    expect(PANES.flatMap((p) => p.keys)).not.toContain('inspectorWidth');
+    expect(PANES.flatMap((p) => p.keys)).not.toContain('inspectorCollapsed');
+    expect(paneMatches(PANES_BY_ID['shell-header'], 'inspector')).toBe(true);
   });
 
   it('resolves legacy tab ids from before the re-cut', () => {

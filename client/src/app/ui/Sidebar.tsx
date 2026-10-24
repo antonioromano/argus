@@ -5,8 +5,8 @@ import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 
 import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd, StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
+import { SIDEBAR_COLLAPSE_KEY as COLLAPSE_KEY, readSidebarCollapsed } from './sidebarState.js';
 
-const COLLAPSE_KEY = 'argus-sidebar-collapsed';
 const WIDTH_KEY = 'argus-sidebar-width';
 
 // Expanded width is a dragged, persisted value. The bounds are the useful range
@@ -37,6 +37,12 @@ interface SidebarProps {
   ngrokConnected?: boolean;
   /** Group tree rendered under the Sessions item (hidden when the sidebar is collapsed). */
   sessionTree?: ReactNode;
+  /** Session Inspector (stacked layout): fills the space between Pilot and System. Hidden while collapsed. */
+  inspector?: ReactNode;
+  /** Reports the collapsed state, so the app knows whether `inspector` is actually on screen. */
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** Bump to expand a collapsed sidebar (e.g. to reveal the inspector it holds). */
+  expandRequest?: number;
 }
 
 interface Item {
@@ -48,10 +54,8 @@ interface Item {
   highlight?: boolean;
 }
 
-export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
-  });
+export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, onCollapsedChange, expandRequest }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(readSidebarCollapsed);
   const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
   const [width, setWidth] = useState<number>(readStoredWidth);
   const [resizing, setResizing] = useState(false);
@@ -226,6 +230,17 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     try { localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* ignore */ }
   }, [width]);
 
+  useEffect(() => { onCollapsedChange?.(collapsed); }, [collapsed, onCollapsedChange]);
+
+  // Latest-ref so the expand request below runs the current doExpand closure.
+  const expandRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    expandRef.current = () => { if (collapsed && animating === null) doExpand(); };
+  });
+  useEffect(() => {
+    if (expandRequest) expandRef.current?.();
+  }, [expandRequest]);
+
   const pilot: Item[] = [
     { id: 'sessions', icon: SquareTerminal, label: 'Shells', count: counts.total, highlight: !!counts.waiting },
     { id: 'palette',  icon: Search,         label: 'Find & Jump', kbd: '⌘K' },
@@ -272,7 +287,9 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         </Fragment>
       ))}
 
-      <div style={{ flex: 1 }} />
+      {inspector && !collapsed
+        ? <div className="argus-sidebar-inspector">{inspector}</div>
+        : <div style={{ flex: 1 }} />}
 
       <div className="eyebrow" style={{ padding: '0 var(--s-2)', margin: 'var(--s-4) 0 var(--s-2)' }}>System</div>
       {tools.map((it) => (
