@@ -20,6 +20,8 @@ import type {
   PromptOption,
   SessionStatusPayload,
   SessionPr,
+  SessionPrEntry,
+  SessionPrsResponse,
   AppConfig,
   ActivityEvent,
 } from '@argus/shared';
@@ -251,6 +253,8 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const PR_POLL_INTERVAL_MS = 30_000;
 /** Parallel `gh pr view` runs per sweep. */
 const PR_POLL_CONCURRENCY = 2;
+/** B3: most PRs one Inspector list request reads (the newest win). */
+export const SESSION_PRS_MAX = 20;
 /** Beta F8: re-read a worktree's last-commit time at most this often. Staleness
  *  is measured in days, so a 10 s git-poll tick needs no fresh `git log`. */
 const STALE_RECHECK_MS = 5 * 60_000;
@@ -873,6 +877,36 @@ export class SessionManager {
     } finally {
       this.prPollRunning = false;
     }
+  }
+
+  /**
+   * B3: every PR of a session for the Inspector's GitHub card, newest first —
+   * the ones its conversations created or pushed to (`pr-link`), plus the PR of
+   * the folder's branch, marked as such. Asked only while the card is open;
+   * every lookup goes through the PrStatusService cache and back-off, so the
+   * sweep and the card share `gh` answers. null: no such session.
+   */
+  async listSessionPrs(id: string): Promise<SessionPrsResponse | null> {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    if (!this.prService || !this.prEnabled) return { enabled: false, prs: [] };
+    const service = this.prService;
+    // `gh` runs only inside a folder Argus manages (path-scope containment).
+    const folder = this.resolveWithinAnySession(workRootOf(session));
+    if (!folder) return { enabled: true, prs: [] };
+
+    const folderPr = await service.forFolder(folder);
+    const linked = (session.usage?.linkedPrUrls() ?? []).slice(-SESSION_PRS_MAX).reverse();
+    const prs: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: url === folderPr?.url, linked: true }));
+    await runBounded(prs.filter((e) => !e.folderBranch), PR_POLL_CONCURRENCY, async (e) => {
+      e.pr = await service.forUrl(e.url, folder);
+    });
+    if (folderPr) {
+      const own = prs.find((e) => e.folderBranch);
+      if (own) own.pr = folderPr;
+      else prs.unshift({ url: folderPr.url, pr: folderPr, folderBranch: true, linked: false });
+    }
+    return { enabled: true, prs };
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */

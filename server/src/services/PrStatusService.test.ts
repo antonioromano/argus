@@ -7,6 +7,7 @@ import {
   PrStatusService,
   PR_PENDING_TTL_MS,
   PR_SETTLED_TTL_MS,
+  PR_FINAL_TTL_MS,
   GH_UNAVAILABLE_RECHECK_MS,
   PR_VIEW_ARGS,
   prViewArgsForUrl,
@@ -68,6 +69,28 @@ describe('parsePrView', () => {
     assert.equal(parsePrView('not json'), null);
     assert.equal(parsePrView('{}'), null);
     assert.equal(parsePrView(JSON.stringify({ ...base, url: 'javascript:alert(1)' })), null);
+  });
+});
+
+describe('parsePrView: title, review decision, mergeable (B3)', () => {
+  const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+  test('maps the extra fields when gh reports them', () => {
+    const pr = parsePrView(JSON.stringify({ ...base, title: 'Fix it', reviewDecision: 'CHANGES_REQUESTED', mergeable: 'CONFLICTING' }));
+    assert.equal(pr?.title, 'Fix it');
+    assert.equal(pr?.review, 'changes_requested');
+    assert.equal(pr?.mergeable, 'conflicting');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: 'APPROVED', mergeable: 'MERGEABLE' }))?.review, 'approved');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: 'REVIEW_REQUIRED' }))?.review, 'review_required');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: '', mergeable: 'UNKNOWN' }))?.review, 'none');
+    assert.equal(parsePrView(JSON.stringify({ ...base, mergeable: 'UNKNOWN' }))?.mergeable, 'unknown');
+  });
+  test('leaves them out when absent and bounds the title', () => {
+    const pr = parsePrView(JSON.stringify(base))!;
+    assert.equal('title' in pr || 'review' in pr || 'mergeable' in pr, false);
+    assert.equal(parsePrView(JSON.stringify({ ...base, title: 'x'.repeat(1000) }))?.title?.length, 300);
+  });
+  test('the view asks gh for them', () => {
+    assert.match(PR_VIEW_ARGS.join(' '), /title,reviewDecision,mergeable/);
   });
 });
 
@@ -241,6 +264,23 @@ describe('PrStatusService', () => {
     await service.forUrl(url, '/elsewhere');
     assert.deepEqual(calls, [{ args: prViewArgsForUrl(url), cwd: '/hub' }]);
     assert.equal(calls[0].args[2], url);
+  });
+
+  test('a merged PR is cached for the long final TTL; an unknown mergeable state rechecks soon', async () => {
+    const url = 'https://github.com/o/r/pull/7';
+    let json = prJson({ state: 'MERGED' });
+    const { service, calls, advance } = harness({ gh: async () => json });
+    await service.forUrl(url, '/hub');
+    advance(PR_SETTLED_TTL_MS + 1);
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 1, 'merged answer outlives the settled TTL');
+    advance(PR_FINAL_TTL_MS);
+    json = prJson({ mergeable: 'UNKNOWN' });
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 2);
+    advance(PR_PENDING_TTL_MS + 1);
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 3, 'mergeability still computing → pending TTL');
   });
 
   test('forUrl stays quiet while gh is unavailable', async () => {

@@ -1318,6 +1318,49 @@ body {
 .argus-inspector-pr[data-state='closed'] .argus-pr-icon { color: var(--danger); }
 .argus-inspector-ci { display: inline-flex; align-items: center; gap: var(--s-1); }
 
+/* B3: every PR of the session, newest first — a title button over a meta line
+   (owner/repo#n, state, checks, review, conflicts, "this branch"). */
+.argus-inspector-prs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.argus-inspector-prrow { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.argus-inspector-pr-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  font-size: var(--t-sm);
+  color: var(--fg-0);
+}
+.argus-inspector-pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--s-2);
+  row-gap: 2px;
+  padding: 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+}
+.argus-inspector-pr-meta .argus-inspector-tag { margin-left: 0; }
+.argus-inspector-pr-badge { font-weight: 500; }
+.argus-inspector-pr-badge[data-tone='open'] { color: var(--ok); }
+.argus-inspector-pr-badge[data-tone='draft'] { color: var(--fg-2); }
+.argus-inspector-pr-badge[data-tone='merged'] { color: var(--accent); }
+.argus-inspector-pr-badge[data-tone='closed'] { color: var(--danger); }
+.argus-inspector-pr-review[data-review='approved'] { color: var(--ok); }
+.argus-inspector-pr-review[data-review='changes_requested'] { color: var(--danger); }
+.argus-inspector-pr-review[data-review='review_required'] { color: var(--warn); }
+.argus-inspector-pr-conflict { color: var(--danger); }
+.argus-inspector-pr-files { display: inline-flex; align-items: center; gap: var(--s-1); margin-left: auto; }
+
 /* Left side: the inspector fills the sidebar between Pilot and System, with a
    rule above and below so it reads as its own block. */
 .argus-sidebar-inspector {

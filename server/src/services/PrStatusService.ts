@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrCiStatus, PrState, SessionPr } from '@argus/shared';
+import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
@@ -36,6 +36,8 @@ export interface PrStatusDeps {
 
 export const PR_PENDING_TTL_MS = 60_000;
 export const PR_SETTLED_TTL_MS = 5 * 60_000;
+/** A merged or closed PR barely changes: keep it longer, so a long PR list stays cheap. */
+export const PR_FINAL_TTL_MS = 30 * 60_000;
 /** After `gh` turned out missing / logged out, look again this rarely. */
 export const GH_UNAVAILABLE_RECHECK_MS = 10 * 60_000;
 const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
@@ -43,7 +45,7 @@ const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
 
-const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName';
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
 /** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
 export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
@@ -93,6 +95,24 @@ function prState(state: unknown, isDraft: unknown): PrState {
   return isDraft === true ? 'draft' : 'open';
 }
 
+const MAX_TITLE_LEN = 300;
+
+function reviewDecision(v: unknown): PrReviewDecision | undefined {
+  if (typeof v !== 'string') return undefined;
+  switch (v.toUpperCase()) {
+    case 'APPROVED': return 'approved';
+    case 'CHANGES_REQUESTED': return 'changes_requested';
+    case 'REVIEW_REQUIRED': return 'review_required';
+    default: return 'none'; // gh prints "" when no review is required
+  }
+}
+
+function mergeable(v: unknown): PrMergeable | undefined {
+  if (typeof v !== 'string') return undefined;
+  const s = v.toUpperCase();
+  return s === 'MERGEABLE' ? 'mergeable' : s === 'CONFLICTING' ? 'conflicting' : 'unknown';
+}
+
 /** Parse `gh pr view --json …` output; null when it is not a usable PR. */
 export function parsePrView(stdout: string): SessionPr | null {
   let raw: unknown;
@@ -101,15 +121,24 @@ export function parsePrView(stdout: string): SessionPr | null {
   } catch {
     return null;
   }
-  const o = raw as { number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown };
+  const o = raw as {
+    number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown;
+    title?: unknown; reviewDecision?: unknown; mergeable?: unknown;
+  };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
-  return {
+  const pr: SessionPr = {
     number: o.number,
     state: prState(o.state, o.isDraft),
     url: o.url,
     ci: aggregateChecks(o.statusCheckRollup),
     branch: typeof o.headRefName === 'string' ? o.headRefName : '',
   };
+  if (typeof o.title === 'string') pr.title = o.title.slice(0, MAX_TITLE_LEN);
+  const review = reviewDecision(o.reviewDecision);
+  if (review) pr.review = review;
+  const merge = mergeable(o.mergeable);
+  if (merge) pr.mergeable = merge;
+  return pr;
 }
 
 /** `gh` cannot be used at all (missing binary or not logged in), as opposed
@@ -295,8 +324,8 @@ export class PrStatusService {
       // and don't ask again until the settled TTL runs out.
     }
     const ttl = value?.state === 'open' || value?.state === 'draft'
-      ? (value.ci === 'pending' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
-      : PR_SETTLED_TTL_MS;
+      ? (value.ci === 'pending' || value.mergeable === 'unknown' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
+      : value ? PR_FINAL_TTL_MS : PR_SETTLED_TTL_MS;
     this.cache.set(key, { value, expiresAt: this.now() + ttl });
     return value;
   }

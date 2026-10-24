@@ -43,6 +43,7 @@ import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
+import { createSessionPrRoutes } from './routes/sessionPrs.js';
 import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createAutoApprovalRoutes } from './routes/autoApproval.js';
@@ -447,6 +448,7 @@ app.use('/api/chains', createChainRoutes({
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
+app.use('/api', createSessionPrRoutes(sessionManager));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
 // Plan usage per agent account (the usage meter); live updates ride `usage:plan`.
