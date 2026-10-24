@@ -14,6 +14,19 @@ export function isSafeRef(ref: string): boolean {
   return !ref.startsWith('-') && !ref.includes('..');
 }
 
+/** A commit named by hash (abbreviated or full) — hex only, so it can't be an
+ *  option, a range or a reflog expression. Exported for tests. */
+export function isCommitHash(s: string): boolean {
+  return /^[0-9a-f]{4,64}$/i.test(s);
+}
+
+/** A ref the history may start from: a branch, remote branch, tag or HEAD,
+ *  optionally with ~n/^n. No options, ranges, reflog (`@{…}`) or pathspec
+ *  magic. Exported for tests. */
+export function isLogRef(s: string): boolean {
+  return s.length > 0 && s.length <= 255 && isSafeRef(s) && /^[A-Za-z0-9._/+-]+(?:[~^]\d*)*$/.test(s);
+}
+
 export function createGitRoutes(manager: SessionManager, gitService: GitService, changelistStore: ChangelistStore, commitSelectionStore: CommitSelectionStore): Router {
   const router = Router();
 
@@ -553,6 +566,63 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     } catch (err) {
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
+  }));
+
+  // ── Git Manager, read-only (B5) ─────────────────────────────────────────
+  // No client-supplied path reaches git here: every route works on the
+  // session's own work root, and hashes/refs are validated before git sees them.
+
+  router.get('/sessions/:id/git-history', asyncHandler(async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+    const skip = req.query.skip === undefined ? 0 : Number(req.query.skip);
+    const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+    const ref = typeof req.query.ref === 'string' && req.query.ref ? req.query.ref : undefined;
+    if (!Number.isInteger(skip) || skip < 0 || !Number.isInteger(limit) || limit < 1) {
+      res.status(400).json({ error: 'skip and limit must be non-negative integers' });
+      return;
+    }
+    if (ref !== undefined && !isLogRef(ref)) {
+      res.status(400).json({ error: 'Invalid ref' });
+      return;
+    }
+
+    try {
+      const result = await gitService.history(workRootOf(session), { skip, limit, ref });
+      res.setHeader('Cache-Control', 'no-cache');
+      res.json(result);
+    } catch {
+      res.status(400).json({ error: ref ? `Unknown ref: ${ref}` : 'Couldn’t read the history' });
+    }
+  }));
+
+  router.get('/sessions/:id/git-commit-detail/:hash', asyncHandler(async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+    const { hash } = req.params;
+    if (!isCommitHash(hash)) {
+      res.status(400).json({ error: 'Invalid commit hash' });
+      return;
+    }
+    const detail = await gitService.commitDetail(workRootOf(session), hash);
+    if (!detail) {
+      res.status(404).json({ error: 'Commit not found' });
+      return;
+    }
+    // A commit's content never changes; its decorations might, so no long cache.
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(detail);
+  }));
+
+  router.get('/sessions/:id/git-refs', asyncHandler(async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+    const refs = await gitService.refs(workRootOf(session));
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ refs });
   }));
 
   return router;

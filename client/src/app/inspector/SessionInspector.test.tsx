@@ -20,6 +20,10 @@ const openExternal = vi.fn();
 vi.mock('../../utils/openExternal.js', () => ({
   openExternal: (url: string) => openExternal(url),
 }));
+// The History card has its own tests (HistorySection.test.tsx); here it just stays quiet.
+vi.mock('../../hooks/useGitHistory.js', () => ({
+  useGitHistory: () => ({ commits: [], hasMore: false, loading: false, error: null, loadMore: () => {}, refresh: () => {} }),
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -115,10 +119,10 @@ describe('SessionInspector', () => {
     expect(container.querySelector('.argus-inspector-head')!.textContent).toBe('');
   });
 
-  it('renders the usage, git and GitHub sections in order, open by default', async () => {
+  it('renders the usage, git, history and GitHub sections in order, open by default', async () => {
     await render();
     const ids = Array.from(container.querySelectorAll('[data-section]')).map((el) => el.getAttribute('data-section'));
-    expect(ids).toEqual(['usage', 'git', 'github']);
+    expect(ids).toEqual(['usage', 'git', 'history', 'github']);
     for (const id of ids) expect(head(id!).getAttribute('aria-expanded')).toBe('true');
   });
 

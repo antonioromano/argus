@@ -735,6 +735,7 @@ function DesktopInner() {
     usageMeter,
     prStatusEnabled: config?.showPrStatus !== false,
     onOpenDiff: (id, file) => guardForeign(id, () => openMaximized({ kind: 'diff', sessionId: id, file })),
+    onOpenGit: (id, target) => guardForeign(id, () => openMaximized({ kind: 'git', sessionId: id, ...target })),
   }), [usageMeter, config?.showPrStatus, guardForeign, openMaximized]);
   const renderInspector = (placement: 'column' | 'sidebar') => (
     <SessionInspector
@@ -1203,6 +1204,9 @@ function DesktopInner() {
               onToggleExplorer={() => app.sidePanel?.kind === 'explorer'
                 ? app.dismissMaximized()
                 : app.maximizeSidePanel({ kind: 'explorer', sessionId: activeSession.id })}
+              onToggleGit={() => app.sidePanel?.kind === 'git'
+                ? app.dismissMaximized()
+                : app.maximizeSidePanel({ kind: 'git', sessionId: activeSession.id })}
               onToggleTerminal={() => app.toggleSidePanel('terminal', activeSession.id)}
               activityEnabled={activityEnabled}
               onToggleActivity={() => app.toggleSidePanel('activity', activeSession.id)}

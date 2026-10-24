@@ -1544,3 +1544,114 @@ export interface AddAutoApprovalRuleRequest {
   bashPrefix?: string;
   pathGlob?: string;
 }
+
+// ── Git Manager, read-only (B5) ────────────────────────────────────────────
+// History, commit detail, branches and worktrees of a session's work root,
+// shown by the Session Inspector's History card and the Git tool window.
+
+/** One commit of `git log`. Times are epoch milliseconds. */
+export interface GitCommitSummary {
+  hash: string;
+  shortHash: string;
+  /** Full hashes; two or more for a merge, none for a root commit. */
+  parents: string[];
+  authorName: string;
+  authorEmail: string;
+  authorDate: number;
+  subject: string;
+  /** Branches, remote branches and tags pointing at this commit. */
+  refs: GitCommitRef[];
+}
+
+/** A decoration of a commit. `head` is a detached HEAD; a checked-out branch is a `branch` with `current`. */
+export interface GitCommitRef {
+  kind: 'branch' | 'remote' | 'tag' | 'head';
+  /** Short name: `main`, `origin/main`, `v1.0`, `HEAD`. */
+  name: string;
+  current?: boolean;
+}
+
+/** GET /api/sessions/:id/git-history?skip=&limit=&ref= — newest first. */
+export interface GitHistoryResponse {
+  /** null when the work root isn't a git repository. */
+  commits: GitCommitSummary[] | null;
+  /** More commits follow; ask again with `skip + commits.length`. */
+  hasMore: boolean;
+}
+
+/** One file a commit touched, from `git show --numstat` (against the first parent). */
+export interface GitCommitFile {
+  path: string;
+  /** Rename/copy origin, when it differs from `path`. */
+  oldPath?: string;
+  /** null for a binary file. */
+  additions: number | null;
+  deletions: number | null;
+}
+
+/** GET /api/sessions/:id/git-commit-detail/:hash */
+export interface GitCommitDetail extends GitCommitSummary {
+  committerName: string;
+  committerEmail: string;
+  commitDate: number;
+  /** The full message, subject included, trailing whitespace trimmed. */
+  message: string;
+  files: GitCommitFile[];
+  /** Unified diff against the first parent (`git show -p -M`); '' when `truncated`. */
+  diff: string;
+  /** Files left out of `diff` because each is too large to display. */
+  oversized?: string[];
+  /** The whole diff was too large: only `files` is available. */
+  truncated?: boolean;
+}
+
+/** A local or remote-tracking branch. */
+export interface GitBranchInfo {
+  /** Short name: `main`, `origin/main`. */
+  name: string;
+  /** Full ref: `refs/heads/main`, `refs/remotes/origin/main`. */
+  ref: string;
+  shortHash: string;
+  /** The checked-out branch of the session's work tree. */
+  current: boolean;
+  /** Local branches only: the tracked branch, e.g. `origin/main`. */
+  upstream: string | null;
+  /** null when there is no upstream (or it is gone). */
+  ahead: number | null;
+  behind: number | null;
+  /** The upstream was deleted on the remote. */
+  upstreamGone: boolean;
+  /** Epoch ms of the tip's commit. */
+  date: number;
+  subject: string;
+  /** Path of another worktree that has this branch checked out. */
+  worktreePath?: string;
+}
+
+export interface GitWorktreeInfo {
+  path: string;
+  /** Short branch name; null when detached or bare. */
+  branch: string | null;
+  head: string | null;
+  bare: boolean;
+  detached: boolean;
+  locked: boolean;
+  prunable: boolean;
+  /** The worktree the session runs in. */
+  current: boolean;
+  /** The main worktree (first in `git worktree list`). */
+  main: boolean;
+}
+
+/** GET /api/sessions/:id/git-refs */
+export interface GitRefsResponse {
+  /** null when the work root isn't a git repository. */
+  refs: {
+    root: string;
+    /** Checked-out branch; null when detached. */
+    current: string | null;
+    local: GitBranchInfo[];
+    remote: GitBranchInfo[];
+    worktrees: GitWorktreeInfo[];
+  } | null;
+}

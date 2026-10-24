@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, History } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -35,6 +35,9 @@ const DiffWorkbench = lazy(() =>
 );
 const ExplorerWorkbench = lazy(() =>
   import('../panels/ExplorerWorkbench.js').then((m) => ({ default: m.ExplorerWorkbench })),
+);
+const GitManager = lazy(() =>
+  import('../panels/GitManager.js').then((m) => ({ default: m.GitManager })),
 );
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
@@ -96,6 +99,8 @@ interface FocusProps {
   onBack: () => void;
   onToggleDiff: () => void;
   onToggleExplorer: () => void;
+  /** Open (or close) the Git Manager over the shell. */
+  onToggleGit?: () => void;
   onToggleTerminal: () => void;
   /** Beta F6 (`betaActivityTimeline`): show the Activity button and panel. Off ⇒ nothing renders. */
   activityEnabled?: boolean;
@@ -141,6 +146,7 @@ export function Focus({
   onBack,
   onToggleDiff,
   onToggleExplorer,
+  onToggleGit,
   onToggleTerminal,
   activityEnabled = false,
   onToggleActivity,
@@ -259,7 +265,7 @@ export function Focus({
       ? sidePanel
       : null;
   const maximized =
-    panelForActive && (panelForActive.kind === 'diff' || panelForActive.kind === 'explorer') && panelForActive.maximized
+    panelForActive && (panelForActive.kind === 'diff' || panelForActive.kind === 'explorer' || panelForActive.kind === 'git') && panelForActive.maximized
       ? panelForActive
       : null;
   const dockedOpen = !!panelForActive && !maximized;
@@ -384,6 +390,9 @@ export function Focus({
             {/* Tool windows: icon-only toggles, named by their tooltip. */}
             <IconButton icon={GitCompare} label="Diff" size="sm" active={sidePanel?.kind === 'diff'} pressed={sidePanel?.kind === 'diff'} onClick={onToggleDiff} />
             <IconButton icon={FolderOpen} label="Files" size="sm" active={sidePanel?.kind === 'explorer'} pressed={sidePanel?.kind === 'explorer'} onClick={onToggleExplorer} />
+            {onToggleGit && (
+              <IconButton icon={History} label="Git history" size="sm" active={sidePanel?.kind === 'git'} pressed={sidePanel?.kind === 'git'} onClick={onToggleGit} />
+            )}
             {activityEnabled && onToggleActivity && (
               <IconButton
                 icon={Activity}
@@ -493,7 +502,15 @@ export function Focus({
                       </div>
                     }
                   >
-                    {maximized.kind === 'diff' ? (
+                    {maximized.kind === 'git' ? (
+                      <GitManager
+                        key={workRoot(active)}
+                        session={active}
+                        onClose={restoreToShell}
+                        initialCommit={maximized.commit}
+                        initialTab={maximized.tab}
+                      />
+                    ) : maximized.kind === 'diff' ? (
                       <DiffWorkbench
                         key={workRoot(active)}
                         session={active}

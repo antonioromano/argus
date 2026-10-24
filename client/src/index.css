@@ -2006,3 +2006,300 @@ body {
 }
 .argus-chat-attachment.is-failed { border-color: var(--danger); }
 .argus-chat-attachment.is-failed img { opacity: 0.4; }
+
+/* ── Git Manager, read-only (B5) ─────────────────────────────────────────────
+   Full-view tool window (panels/GitManager.tsx): header + tabs, then
+   History = commit list | commit detail (header over a ReadOnlyDiff),
+   Branches / Worktrees = tables. Plus the Inspector's History card. */
+.argus-git {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+.argus-git-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-panel-header);
+  box-sizing: border-box;
+  padding: 0 var(--s-4);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  flex-shrink: 0;
+}
+.argus-git-head-session { font-family: var(--font-mono); font-size: var(--t-sm); color: var(--fg-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.argus-git-tabs { display: inline-flex; gap: 2px; margin-left: var(--s-3); }
+.argus-git-tab {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s-2);
+  border-radius: var(--r-2);
+  font-size: var(--t-sm);
+  color: var(--fg-2);
+}
+.argus-git-tab:hover { color: var(--fg-0); background: var(--bg-2); }
+.argus-git-tab[aria-selected='true'] { color: var(--accent); background: var(--accent-bg); }
+.argus-git-tab:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-git-tab-count { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--fg-3); }
+.argus-git-tab[aria-selected='true'] .argus-git-tab-count { color: var(--accent); }
+.argus-git-readonly {
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+}
+.argus-git-mode { display: inline-flex; border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--line-2); }
+.argus-git-mode > button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  letter-spacing: var(--tracking-eye);
+}
+.argus-git-mode > button[aria-pressed='true'] { background: var(--bg-3); color: var(--accent); }
+.argus-git-mode > button:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+
+.argus-git-body { flex: 1; display: flex; min-height: 0; }
+.argus-git-list-pane {
+  width: calc(340px * var(--ui-scale));
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-2);
+}
+.argus-git-from {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2) var(--s-1) var(--s-3);
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+}
+.argus-git-list { flex: 1; overflow-y: auto; outline: none; }
+.argus-git-list:focus-visible { box-shadow: inset 0 0 0 1px var(--accent-edge); }
+.argus-git-commit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-1-5) var(--s-3);
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--line-1);
+  cursor: pointer;
+  min-width: 0;
+}
+.argus-git-commit:hover { background: var(--bg-2); }
+.argus-git-commit[aria-selected='true'] { background: var(--bg-2); border-left-color: var(--accent); }
+.argus-git-commit-line { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.argus-git-commit-subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); color: var(--fg-0); }
+.argus-git-commit[aria-selected='true'] .argus-git-commit-subject { color: var(--accent); }
+.argus-git-commit-merge { color: var(--fg-2); flex-shrink: 0; }
+.argus-git-commit-meta { gap: var(--s-2); font-size: var(--t-tiny); color: var(--fg-2); }
+.argus-git-commit-age { margin-left: auto; flex-shrink: 0; }
+.argus-git-list-end { padding: var(--s-2) var(--s-3); text-align: center; font-size: var(--t-tiny); color: var(--fg-3); }
+
+.argus-git-refs { display: inline-flex; flex-wrap: wrap; gap: 3px; min-width: 0; }
+.argus-git-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-1);
+  line-height: 1.5;
+}
+.argus-git-ref-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-git-ref[data-kind='branch'] { color: var(--accent); border-color: var(--accent-edge); }
+.argus-git-ref[data-current] { background: var(--accent-bg); }
+.argus-git-ref[data-kind='tag'] { color: var(--warn); }
+.argus-git-ref[data-kind='more'] { color: var(--fg-2); }
+
+.argus-git-detail-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.argus-git-detail { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.argus-git-detail-head {
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line-2);
+  background: var(--bg-1);
+}
+.argus-git-detail-subject { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); font-size: var(--t-md); font-weight: 600; color: var(--fg-0); overflow-wrap: anywhere; }
+.argus-git-detail-body {
+  margin: var(--s-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+}
+.argus-git-detail-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+}
+.argus-git-detail-meta dt { color: var(--fg-2); }
+.argus-git-detail-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.argus-git-mono { font-family: var(--font-mono); }
+.argus-git-select { user-select: text; }
+.argus-git-dim { color: var(--fg-3); }
+.argus-git-warn { color: var(--warn); }
+.argus-git-add { color: var(--ok); font-family: var(--font-mono); }
+.argus-git-del { color: var(--danger); font-family: var(--font-mono); }
+.argus-git-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-git-link { all: unset; cursor: pointer; color: var(--accent); }
+.argus-git-link:hover { text-decoration: underline; }
+.argus-git-link:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
+.argus-git-notice {
+  margin: var(--s-2);
+  padding: var(--s-1-5) var(--s-2);
+  font-size: var(--t-tiny);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-2);
+}
+.argus-git-notice-files { list-style: none; margin: var(--s-1) 0 0; padding: 0; color: var(--fg-1); }
+.argus-git-notice-files li { overflow-wrap: anywhere; }
+
+.argus-git-tables { flex: 1; overflow-y: auto; padding: var(--s-2) var(--s-4) var(--s-4); }
+.argus-git-table-section + .argus-git-table-section { margin-top: var(--s-3); }
+.argus-git-table-title { margin: var(--s-2) 0 var(--s-1); color: var(--fg-3); font-weight: normal; }
+.argus-git-table-empty { font-size: var(--t-tiny); padding: var(--s-1) 0; }
+.argus-git-table { display: flex; flex-direction: column; }
+.argus-git-row {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) max-content minmax(0, 3fr) max-content;
+  align-items: center;
+  column-gap: var(--s-3);
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--s-2);
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--line-1);
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+}
+.argus-git-table:not([data-local]) .argus-git-row { grid-template-columns: minmax(0, 2fr) max-content minmax(0, 3fr) max-content; }
+.argus-git-row-static { cursor: default; grid-template-columns: minmax(0, 3fr) minmax(0, 1.5fr) max-content minmax(0, 1.5fr); }
+.argus-git-row:not(.argus-git-row-static):hover { background: var(--bg-2); }
+.argus-git-row:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-git-row[data-current] { border-left-color: var(--accent); }
+.argus-git-row-name { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; color: var(--fg-0); }
+.argus-git-row-track { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-git-row-subject { color: var(--fg-2); }
+.argus-git-row-age { text-align: right; }
+.argus-git-badges { display: inline-flex; flex-wrap: wrap; gap: var(--s-1); }
+.argus-git-badge {
+  flex-shrink: 0;
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+}
+.argus-git-badge[data-tone='accent'] { color: var(--accent); border-color: var(--accent-edge); }
+.argus-git-badge[data-tone='warn'] { color: var(--warn); }
+
+/* ReadOnlyDiff: the Diff workbench's file list + scroll, without the actions. */
+.argus-rodiff { flex: 1; display: flex; min-height: 0; }
+.argus-rodiff-files {
+  width: calc(240px * var(--ui-scale));
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-2);
+}
+.argus-rodiff-file {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--ctl-h-md);
+  padding: 0 var(--s-3);
+  border-left: 2px solid transparent;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+}
+.argus-rodiff-file:hover { background: var(--bg-2); }
+.argus-rodiff-file[data-selected] { background: var(--bg-2); border-left-color: var(--accent); }
+.argus-rodiff-file:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-rodiff-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-1); }
+.argus-rodiff-file[data-selected] .argus-rodiff-file-path { color: var(--accent); }
+.argus-rodiff-new { color: var(--accent); }
+.argus-rodiff-del { color: var(--danger); }
+.argus-rodiff-ren { color: var(--fg-2); }
+.argus-rodiff-add { color: var(--ok); }
+.argus-rodiff-delnum { color: var(--danger); }
+.argus-rodiff-main { flex: 1; min-width: 0; overflow: auto; background: var(--bg-0); }
+.argus-rodiff-empty { padding: var(--s-6); color: var(--fg-3); font-family: var(--font-mono); font-size: var(--t-sm); }
+
+/* Inspector History card: latest commits, a subject over hash · age · refs. */
+.argus-inspector-commits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.argus-inspector-commit {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px var(--s-1);
+  border-radius: var(--r-1);
+  min-width: 0;
+}
+.argus-inspector-commit:hover:not(:disabled) { background: var(--bg-3); }
+.argus-inspector-commit:disabled { cursor: default; }
+.argus-inspector-commit:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-inspector-commit-subject {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+}
+.argus-inspector-commit-merge { color: var(--fg-2); flex-shrink: 0; }
+.argus-inspector-commit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--s-2);
+  min-width: 0;
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+}
+.argus-inspector-commit-hash { font-family: var(--font-mono); }
+.argus-inspector-links { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); font-size: var(--t-tiny); }
