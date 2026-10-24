@@ -120,11 +120,31 @@ describe('PrDiffView', () => {
   });
 
   it('a diff over the limit lists the changed paths instead', async () => {
-    await render({ diff: '', truncated: { files: ['big/a.bin', 'big/b.json'], limitBytes: 8 * 1024 * 1024 } });
+    await render({ diff: '', truncated: { files: ['big/a.bin', 'big/b.json'], complete: true, limitBytes: 8 * 1024 * 1024 } });
     const note = container.querySelector('[role="note"]')!;
     expect(note.textContent).toContain('larger than 8 MB');
+    expect(note.textContent).toContain('Files changed (2)');
     expect([...note.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['big/a.bin', 'big/b.json']);
     expect(container.textContent).toContain('too large to display');
+  });
+
+  it('says when the list of a too-large diff is incomplete', async () => {
+    await render({ diff: '', truncated: { files: ['a.ts'], complete: false, limitBytes: 8 * 1024 * 1024 } });
+    expect(container.querySelector('[role="note"]')!.textContent).toContain('the list is incomplete');
+  });
+
+  it('a failed refresh keeps the diff and shows the error above it', async () => {
+    await render();
+    getSessionPrDiff.mockRejectedValueOnce(new Error('network down'));
+    await act(async () => { button('Refresh').click(); });
+    await flush();
+    expect(fileRows()).toEqual(['src/a.ts', 'src/b.ts']);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('network down');
+    getSessionPrDiff.mockResolvedValueOnce({ url: URL, diff: DIFF });
+    await act(async () => { alert.querySelector('button')!.click(); });
+    await flush();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('shows the server error with a retry that reads again', async () => {

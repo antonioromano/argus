@@ -32,7 +32,7 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
   const ref = prRef(entry.url, pr?.number);
 
   let body: React.ReactNode;
-  if (error) body = <ErrorState title="Couldn’t read the pull request’s changes" detail={error} onRetry={refresh} />;
+  if (error && !diff) body = <ErrorState title="Couldn’t read the pull request’s changes" detail={error} onRetry={refresh} />;
   else if (!diff) body = <LoadingState label="Loading pull request changes" />;
   else {
     body = (
@@ -74,6 +74,13 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
+      {/* A failed refresh: the last reading stays, the error goes above it. */}
+      {error && diff && (
+        <div className="argus-prdiff-notice argus-prdiff-stale" role="alert">
+          Couldn’t refresh — showing the last reading. {error}
+          <button type="button" className="argus-prdiff-retry" onClick={refresh}>Retry</button>
+        </div>
+      )}
       <div className="argus-prdiff-body">{body}</div>
     </div>
   );
@@ -85,7 +92,11 @@ function TruncatedNotice({ truncated }: { truncated: NonNullable<SessionPrDiffRe
   return (
     <div className="argus-prdiff-notice" role="note">
       The diff is larger than {mb} MB and isn’t shown.
-      {truncated.files.length > 0 ? ' Files changed:' : ' Open it on GitHub to see the changes.'}
+      {truncated.files.length === 0
+        ? ' Open it on GitHub to see the changes.'
+        : truncated.complete
+          ? ` Files changed (${truncated.files.length}):`
+          : ` The first ${truncated.files.length} files changed — the list is incomplete, open it on GitHub for the rest:`}
       {truncated.files.length > 0 && (
         <ul className="argus-prdiff-notice-files">
           {truncated.files.map((f) => <li key={f}>{f}</li>)}

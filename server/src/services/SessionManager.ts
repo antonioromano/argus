@@ -955,10 +955,14 @@ export class SessionManager {
     const service = this.prService;
     const folder = this.resolveWithinAnySession(workRootOf(session));
     if (!folder) return { ok: false, status: 404, error: 'The session folder is not available' };
-    const entry = (await this.sessionPrEntries(session, folder, service)).find((e) => samePrUrl(url, e.url));
-    if (!entry) return { ok: false, status: 404, error: 'Not a pull request of this session' };
+    // The newest SESSION_PRS_MAX - 1 linked PRs are always in the list (only its
+    // last slot can go to the folder PR), so they need no folder lookup.
+    const recent = (session.usage?.linkedPrUrls() ?? []).slice(-(SESSION_PRS_MAX - 1));
+    const listed = recent.find((u) => samePrUrl(url, u))
+      ?? (await this.sessionPrEntries(session, folder, service)).find((e) => samePrUrl(url, e.url))?.url;
+    if (!listed) return { ok: false, status: 404, error: 'Not a pull request of this session' };
     try {
-      return { ok: true, diff: await service.prDiff(entry.url, folder) };
+      return { ok: true, diff: await service.prDiff(listed, folder) };
     } catch (err) {
       if (!(err instanceof PrDiffError)) throw err;
       const status = err.kind === 'unavailable' ? 503 : err.kind === 'timeout' ? 504 : 502;

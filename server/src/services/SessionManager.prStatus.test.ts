@@ -200,6 +200,7 @@ test('sessionPrDiff: a linked PR, matched case-insensitively, is read by the lis
   assert.deepEqual(res, { ok: true, diff: { url: linked, diff: 'diff --git a/x b/x\n' } });
   assert.deepEqual(f.diffs, [[linked, f.folder]]);
   assert.deepEqual(f.urlLookups, [], 'no status lookups just to authorize a diff');
+  assert.deepEqual(f.lookups, [], 'a recent linked PR needs no folder lookup either');
 });
 
 test('sessionPrDiff: the folder branch PR is allowed even when never linked', async () => {

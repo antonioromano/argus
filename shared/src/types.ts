@@ -668,8 +668,9 @@ export interface SessionPrDiffResponse {
   url: string;
   /** Raw unified diff of every changed file; empty when `truncated`. */
   diff: string;
-  /** The diff exceeded `limitBytes`: only the changed paths are listed. */
-  truncated?: { files: string[]; limitBytes: number };
+  /** The diff exceeded `limitBytes`: only the changed paths are listed —
+   *  every one when `complete`, else a partial list (possibly empty). */
+  truncated?: { files: string[]; complete: boolean; limitBytes: number };
 }
 
 /** One numbered choice of a waiting agent's selection menu. Sending `key`

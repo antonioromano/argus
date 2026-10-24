@@ -2156,6 +2156,10 @@ body {
   background: var(--warn-bg);
   border-radius: var(--r-2);
 }
+.argus-prdiff-stale { display: flex; align-items: center; gap: var(--s-2); flex-shrink: 0; }
+.argus-prdiff-retry { all: unset; cursor: pointer; margin-left: auto; color: var(--accent); }
+.argus-prdiff-retry:hover { text-decoration: underline; }
+.argus-prdiff-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
 .argus-prdiff-notice-files { list-style: none; margin: var(--s-1) 0 0; padding: 0; color: var(--fg-1); font-family: var(--font-mono); }
 .argus-prdiff-notice-files li { overflow-wrap: anywhere; }
 

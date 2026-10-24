@@ -48,8 +48,10 @@ const PR_CREATE_TIMEOUT_MS = 60_000;
 export const PR_DIFF_MAX_BYTES = 8 * 1024 * 1024;
 /** `gh pr diff` downloads the whole patch; allow it longer than a lookup. */
 export const PR_DIFF_TIMEOUT_MS = 30_000;
-/** Paths listed for a diff over the size limit. */
+/** Paths listed for a diff over the size limit — GitHub's own cap on a PR's file list. */
 export const PR_DIFF_MAX_FILES = 3_000;
+/** owner, repo, number of a validated github.com PR URL. */
+const PR_URL_PARTS = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([0-9]+)$/;
 const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
 const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
@@ -356,7 +358,7 @@ export class PrStatusService {
       });
       return { url, diff };
     } catch (err) {
-      if (isMaxBuffer(err)) return { url, diff: '', truncated: { files: await this.prFileNames(url, cwd), limitBytes: PR_DIFF_MAX_BYTES } };
+      if (isMaxBuffer(err)) return { url, diff: '', truncated: { ...(await this.prFileNames(url, cwd)), limitBytes: PR_DIFF_MAX_BYTES } };
       if (isGhUnavailable(err)) {
         this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
         throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
@@ -367,24 +369,25 @@ export class PrStatusService {
   }
 
   /**
-   * Changed paths of a PR whose diff is too large to show, from the PR's file
-   * list (`gh pr view --json files`) — not `gh pr diff --name-only`, which
-   * downloads the whole patch again. Empty if gh can't say (the UI then
-   * points to GitHub).
+   * Changed paths of a PR whose diff is too large to show, from the REST file
+   * list (`gh api …/pulls/{n}/files --paginate`) — not `gh pr diff
+   * --name-only`, which downloads the whole patch again, nor `gh pr view
+   * --json files`, which stops at 100. GitHub itself lists at most
+   * PR_DIFF_MAX_FILES, so a list that long, or a failed one, is not `complete`.
    */
-  private async prFileNames(url: string, cwd: string): Promise<string[]> {
+  private async prFileNames(url: string, cwd: string): Promise<{ files: string[]; complete: boolean }> {
+    const m = PR_URL_PARTS.exec(url);
+    if (!m) return { files: [], complete: false };
     try {
-      const out = await this.runGh(['pr', 'view', url, '--json', 'files'], cwd, {
-        timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES,
-      });
-      const files = (JSON.parse(out) as { files?: unknown }).files;
-      if (!Array.isArray(files)) return [];
-      return files
-        .map((f) => (f as { path?: unknown })?.path)
-        .filter((p): p is string => typeof p === 'string' && p.length > 0)
-        .slice(0, PR_DIFF_MAX_FILES);
+      const out = await this.runGh(
+        ['api', '--paginate', `repos/${m[1]}/${m[2]}/pulls/${m[3]}/files?per_page=100`, '--jq', '.[].filename'],
+        cwd,
+        { timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES },
+      );
+      const files = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      return { files: files.slice(0, PR_DIFF_MAX_FILES), complete: files.length < PR_DIFF_MAX_FILES };
     } catch {
-      return [];
+      return { files: [], complete: false };
     }
   }
 

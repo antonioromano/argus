@@ -13,6 +13,7 @@ import {
   prViewArgsForUrl,
   PrDiffError,
   PR_DIFF_MAX_BYTES,
+  PR_DIFF_MAX_FILES,
   PR_DIFF_TIMEOUT_MS,
   type GhRunner,
   type HeadInfo,
@@ -317,24 +318,25 @@ describe('PrStatusService.prDiff (B4)', () => {
     }]);
   });
 
-  test('over the size limit: only the changed paths, from the PR file list (no second patch download)', async () => {
-    const { service, calls } = diffHarness(async (args) => {
-      if (args[1] === 'view') return JSON.stringify({ files: [{ path: 'a.ts', additions: 1 }, { path: 'b/c.ts' }, { nope: 1 }] });
-      throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
-    });
+  const tooBig = () => { throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }); };
+
+  test('over the size limit: every changed path, from the paginated REST file list (no second patch download)', async () => {
+    const { service, calls } = diffHarness(async (args) => (args[0] === 'api' ? 'a.ts\n  b/c.ts \n\n' : tooBig()));
     assert.deepEqual(await service.prDiff(url, '/repo'), {
-      url, diff: '', truncated: { files: ['a.ts', 'b/c.ts'], limitBytes: PR_DIFF_MAX_BYTES },
+      url, diff: '', truncated: { files: ['a.ts', 'b/c.ts'], complete: true, limitBytes: PR_DIFF_MAX_BYTES },
     });
-    assert.deepEqual(calls[1].args, ['pr', 'view', url, '--json', 'files']);
+    assert.deepEqual(calls[1].args, ['api', '--paginate', 'repos/o/r/pulls/7/files?per_page=100', '--jq', '.[].filename']);
     assert.equal(calls[1].opts?.maxBuffer, PR_DIFF_MAX_BYTES);
   });
 
-  test('over the size limit with an unreadable file list: empty paths, still truncated', async () => {
-    const { service } = diffHarness(async (args) => {
-      if (args[1] === 'view') return 'not json';
-      throw Object.assign(new Error('x'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
-    });
-    assert.deepEqual((await service.prDiff(url, '/repo')).truncated, { files: [], limitBytes: PR_DIFF_MAX_BYTES });
+  test('over the size limit: a list at GitHub\'s cap, or a failed one, is not complete', async () => {
+    const many = Array.from({ length: PR_DIFF_MAX_FILES }, (_, i) => `f${i}.ts`).join('\n');
+    const capped = diffHarness(async (args) => (args[0] === 'api' ? many : tooBig()));
+    const t = (await capped.service.prDiff(url, '/repo')).truncated!;
+    assert.equal(t.files.length, PR_DIFF_MAX_FILES);
+    assert.equal(t.complete, false);
+    const failed = diffHarness(async (args) => (args[0] === 'api' ? Promise.reject(new Error('HTTP 502')) : tooBig()));
+    assert.deepEqual((await failed.service.prDiff(url, '/repo')).truncated, { files: [], complete: false, limitBytes: PR_DIFF_MAX_BYTES });
   });
 
   test('concurrent reads of one PR share a single gh run; a later read runs again', async () => {
