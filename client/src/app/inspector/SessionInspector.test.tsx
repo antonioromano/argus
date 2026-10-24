@@ -133,10 +133,9 @@ describe('SessionInspector', () => {
     expect(onToggleSection).toHaveBeenCalledWith('git');
   });
 
-  it('moves to the other side from its header button (no way to hide it)', async () => {
+  it('moves to the other side from its header button', async () => {
     const onSwitchSide = vi.fn();
     await render({ onSwitchSide, side: 'left' });
-    expect(container.querySelector('[aria-label^="Hide"]')).toBeNull();
     const btn = container.querySelector<HTMLButtonElement>('[aria-label="Move inspector to the right"]')!;
     act(() => btn.click());
     expect(onSwitchSide).toHaveBeenCalledTimes(1);

@@ -217,17 +217,18 @@ function DesktopInner() {
     () => (meterView ? { ...meterView, plans: planUsage } : null),
     [meterView, planUsage],
   );
-  // Session Inspector (usage, git, GitHub of the shown shell). It is always
-  // on; side, width and collapsed sections are AppConfig, so they survive restarts.
+  // Session Inspector (usage, git, GitHub of the shown shell). Visibility,
+  // side, width and collapsed sections are AppConfig, so they survive restarts.
+  const inspectorVisible = config?.inspectorVisible !== false;
   const inspectorSide: InspectorSide = config?.inspectorSide === 'right' ? 'right' : 'left';
   const inspectorCollapsed = config?.inspectorCollapsed ?? NO_SECTIONS;
   // The values the last change asked for. Config only updates when the PUT
   // returns, so two quick clicks computed from it would both start from the
   // same stale value and the second would undo the first.
-  const inspectorIntent = useRef({ side: inspectorSide, collapsed: inspectorCollapsed });
+  const inspectorIntent = useRef({ visible: inspectorVisible, side: inspectorSide, collapsed: inspectorCollapsed });
   useEffect(() => {
-    inspectorIntent.current = { side: inspectorSide, collapsed: inspectorCollapsed };
-  }, [inspectorSide, inspectorCollapsed]);
+    inspectorIntent.current = { visible: inspectorVisible, side: inspectorSide, collapsed: inspectorCollapsed };
+  }, [inspectorVisible, inspectorSide, inspectorCollapsed]);
   // On the left the inspector lives in the sidebar, so a collapsed sidebar
   // hides it — and the shell header takes its chips back. Seeded from the
   // sidebar's own stored state so the first render already agrees with it.
@@ -237,8 +238,19 @@ function DesktopInner() {
     const side: InspectorSide = inspectorIntent.current.side === 'left' ? 'right' : 'left';
     inspectorIntent.current = { ...inspectorIntent.current, side };
     // Moving it into a collapsed sidebar would make it vanish: open the sidebar too.
-    if (side === 'left' && sidebarCollapsed) setSidebarExpandRequest((n) => n + 1);
+    if (side === 'left' && sidebarCollapsed && inspectorIntent.current.visible) setSidebarExpandRequest((n) => n + 1);
     updateConfig({ inspectorSide: side }).catch(console.error);
+  }, [updateConfig, sidebarCollapsed]);
+  const toggleInspector = useCallback(() => {
+    const { visible: wasVisible, side } = inspectorIntent.current;
+    // On the left a collapsed sidebar hides it anyway: reveal it instead of
+    // hiding something that isn't on screen.
+    if (side === 'left' && sidebarCollapsed) {
+      setSidebarExpandRequest((n) => n + 1);
+      if (wasVisible) return;
+    }
+    inspectorIntent.current = { ...inspectorIntent.current, visible: !wasVisible };
+    updateConfig({ inspectorVisible: !wasVisible }).catch(console.error);
   }, [updateConfig, sidebarCollapsed]);
   const toggleInspectorSection = useCallback((id: string) => {
     const prev = inspectorIntent.current.collapsed;
@@ -694,13 +706,18 @@ function DesktopInner() {
           e.preventDefault();
           openShellForFocused();
           break;
+        case 'toggle-inspector':
+          if (isTyping) return;
+          e.preventDefault();
+          toggleInspector();
+          break;
         default:
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -711,8 +728,8 @@ function DesktopInner() {
   const inspectorSession: SessionInfo | null = app.view === 'focus'
     ? activeSession
     : (mosaicFocusedId ? sessions.find((s) => s.id === mosaicFocusedId) ?? null : null);
-  const inspectorColumn = inspectorSide === 'right';
-  const inspectorShown = inspectorColumn || !sidebarCollapsed;
+  const inspectorColumn = inspectorVisible && inspectorSide === 'right';
+  const inspectorShown = inspectorVisible && (inspectorColumn || !sidebarCollapsed);
   const openMaximized = app.openMaximized;
   const inspectorCtx = useMemo<InspectorContext>(() => ({
     usageMeter,
@@ -907,7 +924,9 @@ function DesktopInner() {
           mosaicOrientation: config?.mosaicOrientation === 'vertical' ? 'horizontal' : 'vertical',
         })}
         inspectorSide={inspectorSide}
-        onSwitchInspectorSide={switchInspectorSide}
+        inspectorShown={inspectorShown}
+        onToggleInspector={toggleInspector}
+        inspectorHint={formatCombo(shortcuts.resolved['toggle-inspector'])}
         isDark={isDark}
         ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
         updateAvailable={updateStatus?.hasUpdate}
@@ -945,6 +964,14 @@ function DesktopInner() {
       keywords: 'find grep scrollback transcript history output everywhere',
       icon: Search,
       run: openSearch,
+    },
+    {
+      id: 'toggle-inspector',
+      label: inspectorShown ? 'Hide Session Inspector' : 'Show Session Inspector',
+      hint: formatCombo(shortcuts.resolved['toggle-inspector']),
+      keywords: 'inspector side panel show hide usage context git branch github pull request pr',
+      icon: ScanSearch,
+      run: toggleInspector,
     },
     {
       id: 'inspector-side',
@@ -1063,7 +1090,7 @@ function DesktopInner() {
           onSelect={handleSidebar}
           version={updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
-          inspector={inspectorSide === 'left' ? renderInspector('sidebar') : undefined}
+          inspector={inspectorVisible && inspectorSide === 'left' ? renderInspector('sidebar') : undefined}
           onCollapsedChange={setSidebarCollapsed}
           expandRequest={sidebarExpandRequest}
           sessionTree={

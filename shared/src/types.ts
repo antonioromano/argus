@@ -141,6 +141,9 @@ export interface AppConfig {
   // Where the Session Inspector (usage, git, GitHub of the shown shell) sits:
   // in the left sidebar, or as a right-hand column (default: 'left').
   inspectorSide?: InspectorSide;
+  // Show the Session Inspector at all (default: true). Hidden, the shell
+  // header shows usage, git and PR as chips again.
+  inspectorVisible?: boolean;
   // Its width in px when docked as a right-hand column (220..560).
   inspectorWidth?: number;
   // Ids of the inspector sections the user collapsed (default: none).
@@ -233,6 +236,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   usageWarnPlan: { amber: 80, red: 95 },
   showPrStatus: true,
   inspectorSide: 'left',
+  inspectorVisible: true,
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,

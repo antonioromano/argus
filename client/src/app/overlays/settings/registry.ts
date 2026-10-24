@@ -90,8 +90,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Shell header',
     group: 'Appearance',
     icon: PanelTop,
-    keys: ['tileQuickAction', 'tileRunningIndicator', 'showUsageMeter', 'usageMeterParts', 'usageWarnContext', 'usageWarnPlan', 'showPrStatus', 'inspectorSide'],
-    keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'limit', 'reset', 'model', 'warning', 'threshold', 'codex', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh', 'inspector', 'session inspector', 'side panel', 'left', 'right', 'position', 'git', 'branch'],
+    keys: ['tileQuickAction', 'tileRunningIndicator', 'showUsageMeter', 'usageMeterParts', 'usageWarnContext', 'usageWarnPlan', 'showPrStatus', 'inspectorSide', 'inspectorVisible'],
+    keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'limit', 'reset', 'model', 'warning', 'threshold', 'codex', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh', 'inspector', 'session inspector', 'side panel', 'left', 'right', 'position', 'show', 'hide', 'git', 'branch'],
   },
   {
     id: 'toolbar',

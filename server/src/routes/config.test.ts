@@ -219,6 +219,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     usageWarnPlan: { amber: 50, red: 75 },
     showPrStatus: false,
     inspectorSide: 'right',
+    inspectorVisible: false,
     inspectorWidth: 420,
     inspectorCollapsed: ['git'],
     autoApprovalEnabled: true,
@@ -377,7 +378,7 @@ test('warn thresholds: 5..99 with red above amber, else 400 and unchanged', asyn
   assert.deepEqual(cfg.usageWarnPlan, { amber: 80, red: 95 });
 });
 
-test('inspector: width is clamped, side is left or right, collapsed ids are validated', async () => {
+test('inspector: width is clamped, side is left or right, visibility is a strict boolean, collapsed ids are validated', async () => {
   assert.equal((await put({ inspectorWidth: 9999 })).status, 200);
   assert.equal((await get()).inspectorWidth, 560);
   assert.equal((await put({ inspectorWidth: 10 })).status, 200);
@@ -388,6 +389,10 @@ test('inspector: width is clamped, side is left or right, collapsed ids are vali
   await put({ inspectorSide: 'right' });
   await put({ inspectorSide: 'top' });
   assert.equal((await get()).inspectorSide, 'right');
+
+  await put({ inspectorVisible: false });
+  await put({ inspectorVisible: 'yes' });
+  assert.equal((await get()).inspectorVisible, false);
 
   assert.equal((await put({ inspectorCollapsed: ['usage', 'git', 'usage'] })).status, 200);
   assert.deepEqual((await get()).inspectorCollapsed, ['usage', 'git']);

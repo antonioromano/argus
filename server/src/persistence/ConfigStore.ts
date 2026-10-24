@@ -50,6 +50,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   usageWarnPlan: { amber: 80, red: 95 },
   showPrStatus: true,
   inspectorSide: 'left',
+  inspectorVisible: true,
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,

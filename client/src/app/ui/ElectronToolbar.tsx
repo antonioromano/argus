@@ -44,9 +44,12 @@ interface ElectronToolbarProps {
   /** Current mosaic arrangement; the button flips it. Omit to hide the button. */
   mosaicOrientation?: MosaicOrientation;
   onToggleMosaicOrientation?: () => void;
-  /** Session Inspector side; the button moves it to the other one. Omit the handler to hide the button. */
+  /** Session Inspector: the button shows or hides it; the glyph marks the side it docks on. Omit the handler to hide the button. */
   inspectorSide?: InspectorSide;
-  onSwitchInspectorSide?: () => void;
+  inspectorShown?: boolean;
+  onToggleInspector?: () => void;
+  /** Shortcut label for the tooltip, e.g. "⌘I". */
+  inspectorHint?: string;
   isDark: boolean;
   ngrokConnected: boolean;
   updateAvailable?: boolean;
@@ -82,7 +85,9 @@ export function ElectronToolbar({
   mosaicOrientation,
   onToggleMosaicOrientation,
   inspectorSide = 'left',
-  onSwitchInspectorSide,
+  inspectorShown = false,
+  onToggleInspector,
+  inspectorHint,
   isDark,
   ngrokConnected,
   updateAvailable,
@@ -176,16 +181,17 @@ export function ElectronToolbar({
           </Tooltip>
         )}
 
-        {onSwitchInspectorSide && (
-          // Like the layout toggle beside it, the glyph shows where a click takes it.
-          <Tooltip content={inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left'}>
+        {onToggleInspector && (
+          // A panel toggle like a sidebar button: the filled half is the side it docks on.
+          <Tooltip content={`${inspectorShown ? 'Hide' : 'Show'} Session Inspector${inspectorHint ? ` · ${inspectorHint}` : ''}`}>
             <button
-              onClick={onSwitchInspectorSide}
-              style={iconBtn()}
-              aria-label={inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left'}
-              data-testid="inspector-side"
+              onClick={onToggleInspector}
+              style={iconBtn(inspectorShown)}
+              aria-label={inspectorShown ? 'Hide Session Inspector' : 'Show Session Inspector'}
+              aria-pressed={inspectorShown}
+              data-testid="toggle-inspector"
             >
-              <PanelSideGlyph side={inspectorSide === 'left' ? 'right' : 'left'} size={13} />
+              <PanelSideGlyph side={inspectorSide} size={13} />
             </button>
           </Tooltip>
         )}

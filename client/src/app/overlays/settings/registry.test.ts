@@ -37,6 +37,7 @@ describe('pane registry', () => {
 
   it('lets Shell header own the inspector toggle but not its layout state, findable by name', () => {
     expect(PANES_BY_ID['shell-header'].keys).toContain('inspectorSide');
+    expect(PANES_BY_ID['shell-header'].keys).toContain('inspectorVisible');
     expect(PANES.flatMap((p) => p.keys)).not.toContain('inspectorWidth');
     expect(PANES.flatMap((p) => p.keys)).not.toContain('inspectorCollapsed');
     expect(paneMatches(PANES_BY_ID['shell-header'], 'inspector')).toBe(true);

@@ -60,6 +60,8 @@ function Section({ def, session, ctx, open, onToggle }: {
  * Session Inspector: what the shell header used to cram into chips (usage,
  * git, GitHub), as collapsible cards with room for the detail. The same
  * component renders in both placements (left sidebar, right column).
+ * The header only offers the side switch; showing and hiding live in the
+ * toolbar, ⌘I, the palette and Settings, so the narrow header keeps its room.
  */
 export function SessionInspector({
   session,
@@ -89,6 +91,7 @@ export function SessionInspector({
             <PanelSideGlyph side={side === 'left' ? 'right' : 'left'} size={13} />
           </button>
         </Tooltip>
+
       </div>
       {session ? (
         <div className="argus-inspector-scroll">

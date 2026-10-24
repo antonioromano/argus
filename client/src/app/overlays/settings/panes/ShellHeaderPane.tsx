@@ -202,6 +202,12 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
 
       <Section title="Session Inspector">
         <SettingRow
+          label="Show inspector"
+          hint="Hidden, the shell header shows usage, git and pull request as chips again. ⌘I toggles it"
+        >
+          <Toggle checked={config.inspectorVisible !== false} onChange={(v) => onSave({ inspectorVisible: v })} />
+        </SettingRow>
+        <SettingRow
           label="Position"
           hint="Usage, git and pull request of the open shell (or the selected tile). Left: in the sidebar, between Shells and System. Right: a column beside the shells. While the sidebar holding it is collapsed, the header shows them as chips"
         >
