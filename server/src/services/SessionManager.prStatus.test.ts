@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'os';
 import path from 'path';
 import type { SessionPr } from '@argus/shared';
-import { SessionManager } from './SessionManager.js';
+import { SessionManager, SESSION_PRS_MAX } from './SessionManager.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -98,4 +98,86 @@ test('the folder branch PR wins over a transcript-linked one', async () => {
   await f.sm.pollPrStatus();
   assert.deepEqual(f.urlLookups, []);
   assert.deepEqual(f.sm.getSessionInfo('a')?.pr, PR);
+});
+
+// ── B3: every PR of a session (Inspector GitHub card) ─────────────────────
+
+function linkPrs(f: ReturnType<typeof fixture>, id: string, urls: string[]): void {
+  (f.sm as any).sessions.get(id).usage = { linkedPrUrl: () => urls[urls.length - 1], linkedPrUrls: () => urls, snapshot: () => undefined };
+}
+
+test('listSessionPrs: linked PRs newest first, the folder PR marked and not looked up twice', async () => {
+  const f = fixture();
+  const other = 'https://github.com/o/other/pull/3';
+  linkPrs(f, 'a', [other, PR.url, 'https://github.com/o/r/pull/12']);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.enabled, true);
+  assert.deepEqual(res?.prs.map((e) => [e.url, e.folderBranch, e.linked]), [
+    ['https://github.com/o/r/pull/12', false, true],
+    [PR.url, true, true],
+    [other, false, true],
+  ]);
+  assert.deepEqual(res?.prs[1].pr, PR, 'the folder PR keeps its branch lookup');
+  assert.equal(res?.prs[0].pr?.number, 99);
+  assert.deepEqual(f.urlLookups.sort(), [other, 'https://github.com/o/r/pull/12'].sort(), 'no forUrl for the folder PR');
+});
+
+test('listSessionPrs: a folder PR the conversation never linked goes on top', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/o/r/pull/1']);
+  const res = await f.sm.listSessionPrs('a');
+  assert.deepEqual(res?.prs.map((e) => [e.url, e.folderBranch, e.linked]), [
+    [PR.url, true, false],
+    ['https://github.com/o/r/pull/1', false, true],
+  ]);
+});
+
+test('listSessionPrs: nothing linked and no folder PR → empty; unknown session → null; off → disabled', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  assert.deepEqual(await f.sm.listSessionPrs('a'), { enabled: true, prs: [] });
+  assert.equal(await f.sm.listSessionPrs('nope'), null);
+  f.sm.setPrStatusEnabled(false);
+  assert.deepEqual(await f.sm.listSessionPrs('a'), { enabled: false, prs: [] });
+  assert.equal(f.lookups.length, 1, 'no lookups while the feature is off');
+});
+
+test('listSessionPrs: reads at most SESSION_PRS_MAX PRs, the newest', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  const urls = Array.from({ length: SESSION_PRS_MAX + 5 }, (_, i) => `https://github.com/o/r/pull/${i + 1}`);
+  linkPrs(f, 'a', urls);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.prs.length, SESSION_PRS_MAX);
+  assert.equal(res?.prs[0].url, urls[urls.length - 1]);
+  assert.equal(f.urlLookups.length, SESSION_PRS_MAX);
+});
+
+test('listSessionPrs: a folder PR linked long ago stays in the capped list, marked linked', async () => {
+  const f = fixture();
+  const urls = [PR.url, ...Array.from({ length: SESSION_PRS_MAX + 2 }, (_, i) => `https://github.com/o/r/pull/${100 + i}`)];
+  linkPrs(f, 'a', urls);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.prs.length, SESSION_PRS_MAX);
+  const last = res!.prs[SESSION_PRS_MAX - 1];
+  assert.deepEqual([last.url, last.folderBranch, last.linked], [PR.url, true, true]);
+  assert.equal(f.urlLookups.includes(PR.url), false);
+});
+
+test('listSessionPrs: the folder PR matches a pr-link spelled with another case', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/O/R/pull/7']);
+  const res = await f.sm.listSessionPrs('a');
+  assert.equal(res?.prs.length, 1);
+  assert.equal(res?.prs[0].folderBranch, true);
+  assert.deepEqual(f.urlLookups, []);
+});
+
+test('a change the chip does not render (title, mergeable) is stored but not broadcast', async () => {
+  const f = fixture();
+  await f.sm.pollPrStatus();
+  f.setAnswer({ ...PR, title: 'New title', mergeable: 'mergeable' });
+  await f.sm.pollPrStatus();
+  assert.equal(prEvents(f.emitted).length, 2);
+  assert.equal(f.sm.getSessionInfo('a')?.pr?.title, 'New title');
 });

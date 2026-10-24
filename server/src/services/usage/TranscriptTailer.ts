@@ -46,8 +46,12 @@ export interface TranscriptTailerState {
   /** The newest few message contributions, so a message straddling a restart
    *  still dedupes instead of counting twice. */
   recent: [string, Contribution][];
-  /** Latest PR Claude Code linked to this conversation (`pr-link` entry). */
+  /** Latest PR Claude Code linked to this conversation (`pr-link` entry).
+   *  Still written (= the last of `prUrls`) so older builds keep reading it. */
   prUrl?: string;
+  /** Every PR linked to this conversation, oldest first (B3). Absent in state
+   *  written before B3: restore falls back to `prUrl`. */
+  prUrls?: string[];
 }
 
 /** Message ids remembered for dedupe. Repeats of one message are written back
@@ -55,6 +59,8 @@ export interface TranscriptTailerState {
 const SEEN_CAP = 256;
 const RECENT_PERSISTED = 8;
 const MAX_MODEL_LEN = 100;
+/** PR links remembered per conversation; the oldest drop off first. */
+export const MAX_PR_URLS = 50;
 
 /** A github.com pull request URL — the only shape handed on to `gh pr view`. */
 const PR_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[0-9]{1,9}$/;
@@ -72,11 +78,17 @@ export class TranscriptTailer extends JsonlTailer {
   turns = 0;
   context?: TranscriptContext;
   /**
-   * The PR this conversation last created or pushed to. Claude Code writes a
-   * `pr-link` entry for those (not for PRs it only reads), so this finds the
-   * PR even when the work happened in another repo than the session folder.
+   * Every PR this conversation created or pushed to, oldest first and deduped:
+   * a PR linked again moves to the end. Claude Code writes a `pr-link` entry
+   * for those (not for PRs it only reads), so this finds PRs even when the
+   * work happened in another repo than the session folder.
    */
-  prUrl?: string;
+  prUrls: string[] = [];
+
+  /** The PR this conversation last created or pushed to. */
+  get prUrl(): string | undefined {
+    return this.prUrls[this.prUrls.length - 1];
+  }
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs, private claim?: ClaimMessage) {
     super(path, fs);
@@ -92,7 +104,11 @@ export class TranscriptTailer extends JsonlTailer {
     const legacy = state as Partial<{ pricedTurns: number; unpricedTurns: number }>;
     t.turns = num(state.turns) || num(legacy.pricedTurns) + num(legacy.unpricedTurns);
     t.context = state.context;
-    if (isGithubPrUrl(state.prUrl)) t.prUrl = state.prUrl;
+    if (Array.isArray(state.prUrls)) {
+      for (const url of state.prUrls) if (isGithubPrUrl(url)) t.addPrUrl(url);
+    } else if (isGithubPrUrl(state.prUrl)) {
+      t.addPrUrl(state.prUrl);
+    }
     for (const [id, c] of state.recent ?? []) {
       t.seen.set(id, { input: num(c.input), output: num(c.output), cacheRead: num(c.cacheRead), cacheCreation: num(c.cacheCreation) });
     }
@@ -109,6 +125,7 @@ export class TranscriptTailer extends JsonlTailer {
       context: this.context,
       recent: [...this.seen.entries()].slice(-RECENT_PERSISTED),
       prUrl: this.prUrl,
+      prUrls: this.prUrls.length ? [...this.prUrls] : undefined,
     };
   }
 
@@ -118,7 +135,7 @@ export class TranscriptTailer extends JsonlTailer {
     this.totals = zero();
     this.turns = 0;
     this.context = undefined;
-    this.prUrl = undefined;
+    this.prUrls = [];
     return had;
   }
 
@@ -182,8 +199,15 @@ export class TranscriptTailer extends JsonlTailer {
       return false;
     }
     if (entry?.type !== 'pr-link') return false;
-    if (isGithubPrUrl(entry.prUrl)) this.prUrl = entry.prUrl;
+    if (isGithubPrUrl(entry.prUrl)) this.addPrUrl(entry.prUrl);
     return true;
+  }
+
+  private addPrUrl(url: string): void {
+    const i = this.prUrls.indexOf(url);
+    if (i >= 0) this.prUrls.splice(i, 1);
+    this.prUrls.push(url);
+    if (this.prUrls.length > MAX_PR_URLS) this.prUrls.splice(0, this.prUrls.length - MAX_PR_URLS);
   }
 
   private apply(c: Contribution, sign: 1 | -1): void {

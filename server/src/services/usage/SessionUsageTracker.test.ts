@@ -173,3 +173,29 @@ test('a transcript outside the roots is never read', async () => {
   rmSync(root, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
 });
+
+test('linkedPrUrls: every transcript, the current one last, a PR keeping its latest position', async () => {
+  const d = dir();
+  const a = path.join(d, 'a.jsonl');
+  const b = path.join(d, 'b.jsonl');
+  const pr = (n: number, repo = 'o/r') => JSON.stringify({ type: 'pr-link', prUrl: `https://github.com/${repo}/pull/${n}` }) + '\n';
+  writeFileSync(a, pr(1) + pr(2));
+  writeFileSync(b, pr(3) + pr(1, 'o/r'));
+  const t = new SessionUsageTracker(() => {}, { debounceMs: 1, emitThrottleMs: 0, roots: [d] });
+  assert.deepEqual(t.linkedPrUrls(), []);
+  t.setTranscript(b);
+  await t.pollNow();
+  t.setTranscript(a); // resumed: `a` is now current, so its PRs are the newest
+  await t.pollNow();
+  assert.deepEqual(t.linkedPrUrls(), [
+    'https://github.com/o/r/pull/3',
+    'https://github.com/o/r/pull/1',
+    'https://github.com/o/r/pull/2',
+  ]);
+  assert.equal(t.linkedPrUrl(), 'https://github.com/o/r/pull/2');
+  const restored = SessionUsageTracker.restore(JSON.parse(JSON.stringify(t.serialize())), () => {}, { roots: [d] });
+  assert.deepEqual(restored.linkedPrUrls(), t.linkedPrUrls());
+  t.dispose();
+  restored.dispose();
+  rmSync(d, { recursive: true, force: true });
+});

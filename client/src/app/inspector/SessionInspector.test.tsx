@@ -7,14 +7,16 @@ import { INSPECTOR_SECTIONS } from './sections.js';
 import { clampInspectorWidth } from './inspectorWidth.js';
 import type { InspectorContext } from './types.js';
 import { usageMeterView } from '../../utils/usageFormat.js';
+import { resetSessionPrsCache } from '../../hooks/useSessionPrs.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
 }
 
 const getGitSummary = vi.fn();
+const getSessionPrs = vi.fn();
 vi.mock('../../services/api.js', () => ({
-  api: { getGitSummary: (id: string) => getGitSummary(id) },
+  api: { getGitSummary: (id: string) => getGitSummary(id), getSessionPrs: (id: string) => getSessionPrs(id) },
 }));
 const openExternal = vi.fn();
 vi.mock('../../utils/openExternal.js', () => ({
@@ -26,6 +28,7 @@ let root: Root;
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  getSessionPrs.mockResolvedValue({ enabled: true, prs: [] });
   container = document.createElement('div');
   document.body.appendChild(container);
   act(() => { root = createRoot(container); });
@@ -36,6 +39,7 @@ afterEach(() => {
   container.remove();
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
   vi.clearAllMocks();
+  resetSessionPrsCache();
 });
 
 const NOW = Date.now();
@@ -226,21 +230,85 @@ describe('Git section', () => {
 describe('GitHub section', () => {
   beforeEach(() => { getGitSummary.mockResolvedValue({ summary }); });
 
-  it('shows the PR with state, branch and checks, and opens it on GitHub', async () => {
-    await render({ session: session({ pr: { number: 42, state: 'open', url: 'https://github.com/o/r/pull/42', ci: 'success', branch: 'feat/x' } }) });
+  const FOLDER = { number: 42, state: 'open' as const, url: 'https://github.com/o/r/pull/42', ci: 'success' as const, branch: 'feat/x', title: 'Add login', review: 'approved' as const, mergeable: 'mergeable' as const };
+  const OTHER = { number: 7, state: 'merged' as const, url: 'https://github.com/o/lib/pull/7', ci: 'none' as const, branch: 'fix/y', title: 'Fix lib' };
+  const FAILING = { number: 9, state: 'open' as const, url: 'https://github.com/o/r/pull/9', ci: 'failure' as const, branch: 'feat/z', title: 'Speed up', review: 'changes_requested' as const, mergeable: 'conflicting' as const };
+
+  it('lists every PR newest first with state, checks, review and conflicts; marks the folder branch PR', async () => {
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [
+      { url: FAILING.url, pr: FAILING, folderBranch: false, linked: true },
+      { url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true },
+      { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true },
+      { url: 'https://github.com/o/gone/pull/3', pr: null, folderBranch: false, linked: true },
+    ] });
+    await render({ session: session({ pr: FOLDER }) });
     const gh = sectionEl('github');
-    expect(gh.textContent).toContain('o/r#42');
-    expect(gh.textContent).toContain('Open');
-    expect(gh.textContent).toContain('checks passing');
-    act(() => gh.querySelector<HTMLButtonElement>('.argus-inspector-pr')!.click());
-    expect(openExternal).toHaveBeenCalledWith('https://github.com/o/r/pull/42');
+    expect(getSessionPrs).toHaveBeenCalledWith('s1');
+    const rows = Array.from(gh.querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
+    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-title')!.textContent)).toEqual(['Speed up', 'Add login', 'Fix lib', 'o/gone#3']);
+    expect(rows[0].textContent).toContain('o/r#9');
+    expect(rows[0].textContent).toContain('checks failing');
+    expect(rows[0].textContent).toContain('changes requested');
+    expect(rows[0].textContent).toContain('conflicts');
+    expect(rows[0].textContent).not.toContain('this branch');
+    expect(rows[1].textContent).toContain('this branch');
+    expect(rows[1].textContent).toContain('approved');
+    expect(rows[2].textContent).toContain('Merged');
+    expect(rows[2].textContent).not.toContain('checks');
+    expect(rows[3].textContent).toContain('status unavailable');
+    act(() => rows[2].querySelector<HTMLButtonElement>('.argus-inspector-pr')!.click());
+    expect(openExternal).toHaveBeenCalledWith(OTHER.url);
+    // No "Files" action until B4 wires onOpenPrDiff.
+    expect(gh.querySelector('.argus-inspector-pr-files')).toBeNull();
   });
 
-  it('says when there is no PR, or when PR status is off', async () => {
+  it('offers "Files" on every row once onOpenPrDiff is wired', async () => {
+    const entry = { url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: false };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [entry] });
+    const onOpenPrDiff = vi.fn();
+    await render({ ctx: ctx({ onOpenPrDiff }) });
+    act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-files')!.click());
+    expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
+  });
+
+  it('shows the header chip PR while the list loads', async () => {
+    getSessionPrs.mockReturnValue(new Promise(() => {}));
+    await render({ session: session({ pr: FOLDER }) });
+    expect(sectionEl('github').textContent).toContain('Add login');
+  });
+
+  it('says when there is no PR, or when PR status is off (no fetch then)', async () => {
     await render();
     expect(sectionEl('github').textContent).toContain('No pull request');
+    getSessionPrs.mockClear();
     await render({ ctx: ctx({ prStatusEnabled: false }) });
     expect(sectionEl('github').textContent).toContain('Pull request status is off');
+    expect(getSessionPrs).not.toHaveBeenCalled();
+  });
+
+  it('a closed card fetches nothing; its glance counts the last list with the worst checks', async () => {
+    await render({ collapsed: ['github'], session: session({ pr: FOLDER }) });
+    expect(getSessionPrs).not.toHaveBeenCalled();
+    expect(sectionEl('github').textContent).toContain('#42');
+
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [
+      { url: FAILING.url, pr: FAILING, folderBranch: false, linked: true },
+      { url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true },
+      { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true },
+    ] });
+    await render({ collapsed: [], session: session({ pr: FOLDER }) });
+    await render({ collapsed: ['github'], session: session({ pr: FOLDER }) });
+    const glance = sectionEl('github').querySelector<HTMLElement>('.argus-inspector-section-summary [title]')!;
+    expect(glance.textContent).toContain('3 PRs');
+    expect(glance.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('failure');
+    expect(glance.getAttribute('title')).toBe('2 open, 1 merged · checks failing');
+
+    // The chip's live answer wins over the remembered reading while collapsed.
+    await render({ collapsed: ['github'], session: session({ pr: { ...FAILING, ci: 'success' } }) });
+    const live = sectionEl('github').querySelector<HTMLElement>('.argus-inspector-section-summary [title]')!;
+    expect(live.textContent).toContain('3 PRs');
+    expect(live.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('success');
+    expect(getSessionPrs).toHaveBeenCalledTimes(1);
   });
 });
 
