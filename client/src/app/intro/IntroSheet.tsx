@@ -1,48 +1,18 @@
 import { useState, type ReactNode } from 'react';
 import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
-import { Activity, Check, Forward, Gauge, GitBranch, LayoutGrid, Link, SlidersHorizontal, type LucideIcon } from 'lucide-react';
-import { Sheet, Button, Icon } from '../../components/primitives/index.js';
+import { Sheet, Button } from '../../components/primitives/index.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { KIND_LABEL, kindOf, settingsFor, type TerminalKind } from '../ui/terminalKind.js';
-import { BETA_FEATURES } from '../../utils/betaFlags.js';
 import type { IntroFlow } from './intro.js';
-
-/** Per-feature slide copy and picture for the What's new carousel, in BETA_FEATURES order. */
-const BETA_SLIDES: Record<BetaFlag, { text: string; icon: LucideIcon; picture: () => ReactNode }> = {
-  betaWorktreeLifecycle: {
-    text: 'Right-click a worktree shell → Finish… commits, pushes and opens a PR from one sheet. Merged worktrees can be removed; stale ones get flagged.',
-    icon: GitBranch,
-    picture: () => <WorktreePicture />,
-  },
-  betaActivityTimeline: {
-    text: 'Focus a Claude shell and click Activity: a live feed of prompts, tool calls (command or file path, never contents), subagents and compactions. Applies to new or restarted shells.',
-    icon: Activity,
-    picture: () => <ActivityPicture />,
-  },
-  betaSessionTemplates: {
-    text: 'Save a set of shells — agent, folder, optional new worktree, first prompt — and start them together into a new group. Settings → Launchers, or ⌘K → Launch template.',
-    icon: LayoutGrid,
-    picture: () => <TemplatesPicture />,
-  },
-  betaHandoff: {
-    text: 'Right-click a shell → Hand off… starts a new shell with a brief of the old one: its diff and last messages. Built locally — no model call, no extra cost.',
-    icon: Forward,
-    picture: () => <HandoffPicture />,
-  },
-  betaSessionChains: {
-    text: 'Right-click a shell → Chain to…: when it goes idle, waiting or done, Argus types a prompt into another shell. Fires once by default, loop-guarded and rate-capped.',
-    icon: Link,
-    picture: () => <ChainsPicture />,
-  },
-};
+import chatViewShot from './assets/chat-view.webp';
 
 export interface IntroResult {
   /** Present when the user kept "Use … for new shells" ticked on the terminal step. */
   defaults?: { runMode: RunMode; terminalEngine: TerminalEngine };
   /** Welcome's last button: open the New shell sheet after closing. */
   openCreate?: boolean;
-  /** What's new: the beta features the user ticked "Turn on" for. Only ticked ones appear. */
+  /** Beta features to switch on (no What's new step offers this right now). */
   betaFlags?: Partial<Record<BetaFlag, true>>;
 }
 
@@ -67,12 +37,6 @@ export function IntroSheet({
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<TerminalKind>(kindOf(config?.defaultRunMode, config?.defaultTerminalEngine));
   const [makeDefault, setMakeDefault] = useState(true);
-  const [turnOn, setTurnOn] = useState<ReadonlySet<BetaFlag>>(new Set());
-  const toggleTurnOn = (flag: BetaFlag, on: boolean) => setTurnOn((prev) => {
-    const next = new Set(prev);
-    if (on) next.add(flag); else next.delete(flag);
-    return next;
-  });
 
   const terminalStep: Step = {
     title: 'Pick your terminal',
@@ -105,38 +69,11 @@ export function IntroSheet({
         },
       ]
     : [
+        // What's new in this release: one slide per highlight. Bump CURRENT_INTRO_ID with it.
         {
-          title: 'Plan usage in the shell header',
-          text: 'Claude and Codex shells now show how full the context is and how much of your plan’s usage window is left, with its reset time. The cost estimate is gone. Applies to new or restarted shells.',
-          body: <UsagePicture />,
-        },
-        {
-          title: 'Five beta features to try',
-          text: 'Early features, all off by default. Next: what each one does and where to find it. Tick the ones you want.',
-          body: <BetaListPicture />,
-        },
-        ...BETA_FEATURES.map((f): Step => ({
-          title: f.label,
-          text: BETA_SLIDES[f.flag].text,
-          body: (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
-              {BETA_SLIDES[f.flag].picture()}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--t-sm)', color: 'var(--fg-1)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  data-testid={`intro-turn-on-${f.flag}`}
-                  checked={turnOn.has(f.flag)}
-                  onChange={(e) => toggleTurnOn(f.flag, e.target.checked)}
-                />
-                Turn on {f.label}
-              </label>
-            </div>
-          ),
-        })),
-        {
-          title: 'You’re set',
-          text: 'Change any of these later in Settings → Beta features.',
-          body: <SummaryPicture on={BETA_FEATURES.filter((f) => turnOn.has(f.flag)).map((f) => f.label)} />,
+          title: 'Chat view for Claude shells',
+          text: 'In Focus, switch a Claude shell from Terminal to Chat: the conversation as formatted messages, with a composer that attaches files and pasted screenshots and switches permission mode and model. The terminal stays the default.',
+          body: <ChatPicture />,
         },
       ];
 
@@ -146,9 +83,7 @@ export function IntroSheet({
       onDone({ defaults: makeDefault ? settingsFor(kind) : undefined, openCreate: true });
       return;
     }
-    const betaFlags: Partial<Record<BetaFlag, true>> = {};
-    for (const flag of turnOn) betaFlags[flag] = true;
-    onDone({ betaFlags });
+    onDone({});
   };
   const skip = () => onDone({});
   const current = steps[step];
@@ -278,141 +213,15 @@ function FirstShellPicture() {
   );
 }
 
-// ── What's new: one sketch per beta feature ─────────────────────────────────
+// ── What's new ──────────────────────────────────────────────────────────────
 
-/** A one-line row inside a picture: optional leading glyph, name, detail, trailing slot. */
-function MiniRow({ lead, name, detail, trail }: { lead?: ReactNode; name: ReactNode; detail?: ReactNode; trail?: ReactNode }) {
+/** A real Focus screenshot (dark theme, 2x). */
+function ChatPicture() {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
-      background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
-    }}
-    >
-      {lead !== undefined && (
-        <span style={{
-          width: 22, height: 22, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: 'var(--r-1)', background: 'var(--bg-3)', color: 'var(--fg-2)', fontSize: 'var(--t-tiny)', fontWeight: 600,
-        }}
-        >
-          {lead}
-        </span>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-0)' }}>{name}</div>
-        {detail && <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>{detail}</div>}
-      </div>
-      {trail}
-    </div>
-  );
-}
-
-const column = { ...frame, flexDirection: 'column', gap: 6 } as const;
-
-const mono = {
-  flex: 1, padding: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', lineHeight: 1.6, color: 'var(--fg-2)',
-  background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
-} as const;
-
-/** A terminal sketch beside a list of labelled events. */
-function TermAndFeed({ lines, feed }: { lines: string[]; feed: [string, string][] }) {
-  return (
-    <div style={frame}>
-      <div style={mono}>{lines.map((l) => <div key={l}>{l}</div>)}</div>
-      <div style={{ ...mono, fontFamily: 'inherit' }}>
-        {feed.map(([k, v]) => (
-          <div key={k} style={{ padding: '3px 0', borderBottom: '1px solid var(--line-2)' }}>
-            <div style={{ fontWeight: 600, color: 'var(--fg-0)' }}>{k}</div>
-            {v}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function UsagePicture() {
-  const chip = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' } as const;
-  return (
-    <div style={column}>
-      <MiniRow lead={<Icon icon={Gauge} size={13} />} name={<span style={chip}>ctx 47% · plan 20% · ↻ 2h19m</span>} detail="Hover the chip for the full breakdown" />
-      <MiniRow lead={<Icon icon={SlidersHorizontal} size={13} />} name="Settings → Shell header" detail="Reorder or hide parts, set amber/red warnings" />
-      <MiniRow lead="–" name="No more cost estimate" detail="It was priced at API rates, not what a Pro/Max plan pays" />
-    </div>
-  );
-}
-
-function BetaListPicture() {
-  return (
-    <div style={column}>
-      {BETA_FEATURES.map((f) => {
-        const Glyph = BETA_SLIDES[f.flag].icon;
-        return <MiniRow key={f.flag} lead={<Icon icon={Glyph} size={13} />} name={f.label} />;
-      })}
-    </div>
-  );
-}
-
-function WorktreePicture() {
-  return (
-    <div style={column}>
-      <MiniRow lead={<Icon icon={Check} size={13} />} name="Commit" detail="smoke: add f8.txt" />
-      <MiniRow lead={<Icon icon={Check} size={13} />} name="Push" detail="origin/feat-x" />
-      <MiniRow lead="◌" name="Open PR" detail="via gh" />
-    </div>
-  );
-}
-
-function ActivityPicture() {
-  return (
-    <TermAndFeed
-      lines={['❯ run the tests', '● Bash npm test', '● Read src/app.ts', '✻ done']}
-      feed={[['Stop', 'waiting for input'], ['Read', 'src/app.ts'], ['Bash', 'npm test'], ['Prompt', 'run the tests']]}
+    <img
+      src={chatViewShot}
+      alt="A Claude shell in Focus with the Chat view on: a short exchange and the composer"
+      style={{ display: 'block', width: '100%', height: 'auto', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)' }}
     />
-  );
-}
-
-function TemplatesPicture() {
-  return (
-    <Centered>
-      <div style={{ width: '100%' }}>
-        <MiniRow
-          lead={<Icon icon={LayoutGrid} size={13} />}
-          name="API + client + reviewer"
-          detail="3 shells · 2 new worktrees"
-          trail={<Button variant="primary" size="sm">Launch</Button>}
-        />
-      </div>
-    </Centered>
-  );
-}
-
-function HandoffPicture() {
-  return (
-    <TermAndFeed
-      lines={['# Handoff brief', 'branch: feat/login', 'M src/auth.ts  +42 −7', 'last 10 messages…']}
-      feed={[['New shell', 'claude · same folder'], ['First prompt', 'Read the brief and continue']]}
-    />
-  );
-}
-
-function ChainsPicture() {
-  return (
-    <div style={column}>
-      <MiniRow lead="A" name="api-tests → idle" />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-        <Icon icon={Link} size={12} /> types “review the failing tests”
-      </div>
-      <MiniRow lead="B" name="reviewer" />
-    </div>
-  );
-}
-
-function SummaryPicture({ on }: { on: string[] }) {
-  return (
-    <div style={column} data-testid="intro-summary">
-      {on.length
-        ? on.map((label) => <MiniRow key={label} lead={<Icon icon={Check} size={13} />} name={label} detail="turned on" />)
-        : <MiniRow name="Nothing turned on" detail="All five stay off" />}
-    </div>
   );
 }
