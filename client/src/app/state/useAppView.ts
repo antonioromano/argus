@@ -195,7 +195,7 @@ export function useAppView(): AppViewApi {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };
           // A maximized tool window closes back to its launch origin (mosaic/shell).
-          if (s.sidePanel && (s.sidePanel.kind === 'diff' || s.sidePanel.kind === 'explorer') && s.sidePanel.maximized) {
+          if (s.sidePanel && (s.sidePanel.kind === 'diff' || s.sidePanel.kind === 'explorer' || s.sidePanel.kind === 'git') && s.sidePanel.maximized) {
             return dismissMaximizedState(s);
           }
           if (s.sidePanel) return { ...s, sidePanel: null };

@@ -1,5 +1,8 @@
 import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap, GitSummaryResponse } from '@argus/shared';
 
+// Git Manager, read-only (B5) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
+import type { GitHistoryResponse, GitCommitDetail, GitRefsResponse } from '@argus/shared';
+
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
 
@@ -917,5 +920,29 @@ export const api = {
   chainAudit: async (): Promise<ChainFire[]> => {
     const res = await authFetch(`${API_BASE}/chains/audit`);
     return ((await requireOk(res)).json() as Promise<ChainAuditResponse>).then((b) => b.fires);
+  },
+
+  // ── Git Manager, read-only (B5) ──────────────────────────────────────────
+
+  /** One page of the session's commit history, newest first; `ref` defaults to HEAD,
+   *  `path` (relative to the work root) keeps the commits touching it. */
+  getGitHistory: async (sessionId: string, opts: { skip?: number; limit?: number; ref?: string; path?: string } = {}): Promise<GitHistoryResponse> => {
+    const q = new URLSearchParams();
+    if (opts.skip) q.set('skip', String(opts.skip));
+    if (opts.limit) q.set('limit', String(opts.limit));
+    if (opts.ref) q.set('ref', opts.ref);
+    if (opts.path) q.set('path', opts.path);
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-history${q.size ? `?${q}` : ''}`);
+    return (await requireOk(res)).json();
+  },
+
+  getGitCommitDetail: async (sessionId: string, hash: string): Promise<GitCommitDetail> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-commit-detail/${encodeURIComponent(hash)}`);
+    return (await requireOk(res)).json();
+  },
+
+  getGitRefs: async (sessionId: string): Promise<GitRefsResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-refs`);
+    return (await requireOk(res)).json();
   },
 };

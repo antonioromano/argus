@@ -41,6 +41,11 @@ describe('openMaximizedState (entry remembers origin)', () => {
     const switched = openMaximizedState(opened, { kind: 'diff', sessionId: 's2' });
     expect(switched.maximizedOrigin).toBe('dashboard');
   });
+  it('the Git Manager opens like the other tool windows, carrying its commit/tab target', () => {
+    const next = openMaximizedState(dashboard, { kind: 'git', sessionId: 's2', commit: 'abc1234' });
+    expect(next.sidePanel).toEqual({ kind: 'git', sessionId: 's2', commit: 'abc1234', maximized: true });
+    expect(dismissMaximizedState(next).view).toBe('dashboard');
+  });
 });
 
 describe('dismissMaximizedState (close returns to origin)', () => {

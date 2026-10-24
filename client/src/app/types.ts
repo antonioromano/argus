@@ -29,15 +29,21 @@ export type SidePanel =
   | { kind: 'terminal'; sessionId: string }
   /** Beta F6 activity timeline, docked like the companion shell. */
   | { kind: 'activity'; sessionId: string }
+  /** Git Manager (read-only history, branches, worktrees): full-view only. */
+  | { kind: 'git'; sessionId: string; maximized?: boolean; commit?: string; tab?: GitManagerTab }
   | null;
 
+/** The Git Manager's top-level views. */
+export type GitManagerTab = 'history' | 'branches' | 'worktrees';
+
 /** Tool-window kinds that support the full-view maximize. */
-export type MaximizableKind = 'diff' | 'explorer';
+export type MaximizableKind = 'diff' | 'explorer' | 'git';
 
 /** Payload for opening a diff/explorer tool window directly in full-view. */
 export type MaximizablePanel =
   | { kind: 'diff'; sessionId: string; file?: string }
-  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string };
+  | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string }
+  | { kind: 'git'; sessionId: string; commit?: string; tab?: GitManagerTab };
 
 export type SidebarKey =
   | 'sessions'

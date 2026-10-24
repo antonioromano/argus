@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { appendFile, readFile } from 'fs/promises';
 import path from 'path';
-import type { ShellGitContext, GitSummary, GitSummaryFile, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
+import type { ShellGitContext, GitSummary, GitSummaryFile, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile, GitCommitSummary, GitCommitRef, GitCommitDetail, GitCommitFile, GitHistoryResponse, GitRefsResponse, GitBranchInfo, GitWorktreeInfo } from '@argus/shared';
 
 function findGit(): string {
   try {
@@ -968,6 +968,111 @@ export class GitService {
     }
   }
 
+  // ── Git Manager, read-only (B5) ──────────────────────────────────────────
+  // Callers validate `ref`/`rev` (routes/git.ts); they also reach git after
+  // --end-of-options, so even a value that slipped through can't be an option.
+
+  /**
+   * One page of `git log` for `folder`, newest first, optionally limited to
+   * the commits touching `path` (relative to `folder`; callers contain it with
+   * pathScope). `commits` is null when the folder isn't a repo and [] on a repo
+   * with no commits yet. Throws GitUnknownRefError on an unknown `ref`, and
+   * git's own error on anything else.
+   */
+  async history(folder: string, opts: { skip: number; limit: number; ref?: string; path?: string }): Promise<GitHistoryResponse> {
+    const skip = Math.max(0, Math.floor(opts.skip));
+    const limit = Math.min(Math.max(1, Math.floor(opts.limit)), GIT_HISTORY_MAX_LIMIT);
+    let out: string;
+    try {
+      out = await execGit(
+        // One extra commit tells whether another page follows.
+        // :(literal) keeps a path from being read as pathspec magic.
+        ['log', '-z', '--decorate=full', `--format=${LOG_FORMAT}`, `--skip=${skip}`, `-n${limit + 1}`, '--end-of-options', opts.ref ?? 'HEAD', '--',
+          ...(opts.path ? [`:(literal)${opts.path}`] : [])],
+        folder,
+      );
+    } catch (err) {
+      // Only a failure pays for working out why: not a repo, an unborn HEAD
+      // (fresh `git init`, no history rather than an error), or a bad ref.
+      if (!(await this.isGitRepo(folder))) return { commits: null, hasMore: false };
+      if (!opts.ref && !(await this.resolveCommit(folder, 'HEAD'))) return { commits: [], hasMore: false };
+      if (opts.ref && !(await this.resolveCommit(folder, opts.ref))) throw new GitUnknownRefError(opts.ref);
+      throw err;
+    }
+    const commits = parseGitLog(out);
+    return { commits: commits.slice(0, limit), hasMore: commits.length > limit };
+  }
+
+  /** Full hash of `rev` when it names a commit, else null. */
+  async resolveCommit(folder: string, rev: string): Promise<string | null> {
+    try {
+      const sha = (await execGit(['rev-parse', '--verify', '--quiet', '--end-of-options', `${rev}^{commit}`], folder)).trim();
+      return sha || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Message, metadata, touched files and diff of one commit, against its first
+   * parent (a merge shows what it brought in). The diff goes through
+   * diffCapped: oversized files are stubbed, and a diff that is still too large
+   * is dropped (`truncated`), leaving the file list. null for an unknown commit.
+   */
+  async commitDetail(folder: string, rev: string): Promise<GitCommitDetail | null> {
+    // The metadata read doubles as the lookup: `^{commit}` refuses a tree or
+    // blob, and the full hash it prints names the commit for the diff reads.
+    let meta: string;
+    try {
+      meta = await execGit(['show', '-s', '-z', '--decorate=full', `--format=${DETAIL_FORMAT}`, '--end-of-options', `${rev}^{commit}`], folder);
+    } catch {
+      return null;
+    }
+    const detail = parseCommitDetail(meta);
+    if (!detail) return null;
+    const sha = detail.hash;
+    // Same diff options for the file list and the patch, so they agree.
+    const diffOpts = ['-M', '--diff-merges=first-parent', '--no-color', '--no-ext-diff', '--no-textconv'];
+    const oversized = new Set<string>();
+    const [numstat, diff] = await Promise.all([
+      execGit(['show', '--format=', '--numstat', '-z', ...diffOpts, sha], folder),
+      diffCapped(['show', '--format=', ...diffOpts, sha], folder, oversized).catch((err: unknown) => {
+        if (isMaxBuffer(err) || (err instanceof Error && err.message === 'diff too large to display')) return null;
+        throw err;
+      }),
+    ]);
+    return {
+      ...detail,
+      files: parseNumstatFiles(numstat),
+      diff: diff ?? '',
+      ...(oversized.size && diff !== null ? { oversized: [...oversized].sort() } : {}),
+      ...(diff === null ? { truncated: true } : {}),
+    };
+  }
+
+  /** Local and remote-tracking branches plus worktrees of `folder`'s repo; null when not a repo. */
+  async refs(folder: string): Promise<GitRefsResponse['refs']> {
+    let root: string;
+    try {
+      root = (await execGit(['rev-parse', '--show-toplevel'], folder)).trim();
+    } catch {
+      return null;
+    }
+    const [refsOut, worktreesOut] = await Promise.all([
+      execGit(['for-each-ref', '--sort=-committerdate', `--format=${REF_FORMAT}`, 'refs/heads', 'refs/remotes'], folder),
+      // Older gits lack `worktree list -z`; branches still show without it.
+      execGit(['worktree', 'list', '--porcelain', '-z'], folder).catch(() => ''),
+    ]);
+    const branches = parseGitRefs(refsOut, root);
+    return {
+      root,
+      current: branches.find((b) => b.current)?.name ?? null,
+      local: branches.filter((b) => b.ref.startsWith('refs/heads/')),
+      remote: branches.filter((b) => b.ref.startsWith('refs/remotes/')),
+      worktrees: parseWorktreeList(worktreesOut, root),
+    };
+  }
+
   async getBranches(folderPath: string): Promise<GitBranchesResponse> {
     try {
       const output = await execGit(['branch'], folderPath);
@@ -1367,4 +1472,184 @@ export function parseShellContext(out: string, root: string): ShellGitContext {
   }
   // Detached HEAD: show the short sha in place of a branch name.
   return { root, branch: branch ?? oid, detached: branch === null, ahead, behind, changes };
+}
+
+// ── Git Manager, read-only (B5): formats and parsers ─────────────────────────
+
+/** history() was given a ref that names no commit. */
+export class GitUnknownRefError extends Error {
+  readonly ref: string;
+  constructor(ref: string) {
+    super(`Unknown ref: ${ref}`);
+    this.ref = ref;
+    this.name = 'GitUnknownRefError';
+  }
+}
+
+/** Largest page `history()` returns. */
+export const GIT_HISTORY_MAX_LIMIT = 200;
+
+// NUL between fields, and `-z` makes NUL the record terminator too: no field
+// but the free-text message can hold a NUL, and the message is always last.
+const LOG_FIELDS = ['%H', '%h', '%P', '%an', '%ae', '%at', '%D', '%s'];
+const LOG_FORMAT = LOG_FIELDS.join('%x00');
+// %s as in the log (the whole first paragraph, joined), so list and detail agree.
+const DETAIL_FORMAT = [...LOG_FIELDS.slice(0, 7), '%cn', '%ce', '%ct', '%s', '%B'].join('%x00');
+// for-each-ref has no -z: NUL between fields, one ref per line (a subject is one line).
+const REF_FORMAT = [
+  '%(refname)', '%(refname:short)', '%(objectname:short)', '%(HEAD)', '%(upstream:short)',
+  '%(upstream:track,nobracket)', '%(committerdate:unix)', '%(symref)', '%(worktreepath)', '%(contents:subject)',
+].join('%00');
+
+/**
+ * Parse a `--decorate=full` %D: `HEAD -> refs/heads/main, refs/remotes/origin/main,
+ * tag: refs/tags/v1`. Full names tell a local branch from a remote one; the
+ * remote's HEAD pointer and the stash are noise and dropped. Exported for tests.
+ */
+export function parseDecorations(d: string): GitCommitRef[] {
+  const refs: GitCommitRef[] = [];
+  for (const raw of d ? d.split(', ') : []) {
+    let r = raw.trim();
+    let current = false;
+    if (r.startsWith('HEAD -> ')) {
+      current = true;
+      r = r.slice('HEAD -> '.length);
+    }
+    if (r === 'HEAD') refs.push({ kind: 'head', name: 'HEAD' });
+    else if (r.startsWith('tag: ')) refs.push({ kind: 'tag', name: r.slice('tag: '.length).replace(/^refs\/tags\//, '') });
+    else if (r.startsWith('refs/heads/')) refs.push({ kind: 'branch', name: r.slice('refs/heads/'.length), ...(current ? { current } : {}) });
+    else if (r.startsWith('refs/remotes/')) {
+      if (!r.endsWith('/HEAD')) refs.push({ kind: 'remote', name: r.slice('refs/remotes/'.length) });
+    }
+  }
+  return refs;
+}
+
+function summaryFrom(f: string[]): GitCommitSummary {
+  return {
+    hash: f[0],
+    shortHash: f[1],
+    parents: f[2] ? f[2].split(' ') : [],
+    authorName: f[3],
+    authorEmail: f[4],
+    authorDate: Number(f[5]) * 1000,
+    subject: f[7] ?? '',
+    refs: parseDecorations(f[6]),
+  };
+}
+
+/** Parse `git log -z --format=LOG_FORMAT`. Exported for tests. */
+export function parseGitLog(out: string): GitCommitSummary[] {
+  const fields = out.split('\0');
+  const n = LOG_FIELDS.length;
+  const commits: GitCommitSummary[] = [];
+  for (let i = 0; i + n <= fields.length; i += n) {
+    const f = fields.slice(i, i + n);
+    // tformat may still put a newline between records in some gits.
+    f[0] = f[0].replace(/^\n+/, '');
+    if (!/^[0-9a-f]{7,64}$/.test(f[0])) continue;
+    commits.push(summaryFrom(f));
+  }
+  return commits;
+}
+
+/** Parse `git show -s -z --format=DETAIL_FORMAT`. Exported for tests. */
+export function parseCommitDetail(out: string): Omit<GitCommitDetail, 'files' | 'diff'> | null {
+  const f = out.replace(/\0+$/, '').split('\0');
+  if (f.length < 12 || !/^[0-9a-f]{7,64}$/.test(f[0])) return null;
+  // The message may itself hold no NUL, but rejoin defensively.
+  const message = f.slice(11).join('\0').trimEnd();
+  return {
+    ...summaryFrom([...f.slice(0, 7), f[10]]),
+    committerName: f[7],
+    committerEmail: f[8],
+    commitDate: Number(f[9]) * 1000,
+    message,
+  };
+}
+
+/**
+ * Parse `git show --numstat -z`: `add\tdel\tpath\0`, or for a rename/copy
+ * `add\tdel\t\0old\0new\0`; `-` counts mean binary. Exported for tests.
+ */
+export function parseNumstatFiles(out: string): GitCommitFile[] {
+  const toks = out.split('\0');
+  const files: GitCommitFile[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const m = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(toks[i].replace(/^\n+/, ''));
+    if (!m) continue;
+    const additions = m[1] === '-' ? null : Number(m[1]);
+    const deletions = m[2] === '-' ? null : Number(m[2]);
+    if (m[3] === '') {
+      const oldPath = toks[i + 1];
+      const path = toks[i + 2];
+      i += 2;
+      if (path === undefined) break;
+      files.push({ path, ...(oldPath && oldPath !== path ? { oldPath } : {}), additions, deletions });
+    } else {
+      files.push({ path: m[3], additions, deletions });
+    }
+  }
+  return files;
+}
+
+/** Parse `git for-each-ref --format=REF_FORMAT`. Exported for tests. */
+export function parseGitRefs(out: string, root: string): GitBranchInfo[] {
+  const branches: GitBranchInfo[] = [];
+  for (const line of out.split('\n')) {
+    if (!line) continue;
+    const [ref, name, shortHash, head, upstream, track, date, symref, worktreePath, ...rest] = line.split('\0');
+    // `origin/HEAD` is a pointer to another remote branch, not a branch.
+    if (!ref || symref) continue;
+    const isLocal = ref.startsWith('refs/heads/');
+    const gone = track === 'gone';
+    let ahead: number | null = null;
+    let behind: number | null = null;
+    if (isLocal && upstream && !gone) {
+      ahead = Number(/ahead (\d+)/.exec(track)?.[1] ?? 0);
+      behind = Number(/behind (\d+)/.exec(track)?.[1] ?? 0);
+    }
+    branches.push({
+      name,
+      ref,
+      shortHash,
+      current: head === '*',
+      upstream: isLocal && upstream ? upstream : null,
+      ahead,
+      behind,
+      upstreamGone: gone,
+      date: Number(date) * 1000,
+      subject: rest.join('\0'),
+      ...(worktreePath && worktreePath !== root ? { worktreePath } : {}),
+    });
+  }
+  return branches;
+}
+
+/** Parse `git worktree list --porcelain -z`. Exported for tests. */
+export function parseWorktreeList(out: string, root: string): GitWorktreeInfo[] {
+  const worktrees: GitWorktreeInfo[] = [];
+  let cur: GitWorktreeInfo | null = null;
+  for (const tok of out.split('\0')) {
+    if (tok.startsWith('worktree ')) {
+      const p = tok.slice('worktree '.length);
+      cur = { path: p, branch: null, head: null, bare: false, detached: false, locked: false, prunable: false, current: p === root, main: worktrees.length === 0 };
+      worktrees.push(cur);
+    } else if (!cur) {
+      continue;
+    } else if (tok.startsWith('HEAD ')) {
+      cur.head = tok.slice(5);
+    } else if (tok.startsWith('branch ')) {
+      cur.branch = tok.slice(7).replace(/^refs\/heads\//, '');
+    } else if (tok === 'bare') {
+      cur.bare = true;
+    } else if (tok === 'detached') {
+      cur.detached = true;
+    } else if (tok === 'locked' || tok.startsWith('locked ')) {
+      cur.locked = true;
+    } else if (tok === 'prunable' || tok.startsWith('prunable ')) {
+      cur.prunable = true;
+    }
+  }
+  return worktrees;
 }

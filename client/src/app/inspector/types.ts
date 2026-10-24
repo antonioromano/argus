@@ -2,9 +2,12 @@ import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { UsageMeterState } from '../../utils/usageFormat.js';
+import type { GitManagerTab } from '../types.js';
 
 /** What every inspector section gets besides the session it describes. */
 export interface InspectorContext {
+  /** Open the Git Manager, optionally on a commit or a tab. Unset hides the History card's links. */
+  onOpenGit?: (sessionId: string, target?: { commit?: string; tab?: GitManagerTab }) => void;
   /** Usage meter view + plan usage; null while the meter is off in Settings. */
   usageMeter: UsageMeterState | null;
   /** Settings → Shell header → Pull request status. */
