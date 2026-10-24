@@ -1031,8 +1031,7 @@ body {
 /* Session Inspector: usage, git and GitHub of the shown shell, one card per
    section (like Claude desktop's side panel). Lives in the left sidebar or a
    right-hand column; the same markup serves both. Text wraps rather than
-   clipping, and the rows stack once the panel gets narrow (container query),
-   so dragging the sidebar small never hides a value. */
+   clipping, so dragging the sidebar small never hides a value. */
 .argus-inspector-column {
   flex-shrink: 0;
   display: flex;
@@ -1169,9 +1168,10 @@ body {
   font-variant-numeric: tabular-nums;
   color: var(--fg-1);
 }
-@container (max-width: 240px) {
-  .argus-inspector-row { flex-direction: column; align-items: stretch; }
-  .argus-inspector-label { min-width: 0; }
+/* Narrow panel: drop what is only context (the file's folder), never a value.
+   Rows need no rule here — flex-wrap moves a value under its label only when
+   the two really don't fit side by side. */
+@container (max-width: 200px) {
   .argus-inspector-file-dir { display: none; }
 }
 .argus-inspector-ellipsis { min-width: 0; overflow-wrap: anywhere; }
@@ -1239,7 +1239,7 @@ body {
 .argus-inspector-share-num,
 .argus-inspector-share-pct { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); text-align: right; }
 .argus-inspector-share-pct { min-width: 3.5em; color: var(--fg-2); }
-@container (max-width: 240px) {
+@container (max-width: 200px) {
   .argus-inspector-share { grid-template-columns: auto minmax(0, 1fr) auto; }
   .argus-inspector-share-pct { display: none; }
 }
