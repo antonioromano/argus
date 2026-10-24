@@ -105,6 +105,16 @@ describe('SessionInspector', () => {
     expect(container.querySelector('[data-section]')).toBeNull();
   });
 
+  it('titles itself with the shell it describes, not with its own name', async () => {
+    await render();
+    const head = container.querySelector('.argus-inspector-head')!;
+    expect(head.textContent).toContain('billing spike');
+    expect(head.textContent).not.toMatch(/inspector/i);
+    // No selection: the body's placeholder says so, the header stays quiet.
+    await render({ session: null });
+    expect(container.querySelector('.argus-inspector-head')!.textContent).toBe('');
+  });
+
   it('renders the usage, git and GitHub sections in order, open by default', async () => {
     await render();
     const ids = Array.from(container.querySelectorAll('[data-section]')).map((el) => el.getAttribute('data-section'));

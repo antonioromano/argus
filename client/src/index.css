@@ -1069,9 +1069,9 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--t-tiny);
-  color: var(--fg-1);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--fg-0);
 }
 .argus-inspector-side-btn {
   all: unset;

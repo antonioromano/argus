@@ -1,8 +1,9 @@
 import { useId } from 'react';
-import { ChevronDown, ScanSearch } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import type { InspectorSide, SessionInfo } from '@argus/shared';
 import { Icon, Tooltip } from '../../components/primitives/index.js';
 import { PanelSideGlyph } from '../ui/PanelSideGlyph.js';
+import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { INSPECTOR_SECTIONS } from './sections.js';
 import type { InspectorContext, InspectorSectionDef } from './types.js';
@@ -77,9 +78,13 @@ export function SessionInspector({
   return (
     <div className="argus-inspector" data-placement={placement} data-testid="session-inspector">
       <div className="argus-inspector-head">
-        <Icon icon={ScanSearch} size={12} strokeWidth={1.8} />
-        <span className="eyebrow">Inspector</span>
-        {session && <span className="argus-inspector-session" title={session.folderPath}>{shellLabel(session)}</span>}
+        {/* The header names the shell being described; the cards name their content. */}
+        {session && (
+          <>
+            <AgentGlyph agent={session.agentType} size={14} />
+            <span className="argus-inspector-session" title={session.folderPath}>{shellLabel(session)}</span>
+          </>
+        )}
         <span style={{ flex: 1 }} />
         <Tooltip content={side === 'left' ? 'Move inspector to the right' : 'Move inspector to the left'}>
           <button
@@ -91,7 +96,6 @@ export function SessionInspector({
             <PanelSideGlyph side={side === 'left' ? 'right' : 'left'} size={13} />
           </button>
         </Tooltip>
-
       </div>
       {session ? (
         <div className="argus-inspector-scroll">

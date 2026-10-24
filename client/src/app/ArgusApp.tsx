@@ -20,7 +20,7 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, InspectorSide, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, ScanSearch } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, PanelLeft, PanelRight } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 
@@ -970,7 +970,7 @@ function DesktopInner() {
       label: inspectorShown ? 'Hide Session Inspector' : 'Show Session Inspector',
       hint: formatCombo(shortcuts.resolved['toggle-inspector']),
       keywords: 'inspector side panel show hide usage context git branch github pull request pr',
-      icon: ScanSearch,
+      icon: inspectorSide === 'left' ? PanelLeft : PanelRight,
       run: toggleInspector,
     },
     {
@@ -978,7 +978,7 @@ function DesktopInner() {
       label: inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left',
       hint: 'side panel',
       keywords: 'inspector side panel left right usage context git branch github pull request pr',
-      icon: ScanSearch,
+      icon: inspectorSide === 'left' ? PanelRight : PanelLeft,
       run: switchInspectorSide,
     },
     {
