@@ -75,6 +75,10 @@ interface FocusProps {
   usageMeter?: UsageMeterState | null;
   /** Mosaic layout setting: 'vertical' (stacked) docks the companion shell below the conversation instead of beside it. */
   orientation?: MosaicOrientation;
+  /** The Session Inspector is docked as a right-hand column: the companion shell moves below the conversation to leave it the side. */
+  inspectorColumn?: boolean;
+  /** The Session Inspector is on screen (either placement): it shows usage, git and PR, so the header drops those chips. */
+  inspectorShown?: boolean;
   sessions: SessionInfo[];
   active: SessionInfo;
   socket: TypedSocket;
@@ -121,6 +125,8 @@ export function Focus({
   runningIndicator = 'hairline',
   usageMeter,
   orientation = 'horizontal',
+  inspectorColumn = false,
+  inspectorShown = false,
   sessions,
   active,
   socket,
@@ -161,7 +167,9 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
-  const stacked = orientation === 'vertical';
+  // Side panels dock below the conversation in the stacked layout, and beside
+  // it otherwise — unless the inspector column already holds the right side.
+  const stacked = orientation === 'vertical' || inspectorColumn;
 
   // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
   // then confirm the addon actually loaded in this process before trusting it.
@@ -340,12 +348,14 @@ export function Focus({
                 <span className="argus-tile-branch">Native</span>
               </Tooltip>
             )}
-            {active.shellGit !== undefined ? (
+            {/* Git, PR and usage live in the Session Inspector; they come back
+                here only while it is hidden, so the information never vanishes. */}
+            {!inspectorShown && (active.shellGit !== undefined ? (
               active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
-            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
+            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
             <StaleChip staleDays={active.worktreeStaleDays} />
-            {active.pr && <PrChip pr={active.pr} />}
-            {usageMeter && (
+            {!inspectorShown && active.pr && <PrChip pr={active.pr} />}
+            {!inspectorShown && usageMeter && (
               <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
             )}
             <div style={{ flex: 1 }} />

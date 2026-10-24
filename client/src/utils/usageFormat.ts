@@ -123,6 +123,22 @@ export function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
+const MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'];
+
+/**
+ * Human model name: "claude-opus-5-5" → "Opus 5.5", "claude-3-5-sonnet-20241022"
+ * → "Sonnet 3.5", "claude-haiku-4-5[1m]" → "Haiku 4.5". Anything that isn't a
+ * Claude family (e.g. "gpt-5.5") is returned as is.
+ */
+export function friendlyModel(model: string): string {
+  const parts = model.replace(/\[.*\]$/, '').replace(/^claude-/, '').replace(/-\d{8}$/, '').split('-');
+  const family = parts.find((p) => MODEL_FAMILIES.includes(p));
+  if (!family) return model;
+  const version = parts.filter((p) => /^\d+$/.test(p)).join('.');
+  const name = family[0].toUpperCase() + family.slice(1);
+  return version ? `${name} ${version}` : name;
+}
+
 /** One row of the hover breakdown. */
 export interface UsageRow {
   label: string;

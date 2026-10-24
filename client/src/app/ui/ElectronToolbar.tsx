@@ -1,4 +1,6 @@
 import { Globe, Sun, Moon, Settings, ArrowUp, Columns2, Rows2 } from 'lucide-react';
+import type { InspectorSide } from '@argus/shared';
+import { PanelSideGlyph } from './PanelSideGlyph.js';
 import { useState, useEffect } from 'react';
 import type { KeepAwakeStatus, MosaicOrientation } from '@argus/shared';
 import { Tooltip, Icon } from '../../components/primitives/index.js';
@@ -42,6 +44,9 @@ interface ElectronToolbarProps {
   /** Current mosaic arrangement; the button flips it. Omit to hide the button. */
   mosaicOrientation?: MosaicOrientation;
   onToggleMosaicOrientation?: () => void;
+  /** Session Inspector side; the button moves it to the other one. Omit the handler to hide the button. */
+  inspectorSide?: InspectorSide;
+  onSwitchInspectorSide?: () => void;
   isDark: boolean;
   ngrokConnected: boolean;
   updateAvailable?: boolean;
@@ -76,6 +81,8 @@ export function ElectronToolbar({
   onOpenRemote,
   mosaicOrientation,
   onToggleMosaicOrientation,
+  inspectorSide = 'left',
+  onSwitchInspectorSide,
   isDark,
   ngrokConnected,
   updateAvailable,
@@ -165,6 +172,20 @@ export function ElectronToolbar({
               {mosaicOrientation === 'vertical'
                 ? <Icon icon={Columns2} size={13} strokeWidth={1.6} />
                 : <Icon icon={Rows2} size={13} strokeWidth={1.6} />}
+            </button>
+          </Tooltip>
+        )}
+
+        {onSwitchInspectorSide && (
+          // Like the layout toggle beside it, the glyph shows where a click takes it.
+          <Tooltip content={inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left'}>
+            <button
+              onClick={onSwitchInspectorSide}
+              style={iconBtn()}
+              aria-label={inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left'}
+              data-testid="inspector-side"
+            >
+              <PanelSideGlyph side={inspectorSide === 'left' ? 'right' : 'left'} size={13} />
             </button>
           </Tooltip>
         )}

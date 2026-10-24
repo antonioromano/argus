@@ -80,6 +80,9 @@ export type TileQuickAction =
 /** How a running shell signals progress in its tile header. */
 export type TileRunningIndicator = 'hairline' | 'off';
 
+/** Session Inspector placement: the left sidebar or a right-hand column. */
+export type InspectorSide = 'left' | 'right';
+
 export interface AppConfig {
   defaultAgent: AgentType;
   customAgents: AgentDefinition[];
@@ -135,6 +138,13 @@ export interface AppConfig {
   usageWarnPlan?: UsageWarnThresholds;
   // PR / CI chip on shells whose branch has a GitHub PR (via `gh`; default: true).
   showPrStatus?: boolean;
+  // Where the Session Inspector (usage, git, GitHub of the shown shell) sits:
+  // in the left sidebar, or as a right-hand column (default: 'left').
+  inspectorSide?: InspectorSide;
+  // Its width in px when docked as a right-hand column (220..560).
+  inspectorWidth?: number;
+  // Ids of the inspector sections the user collapsed (default: none).
+  inspectorCollapsed?: string[];
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
   autoApprovalEnabled?: boolean;
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
@@ -222,6 +232,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   usageWarnContext: { amber: 70, red: 90 },
   usageWarnPlan: { amber: 80, red: 95 },
   showPrStatus: true,
+  inspectorSide: 'left',
+  inspectorWidth: 300,
+  inspectorCollapsed: [],
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
   betaActivityTimeline: false,
@@ -766,6 +779,10 @@ export interface RenameSessionRequest {
  *  short enough that the tile header still fits its status pill. */
 export const SESSION_NAME_MAX = 60;
 
+/** Session Inspector column width bounds (px); the server clamps `inspectorWidth` to them. */
+export const INSPECTOR_WIDTH_MIN = 220;
+export const INSPECTOR_WIDTH_MAX = 560;
+
 export const FAVORITES_GROUP_ID = '__favorites__';
 
 export interface FavoriteEntryMeta {
@@ -1127,6 +1144,29 @@ export interface GitPullAndBranchResponse {
 }
 
 // Git file status types (for Explorer tree indicators)
+
+/** One changed file in a session's git summary (Session Inspector). */
+export interface GitSummaryFile {
+  /** Repo-relative path (the new path of a rename). */
+  path: string;
+  /** M modified, A added, D deleted, R renamed, C copied, U conflicted, ? untracked. */
+  status: 'M' | 'A' | 'D' | 'R' | 'C' | 'U' | '?';
+  /** Has a staged change (the index side of `git status`). */
+  staged: boolean;
+}
+
+/** Branch, upstream, ahead/behind and changed files of a session's work root. */
+export interface GitSummary extends ShellGitContext {
+  /** e.g. `origin/feat/x`; null when the branch tracks nothing. */
+  upstream: string | null;
+  /** At most GIT_SUMMARY_MAX_FILES entries; `changes` is the full count. */
+  files: GitSummaryFile[];
+}
+
+/** GET /api/sessions/:id/git-summary — summary is null outside a git repo. */
+export interface GitSummaryResponse {
+  summary: GitSummary | null;
+}
 
 export type GitFileStatusCode = 'M' | 'A' | 'D' | 'R' | 'C' | '?' | '!!';
 

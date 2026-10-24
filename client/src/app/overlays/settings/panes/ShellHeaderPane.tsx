@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
-import type { PlanUsage, SessionUsage, TileRunningIndicator, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
+import type { InspectorSide, PlanUsage, SessionUsage, TileRunningIndicator, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
 import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
@@ -8,6 +8,11 @@ import { DEFAULT_TILE_QUICK_ACTION } from '../../../../constants/tileActions.js'
 import { PART_LABELS, STEP, movePart, stepThreshold } from './usageMeterSettings.js';
 import { usageMeterView, normalizeParts, DEFAULT_USAGE_PARTS, DEFAULT_WARN_CONTEXT, DEFAULT_WARN_PLAN } from '../../../../utils/usageFormat.js';
 import type { PaneProps } from '../types.js';
+
+const INSPECTOR_SIDE_OPTIONS: readonly { value: InspectorSide; label: string }[] = [
+  { value: 'left', label: 'Left' },
+  { value: 'right', label: 'Right' },
+];
 
 const INDICATOR_OPTIONS: readonly { value: TileRunningIndicator; label: string }[] = [
   { value: 'hairline', label: 'Hairline' },
@@ -192,6 +197,20 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
           hint="PR number, state and CI checks for shells on a branch with a GitHub PR. Needs the gh CLI, logged in"
         >
           <Toggle checked={config.showPrStatus !== false} onChange={(v) => onSave({ showPrStatus: v })} />
+        </SettingRow>
+      </Section>
+
+      <Section title="Session Inspector">
+        <SettingRow
+          label="Position"
+          hint="Usage, git and pull request of the open shell (or the selected tile). Left: in the sidebar, between Shells and System. Right: a column beside the shells. While the sidebar holding it is collapsed, the header shows them as chips"
+        >
+          <Segmented
+            label="Inspector position"
+            value={config.inspectorSide === 'right' ? 'right' : 'left'}
+            options={INSPECTOR_SIDE_OPTIONS}
+            onChange={(inspectorSide) => { void onSave({ inspectorSide }); }}
+          />
         </SettingRow>
       </Section>
 

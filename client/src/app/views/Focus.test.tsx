@@ -54,7 +54,7 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
 function renderFocus(
   active: SessionInfo,
   onRestart: () => void = noop,
-  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean } = {},
+  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean; inspectorColumn?: boolean; inspectorShown?: boolean } = {},
 ) {
   act(() => {
     root.render(
@@ -65,6 +65,8 @@ function renderFocus(
         theme="dark"
         sidePanel={opts.sidePanel ?? null}
         orientation={opts.orientation}
+        inspectorColumn={opts.inspectorColumn}
+        inspectorShown={opts.inspectorShown}
         onSelect={noop}
         onReorder={noop}
         onBack={noop}
@@ -185,6 +187,33 @@ describe('Focus — companion shell placement', () => {
     expect(aside.style.flexShrink).toBe('1');
     expect(aside.style.minHeight).toBe('0px');
     expect(conversation.style.minHeight).toBe('200px');
+  });
+});
+
+describe('Focus — Session Inspector', () => {
+  const shellPanel: SidePanel = { kind: 'terminal', sessionId: 's1' };
+  const withChips = session({
+    hasGitChanges: true,
+    pr: { number: 42, state: 'open', url: 'https://github.com/o/r/pull/42', ci: 'success', branch: 'feat/x' },
+  });
+
+  it('moves the companion shell below the conversation while the inspector holds the right column', () => {
+    renderFocus(session(), noop, { sidePanel: shellPanel, orientation: 'horizontal', inspectorColumn: true });
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.height).not.toBe('');
+    expect((aside.parentElement as HTMLElement).style.flexDirection).toBe('column');
+  });
+
+  it('drops the git and PR chips from the header while the inspector shows them', () => {
+    renderFocus(withChips, noop, { inspectorShown: true });
+    expect(container.querySelector('[data-testid="pr-chip"]')).toBeNull();
+    expect(container.querySelector('[aria-label*="uncommitted"]')).toBeNull();
+  });
+
+  it('brings the chips back while the inspector is hidden', () => {
+    renderFocus(withChips, noop, { inspectorShown: false });
+    expect(container.querySelector('[data-testid="pr-chip"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label*="uncommitted"]')).not.toBeNull();
   });
 });
 
