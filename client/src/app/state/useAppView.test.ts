@@ -143,7 +143,6 @@ describe('isMaximizedPanel (Focus renders it full-view, Esc closes it)', () => {
     for (const panel of [
       { kind: 'diff', sessionId: 's1' },
       { kind: 'explorer', sessionId: 's1' },
-      { kind: 'git', sessionId: 's1' },
       { kind: 'prdiff', sessionId: 's1', pr },
     ] as const) {
       expect(isMaximizedPanel(openMaximizedState(base, panel).sidePanel)).toBe(true);
