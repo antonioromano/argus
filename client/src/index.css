@@ -983,23 +983,25 @@ body {
 /* PR tone (prTone): ready green, pending grey-blue, blocked amber, draft grey, merged purple, closed red.
    Shared by the header chip, the Inspector's GitHub card and the PR diff header. */
 .argus-pr[data-tone='ready'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='ready'] .argus-inspector-pr-glyph,
+/* State badge (the PR diff view's header; the rows show the state as the glyph color). */
+.argus-inspector-pr-badge { font-weight: 500; }
 .argus-inspector-pr-badge[data-tone='ready'] { color: var(--ok); }
-.argus-pr[data-tone='pending'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='pending'] .argus-inspector-pr-glyph,
 .argus-inspector-pr-badge[data-tone='pending'] { color: var(--pr-pending); }
-.argus-pr[data-tone='blocked'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='blocked'] .argus-inspector-pr-glyph,
 .argus-inspector-pr-badge[data-tone='blocked'] { color: var(--accent); }
-.argus-pr[data-tone='draft'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='draft'] .argus-inspector-pr-glyph,
 .argus-inspector-pr-badge[data-tone='draft'] { color: var(--fg-3); }
-.argus-pr[data-tone='merged'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='merged'] .argus-inspector-pr-glyph,
 .argus-inspector-pr-badge[data-tone='merged'] { color: var(--pr-merged); }
-.argus-pr[data-tone='closed'] .argus-pr-icon,
-.argus-inspector-prrow[data-tone='closed'] .argus-inspector-pr-glyph,
 .argus-inspector-pr-badge[data-tone='closed'] { color: var(--danger); }
+.argus-inspector-prrow[data-tone='ready'] .argus-inspector-pr-glyph { color: var(--ok); }
+.argus-pr[data-tone='pending'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='pending'] .argus-inspector-pr-glyph { color: var(--pr-pending); }
+.argus-pr[data-tone='blocked'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='blocked'] .argus-inspector-pr-glyph { color: var(--accent); }
+.argus-pr[data-tone='draft'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='draft'] .argus-inspector-pr-glyph { color: var(--fg-3); }
+.argus-pr[data-tone='merged'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='merged'] .argus-inspector-pr-glyph { color: var(--pr-merged); }
+.argus-pr[data-tone='closed'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='closed'] .argus-inspector-pr-glyph { color: var(--danger); }
 .argus-pr-ci { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .argus-pr-ci[data-ci='pending'] { background: var(--warn); }
 .argus-pr-ci[data-ci='success'] { background: var(--ok); }
@@ -1326,7 +1328,7 @@ body {
 }
 .argus-inspector-prrow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto; /* glyph, body, C4's `…` */
+  grid-template-columns: auto minmax(0, 1fr) auto; /* glyph, body, right column */
   column-gap: var(--s-2);
   padding: var(--s-3) 0;
   min-width: 0;
@@ -1334,9 +1336,14 @@ body {
 .argus-inspector-prrow:first-child { padding-top: var(--s-1); }
 .argus-inspector-prrow:last-child { padding-bottom: 0; }
 .argus-inspector-prrow + .argus-inspector-prrow { border-top: 1px solid var(--line-1); }
-.argus-inspector-pr-glyph { margin-top: 2px; color: var(--fg-3); }
+.argus-inspector-pr-glyph { display: inline-flex; margin-top: 2px; color: var(--fg-3); }
+/* Right column, top to bottom: the `…` menu (C4), the checks dot (C1), the
+   review / conflict icons — centered under one another, like Claude Desktop. */
+.argus-inspector-pr-side { display: flex; flex-direction: column; align-items: center; gap: var(--s-1); }
+.argus-inspector-pr-flags { display: inline-flex; align-items: center; gap: 2px; }
+.argus-inspector-pr-flags > span { display: inline-flex; }
 /* C4: quiet until the row is hovered or the button has focus. */
-.argus-inspector-pr-more { align-self: start; display: inline-flex; margin-top: -2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-pr-more { display: inline-flex; margin-top: -2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .argus-inspector-prrow:hover .argus-inspector-pr-more,
 .argus-inspector-pr-more:focus-within,
 .argus-inspector-pr-more[data-open] { opacity: 1; }
@@ -1354,11 +1361,9 @@ body {
 .argus-inspector-pr:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 .argus-inspector-pr-title {
   min-width: 0;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-sans);
   font-size: var(--t-sm);
   font-weight: 500;
@@ -1371,13 +1376,16 @@ body {
 .argus-inspector-pr:focus-visible .argus-inspector-pr-ext { opacity: 1; }
 .argus-inspector-pr-ref {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-size: var(--t-tiny);
   color: var(--fg-3);
 }
-/* State, checks, review, "this branch": spaced apart, no separators, so a
-   wrapped line never starts with a stray dot. */
+/* `repo #n` and the changes button. */
+.argus-inspector-pr-line { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+/* Third line, only when needed: "status unavailable", "this branch", Mark ready. */
 .argus-inspector-pr-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1387,18 +1395,17 @@ body {
   font-size: var(--t-tiny);
   color: var(--fg-3);
 }
-.argus-inspector-pr-badge { font-weight: 500; }
-.argus-inspector-pr-meta .argus-inspector-ci { color: var(--fg-2); }
-/* C1: the checks dot + label opens the CI monitoring popover. */
+/* C1: the checks dot opens the CI monitoring popover. */
 .argus-inspector-ci-btn {
   all: unset;
   cursor: pointer;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: var(--s-1);
-  border-radius: var(--r-1);
+  justify-content: center;
+  border-radius: 50%;
 }
-.argus-inspector-pr-meta .argus-inspector-ci-btn:hover { color: var(--fg-0); }
+.argus-inspector-ci-btn:hover { background: var(--bg-3); }
 .argus-inspector-ci-btn:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 .argus-ci-popover {
   position: fixed;
@@ -1469,23 +1476,25 @@ body {
 .argus-inspector-pr-files {
   all: unset;
   cursor: pointer;
-  align-self: flex-start;
-  margin-top: var(--s-1);
+  box-sizing: border-box;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
+  margin-left: calc(-1 * var(--s-1));
+  padding: 1px var(--s-1);
   font-size: var(--t-tiny);
   color: var(--fg-2);
   border-radius: var(--r-1);
+  transition: background var(--dur-fast) var(--ease-out);
 }
-.argus-inspector-pr-files:hover { color: var(--accent); }
+.argus-inspector-pr-ref + .argus-inspector-pr-files { margin-left: 0; }
+.argus-inspector-pr-files:hover { background: var(--bg-3); color: var(--fg-1); }
 /* C3: Mark ready under a draft PR — a real (outlined) button: it writes to GitHub. */
 .argus-inspector-pr-ready {
   all: unset;
   cursor: pointer;
   box-sizing: border-box;
-  align-self: flex-start;
-  margin-top: var(--s-1);
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
@@ -1499,13 +1508,10 @@ body {
 .argus-inspector-pr-ready:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-0); }
 .argus-inspector-pr-ready:disabled { cursor: default; color: var(--fg-3); }
 .argus-inspector-pr-ready:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
-/* C2: `+N −M` in the diff colors, as small tinted chips (the AA text pair). */
-.argus-inspector-pr-lines { display: inline-flex; gap: 2px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
-.argus-inspector-pr-add,
-.argus-inspector-pr-del { padding: 0 var(--s-1); border-radius: var(--r-1); }
-.argus-inspector-pr-add { background: var(--diff-add); color: var(--diff-add-fg); }
-.argus-inspector-pr-del { background: var(--diff-del); color: var(--diff-del-fg); }
-.argus-inspector-pr-files:hover .argus-inspector-pr-lines { text-decoration: underline; text-underline-offset: 2px; }
+/* C2: `+N −M` as colored text; the button's hover is a background, never an underline. */
+.argus-inspector-pr-lines { display: inline-flex; gap: var(--s-1); font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+.argus-inspector-pr-add { color: var(--ok); }
+.argus-inspector-pr-del { color: var(--danger); }
 .argus-inspector-pr-files:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 
 /* Left side: the inspector fills the sidebar between Pilot and System, with a

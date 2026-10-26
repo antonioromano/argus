@@ -255,16 +255,24 @@ describe('GitHub section', () => {
     const gh = sectionEl('github');
     expect(getSessionPrs).toHaveBeenCalledWith('s1');
     const rows = Array.from(gh.querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
-    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-title')!.textContent)).toEqual(['Speed up', 'Add login', 'Fix lib', 'o/gone#3']);
-    expect(rows[0].textContent).toContain('o/r#9');
-    expect(rows[0].textContent).toContain('checks failing');
-    expect(rows[0].textContent).toContain('changes requested');
-    expect(rows[0].textContent).toContain('conflicts');
+    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-title')!.textContent)).toEqual(['Speed up', 'Add login', 'Fix lib', 'gone #3']);
+    // Compact `repo #n`; the full owner/repo#n is its tooltip.
+    const refEl = rows[0].querySelector('.argus-inspector-pr-ref')!;
+    expect(refEl.textContent).toBe('r #9');
+    expect(refEl.getAttribute('title')).toBe('o/r#9');
+    // The state is the glyph (named for screen readers), not a label.
+    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-glyph')!.getAttribute('aria-label'))).toEqual(['Open pull request', 'Open pull request', 'Merged pull request', 'Pull request']);
+    expect(rows[0].textContent).not.toContain('Open');
+    // Right column: checks dot, then review / conflict icons.
+    const side = rows[0].querySelector('.argus-inspector-pr-side')!;
+    expect(side.querySelector('.argus-inspector-ci-btn')!.getAttribute('data-ci')).toBe('failure');
+    expect(side.querySelector('.argus-inspector-pr-review')!.getAttribute('aria-label')).toBe('changes requested');
+    expect(side.querySelector('.argus-inspector-pr-conflict')!.getAttribute('aria-label')).toBe('merge conflicts');
     expect(rows[0].textContent).not.toContain('this branch');
     expect(rows[1].textContent).toContain('this branch');
-    expect(rows[1].textContent).toContain('approved');
-    expect(rows[2].textContent).toContain('Merged');
-    expect(rows[2].textContent).not.toContain('checks');
+    expect(rows[1].querySelector('.argus-inspector-pr-review')!.getAttribute('aria-label')).toBe('approved');
+    // Merged: its checks and review no longer matter.
+    expect(rows[2].querySelector('.argus-inspector-ci-btn')).toBeNull();
     expect(rows[3].textContent).toContain('status unavailable');
     // Tone: failing checks / conflicts amber, mergeable green, merged purple, unknown untinted.
     expect(rows.map((r) => r.getAttribute('data-tone'))).toEqual(['blocked', 'ready', 'merged', null]);
