@@ -144,9 +144,10 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
 export const MAX_SLASH_SUGGESTIONS = 50;
 
 /**
- * Commands for a `/query` typed at the start of the composer: names starting
- * with it first (also the part after a `plugin:` prefix), then names that
- * contain it; built-ins before skills of the same rank, duplicates dropped.
+ * Commands for a `/query` typed at the start of the composer: the exact name
+ * first (so Enter on a command typed in full sends it), then names starting
+ * with it (also the part after a `plugin:` prefix), then names that contain
+ * it; built-ins before skills of the same rank, duplicates dropped.
  */
 export function slashSuggestions(query: string, custom: readonly ChatCommand[] = []): ChatCommand[] {
   const q = query.toLowerCase();
@@ -159,9 +160,10 @@ export function slashSuggestions(query: string, custom: readonly ChatCommand[] =
   }
   const rank = (c: ChatCommand): number => {
     const n = c.name.toLowerCase();
-    if (n.startsWith(q)) return 0;
-    if (n.slice(n.lastIndexOf(':') + 1).startsWith(q)) return 1;
-    return n.includes(q) ? 2 : -1;
+    if (n === q) return 0;
+    if (n.startsWith(q)) return 1;
+    if (n.slice(n.lastIndexOf(':') + 1).startsWith(q)) return 2;
+    return n.includes(q) ? 3 : -1;
   };
   return all
     .map((c, i) => ({ c, r: rank(c), i }))

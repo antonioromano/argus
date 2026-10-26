@@ -235,6 +235,13 @@ describe('ChatComposer — slash autocomplete', () => {
     expect(onSubmit).toHaveBeenCalledWith('/cost');
   });
 
+  it('Enter sends a custom command typed in full even when a longer one is listed first', () => {
+    const onSubmit = renderWith([{ name: 'deploy-staging', description: 'Staging' }, { name: 'deploy', description: 'Prod' }]);
+    type('/deploy');
+    key('Enter');
+    expect(onSubmit).toHaveBeenCalledWith('/deploy');
+  });
+
   it('stays closed while Claude waits at a menu', () => {
     act(() => root.render(<ChatComposer status="waiting" onSubmit={vi.fn()} />));
     type('/mo');

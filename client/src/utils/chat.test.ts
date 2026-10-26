@@ -94,6 +94,8 @@ describe('slash autocomplete', () => {
     expect(slashSuggestions('pdf', custom).map((c) => c.name)).toEqual(['anthropic-skills:pdf']);
     expect(slashSuggestions('', custom).filter((c) => c.name === 'init')).toEqual([{ name: 'init', description: 'Create a CLAUDE.md for this project' }]);
     expect(slashSuggestions('zzz', custom)).toEqual([]);
+    // An exact name beats a longer one listed earlier.
+    expect(slashSuggestions('deploy', [{ name: 'deploy-staging' }, { name: 'deploy' }]).map((c) => c.name)).toEqual(['deploy', 'deploy-staging']);
   });
 
   it('only opens for a single /token at the start with the caret at its end', () => {
