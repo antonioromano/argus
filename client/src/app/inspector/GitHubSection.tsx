@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { MouseEvent as RMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MoreHorizontal } from 'lucide-react';
@@ -44,6 +44,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   const live = !!pr && isLivePr(pr);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const moreRef = useRef<HTMLSpanElement>(null);
   const [confirmDraft, setConfirmDraft] = useState(false);
 
   /** C3: `gh pr ready` / `--undo` through the server; gh's error becomes a toast. */
@@ -76,12 +77,16 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
     ] : []),
   ];
   const openMenuAt = (e: RMouseEvent<HTMLElement>) => {
+    // React bubbles events out of portals: a right-click inside this row's own
+    // menu, CI popover or confirm sheet lands here too, but not in the row's DOM.
+    if (!e.currentTarget.contains(e.target as Node)) return;
     e.preventDefault();
     setMenu({ x: e.clientX, y: e.clientY });
   };
-  const openMenuUnder = (e: RMouseEvent<HTMLButtonElement>) => {
+  // The `…` button toggles: ContextMenu leaves presses on its anchor to it.
+  const toggleMenuUnder = (e: RMouseEvent<HTMLButtonElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    setMenu({ x: r.left, y: r.bottom + 4 });
+    setMenu((m) => (m ? null : { x: r.left, y: r.bottom + 4 }));
   };
 
   return (
@@ -133,11 +138,11 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
           </button>
         )}
       </div>
-      <span className="argus-inspector-pr-more" data-open={menu ? '' : undefined}>
-        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" onClick={openMenuUnder} />
+      <span ref={moreRef} className="argus-inspector-pr-more" data-open={menu ? '' : undefined}>
+        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" onClick={toggleMenuUnder} />
       </span>
       {/* Portalled: the inspector column scrolls and clips. */}
-      {menu && createPortal(<ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />, document.body)}
+      {menu && createPortal(<ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} anchor={moreRef} />, document.body)}
       {confirmDraft && createPortal(
         <AlertSheet
           isOpen

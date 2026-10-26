@@ -315,6 +315,32 @@ describe('GitHub section', () => {
     // Merged: nothing to convert. Right-click opens the menu too.
     act(() => { rows()[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })); });
     expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes']);
+    const menuEl = () => document.body.querySelector<HTMLElement>('[role="menu"]');
+    const placed = menuEl()!.style.cssText;
+    // A right-click inside the (portalled) menu doesn't re-open or move it.
+    act(() => { items()[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })); });
+    expect(menuEl()!.style.cssText).toBe(placed);
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+
+    // The `…` button toggles its menu: a second press closes it.
+    const more = rows()[0].querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!;
+    act(() => more.click());
+    expect(menuEl()).not.toBeNull();
+    act(() => {
+      more.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      more.click();
+    });
+    expect(menuEl()).toBeNull();
+  });
+
+  it('C4: a right-click inside the CI popover does not open the row menu', async () => {
+    const checks = { counts: { passed: 0, failed: 1, pending: 0, skipped: 0 }, failed: [{ name: 'lint' }] };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [{ url: FAILING.url, pr: { ...FAILING, checks }, folderBranch: false, linked: true }] });
+    await render();
+    act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-ci-btn')!.click());
+    const pop = document.body.querySelector<HTMLElement>('.argus-ci-popover')!;
+    act(() => { pop.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 5, clientY: 5 })); });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
   });
 
   it('C4: Convert to draft asks first, then runs the C3 route with ready: false', async () => {
