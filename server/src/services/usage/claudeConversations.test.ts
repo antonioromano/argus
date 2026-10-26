@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { listClaudeConversations, projectDirName } from './claudeConversations.js';
+import { UNTITLED, conversationDirs, listClaudeConversations, projectDirName } from './claudeConversations.js';
 
 const ID = (n: number) => `0000000${n}-1111-4222-8333-444444444444`;
 const line = (o: unknown) => JSON.stringify(o) + '\n';
@@ -55,4 +55,30 @@ test('never opens a file outside the transcript roots, and a missing dir is empt
   assert.deepEqual(await listClaudeConversations([path.join(root, 'nope')], { roots: [root] }), []);
   rmSync(outside, { recursive: true, force: true });
   done();
+});
+
+test('a conversation whose opening prompt is longer than the head read is kept, untitled', async () => {
+  const { root, dir, write, done } = setup();
+  write(5, user('x'.repeat(200 * 1024)) + line({ type: 'assistant', uuid: 'a' }), 1000);
+  assert.deepEqual(await listClaudeConversations([dir], { roots: [root] }), [{ id: ID(5), title: UNTITLED, updatedAt: 1_000_000 }]);
+  done();
+});
+
+test('dirs outside the transcript roots are never listed', async () => {
+  const { root, done } = setup();
+  const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'argus-outside-')));
+  writeFileSync(path.join(outside, `${ID(7)}.jsonl`), user('elsewhere'));
+  assert.deepEqual(await listClaudeConversations([outside], { roots: [root] }), []);
+  rmSync(outside, { recursive: true, force: true });
+  done();
+});
+
+test('conversationDirs: the current transcript dir first, then the work root under each root', () => {
+  const roots = ['/home/u/.config/claude/projects', '/home/u/.claude/projects'];
+  assert.deepEqual(conversationDirs('/home/u/.claude/projects/-short-x/abc.jsonl', '/repo/.claude/worktrees/w', roots), [
+    '/home/u/.claude/projects/-short-x',
+    '/home/u/.config/claude/projects/-repo--claude-worktrees-w',
+    '/home/u/.claude/projects/-repo--claude-worktrees-w',
+  ]);
+  assert.deepEqual(conversationDirs(undefined, '/repo', roots.slice(1)), ['/home/u/.claude/projects/-repo']);
 });

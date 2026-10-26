@@ -5,6 +5,7 @@ import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { ChatView } from './ChatView.js';
 import { api } from '../../../services/api.js';
+import { ANSWER_TIMEOUT_MS } from './ChatPromptCard.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -152,6 +153,19 @@ describe('ChatView', () => {
     act(() => (card.querySelector('button') as HTMLButtonElement).click());
     expect(emitted.find(([ev]) => ev === 'session:answer')?.[1]).toEqual({ sessionId: 's1', key: '1' });
     expect(container.textContent).not.toContain('y · accept');
+  });
+
+  it('an answer with no reply frees the buttons again with an error', async () => {
+    vi.useFakeTimers();
+    const { socket, fire } = fakeSocket(); // its emit never calls the ack
+    render(session({ status: 'waiting', promptOptions: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }] }), socket);
+    fire('session:chat', update({}));
+    const yes = container.querySelector('[data-testid="chat-prompt"] button') as HTMLButtonElement;
+    act(() => yes.click());
+    expect(yes.disabled).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(ANSWER_TIMEOUT_MS); });
+    expect(yes.disabled).toBe(false);
+    expect(container.querySelector('[data-testid="chat-prompt"]')?.textContent).toContain('No reply from Argus');
   });
 
   it('a menu without readable options (a picker) points to the terminal instead', () => {

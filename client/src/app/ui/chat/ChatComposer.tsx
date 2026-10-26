@@ -115,7 +115,8 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const canSend = !exited && !uploading && (text.trim().length > 0 || ready.length > 0);
   const query = slashClosedAt === text ? null : slashQuery(text, text.length);
   const suggestions = query === null ? [] : slashSuggestions(query, commands);
-  const slashOpen = suggestions.length > 0 && !exited;
+  // Not at a menu: there a slash command would only be typed into the menu.
+  const slashOpen = suggestions.length > 0 && atPrompt;
   const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
   const complete = (c: ChatCommand) => {
     setText(`/${c.name} `);

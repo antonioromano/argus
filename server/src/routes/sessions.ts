@@ -80,6 +80,8 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
   });
 
   // Earlier Claude conversations of the session's folder (Chat view /resume picker).
+  // No client path is taken: the dirs are derived server-side and confined to
+  // the transcript roots with pathScope's resolveWithinBase (claudeConversations).
   router.get('/:id/conversations', asyncHandler(async (req, res) => {
     const conversations = await manager.listConversations(req.params.id);
     if (!conversations) {

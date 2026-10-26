@@ -22,15 +22,25 @@ interface ChatPromptCardProps {
  * /resume picker, /help, /cost…) can only be handled in the terminal, so the
  * card says so instead of offering answers it cannot type.
  */
+/** An answer with no reply by then (socket dropped, server restarting) frees the buttons again. */
+export const ANSWER_TIMEOUT_MS = 8000;
+
 export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerminal }: ChatPromptCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const answer = (key: string) => {
     setBusy(true);
     setError(null);
-    void onAnswer(key)
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<string>((resolve) => {
+      timer = setTimeout(() => resolve('No reply from Argus — try again, or answer in the terminal'), ANSWER_TIMEOUT_MS);
+    });
+    void Promise.race([onAnswer(key), timeout])
       .then(setError)
-      .finally(() => setBusy(false));
+      .finally(() => {
+        clearTimeout(timer);
+        setBusy(false);
+      });
   };
   return (
     <div className="argus-chat-prompt" role="group" aria-label="Claude is waiting" data-testid="chat-prompt">

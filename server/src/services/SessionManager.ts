@@ -67,7 +67,7 @@ import type { GitService } from './GitService.js';
 import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
-import { listClaudeConversations, projectDirName } from './usage/claudeConversations.js';
+import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
 import {
   CodexRolloutTailer,
@@ -1915,8 +1915,9 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
-    // Before the write, so a command recorded at once still finds its echo.
-    session.usage?.echoChatInput(text);
+    // Before the write, so a command recorded at once still finds its echo. Not
+    // at a menu: there the text answers the menu, it does not run a command.
+    if (session.status !== 'waiting') session.usage?.echoChatInput(text);
     write(chatInputBytes(text), BROADCAST_ENTER_DELAY_MS);
     write('\r');
     for (let i = 0; i < CHAT_ENTER_RETRIES; i++) {
@@ -1936,12 +1937,8 @@ export class SessionManager {
   async listConversations(id: string): Promise<ClaudeConversation[] | undefined> {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return undefined;
-    const current = session.usage?.currentTranscript();
     const roots = transcriptRoots();
-    const dirs = [
-      ...(current ? [path.dirname(current)] : []),
-      ...roots.map((r) => path.join(r, projectDirName(workRootOf(session)))),
-    ];
+    const dirs = conversationDirs(session.usage?.currentTranscript(), workRootOf(session), roots);
     return listClaudeConversations(dirs, { currentId: session.claudeSessionId, roots });
   }
 

@@ -2,6 +2,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ClaudeConversation } from '@argus/shared';
 import { cleanUserText } from './ChatTail.js';
+import { resolveWithinBase } from '../../utils/pathScope.js';
 import { resolveTranscriptPath, transcriptRoots } from './SessionUsageTracker.js';
 
 /**
@@ -22,6 +23,19 @@ const UUID_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /** Claude Code's project directory name for `folder`. */
 export function projectDirName(folder: string): string {
   return folder.replace(/[^A-Za-z0-9]/g, '-');
+}
+
+/** Title of a conversation whose opening prompt did not fit the bytes read. */
+export const UNTITLED = 'Untitled conversation';
+
+/**
+ * Where a session's conversations live: the current transcript's directory
+ * (exact even when Claude Code shortens a long folder name), then the one it
+ * derives from the session's work root, under each transcript root.
+ */
+export function conversationDirs(currentTranscript: string | undefined, workRoot: string, roots: readonly string[]): string[] {
+  const dirs = roots.map((r) => path.join(r, projectDirName(workRoot)));
+  return currentTranscript ? [path.dirname(currentTranscript), ...dirs] : dirs;
 }
 
 function clipTitle(text: string): string {
@@ -80,7 +94,9 @@ export async function conversationTitle(file: string, size: number): Promise<str
   }
   if (lastPrompt) return clipTitle(lastPrompt);
   const first = firstPrompt(await readRange(file, 0, Math.min(size, HEAD_BYTES)));
-  return first ? clipTitle(first) : undefined;
+  if (first) return clipTitle(first);
+  // The opening prompt may just be longer than the head read (a big paste).
+  return size > HEAD_BYTES ? UNTITLED : undefined;
 }
 
 /**
@@ -92,8 +108,10 @@ export async function listClaudeConversations(
   opts: { currentId?: string; roots?: readonly string[]; limit?: number } = {},
 ): Promise<ClaudeConversation[]> {
   const roots = opts.roots ?? transcriptRoots();
-  const files = new Map<string, { id: string; file: string; mtime: number; size: number }>();
-  for (const dir of new Set(dirs)) {
+  // Candidate dirs go through pathScope: each must sit inside a transcript root.
+  const scoped = [...new Set(dirs)].filter((d) => roots.some((r) => resolveWithinBase(r, d)));
+  const named = new Map<string, string>();
+  for (const dir of scoped) {
     let names: string[];
     try {
       names = await readdir(dir);
@@ -102,24 +120,31 @@ export async function listClaudeConversations(
     }
     for (const name of names) {
       const m = UUID_FILE.exec(name);
-      if (!m || files.has(m[1])) continue;
-      const file = resolveTranscriptPath(path.join(dir, name), roots);
-      if (!file) continue;
-      try {
-        const s = await stat(file);
-        files.set(m[1], { id: m[1], file, mtime: s.mtimeMs, size: s.size });
-      } catch {
-        // Gone meanwhile.
-      }
+      if (m && !named.has(m[1])) named.set(m[1], path.join(dir, name));
     }
   }
-  const newest = [...files.values()].sort((a, b) => b.mtime - a.mtime);
+  // Stat in parallel (async, off the event loop); only the files actually
+  // opened below are confined, so a folder of thousands costs one stat each.
+  const stats = await Promise.all(
+    [...named].map(async ([id, file]) => {
+      try {
+        const s = await stat(file);
+        return { id, file, mtime: s.mtimeMs, size: s.size };
+      } catch {
+        return undefined; // gone meanwhile
+      }
+    }),
+  );
+  const newest = stats.filter((f): f is NonNullable<typeof f> => !!f).sort((a, b) => b.mtime - a.mtime);
   const out: ClaudeConversation[] = [];
   for (const f of newest) {
     if (out.length >= (opts.limit ?? MAX_CONVERSATIONS)) break;
+    // Every file opened is confined to the transcript roots (symlinks resolved).
+    const real = resolveTranscriptPath(f.file, roots);
+    if (!real) continue;
     let title: string | undefined;
     try {
-      title = await conversationTitle(f.file, f.size);
+      title = await conversationTitle(real, f.size);
     } catch {
       continue;
     }

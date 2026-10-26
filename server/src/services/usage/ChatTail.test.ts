@@ -224,6 +224,10 @@ test('local command output is a system message, ANSI and noise removed', () => {
   assert.deepEqual(parseChatEntry(user('e1', '<bash-stdout></bash-stdout><bash-stderr>boom</bash-stderr>'))?.blocks, [
     { kind: 'output', stream: 'stderr', text: 'boom' },
   ]);
+  // A prompt that only quotes the tag stays the user's text.
+  const quoted = parseChatEntry(user('q1', 'why is <local-command-stdout>x</local-command-stdout> hidden?'));
+  assert.equal(quoted?.role, 'user');
+  assert.deepEqual(quoted?.blocks, [{ kind: 'text', text: 'why is  hidden?' }]);
 });
 
 test('system local_command and informational entries (newer Claude Code)', () => {
@@ -297,13 +301,32 @@ test('ChatTail: a recorded command settles an echo of its prefix, and only one e
   const t = new ChatTail(f);
   await t.poll();
   t.drain();
-  t.echo('/compa', 1);
-  t.echo('/compact', 2);
+  const recorded = Date.parse('2026-10-20T09:15:00.000Z');
+  t.echo('/compa', recorded - 1000);
+  t.echo('/compact', recorded - 500);
   t.drain();
   appendFileSync(f, REAL.compact + '\n');
   await t.poll();
   assert.deepEqual(t.drain().removed, ['echo-1'], 'the oldest matching echo');
   assert.deepEqual(t.messages.filter((m) => m.echo).map((m) => m.id), ['echo-2']);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail: a prefix only answers an echo right after it; aliases answer their canonical command', async () => {
+  const f = tmpFile();
+  writeFileSync(f, '');
+  const t = new ChatTail(f);
+  await t.poll();
+  t.drain();
+  const recorded = Date.parse('2026-10-20T09:15:00.000Z');
+  t.echo('/co', recorded - 60_000); // a minute earlier: /compact is something else
+  t.echo('/settings', recorded - 60_000);
+  t.drain();
+  const config = REAL.compact.replace(/compact/g, 'config');
+  appendFileSync(f, REAL.compact + '\n' + config + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().removed, ['echo-2'], '/config settles the /settings echo');
+  assert.deepEqual(t.messages.filter((m) => m.echo).map((m) => m.id), ['echo-1'], 'the stale /co echo stays');
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 

@@ -24,7 +24,8 @@ const HIDDEN_TAGS = ['system-reminder', 'local-command-caveat', 'local-command-s
 const HIDDEN_RE = new RegExp(`<(${HIDDEN_TAGS.join('|')})>[\\s\\S]*?</\\1>`, 'g');
 /** Command output wrappers, shown as collapsed output blocks. */
 const OUTPUT_RE = /<(local-command|bash)-(stdout|stderr)>([\s\S]*?)<\/\1-\2>/g;
-const HAS_OUTPUT_RE = /<(?:local-command|bash)-(?:stdout|stderr)>/;
+/** Claude Code writes command output as the whole entry, so the wrapper opens it. */
+const HAS_OUTPUT_RE = /^\s*<(?:local-command|bash)-(?:stdout|stderr)>/;
 /** Machine-readable trailers some command output carries (forked skills). */
 const OUTPUT_NOISE_RE = /<forked-skill-launch>[\s\S]*?<\/forked-skill-launch>/g;
 // eslint-disable-next-line no-control-regex -- stripping terminal escapes is the point
@@ -271,11 +272,29 @@ export function echoCommandOf(text: string): { name: string; args?: string } | u
   return args ? { name, args: clip(args) } : { name };
 }
 
-/** The recorded command `name` answers the echo of `echoName` (Claude Code may complete a prefix). */
-function answersEcho(name: string, echoName: string): boolean {
+/** Aliases Claude Code records under their canonical name. */
+const COMMAND_ALIASES: Record<string, string> = {
+  '/settings': '/config',
+  '/quit': '/exit',
+  '/bug': '/feedback',
+  '/reset': '/clear',
+  '/new': '/clear',
+  '/continue': '/resume',
+  '/allowed-tools': '/permissions',
+};
+/**
+ * How soon after the echo a recorded command may answer it by prefix: Enter
+ * on a partial name (`/compa`) runs the highlighted completion (`/compact`)
+ * at once; a later command with that prefix is something else.
+ */
+export const ECHO_PREFIX_MS = 5000;
+
+/** The recorded command `name` (at `at`) answers the echo of `echoName` sent at `sentAt`. */
+function answersEcho(name: string, at: number, echoName: string, sentAt: number): boolean {
   const a = name.toLowerCase();
   const b = echoName.toLowerCase();
-  return a === b || a.startsWith(b);
+  if (a === b || a === COMMAND_ALIASES[b]) return true;
+  return a.startsWith(b) && at >= sentAt && at - sentAt <= ECHO_PREFIX_MS;
 }
 
 /**
@@ -297,7 +316,7 @@ export class ChatTail extends JsonlTailer {
   /** The permission mode or the /model pick changed since the last drain. */
   private modeChanged = false;
   /** Echoes not yet matched by a recorded command, oldest first. */
-  private echoes: { id: string; name: string }[] = [];
+  private echoes: { id: string; name: string; at: number }[] = [];
   private echoSeq = 0;
   /** Echo ids to drop on the client, collected for the next drain. */
   private removedIds: string[] = [];
@@ -325,7 +344,7 @@ export class ChatTail extends JsonlTailer {
     }
     const m = parsed.message;
     if (!m) return this.modeChanged;
-    if (m.blocks[0]?.kind === 'command') this.settleEcho(m.blocks[0].name);
+    if (m.blocks[0]?.kind === 'command') this.settleEcho(m.blocks[0].name, m.ts ?? Date.now());
     this.messages.push(m);
     if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
     if (!this.wasReset) {
@@ -345,7 +364,7 @@ export class ChatTail extends JsonlTailer {
     const command = echoCommandOf(text);
     if (!command) return false;
     const m: ChatMessage = { id: `echo-${++this.echoSeq}`, role: 'user', ts: now, blocks: [{ kind: 'command', ...command }], echo: true };
-    this.echoes.push({ id: m.id, name: command.name });
+    this.echoes.push({ id: m.id, name: command.name, at: now });
     if (this.echoes.length > MAX_ECHOES) this.echoes.shift();
     this.messages.push(m);
     if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
@@ -354,8 +373,8 @@ export class ChatTail extends JsonlTailer {
   }
 
   /** A recorded command arrived: drop the oldest echo it answers. */
-  private settleEcho(name: string): void {
-    const i = this.echoes.findIndex((e) => answersEcho(name, e.name));
+  private settleEcho(name: string, recordedAt: number): void {
+    const i = this.echoes.findIndex((e) => answersEcho(name, recordedAt, e.name, e.at));
     if (i < 0) return;
     const [{ id }] = this.echoes.splice(i, 1);
     const at = this.messages.findIndex((x) => x.id === id);

@@ -235,6 +235,12 @@ describe('ChatComposer — slash autocomplete', () => {
     expect(onSubmit).toHaveBeenCalledWith('/cost');
   });
 
+  it('stays closed while Claude waits at a menu', () => {
+    act(() => root.render(<ChatComposer status="waiting" onSubmit={vi.fn()} />));
+    type('/mo');
+    expect(items()).toEqual([]);
+  });
+
   it('Esc closes the list until the text changes; a click completes', () => {
     renderWith();
     type('/mo');

@@ -2156,7 +2156,7 @@ body {
 .argus-chat-output-text {
   margin: var(--s-1) 0 0;
   padding: 8px 10px;
-  max-height: 320px;
+  max-height: calc(320px * var(--ui-scale));
   overflow: auto;
   border: 1px solid var(--line-1);
   border-radius: var(--r-2);
