@@ -25,8 +25,26 @@ export const MONACO_GRAMMARS: Record<string, string> = {
   shell: 'shellscript', python: 'python', ruby: 'ruby', rust: 'rust', go: 'go', java: 'java',
   c: 'c', cpp: 'cpp', csharp: 'csharp', php: 'php', swift: 'swift', kotlin: 'kotlin', lua: 'lua',
   yaml: 'yaml', ini: 'ini', markdown: 'markdown', sql: 'sql', graphql: 'graphql', hcl: 'hcl',
-  dockerfile: 'docker',
+  dockerfile: 'docker', dart: 'dart', scala: 'scala', elixir: 'elixir', r: 'r',
+  'objective-c': 'objective-c', powershell: 'powershell', perl: 'perl', clojure: 'clojure',
 };
+
+/**
+ * The Monaco language for `filePath` when langFromPath's table has none:
+ * whatever Monaco itself registers for that basename/extension, so files it
+ * knows (with a Monarch tokenizer at least) never open as plain text.
+ */
+export function registeredMonacoLanguage(monaco: typeof Monaco, filePath: string): string {
+  const base = (filePath.split('/').pop() ?? '').toLowerCase();
+  const dot = base.lastIndexOf('.');
+  const ext = dot >= 0 ? base.slice(dot) : null;
+  const match = monaco.languages.getLanguages().find(
+    (l) =>
+      l.filenames?.some((f) => f.toLowerCase() === base) ||
+      (ext !== null && l.extensions?.some((e) => e.toLowerCase() === ext)),
+  );
+  return match?.id ?? 'plaintext';
+}
 
 export function monacoThemeName(theme: ThemeName): string {
   return theme === 'dark' ? 'argus-dark' : 'argus-light';

@@ -60,6 +60,14 @@ describe('tokenize', () => {
     expect(lines!.map((l) => l.map((t) => t.text).join('')).join('\n')).toBe(code);
   });
 
+  it('classifies Dart', async () => {
+    const lines = await tokenize("class A extends B {\n  final int n = 1; // x\n}", 'dart');
+    expect(slotOf(lines!, 'class')).toBe('kw');
+    expect(slotOf(lines!, '1')).toBe('num');
+    expect(slotOf(lines!, '// x')).toBe('cm');
+    expect(langForPath('lib/pages/game_summary.dart')).toBe('dart');
+  });
+
   it('is synchronous and cached once loaded', async () => {
     await loadLang('python');
     const a = tokenizeSync('def f(): pass', 'python');

@@ -5,7 +5,7 @@ import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbo
 import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
-import { attachShikiToMonaco, monacoThemeName } from '../../syntax/monacoShiki.js';
+import { attachShikiToMonaco, monacoThemeName, registeredMonacoLanguage } from '../../syntax/monacoShiki.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
@@ -35,7 +35,9 @@ const FLASH_MS = 1400;
 // then is a no-op, so we wait until the editor is at least this tall.
 const MIN_REVEAL_HEIGHT = 80;
 
-export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveShortcut, path, revealLine, revealNonce }: MonacoPaneProps) {
+export function MonacoPane({ value, onChange, language: mappedLanguage, theme, readOnly, onSaveShortcut, path, revealLine, revealNonce }: MonacoPaneProps) {
+  // Extensions langFromPath doesn't map still get whatever Monaco registers for them.
+  const language = mappedLanguage === 'plaintext' ? registeredMonacoLanguage(monaco, path) : mappedLanguage;
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const { codeFontSize } = useFontSettings();
   const decoRef = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);

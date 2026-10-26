@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from 'vitest';
 import type * as Monaco from 'monaco-editor';
-import { attachShikiToMonaco, monacoTheme, monacoThemeName, MONACO_GRAMMARS } from './monacoShiki.js';
+import { attachShikiToMonaco, monacoTheme, monacoThemeName, registeredMonacoLanguage, MONACO_GRAMMARS } from './monacoShiki.js';
 import { PAINT_SYNTAX } from '../tokens/paint.js';
 import { SYN_SLOTS } from './highlighter.js';
 
@@ -55,5 +55,22 @@ describe('attachShikiToMonaco', () => {
     const open = p.tokenize('/* start', p.getInitialState());
     const next = p.tokenize('still comment */', open.endState) as Monaco.languages.ILineTokens;
     expect(next.tokens[0].scopes).toBe('cm');
+  });
+});
+
+describe('registeredMonacoLanguage', () => {
+  const monaco = {
+    languages: {
+      getLanguages: () => [
+        { id: 'dockerfile', filenames: ['Dockerfile'] },
+        { id: 'pascal', extensions: ['.pas', '.p'] },
+      ],
+    },
+  } as unknown as typeof Monaco;
+
+  it('falls back to what Monaco registers for the extension or basename', () => {
+    expect(registeredMonacoLanguage(monaco, '/src/unit.PAS')).toBe('pascal');
+    expect(registeredMonacoLanguage(monaco, '/srv/Dockerfile')).toBe('dockerfile');
+    expect(registeredMonacoLanguage(monaco, '/srv/notes.unknown')).toBe('plaintext');
   });
 });
