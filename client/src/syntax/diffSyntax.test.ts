@@ -46,6 +46,19 @@ describe('diffSyntax', () => {
     expect(syn.get(ctx)!.some((t) => t.slot === 'pn')).toBe(true);
   });
 
+  it('gives the "No newline at end of file" marker no tokens', async () => {
+    expect(await loadLang('ruby')).toBe(true);
+    const raw = 'diff --git a/x.rb b/x.rb\n--- a/x.rb\n+++ b/x.rb\n@@ -1,2 +1,2 @@\n def f\n-end\n\\ No newline at end of file\n+end # done\n\\ No newline at end of file\n';
+    const [file] = parseDiff(raw);
+    const markers = file.chunks[0].changes.filter((c) => c.content.startsWith('\\'));
+    expect(markers).toHaveLength(2);
+    const syn = diffSyntax(file, 'ruby')!;
+    for (const m of markers) expect(syn.get(m)).toBeUndefined();
+    const [, del, , add] = file.chunks[0].changes;
+    expect(slots(syn.get(del))).toMatchObject({ end: 'kw' });
+    expect(text(syn.get(add))).toBe('end # done');
+  });
+
   it('uses the old path for deleted files', () => {
     const [file] = parseDiff('diff --git a/x.py b/x.py\ndeleted file mode 100644\n--- a/x.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-pass\n');
     expect(diffPath(file)).toBe('x.py');

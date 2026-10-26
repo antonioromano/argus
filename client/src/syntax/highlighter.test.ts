@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { langForPath, resolveLang, slotForColor, tokenize, tokenizeSync, loadLang, SYN_SLOTS } from './highlighter.js';
+import { langForPath, resolveLang, slotForColor, tokenize, tokenizeSync, loadLang, SYN_SLOTS, MAX_HIGHLIGHT_CHARS } from './highlighter.js';
 
 function slotOf(lines: { text: string; slot?: string }[][], text: string): string | undefined {
   for (const line of lines) for (const t of line) if (t.text.trim() === text) return t.slot;
@@ -65,6 +65,14 @@ describe('tokenize', () => {
     const a = tokenizeSync('def f(): pass', 'python');
     expect(a).not.toBeNull();
     expect(tokenizeSync('def f(): pass', 'python')).toBe(a);
+  });
+
+  it('leaves inputs over the synchronous cap plain', async () => {
+    await loadLang('json');
+    const big = `[${'1,'.repeat(MAX_HIGHLIGHT_CHARS / 2)}1]`;
+    expect(big.length).toBeGreaterThan(MAX_HIGHLIGHT_CHARS);
+    expect(tokenizeSync(big, 'json')).toBeNull();
+    expect(tokenizeSync('[1]', 'json')).not.toBeNull();
   });
 
   it('returns null for unsupported languages', async () => {

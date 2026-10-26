@@ -198,11 +198,17 @@ export function highlighterFor(lang: string): HighlighterCore | null {
 
 // ── tokenizing ────────────────────────────────────────────────────────────
 
-/** Longest input tokenized at all; anything bigger renders plain. */
-export const MAX_HIGHLIGHT_CHARS = 200_000;
-const CACHE_MAX = 200;
+/**
+ * Longest input tokenized at all; anything bigger renders plain. Tokenizing
+ * is synchronous during render: ~30k chars of TypeScript is ~100 ms, while
+ * 190k was ~1 s, a visible freeze per diff side or streamed chat chunk.
+ */
+export const MAX_HIGHLIGHT_CHARS = 30_000;
+/** Total source chars the LRU may hold; bounds memory, not entry count. */
+export const CACHE_MAX_CHARS = 1_000_000;
 // Insertion-ordered → oldest first; re-set on hit for LRU behavior.
 const cache = new Map<string, SynToken[][]>();
+let cachedChars = 0;
 
 function toSynLine(line: ThemedToken[]): SynToken[] {
   const out: SynToken[] = [];
@@ -232,7 +238,12 @@ export function tokenizeSync(code: string, lang: string): SynToken[][] | null {
   }
   const lines = h.codeToTokensBase(code, { lang, theme: CLASSIFIER_THEME }).map(toSynLine);
   cache.set(key, lines);
-  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
+  cachedChars += key.length;
+  while (cachedChars > CACHE_MAX_CHARS) {
+    const oldest = cache.keys().next().value as string;
+    cache.delete(oldest);
+    cachedChars -= oldest.length;
+  }
   return lines;
 }
 

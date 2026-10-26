@@ -15,6 +15,12 @@ function forChangedRow(line: SynToken[]): SynToken[] {
   return line.map((t) => (t.slot && !CHANGED_ROW_SLOTS.has(t.slot) ? { text: t.text } : t));
 }
 
+// parse-diff turns `\ No newline at end of file` into a change row that copies
+// the previous row's type; it's not code, so it gets no tokens.
+function isEofMarker(c: Change): boolean {
+  return c.content.startsWith('\\');
+}
+
 function lineText(c: Change): string {
   return c.content.replace(/^[+\- ]/, '');
 }
@@ -30,6 +36,7 @@ export function diffSyntax(target: DiffFile, lang: string): DiffSyntax | null {
   const newSide: Change[] = [];
   for (const chunk of target.chunks) {
     for (const c of chunk.changes) {
+      if (isEofMarker(c)) continue;
       if (c.type !== 'add') oldSide.push(c);
       if (c.type !== 'del') newSide.push(c);
     }
