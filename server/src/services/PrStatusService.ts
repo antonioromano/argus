@@ -44,6 +44,8 @@ const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
 const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
+/** C3: `gh pr ready` writes to GitHub; allow it longer than a lookup. */
+export const PR_WRITE_TIMEOUT_MS = 30_000;
 /** B4: a PR diff larger than this is not shown; only its file list is. */
 export const PR_DIFF_MAX_BYTES = 8 * 1024 * 1024;
 /** `gh pr diff` downloads the whole patch; allow it longer than a lookup. */
@@ -224,6 +226,13 @@ export class PrDiffError extends Error {
   }
 }
 
+/** C3: why `gh pr ready` failed — same kinds as PrDiffError. */
+export class PrWriteError extends Error {
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+    super(message);
+  }
+}
+
 /** execFile killed the child for exceeding `maxBuffer`. */
 const isMaxBuffer = (err: unknown): boolean =>
   (err as { code?: unknown })?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
@@ -304,6 +313,8 @@ export class PrStatusService {
   private inflight = new Map<string, Promise<SessionPr | null>>();
   private diffInflight = new Map<string, Promise<SessionPrDiffResponse>>();
   private defaultBranches = new Map<string, { branch: string; at: number }>();
+  /** Bumped by invalidatePr: a lookup that started before a write doesn't cache its stale answer. */
+  private writes = 0;
   /** Epoch ms until which `gh` is considered unusable (missing / logged out). */
   private unavailableUntil = 0;
   private warned = false;
@@ -447,6 +458,38 @@ export class PrStatusService {
     }
   }
 
+  /**
+   * C3: `gh pr ready <url>` (or `--undo`: back to draft) — the first call that
+   * writes to GitHub. The caller passes a validated PR URL of the session.
+   * Whatever the outcome, the cached readings of that PR are dropped so the
+   * row and the chip show its real state on the next lookup. Rejects with
+   * PrWriteError.
+   */
+  async setReady(url: string, cwd: string, ready: boolean): Promise<void> {
+    if (this.now() < this.unavailableUntil) throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    try {
+      await this.runGh(['pr', 'ready', ...(ready ? [] : ['--undo']), url], cwd, { timeoutMs: PR_WRITE_TIMEOUT_MS });
+    } catch (err) {
+      if (isGhUnavailable(err)) {
+        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+        throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+      }
+      if (isTimeout(err)) throw new PrWriteError('timeout', `gh pr ready took longer than ${PR_WRITE_TIMEOUT_MS / 1000}s`);
+      throw new PrWriteError('failed', ghMessage(err));
+    } finally {
+      this.invalidatePr(url);
+    }
+  }
+
+  /** Drop every cached reading of one PR: by its URL, and the branch lookup that answered it. */
+  invalidatePr(url: string): void {
+    const want = url.toLowerCase();
+    this.writes++;
+    for (const [key, entry] of this.cache) {
+      if (key.toLowerCase() === `url\0${want}` || entry.value?.url.toLowerCase() === want) this.cache.delete(key);
+    }
+  }
+
   /** Forget everything (the feature was switched off). */
   clear(): void {
     this.cache.clear();
@@ -455,6 +498,7 @@ export class PrStatusService {
 
   private async fetch(key: string, args: string[], cwd: string): Promise<SessionPr | null> {
     if (this.now() < this.unavailableUntil) return null;
+    const writes = this.writes;
     let value: SessionPr | null = null;
     try {
       value = parsePrView(await this.runGh(args, cwd));
@@ -473,7 +517,8 @@ export class PrStatusService {
     const ttl = value?.state === 'open' || value?.state === 'draft'
       ? (value.ci === 'pending' || value.mergeable === 'unknown' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
       : value ? PR_FINAL_TTL_MS : PR_SETTLED_TTL_MS;
-    this.cache.set(key, { value, expiresAt: this.now() + ttl });
+    // A write (C3) landed while gh was answering: this reading may predate it.
+    if (writes === this.writes) this.cache.set(key, { value, expiresAt: this.now() + ttl });
     return value;
   }
 

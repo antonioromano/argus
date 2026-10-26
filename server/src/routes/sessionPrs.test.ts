@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import type { Server } from 'http';
 import type { AddressInfo } from 'net';
-import type { SessionPrDiffResponse, SessionPrsResponse } from '@argus/shared';
+import type { SessionPr, SessionPrDiffResponse, SessionPrsResponse } from '@argus/shared';
 import { createSessionPrRoutes } from './sessionPrs.js';
 
 const LIST: SessionPrsResponse = {
@@ -15,12 +15,21 @@ let server: Server;
 let base: string;
 const asked: string[] = [];
 const diffAsked: Array<[string, string]> = [];
+const readyAsked: Array<[string, string, boolean]> = [];
+const READY_PR: SessionPr = { number: 1, state: 'open', url: 'https://github.com/o/r/pull/1', ci: 'none', branch: 'b' };
 const DIFF: SessionPrDiffResponse = { url: 'https://github.com/o/r/pull/1', diff: 'diff --git a/x b/x\n' };
 
 before(async () => {
   const app = express();
+  app.use(express.json()); // index.ts mounts the app-wide JSON parser
   app.use('/api', createSessionPrRoutes({
     listSessionPrs: async (id: string) => { asked.push(id); return id === 's1' ? LIST : null; },
+    setSessionPrReady: async (id: string, url: string, ready: boolean) => {
+      readyAsked.push([id, url, ready]);
+      if (id !== 's1' || url !== DIFF.url) return { ok: false as const, status: 404 as const, error: 'Not a pull request of this session' };
+      if (!ready) return { ok: false as const, status: 502 as const, error: 'GraphQL: not allowed' };
+      return { ok: true as const, pr: READY_PR };
+    },
     sessionPrDiff: async (id: string, url: string) => {
       diffAsked.push([id, url]);
       return id === 's1' && url === DIFF.url
@@ -72,4 +81,34 @@ test('GET /sessions/:id/pr-diff rejects a non-PR url before asking the manager',
   }
   assert.equal((await fetch(`${base}/api/sessions/s1/pr-diff`)).status, 400);
   assert.deepEqual(diffAsked, []);
+});
+
+// ── C3: Mark ready ─────────────────────────────────────────────────────────
+
+const postReady = (id: string, body: unknown) => fetch(`${base}/api/sessions/${id}/prs/ready`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+});
+
+test('POST /sessions/:id/prs/ready marks a session PR ready and answers it read again', async () => {
+  const res = await postReady('s1', { url: DIFF.url, ready: true });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { pr: READY_PR });
+  assert.deepEqual(readyAsked.at(-1), ['s1', DIFF.url, true]);
+});
+
+test('POST /sessions/:id/prs/ready rejects a bad url or ready before reaching gh', async () => {
+  const before = readyAsked.length;
+  for (const body of [{ url: 'https://evil.example/pull/1', ready: true }, { url: '--repo=x', ready: true }, { url: DIFF.url }, { url: DIFF.url, ready: 'yes' }, null]) {
+    const res = await postReady('s1', body);
+    assert.equal(res.status, 400, JSON.stringify(body));
+  }
+  assert.equal(readyAsked.length, before);
+});
+
+test('POST /sessions/:id/prs/ready relays the manager refusal and gh errors', async () => {
+  const notListed = await postReady('s1', { url: 'https://github.com/o/r/pull/2', ready: true });
+  assert.equal(notListed.status, 404);
+  const ghFailed = await postReady('s1', { url: DIFF.url, ready: false });
+  assert.equal(ghFailed.status, 502);
+  assert.deepEqual(await ghFailed.json(), { error: 'GraphQL: not allowed' });
 });

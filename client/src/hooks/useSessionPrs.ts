@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { SessionPrEntry } from '@argus/shared';
 import { api } from '../services/api.js';
 
@@ -42,6 +42,8 @@ export interface SessionPrsState {
   /** false when the server says PR status is switched off. */
   enabled: boolean;
   error: string | null;
+  /** Ask again now (C3: after Mark ready, so the row shows the new state). */
+  reload: () => void;
 }
 
 /**
@@ -50,7 +52,9 @@ export interface SessionPrsState {
  * that changes with the session's PR chip so a new PR shows without waiting.
  */
 export function useSessionPrs(sessionId: string, enabled: boolean, refreshKey?: unknown): SessionPrsState {
-  const [state, setState] = useState<SessionPrsState & { id: string | null }>({ id: null, prs: undefined, enabled: true, error: null });
+  const [state, setState] = useState<Omit<SessionPrsState, 'reload'> & { id: string | null }>({ id: null, prs: undefined, enabled: true, error: null });
+  const [nonce, setNonce] = useState(0);
+  const reload = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -72,9 +76,9 @@ export function useSessionPrs(sessionId: string, enabled: boolean, refreshKey?: 
       alive = false;
       clearInterval(t);
     };
-  }, [sessionId, enabled, refreshKey]);
+  }, [sessionId, enabled, refreshKey, nonce]);
 
   // Another session's answer must never show under this one while it loads.
-  if (state.id !== sessionId) return { prs: undefined, enabled: true, error: null };
-  return { prs: state.prs, enabled: state.enabled, error: state.error };
+  if (state.id !== sessionId) return { prs: undefined, enabled: true, error: null, reload };
+  return { prs: state.prs, enabled: state.enabled, error: state.error, reload };
 }

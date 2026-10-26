@@ -14,6 +14,8 @@ import {
   PR_VIEW_ARGS,
   prViewArgsForUrl,
   PrDiffError,
+  PrWriteError,
+  PR_WRITE_TIMEOUT_MS,
   PR_DIFF_MAX_BYTES,
   PR_DIFF_MAX_FILES,
   PR_DIFF_TIMEOUT_MS,
@@ -431,5 +433,79 @@ describe('PrStatusService.prDiff (B4)', () => {
     assert.equal(off.calls.length, 1, 'no second gh call while unavailable');
     await reject(Object.assign(new Error('x'), { killed: true, signal: 'SIGTERM' }), 'timeout', /30s/);
     await reject(Object.assign(new Error('x'), { code: 1, stderr: 'could not find pull request\nmore' }), 'failed', /^could not find pull request$/);
+  });
+});
+
+// ── C3: gh pr ready ─────────────────────────────────────────────────────────
+
+describe('PrStatusService.setReady (C3)', () => {
+  const url = 'https://github.com/o/r/pull/7';
+
+  test('runs gh pr ready (or --undo) on the URL in cwd, with the write timeout', async () => {
+    const seen: { args: string[]; timeoutMs?: number }[] = [];
+    const service = new PrStatusService({
+      runGh: async (args, _cwd, opts) => { seen.push({ args, timeoutMs: opts?.timeoutMs }); return ''; },
+      headInfo: async () => null,
+      defaultBranch: async () => 'main',
+    });
+    await service.setReady(url, '/repo', true);
+    await service.setReady(url, '/repo', false);
+    assert.deepEqual(seen, [
+      { args: ['pr', 'ready', url], timeoutMs: PR_WRITE_TIMEOUT_MS },
+      { args: ['pr', 'ready', '--undo', url], timeoutMs: PR_WRITE_TIMEOUT_MS },
+    ]);
+  });
+
+  test('drops the cached readings of that PR (by URL and by branch), success or not', async () => {
+    let state = 'OPEN';
+    let draft = true;
+    let fail = false;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') {
+          if (fail) throw Object.assign(new Error('x'), { code: 1, stderr: 'GraphQL: Resource not accessible\n' });
+          draft = args[2] === '--undo';
+          return '';
+        }
+        return prJson({ isDraft: draft, state });
+      },
+    });
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'draft');
+    assert.equal((await service.forFolder('/repo'))?.state, 'draft');
+    await service.setReady(url, '/repo', true);
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open');
+    assert.equal((await service.forFolder('/repo'))?.state, 'open');
+    const views = calls.filter((c) => c.args[1] === 'view').length;
+    assert.equal(views, 4);
+
+    fail = true;
+    state = 'CLOSED';
+    await assert.rejects(service.setReady(url, '/repo', false), (e: unknown) => e instanceof PrWriteError && e.kind === 'failed' && e.message === 'GraphQL: Resource not accessible');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'closed', 'read again after a failed write too');
+  });
+
+  test('a lookup in flight during the write does not cache its stale answer', async () => {
+    let release!: () => void;
+    let first = true;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        if (first) { first = false; await new Promise<void>((r) => { release = r; }); return prJson({ isDraft: true }); }
+        return prJson({ isDraft: false });
+      },
+    });
+    const stale = service.forUrl(url, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    release();
+    assert.equal((await stale)?.state, 'draft');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 2);
+  });
+
+  test('maps gh missing / logged out and timeouts', async () => {
+    const mk = (err: unknown) => new PrStatusService({ runGh: async () => { throw err; }, headInfo: async () => null, defaultBranch: async () => 'main' });
+    await assert.rejects(mk({ code: 'ENOENT' }).setReady(url, '/r', true), (e: unknown) => e instanceof PrWriteError && e.kind === 'unavailable');
+    await assert.rejects(mk({ killed: true, signal: 'SIGTERM' }).setReady(url, '/r', true), (e: unknown) => e instanceof PrWriteError && e.kind === 'timeout');
   });
 });

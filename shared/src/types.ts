@@ -704,6 +704,18 @@ export interface SessionPrDiffResponse {
   truncated?: { files: string[]; complete: boolean; limitBytes: number };
 }
 
+/** POST /api/sessions/:id/prs/ready (C3) — `gh pr ready` (or `--undo` when
+ *  `ready` is false) on one of the session's PRs (see SessionPrsResponse). */
+export interface SessionPrReadyRequest {
+  url: string;
+  ready: boolean;
+}
+
+/** The PR read again after the change; null when gh couldn't read it. */
+export interface SessionPrReadyResponse {
+  pr: SessionPr | null;
+}
+
 /** One numbered choice of a waiting agent's selection menu. Sending `key`
  *  (a single digit) to the session picks it. */
 export interface PromptOption {

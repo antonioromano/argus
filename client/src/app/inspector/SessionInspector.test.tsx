@@ -15,8 +15,18 @@ declare global {
 
 const getGitSummary = vi.fn();
 const getSessionPrs = vi.fn();
+const setSessionPrReady = vi.fn();
 vi.mock('../../services/api.js', () => ({
-  api: { getGitSummary: (id: string) => getGitSummary(id), getSessionPrs: (id: string) => getSessionPrs(id) },
+  api: {
+    getGitSummary: (id: string) => getGitSummary(id),
+    getSessionPrs: (id: string) => getSessionPrs(id),
+    setSessionPrReady: (id: string, url: string, ready: boolean) => setSessionPrReady(id, url, ready),
+  },
+}));
+const pushToast = vi.fn();
+vi.mock('../../components/primitives/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../components/primitives/index.js')>()),
+  pushToast: (message: string, tone?: string) => pushToast(message, tone),
 }));
 const openExternal = vi.fn();
 vi.mock('../../utils/openExternal.js', () => ({
@@ -271,6 +281,40 @@ describe('GitHub section', () => {
     await render({ ctx: ctx({ onOpenPrDiff }) });
     act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-files')!.click());
     expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
+  });
+
+  it('C3: a draft PR offers Mark ready; it runs gh through the server, toasts, and reads the list again', async () => {
+    const DRAFT = { ...FOLDER, state: 'draft' as const };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [
+      { url: DRAFT.url, pr: DRAFT, folderBranch: true, linked: true },
+      { url: FAILING.url, pr: FAILING, folderBranch: false, linked: true },
+    ] });
+    let finish!: (v: unknown) => void;
+    setSessionPrReady.mockReturnValue(new Promise((r) => { finish = r; }));
+    await render();
+    const rows = Array.from(sectionEl('github').querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
+    expect(rows[1].querySelector('.argus-inspector-pr-ready')).toBeNull();
+    const button = rows[0].querySelector<HTMLButtonElement>('.argus-inspector-pr-ready')!;
+    expect(button.textContent).toBe('Mark ready');
+    expect(getSessionPrs).toHaveBeenCalledTimes(1);
+
+    act(() => button.click());
+    expect(setSessionPrReady).toHaveBeenCalledWith('s1', DRAFT.url, true);
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Marking ready…');
+    await act(async () => { finish({ pr: FOLDER }); });
+    expect(pushToast).toHaveBeenCalledWith('o/r#42 is ready for review', 'ok');
+    expect(getSessionPrs).toHaveBeenCalledTimes(2);
+  });
+
+  it('C3: a gh error from Mark ready is shown as a toast', async () => {
+    const DRAFT = { ...FOLDER, state: 'draft' as const };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [{ url: DRAFT.url, pr: DRAFT, folderBranch: true, linked: true }] });
+    setSessionPrReady.mockRejectedValue(new Error('GraphQL: Resource not accessible by integration'));
+    await render();
+    await act(async () => { sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-ready')!.click(); });
+    expect(pushToast).toHaveBeenCalledWith('Couldn’t mark o/r#42 ready: GraphQL: Resource not accessible by integration', 'danger');
+    expect(sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-ready')!.disabled).toBe(false);
   });
 
   it('C2: the diff button shows the changed lines formatted and opens the PR changes', async () => {

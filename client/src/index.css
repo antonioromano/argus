@@ -1473,6 +1473,26 @@ body {
   border-radius: var(--r-1);
 }
 .argus-inspector-pr-files:hover { color: var(--accent); }
+/* C3: Mark ready under a draft PR — a real (outlined) button: it writes to GitHub. */
+.argus-inspector-pr-ready {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  align-self: flex-start;
+  margin-top: var(--s-1);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+}
+.argus-inspector-pr-ready:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-0); }
+.argus-inspector-pr-ready:disabled { cursor: default; color: var(--fg-3); }
+.argus-inspector-pr-ready:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 /* C2: `+N −M` in the diff colors, as small tinted chips (the AA text pair). */
 .argus-inspector-pr-lines { display: inline-flex; gap: 2px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
 .argus-inspector-pr-add,
