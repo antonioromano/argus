@@ -173,12 +173,12 @@ describe('Usage section', () => {
     expect(part(meters[0], 'pct')).toBe('47%');
     expect(part(meters[0], 'aside')).toBe('94k / 200k');
     expect(meters[0].getAttribute('data-level')).toBe('ok');
-    expect(part(meters[1], 'label')).toBe('Session limit');
+    expect(part(meters[1], 'label')).toBe('Session');
     expect(part(meters[1], 'pct')).toBe('96%');
     expect(part(meters[1], 'aside')).toMatch(/^Resets in (1 hr|59 min)$/);
     expect(meters[1].getAttribute('data-level')).toBe('high');
     // The bar is the meter for assistive tech, named after the limit.
-    expect(meters[1].querySelector('[role="meter"]')!.getAttribute('aria-label')).toBe('Session limit');
+    expect(meters[1].querySelector('[role="meter"]')!.getAttribute('aria-label')).toBe('Session');
     // No model name in the card.
     expect(sectionEl('usage').textContent).not.toContain('Opus');
   });
@@ -191,7 +191,7 @@ describe('Usage section', () => {
     expect(meters).toHaveLength(2);
     expect(meters[0].querySelector('.argus-inspector-meter-pct')!.textContent).toBe('0%');
     expect(meters[0].querySelector('.argus-inspector-meter-aside')!.textContent).toBe('Just reset');
-    expect(meters[1].querySelector('.argus-inspector-meter-label')!.textContent).toBe('Weekly limit');
+    expect(meters[1].querySelector('.argus-inspector-meter-label')!.textContent).toBe('Weekly');
     expect(meters[1].querySelector('.argus-inspector-meter-aside')!.textContent).toMatch(/^Resets \S+ /);
   });
 

@@ -20,7 +20,7 @@ import { InspectorEmpty, InspectorRow } from './InspectorRow.js';
 const TICK_MS = 30_000;
 
 /**
- * One limit: a head line ("Session limit · 43%" left, the reset or the token
+ * One limit: a head line ("Session · 43%" left, the reset or the token
  * count right, wrapping under the label when the panel is narrow) over a
  * full-width bar. The percentage sits next to its label, in the primary
  * colour, so the value never reads as a footnote.

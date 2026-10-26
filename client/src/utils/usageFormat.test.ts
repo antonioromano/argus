@@ -93,10 +93,10 @@ describe('usageFormat', () => {
 
 describe('plan window labels and resets', () => {
   it('names a window by its length', () => {
-    expect(planWindowLabel(300)).toBe('Session limit');
-    expect(planWindowLabel(10_080)).toBe('Weekly limit');
-    expect(planWindowLabel(43_200)).toBe('30-day limit');
-    expect(planWindowLabel(undefined)).toBe('Plan limit');
+    expect(planWindowLabel(300)).toBe('Session');
+    expect(planWindowLabel(10_080)).toBe('Weekly');
+    expect(planWindowLabel(43_200)).toBe('30-day');
+    expect(planWindowLabel(undefined)).toBe('Plan');
     expect(planWindowKey(300)).toBe('5h');
     expect(planWindowKey(10_080)).toBe('7d');
     expect(planWindowKey(undefined)).toBe('plan');

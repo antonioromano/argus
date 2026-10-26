@@ -1203,7 +1203,7 @@ body {
 }
 .argus-inspector-branch { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; }
 
-/* Usage meters: "Session limit · 43%" left, the reset (or "94k / 200k") right,
+/* Usage meters: "Session · 43%" left, the reset (or "94k / 200k") right,
    over a full-width bar. Label in the label colour, percentage in the primary
    one; the right-hand text is secondary and wraps under the label when the
    panel is too narrow for both (space-between leaves a lone item at the start). */

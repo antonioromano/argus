@@ -123,12 +123,12 @@ export function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
-/** Label of a plan window: "Session limit" (hours), "Weekly limit", "30-day limit", "Plan limit" when unknown. */
+/** Label of a plan window: "Session" (hours), "Weekly", "30-day", "Plan" when unknown. */
 export function planWindowLabel(minutes: number | undefined): string {
-  if (!minutes) return 'Plan limit';
-  if (minutes < 48 * 60) return 'Session limit';
-  if (minutes === 7 * 1440) return 'Weekly limit';
-  return `${windowName(minutes)} limit`;
+  if (!minutes) return 'Plan';
+  if (minutes < 48 * 60) return 'Session';
+  if (minutes === 7 * 1440) return 'Weekly';
+  return windowName(minutes);
 }
 
 /** Compact key of a plan window for tight spots: "5h", "7d", "plan" when unknown. */
