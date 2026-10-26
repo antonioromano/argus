@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, SessionPr } from '@argus/shared';
+import { ciSummary, prRef } from '../utils/prFormat.js';
 
 interface UseNotificationsOptions {
   sessions: SessionInfo[];
@@ -8,6 +9,8 @@ interface UseNotificationsOptions {
   notifyOnWaiting?: boolean;
   /** Notify when a session finishes a run (status → done). */
   notifyOnDone?: boolean;
+  /** C1: notify when a session PR's checks finish (pending → success / failure). */
+  notifyOnPrChecks?: boolean;
   /** Play the macOS default system sound with each notification. */
   notificationSound?: boolean;
   onFocusSession: (id: string) => void;
@@ -26,11 +29,18 @@ interface UseNotificationsOptions {
 
 const OWNS_ALL = () => true;
 
+/** C1: the checks outcome a notification is about — one per PR, head commit
+ *  and outcome, so sessions sharing a PR, several windows or a re-render never
+ *  post it twice, while a new push (or a re-run that flips the result) does. */
+const ciOutcomeKey = (pr: SessionPr): string => `${pr.url.toLowerCase()}@${pr.headSha ?? ''}:${pr.ci}`;
+const CI_NOTIFIED_MAX = 200;
+
 export function useNotifications({
   sessions,
   enabled,
   notifyOnWaiting = true,
   notifyOnDone = false,
+  notifyOnPrChecks = true,
   notificationSound = false,
   onFocusSession,
   onSwitchToSessionsTab,
@@ -42,6 +52,9 @@ export function useNotifications({
   // the same id silently replaces (terminal-notifier -group / dev close()).
   const activeIds = useRef<Map<string, { usedFallback: boolean }>>(new Map());
   const prevStatuses = useRef<Map<string, string>>(new Map());
+  // C1: each session's last PR chip reading, and the checks outcomes already posted.
+  const prevPrs = useRef<Map<string, SessionPr | null>>(new Map());
+  const ciNotified = useRef<Set<string>>(new Set());
   const onFocusRef = useRef(onFocusSession);
   const onSwitchRef = useRef(onSwitchToSessionsTab);
 
@@ -67,6 +80,7 @@ export function useNotifications({
     if (!enabled || !bridge) {
       for (const session of sessions) {
         prevStatuses.current.set(session.id, session.status);
+        prevPrs.current.set(session.id, session.pr ?? null);
       }
       return;
     }
@@ -111,6 +125,27 @@ export function useNotifications({
       }
 
       prevStatuses.current.set(session.id, curr);
+
+      // C1: the PR chip's checks finished. Only a pending → done transition of
+      // the same PR counts (not the first reading, not a PR swap). Skipped
+      // while a waiting / done banner is up for the session: one id per
+      // session, and the input request is the more urgent of the two.
+      const pr = session.pr ?? null;
+      const prevPr = prevPrs.current.get(session.id);
+      prevPrs.current.set(session.id, pr);
+      if (
+        mine && notifyOnPrChecks && pr && prevPr && prevPr.url === pr.url
+        && prevPr.ci === 'pending' && (pr.ci === 'success' || pr.ci === 'failure')
+        && !document.hasFocus() && !activeIds.current.has(session.id)
+      ) {
+        const key = ciOutcomeKey(pr);
+        if (!ciNotified.current.has(key)) {
+          ciNotified.current.add(key);
+          if (ciNotified.current.size > CI_NOTIFIED_MAX) ciNotified.current.delete(ciNotified.current.values().next().value as string);
+          const body = `${ciSummary(pr)} · ${prRef(pr.url, pr.number)}`;
+          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body, sound: notificationSound, attributeToApp: true });
+        }
+      }
     }
 
     // Close notifications for deleted sessions
@@ -122,7 +157,10 @@ export function useNotifications({
         prevStatuses.current.delete(id);
       }
     }
-  }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notificationSound, ownsSession]);
+    for (const id of prevPrs.current.keys()) {
+      if (!currentIds.has(id)) prevPrs.current.delete(id);
+    }
+  }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, ownsSession]);
 
   // Cleanup on unmount
   useEffect(() => {

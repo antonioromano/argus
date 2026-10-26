@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
+import type { PrChecks, PrCiStatus, PrFailedCheck, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
@@ -54,7 +54,7 @@ export const PR_DIFF_MAX_FILES = 3_000;
 const PR_URL_PARTS = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([0-9]+)$/;
 const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
-const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable,headRefOid';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
 /** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
 export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
@@ -66,23 +66,33 @@ const FAILED_STATES = new Set(['FAILURE', 'ERROR']);
 const PENDING_STATES = new Set(['PENDING', 'EXPECTED']);
 
 type CheckVerdict = 'failure' | 'pending' | 'success';
+/** C1: a verdict as the popover counts it — a skipped run is shown apart. */
+type CheckOutcome = 'failed' | 'pending' | 'passed' | 'skipped';
+
+const upper = (v: unknown): string => (typeof v === 'string' ? v.toUpperCase() : '');
 
 /** One rollup entry: a CheckRun (`status` + `conclusion`) or a commit
- *  StatusContext (`state`). Neutral and skipped runs count as passing. */
-function checkVerdict(entry: unknown): CheckVerdict {
+ *  StatusContext (`state`). */
+function checkOutcome(entry: unknown): CheckOutcome {
   const e = (entry ?? {}) as { status?: unknown; conclusion?: unknown; state?: unknown };
-  const upper = (v: unknown): string => (typeof v === 'string' ? v.toUpperCase() : '');
   const state = upper(e.state);
   if (state) {
-    if (FAILED_STATES.has(state)) return 'failure';
+    if (FAILED_STATES.has(state)) return 'failed';
     if (PENDING_STATES.has(state)) return 'pending';
-    return 'success';
+    return 'passed';
   }
   const status = upper(e.status);
   if (status && status !== 'COMPLETED') return 'pending';
   const conclusion = upper(e.conclusion);
   if (!conclusion) return 'pending';
-  return FAILED_CONCLUSIONS.has(conclusion) ? 'failure' : 'success';
+  if (FAILED_CONCLUSIONS.has(conclusion)) return 'failed';
+  return conclusion === 'SKIPPED' ? 'skipped' : 'passed';
+}
+
+/** Neutral and skipped runs count as passing. */
+function checkVerdict(entry: unknown): CheckVerdict {
+  const o = checkOutcome(entry);
+  return o === 'failed' ? 'failure' : o === 'pending' ? 'pending' : 'success';
 }
 
 /** Any failure wins, then any still-running check; no checks at all → none. */
@@ -95,6 +105,48 @@ export function aggregateChecks(rollup: unknown): PrCiStatus {
     if (v === 'pending') pending = true;
   }
   return pending ? 'pending' : 'success';
+}
+
+/** C1: failed checks listed in the CI popover; the counts still cover every one. */
+export const PR_FAILED_CHECKS_MAX = 20;
+const CHECK_NAME_MAX_LEN = 120;
+const CHECK_URL_MAX_LEN = 500;
+
+/** A check's display name: the run's `name` (with its workflow when it has
+ *  one) or the status context's `context`. */
+function checkName(e: { name?: unknown; workflowName?: unknown; context?: unknown }): string {
+  const name = typeof e.name === 'string' && e.name ? e.name : typeof e.context === 'string' ? e.context : '';
+  const workflow = typeof e.workflowName === 'string' ? e.workflowName : '';
+  const full = workflow && name && workflow !== name ? `${workflow} / ${name}` : name || workflow || 'Unnamed check';
+  return full.slice(0, CHECK_NAME_MAX_LEN);
+}
+
+/** `detailsUrl` (CheckRun) or `targetUrl` (StatusContext), https only. */
+function checkUrl(e: { detailsUrl?: unknown; targetUrl?: unknown }): string | undefined {
+  const url = typeof e.detailsUrl === 'string' && e.detailsUrl ? e.detailsUrl : e.targetUrl;
+  return typeof url === 'string' && /^https:\/\//.test(url) && url.length <= CHECK_URL_MAX_LEN ? url : undefined;
+}
+
+/**
+ * C1: the rollup broken down per outcome, plus the failed checks (bounded)
+ * with a link each — compact, since it rides along every PR answer. null when
+ * the PR has no checks.
+ */
+export function summarizeChecks(rollup: unknown): PrChecks | null {
+  if (!Array.isArray(rollup) || rollup.length === 0) return null;
+  const counts = { passed: 0, failed: 0, pending: 0, skipped: 0 };
+  const failed: PrFailedCheck[] = [];
+  for (const entry of rollup) {
+    const outcome = checkOutcome(entry);
+    counts[outcome]++;
+    if (outcome !== 'failed' || failed.length >= PR_FAILED_CHECKS_MAX) continue;
+    const e = (entry ?? {}) as Record<string, unknown>;
+    const check: PrFailedCheck = { name: checkName(e) };
+    const url = checkUrl(e);
+    if (url) check.url = url;
+    failed.push(check);
+  }
+  return { counts, failed };
 }
 
 function prState(state: unknown, isDraft: unknown): PrState {
@@ -132,7 +184,7 @@ export function parsePrView(stdout: string): SessionPr | null {
   }
   const o = raw as {
     number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown;
-    title?: unknown; reviewDecision?: unknown; mergeable?: unknown;
+    title?: unknown; reviewDecision?: unknown; mergeable?: unknown; headRefOid?: unknown;
   };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
   const pr: SessionPr = {
@@ -147,6 +199,9 @@ export function parsePrView(stdout: string): SessionPr | null {
   if (review) pr.review = review;
   const merge = mergeable(o.mergeable);
   if (merge) pr.mergeable = merge;
+  const checks = summarizeChecks(o.statusCheckRollup);
+  if (checks) pr.checks = checks;
+  if (typeof o.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(o.headRefOid)) pr.headSha = o.headRefOid.toLowerCase();
   return pr;
 }
 

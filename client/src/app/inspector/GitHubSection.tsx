@@ -8,6 +8,7 @@ import {
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
 import { InspectorEmpty } from './InspectorRow.js';
+import { CiStatus } from './CiMonitor.js';
 
 /**
  * What the card shows before (or instead of) the full list: the header chip's
@@ -19,7 +20,8 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
 
 /**
  * One PR: state glyph, title (opens it on GitHub), `owner/repo#n`, then a
- * status line — state, checks, review, mergeability, "this branch". When
+ * status line — state, checks (C1: a dot that opens the CI monitoring
+ * popover), review, mergeability, "this branch". When
  * `ctx.onOpenPrDiff` is wired (B4) the row offers "Changed files".
  */
 export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessionId: string; ctx: InspectorContext }) {
@@ -41,12 +43,7 @@ export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessio
           ) : (
             <span>status unavailable</span>
           )}
-          {live && (
-            <span className="argus-inspector-ci" data-ci={pr.ci}>
-              {pr.ci !== 'none' && <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />}
-              {PR_CI_LABEL[pr.ci]}
-            </span>
-          )}
+          {live && <CiStatus pr={pr} />}
           {live && pr.review && pr.review !== 'none' && (
             <span className="argus-inspector-pr-review" data-review={pr.review}>{PR_REVIEW_LABEL[pr.review]}</span>
           )}

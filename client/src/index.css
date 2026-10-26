@@ -1004,6 +1004,7 @@ body {
 .argus-pr-ci[data-ci='pending'] { background: var(--warn); }
 .argus-pr-ci[data-ci='success'] { background: var(--ok); }
 .argus-pr-ci[data-ci='failure'] { background: var(--danger); }
+.argus-pr-ci[data-ci='skipped'] { background: var(--fg-4); }
 
 /* Usage meter (Claude, Codex): context bar + %, plan usage + reset, tokens,
    model. The chip takes the worst warning level; each part colors its own
@@ -1382,6 +1383,79 @@ body {
 }
 .argus-inspector-pr-badge { font-weight: 500; }
 .argus-inspector-pr-meta .argus-inspector-ci { color: var(--fg-2); }
+/* C1: the checks dot + label opens the CI monitoring popover. */
+.argus-inspector-ci-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  border-radius: var(--r-1);
+}
+.argus-inspector-pr-meta .argus-inspector-ci-btn:hover { color: var(--fg-0); }
+.argus-inspector-ci-btn:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+.argus-ci-popover {
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden; /* placed by a layout effect once measured */
+  box-sizing: border-box;
+  max-width: calc(100vw - 16px);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--bg-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+  animation: argus-fade-in var(--dur-fast) var(--ease-out);
+}
+.argus-ci-popover-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+.argus-ci-popover-head .eyebrow { color: var(--fg-2); }
+.argus-ci-popover-summary { color: var(--fg-2); text-align: right; }
+.argus-ci-popover-counts,
+.argus-ci-popover-failed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.argus-ci-popover-counts li { display: flex; align-items: center; gap: var(--s-2); }
+.argus-ci-popover-counts li[data-zero] { color: var(--fg-3); }
+.argus-ci-popover-count { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.argus-ci-popover-sub { color: var(--fg-3); margin-top: var(--s-1); }
+.argus-ci-popover-failed li { min-width: 0; }
+.argus-ci-popover-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-ci-popover-link {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  max-width: 100%;
+  color: var(--danger);
+  border-radius: var(--r-1);
+}
+.argus-ci-popover-link:hover .argus-ci-popover-name { text-decoration: underline; text-underline-offset: 2px; }
+.argus-ci-popover-empty { color: var(--fg-3); }
+.argus-ci-popover-open {
+  all: unset;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  height: var(--ctl-h-sm);
+  margin-top: var(--s-1);
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--fg-1);
+}
+.argus-ci-popover-open:hover { background: var(--bg-3); color: var(--fg-0); }
+.argus-ci-popover-link:focus-visible,
+.argus-ci-popover-open:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 .argus-inspector-pr-review[data-review='approved'] { color: var(--ok); }
 .argus-inspector-pr-review[data-review='changes_requested'] { color: var(--danger); }
 .argus-inspector-pr-review[data-review='review_required'] { color: var(--warn); }

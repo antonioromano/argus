@@ -98,3 +98,22 @@ export function summarizePrStates(prs: readonly (SessionPr | null)[]): string {
   const order: (PrState | 'unknown')[] = ['open', 'draft', 'merged', 'closed', 'unknown'];
   return order.filter((k) => counts.has(k)).map((k) => `${counts.get(k)} ${k}`).join(', ');
 }
+
+/**
+ * C1: one-line checks summary for the CI dot's tooltip — "CI: all checks
+ * passed", "CI: 1 failed, 2 pending". Falls back to the aggregate when the
+ * per-outcome counts are missing (an answer from an older server).
+ */
+export function ciSummary(pr: SessionPr): string {
+  if (pr.ci === 'none') return 'CI: no checks';
+  const c = pr.checks?.counts;
+  if (!c) return `CI: ${PR_CI_LABEL[pr.ci]}`;
+  const parts: string[] = [];
+  if (c.failed) parts.push(`${c.failed} failed`);
+  if (c.pending) parts.push(`${c.pending} pending`);
+  if (parts.length > 0) return `CI: ${parts.join(', ')}`;
+  return c.skipped ? `CI: all checks passed (${c.skipped} skipped)` : 'CI: all checks passed';
+}
+
+/** C1: GitHub's checks tab of a PR. */
+export const prChecksUrl = (url: string): string => `${url.replace(/\/+$/, '')}/checks`;
