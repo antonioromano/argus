@@ -311,6 +311,12 @@ describe('GitHub section', () => {
     const pick = (label: string) => act(() => items().find((b) => b.textContent === label)!.click());
 
     expect(rows()[0].querySelector('.argus-inspector-pr-more button')!.getAttribute('aria-label')).toBe('More actions for o/r#42');
+    // Self-explanatory glyph: no hover tooltip.
+    vi.useFakeTimers();
+    act(() => { rows()[0].querySelector('.argus-inspector-pr-more button')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    vi.useRealTimers();
+    expect(Array.from(document.body.querySelectorAll('[role="tooltip"]')).map((t) => t.textContent)).not.toContain('More actions for o/r#42');
     openMenu(rows()[0]);
     expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes', 'Convert to draft']);
     pick('Open on GitHub');

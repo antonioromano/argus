@@ -169,7 +169,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
         </div>
       )}
       <span ref={moreRef} className="argus-inspector-pr-more" data-open={menu ? '' : undefined}>
-        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" onClick={toggleMenuUnder} />
+        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" tooltip={false} onClick={toggleMenuUnder} />
       </span>
       {/* Under the `…`, in line with the second line: the checks dot. */}
       {live && <span className="argus-inspector-pr-ci-cell"><CiStatus pr={pr} /></span>}
