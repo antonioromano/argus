@@ -1,23 +1,15 @@
-import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
-import type { PrState, SessionPr } from '@argus/shared';
+import type { SessionPr } from '@argus/shared';
 import { Tooltip, Icon } from '../../components/primitives/index.js';
 import { openExternal } from '../../utils/openExternal.js';
-import { describePr } from '../../utils/prFormat.js';
-
-const STATE_ICON = {
-  open: GitPullRequest,
-  draft: GitPullRequestDraft,
-  merged: GitMerge,
-  closed: GitPullRequestClosed,
-} as const satisfies Record<PrState, unknown>;
+import { describePr, prTone, PR_STATE_ICON } from '../../utils/prFormat.js';
 
 /**
  * The session branch's GitHub PR on a shell header: `⇅ #42 ●`, the icon
- * tinted by PR state and the dot by aggregate CI. Opens the PR in the browser.
+ * tinted by PR tone (prTone) and the dot by aggregate CI. Opens the PR in the browser.
  * Fixed content — hover recolors only, never resizes the header row.
  */
 export function PrChip({ pr }: { pr: SessionPr }) {
-  const Glyph = STATE_ICON[pr.state];
+  const Glyph = PR_STATE_ICON[pr.state];
   const showCi = (pr.state === 'open' || pr.state === 'draft') && pr.ci !== 'none';
   return (
     <Tooltip content={describePr(pr)}>
@@ -26,6 +18,7 @@ export function PrChip({ pr }: { pr: SessionPr }) {
         className="argus-pr"
         data-testid="pr-chip"
         data-state={pr.state}
+        data-tone={prTone(pr)}
         aria-label={describePr(pr)}
         onClick={(e) => { e.stopPropagation(); openExternal(pr.url); }}
       >

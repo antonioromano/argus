@@ -274,6 +274,20 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     res.status(result.success ? 200 : 500).json(result);
   }));
 
+  // Session Inspector: branch, upstream, ahead/behind and changed files in one
+  // read-only `git status`. Polled while the inspector's Git section is open.
+  router.get('/sessions/:id/git-summary', asyncHandler(async (req, res) => {
+    const session = manager.getSessionInfo(req.params.id);
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    const summary = await gitService.summary(workRootOf(session));
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json({ summary });
+  }));
+
   router.get('/sessions/:id/git-branches', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {

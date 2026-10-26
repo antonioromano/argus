@@ -7,9 +7,14 @@ import {
   PrStatusService,
   PR_PENDING_TTL_MS,
   PR_SETTLED_TTL_MS,
+  PR_FINAL_TTL_MS,
   GH_UNAVAILABLE_RECHECK_MS,
   PR_VIEW_ARGS,
   prViewArgsForUrl,
+  PrDiffError,
+  PR_DIFF_MAX_BYTES,
+  PR_DIFF_MAX_FILES,
+  PR_DIFF_TIMEOUT_MS,
   type GhRunner,
   type HeadInfo,
 } from './PrStatusService.js';
@@ -68,6 +73,28 @@ describe('parsePrView', () => {
     assert.equal(parsePrView('not json'), null);
     assert.equal(parsePrView('{}'), null);
     assert.equal(parsePrView(JSON.stringify({ ...base, url: 'javascript:alert(1)' })), null);
+  });
+});
+
+describe('parsePrView: title, review decision, mergeable (B3)', () => {
+  const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+  test('maps the extra fields when gh reports them', () => {
+    const pr = parsePrView(JSON.stringify({ ...base, title: 'Fix it', reviewDecision: 'CHANGES_REQUESTED', mergeable: 'CONFLICTING' }));
+    assert.equal(pr?.title, 'Fix it');
+    assert.equal(pr?.review, 'changes_requested');
+    assert.equal(pr?.mergeable, 'conflicting');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: 'APPROVED', mergeable: 'MERGEABLE' }))?.review, 'approved');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: 'REVIEW_REQUIRED' }))?.review, 'review_required');
+    assert.equal(parsePrView(JSON.stringify({ ...base, reviewDecision: '', mergeable: 'UNKNOWN' }))?.review, 'none');
+    assert.equal(parsePrView(JSON.stringify({ ...base, mergeable: 'UNKNOWN' }))?.mergeable, 'unknown');
+  });
+  test('leaves them out when absent and bounds the title', () => {
+    const pr = parsePrView(JSON.stringify(base))!;
+    assert.equal('title' in pr || 'review' in pr || 'mergeable' in pr, false);
+    assert.equal(parsePrView(JSON.stringify({ ...base, title: 'x'.repeat(1000) }))?.title?.length, 300);
+  });
+  test('the view asks gh for them', () => {
+    assert.match(PR_VIEW_ARGS.join(' '), /title,reviewDecision,mergeable/);
   });
 });
 
@@ -243,10 +270,100 @@ describe('PrStatusService', () => {
     assert.equal(calls[0].args[2], url);
   });
 
+  test('a merged PR is cached for the long final TTL; an unknown mergeable state rechecks soon', async () => {
+    const url = 'https://github.com/o/r/pull/7';
+    let json = prJson({ state: 'MERGED' });
+    const { service, calls, advance } = harness({ gh: async () => json });
+    await service.forUrl(url, '/hub');
+    advance(PR_SETTLED_TTL_MS + 1);
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 1, 'merged answer outlives the settled TTL');
+    advance(PR_FINAL_TTL_MS);
+    json = prJson({ mergeable: 'UNKNOWN' });
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 2);
+    advance(PR_PENDING_TTL_MS + 1);
+    await service.forUrl(url, '/hub');
+    assert.equal(calls.length, 3, 'mergeability still computing → pending TTL');
+  });
+
   test('forUrl stays quiet while gh is unavailable', async () => {
     const { service, calls } = harness({ gh: async () => { throw Object.assign(new Error('x'), { code: 'ENOENT' }); } });
     assert.equal(await service.forUrl('https://github.com/o/r/pull/1', '/hub'), null);
     assert.equal(await service.forUrl('https://github.com/o/r/pull/2', '/hub'), null);
     assert.equal(calls.length, 1);
+  });
+});
+
+describe('PrStatusService.prDiff (B4)', () => {
+  const url = 'https://github.com/o/r/pull/7';
+  const DIFF = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-a\n+b\n';
+
+  function diffHarness(gh: (args: string[]) => Promise<string>) {
+    const calls: { args: string[]; cwd: string; opts?: { timeoutMs?: number; maxBuffer?: number } }[] = [];
+    const runGh: GhRunner = async (args, cwd, opts) => {
+      calls.push({ args, cwd, opts });
+      return gh(args);
+    };
+    const service = new PrStatusService({ runGh, headInfo: async () => null, defaultBranch: async () => 'main', now: () => 1 });
+    return { service, calls };
+  }
+
+  test('runs gh pr diff on the URL in the folder, with the size limit and timeout', async () => {
+    const { service, calls } = diffHarness(async () => DIFF);
+    assert.deepEqual(await service.prDiff(url, '/repo'), { url, diff: DIFF });
+    assert.deepEqual(calls, [{
+      args: ['pr', 'diff', url, '--color', 'never'], cwd: '/repo',
+      opts: { timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES },
+    }]);
+  });
+
+  const tooBig = () => { throw Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }); };
+
+  test('over the size limit: every changed path, from the paginated REST file list (no second patch download)', async () => {
+    const { service, calls } = diffHarness(async (args) => (args[0] === 'api' ? 'a.ts\n  b/c.ts \n\n' : tooBig()));
+    assert.deepEqual(await service.prDiff(url, '/repo'), {
+      url, diff: '', truncated: { files: ['a.ts', 'b/c.ts'], complete: true, limitBytes: PR_DIFF_MAX_BYTES },
+    });
+    assert.deepEqual(calls[1].args, ['api', '--paginate', 'repos/o/r/pulls/7/files?per_page=100', '--jq', '.[].filename']);
+    assert.equal(calls[1].opts?.maxBuffer, PR_DIFF_MAX_BYTES);
+  });
+
+  test('over the size limit: a list at GitHub\'s cap, or a failed one, is not complete', async () => {
+    const many = Array.from({ length: PR_DIFF_MAX_FILES }, (_, i) => `f${i}.ts`).join('\n');
+    const capped = diffHarness(async (args) => (args[0] === 'api' ? many : tooBig()));
+    const t = (await capped.service.prDiff(url, '/repo')).truncated!;
+    assert.equal(t.files.length, PR_DIFF_MAX_FILES);
+    assert.equal(t.complete, false);
+    const failed = diffHarness(async (args) => (args[0] === 'api' ? Promise.reject(new Error('HTTP 502')) : tooBig()));
+    assert.deepEqual((await failed.service.prDiff(url, '/repo')).truncated, { files: [], complete: false, limitBytes: PR_DIFF_MAX_BYTES });
+  });
+
+  test('concurrent reads of one PR share a single gh run; a later read runs again', async () => {
+    let release!: (v: string) => void;
+    const { service, calls } = diffHarness(() => new Promise<string>((r) => { release = r; }));
+    const a = service.prDiff(url, '/repo');
+    const b = service.prDiff(url.toUpperCase().replace('HTTPS://', 'https://'), '/repo');
+    assert.equal(calls.length, 1);
+    release(DIFF);
+    assert.equal((await a).diff, DIFF);
+    assert.equal((await b).diff, DIFF);
+    const c = service.prDiff(url, '/repo');
+    assert.equal(calls.length, 2, 'not cached once settled');
+    release(DIFF);
+    await c;
+  });
+
+  test('errors carry their kind: unavailable (and backs off), timeout, failed with gh\'s message', async () => {
+    const reject = async (err: unknown, kind: string, re: RegExp) => {
+      const { service, calls } = diffHarness(async () => { throw err; });
+      await assert.rejects(service.prDiff(url, '/repo'), (e: unknown) => e instanceof PrDiffError && e.kind === kind && re.test(e.message));
+      return { service, calls };
+    };
+    const off = await reject(Object.assign(new Error('x'), { code: 'ENOENT' }), 'unavailable', /gh/);
+    await assert.rejects(off.service.prDiff(url, '/repo'), PrDiffError);
+    assert.equal(off.calls.length, 1, 'no second gh call while unavailable');
+    await reject(Object.assign(new Error('x'), { killed: true, signal: 'SIGTERM' }), 'timeout', /30s/);
+    await reject(Object.assign(new Error('x'), { code: 1, stderr: 'could not find pull request\nmore' }), 'failed', /^could not find pull request$/);
   });
 });

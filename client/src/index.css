@@ -678,6 +678,11 @@ body {
   transition: opacity 120ms var(--ease-std);
 }
 
+.argus-sidebar[data-animating^="collapsing"] .argus-sidebar-inspector {
+  opacity: 0;
+  transition: opacity 120ms var(--ease-std);
+}
+
 /* ── Collapse phase 2: sidebar shrinks; tree + vbox heights via inline JS ── */
 .argus-sidebar[data-animating="collapsing-2"] {
   width: var(--w-rail);
@@ -975,10 +980,26 @@ body {
 }
 .argus-pr:hover { background: var(--bg-3); color: var(--fg-1); }
 .argus-pr:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
-.argus-pr[data-state='open'] .argus-pr-icon { color: var(--ok); }
-.argus-pr[data-state='draft'] .argus-pr-icon { color: var(--fg-3); }
-.argus-pr[data-state='merged'] .argus-pr-icon { color: var(--accent); }
-.argus-pr[data-state='closed'] .argus-pr-icon { color: var(--danger); }
+/* PR tone (prTone): ready green, pending grey-blue, blocked amber, draft grey, merged purple, closed red.
+   Shared by the header chip, the Inspector's GitHub card and the PR diff header. */
+.argus-pr[data-tone='ready'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='ready'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='ready'] { color: var(--ok); }
+.argus-pr[data-tone='pending'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='pending'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='pending'] { color: var(--pr-pending); }
+.argus-pr[data-tone='blocked'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='blocked'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='blocked'] { color: var(--accent); }
+.argus-pr[data-tone='draft'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='draft'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='draft'] { color: var(--fg-3); }
+.argus-pr[data-tone='merged'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='merged'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='merged'] { color: var(--pr-merged); }
+.argus-pr[data-tone='closed'] .argus-pr-icon,
+.argus-inspector-prrow[data-tone='closed'] .argus-inspector-pr-glyph,
+.argus-inspector-pr-badge[data-tone='closed'] { color: var(--danger); }
 .argus-pr-ci { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 .argus-pr-ci[data-ci='pending'] { background: var(--warn); }
 .argus-pr-ci[data-ci='success'] { background: var(--ok); }
@@ -1022,6 +1043,376 @@ body {
 .argus-usage-pop { display: grid; grid-template-columns: auto auto; gap: 2px 10px; padding: 2px 0; }
 .argus-usage-pop-row { display: contents; }
 .argus-usage-pop-row > b { color: var(--fg-3); font-weight: 500; }
+
+/* Session Inspector: usage, git and GitHub of the shown shell, one card per
+   section (like Claude desktop's side panel). Lives in the left sidebar or a
+   right-hand column; the same markup serves both. Text wraps rather than
+   clipping, so dragging the sidebar small never hides a value. */
+.argus-inspector-column {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-1);
+}
+.argus-inspector {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+}
+.argus-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  height: var(--h-panel-header);
+  box-sizing: border-box;
+  padding: 0 var(--s-2) 0 var(--s-3);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+.argus-inspector[data-placement='sidebar'] .argus-inspector-head {
+  height: var(--ctl-h-md);
+  padding: 0 0 0 var(--s-2);
+  border-bottom: none;
+}
+.argus-inspector-session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--fg-0);
+}
+.argus-inspector-side-btn {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+  border-radius: var(--r-2);
+  color: var(--fg-2);
+}
+.argus-inspector-side-btn:hover { background: var(--bg-2); color: var(--fg-0); }
+.argus-inspector-side-btn:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-inspector-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2);
+}
+.argus-inspector[data-placement='sidebar'] .argus-inspector-scroll { padding: var(--s-1) 0 var(--s-2); }
+.argus-inspector-placeholder {
+  padding: var(--s-4) var(--s-3);
+  color: var(--fg-3);
+  text-align: center;
+}
+
+/* One card per section. */
+.argus-inspector-section {
+  flex-shrink: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-4);
+  overflow: hidden;
+}
+.argus-inspector-section-head {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  min-height: var(--ctl-h-lg);
+  padding: 0 var(--s-3);
+  color: var(--fg-0);
+}
+.argus-inspector-section-head:hover { background: var(--bg-3); }
+.argus-inspector-section-head:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-inspector-section-title { font-size: var(--t-sm); font-weight: 500; }
+.argus-inspector-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease-std); transform: rotate(-90deg); }
+.argus-inspector-section[data-open] .argus-inspector-chevron { transform: none; }
+.argus-inspector-section-summary {
+  margin-left: auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+}
+.argus-inspector-section-summary [data-level='warn'] { color: var(--warn); }
+.argus-inspector-section-summary [data-level='high'] { color: var(--danger); }
+.argus-inspector-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: 0 var(--s-3) var(--s-3);
+}
+
+/* Label / value rows: side by side, wrapping instead of clipping. */
+.argus-inspector-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--s-2);
+  row-gap: 2px;
+  min-width: 0;
+}
+.argus-inspector-label { flex-shrink: 0; min-width: 5.5em; color: var(--fg-2); }
+.argus-inspector-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-1);
+}
+/* Narrow panel: drop what is only context (the file's folder), never a value.
+   Rows need no rule here — flex-wrap moves a value under its label only when
+   the two really don't fit side by side. */
+@container (max-width: 200px) {
+  .argus-inspector-file-dir { display: none; }
+}
+.argus-inspector-ellipsis { min-width: 0; overflow-wrap: anywhere; }
+.argus-inspector-dim { color: var(--fg-3); }
+.argus-inspector-empty { color: var(--fg-3); }
+.argus-inspector-tag {
+  margin-left: var(--s-1);
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  color: var(--fg-2);
+  font-size: var(--t-micro);
+}
+.argus-inspector-branch { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; }
+
+/* Usage meters: "47% used · 94k / 200k" over a bar. */
+.argus-inspector-meter { display: flex; flex-direction: column; gap: 3px; }
+.argus-inspector-meter-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: var(--s-2);
+  font-variant-numeric: tabular-nums;
+}
+.argus-inspector-meter-pct { color: var(--fg-0); font-weight: 500; }
+.argus-inspector-meter-amount { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
+.argus-inspector-meter[data-level='warn'] .argus-inspector-meter-pct { color: var(--warn); }
+.argus-inspector-meter[data-level='high'] .argus-inspector-meter-pct { color: var(--danger); }
+.argus-inspector-meter-bar { height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
+.argus-inspector-meter-bar > i { display: block; height: 100%; background: var(--accent); }
+.argus-inspector-meter[data-level='warn'] .argus-inspector-meter-bar > i { background: var(--warn); }
+.argus-inspector-meter[data-level='high'] .argus-inspector-meter-bar > i { background: var(--danger); }
+.argus-inspector-sub { font-size: var(--t-tiny); color: var(--fg-3); }
+
+/* Usage details: a disclosure of swatch / label / tokens / share rows. */
+.argus-inspector-disclosure { border-top: 1px solid var(--line-2); padding-top: var(--s-1); }
+.argus-inspector-disclosure-head {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--s-1-5);
+  min-height: var(--ctl-h-sm);
+  color: var(--fg-1);
+}
+.argus-inspector-disclosure-head:hover { color: var(--fg-0); }
+.argus-inspector-disclosure-head:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
+.argus-inspector-disclosure-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease-std); }
+.argus-inspector-disclosure[data-open] .argus-inspector-disclosure-chevron { transform: rotate(90deg); }
+.argus-inspector-disclosure-meta { margin-left: auto; font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
+.argus-inspector-disclosure-body { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-1) 0 0; }
+.argus-inspector-shares { display: flex; flex-direction: column; gap: 3px; }
+.argus-inspector-share {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: var(--s-2);
+  font-variant-numeric: tabular-nums;
+}
+.argus-inspector-share-label { min-width: 0; overflow-wrap: anywhere; color: var(--fg-1); }
+.argus-inspector-share-num,
+.argus-inspector-share-pct { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); text-align: right; }
+.argus-inspector-share-pct { min-width: 3.5em; color: var(--fg-2); }
+@container (max-width: 200px) {
+  .argus-inspector-share { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .argus-inspector-share-pct { display: none; }
+}
+.argus-inspector-swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--fg-3); }
+.argus-inspector-swatch[data-share='used'] { background: var(--accent); }
+.argus-inspector-swatch[data-share='free'] { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-3); }
+.argus-inspector-swatch[data-share='input'] { background: var(--info); }
+.argus-inspector-swatch[data-share='output'] { background: var(--ok); }
+.argus-inspector-swatch[data-share='cache-read'] { background: var(--accent); }
+.argus-inspector-swatch[data-share='cache-write'] { background: var(--warn); }
+
+.argus-inspector-link {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+}
+.argus-inspector-link:hover { text-decoration: underline; }
+.argus-inspector-link:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
+.argus-inspector-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(12 * var(--ctl-h-xs));
+  overflow-y: auto;
+}
+.argus-inspector-file {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  min-height: var(--ctl-h-xs);
+  padding: 0 var(--s-1);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.argus-inspector-file:hover { background: var(--bg-3); }
+.argus-inspector-file:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-inspector-file-status { flex-shrink: 0; width: 1.2em; text-align: center; font-weight: 600; color: var(--dirty); }
+.argus-inspector-file-status[data-status='A'],
+.argus-inspector-file-status[data-status='?'] { color: var(--ok); }
+.argus-inspector-file-status[data-status='D'],
+.argus-inspector-file-status[data-status='U'] { color: var(--danger); }
+.argus-inspector-file-status[data-status='R'],
+.argus-inspector-file-status[data-status='C'] { color: var(--accent); }
+.argus-inspector-file-base { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--fg-1); }
+.argus-inspector-file-dir { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; color: var(--fg-3); }
+.argus-inspector-ci { display: inline-flex; align-items: center; gap: var(--s-1); }
+
+/* B3: every PR of the session, newest first. Each row: the state glyph in a
+   gutter, the title (links to GitHub, up to two lines), owner/repo#n, a quiet
+   status line (state, checks, review, this branch) and, when wired, the
+   "Changed files" action. Rows are split by a hairline, not boxed. */
+.argus-inspector-prs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.argus-inspector-prrow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--s-2);
+  padding: var(--s-3) 0;
+  min-width: 0;
+}
+.argus-inspector-prrow:first-child { padding-top: var(--s-1); }
+.argus-inspector-prrow:last-child { padding-bottom: 0; }
+.argus-inspector-prrow + .argus-inspector-prrow { border-top: 1px solid var(--line-1); }
+.argus-inspector-pr-glyph { margin-top: 2px; color: var(--fg-3); }
+.argus-inspector-pr-body { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.argus-inspector-pr {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-1);
+  min-width: 0;
+  border-radius: var(--r-1);
+}
+.argus-inspector-pr:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+.argus-inspector-pr-title {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-family: var(--font-sans);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--fg-0);
+}
+.argus-inspector-pr:hover .argus-inspector-pr-title { text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 2px; }
+.argus-inspector-pr-ext { flex-shrink: 0; margin-top: 3px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-pr:hover .argus-inspector-pr-ext,
+.argus-inspector-pr:focus-visible .argus-inspector-pr-ext { opacity: 1; }
+.argus-inspector-pr-ref {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-3);
+}
+/* State, checks, review, "this branch": spaced apart, no separators, so a
+   wrapped line never starts with a stray dot. */
+.argus-inspector-pr-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  font-size: var(--t-tiny);
+  color: var(--fg-3);
+}
+.argus-inspector-pr-badge { font-weight: 500; }
+.argus-inspector-pr-meta .argus-inspector-ci { color: var(--fg-2); }
+.argus-inspector-pr-review[data-review='approved'] { color: var(--ok); }
+.argus-inspector-pr-review[data-review='changes_requested'] { color: var(--danger); }
+.argus-inspector-pr-review[data-review='review_required'] { color: var(--warn); }
+.argus-inspector-pr-conflict { color: var(--danger); }
+.argus-inspector-pr-files {
+  all: unset;
+  cursor: pointer;
+  align-self: flex-start;
+  margin-top: var(--s-1);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+  border-radius: var(--r-1);
+}
+.argus-inspector-pr-files:hover { color: var(--accent); }
+.argus-inspector-pr-files:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+
+/* Left side: the inspector fills the sidebar between Pilot and System, with a
+   rule above and below so it reads as its own block. */
+.argus-sidebar-inspector {
+  flex: 1 1 0;
+  min-height: calc(4 * var(--ctl-h-md));
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--s-3);
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
+  padding-top: var(--s-1);
+}
 
 /* Settings → Shell header: usage meter part pills. Hover recolors only. */
 .argus-usage-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -1698,3 +2089,112 @@ body {
 }
 .argus-chat-attachment.is-failed { border-color: var(--danger); }
 .argus-chat-attachment.is-failed img { opacity: 0.4; }
+
+/* ── PR diff (B4) ──────────────────────────────────────────────────────────
+   Full-view tool window (panels/PrDiffView.tsx): a PR header over a
+   ReadOnlyDiff. Only the title shrinks; in a narrow pane the secondary
+   labels step aside so the layout toggle and actions stay visible. */
+.argus-prdiff {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-0);
+  container-type: inline-size;
+}
+.argus-prdiff-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  height: var(--h-panel-header);
+  box-sizing: border-box;
+  padding: 0 var(--s-4);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  flex-shrink: 0;
+}
+.argus-prdiff-head > * { flex-shrink: 0; white-space: nowrap; }
+.argus-prdiff-head > .argus-prdiff-title { flex-shrink: 1; }
+@container (max-width: 640px) {
+  .argus-prdiff-eyebrow, .argus-prdiff-ref, .argus-prdiff-readonly { display: none; }
+}
+.argus-prdiff-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); font-weight: 600; color: var(--fg-0); }
+.argus-prdiff-ref { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
+.argus-prdiff .argus-inspector-pr-badge { font-size: var(--t-tiny); }
+.argus-prdiff-readonly {
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+}
+.argus-prdiff-mode { display: inline-flex; border-radius: var(--r-2); overflow: hidden; border: 1px solid var(--line-2); }
+.argus-prdiff-mode > button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-2);
+  background: var(--bg-2);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  letter-spacing: var(--tracking-eye);
+}
+.argus-prdiff-mode > button[aria-pressed='true'] { background: var(--bg-3); color: var(--accent); }
+.argus-prdiff-mode > button:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-prdiff-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.argus-prdiff-notice {
+  margin: var(--s-2);
+  padding: var(--s-1-5) var(--s-2);
+  font-size: var(--t-tiny);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-2);
+}
+.argus-prdiff-stale { display: flex; align-items: center; gap: var(--s-2); flex-shrink: 0; }
+.argus-prdiff-retry { all: unset; cursor: pointer; margin-left: auto; color: var(--accent); }
+.argus-prdiff-retry:hover { text-decoration: underline; }
+.argus-prdiff-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
+.argus-prdiff-notice-files { list-style: none; margin: var(--s-1) 0 0; padding: 0; color: var(--fg-1); font-family: var(--font-mono); }
+.argus-prdiff-notice-files li { overflow-wrap: anywhere; }
+
+/* ReadOnlyDiff: the Diff workbench's file list + scroll, without the actions. */
+.argus-rodiff { flex: 1; display: flex; min-height: 0; }
+.argus-rodiff-files {
+  width: calc(240px * var(--ui-scale));
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-2);
+}
+.argus-rodiff-file {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  height: var(--ctl-h-md);
+  padding: 0 var(--s-3);
+  border-left: 2px solid transparent;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+}
+.argus-rodiff-file:hover { background: var(--bg-2); }
+.argus-rodiff-file[data-selected] { background: var(--bg-2); border-left-color: var(--accent); }
+.argus-rodiff-file:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
+.argus-rodiff-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-1); }
+.argus-rodiff-file[data-selected] .argus-rodiff-file-path { color: var(--accent); }
+.argus-rodiff-new { color: var(--accent); }
+.argus-rodiff-del { color: var(--danger); }
+.argus-rodiff-ren { color: var(--fg-2); }
+.argus-rodiff-add { color: var(--ok); }
+.argus-rodiff-delnum { color: var(--danger); }
+.argus-rodiff-main { flex: 1; min-width: 0; overflow: auto; background: var(--bg-0); }
+.argus-rodiff-empty { padding: var(--s-6); color: var(--fg-3); font-family: var(--font-mono); font-size: var(--t-sm); }

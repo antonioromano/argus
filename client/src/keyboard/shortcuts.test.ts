@@ -80,3 +80,12 @@ describe('find in files shortcut', () => {
     expect(clash.has('open-diff') && clash.has('open-files')).toBe(true);
   });
 });
+
+describe('session inspector shortcut', () => {
+  it('toggles on the primary modifier + I, and can be rebound', () => {
+    expect(resolveShortcuts()['toggle-inspector']).toBe('mod+i');
+    expect(matchEvent(press('i'), resolveShortcuts())).toBe('toggle-inspector');
+    expect(matchEvent(new KeyboardEvent('keydown', { key: 'i' }), resolveShortcuts())).toBeNull();
+    expect(SHORTCUTS_BY_ID['toggle-inspector'].fixed).toBeUndefined();
+  });
+});

@@ -210,6 +210,26 @@ export class SessionUsageTracker {
     return this.current ? this.tailers.get(this.current)?.prUrl : undefined;
   }
 
+  /**
+   * Every PR the session's conversations created or pushed to (B3), oldest
+   * first: earlier transcripts before the current one, a PR linked in several
+   * keeping its latest position.
+   */
+  linkedPrUrls(): string[] {
+    const ordered = [...this.tailers.values()];
+    const i = ordered.findIndex((t) => t.path === this.current);
+    if (i >= 0) ordered.push(...ordered.splice(i, 1));
+    const out: string[] = [];
+    for (const t of ordered) {
+      for (const url of t.prUrls) {
+        const j = out.indexOf(url);
+        if (j >= 0) out.splice(j, 1);
+        out.push(url);
+      }
+    }
+    return out;
+  }
+
   /** A fresh (non-resume) restart: the next run's context starts empty. */
   clearCurrent(): void {
     if (this.current === undefined) return;

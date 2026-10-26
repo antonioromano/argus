@@ -108,6 +108,8 @@ function constValue(file, name) {
 
 const DUPLICATED_CONSTS = [
   { name: 'SESSION_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/session.ts' },
+  { name: 'INSPECTOR_WIDTH_MIN', shared: 'shared/src/types.ts', server: 'server/src/constants/inspector.ts' },
+  { name: 'INSPECTOR_WIDTH_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/inspector.ts' },
   { name: 'MAIN_WINDOW_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/windows.ts' },
   { name: 'SHELL_AGENT_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/agents.ts' },
   { name: 'BROADCAST_MAX_TEXT', shared: 'shared/src/types.ts', server: 'server/src/constants/broadcast.ts' },

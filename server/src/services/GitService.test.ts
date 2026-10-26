@@ -104,3 +104,59 @@ test('parseNumstatZ: big files and their create/delete modes', () => {
   assert.deepEqual(modes.get('gone.json'), { kind: 'delete', mode: '100644' });
   assert.deepEqual(modes.get('new.csv'), { kind: 'create', mode: '100755' });
 });
+
+import { parseGitSummary, GIT_SUMMARY_MAX_FILES } from './GitService.js';
+
+test('parseGitSummary: branch, upstream, ahead/behind and each kind of change', () => {
+  const out = [
+    '# branch.oid 1234567890abcdef',
+    '# branch.head feat/login',
+    '# branch.upstream origin/feat/login',
+    '# branch.ab +2 -1',
+    '1 .M N... 100644 100644 100644 aaa bbb src/a file.ts',
+    '1 A. N... 000000 100644 100644 000 bbb src/new.ts',
+    '1 D. N... 100644 000000 000000 aaa 000 gone.ts',
+    '2 R. N... 100644 100644 100644 aaa bbb R100 src/renamed.ts',
+    'src/old.ts',
+    'u UU N... 100644 100644 100644 100644 a b c conflict.ts',
+    '? notes.txt',
+    '',
+  ].join('\0');
+  assert.deepEqual(parseGitSummary(out, '/r'), {
+    root: '/r', branch: 'feat/login', detached: false, ahead: 2, behind: 1, changes: 6, upstream: 'origin/feat/login',
+    files: [
+      { path: 'src/a file.ts', status: 'M', staged: false },
+      { path: 'src/new.ts', status: 'A', staged: true },
+      { path: 'gone.ts', status: 'D', staged: true },
+      { path: 'src/renamed.ts', status: 'R', staged: true },
+      { path: 'conflict.ts', status: 'U', staged: false },
+      { path: 'notes.txt', status: '?', staged: false },
+    ],
+  });
+});
+
+test('parseGitSummary: no upstream, detached HEAD, and the file list is capped but counted', () => {
+  const many = Array.from({ length: GIT_SUMMARY_MAX_FILES + 5 }, (_, i) => `? f${i}.txt`);
+  const s = parseGitSummary(['# branch.oid abcdef1234', '# branch.head (detached)', ...many, ''].join('\0'), '/r');
+  assert.equal(s.branch, 'abcdef1');
+  assert.equal(s.detached, true);
+  assert.equal(s.upstream, null);
+  assert.equal(s.ahead, null);
+  assert.equal(s.changes, GIT_SUMMARY_MAX_FILES + 5);
+  assert.equal(s.files.length, GIT_SUMMARY_MAX_FILES);
+});
+
+test('GitService.summary: reads a real repo, null outside one', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'argus-summary-'));
+  try {
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: dir, stdio: 'ignore' });
+    git('init', '-q', '-b', 'main');
+    writeFileSync(path.join(dir, 'a.txt'), 'x');
+    const s = await new GitService().summary(dir);
+    assert.equal(s?.branch, 'main');
+    assert.deepEqual(s?.files, [{ path: 'a.txt', status: '?', staged: false }]);
+    assert.equal(await new GitService().summary(tmpdir()), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

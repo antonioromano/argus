@@ -17,10 +17,10 @@ import { clearScrollback, openNativeFindBar } from '../hooks/useTerminal.js';
 import { api, setToken } from '../services/api.js';
 import { checkOrphansOnStartup } from '../hooks/orphanStartupCheck.js';
 import { useShortcuts } from '../keyboard/useShortcuts.js';
-import type { AgentFlag, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
+import type { AgentFlag, InspectorSide, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate } from 'lucide-react';
+import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, PanelLeft, PanelRight } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 
@@ -29,6 +29,10 @@ import { PasswordGate } from './PasswordGate.js';
 import { WindowChrome } from './ui/WindowChrome.js';
 import { ElectronToolbar } from './ui/ElectronToolbar.js';
 import { Sidebar } from './ui/Sidebar.js';
+import { readSidebarCollapsed } from './ui/sidebarState.js';
+import { SessionInspector } from './inspector/SessionInspector.js';
+import { InspectorColumn } from './inspector/InspectorColumn.js';
+import type { InspectorContext } from './inspector/types.js';
 import { SessionTree } from './ui/SessionTree.js';
 import { SessionMenuProvider } from './ui/SessionMenuProvider.js';
 import { TopToolbar } from './ui/TopToolbar.js';
@@ -194,6 +198,9 @@ function DesktopRoot() {
   return <DesktopInner />;
 }
 
+/** Stable empty default for AppConfig.inspectorCollapsed. */
+const NO_SECTIONS: readonly string[] = [];
+
 function DesktopInner() {
   const { theme, isDark, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
@@ -209,6 +216,51 @@ function DesktopInner() {
   const usageMeter = useMemo<UsageMeterState | null>(
     () => (meterView ? { ...meterView, plans: planUsage } : null),
     [meterView, planUsage],
+  );
+  // Session Inspector (usage, git, GitHub of the shown shell). Visibility,
+  // side, width and collapsed sections are AppConfig, so they survive restarts.
+  const inspectorVisible = config?.inspectorVisible !== false;
+  const inspectorSide: InspectorSide = config?.inspectorSide === 'right' ? 'right' : 'left';
+  const inspectorCollapsed = config?.inspectorCollapsed ?? NO_SECTIONS;
+  // The values the last change asked for. Config only updates when the PUT
+  // returns, so two quick clicks computed from it would both start from the
+  // same stale value and the second would undo the first.
+  const inspectorIntent = useRef({ visible: inspectorVisible, side: inspectorSide, collapsed: inspectorCollapsed });
+  useEffect(() => {
+    inspectorIntent.current = { visible: inspectorVisible, side: inspectorSide, collapsed: inspectorCollapsed };
+  }, [inspectorVisible, inspectorSide, inspectorCollapsed]);
+  // On the left the inspector lives in the sidebar, so a collapsed sidebar
+  // hides it — and the shell header takes its chips back. Seeded from the
+  // sidebar's own stored state so the first render already agrees with it.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [sidebarExpandRequest, setSidebarExpandRequest] = useState(0);
+  const switchInspectorSide = useCallback(() => {
+    const side: InspectorSide = inspectorIntent.current.side === 'left' ? 'right' : 'left';
+    inspectorIntent.current = { ...inspectorIntent.current, side };
+    // Moving it into a collapsed sidebar would make it vanish: open the sidebar too.
+    if (side === 'left' && sidebarCollapsed && inspectorIntent.current.visible) setSidebarExpandRequest((n) => n + 1);
+    updateConfig({ inspectorSide: side }).catch(console.error);
+  }, [updateConfig, sidebarCollapsed]);
+  const toggleInspector = useCallback(() => {
+    const { visible: wasVisible, side } = inspectorIntent.current;
+    // On the left a collapsed sidebar hides it anyway: reveal it instead of
+    // hiding something that isn't on screen.
+    if (side === 'left' && sidebarCollapsed) {
+      setSidebarExpandRequest((n) => n + 1);
+      if (wasVisible) return;
+    }
+    inspectorIntent.current = { ...inspectorIntent.current, visible: !wasVisible };
+    updateConfig({ inspectorVisible: !wasVisible }).catch(console.error);
+  }, [updateConfig, sidebarCollapsed]);
+  const toggleInspectorSection = useCallback((id: string) => {
+    const prev = inspectorIntent.current.collapsed;
+    const collapsed = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+    inspectorIntent.current = { ...inspectorIntent.current, collapsed };
+    updateConfig({ inspectorCollapsed: collapsed }).catch(console.error);
+  }, [updateConfig]);
+  const setInspectorWidth = useCallback(
+    (inspectorWidth: number) => updateConfig({ inspectorWidth }),
+    [updateConfig],
   );
   const worktreeLifecycle = isBetaEnabled(config, 'betaWorktreeLifecycle');
   const handoffEnabled = isBetaEnabled(config, 'betaHandoff');
@@ -654,18 +706,49 @@ function DesktopInner() {
           e.preventDefault();
           openShellForFocused();
           break;
+        case 'toggle-inspector':
+          if (isTyping) return;
+          e.preventDefault();
+          toggleInspector();
+          break;
         default:
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
       ? sessions.find((s) => s.id === app.activeSessionId) ?? null
       : null;
+
+  // The inspector follows the open shell in focus view, the selected tile in the mosaic.
+  const inspectorSession: SessionInfo | null = app.view === 'focus'
+    ? activeSession
+    : (mosaicFocusedId ? sessions.find((s) => s.id === mosaicFocusedId) ?? null : null);
+  const inspectorColumn = inspectorVisible && inspectorSide === 'right';
+  const inspectorShown = inspectorVisible && (inspectorColumn || !sidebarCollapsed);
+  const openMaximized = app.openMaximized;
+  const inspectorCtx = useMemo<InspectorContext>(() => ({
+    usageMeter,
+    prStatusEnabled: config?.showPrStatus !== false,
+    onOpenDiff: (id, file) => guardForeign(id, () => openMaximized({ kind: 'diff', sessionId: id, file })),
+    onOpenPrDiff: (id, pr) => guardForeign(id, () => openMaximized({ kind: 'prdiff', sessionId: id, pr })),
+  }), [usageMeter, config?.showPrStatus, guardForeign, openMaximized]);
+  const renderInspector = (placement: 'column' | 'sidebar') => (
+    <SessionInspector
+      session={inspectorSession}
+      placement={placement}
+      collapsed={inspectorCollapsed}
+      onToggleSection={toggleInspectorSection}
+      side={inspectorSide}
+      onSwitchSide={switchInspectorSide}
+      placeholder="Select a tile to inspect it."
+      ctx={inspectorCtx}
+    />
+  );
 
   // A newly created session is unassigned by default (owned by main). From a
   // secondary window that would make it foreign in the very window that just
@@ -841,6 +924,10 @@ function DesktopInner() {
         onToggleMosaicOrientation={() => void updateConfig({
           mosaicOrientation: config?.mosaicOrientation === 'vertical' ? 'horizontal' : 'vertical',
         })}
+        inspectorSide={inspectorSide}
+        inspectorShown={inspectorShown}
+        onToggleInspector={toggleInspector}
+        inspectorHint={formatCombo(shortcuts.resolved['toggle-inspector'])}
         isDark={isDark}
         ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
         updateAvailable={updateStatus?.hasUpdate}
@@ -878,6 +965,22 @@ function DesktopInner() {
       keywords: 'find grep scrollback transcript history output everywhere',
       icon: Search,
       run: openSearch,
+    },
+    {
+      id: 'toggle-inspector',
+      label: inspectorShown ? 'Hide Session Inspector' : 'Show Session Inspector',
+      hint: formatCombo(shortcuts.resolved['toggle-inspector']),
+      keywords: 'inspector side panel show hide usage context git branch github pull request pr',
+      icon: inspectorSide === 'left' ? PanelLeft : PanelRight,
+      run: toggleInspector,
+    },
+    {
+      id: 'inspector-side',
+      label: inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left',
+      hint: 'side panel',
+      keywords: 'inspector side panel left right usage context git branch github pull request pr',
+      icon: inspectorSide === 'left' ? PanelRight : PanelLeft,
+      run: switchInspectorSide,
     },
     {
       id: 'broadcast',
@@ -988,6 +1091,9 @@ function DesktopInner() {
           onSelect={handleSidebar}
           version={updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
+          inspector={inspectorVisible && inspectorSide === 'left' ? renderInspector('sidebar') : undefined}
+          onCollapsedChange={setSidebarCollapsed}
+          expandRequest={sidebarExpandRequest}
           sessionTree={
             <SessionTree
               grouped={grouped}
@@ -1078,6 +1184,8 @@ function DesktopInner() {
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               usageMeter={usageMeter}
               orientation={config?.mosaicOrientation ?? 'horizontal'}
+              inspectorColumn={inspectorColumn}
+              inspectorShown={inspectorShown}
               sessions={orderedSessions}
               active={activeSession}
               socket={socket}
@@ -1116,6 +1224,12 @@ function DesktopInner() {
             />
           )}
         </main>
+
+        {inspectorColumn && (
+          <InspectorColumn width={config?.inspectorWidth} onWidthChange={setInspectorWidth}>
+            {renderInspector('column')}
+          </InspectorColumn>
+        )}
       </div>
 
       {/* Overlays */}

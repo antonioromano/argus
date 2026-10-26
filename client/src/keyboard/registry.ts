@@ -17,6 +17,7 @@ export type ShortcutActionId =
   | 'open-diff'
   | 'open-files'
   | 'open-shell'
+  | 'toggle-inspector'
   | 'terminal-search'
   | 'clear-terminal'
   | 'terminal-newline';
@@ -56,6 +57,10 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'open-diff', label: 'Diff for the focused shell', category: 'Navigation', defaultCombo: 'mod+d' },
   { id: 'open-files', label: 'Files for the focused shell', category: 'Navigation', defaultCombo: 'mod+e' },
   { id: 'open-shell', label: 'Terminal for the focused shell', category: 'Navigation', defaultCombo: 'mod+t' },
+  // Renderer keydown only, no app-menu twin: a toggle fired by both paths for
+  // one keystroke would cancel itself out. Inside a Monaco editor ⌘I stays
+  // Monaco's own (trigger suggest).
+  { id: 'toggle-inspector', label: 'Show or hide the Session Inspector', category: 'Navigation', defaultCombo: 'mod+i' },
   // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): while
   // the explorer scope is active its action wins (see keyboard/scopes).
   { id: 'find-in-files', label: 'Find in files', category: 'Explorer', defaultCombo: 'mod+shift+f', scope: 'explorer', note: 'While the file explorer is open' },

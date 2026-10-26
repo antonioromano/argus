@@ -27,6 +27,11 @@ vi.mock('../panels/ActivityPanel.js', () => ({
   ActivityPanel: () => <aside data-testid="activity-panel" />,
 }));
 
+// The PR diff reads over the API; here only whether Focus mounts it, and for which PR, matters.
+vi.mock('../panels/PrDiffView.js', () => ({
+  PrDiffView: ({ entry }: { entry: { url: string } }) => <section data-testid="pr-diff-view" data-url={entry.url} />,
+}));
+
 // The chat view subscribes over the socket; here only whether Focus mounts it matters.
 vi.mock('../ui/chat/ChatView.js', () => ({
   ChatView: () => <section data-testid="chat-view" />,
@@ -54,7 +59,7 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
 function renderFocus(
   active: SessionInfo,
   onRestart: () => void = noop,
-  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean } = {},
+  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean; inspectorColumn?: boolean; inspectorShown?: boolean } = {},
 ) {
   act(() => {
     root.render(
@@ -65,6 +70,8 @@ function renderFocus(
         theme="dark"
         sidePanel={opts.sidePanel ?? null}
         orientation={opts.orientation}
+        inspectorColumn={opts.inspectorColumn}
+        inspectorShown={opts.inspectorShown}
         onSelect={noop}
         onReorder={noop}
         onBack={noop}
@@ -188,9 +195,36 @@ describe('Focus — companion shell placement', () => {
   });
 });
 
+describe('Focus — Session Inspector', () => {
+  const shellPanel: SidePanel = { kind: 'terminal', sessionId: 's1' };
+  const withChips = session({
+    hasGitChanges: true,
+    pr: { number: 42, state: 'open', url: 'https://github.com/o/r/pull/42', ci: 'success', branch: 'feat/x' },
+  });
+
+  it('moves the companion shell below the conversation while the inspector holds the right column', () => {
+    renderFocus(session(), noop, { sidePanel: shellPanel, orientation: 'horizontal', inspectorColumn: true });
+    const aside = container.querySelector('aside')!;
+    expect(aside.style.height).not.toBe('');
+    expect((aside.parentElement as HTMLElement).style.flexDirection).toBe('column');
+  });
+
+  it('drops the git and PR chips from the header while the inspector shows them', () => {
+    renderFocus(withChips, noop, { inspectorShown: true });
+    expect(container.querySelector('[data-testid="pr-chip"]')).toBeNull();
+    expect(container.querySelector('[aria-label*="uncommitted"]')).toBeNull();
+  });
+
+  it('brings the chips back while the inspector is hidden', () => {
+    renderFocus(withChips, noop, { inspectorShown: false });
+    expect(container.querySelector('[data-testid="pr-chip"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label*="uncommitted"]')).not.toBeNull();
+  });
+});
+
 describe('Focus — activity timeline (beta F6)', () => {
   const activityButton = () =>
-    Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Activity');
+    container.querySelector('button[aria-label="Activity"]') ?? undefined;
 
   it('shows the Activity button and the docked panel while the flag is on', () => {
     renderFocus(session(), noop, { activityEnabled: true, sidePanel: { kind: 'activity', sessionId: 's1' } });
@@ -242,5 +276,23 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
       expect(container.querySelector('[aria-label="Session view"]')).toBeNull();
       expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
     }
+  });
+});
+
+describe('Focus — PR diff tool window (B4)', () => {
+  const pr = { url: 'https://github.com/o/r/pull/7', pr: null, folderBranch: false, linked: true };
+  // The tool window is lazy: let the dynamic import resolve.
+  const settle = () => act(async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); });
+
+  it('renders the PR diff full-view over the shell for a maximized prdiff panel', async () => {
+    renderFocus(session(), noop, { sidePanel: { kind: 'prdiff', sessionId: 's1', pr, maximized: true } });
+    await settle();
+    expect(container.querySelector('[data-testid="pr-diff-view"]')?.getAttribute('data-url')).toBe(pr.url);
+  });
+
+  it('renders nothing for a prdiff panel of another session', async () => {
+    renderFocus(session(), noop, { sidePanel: { kind: 'prdiff', sessionId: 'other', pr, maximized: true } });
+    await settle();
+    expect(container.querySelector('[data-testid="pr-diff-view"]')).toBeNull();
   });
 });

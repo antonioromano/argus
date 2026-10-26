@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrCiStatus, PrState, SessionPr } from '@argus/shared';
+import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
@@ -17,7 +17,7 @@ import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /** `gh pr view` in `cwd`. Resolves stdout; rejects with the execFile error
  *  (carrying `code` and `stderr`) on a non-zero exit or a missing binary. */
-export type GhRunner = (args: string[], cwd: string, opts?: { timeoutMs?: number }) => Promise<string>;
+export type GhRunner = (args: string[], cwd: string, opts?: { timeoutMs?: number; maxBuffer?: number }) => Promise<string>;
 
 /** Current branch and repo root of a folder; null when not a repo / detached. */
 export interface HeadInfo {
@@ -36,14 +36,25 @@ export interface PrStatusDeps {
 
 export const PR_PENDING_TTL_MS = 60_000;
 export const PR_SETTLED_TTL_MS = 5 * 60_000;
+/** A merged or closed PR barely changes: keep it longer, so a long PR list stays cheap. */
+export const PR_FINAL_TTL_MS = 30 * 60_000;
 /** After `gh` turned out missing / logged out, look again this rarely. */
 export const GH_UNAVAILABLE_RECHECK_MS = 10 * 60_000;
 const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
 const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
+/** B4: a PR diff larger than this is not shown; only its file list is. */
+export const PR_DIFF_MAX_BYTES = 8 * 1024 * 1024;
+/** `gh pr diff` downloads the whole patch; allow it longer than a lookup. */
+export const PR_DIFF_TIMEOUT_MS = 30_000;
+/** Paths listed for a diff over the size limit — GitHub's own cap on a PR's file list. */
+export const PR_DIFF_MAX_FILES = 3_000;
+/** owner, repo, number of a validated github.com PR URL. */
+const PR_URL_PARTS = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([0-9]+)$/;
+const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
-const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName';
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
 /** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
 export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
@@ -93,6 +104,24 @@ function prState(state: unknown, isDraft: unknown): PrState {
   return isDraft === true ? 'draft' : 'open';
 }
 
+const MAX_TITLE_LEN = 300;
+
+function reviewDecision(v: unknown): PrReviewDecision | undefined {
+  if (typeof v !== 'string') return undefined;
+  switch (v.toUpperCase()) {
+    case 'APPROVED': return 'approved';
+    case 'CHANGES_REQUESTED': return 'changes_requested';
+    case 'REVIEW_REQUIRED': return 'review_required';
+    default: return 'none'; // gh prints "" when no review is required
+  }
+}
+
+function mergeable(v: unknown): PrMergeable | undefined {
+  if (typeof v !== 'string') return undefined;
+  const s = v.toUpperCase();
+  return s === 'MERGEABLE' ? 'mergeable' : s === 'CONFLICTING' ? 'conflicting' : 'unknown';
+}
+
 /** Parse `gh pr view --json …` output; null when it is not a usable PR. */
 export function parsePrView(stdout: string): SessionPr | null {
   let raw: unknown;
@@ -101,15 +130,24 @@ export function parsePrView(stdout: string): SessionPr | null {
   } catch {
     return null;
   }
-  const o = raw as { number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown };
+  const o = raw as {
+    number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown;
+    title?: unknown; reviewDecision?: unknown; mergeable?: unknown;
+  };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
-  return {
+  const pr: SessionPr = {
     number: o.number,
     state: prState(o.state, o.isDraft),
     url: o.url,
     ci: aggregateChecks(o.statusCheckRollup),
     branch: typeof o.headRefName === 'string' ? o.headRefName : '',
   };
+  if (typeof o.title === 'string') pr.title = o.title.slice(0, MAX_TITLE_LEN);
+  const review = reviewDecision(o.reviewDecision);
+  if (review) pr.review = review;
+  const merge = mergeable(o.mergeable);
+  if (merge) pr.mergeable = merge;
+  return pr;
 }
 
 /** `gh` cannot be used at all (missing binary or not logged in), as opposed
@@ -121,6 +159,30 @@ export function isGhUnavailable(err: unknown): boolean {
   if (e.code === 4) return true;
   const stderr = typeof e.stderr === 'string' ? e.stderr : '';
   return /gh auth login|not logged in|authentication required/i.test(stderr);
+}
+
+/** Why a PR diff couldn't be read: gh missing / logged out, too slow, or it failed. */
+export class PrDiffError extends Error {
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+    super(message);
+  }
+}
+
+/** execFile killed the child for exceeding `maxBuffer`. */
+const isMaxBuffer = (err: unknown): boolean =>
+  (err as { code?: unknown })?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+
+/** execFile killed the child for exceeding `timeout`. */
+const isTimeout = (err: unknown): boolean => {
+  const e = (err ?? {}) as { killed?: unknown; signal?: unknown };
+  return e.killed === true && e.signal === 'SIGTERM';
+};
+
+/** gh's own explanation (first stderr line), short enough for a UI message. */
+function ghMessage(err: unknown): string {
+  const e = (err ?? {}) as { stderr?: unknown; message?: unknown };
+  const line = typeof e.stderr === 'string' ? e.stderr.trim().split('\n')[0] : '';
+  return (line || (typeof e.message === 'string' ? e.message : 'gh failed')).slice(0, 300);
 }
 
 // ── the gh binary ─────────────────────────────────────────────────────────
@@ -159,7 +221,7 @@ export function createGhRunner(): GhRunner {
       execFile(bin, args, {
         cwd,
         timeout: opts?.timeoutMs ?? GH_TIMEOUT_MS,
-        maxBuffer: 2 * 1024 * 1024,
+        maxBuffer: opts?.maxBuffer ?? GH_STDOUT_MAX_BYTES,
         encoding: 'utf-8',
         env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' },
       }, (err, stdout, stderr) => {
@@ -184,6 +246,7 @@ export class PrStatusService {
   private readonly now: () => number;
   private cache = new Map<string, CacheEntry>();
   private inflight = new Map<string, Promise<SessionPr | null>>();
+  private diffInflight = new Map<string, Promise<SessionPrDiffResponse>>();
   private defaultBranches = new Map<string, { branch: string; at: number }>();
   /** Epoch ms until which `gh` is considered unusable (missing / logged out). */
   private unavailableUntil = 0;
@@ -271,6 +334,63 @@ export class PrStatusService {
     return url;
   }
 
+  /**
+   * B4: `gh pr diff <url>` — every changed file of one PR as a raw unified
+   * diff. Not cached: it is asked for only when the user opens the diff, but
+   * a run already in flight for the same PR is shared (repeated Refresh, two
+   * windows). Over PR_DIFF_MAX_BYTES only the changed paths come back. The
+   * caller passes a validated github.com PR URL. Rejects with PrDiffError.
+   */
+  prDiff(url: string, cwd: string): Promise<SessionPrDiffResponse> {
+    const key = url.toLowerCase();
+    const running = this.diffInflight.get(key);
+    if (running) return running;
+    const p = this.readPrDiff(url, cwd).finally(() => this.diffInflight.delete(key));
+    this.diffInflight.set(key, p);
+    return p;
+  }
+
+  private async readPrDiff(url: string, cwd: string): Promise<SessionPrDiffResponse> {
+    if (this.now() < this.unavailableUntil) throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    try {
+      const diff = await this.runGh(['pr', 'diff', url, '--color', 'never'], cwd, {
+        timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES,
+      });
+      return { url, diff };
+    } catch (err) {
+      if (isMaxBuffer(err)) return { url, diff: '', truncated: { ...(await this.prFileNames(url, cwd)), limitBytes: PR_DIFF_MAX_BYTES } };
+      if (isGhUnavailable(err)) {
+        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+        throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+      }
+      if (isTimeout(err)) throw new PrDiffError('timeout', `gh pr diff took longer than ${PR_DIFF_TIMEOUT_MS / 1000}s`);
+      throw new PrDiffError('failed', ghMessage(err));
+    }
+  }
+
+  /**
+   * Changed paths of a PR whose diff is too large to show, from the REST file
+   * list (`gh api …/pulls/{n}/files --paginate`) — not `gh pr diff
+   * --name-only`, which downloads the whole patch again, nor `gh pr view
+   * --json files`, which stops at 100. GitHub itself lists at most
+   * PR_DIFF_MAX_FILES, so a list that long, or a failed one, is not `complete`.
+   */
+  private async prFileNames(url: string, cwd: string): Promise<{ files: string[]; complete: boolean }> {
+    const m = PR_URL_PARTS.exec(url);
+    if (!m) return { files: [], complete: false };
+    try {
+      const out = await this.runGh(
+        ['api', '--paginate', `repos/${m[1]}/${m[2]}/pulls/${m[3]}/files?per_page=100`, '--jq', '.[].filename'],
+        cwd,
+        { timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES },
+      );
+      const files = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      return { files: files.slice(0, PR_DIFF_MAX_FILES), complete: files.length < PR_DIFF_MAX_FILES };
+    } catch {
+      return { files: [], complete: false };
+    }
+  }
+
   /** Forget everything (the feature was switched off). */
   clear(): void {
     this.cache.clear();
@@ -295,8 +415,8 @@ export class PrStatusService {
       // and don't ask again until the settled TTL runs out.
     }
     const ttl = value?.state === 'open' || value?.state === 'draft'
-      ? (value.ci === 'pending' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
-      : PR_SETTLED_TTL_MS;
+      ? (value.ci === 'pending' || value.mergeable === 'unknown' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
+      : value ? PR_FINAL_TTL_MS : PR_SETTLED_TTL_MS;
     this.cache.set(key, { value, expiresAt: this.now() + ttl });
     return value;
   }
