@@ -647,6 +647,9 @@ export interface SessionPr {
   /** C1: SHA of the PR's head commit (`headRefOid`), so a checks outcome is
    *  told apart from the previous push's. */
   headSha?: string;
+  /** C2: lines added / deleted over the whole PR; both or neither. */
+  additions?: number;
+  deletions?: number;
 }
 
 /** C1: how many of a PR's checks passed, failed, are still running, or were skipped. */

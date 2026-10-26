@@ -273,6 +273,23 @@ describe('GitHub section', () => {
     expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
   });
 
+  it('C2: the diff button shows the changed lines formatted and opens the PR changes', async () => {
+    const big = { url: FOLDER.url, pr: { ...FOLDER, additions: 4024, deletions: 1310 }, folderBranch: true, linked: false };
+    const unknown = { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [big, unknown] });
+    const onOpenPrDiff = vi.fn();
+    await render({ ctx: ctx({ onOpenPrDiff }) });
+    const buttons = Array.from(sectionEl('github').querySelectorAll<HTMLButtonElement>('.argus-inspector-pr-files'));
+    expect(buttons[0].textContent).toBe('+4,024−1,310');
+    expect(buttons[0].getAttribute('title')).toBe('Open changes');
+    expect(buttons[0].querySelector('.argus-inspector-pr-add')!.textContent).toBe('+4,024');
+    expect(buttons[0].querySelector('.argus-inspector-pr-del')!.textContent).toBe('−1,310');
+    // gh didn't report the counts: the button still opens the changes.
+    expect(buttons[1].textContent).toBe('Changed files');
+    act(() => buttons[0].click());
+    expect(onOpenPrDiff).toHaveBeenCalledWith('s1', big);
+  });
+
   it('C1: the checks dot sums the checks up and opens the CI monitoring popover', async () => {
     const checks = { counts: { passed: 5, failed: 2, pending: 1, skipped: 1 }, failed: [{ name: 'CI / test', url: 'https://github.com/o/r/actions/runs/1' }, { name: 'legacy' }] };
     getSessionPrs.mockResolvedValue({ enabled: true, prs: [

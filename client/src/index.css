@@ -1473,6 +1473,13 @@ body {
   border-radius: var(--r-1);
 }
 .argus-inspector-pr-files:hover { color: var(--accent); }
+/* C2: `+N −M` in the diff colors, as small tinted chips (the AA text pair). */
+.argus-inspector-pr-lines { display: inline-flex; gap: 2px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+.argus-inspector-pr-add,
+.argus-inspector-pr-del { padding: 0 var(--s-1); border-radius: var(--r-1); }
+.argus-inspector-pr-add { background: var(--diff-add); color: var(--diff-add-fg); }
+.argus-inspector-pr-del { background: var(--diff-del); color: var(--diff-del-fg); }
+.argus-inspector-pr-files:hover .argus-inspector-pr-lines { text-decoration: underline; text-underline-offset: 2px; }
 .argus-inspector-pr-files:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 
 /* Left side: the inspector fills the sidebar between Pilot and System, with a

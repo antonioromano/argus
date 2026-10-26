@@ -117,3 +117,7 @@ export function ciSummary(pr: SessionPr): string {
 
 /** C1: GitHub's checks tab of a PR. */
 export const prChecksUrl = (url: string): string => `${url.replace(/\/+$/, '')}/checks`;
+
+const COUNT = new Intl.NumberFormat('en-US');
+/** C2: a line count as the row's diff button shows it (`4,024`). */
+export const formatLines = (n: number): string => COUNT.format(n);
