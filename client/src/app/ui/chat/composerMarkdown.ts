@@ -8,7 +8,8 @@
 
 /** A list item's leading part: indent, marker, spacing and an optional task box. */
 const ITEM_RE = /^( *)([-*+]|(\d{1,9})([.)]))( +)(\[[ xX]\] )?/;
-const FENCE_RE = /^ *(```+|~~~+)/;
+// A backtick fence's info string has no backtick (CommonMark): "```x``` …" is inline code.
+const FENCE_RE = /^ *(`{3,}(?![^\n]*`)|~{3,})/;
 
 /** `line` closes a fence opened with `char`: the same fence character and nothing after it. */
 function closesFence(line: string, char: string): boolean {
@@ -61,60 +62,89 @@ export function inCodeFence(value: string, pos: number): boolean {
 }
 
 /**
- * Renumber every run of numbered items so each counts up from its first
- * item; `pos` is mapped through the change. Runs are per indent level, nested
- * lines keep the outer run going, a blank line or a fence ends them.
+ * Renumber runs of numbered items so each counts up from its first item;
+ * `pos` is mapped through the change. Runs are per indent level, nested lines
+ * keep the outer run going, a blank line or a fence ends them. With
+ * `touched` (a line range), only the runs spanning those lines change: an
+ * edit in one list never rewrites another list in the message.
  */
-export function renumber(value: string, pos: number): { value: string; pos: number } {
-  const r = renumberAll(value, [pos]);
+export function renumber(value: string, pos: number, touched?: [number, number]): { value: string; pos: number } {
+  const r = renumberAll(value, [pos], touched);
   return { value: r.value, pos: r.positions[0] };
 }
 
+/** The 0-based line `pos` is on. */
+function lineAt(value: string, pos: number): number {
+  let n = 0;
+  for (let i = value.indexOf('\n'); i >= 0 && i < pos; i = value.indexOf('\n', i + 1)) n++;
+  return n;
+}
+
 /** renumber() mapping several positions through the change in one pass. */
-function renumberAll(value: string, positions: number[]): { value: string; positions: number[] } {
+function renumberAll(value: string, positions: number[], touched?: [number, number]): { value: string; positions: number[] } {
   const lines = value.split('\n');
-  const runs = new Map<number, number>();
+  // Pass 1: the run each numbered item belongs to, the number it should
+  // have, and the lines each run spans.
+  const runs = new Map<number, { id: number; num: number }>();
+  const spans: { first: number; last: number }[] = [];
+  const plan: ({ run: number; num: number; item: Item } | undefined)[] = [];
   let fence: string | null = null;
-  let offset = 0;
-  const shifts = positions.map(() => 0);
-  const out: string[] = [];
-  for (const line of lines) {
-    let next = line;
+  lines.forEach((line, i) => {
     const f = FENCE_RE.exec(line);
     if (fence) {
       if (closesFence(line, fence)) fence = null;
-    } else if (f) {
+      return;
+    }
+    if (f) {
       fence = f[1][0];
       runs.clear();
-    } else if (!line.trim()) {
-      runs.clear();
-    } else {
-      const item = itemOf(line);
-      const indent = item ? item.indent : line.length - line.trimStart().length;
-      for (const k of [...runs.keys()]) if (item ? k > indent : k >= indent) runs.delete(k);
-      if (item?.num !== undefined) {
-        const last = runs.get(indent);
-        const num = last === undefined ? item.num : last + 1;
-        runs.set(indent, num);
-        if (num !== item.num) {
-          const old = String(item.num);
-          next = line.slice(0, indent) + num + line.slice(indent + old.length);
-          positions.forEach((pos, i) => {
-            if (offset + indent < pos) shifts[i] += next.length - line.length;
-          });
-        }
-      } else if (item) {
-        runs.delete(indent);
-      }
+      return;
     }
-    out.push(next);
+    if (!line.trim()) {
+      runs.clear();
+      return;
+    }
+    const item = itemOf(line);
+    const indent = item ? item.indent : line.length - line.trimStart().length;
+    for (const k of [...runs.keys()]) if (item ? k > indent : k >= indent) runs.delete(k);
+    if (item?.num !== undefined) {
+      const cur = runs.get(indent);
+      if (cur) {
+        cur.num += 1;
+        spans[cur.id].last = i;
+        plan[i] = { run: cur.id, num: cur.num, item };
+      } else {
+        runs.set(indent, { id: spans.length, num: item.num });
+        plan[i] = { run: spans.length, num: item.num, item };
+        spans.push({ first: i, last: i });
+      }
+    } else if (item) {
+      runs.delete(indent);
+    }
+  });
+  // Pass 2: rewrite the numbers of the runs in scope.
+  const inScope = (run: number) => !touched || (spans[run].first <= touched[1] && spans[run].last >= touched[0]);
+  let offset = 0;
+  const shifts = positions.map(() => 0);
+  const out = lines.map((line, i) => {
+    const p = plan[i];
+    let next = line;
+    if (p && p.num !== p.item.num && inScope(p.run)) {
+      const indent = p.item.indent;
+      next = line.slice(0, indent) + p.num + line.slice(indent + String(p.item.num).length);
+      positions.forEach((pos, j) => {
+        if (offset + indent < pos) shifts[j] += next.length - line.length;
+      });
+    }
     offset += line.length + 1;
-  }
+    return next;
+  });
   return { value: out.join('\n'), positions: positions.map((pos, i) => pos + shifts[i]) };
 }
 
-function withRenumber(value: string, caret: number): Edit {
-  const r = renumber(value, caret);
+/** Renumber the runs spanning the line at `line` (default: the caret's). */
+function withRenumber(value: string, caret: number, line = lineAt(value, caret)): Edit {
+  const r = renumber(value, caret, [line, line]);
   return { value: r.value, selStart: r.pos, selEnd: r.pos };
 }
 
@@ -216,7 +246,7 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
     at += next.length + 1;
   }
   if (v === value) return undefined;
-  const r = renumberAll(v, [s, e]);
+  const r = renumberAll(v, [s, e], [lineAt(v, first), lineAt(v, first) + lines.length - 1]);
   return { value: r.value, selStart: r.positions[0], selEnd: r.positions[1] };
 }
 

@@ -34,6 +34,12 @@ describe('Enter in lists', () => {
     expect(enter('- one| two')).toBe('- one\n- |two');
   });
 
+  it('renumbers only the list being edited', () => {
+    expect(enter('Steps:\n1. install\n1. run\n\nTodo:\n- a|')).toBe('Steps:\n1. install\n1. run\n\nTodo:\n- a\n- |');
+    expect(enter('1. x\n1. y\n\n1. a|\n2. b')).toBe('1. x\n1. y\n\n1. a\n2. |\n3. b');
+    expect(tab('1. a\n2. b|\n3. c\n\n5. other\n5. list')).toBe('1. a\n   1. b|\n2. c\n\n5. other\n5. list');
+  });
+
   it('continues a numbered list and renumbers what follows', () => {
     expect(enter('1. one|\n2. two')).toBe('1. one\n2. |\n3. two');
     expect(enter('3) c|')).toBe('3) c\n4) |');
@@ -152,6 +158,11 @@ describe('highlight lines', () => {
     ]);
     expect(composerLines('```\nx')).toEqual([{ kind: 'fence', text: '```' }, { kind: 'code', lang: null, lines: ['x'] }]);
     expect(inCodeFence('```\nx\n```\ny', 12)).toBe(false);
+    // Inline code at the start of a line is not a fence (CommonMark).
+    expect(inCodeFence('```bash``` is the syntax', 24)).toBe(false);
+    expect(enter('```bash``` is the syntax|')).toBeUndefined();
+    expect(composerLines('```bash``` here')[0].kind).toBe('text');
+    expect(inCodeFence('````\nx', 6)).toBe(true);
   });
 
   it('marks list bullets and numbers', () => {
