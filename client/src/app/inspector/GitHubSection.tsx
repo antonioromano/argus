@@ -3,7 +3,7 @@ import type { SessionPrEntry } from '@argus/shared';
 import { Icon } from '../../components/primitives/index.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
-  PR_CI_LABEL, PR_REVIEW_LABEL, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prTone, summarizePrStates, worstCi,
+  PR_CI_LABEL, PR_REVIEW_LABEL, formatLines, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prTone, summarizePrStates, worstCi,
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
@@ -22,7 +22,8 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
  * One PR: state glyph, title (opens it on GitHub), `owner/repo#n`, then a
  * status line — state, checks (C1: a dot that opens the CI monitoring
  * popover), review, mergeability, "this branch". When
- * `ctx.onOpenPrDiff` is wired (B4) the row offers "Changed files".
+ * `ctx.onOpenPrDiff` is wired (B4) the row offers its changes — C2: as
+ * `+N −M`, the lines the PR adds and deletes ("Changed files" until gh says).
  */
 export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessionId: string; ctx: InspectorContext }) {
   const { pr, url } = entry;
@@ -53,9 +54,14 @@ export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessio
           )}
         </div>
         {ctx.onOpenPrDiff && (
-          <button type="button" className="argus-inspector-pr-files" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
+          <button type="button" className="argus-inspector-pr-files" title="Open changes" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
             <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
-            Changed files
+            {pr?.additions !== undefined && pr.deletions !== undefined ? (
+              <span className="argus-inspector-pr-lines" aria-label={`${formatLines(pr.additions)} lines added, ${formatLines(pr.deletions)} lines deleted`}>
+                <span className="argus-inspector-pr-add">+{formatLines(pr.additions)}</span>
+                <span className="argus-inspector-pr-del">−{formatLines(pr.deletions)}</span>
+              </span>
+            ) : 'Changed files'}
           </button>
         )}
       </div>

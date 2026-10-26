@@ -54,7 +54,7 @@ export const PR_DIFF_MAX_FILES = 3_000;
 const PR_URL_PARTS = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([0-9]+)$/;
 const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
-const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable,headRefOid';
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable,headRefOid,additions,deletions';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
 /** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
 export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
@@ -167,6 +167,8 @@ function mergeable(v: unknown): PrMergeable | undefined {
   return s === 'MERGEABLE' ? 'mergeable' : s === 'CONFLICTING' ? 'conflicting' : 'unknown';
 }
 
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
 /** Parse `gh pr view --json …` output; null when it is not a usable PR. */
 export function parsePrView(stdout: string): SessionPr | null {
   let raw: unknown;
@@ -178,6 +180,7 @@ export function parsePrView(stdout: string): SessionPr | null {
   const o = raw as {
     number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown;
     title?: unknown; reviewDecision?: unknown; mergeable?: unknown; headRefOid?: unknown;
+    additions?: unknown; deletions?: unknown;
   };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
   const checks = summarizeChecks(o.statusCheckRollup);
@@ -194,6 +197,11 @@ export function parsePrView(stdout: string): SessionPr | null {
   const merge = mergeable(o.mergeable);
   if (merge) pr.mergeable = merge;
   if (checks) pr.checks = checks;
+  // C2: lines changed, for the row's `+N −M` button.
+  if (isCount(o.additions) && isCount(o.deletions)) {
+    pr.additions = o.additions;
+    pr.deletions = o.deletions;
+  }
   if (typeof o.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(o.headRefOid)) pr.headSha = o.headRefOid.toLowerCase();
   return pr;
 }

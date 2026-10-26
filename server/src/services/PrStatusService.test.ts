@@ -150,6 +150,20 @@ describe('summarizeChecks (C1)', () => {
   });
 });
 
+describe('parsePrView: changed lines (C2)', () => {
+  const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+  test('carries additions and deletions together, only as non-negative integers', () => {
+    const pr = parsePrView(JSON.stringify({ ...base, additions: 4024, deletions: 0 }))!;
+    assert.equal(pr.additions, 4024);
+    assert.equal(pr.deletions, 0);
+    for (const bad of [{ additions: 3 }, { additions: -1, deletions: 2 }, { additions: '3', deletions: 2 }, { additions: 1.5, deletions: 2 }]) {
+      const p = parsePrView(JSON.stringify({ ...base, ...bad }))!;
+      assert.equal('additions' in p || 'deletions' in p, false);
+    }
+    assert.match(PR_VIEW_ARGS.join(' '), /additions,deletions/);
+  });
+});
+
 describe('isGhUnavailable', () => {
   test('missing binary and logged-out are unavailable; no-PR is not', () => {
     assert.equal(isGhUnavailable({ code: 'ENOENT' }), true);
