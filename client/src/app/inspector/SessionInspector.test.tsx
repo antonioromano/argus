@@ -263,11 +263,17 @@ describe('GitHub section', () => {
     // The state is the glyph (named for screen readers), not a label.
     expect(rows.map((r) => r.querySelector('.argus-inspector-pr-glyph')!.getAttribute('aria-label'))).toEqual(['Open pull request', 'Open pull request', 'Merged pull request', 'Pull request']);
     expect(rows[0].textContent).not.toContain('Open');
-    // Right column: checks dot, then review / conflict icons.
-    const side = rows[0].querySelector('.argus-inspector-pr-side')!;
-    expect(side.querySelector('.argus-inspector-ci-btn')!.getAttribute('data-ci')).toBe('failure');
-    expect(side.querySelector('.argus-inspector-pr-review')!.getAttribute('aria-label')).toBe('changes requested');
-    expect(side.querySelector('.argus-inspector-pr-conflict')!.getAttribute('aria-label')).toBe('merge conflicts');
+    // Under the `…`: the checks dot. Under the state glyph: review / conflict icons.
+    expect(rows[0].querySelector('.argus-inspector-pr-ci-cell .argus-inspector-ci-btn')!.getAttribute('data-ci')).toBe('failure');
+    const flags = Array.from(rows[0].querySelectorAll<HTMLElement>(':scope > .argus-inspector-pr-flag'));
+    expect(flags.map((f) => f.getAttribute('aria-label'))).toEqual(['changes requested', 'merge conflicts']);
+    expect(flags[1].getAttribute('data-row')).toBe('3');
+    // The tooltip says what the icon means.
+    vi.useFakeTimers();
+    act(() => { flags[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); flags[0].dispatchEvent(new MouseEvent('mouseenter')); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    vi.useRealTimers();
+    expect(Array.from(document.body.querySelectorAll('[role="tooltip"]')).map((t) => t.textContent)).toContain('changes requested');
     expect(rows[0].textContent).not.toContain('this branch');
     expect(rows[1].textContent).toContain('this branch');
     expect(rows[1].querySelector('.argus-inspector-pr-review')!.getAttribute('aria-label')).toBe('approved');

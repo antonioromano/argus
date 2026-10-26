@@ -1326,29 +1326,38 @@ body {
   display: flex;
   flex-direction: column;
 }
+/* Every cell sits on the row's grid — glyph | text | `…` — so what goes under
+   the glyph (review / conflict icons) and under the `…` (the checks dot) is
+   centered on the second line, whatever the font scale. */
 .argus-inspector-prrow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto; /* glyph, body, right column */
+  grid-template-columns: auto minmax(0, 1fr) auto;
   column-gap: var(--s-2);
+  row-gap: var(--s-1);
+  align-items: center;
   padding: var(--s-3) 0;
   min-width: 0;
 }
+.argus-inspector-prrow > .argus-inspector-pr-glyph { grid-column: 1; grid-row: 1; }
+.argus-inspector-prrow > .argus-inspector-pr-flag { grid-column: 1; grid-row: 2; justify-self: center; }
+.argus-inspector-prrow > .argus-inspector-pr-flag[data-row='3'] { grid-row: 3; }
+.argus-inspector-prrow > .argus-inspector-pr { grid-column: 2; grid-row: 1; }
+.argus-inspector-prrow > .argus-inspector-pr-line { grid-column: 2; grid-row: 2; }
+.argus-inspector-prrow > .argus-inspector-pr-meta { grid-column: 2; grid-row: 3; }
+.argus-inspector-prrow > .argus-inspector-pr-more { grid-column: 3; grid-row: 1; }
+.argus-inspector-prrow > .argus-inspector-pr-ci-cell { grid-column: 3; grid-row: 2; justify-self: center; display: inline-flex; }
 .argus-inspector-prrow:first-child { padding-top: var(--s-1); }
 .argus-inspector-prrow:last-child { padding-bottom: 0; }
 .argus-inspector-prrow + .argus-inspector-prrow { border-top: 1px solid var(--line-1); }
-.argus-inspector-pr-glyph { display: inline-flex; margin-top: 2px; color: var(--fg-3); }
-/* Right column, top to bottom: the `…` menu (C4), the checks dot (C1), the
-   review / conflict icons — centered under one another, like Claude Desktop. */
-.argus-inspector-pr-side { display: flex; flex-direction: column; align-items: center; gap: var(--s-1); }
-.argus-inspector-pr-flags { display: inline-flex; align-items: center; gap: 2px; }
-.argus-inspector-pr-flags > span { display: inline-flex; }
+.argus-inspector-pr-glyph { display: inline-flex; color: var(--fg-3); }
+.argus-inspector-pr-flag { display: inline-flex; border-radius: var(--r-1); }
+.argus-inspector-pr-flag:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
 /* C4: quiet until the row is hovered or the button has focus. */
-.argus-inspector-pr-more { display: inline-flex; margin-top: -2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-pr-more { display: inline-flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
 .argus-inspector-prrow:hover .argus-inspector-pr-more,
 .argus-inspector-pr-more:focus-within,
 .argus-inspector-pr-more[data-open] { opacity: 1; }
 @media (hover: none) { .argus-inspector-pr-more { opacity: 1; } }
-.argus-inspector-pr-body { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
 .argus-inspector-pr {
   all: unset;
   cursor: pointer;
