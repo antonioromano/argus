@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
 import type { ChatCommand, SessionStatus } from '@argus/shared';
 import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
@@ -12,6 +12,8 @@ import {
   permissionModeLabel,
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
+import { ComposerHighlight } from './ComposerHighlight.js';
+import { enterContinues, enterEdit, indentEdit, type Edit } from './composerMarkdown.js';
 
 interface ChatComposerProps {
   status: SessionStatus;
@@ -75,9 +77,41 @@ const canPickFiles = () => typeof window !== 'undefined' && 'electronFiles' in w
 type Menu = { kind: 'mode' | 'model'; x: number; y: number };
 
 /**
+ * Apply a list edit as one replacement of the changed span, through the
+ * browser's own insertText so it lands on the textarea's undo stack (setting
+ * `value` would wipe it). Falls back to setRangeText + an input event where
+ * execCommand is missing (jsdom).
+ */
+function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
+  const old = box.value;
+  const next = edit.value;
+  let a = 0;
+  while (a < old.length && a < next.length && old[a] === next[a]) a++;
+  let b = 0;
+  while (b < old.length - a && b < next.length - a && old[old.length - 1 - b] === next[next.length - 1 - b]) b++;
+  const insert = next.slice(a, next.length - b);
+  box.setSelectionRange(a, old.length - b);
+  let done = false;
+  try {
+    done = typeof document.execCommand === 'function' && document.execCommand('insertText', false, insert);
+  } catch {
+    done = false;
+  }
+  if (!done || box.value !== next) {
+    // The prototype setter, so React's value tracker sees a change and fires onChange.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(box, next);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  box.setSelectionRange(edit.selStart, edit.selEnd);
+}
+
+/**
  * The Chat view's prompt box. Text goes to the agent through the pty, exactly
  * as if typed in the terminal (the server types it, presses Enter and checks it
- * was submitted). Enter sends, Shift+Enter adds a line. Attached files are sent as their paths
+ * was submitted). Enter sends, Shift+Enter adds a line; in a list or code
+ * block Enter continues it and Cmd+Enter sends (D2: the Markdown is styled
+ * live by a layer under the textarea, the text sent stays plain Markdown).
+ * Attached files are sent as their paths
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
@@ -94,6 +128,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   // `/` autocomplete: the highlighted row, and the text it was closed at with Esc.
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashClosedAt, setSlashClosedAt] = useState<string | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  // Enter adds an item / line here instead of sending (drives the hint).
+  const [continues, setContinues] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   // Latest attachments for the unmount cleanup (their blob URLs).
   const attachmentsRef = useRef(attachments);
@@ -124,9 +161,26 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
     ref.current?.focus();
   };
 
+  // The highlight layer scrolls with the textarea.
+  const syncLayer = () => {
+    const box = ref.current;
+    const layer = layerRef.current;
+    if (box && layer) layer.style.transform = `translate(${-box.scrollLeft}px, ${-box.scrollTop}px)`;
+  };
+  useLayoutEffect(syncLayer, [text]);
+
+  const trackCaret = () => {
+    const box = ref.current;
+    if (!box) return;
+    // Always set: two calls in one event would compare against a stale `continues`.
+    setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
+  };
+
   const send = () => {
     if (!canSend) return;
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
+    // An ended list leaves an empty last line; it is not part of the message.
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
+    setContinues(false);
     revoke(attachments);
     setAttachments([]);
     setText('');
@@ -276,8 +330,11 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             ))}
           </div>
         )}
+        <div className="argus-cmp-field">
+        <ComposerHighlight ref={layerRef} text={text} />
         <textarea
           ref={ref}
+          className="argus-cmp-input"
           value={text}
           rows={Math.min(8, Math.max(1, text.split('\n').length))}
           disabled={exited}
@@ -288,10 +345,14 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           aria-controls="argus-chat-slash"
           aria-autocomplete="list"
           aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
+          spellCheck
           onChange={(e) => {
             setText(e.target.value);
             setSlashIndex(0);
+            trackCaret();
           }}
+          onScroll={syncLayer}
+          onSelect={trackCaret}
           onPaste={(e) => {
             // A screenshot on the clipboard is only bytes: upload it to get a path.
             const images = Array.from(e.clipboardData.files).filter(isImageFile);
@@ -300,7 +361,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             upload(images, 'Pasted image');
           }}
           onKeyDown={(e) => {
-            if (slashOpen && active && !e.nativeEvent.isComposing) {
+            // Never during IME composition: Enter / Tab there confirm the candidate.
+            if (e.nativeEvent.isComposing) return;
+            if (slashOpen && active) {
               const move = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
               if (move) {
                 e.preventDefault();
@@ -321,12 +384,28 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                 return;
               }
             }
-            if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
+            const box = e.currentTarget;
+            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
               e.preventDefault();
-              send();
+              // In a list or code block Enter edits; Cmd/Ctrl+Enter always sends.
+              const edit = e.metaKey || e.ctrlKey ? undefined : enterEdit(box.value, box.selectionStart, box.selectionEnd);
+              if (!edit) {
+                send();
+                return;
+              }
+              applyEdit(box, edit);
+              // The caret is final only now: the input event saw the end of the replaced span.
+              trackCaret();
+            } else if (e.key === 'Tab' && !e.altKey && !e.metaKey && !e.ctrlKey) {
+              const edit = indentEdit(box.value, box.selectionStart, box.selectionEnd, e.shiftKey);
+              if (!edit) return;
+              e.preventDefault();
+              applyEdit(box, edit);
+              trackCaret();
             }
           }}
         />
+        </div>
         <div className="argus-chat-composer-actions">
           {canPickFiles() && (
             <>
@@ -345,7 +424,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             </>
           )}
           <div style={{ flex: 1 }} />
-          <span className="argus-chat-hint">Enter to send · Shift+Enter for a new line</span>
+          <span className="argus-chat-hint">
+            {continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
+          </span>
           <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
         </div>
       </div>
