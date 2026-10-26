@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, SessionPrEntry } from '@argus/shared';
 import type { UsageMeterState } from '../../utils/usageFormat.js';
 import type { GitManagerTab } from '../types.js';
 
@@ -14,6 +14,11 @@ export interface InspectorContext {
   prStatusEnabled: boolean;
   /** Open the Diff for a session, optionally on one file. */
   onOpenDiff: (sessionId: string, file?: string) => void;
+  /**
+   * Open one PR's changed files and diff (B4). Unset → the GitHub card's rows
+   * offer no "Files" action; wire it in ArgusApp's `inspectorCtx` to turn it on.
+   */
+  onOpenPrDiff?: (sessionId: string, pr: SessionPrEntry) => void;
 }
 
 export interface InspectorSectionProps {

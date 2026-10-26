@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { MaximizablePanel, Overlay, SidePanel, View } from '../types.js';
+import { isMaximizedPanel, type MaximizablePanel, type Overlay, type SidePanel, type View } from '../types.js';
 
 export interface AppViewState {
   view: View;
@@ -195,7 +195,7 @@ export function useAppView(): AppViewApi {
         setState((s) => {
           if (s.overlay) return { ...s, overlay: null };
           // A maximized tool window closes back to its launch origin (mosaic/shell).
-          if (s.sidePanel && (s.sidePanel.kind === 'diff' || s.sidePanel.kind === 'explorer' || s.sidePanel.kind === 'git') && s.sidePanel.maximized) {
+          if (isMaximizedPanel(s.sidePanel)) {
             return dismissMaximizedState(s);
           }
           if (s.sidePanel) return { ...s, sidePanel: null };

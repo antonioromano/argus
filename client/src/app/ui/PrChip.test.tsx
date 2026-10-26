@@ -33,6 +33,7 @@ describe('PrChip', () => {
     const chip = container.querySelector('[data-testid="pr-chip"]')!;
     expect(chip.textContent).toBe('#42');
     expect(chip.getAttribute('data-state')).toBe('open');
+    expect(chip.getAttribute('data-tone')).toBe('blocked');
     expect(container.querySelector('.argus-pr-ci')!.getAttribute('data-ci')).toBe('failure');
     expect(chip.getAttribute('aria-label')).toBe('Open PR o/r#42 · checks failing — click to open on GitHub');
   });
@@ -40,6 +41,7 @@ describe('PrChip', () => {
   it('hides the CI dot for a merged PR and when there are no checks', () => {
     act(() => root.render(<PrChip pr={{ ...pr, state: 'merged' }} />));
     expect(container.querySelector('[data-testid="pr-chip"]')!.getAttribute('data-state')).toBe('merged');
+    expect(container.querySelector('[data-testid="pr-chip"]')!.getAttribute('data-tone')).toBe('merged');
     expect(container.querySelector('.argus-pr-ci')).toBeNull();
     act(() => root.render(<PrChip pr={{ ...pr, ci: 'none' }} />));
     expect(container.querySelector('.argus-pr-ci')).toBeNull();

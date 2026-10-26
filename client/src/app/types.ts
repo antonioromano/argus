@@ -1,4 +1,4 @@
-import type { RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
+import type { RunMode, SessionInfo, SessionPrEntry, TerminalEngine } from '@argus/shared';
 import type { IntroFlow } from './intro/intro.js';
 
 export type View = 'dashboard' | 'focus';
@@ -31,19 +31,30 @@ export type SidePanel =
   | { kind: 'activity'; sessionId: string }
   /** Git Manager (read-only history, branches, worktrees): full-view only. */
   | { kind: 'git'; sessionId: string; maximized?: boolean; commit?: string; tab?: GitManagerTab }
+  /** One pull request's changed files and diff (B4): full-view only. */
+  | { kind: 'prdiff'; sessionId: string; maximized?: boolean; pr: SessionPrEntry }
   | null;
 
 /** The Git Manager's top-level views. */
 export type GitManagerTab = 'history' | 'branches' | 'worktrees';
 
 /** Tool-window kinds that support the full-view maximize. */
-export type MaximizableKind = 'diff' | 'explorer' | 'git';
+export type MaximizableKind = 'diff' | 'explorer' | 'git' | 'prdiff';
+
+// A Record, so adding a MaximizableKind without listing it here fails to compile.
+const MAXIMIZABLE: Record<MaximizableKind, true> = { diff: true, explorer: true, git: true, prdiff: true };
+
+/** A tool window open in full-view over the shell (Focus renders it, Esc closes it). */
+export function isMaximizedPanel(p: SidePanel): p is Extract<NonNullable<SidePanel>, { kind: MaximizableKind }> {
+  return !!p && Object.hasOwn(MAXIMIZABLE, p.kind) && (p as { maximized?: boolean }).maximized === true;
+}
 
 /** Payload for opening a diff/explorer tool window directly in full-view. */
 export type MaximizablePanel =
   | { kind: 'diff'; sessionId: string; file?: string }
   | { kind: 'explorer'; sessionId: string; filePath?: string; lineNumber?: number; query?: string }
-  | { kind: 'git'; sessionId: string; commit?: string; tab?: GitManagerTab };
+  | { kind: 'git'; sessionId: string; commit?: string; tab?: GitManagerTab }
+  | { kind: 'prdiff'; sessionId: string; pr: SessionPrEntry };
 
 export type SidebarKey =
   | 'sessions'

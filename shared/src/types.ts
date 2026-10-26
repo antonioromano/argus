@@ -623,6 +623,11 @@ export type PrState = 'open' | 'draft' | 'merged' | 'closed';
 /** Aggregate of a PR's checks. `none` = the PR has no checks at all. */
 export type PrCiStatus = 'pending' | 'success' | 'failure' | 'none';
 
+/** `gh pr view` reviewDecision; `none` = no review required or requested. */
+export type PrReviewDecision = 'approved' | 'changes_requested' | 'review_required' | 'none';
+/** Whether GitHub can merge the PR cleanly; `unknown` while it is computing. */
+export type PrMergeable = 'mergeable' | 'conflicting' | 'unknown';
+
 /** The pull request a session's branch belongs to (from `gh pr view`). */
 export interface SessionPr {
   number: number;
@@ -631,6 +636,41 @@ export interface SessionPr {
   ci: PrCiStatus;
   /** Head branch of the PR. */
   branch: string;
+  /** Present when gh reported them (B3: the Inspector's PR list). */
+  title?: string;
+  review?: PrReviewDecision;
+  mergeable?: PrMergeable;
+}
+
+/** One PR of a session in the Inspector's GitHub card (B3). */
+export interface SessionPrEntry {
+  /** github.com PR URL — the row's identity. */
+  url: string;
+  /** Live status; null when gh couldn't read it (offline, no access). */
+  pr: SessionPr | null;
+  /** The PR of the branch checked out in the session folder. */
+  folderBranch: boolean;
+  /** The session's conversation created or pushed to it (a `pr-link` entry). */
+  linked: boolean;
+}
+
+/** GET /api/sessions/:id/prs — newest first. `enabled` false when PR status
+ *  is switched off in Settings (then `prs` is empty). */
+export interface SessionPrsResponse {
+  enabled: boolean;
+  prs: SessionPrEntry[];
+}
+
+/** GET /api/sessions/:id/pr-diff?url=… (B4) — one PR's changes (`gh pr diff`).
+ *  The URL must be one of the session's PRs (see SessionPrsResponse). */
+export interface SessionPrDiffResponse {
+  /** The PR, as the session's list spells it. */
+  url: string;
+  /** Raw unified diff of every changed file; empty when `truncated`. */
+  diff: string;
+  /** The diff exceeded `limitBytes`: only the changed paths are listed —
+   *  every one when `complete`, else a partial list (possibly empty). */
+  truncated?: { files: string[]; complete: boolean; limitBytes: number };
 }
 
 /** One numbered choice of a waiting agent's selection menu. Sending `key`
