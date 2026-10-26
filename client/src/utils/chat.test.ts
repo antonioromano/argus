@@ -28,6 +28,16 @@ describe('applyChatUpdate', () => {
     expect(s.messages).toHaveLength(MAX_CLIENT_CHAT_MESSAGES);
     expect(s.messages[0].id).toBe('m3');
   });
+
+  it('drops echoes the transcript caught up with', () => {
+    const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [msg('a'), msg('echo-1')] });
+    const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('c')], removed: ['echo-1'] });
+    expect(s1.messages.map((m) => m.id)).toEqual(['a', 'c']);
+    // A removal alone (nothing new) still changes the list.
+    const s2 = applyChatUpdate(s0, { reset: false, available: true, messages: [], removed: ['echo-1'] });
+    expect(s2.messages.map((m) => m.id)).toEqual(['a']);
+    expect(applyChatUpdate(s2, { reset: false, available: true, messages: [], removed: ['gone'] }).messages).toBe(s2.messages);
+  });
 });
 
 describe('supportsChatView', () => {

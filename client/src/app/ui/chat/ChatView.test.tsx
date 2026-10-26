@@ -118,6 +118,28 @@ describe('ChatView', () => {
     expect(container.textContent).toContain('hologram');
   });
 
+  it('renders slash commands, collapsed command output, notices and echoes', () => {
+    const { socket, fire } = fakeSocket();
+    render(session(), socket);
+    const messages: ChatMessage[] = [
+      { id: 'c1', role: 'user', blocks: [{ kind: 'command', name: '/model', args: 'opus' }] },
+      { id: 'o1', role: 'system', blocks: [{ kind: 'output', stream: 'stdout', text: 'Set model to Opus 5.5\nsecond line' }] },
+      { id: 'n1', role: 'system', blocks: [{ kind: 'notice', text: 'Unknown command: /foo' }] },
+      { id: 'echo-1', role: 'user', echo: true, blocks: [{ kind: 'command', name: '/cost' }] },
+    ];
+    fire('session:chat', update({ messages }));
+    const cmds = Array.from(container.querySelectorAll('[data-testid="chat-command"]')).map((el) => el.textContent);
+    expect(cmds).toEqual(['/model opus', '/cost']);
+    const out = container.querySelector<HTMLDetailsElement>('[data-testid="chat-output"]')!;
+    expect(out.open).toBe(false);
+    expect(out.querySelector('summary')?.textContent).toContain('Set model to Opus 5.5');
+    expect(out.querySelector('pre')?.textContent).toBe('Set model to Opus 5.5\nsecond line');
+    expect(container.textContent).toContain('Unknown command: /foo');
+    // System rows carry no role label; the echo is marked as one.
+    expect(Array.from(container.querySelectorAll('.argus-chat-role')).map((el) => el.textContent)).toEqual(['You', 'You']);
+    expect(container.querySelector('.argus-chat-msg.is-echo')?.getAttribute('data-role')).toBe('user');
+  });
+
   it('appends new messages and ignores other sessions', () => {
     const { socket, fire } = fakeSocket();
     render(session(), socket);

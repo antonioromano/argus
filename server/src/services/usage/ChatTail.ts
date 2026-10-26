@@ -7,8 +7,9 @@ import { JsonlTailer, nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.
  * The transcript format is not a public API, so the parser is deliberately
  * tolerant: a malformed line, an unknown entry type or an unexpected shape is
  * skipped (or rendered as an `unknown` block), never thrown. Only main-thread
- * user and assistant entries become messages; tool results, attachments,
- * subagent (sidechain) turns and harness-injected meta prompts are dropped.
+ * user, assistant and local-command entries become messages; tool results,
+ * attachments, subagent (sidechain) turns and harness-injected meta prompts
+ * are dropped.
  */
 
 /** Messages kept per transcript; older ones fall off the front. */
@@ -21,9 +22,39 @@ const TRUNCATED = '\n\n… (truncated)';
 /** Harness-only wrappers stripped from user text (never typed by the user). */
 const HIDDEN_TAGS = ['system-reminder', 'local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'bash-stdout', 'bash-stderr'];
 const HIDDEN_RE = new RegExp(`<(${HIDDEN_TAGS.join('|')})>[\\s\\S]*?</\\1>`, 'g');
+/** Command output wrappers, shown as collapsed output blocks. */
+const OUTPUT_RE = /<(local-command|bash)-(stdout|stderr)>([\s\S]*?)<\/\1-\2>/g;
+const HAS_OUTPUT_RE = /<(?:local-command|bash)-(?:stdout|stderr)>/;
+/** Machine-readable trailers some command output carries (forked skills). */
+const OUTPUT_NOISE_RE = /<forked-skill-launch>[\s\S]*?<\/forked-skill-launch>/g;
+// eslint-disable-next-line no-control-regex -- stripping terminal escapes is the point
+const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
+/** What Claude Code writes for a command that printed nothing. */
+const NO_CONTENT = '(no content)';
 
 function clip(text: string): string {
   return text.length > MAX_CHAT_TEXT ? text.slice(0, MAX_CHAT_TEXT) + TRUNCATED : text;
+}
+
+/** `<command-name>/model</command-name>…<command-args>opus</command-args>` → `/model` + `opus`. */
+function commandOf(raw: string): { name: string; args?: string } | undefined {
+  const name = /<command-name>([\s\S]*?)<\/command-name>/.exec(raw)?.[1]?.trim();
+  if (name) {
+    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(raw)?.[1]?.trim();
+    return args ? { name: name.slice(0, MAX_NAME), args: clip(args) } : { name: name.slice(0, MAX_NAME) };
+  }
+  const bash = /<bash-input>([\s\S]*?)<\/bash-input>/.exec(raw)?.[1]?.trim();
+  return bash ? { name: '!', args: clip(bash) } : undefined;
+}
+
+/** The output blocks of a `<local-command-stdout>`-style entry (empty output dropped). */
+function outputsOf(raw: string): ChatBlock[] {
+  const out: ChatBlock[] = [];
+  for (const m of raw.matchAll(OUTPUT_RE)) {
+    const text = m[3].replace(OUTPUT_NOISE_RE, '').replace(ANSI_RE, '').trim();
+    if (text && text !== NO_CONTENT) out.push({ kind: 'output', text: clip(text), stream: m[2] as 'stdout' | 'stderr' });
+  }
+  return out;
 }
 
 /**
@@ -31,14 +62,21 @@ function clip(text: string): string {
  * command shown as typed (`/model opus`), a `!` bash command as `! cmd`.
  */
 export function cleanUserText(raw: string): string {
-  const command = /<command-name>([\s\S]*?)<\/command-name>/.exec(raw);
-  if (command) {
-    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(raw)?.[1]?.trim();
-    return [command[1].trim(), args].filter(Boolean).join(' ');
-  }
-  const bash = /<bash-input>([\s\S]*?)<\/bash-input>/.exec(raw);
-  if (bash) return `! ${bash[1].trim()}`;
+  const command = commandOf(raw);
+  if (command) return [command.name, command.args].filter(Boolean).join(' ');
   return raw.replace(HIDDEN_RE, '').trim();
+}
+
+/**
+ * Blocks of a user entry whose content is a string: a command, command
+ * output, or plain text with the harness wrappers removed.
+ */
+function userStringBlocks(raw: string): ChatBlock[] {
+  const command = commandOf(raw);
+  if (command) return [{ kind: 'command', ...command }];
+  if (HAS_OUTPUT_RE.test(raw)) return outputsOf(raw);
+  const text = cleanUserText(raw);
+  return text ? [{ kind: 'text', text: clip(text) }] : [];
 }
 
 function parseTs(v: unknown): number | undefined {
@@ -49,8 +87,8 @@ function parseTs(v: unknown): number | undefined {
 
 function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
   if (typeof content === 'string') {
-    const text = role === 'user' ? cleanUserText(content) : content;
-    return text ? [{ kind: 'text', text: clip(text) }] : [];
+    if (role === 'user') return userStringBlocks(content);
+    return content ? [{ kind: 'text', text: clip(content) }] : [];
   }
   if (!Array.isArray(content)) return [];
   const out: ChatBlock[] = [];
@@ -101,7 +139,7 @@ export interface ChatLine {
  */
 export function parseChatLine(text: string): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
-  if (!text.includes('"user"') && !text.includes('"assistant"')) return undefined;
+  if (!text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
   let entry: any;
   try {
     entry = JSON.parse(text);
@@ -109,16 +147,17 @@ export function parseChatLine(text: string): ChatLine | undefined {
     return undefined;
   }
   if (!entry || typeof entry !== 'object') return undefined;
-  const role = entry.type;
-  if (role !== 'user' && role !== 'assistant') return undefined;
+  const type = entry.type;
+  if (type !== 'user' && type !== 'assistant' && type !== 'system') return undefined;
   if (entry.isSidechain) return undefined;
   const permissionMode =
-    role === 'user' && typeof entry.permissionMode === 'string' && entry.permissionMode
+    type === 'user' && typeof entry.permissionMode === 'string' && entry.permissionMode
       ? entry.permissionMode.slice(0, MAX_MODE)
       : undefined;
-  const content = entry.message?.content;
-  const modelSet = role === 'user' && typeof content === 'string' ? MODEL_SET_RE.exec(content)?.[1]?.trim() : undefined;
-  const message = toMessage(entry, role);
+  // A system entry keeps its text in `content`; user/assistant ones in `message.content`.
+  const content = type === 'system' ? entry.content : entry.message?.content;
+  const modelSet = type !== 'assistant' && typeof content === 'string' ? MODEL_SET_RE.exec(content)?.[1]?.trim() : undefined;
+  const message = type === 'system' ? systemMessage(entry) : toMessage(entry, type);
   if (!message && !permissionMode && !modelSet) return undefined;
   const out: ChatLine = { message, permissionMode };
   if (modelSet) out.modelSet = modelSet;
@@ -130,17 +169,47 @@ export function parseChatEntry(text: string): ChatMessage | undefined {
   return parseChatLine(text)?.message;
 }
 
-function toMessage(entry: any, role: 'user' | 'assistant'): ChatMessage | undefined {
-  if (entry.isSidechain || entry.isMeta || entry.isCompactSummary || entry.isVisibleInTranscriptOnly) return undefined;
-  if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
-  const msg = entry.message;
-  if (!msg || typeof msg !== 'object') return undefined;
-  const blocks = blocksOf(role, msg.content);
-  if (blocks.length === 0) return undefined;
+/** Commands are the user's; output and notices belong to neither side. */
+function roleOf(type: 'user' | 'assistant', blocks: ChatBlock[]): ChatMessage['role'] {
+  if (type === 'assistant') return 'assistant';
+  return blocks.every((b) => b.kind === 'output') ? 'system' : 'user';
+}
+
+function withMeta(entry: any, role: ChatMessage['role'], blocks: ChatBlock[]): ChatMessage {
   const out: ChatMessage = { id: entry.uuid.slice(0, 64), role, blocks };
   const ts = parseTs(entry.timestamp);
   if (ts !== undefined) out.ts = ts;
   return out;
+}
+
+function toMessage(entry: any, type: 'user' | 'assistant'): ChatMessage | undefined {
+  if (entry.isSidechain || entry.isMeta || entry.isCompactSummary || entry.isVisibleInTranscriptOnly) return undefined;
+  if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
+  const msg = entry.message;
+  if (!msg || typeof msg !== 'object') return undefined;
+  const blocks = blocksOf(type, msg.content);
+  if (blocks.length === 0) return undefined;
+  return withMeta(entry, roleOf(type, blocks), blocks);
+}
+
+/**
+ * Newer Claude Code versions record some local commands (a dismissed `/model`
+ * picker, `/resume`, …) and their output as `system` entries instead of user
+ * ones, plus one-line notices such as "Unknown command: /foo".
+ */
+function systemMessage(entry: any): ChatMessage | undefined {
+  if (entry.isMeta || typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
+  if (typeof entry.content !== 'string') return undefined;
+  if (entry.subtype === 'local_command') {
+    const blocks = userStringBlocks(entry.content);
+    if (blocks.length === 0 || blocks[0].kind === 'text') return undefined;
+    return withMeta(entry, roleOf('user', blocks), blocks);
+  }
+  if (entry.subtype === 'informational') {
+    const text = entry.content.replace(ANSI_RE, '').trim();
+    return text ? withMeta(entry, 'system', [{ kind: 'notice', text: clip(text) }]) : undefined;
+  }
+  return undefined;
 }
 
 /** What changed since the last drain(). */
@@ -152,6 +221,32 @@ export interface ChatDelta {
   permissionMode?: string;
   /** Same, for the model set with `/model`. */
   modelSet?: string;
+  /** Ids of echoes sent earlier that the transcript has now recorded (appends only). */
+  removed?: string[];
+}
+
+/** Pending echoes kept per transcript; the oldest are forgotten (and stay shown). */
+const MAX_ECHOES = 50;
+
+/**
+ * The command a Chat view message sends, when it is a single-line slash
+ * command (`/model opus` → `/model` + `opus`); plain prompts get no echo,
+ * since the transcript always records them.
+ */
+export function echoCommandOf(text: string): { name: string; args?: string } | undefined {
+  const t = text.trim();
+  if (!/^\/[^\s/]+(?:\s|$)/.test(t) || t.includes('\n')) return undefined;
+  const space = t.search(/\s/);
+  const name = (space < 0 ? t : t.slice(0, space)).slice(0, MAX_NAME);
+  const args = space < 0 ? '' : t.slice(space).trim();
+  return args ? { name, args: clip(args) } : { name };
+}
+
+/** The recorded command `name` answers the echo of `echoName` (Claude Code may complete a prefix). */
+function answersEcho(name: string, echoName: string): boolean {
+  const a = name.toLowerCase();
+  const b = echoName.toLowerCase();
+  return a === b || a.startsWith(b);
 }
 
 /**
@@ -170,6 +265,11 @@ export class ChatTail extends JsonlTailer {
   private wasReset = true;
   /** The permission mode or the /model pick changed since the last drain. */
   private modeChanged = false;
+  /** Echoes not yet matched by a recorded command, oldest first. */
+  private echoes: { id: string; name: string }[] = [];
+  private echoSeq = 0;
+  /** Echo ids to drop on the client, collected for the next drain. */
+  private removedIds: string[] = [];
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
     super(path, fs);
@@ -188,6 +288,7 @@ export class ChatTail extends JsonlTailer {
     }
     const m = parsed.message;
     if (!m) return this.modeChanged;
+    if (m.blocks[0]?.kind === 'command') this.settleEcho(m.blocks[0].name);
     this.messages.push(m);
     if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
     if (!this.wasReset) {
@@ -197,10 +298,43 @@ export class ChatTail extends JsonlTailer {
     return true;
   }
 
+  /**
+   * Show a slash command sent from the Chat view right away. Claude Code
+   * never records some commands (`/cost`, `/help`, a dismissed picker…), so
+   * without this they would not appear at all; one it does record later
+   * replaces its echo. Returns false when `text` gets no echo.
+   */
+  echo(text: string, now = Date.now()): boolean {
+    const command = echoCommandOf(text);
+    if (!command) return false;
+    const m: ChatMessage = { id: `echo-${++this.echoSeq}`, role: 'user', ts: now, blocks: [{ kind: 'command', ...command }], echo: true };
+    this.echoes.push({ id: m.id, name: command.name });
+    if (this.echoes.length > MAX_ECHOES) this.echoes.shift();
+    this.messages.push(m);
+    if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
+    if (!this.wasReset) this.fresh.push(m);
+    return true;
+  }
+
+  /** A recorded command arrived: drop the oldest echo it answers. */
+  private settleEcho(name: string): void {
+    const i = this.echoes.findIndex((e) => answersEcho(name, e.name));
+    if (i < 0) return;
+    const [{ id }] = this.echoes.splice(i, 1);
+    const at = this.messages.findIndex((x) => x.id === id);
+    if (at >= 0) this.messages.splice(at, 1);
+    const inFresh = this.fresh.findIndex((x) => x.id === id);
+    // Not sent yet: just never send it; otherwise the client has to drop it.
+    if (inFresh >= 0) this.fresh.splice(inFresh, 1);
+    else if (!this.wasReset) this.removedIds.push(id);
+  }
+
   protected clear(): boolean {
     const had = this.messages.length > 0;
     this.messages = [];
     this.fresh = [];
+    this.echoes = [];
+    this.removedIds = [];
     this.permissionMode = undefined;
     this.modelSet = undefined;
     this.wasReset = true;
@@ -216,7 +350,9 @@ export class ChatTail extends JsonlTailer {
       if (this.permissionMode) delta.permissionMode = this.permissionMode;
       if (this.modelSet) delta.modelSet = this.modelSet;
     }
+    if (!this.wasReset && this.removedIds.length) delta.removed = this.removedIds;
     this.fresh = [];
+    this.removedIds = [];
     this.wasReset = false;
     this.modeChanged = false;
     return delta;

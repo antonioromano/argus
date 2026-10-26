@@ -757,16 +757,29 @@ export type ChatBlock =
   /** A tool call; only the tool name is shown in phase 1. */
   | { kind: 'tool'; name: string }
   | { kind: 'image' }
+  /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
+  | { kind: 'command'; name: string; args?: string }
+  /** What a local command (or `!` bash command) printed; shown collapsed. */
+  | { kind: 'output'; text: string; stream: 'stdout' | 'stderr' }
+  /** A one-line notice from Claude Code itself ("Unknown command: /foo", …). */
+  | { kind: 'notice'; text: string }
   | { kind: 'unknown'; type: string };
 
 /** One transcript entry rendered by the Chat view. */
 export interface ChatMessage {
-  /** The entry's uuid (unique per JSONL line). */
+  /** The entry's uuid (unique per JSONL line), or `echo-…` for a local echo. */
   id: string;
-  role: 'user' | 'assistant';
+  /** `system`: local command output and Claude Code notices, not a turn of either side. */
+  role: 'user' | 'assistant' | 'system';
   /** Epoch ms, when the entry carries a timestamp. */
   ts?: number;
   blocks: ChatBlock[];
+  /**
+   * A slash command sent from the Chat view that the transcript has not (yet)
+   * recorded. Claude Code never writes some commands (`/cost`, `/context`,
+   * `/help`, a dismissed picker…); the echo is replaced when it does.
+   */
+  echo?: boolean;
 }
 
 /**
@@ -792,6 +805,8 @@ export interface ChatUpdate {
    * delivery as `permissionMode`.
    */
   modelSet?: string;
+  /** Ids of earlier messages to drop (a local echo the transcript caught up with). */
+  removed?: string[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */

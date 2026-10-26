@@ -125,3 +125,42 @@ test('the permission mode reaches the snapshot and the sink', async () => {
   assert.equal(updates.at(-1)?.permissionMode, 'acceptEdits');
   done();
 });
+
+test('a slash command sent from the Chat is echoed at once, then replaced by the recorded one', async () => {
+  const { d, t, updates, sink, done } = setup();
+  const a = path.join(d, 'a.jsonl');
+  writeFileSync(a, user('u1', 'one'));
+  t.setTranscript(a);
+  await t.openChat(sink);
+
+  t.echoChatInput('a plain prompt');
+  t.echoChatInput('/model opus');
+  await t.openChat(sink); // waits for the queued read
+  assert.equal(updates.length, 1, 'only the command is echoed');
+  assert.deepEqual(updates[0].messages.map((m) => [m.id, m.echo]), [['echo-1', true]]);
+  assert.deepEqual(t.chatSnapshot().messages.map((m) => m.id), ['u1', 'echo-1'], 'a new viewer sees the echo too');
+
+  appendFileSync(a, user('c1', '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>'));
+  await t.pollNow();
+  await t.openChat(sink);
+  assert.equal(updates.length, 2);
+  assert.deepEqual(updates[1].removed, ['echo-1']);
+  assert.deepEqual(updates[1].messages.map((m) => m.id), ['c1']);
+  done();
+});
+
+test('no echo while the chat is closed or has no transcript', async () => {
+  const { d, t, updates, sink, done } = setup();
+  await t.openChat(sink);
+  t.echoChatInput('/cost'); // no transcript yet
+  const a = path.join(d, 'a.jsonl');
+  writeFileSync(a, user('u1', 'one'));
+  t.setTranscript(a);
+  await t.pollNow();
+  await t.openChat(sink);
+  assert.deepEqual(updates.at(-1)?.messages.map((m) => m.id), ['u1']);
+  t.closeChat();
+  t.echoChatInput('/cost');
+  assert.equal(t.chatSnapshot().available, false);
+  done();
+});

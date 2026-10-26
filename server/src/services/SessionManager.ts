@@ -1913,6 +1913,8 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // Before the write, so a command recorded at once still finds its echo.
+    session.usage?.echoChatInput(text);
     write(chatInputBytes(text), BROADCAST_ENTER_DELAY_MS);
     write('\r');
     for (let i = 0; i < CHAT_ENTER_RETRIES; i++) {

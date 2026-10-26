@@ -2124,6 +2124,49 @@ body {
   background: var(--bg-1);
 }
 .argus-chat-chip-muted { color: var(--fg-3); border-style: dashed; }
+.argus-chat-command {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--fg-1);
+  overflow-wrap: anywhere;
+}
+.argus-chat-command-name { color: var(--accent); }
+.argus-chat-msg.is-command .argus-chat-body { background: var(--bg-1); }
+/* An echo the transcript never recorded: same chip, dashed edge. */
+.argus-chat-msg.is-echo .argus-chat-body { border-style: dashed; }
+.argus-chat-msg.is-system { padding-top: var(--s-1); padding-bottom: var(--s-1); }
+.argus-chat-output { width: 100%; min-width: 0; font-size: var(--t-xs); color: var(--fg-2); }
+.argus-chat-output > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+  list-style: none;
+  color: var(--fg-3);
+}
+.argus-chat-output > summary::-webkit-details-marker { display: none; }
+.argus-chat-output > summary:hover { color: var(--fg-1); }
+.argus-chat-output-caret { flex: none; transition: transform 0.12s ease; }
+.argus-chat-output[open] .argus-chat-output-caret { transform: rotate(90deg); }
+.argus-chat-output-label { flex: none; font-weight: 500; }
+.argus-chat-output.is-stderr .argus-chat-output-label { color: var(--danger); }
+.argus-chat-output-preview { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.argus-chat-output[open] .argus-chat-output-preview { display: none; }
+.argus-chat-output-text {
+  margin: var(--s-1) 0 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-inset);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.argus-chat-notice { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-jump {
   all: unset;
   position: absolute;

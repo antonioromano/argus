@@ -24,7 +24,7 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
  */
 export function applyChatUpdate(
   prev: ChatState,
-  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet'>,
+  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed'>,
 ): ChatState {
   if (update.reset) {
     return {
@@ -38,10 +38,15 @@ export function applyChatUpdate(
   // Appends carry the mode and model only when they changed.
   const permissionMode = update.permissionMode ?? prev.permissionMode;
   const modelSet = update.modelSet ?? prev.modelSet;
-  const seen = new Set(prev.messages.map((m) => m.id));
+  // Echoes the transcript caught up with (see ChatMessage.echo).
+  const removed = update.removed?.length ? new Set(update.removed) : undefined;
+  const filtered = removed ? prev.messages.filter((m) => !removed.has(m.id)) : prev.messages;
+  const kept = filtered.length === prev.messages.length ? prev.messages : filtered;
+  const seen = new Set(kept.map((m) => m.id));
   const fresh = update.messages.filter((m) => !seen.has(m.id));
   if (
     fresh.length === 0 &&
+    kept === prev.messages &&
     prev.loaded &&
     prev.available === update.available &&
     prev.permissionMode === permissionMode &&
@@ -49,7 +54,7 @@ export function applyChatUpdate(
   ) {
     return prev;
   }
-  const messages = fresh.length ? prev.messages.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : prev.messages;
+  const messages = fresh.length ? kept.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : kept;
   return { loaded: true, available: update.available, messages, permissionMode, modelSet };
 }
 

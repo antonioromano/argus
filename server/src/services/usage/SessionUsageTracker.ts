@@ -366,6 +366,17 @@ export class SessionUsageTracker {
     return snap;
   }
 
+  /**
+   * The Chat view is about to type `text` into the session: echo it when it
+   * is a slash command (see ChatTail.echo), so it shows even if Claude Code
+   * never records it.
+   */
+  echoChatInput(text: string): void {
+    const chat = this.chat;
+    if (!this.chatSink || !chat || chat.path !== this.current) return;
+    if (chat.echo(text)) void this.readChatSoon();
+  }
+
   /** Queue one chat read behind any in flight; resolves when it is done. */
   private readChatSoon(): Promise<void> {
     if (!this.chatSink) return this.chatQueue;
@@ -395,11 +406,12 @@ export class SessionUsageTracker {
     // Closed, or moved to another transcript, while reading: that read is stale.
     if (this.chatSink !== sink || this.chat !== chat) return;
     const delta = chat.drain();
-    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined;
+    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined || !!delta.removed;
     if (delta.reset ? !swallow : delta.messages.length > 0 || meta) {
       const update: Parameters<ChatSink>[0] = { reset: delta.reset, available: true, messages: delta.messages };
       if (delta.permissionMode !== undefined) update.permissionMode = delta.permissionMode;
       if (delta.modelSet !== undefined) update.modelSet = delta.modelSet;
+      if (delta.removed) update.removed = delta.removed;
       sink(update);
     }
   }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, parseChatEntry, parseChatLine } from './ChatTail.js';
+import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, echoCommandOf, parseChatEntry, parseChatLine } from './ChatTail.js';
 
 const user = (uuid: string, content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', uuid, timestamp: '2026-10-23T16:00:00.000Z', message: { role: 'user', content }, ...extra });
@@ -151,6 +151,158 @@ test('ChatTail reports the model set with /model', async () => {
   assert.equal(t.drain().modelSet, 'Sonnet 5.5');
   appendFileSync(f, reply('r2', 'Opus 5.5') + '\n');
   await t.poll();
-  assert.deepEqual(t.drain(), { reset: false, messages: [], modelSet: 'Opus 5.5' });
+  const d = t.drain();
+  assert.equal(d.modelSet, 'Opus 5.5');
+  assert.deepEqual(d.messages.map((m) => m.role), ['system'], 'the reply itself shows as command output');
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+// Slash commands (D1). The lines below are real Claude Code transcript lines
+// (2.1.276–2.1.310), trimmed to the fields the parser reads.
+const REAL = {
+  caveat:
+    '{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request, and its output goes straight to the user. It\'s recorded here as context for later messages.</local-command-caveat>"},"isMeta":true,"uuid":"ba233ace-0a15-47e1-aaca-aaa4636a31c7","timestamp":"2026-10-23T21:39:59.245Z"}',
+  model:
+    '{"parentUuid":"ba233ace-0a15-47e1-aaca-aaa4636a31c7","isSidechain":false,"type":"user","message":{"role":"user","content":"<command-name>/model</command-name>\\n            <command-message>model</command-message>\\n            <command-args>claude-opus-5-5</command-args>"},"uuid":"76ef6a48-677c-4a88-833c-d26f553f82e8","timestamp":"2026-10-23T21:39:59.245Z"}',
+  modelOut:
+    '{"parentUuid":"76ef6a48-677c-4a88-833c-d26f553f82e8","isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to `Opus 5.5` and saved as your default for new sessions</local-command-stdout>"},"uuid":"35063265-ecb4-4b0a-9054-e03269406332","timestamp":"2026-10-23T21:39:59.245Z"}',
+  clear:
+    '{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>\\n            <command-message>clear</command-message>\\n            <command-args></command-args>"},"uuid":"c1ea0000-0000-4000-8000-000000000001","timestamp":"2026-10-20T09:12:01.000Z"}',
+  compact:
+    '{"parentUuid":"p","isSidechain":false,"type":"user","message":{"role":"user","content":"<command-name>/compact</command-name>\\n            <command-message>compact</command-message>\\n            <command-args></command-args>"},"uuid":"c0a70000-0000-4000-8000-000000000002","timestamp":"2026-10-20T09:15:00.000Z"}',
+  compactOut:
+    '{"parentUuid":"c0a70000-0000-4000-8000-000000000002","isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-stdout>\\u001b[2mCompacted (ctrl+o to see full summary)\\u001b[22m</local-command-stdout>"},"uuid":"c0a70000-0000-4000-8000-000000000003","timestamp":"2026-10-20T09:15:30.000Z"}',
+  compactSummary:
+    '{"parentUuid":"c0a70000-0000-4000-8000-000000000003","isSidechain":false,"type":"user","message":{"role":"user","content":"This session is being continued from a previous conversation…"},"isCompactSummary":true,"isVisibleInTranscriptOnly":true,"uuid":"c0a70000-0000-4000-8000-000000000004","timestamp":"2026-10-20T09:15:30.000Z"}',
+  // A custom command (a skill): tags in another order, then the skill body as a meta entry.
+  custom:
+    '{"parentUuid":"p","isSidechain":false,"type":"user","message":{"role":"user","content":"<command-message>pr-review</command-message>\\n<command-name>/pr-review</command-name>\\n<command-args>#64</command-args>"},"uuid":"5c111000-0000-4000-8000-000000000005","timestamp":"2026-10-21T10:00:00.000Z"}',
+  customBody:
+    '{"parentUuid":"5c111000-0000-4000-8000-000000000005","isSidechain":false,"type":"user","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /Users/x/.claude/skills/pr-review\\n\\n# PR review…"}]},"isMeta":true,"uuid":"5c111000-0000-4000-8000-000000000006","timestamp":"2026-10-21T10:00:00.000Z"}',
+  noContent:
+    '{"parentUuid":"p","isSidechain":false,"type":"user","message":{"role":"user","content":"<local-command-stdout>(no content)</local-command-stdout>"},"uuid":"0c000000-0000-4000-8000-000000000007","timestamp":"2026-10-21T10:00:00.000Z"}',
+  // Newer versions: a dismissed picker is a `system` local_command pair.
+  pickerSys:
+    '{"parentUuid":"bebc8726-ccae-4099-99bc-2e5f9da0976e","isSidechain":false,"type":"system","subtype":"local_command","content":"<command-name>/model</command-name>\\n            <command-message>model</command-message>\\n            <command-args></command-args>","level":"info","timestamp":"2026-10-26T11:42:40.676Z","uuid":"835972bf-51a3-428a-bbd6-7dfb487a8cd9","isMeta":false}',
+  pickerSysOut:
+    '{"parentUuid":"835972bf-51a3-428a-bbd6-7dfb487a8cd9","isSidechain":false,"type":"system","subtype":"local_command","content":"<local-command-stdout>Kept model as `Opus 5.5`</local-command-stdout>","level":"info","timestamp":"2026-10-26T11:42:40.676Z","uuid":"ba642309-0e6d-4cce-a41c-9b7ca3faeef3","isMeta":false,"commandRun":{"command":"model","args":""}}',
+  forkedOut:
+    '{"parentUuid":"p","isSidechain":false,"type":"system","subtype":"local_command","content":"<local-command-stdout>Running in the background as @code-review</local-command-stdout>\\n<forked-skill-launch>{\\"agentId\\":\\"a1\\"}</forked-skill-launch>","level":"info","timestamp":"2026-10-24T08:00:00.000Z","uuid":"f0000000-0000-4000-8000-000000000008","isMeta":false}',
+  unknown:
+    '{"parentUuid":"p","isSidechain":false,"type":"system","subtype":"informational","content":"Unknown command: /foobarxyz","isMeta":false,"timestamp":"2026-10-26T11:42:47.388Z","uuid":"5c4aff60-7e72-4d02-b9db-ac01feacd0e4","level":"warning"}',
+  turnDuration:
+    '{"parentUuid":"p","isSidechain":false,"type":"system","subtype":"turn_duration","durationMs":1200,"timestamp":"2026-10-26T11:42:47.388Z","uuid":"d0000000-0000-4000-8000-000000000009","isMeta":false}',
+};
+
+test('slash commands from real transcripts become command messages', () => {
+  assert.equal(parseChatEntry(REAL.caveat), undefined, 'the caveat is meta');
+  assert.deepEqual(parseChatEntry(REAL.model), {
+    id: '76ef6a48-677c-4a88-833c-d26f553f82e8',
+    role: 'user',
+    ts: Date.parse('2026-10-23T21:39:59.245Z'),
+    blocks: [{ kind: 'command', name: '/model', args: 'claude-opus-5-5' }],
+  });
+  assert.deepEqual(parseChatEntry(REAL.clear)?.blocks, [{ kind: 'command', name: '/clear' }]);
+  assert.deepEqual(parseChatEntry(REAL.compact)?.blocks, [{ kind: 'command', name: '/compact' }]);
+  assert.deepEqual(parseChatEntry(REAL.custom)?.blocks, [{ kind: 'command', name: '/pr-review', args: '#64' }]);
+  assert.equal(parseChatEntry(REAL.customBody), undefined, 'the skill body is meta');
+  assert.deepEqual(parseChatEntry(user('b1', '<bash-input>git status</bash-input>'))?.blocks, [{ kind: 'command', name: '!', args: 'git status' }]);
+});
+
+test('local command output is a system message, ANSI and noise removed', () => {
+  const out = parseChatLine(REAL.modelOut)!;
+  assert.equal(out.modelSet, 'Opus 5.5');
+  assert.equal(out.message?.role, 'system');
+  assert.deepEqual(out.message?.blocks, [
+    { kind: 'output', stream: 'stdout', text: 'Set model to `Opus 5.5` and saved as your default for new sessions' },
+  ]);
+  assert.deepEqual(parseChatEntry(REAL.compactOut)?.blocks, [
+    { kind: 'output', stream: 'stdout', text: 'Compacted (ctrl+o to see full summary)' },
+  ]);
+  assert.equal(parseChatEntry(REAL.compactSummary), undefined);
+  assert.equal(parseChatEntry(REAL.noContent), undefined, 'empty output is dropped');
+  assert.deepEqual(parseChatEntry(user('e1', '<bash-stdout></bash-stdout><bash-stderr>boom</bash-stderr>'))?.blocks, [
+    { kind: 'output', stream: 'stderr', text: 'boom' },
+  ]);
+});
+
+test('system local_command and informational entries (newer Claude Code)', () => {
+  assert.deepEqual(parseChatEntry(REAL.pickerSys), {
+    id: '835972bf-51a3-428a-bbd6-7dfb487a8cd9',
+    role: 'user',
+    ts: Date.parse('2026-10-26T11:42:40.676Z'),
+    blocks: [{ kind: 'command', name: '/model' }],
+  });
+  const out = parseChatEntry(REAL.pickerSysOut);
+  assert.equal(out?.role, 'system');
+  assert.deepEqual(out?.blocks, [{ kind: 'output', stream: 'stdout', text: 'Kept model as `Opus 5.5`' }]);
+  assert.deepEqual(parseChatEntry(REAL.forkedOut)?.blocks, [
+    { kind: 'output', stream: 'stdout', text: 'Running in the background as @code-review' },
+  ]);
+  assert.deepEqual(parseChatEntry(REAL.unknown), {
+    id: '5c4aff60-7e72-4d02-b9db-ac01feacd0e4',
+    role: 'system',
+    ts: Date.parse('2026-10-26T11:42:47.388Z'),
+    blocks: [{ kind: 'notice', text: 'Unknown command: /foobarxyz' }],
+  });
+  assert.equal(parseChatLine(REAL.turnDuration), undefined, 'other system entries are not messages');
+  assert.equal(parseChatLine(REAL.pickerSys.replace('"isSidechain":false', '"isSidechain":true')), undefined);
+});
+
+test('echoCommandOf: single-line slash commands only', () => {
+  assert.deepEqual(echoCommandOf('  /model   opus '), { name: '/model', args: 'opus' });
+  assert.deepEqual(echoCommandOf('/cost'), { name: '/cost' });
+  assert.equal(echoCommandOf('hello /model'), undefined);
+  assert.equal(echoCommandOf('/model\nsecond line'), undefined);
+  assert.equal(echoCommandOf('/'), undefined);
+  assert.equal(echoCommandOf('/usr/bin/env is a path'), undefined);
+});
+
+test('ChatTail echoes a sent command until the transcript records it', async () => {
+  const f = tmpFile();
+  writeFileSync(f, user('u1', 'hi') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  t.drain();
+
+  // Never recorded (/cost): the echo stays.
+  assert.equal(t.echo('/cost', 1000), true);
+  assert.equal(t.echo('plain prompt'), false);
+  let d = t.drain();
+  assert.deepEqual(d.messages, [{ id: 'echo-1', role: 'user', ts: 1000, echo: true, blocks: [{ kind: 'command', name: '/cost' }] }]);
+
+  // Recorded later: the echo is dropped on the client, the real entry appended.
+  t.echo('/model claude-opus-5-5', 2000);
+  t.drain();
+  appendFileSync(f, REAL.caveat + '\n' + REAL.model + '\n' + REAL.modelOut + '\n');
+  await t.poll();
+  d = t.drain();
+  assert.deepEqual(d.removed, ['echo-2']);
+  assert.deepEqual(d.messages.map((m) => m.id), ['76ef6a48-677c-4a88-833c-d26f553f82e8', '35063265-ecb4-4b0a-9054-e03269406332']);
+  assert.deepEqual(t.messages.map((m) => m.id), ['u1', 'echo-1', '76ef6a48-677c-4a88-833c-d26f553f82e8', '35063265-ecb4-4b0a-9054-e03269406332']);
+
+  // Recorded before the echo was ever drained: it is simply never sent.
+  t.echo('/clear', 3000);
+  appendFileSync(f, REAL.clear + '\n');
+  await t.poll();
+  d = t.drain();
+  assert.equal(d.removed, undefined);
+  assert.deepEqual(d.messages.map((m) => m.id), ['c1ea0000-0000-4000-8000-000000000001']);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail: a recorded command settles an echo of its prefix, and only one echo', async () => {
+  const f = tmpFile();
+  writeFileSync(f, '');
+  const t = new ChatTail(f);
+  await t.poll();
+  t.drain();
+  t.echo('/compa', 1);
+  t.echo('/compact', 2);
+  t.drain();
+  appendFileSync(f, REAL.compact + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().removed, ['echo-1'], 'the oldest matching echo');
+  assert.deepEqual(t.messages.filter((m) => m.echo).map((m) => m.id), ['echo-2']);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
