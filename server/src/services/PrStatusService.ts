@@ -65,8 +65,7 @@ const FAILED_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION
 const FAILED_STATES = new Set(['FAILURE', 'ERROR']);
 const PENDING_STATES = new Set(['PENDING', 'EXPECTED']);
 
-type CheckVerdict = 'failure' | 'pending' | 'success';
-/** C1: a verdict as the popover counts it — a skipped run is shown apart. */
+/** C1: a check's outcome as the popover counts it — a skipped run is shown apart. */
 type CheckOutcome = 'failed' | 'pending' | 'passed' | 'skipped';
 
 const upper = (v: unknown): string => (typeof v === 'string' ? v.toUpperCase() : '');
@@ -89,22 +88,16 @@ function checkOutcome(entry: unknown): CheckOutcome {
   return conclusion === 'SKIPPED' ? 'skipped' : 'passed';
 }
 
-/** Neutral and skipped runs count as passing. */
-function checkVerdict(entry: unknown): CheckVerdict {
-  const o = checkOutcome(entry);
-  return o === 'failed' ? 'failure' : o === 'pending' ? 'pending' : 'success';
+/** The aggregate of a breakdown: any failure wins, then any still-running
+ *  check; neutral and skipped runs count as passing; no checks → none. */
+function ciOf(checks: PrChecks | null): PrCiStatus {
+  if (!checks) return 'none';
+  return checks.counts.failed ? 'failure' : checks.counts.pending ? 'pending' : 'success';
 }
 
-/** Any failure wins, then any still-running check; no checks at all → none. */
+/** The rollup reduced to one aggregate (see ciOf). */
 export function aggregateChecks(rollup: unknown): PrCiStatus {
-  if (!Array.isArray(rollup) || rollup.length === 0) return 'none';
-  let pending = false;
-  for (const entry of rollup) {
-    const v = checkVerdict(entry);
-    if (v === 'failure') return 'failure';
-    if (v === 'pending') pending = true;
-  }
-  return pending ? 'pending' : 'success';
+  return ciOf(summarizeChecks(rollup));
 }
 
 /** C1: failed checks listed in the CI popover; the counts still cover every one. */
@@ -187,11 +180,12 @@ export function parsePrView(stdout: string): SessionPr | null {
     title?: unknown; reviewDecision?: unknown; mergeable?: unknown; headRefOid?: unknown;
   };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
+  const checks = summarizeChecks(o.statusCheckRollup);
   const pr: SessionPr = {
     number: o.number,
     state: prState(o.state, o.isDraft),
     url: o.url,
-    ci: aggregateChecks(o.statusCheckRollup),
+    ci: ciOf(checks),
     branch: typeof o.headRefName === 'string' ? o.headRefName : '',
   };
   if (typeof o.title === 'string') pr.title = o.title.slice(0, MAX_TITLE_LEN);
@@ -199,7 +193,6 @@ export function parsePrView(stdout: string): SessionPr | null {
   if (review) pr.review = review;
   const merge = mergeable(o.mergeable);
   if (merge) pr.mergeable = merge;
-  const checks = summarizeChecks(o.statusCheckRollup);
   if (checks) pr.checks = checks;
   if (typeof o.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(o.headRefOid)) pr.headSha = o.headRefOid.toLowerCase();
   return pr;

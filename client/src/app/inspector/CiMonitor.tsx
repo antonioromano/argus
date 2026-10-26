@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { ExternalLink } from 'lucide-react';
 import type { PrCheckCounts, SessionPr } from '@argus/shared';
 import { Icon, scaledPx } from '../../components/primitives/index.js';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
+import { usePopoverDismiss } from '../../hooks/usePopoverDismiss.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { PR_CI_LABEL, ciSummary, prChecksUrl } from '../../utils/prFormat.js';
 
@@ -53,36 +54,20 @@ export function CiStatus({ pr }: { pr: SessionPr }) {
  * Counts per outcome, every failed check with a link to its details page, and
  * the PR's checks tab on GitHub. Portalled to <body> (the inspector scrolls and
  * clips); closes on Escape, a click outside, or a scroll / resize that would
- * leave it behind its dot.
+ * leave it behind its dot (usePopoverDismiss).
  */
 export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefObject<HTMLElement | null>; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const inside = (t: EventTarget | null) => !!t && (!!ref.current?.contains(t as Node) || !!anchor.current?.contains(t as Node));
-    // The dot toggles the popover itself, so a press on it is not "outside".
-    const onDown = (e: MouseEvent) => { if (!inside(e.target)) onClose(); };
-    const onScroll = (e: Event) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      onClose();
-      anchor.current?.focus();
-    };
-    document.addEventListener('mousedown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onClose);
-    return () => {
-      document.removeEventListener('mousedown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onClose);
-    };
-  }, [anchor, onClose]);
+  // The dot toggles the popover itself, so a press on it is not "outside".
+  usePopoverDismiss(true, [ref, anchor], ref, (reason) => {
+    onClose();
+    if (reason === 'escape') anchor.current?.focus();
+  });
 
   // Under the dot, or above it when the window has more room there; measured
-  // before paint so it never flashes at the wrong spot.
+  // before paint so it never flashes at the wrong spot. Placed again on every
+  // render: the list poll can grow the popover (more failed checks) while open.
   useLayoutEffect(() => {
     const el = ref.current;
     const a = anchor.current?.getBoundingClientRect();
@@ -93,7 +78,7 @@ export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefO
     el.style.left = `${Math.max(EDGE, Math.min(a.left, window.innerWidth - width - EDGE))}px`;
     el.style.top = `${Math.max(EDGE, up ? a.top - GAP - height : a.bottom + GAP)}px`;
     el.style.visibility = 'visible';
-  }, [anchor]);
+  });
 
   const counts = pr.checks?.counts;
   const failed = pr.checks?.failed ?? [];

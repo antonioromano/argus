@@ -55,6 +55,8 @@ export function useNotifications({
   // C1: each session's last PR chip reading, and the checks outcomes already posted.
   const prevPrs = useRef<Map<string, SessionPr | null>>(new Map());
   const ciNotified = useRef<Set<string>>(new Set());
+  // C1: an outcome held back by a waiting / done banner, posted once that banner goes.
+  const ciDeferred = useRef<Map<string, { key: string; pr: SessionPr }>>(new Map());
   const onFocusRef = useRef(onFocusSession);
   const onSwitchRef = useRef(onSwitchToSessionsTab);
 
@@ -127,22 +129,30 @@ export function useNotifications({
       prevStatuses.current.set(session.id, curr);
 
       // C1: the PR chip's checks finished. Only a pending → done transition of
-      // the same PR counts (not the first reading, not a PR swap). Skipped
-      // while a waiting / done banner is up for the session: one id per
-      // session, and the input request is the more urgent of the two.
+      // the same PR counts (not the first reading, not a PR swap), and like
+      // every banner only while Argus is in the background. While a waiting /
+      // done banner is up for the session it is held back — one id per
+      // session, and the input request is the more urgent of the two — and
+      // posted once that banner is gone, if the PR still reads the same.
       const pr = session.pr ?? null;
       const prevPr = prevPrs.current.get(session.id);
       prevPrs.current.set(session.id, pr);
       if (
         mine && notifyOnPrChecks && pr && prevPr && prevPr.url === pr.url
         && prevPr.ci === 'pending' && (pr.ci === 'success' || pr.ci === 'failure')
-        && !document.hasFocus() && !activeIds.current.has(session.id)
+        && !document.hasFocus() && !ciNotified.current.has(ciOutcomeKey(pr))
       ) {
-        const key = ciOutcomeKey(pr);
-        if (!ciNotified.current.has(key)) {
-          ciNotified.current.add(key);
+        ciDeferred.current.set(session.id, { key: ciOutcomeKey(pr), pr });
+      }
+      const held = ciDeferred.current.get(session.id);
+      if (held && (!pr || !mine || !notifyOnPrChecks || ciOutcomeKey(pr) !== held.key)) {
+        ciDeferred.current.delete(session.id); // superseded: a new run, another PR, or switched off
+      } else if (held && !activeIds.current.has(session.id) && !document.hasFocus()) {
+        ciDeferred.current.delete(session.id);
+        if (!ciNotified.current.has(held.key)) {
+          ciNotified.current.add(held.key);
           if (ciNotified.current.size > CI_NOTIFIED_MAX) ciNotified.current.delete(ciNotified.current.values().next().value as string);
-          const body = `${ciSummary(pr)} · ${prRef(pr.url, pr.number)}`;
+          const body = `${ciSummary(held.pr)} · ${prRef(held.pr.url, held.pr.number)}`;
           bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body, sound: notificationSound, attributeToApp: true });
         }
       }
@@ -158,7 +168,10 @@ export function useNotifications({
       }
     }
     for (const id of prevPrs.current.keys()) {
-      if (!currentIds.has(id)) prevPrs.current.delete(id);
+      if (!currentIds.has(id)) {
+        prevPrs.current.delete(id);
+        ciDeferred.current.delete(id);
+      }
     }
   }, [sessions, enabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, ownsSession]);
 

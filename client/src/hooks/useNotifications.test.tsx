@@ -128,6 +128,28 @@ describe('useNotifications — PR checks (C1)', () => {
     expect(bridge.show).toHaveBeenCalledTimes(1);
   });
 
+  it('a waiting banner holds the outcome back; it is posted once the banner goes, unless superseded', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    const r = mount();
+    const at = (status: string, pr: Partial<SessionPr>) => ({ ...withPr('x', pr), status, lastPrompt: 'Proceed?' } as SessionInfo);
+    act(() => r.render(<Host sessions={[at('running', { ci: 'pending' })]} />));
+    act(() => r.render(<Host sessions={[at('waiting', { ci: 'pending' })]} />));
+    expect(bridge.show).toHaveBeenCalledTimes(1); // the input request
+    act(() => r.render(<Host sessions={[at('waiting', { ci: 'failure' })]} />));
+    expect(bridge.show).toHaveBeenCalledTimes(1);
+    act(() => r.render(<Host sessions={[at('running', { ci: 'failure' })]} />));
+    expect(bridge.show).toHaveBeenCalledTimes(2);
+    expect(bridge.show.mock.calls[1][0].body).toBe('CI: checks failing · o/r#12');
+
+    // Superseded while held: a new push started running again → nothing stale is posted.
+    act(() => r.render(<Host sessions={[at('running', { ci: 'pending', headSha: 'ddd4444' })]} />));
+    act(() => r.render(<Host sessions={[at('waiting', { ci: 'pending', headSha: 'ddd4444' })]} />));
+    act(() => r.render(<Host sessions={[at('waiting', { ci: 'success', headSha: 'ddd4444' })]} />));
+    act(() => r.render(<Host sessions={[at('waiting', { ci: 'pending', headSha: 'eee5555' })]} />));
+    act(() => r.render(<Host sessions={[at('running', { ci: 'pending', headSha: 'eee5555' })]} />));
+    expect(bridge.show).toHaveBeenCalledTimes(3); // only the second input request
+  });
+
   it('stays quiet when switched off or while Argus is focused', () => {
     const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
     const r = mount();
