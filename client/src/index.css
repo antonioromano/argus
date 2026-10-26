@@ -2285,15 +2285,70 @@ body {
 .argus-chat-composer textarea {
   resize: none;
   max-height: calc(240px * var(--ui-scale));
-  padding: var(--s-3) var(--s-3) var(--s-2);
   background: transparent;
-  color: var(--fg-0);
   border: none;
-  font-family: var(--font-sans);
-  font-size: var(--t-sm);
-  line-height: 1.5;
   outline: none;
 }
+/* Live Markdown (D2): a transparent textarea over a styled copy of its text.
+   Both share every metric below, so wrapping and the caret line up; the layer
+   never changes a glyph's width. */
+.argus-cmp-field { position: relative; display: flex; flex-direction: column; min-width: 0; }
+.argus-cmp-input,
+.argus-cmp-content {
+  box-sizing: border-box;
+  margin: 0;
+  padding: var(--s-3) var(--s-3) var(--s-2);
+  font-family: var(--font-sans);
+  font-size: var(--t-sm);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: normal;
+  /* Form controls don't inherit text shaping: pin the body's on both, or
+     stylistic sets make the layer wider than the textarea. Kerning and
+     ligatures are off because the layer's spans would break them up. */
+  font-feature-settings: inherit;
+  font-variant: normal;
+  font-variant-ligatures: none;
+  font-kerning: none;
+  text-rendering: inherit;
+  -webkit-font-smoothing: inherit;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+.argus-cmp-input {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  color: transparent;
+  caret-color: var(--fg-0);
+  /* No scrollbar: it would narrow the textarea but not the layer. */
+  scrollbar-width: none;
+}
+.argus-cmp-input::-webkit-scrollbar { display: none; }
+.argus-cmp-input::placeholder { color: var(--fg-3); }
+.argus-cmp-input::selection { background: var(--accent-glow); }
+.argus-cmp-layer { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.argus-cmp-content { color: var(--fg-0); }
+.argus-cmp-content .is-mark { color: var(--fg-3); }
+/* Bold by shadow, not weight: a heavier face is wider and would shift the caret. */
+.argus-cmp-content .is-bold { text-shadow: 0.45px 0 0 currentColor; }
+/* Plex ships no italic face here, so this is a synthetic slant of the same glyphs. */
+.argus-cmp-content .is-italic { font-style: italic; }
+.argus-cmp-content span.is-code { background: var(--bg-inset); border-radius: 3px; box-shadow: 0 0 0 1px var(--bg-inset); }
+.argus-cmp-content .is-number { color: var(--accent); }
+.argus-cmp-content .is-bullet { position: relative; color: transparent; }
+.argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
+.argus-cmp-line.is-quote { color: var(--fg-2); }
+.argus-cmp-line.is-code,
+.argus-cmp-line.is-fence {
+  /* A full-width band; the matching padding keeps the text where it was. */
+  margin: 0 calc(-1 * var(--s-3));
+  padding: 0 var(--s-3);
+  background: var(--bg-inset);
+}
+.argus-cmp-line.is-fence { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-composer-meta {

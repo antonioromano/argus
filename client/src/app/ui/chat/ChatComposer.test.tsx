@@ -259,3 +259,87 @@ describe('ChatComposer — slash autocomplete', () => {
     expect(box().value).toBe('/model ');
   });
 });
+
+describe('ChatComposer — live Markdown (D2)', () => {
+  const box = () => container.querySelector('textarea')!;
+  function type(value: string, caret = value.length) {
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+      setter.call(box(), value);
+      box().setSelectionRange(caret, caret);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const key = (k: string, init: KeyboardEventInit = {}) =>
+    act(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })); });
+  const layerText = () =>
+    Array.from(container.querySelectorAll('[data-testid="composer-highlight"] > .argus-cmp-line'))
+      .map((l) => (l.textContent ?? '').replace(/\u200b/g, ''))
+      .join('\n');
+
+  it('Enter continues a list instead of sending, Enter on the empty item ends it', () => {
+    const onSubmit = render();
+    type('- one');
+    key('Enter');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(box().value).toBe('- one\n- ');
+    expect(box().selectionStart).toBe(box().value.length);
+    expect(container.querySelector('.argus-chat-hint')?.textContent).toContain('⌘Enter to send');
+    key('Enter');
+    expect(box().value).toBe('- one\n');
+    key('Enter');
+    expect(onSubmit).toHaveBeenCalledWith('- one');
+  });
+
+  it('numbered lists continue and renumber; Cmd+Enter sends from inside a list', () => {
+    const onSubmit = render();
+    type('1. a\n2. b', 4);
+    key('Enter');
+    expect(box().value).toBe('1. a\n2. \n3. b');
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith('1. a\n2. \n3. b');
+  });
+
+  it('Tab nests a list item and Shift+Tab steps it out; Tab elsewhere is left to the browser', () => {
+    render();
+    type('- a\n- b');
+    key('Tab');
+    expect(box().value).toBe('- a\n  - b');
+    key('Tab', { shiftKey: true });
+    expect(box().value).toBe('- a\n- b');
+    type('plain');
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(false);
+  });
+
+  it('Enter inside a code fence adds a line', () => {
+    const onSubmit = render();
+    type('```ts');
+    key('Enter');
+    expect(box().value).toBe('```ts\n');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('leaves Enter alone during IME composition', () => {
+    const onSubmit = render();
+    type('- è');
+    key('Enter', { isComposing: true });
+    expect(box().value).toBe('- è');
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('draws a styled copy of exactly the typed text, and sends plain Markdown', () => {
+    const onSubmit = render();
+    const src = '**bold** _it_ `code`\n- item\n\n```js\nconst x = 1;\n```';
+    type(src);
+    expect(layerText()).toBe(src);
+    expect(container.querySelector('.is-bold')?.textContent).toBe('bold');
+    expect(container.querySelector('.is-italic')?.textContent).toBe('it');
+    expect(container.querySelector('span.is-code')?.textContent).toBe('code');
+    expect(container.querySelector('.is-bullet')?.textContent).toBe('-');
+    expect(container.querySelector('.argus-cmp-line.is-code')?.textContent).toBe('const x = 1;');
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith(src);
+  });
+});
