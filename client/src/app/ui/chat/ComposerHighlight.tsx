@@ -1,11 +1,25 @@
-import { forwardRef, memo, useMemo } from 'react';
+import { forwardRef, memo, useEffect, useMemo, useState } from 'react';
 import { resolveLang } from '../../../syntax/highlighter.js';
 import { useSyntaxTokens } from '../../../syntax/useSyntax.js';
-import { composerLines, type Span } from './composerMarkdown.js';
+import { composerLines, type Line, type Span } from './composerMarkdown.js';
 
 // Each source line is one block, so line breaks match the textarea's; an
 // empty line needs a character to keep its height.
 const EMPTY = '\u200b';
+/** Over this the layer shows the text plain: parsing it on every keystroke would lag typing. */
+export const MAX_STYLED_CHARS = 20_000;
+/** Code is re-highlighted once typing pauses this long; edited lines show plain meanwhile. */
+export const CODE_HIGHLIGHT_DELAY_MS = 150;
+
+/** `value`, updated once it has stopped changing for `ms`. */
+function useSettled(value: string, ms: number): string {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
+}
 
 function spanClass(s: Span): string | undefined {
   const c: string[] = [];
@@ -20,7 +34,8 @@ function spanClass(s: Span): string | undefined {
 
 /** The lines of one fenced block, highlighted with the shared highlighter once its grammar is in. */
 function CodeLines({ lines, lang }: { lines: string[]; lang: string | null }) {
-  const code = lines.join('\n');
+  // Tokenize the settled text, not every keystroke; rows still match it line by line below.
+  const code = useSettled(lines.join('\n'), CODE_HIGHLIGHT_DELAY_MS);
   const tokens = useSyntaxTokens(code, resolveLang(lang));
   return (
     <>
@@ -46,7 +61,10 @@ function CodeLines({ lines, lang }: { lines: string[]; lang: string | null }) {
  */
 export const ComposerHighlight = memo(
   forwardRef<HTMLDivElement, { text: string }>(function ComposerHighlight({ text }, ref) {
-    const lines = useMemo(() => composerLines(text), [text]);
+    const lines = useMemo(
+      () => (text.length > MAX_STYLED_CHARS ? text.split('\n').map((t): Line => ({ kind: 'text', spans: t ? [{ text: t }] : [] })) : composerLines(text)),
+      [text],
+    );
     return (
       <div className="argus-cmp-layer" aria-hidden>
         <div ref={ref} className="argus-cmp-content" data-testid="composer-highlight">

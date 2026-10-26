@@ -45,10 +45,15 @@ describe('Enter in lists', () => {
     expect(enter('1. one\n   1. |')).toBe('1. one\n2. |');
   });
 
-  it('sends outside lists, before the marker and with a selection', () => {
+  it('replaces a selection where Enter edits', () => {
+    expect(enter('```\nfoo |bar| baz')).toBe('```\nfoo \n| baz');
+    expect(enter('- one |two|')).toBe('- one \n- |');
+  });
+
+  it('sends outside lists, before the marker and with a selection there', () => {
     expect(enter('hello|')).toBeUndefined();
     expect(enter('|- one')).toBeUndefined();
-    expect(enter('- |one|')).toBeUndefined();
+    expect(enter('|hel|lo')).toBeUndefined();
     expect(enter('-not a list|')).toBeUndefined();
   });
 
@@ -78,9 +83,14 @@ describe('Tab / Shift+Tab', () => {
     expect(tab('- a\n- |b\n- c|')).toBe('- a\n  - |b\n  - c|');
   });
 
-  it('cannot nest the first item and leaves non-list text to the browser', () => {
-    expect(tab('- a|')).toBe('- a|');
+  it('leaves Tab to the browser (focus) when nothing can move', () => {
+    expect(tab('- a|')).toBeUndefined();
+    expect(tab('- a|', true)).toBeUndefined();
     expect(tab('plain|')).toBeUndefined();
+  });
+
+  it('a selection ending at the start of a line leaves that line alone', () => {
+    expect(tab('- a\n|- b\n|- c')).toBe('- a\n|  - b\n|- c');
   });
 });
 
@@ -130,6 +140,8 @@ describe('highlight lines', () => {
     expect(inlineSpans('snake_case_name')).toEqual([{ text: 'snake_case_name' }]);
     expect(inlineSpans('2 * 3 * 4')).toEqual([{ text: '2 * 3 * 4' }]);
     expect(inlineSpans('** not bold **')).toEqual([{ text: '** not bold **' }]);
+    expect(inlineSpans('self__cache__x')).toEqual([{ text: 'self__cache__x' }]);
+    expect(inlineSpans('__init__')[1]).toEqual({ text: 'init', bold: true });
   });
 
   it('groups fenced code with its language, also while unclosed', () => {

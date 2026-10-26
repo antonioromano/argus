@@ -321,6 +321,39 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('only drops trailing blank lines on send', () => {
+    const onSubmit = render();
+    type('ends with spaces  \n  \n');
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith('ends with spaces  ');
+  });
+
+  it('applies a list edit through insertText on just the changed span (native undo)', () => {
+    render();
+    type('- one');
+    const calls: unknown[][] = [];
+    const real = document.execCommand;
+    document.execCommand = ((cmd: string, _ui: boolean, value: string) => {
+      calls.push([cmd, value, box().selectionStart, box().selectionEnd]);
+      return false; // jsdom cannot insert: the fallback still applies the edit
+    }) as typeof document.execCommand;
+    try {
+      key('Enter');
+    } finally {
+      document.execCommand = real;
+    }
+    expect(calls).toEqual([['insertText', '\n- ', 5, 5]]);
+    expect(box().value).toBe('- one\n- ');
+  });
+
+  it('shows very long text plain instead of parsing it on every keystroke', () => {
+    render();
+    const big = '**b** '.repeat(4000);
+    type(big);
+    expect(container.querySelector('.is-bold')).toBeNull();
+    expect(layerText()).toBe(big);
+  });
+
   it('leaves Enter alone during IME composition', () => {
     const onSubmit = render();
     type('- è');

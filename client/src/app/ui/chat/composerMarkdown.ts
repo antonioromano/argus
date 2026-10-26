@@ -66,11 +66,17 @@ export function inCodeFence(value: string, pos: number): boolean {
  * lines keep the outer run going, a blank line or a fence ends them.
  */
 export function renumber(value: string, pos: number): { value: string; pos: number } {
+  const r = renumberAll(value, [pos]);
+  return { value: r.value, pos: r.positions[0] };
+}
+
+/** renumber() mapping several positions through the change in one pass. */
+function renumberAll(value: string, positions: number[]): { value: string; positions: number[] } {
   const lines = value.split('\n');
   const runs = new Map<number, number>();
   let fence: string | null = null;
   let offset = 0;
-  let shift = 0;
+  const shifts = positions.map(() => 0);
   const out: string[] = [];
   for (const line of lines) {
     let next = line;
@@ -93,7 +99,9 @@ export function renumber(value: string, pos: number): { value: string; pos: numb
         if (num !== item.num) {
           const old = String(item.num);
           next = line.slice(0, indent) + num + line.slice(indent + old.length);
-          if (offset + indent < pos) shift += next.length - line.length;
+          positions.forEach((pos, i) => {
+            if (offset + indent < pos) shifts[i] += next.length - line.length;
+          });
         }
       } else if (item) {
         runs.delete(indent);
@@ -102,7 +110,7 @@ export function renumber(value: string, pos: number): { value: string; pos: numb
     out.push(next);
     offset += line.length + 1;
   }
-  return { value: out.join('\n'), pos: pos + shift };
+  return { value: out.join('\n'), positions: positions.map((pos, i) => pos + shifts[i]) };
 }
 
 function withRenumber(value: string, caret: number): Edit {
@@ -116,7 +124,10 @@ function withRenumber(value: string, caret: number): Edit {
  * a new line keeping the indent. Undefined when Enter should send.
  */
 export function enterEdit(value: string, selStart: number, selEnd: number): Edit | undefined {
-  if (selStart !== selEnd) return undefined;
+  // A selection where Enter edits is replaced by the new line, as in any editor.
+  if (selStart !== selEnd) {
+    return enterContinues(value, selStart) ? enterEdit(value.slice(0, selStart) + value.slice(selEnd), selStart, selStart) : undefined;
+  }
   const { start, end } = lineBounds(value, selStart);
   const line = value.slice(start, end);
   if (inCodeFence(value, selStart)) {
@@ -170,12 +181,15 @@ function outdentLine(value: string, start: number, line: string, item: Item, car
 
 /**
  * Tab / Shift+Tab on list items (every item the selection touches): nest
- * under the item above, or step out a level. Undefined when no selected line
- * is a list item, so Tab keeps moving focus elsewhere.
+ * under the item above, or step out a level. Undefined when nothing can move
+ * (no list item selected, the first item, a top-level Shift+Tab), so Tab keeps
+ * moving focus elsewhere.
  */
 export function indentEdit(value: string, selStart: number, selEnd: number, outdent: boolean): Edit | undefined {
   const first = lineBounds(value, selStart).start;
-  const last = lineBounds(value, selEnd).end;
+  // A selection ending at the start of a line does not touch that line.
+  const lastPos = selEnd > selStart && value[selEnd - 1] === '\n' ? selEnd - 1 : selEnd;
+  const last = lineBounds(value, lastPos).end;
   const lines = value.slice(first, last).split('\n');
   if (!lines.some((l) => itemOf(l))) return undefined;
   let v = value;
@@ -201,9 +215,9 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
     }
     at += next.length + 1;
   }
-  const r = renumber(v, s);
-  const r2 = renumber(v, e);
-  return { value: r.value, selStart: r.pos, selEnd: r2.pos };
+  if (v === value) return undefined;
+  const r = renumberAll(v, [s, e]);
+  return { value: r.value, selStart: r.positions[0], selEnd: r.positions[1] };
 }
 
 /** True when Enter at the caret edits (a list item or code fence) instead of sending. */
@@ -235,7 +249,7 @@ export type Line =
   /** A run of lines inside a fence, highlighted as one block. */
   | { kind: 'code'; lang: string | null; lines: string[] };
 
-const INLINE_RE = /(`+)(?!`)([\s\S]*?[^`])\1(?!`)|(\*\*|__)(?=\S)([\s\S]*?\S)\3|(?<![\w*])\*(?=[^\s*])([^*]*?[^\s*])\*(?!\*)|(?<![\w_])_(?=[^\s_])([^_]*?[^\s_])_(?![\w_])/g;
+const INLINE_RE = /(`+)(?!`)([\s\S]*?[^`])\1(?!`)|(\*\*|(?<![\w_])__)(?=\S)([\s\S]*?\S)\3(?!(?<=__)[\w_])|(?<![\w*])\*(?=[^\s*])([^*]*?[^\s*])\*(?!\*)|(?<![\w_])_(?=[^\s_])([^_]*?[^\s_])_(?![\w_])/g;
 
 /** Inline Markdown of one line (code, bold, italic, nested once), characters untouched. */
 export function inlineSpans(text: string, style: Pick<Span, 'bold' | 'italic'> = {}): Span[] {

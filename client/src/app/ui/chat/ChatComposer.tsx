@@ -172,14 +172,14 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const trackCaret = () => {
     const box = ref.current;
     if (!box) return;
-    const on = box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart);
-    if (on !== continues) setContinues(on);
+    // Always set: two calls in one event would compare against a stale `continues`.
+    setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
   };
 
   const send = () => {
     if (!canSend) return;
     // An ended list leaves an empty last line; it is not part of the message.
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/\s+$/, '')].filter((s) => s.trim()).join(' '));
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
     setContinues(false);
     revoke(attachments);
     setAttachments([]);
@@ -389,13 +389,19 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
               e.preventDefault();
               // In a list or code block Enter edits; Cmd/Ctrl+Enter always sends.
               const edit = e.metaKey || e.ctrlKey ? undefined : enterEdit(box.value, box.selectionStart, box.selectionEnd);
-              if (edit) applyEdit(box, edit);
-              else send();
+              if (!edit) {
+                send();
+                return;
+              }
+              applyEdit(box, edit);
+              // The caret is final only now: the input event saw the end of the replaced span.
+              trackCaret();
             } else if (e.key === 'Tab' && !e.altKey && !e.metaKey && !e.ctrlKey) {
               const edit = indentEdit(box.value, box.selectionStart, box.selectionEnd, e.shiftKey);
               if (!edit) return;
               e.preventDefault();
               applyEdit(box, edit);
+              trackCaret();
             }
           }}
         />
