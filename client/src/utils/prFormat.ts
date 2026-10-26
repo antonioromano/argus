@@ -35,6 +35,12 @@ export function prRef(url: string, number = prNumberOf(url)): string {
   return repo ? `${repo}#${number}` : `#${number}`;
 }
 
+/** Compact `repo #n` for the Inspector's rows (prRef keeps the owner, for tooltips and toasts). */
+export function prShortRef(url: string, number = prNumberOf(url)): string {
+  const repo = prRepo(url);
+  return repo ? `${repo.split('/')[1]} #${number}` : `#${number}`;
+}
+
 export function describePr(pr: SessionPr): string {
   const ci = pr.state === 'open' || pr.state === 'draft' ? ` · ${PR_CI_LABEL[pr.ci]}` : '';
   return `${PR_STATE_LABEL[pr.state]} PR ${prRef(pr.url, pr.number)}${ci} — click to open on GitHub`;

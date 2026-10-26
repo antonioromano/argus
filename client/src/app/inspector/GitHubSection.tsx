@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { ExternalLink, FileDiff, GitPullRequest, GitPullRequestArrow } from 'lucide-react';
-import type { SessionPrEntry } from '@argus/shared';
-import { Icon, pushToast } from '../../components/primitives/index.js';
+import { useRef, useState } from 'react';
+import type { MouseEvent as RMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { CircleCheck, ExternalLink, Eye, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MessageSquareWarning, MoreHorizontal, TriangleAlert } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import type { PrReviewDecision, SessionPrEntry } from '@argus/shared';
+import { AlertSheet, ContextMenu, Icon, IconButton, Tooltip, pushToast } from '../../components/primitives/index.js';
+import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
-  PR_CI_LABEL, PR_REVIEW_LABEL, formatLines, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prTone, summarizePrStates, worstCi,
+  PR_CI_LABEL, PR_REVIEW_LABEL, formatLines, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prShortRef, prTone, summarizePrStates, worstCi,
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
@@ -20,13 +24,23 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
   return session.pr ? [{ url: session.pr.url, pr: session.pr, folderBranch: false, linked: false }] : [];
 }
 
+/** Review decisions shown as an icon in the row's right column (none → nothing). */
+const REVIEW_ICON: Record<Exclude<PrReviewDecision, 'none'>, LucideIcon> = {
+  approved: CircleCheck,
+  changes_requested: MessageSquareWarning,
+  review_required: Eye,
+};
+
 /**
- * One PR: state glyph, title (opens it on GitHub), `owner/repo#n`, then a
- * status line — state, checks (C1: a dot that opens the CI monitoring
- * popover), review, mergeability, "this branch". When
- * `ctx.onOpenPrDiff` is wired (B4) the row offers its changes — C2: as
- * `+N −M`, the lines the PR adds and deletes ("Changed files" until gh says).
- * A draft offers Mark ready (C3).
+ * One PR, in at most three lines: the title (one line, opens it on GitHub);
+ * `repo #n` and — when `ctx.onOpenPrDiff` is wired (B4) — its changes as
+ * `+N −M` (C2; "Changed files" until gh reports the counts); then, only when
+ * there is something to say, "this branch" and Mark ready for a draft (C3).
+ * The state is the glyph's color (its tooltip names it); the review and
+ * conflict icons sit under it. On the right: the `…` menu (C4: also on
+ * right-click), with the checks dot that opens the CI monitoring popover (C1)
+ * under it. Every cell is placed on the row's grid, so whatever sits under
+ * the glyph or the `…` is centered on the second line.
  */
 export function PrRow({ entry, sessionId, ctx, onChanged }: {
   entry: SessionPrEntry;
@@ -37,8 +51,14 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
 }) {
   const { pr, url } = entry;
   const ref = prRef(url, pr?.number);
+  const shortRef = prShortRef(url, pr?.number);
   const live = !!pr && isLivePr(pr);
+  const review = live && pr.review && pr.review !== 'none' ? pr.review : null;
+  const conflicting = live && pr.mergeable === 'conflicting';
   const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const moreRef = useRef<HTMLSpanElement>(null);
+  const [confirmDraft, setConfirmDraft] = useState(false);
 
   /** C3: `gh pr ready` / `--undo` through the server; gh's error becomes a toast. */
   const setReady = async (ready: boolean) => {
@@ -53,55 +73,119 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
       onChanged?.();
     }
   };
+  // C4: the row's `…` menu (also on right-click).
+  const copyLink = () => {
+    navigator.clipboard.writeText(url).then(
+      () => pushToast('Link copied', 'ok'),
+      (err: unknown) => pushToast(err instanceof Error ? err.message : String(err), 'danger'),
+    );
+  };
+  const menuItems: ContextMenuEntry[] = [
+    { id: 'open', label: 'Open on GitHub', icon: ExternalLink, onClick: () => openExternal(url) },
+    { id: 'copy', label: 'Copy link', icon: Link, onClick: copyLink },
+    ...(ctx.onOpenPrDiff ? [{ id: 'changes', label: 'View changes', icon: FileDiff, onClick: () => ctx.onOpenPrDiff!(sessionId, entry) }] : []),
+    ...(pr?.state === 'open' ? [
+      { separator: true as const },
+      { id: 'draft', label: 'Convert to draft', icon: GitPullRequestDraft, disabled: busy, onClick: () => setConfirmDraft(true) },
+    ] : []),
+  ];
+  const openMenuAt = (e: RMouseEvent<HTMLElement>) => {
+    // React bubbles events out of portals: a right-click inside this row's own
+    // menu, CI popover or confirm sheet lands here too, but not in the row's DOM.
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY });
+  };
+  // The `…` button toggles: ContextMenu leaves presses on its anchor to it.
+  const toggleMenuUnder = (e: RMouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu((m) => (m ? null : { x: r.left, y: r.bottom + 4 }));
+  };
+
   return (
-    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined}>
-      <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} className="argus-inspector-pr-glyph" />
-      <div className="argus-inspector-pr-body">
-        <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`Open ${ref} on GitHub`}>
-          <span className="argus-inspector-pr-title">{pr?.title || ref}</span>
-          <Icon icon={ExternalLink} size={11} strokeWidth={1.8} className="argus-inspector-pr-ext" />
-        </button>
-        {pr?.title && <span className="argus-inspector-pr-ref">{ref}</span>}
+    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined} onContextMenu={openMenuAt}>
+      <span className="argus-inspector-pr-glyph" role="img" aria-label={pr ? `${PR_STATE_LABEL[pr.state]} pull request` : 'Pull request'} title={pr ? PR_STATE_LABEL[pr.state] : undefined}>
+        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} />
+      </span>
+      {/* Under the state glyph, one per line: the review icon (in line with
+          the second line), then the conflict icon. */}
+      {review && (
+        <Tooltip content={PR_REVIEW_LABEL[review]}>
+          <span className="argus-inspector-pr-flag argus-inspector-pr-review" data-review={review} role="img" aria-label={PR_REVIEW_LABEL[review]} tabIndex={0}>
+            <Icon icon={REVIEW_ICON[review]} size={12} strokeWidth={1.8} />
+          </span>
+        </Tooltip>
+      )}
+      {conflicting && (
+        <Tooltip content="merge conflicts">
+          <span className="argus-inspector-pr-flag argus-inspector-pr-conflict" data-row={review ? 3 : 2} role="img" aria-label="merge conflicts" tabIndex={0}>
+            <Icon icon={TriangleAlert} size={12} strokeWidth={1.8} />
+          </span>
+        </Tooltip>
+      )}
+      <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`${pr?.title ? `${pr.title}\n` : ''}Open ${ref} on GitHub`}>
+        <span className="argus-inspector-pr-title">{pr?.title || shortRef}</span>
+        <Icon icon={ExternalLink} size={11} strokeWidth={1.8} className="argus-inspector-pr-ext" />
+      </button>
+      {(pr?.title || ctx.onOpenPrDiff) && (
+        <div className="argus-inspector-pr-line">
+          {pr?.title && <span className="argus-inspector-pr-ref" title={ref}>{shortRef}</span>}
+          {ctx.onOpenPrDiff && (
+            <button type="button" className="argus-inspector-pr-files" title="Open changes" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
+              {pr?.additions !== undefined && pr.deletions !== undefined ? (
+                <span className="argus-inspector-pr-lines" aria-label={`${formatLines(pr.additions)} lines added, ${formatLines(pr.deletions)} lines deleted`}>
+                  <span className="argus-inspector-pr-add">+{formatLines(pr.additions)}</span>
+                  <span className="argus-inspector-pr-del">−{formatLines(pr.deletions)}</span>
+                </span>
+              ) : (
+                <>
+                  <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
+                  Changed files
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      )}
+      {(!pr || entry.folderBranch || pr.state === 'draft') && (
         <div className="argus-inspector-pr-meta">
-          {pr ? (
-            <span className="argus-inspector-pr-badge" data-tone={prTone(pr)}>{PR_STATE_LABEL[pr.state]}</span>
-          ) : (
-            <span>status unavailable</span>
-          )}
-          {live && <CiStatus pr={pr} />}
-          {live && pr.review && pr.review !== 'none' && (
-            <span className="argus-inspector-pr-review" data-review={pr.review}>{PR_REVIEW_LABEL[pr.review]}</span>
-          )}
-          {live && pr.mergeable === 'conflicting' && <span className="argus-inspector-pr-conflict">conflicts</span>}
+          {!pr && <span>status unavailable</span>}
           {entry.folderBranch && (
             <span title={pr?.branch ? `PR of ${pr.branch}, the branch checked out in the session folder` : undefined}>this branch</span>
           )}
+          {pr?.state === 'draft' && (
+            <button
+              type="button"
+              className="argus-inspector-pr-ready"
+              disabled={busy}
+              aria-busy={busy || undefined}
+              title={`Mark ${ref} ready for review`}
+              onClick={() => { void setReady(true); }}
+            >
+              <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
+              {busy ? 'Marking ready…' : 'Mark ready'}
+            </button>
+          )}
         </div>
-        {pr?.state === 'draft' && (
-          <button
-            type="button"
-            className="argus-inspector-pr-ready"
-            disabled={busy}
-            aria-busy={busy || undefined}
-            title={`Mark ${ref} ready for review`}
-            onClick={() => { void setReady(true); }}
-          >
-            <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
-            {busy ? 'Marking ready…' : 'Mark ready'}
-          </button>
-        )}
-        {ctx.onOpenPrDiff && (
-          <button type="button" className="argus-inspector-pr-files" title="Open changes" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
-            <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
-            {pr?.additions !== undefined && pr.deletions !== undefined ? (
-              <span className="argus-inspector-pr-lines" aria-label={`${formatLines(pr.additions)} lines added, ${formatLines(pr.deletions)} lines deleted`}>
-                <span className="argus-inspector-pr-add">+{formatLines(pr.additions)}</span>
-                <span className="argus-inspector-pr-del">−{formatLines(pr.deletions)}</span>
-              </span>
-            ) : 'Changed files'}
-          </button>
-        )}
-      </div>
+      )}
+      <span ref={moreRef} className="argus-inspector-pr-more" data-open={menu ? '' : undefined}>
+        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" tooltip={false} onClick={toggleMenuUnder} />
+      </span>
+      {/* Under the `…`, in line with the second line: the checks dot. */}
+      {live && <span className="argus-inspector-pr-ci-cell"><CiStatus pr={pr} /></span>}
+      {/* Portalled: the inspector column scrolls and clips. */}
+      {menu && createPortal(<ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} anchor={moreRef} />, document.body)}
+      {confirmDraft && createPortal(
+        <AlertSheet
+          isOpen
+          title="Convert to draft?"
+          message={`${ref} goes back to draft. Reviewers aren’t asked for a review until it is marked ready again.`}
+          confirmLabel="Convert to draft"
+          onConfirm={() => { setConfirmDraft(false); void setReady(false); }}
+          onCancel={() => setConfirmDraft(false)}
+        />,
+        document.body,
+      )}
     </li>
   );
 }

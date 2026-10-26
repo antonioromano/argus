@@ -22,28 +22,29 @@ const OUTCOMES: { key: keyof PrCheckCounts; label: string; ci: string }[] = [
 ];
 
 /**
- * C1: the checks state of one open PR row — a status dot and label whose
- * tooltip sums the checks up. Clicking opens the CI monitoring popover. A PR
- * with no checks shows a plain label.
+ * C1: the checks state of one open PR row — a status dot whose tooltip sums
+ * the checks up. Clicking opens the CI monitoring popover. A PR with no
+ * checks shows nothing.
  */
 export function CiStatus({ pr }: { pr: SessionPr }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
-  if (pr.ci === 'none') return <span className="argus-inspector-ci" data-ci="none">{PR_CI_LABEL.none}</span>;
+  if (pr.ci === 'none') return null;
   return (
     <>
       <button
         ref={anchor}
         type="button"
-        className="argus-inspector-ci argus-inspector-ci-btn"
+        className="argus-inspector-ci-btn"
         data-ci={pr.ci}
         title={ciSummary(pr)}
+        aria-label={ciSummary(pr)}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
+        style={{ width: scaledPx(16), height: scaledPx(16) }}
       >
         <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />
-        {PR_CI_LABEL[pr.ci]}
       </button>
       {open && <CiPopover pr={pr} anchor={anchor} onClose={() => setOpen(false)} />}
     </>
@@ -75,7 +76,8 @@ export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefO
     const { width, height } = el.getBoundingClientRect();
     const below = window.innerHeight - a.bottom - GAP - EDGE;
     const up = height > below && a.top - GAP - EDGE > below;
-    el.style.left = `${Math.max(EDGE, Math.min(a.left, window.innerWidth - width - EDGE))}px`;
+    // Right-aligned with the dot: it sits in the row's right column.
+    el.style.left = `${Math.max(EDGE, Math.min(a.right - width, window.innerWidth - width - EDGE))}px`;
     el.style.top = `${Math.max(EDGE, up ? a.top - GAP - height : a.bottom + GAP)}px`;
     el.style.visibility = 'visible';
   });

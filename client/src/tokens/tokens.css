@@ -83,7 +83,7 @@
   /* Pull request: merged (GitHub's purple) */
   --pr-merged: #C5B4FC;
   /* Pull request: open, not mergeable yet (checks running, review or mergeability pending) */
-  --pr-pending: #8FA3BF;
+  --pr-pending: #7FA6E3;
 
   /* Syntax (chrome-only — terminals/xterm own their own) */
   --syn-kw: #C5B4FC;
@@ -166,7 +166,7 @@
   /* Pull request: merged (GitHub's purple) */
   --pr-merged: #6E40B8;
   /* Pull request: open, not mergeable yet (checks running, review or mergeability pending) */
-  --pr-pending: #4A5D78;
+  --pr-pending: #2F5C9E;
 
   --syn-kw: #6E40B8;
   --syn-str: #0C6E43;

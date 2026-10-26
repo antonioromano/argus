@@ -255,16 +255,30 @@ describe('GitHub section', () => {
     const gh = sectionEl('github');
     expect(getSessionPrs).toHaveBeenCalledWith('s1');
     const rows = Array.from(gh.querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
-    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-title')!.textContent)).toEqual(['Speed up', 'Add login', 'Fix lib', 'o/gone#3']);
-    expect(rows[0].textContent).toContain('o/r#9');
-    expect(rows[0].textContent).toContain('checks failing');
-    expect(rows[0].textContent).toContain('changes requested');
-    expect(rows[0].textContent).toContain('conflicts');
+    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-title')!.textContent)).toEqual(['Speed up', 'Add login', 'Fix lib', 'gone #3']);
+    // Compact `repo #n`; the full owner/repo#n is its tooltip.
+    const refEl = rows[0].querySelector('.argus-inspector-pr-ref')!;
+    expect(refEl.textContent).toBe('r #9');
+    expect(refEl.getAttribute('title')).toBe('o/r#9');
+    // The state is the glyph (named for screen readers), not a label.
+    expect(rows.map((r) => r.querySelector('.argus-inspector-pr-glyph')!.getAttribute('aria-label'))).toEqual(['Open pull request', 'Open pull request', 'Merged pull request', 'Pull request']);
+    expect(rows[0].textContent).not.toContain('Open');
+    // Under the `…`: the checks dot. Under the state glyph: review / conflict icons.
+    expect(rows[0].querySelector('.argus-inspector-pr-ci-cell .argus-inspector-ci-btn')!.getAttribute('data-ci')).toBe('failure');
+    const flags = Array.from(rows[0].querySelectorAll<HTMLElement>(':scope > .argus-inspector-pr-flag'));
+    expect(flags.map((f) => f.getAttribute('aria-label'))).toEqual(['changes requested', 'merge conflicts']);
+    expect(flags[1].getAttribute('data-row')).toBe('3');
+    // The tooltip says what the icon means.
+    vi.useFakeTimers();
+    act(() => { flags[0].dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); flags[0].dispatchEvent(new MouseEvent('mouseenter')); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    vi.useRealTimers();
+    expect(Array.from(document.body.querySelectorAll('[role="tooltip"]')).map((t) => t.textContent)).toContain('changes requested');
     expect(rows[0].textContent).not.toContain('this branch');
     expect(rows[1].textContent).toContain('this branch');
-    expect(rows[1].textContent).toContain('approved');
-    expect(rows[2].textContent).toContain('Merged');
-    expect(rows[2].textContent).not.toContain('checks');
+    expect(rows[1].querySelector('.argus-inspector-pr-review')!.getAttribute('aria-label')).toBe('approved');
+    // Merged: its checks and review no longer matter.
+    expect(rows[2].querySelector('.argus-inspector-ci-btn')).toBeNull();
     expect(rows[3].textContent).toContain('status unavailable');
     // Tone: failing checks / conflicts amber, mergeable green, merged purple, unknown untinted.
     expect(rows.map((r) => r.getAttribute('data-tone'))).toEqual(['blocked', 'ready', 'merged', null]);
@@ -281,6 +295,94 @@ describe('GitHub section', () => {
     await render({ ctx: ctx({ onOpenPrDiff }) });
     act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-files')!.click());
     expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
+  });
+
+  it('C4: the row menu opens on GitHub, copies the link, views changes; only an open PR converts to draft', async () => {
+    const open = { url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true };
+    const merged = { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [open, merged] });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const onOpenPrDiff = vi.fn();
+    await render({ ctx: ctx({ onOpenPrDiff }) });
+    const rows = () => Array.from(sectionEl('github').querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
+    const openMenu = (row: HTMLElement) => act(() => row.querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!.click());
+    const items = () => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]'));
+    const pick = (label: string) => act(() => items().find((b) => b.textContent === label)!.click());
+
+    expect(rows()[0].querySelector('.argus-inspector-pr-more button')!.getAttribute('aria-label')).toBe('More actions for o/r#42');
+    // Self-explanatory glyph: no hover tooltip.
+    vi.useFakeTimers();
+    act(() => { rows()[0].querySelector('.argus-inspector-pr-more button')!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    act(() => { vi.advanceTimersByTime(1000); });
+    vi.useRealTimers();
+    expect(Array.from(document.body.querySelectorAll('[role="tooltip"]')).map((t) => t.textContent)).not.toContain('More actions for o/r#42');
+    openMenu(rows()[0]);
+    expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes', 'Convert to draft']);
+    pick('Open on GitHub');
+    expect(openExternal).toHaveBeenCalledWith(FOLDER.url);
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+
+    openMenu(rows()[0]);
+    await act(async () => { items().find((b) => b.textContent === 'Copy link')!.click(); });
+    expect(writeText).toHaveBeenCalledWith(FOLDER.url);
+    expect(pushToast).toHaveBeenCalledWith('Link copied', 'ok');
+
+    openMenu(rows()[0]);
+    pick('View changes');
+    expect(onOpenPrDiff).toHaveBeenCalledWith('s1', open);
+
+    // Merged: nothing to convert. Right-click opens the menu too.
+    act(() => { rows()[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })); });
+    expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes']);
+    const menuEl = () => document.body.querySelector<HTMLElement>('[role="menu"]');
+    const placed = menuEl()!.style.cssText;
+    // A right-click inside the (portalled) menu doesn't re-open or move it.
+    act(() => { items()[0].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 300, clientY: 300 })); });
+    expect(menuEl()!.style.cssText).toBe(placed);
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+
+    // The `…` button toggles its menu: a second press closes it.
+    const more = rows()[0].querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!;
+    act(() => more.click());
+    expect(menuEl()).not.toBeNull();
+    act(() => {
+      more.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      more.click();
+    });
+    expect(menuEl()).toBeNull();
+  });
+
+  it('C4: a right-click inside the CI popover does not open the row menu', async () => {
+    const checks = { counts: { passed: 0, failed: 1, pending: 0, skipped: 0 }, failed: [{ name: 'lint' }] };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [{ url: FAILING.url, pr: { ...FAILING, checks }, folderBranch: false, linked: true }] });
+    await render();
+    act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-ci-btn')!.click());
+    const pop = document.body.querySelector<HTMLElement>('.argus-ci-popover')!;
+    act(() => { pop.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 5, clientY: 5 })); });
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it('C4: Convert to draft asks first, then runs the C3 route with ready: false', async () => {
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [{ url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true }] });
+    setSessionPrReady.mockResolvedValue({ pr: { ...FOLDER, state: 'draft' } });
+    await render();
+    const openMenu = () => act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!.click());
+    const pickDraft = () => act(() => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent === 'Convert to draft')!.click());
+    const sheetButton = (label: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === label)!;
+
+    openMenu();
+    pickDraft();
+    expect(document.body.textContent).toContain('Convert to draft?');
+    act(() => sheetButton('Cancel').click());
+    expect(document.body.textContent).not.toContain('Convert to draft?');
+    expect(setSessionPrReady).not.toHaveBeenCalled();
+
+    openMenu();
+    pickDraft();
+    await act(async () => { sheetButton('Convert to draft').click(); });
+    expect(setSessionPrReady).toHaveBeenCalledWith('s1', FOLDER.url, false);
+    expect(pushToast).toHaveBeenCalledWith('o/r#42 is a draft again', 'ok');
   });
 
   it('C3: a draft PR offers Mark ready; it runs gh through the server, toasts, and reads the list again', async () => {
