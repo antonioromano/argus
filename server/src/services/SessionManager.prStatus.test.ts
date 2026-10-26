@@ -278,3 +278,21 @@ test('setSessionPrReady: gh errors map to 503 / 504 / 502', async () => {
     assert.deepEqual(await f.sm.setSessionPrReady('a', PR.url, true), { ok: false, status, error: `gh ${kind}` });
   }
 });
+
+test('setSessionPrReady: a sweep running during the write is followed by one more', async () => {
+  const f = fixture();
+  let release!: () => void;
+  let gate = true;
+  (f.sm as any).prService.forFolder = async (folder: string) => {
+    f.lookups.push(folder);
+    if (gate) { gate = false; await new Promise<void>((r) => { release = r; }); }
+    return PR;
+  };
+  const sweep = f.sm.pollPrStatus();
+  await new Promise((r) => setImmediate(r));
+  await f.sm.setSessionPrReady('a', PR.url, true);
+  const before = f.lookups.length;
+  release();
+  await sweep;
+  assert.ok(f.lookups.length > before, 'the chips were swept again after the running sweep');
+});

@@ -503,6 +503,46 @@ describe('PrStatusService.setReady (C3)', () => {
     assert.equal(calls.filter((c) => c.args[1] === 'view').length, 2);
   });
 
+  test('a caller after the write does not join a lookup that started before it', async () => {
+    let release!: () => void;
+    let first = true;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        if (first) { first = false; await new Promise<void>((r) => { release = r; }); return prJson({ isDraft: true }); }
+        return prJson({ isDraft: false });
+      },
+    });
+    const stale = service.forUrl(url, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    const fresh = service.forUrl(url, '/repo');
+    assert.equal((await fresh)?.state, 'open', 'a new lookup, not the pre-write one');
+    release();
+    assert.equal((await stale)?.state, 'draft');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open', 'the stale answer finishing late did not overwrite the cache');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 2);
+  });
+
+  test('a write to one PR still lets an unrelated lookup in flight cache its answer', async () => {
+    const other = 'https://github.com/o/r/pull/8';
+    let release!: () => void;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        await new Promise<void>((r) => { release = r; });
+        return prJson({ number: 8, url: other });
+      },
+    });
+    const pending = service.forUrl(other, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    release();
+    await pending;
+    await service.forUrl(other, '/repo');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 1, 'cached: the write was about another PR');
+  });
+
   test('maps gh missing / logged out and timeouts', async () => {
     const mk = (err: unknown) => new PrStatusService({ runGh: async () => { throw err; }, headInfo: async () => null, defaultBranch: async () => 'main' });
     await assert.rejects(mk({ code: 'ENOENT' }).setReady(url, '/r', true), (e: unknown) => e instanceof PrWriteError && e.kind === 'unavailable');

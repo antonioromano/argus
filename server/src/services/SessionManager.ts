@@ -474,6 +474,8 @@ export class SessionManager {
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
   private prPollRunning = false;
+  /** A sweep was asked for while one was running (see pollPrStatus). */
+  private prPollAgain = false;
   private prPollTimer: ReturnType<typeof setInterval> | null = null;
   private prKickTimer: ReturnType<typeof setTimeout> | null = null;
   /** Beta F8 (`betaWorktreeLifecycle`): stale-worktree marker. Off ⇒ never computed. */
@@ -864,6 +866,15 @@ export class SessionManager {
   }
 
   /**
+   * C3: refresh the header chips after a write. A sweep already running may
+   * have read the PR before the write, so it is followed by one more.
+   */
+  private sweepPrsAfterWrite(): void {
+    if (this.prPollRunning) this.prPollAgain = true;
+    else void this.pollPrStatus();
+  }
+
+  /**
    * One PR/CI sweep: one lookup per folder per tick (sessions sharing a folder
    * share it; the service further dedupes per gitRoot+branch), bounded like the
    * git poll. Emits `session:pr` only when a session's answer changed.
@@ -902,6 +913,10 @@ export class SessionManager {
       });
     } finally {
       this.prPollRunning = false;
+    }
+    if (this.prPollAgain) {
+      this.prPollAgain = false;
+      await this.pollPrStatus();
     }
   }
 
@@ -984,7 +999,7 @@ export class SessionManager {
       return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
     }
     const pr = await found.service.forUrl(found.url, found.folder);
-    void this.pollPrStatus();
+    this.sweepPrsAfterWrite();
     return { ok: true, pr };
   }
 
