@@ -735,6 +735,7 @@ function DesktopInner() {
     usageMeter,
     prStatusEnabled: config?.showPrStatus !== false,
     onOpenDiff: (id, file) => guardForeign(id, () => openMaximized({ kind: 'diff', sessionId: id, file })),
+    onOpenPrDiff: (id, pr) => guardForeign(id, () => openMaximized({ kind: 'prdiff', sessionId: id, pr })),
   }), [usageMeter, config?.showPrStatus, guardForeign, openMaximized]);
   const renderInspector = (placement: 'column' | 'sidebar') => (
     <SessionInspector

@@ -8,6 +8,7 @@ import {
   persistView,
   type AppViewState,
 } from './useAppView.js';
+import { isMaximizedPanel } from '../types.js';
 
 const base: AppViewState = {
   view: 'focus',
@@ -40,6 +41,13 @@ describe('openMaximizedState (entry remembers origin)', () => {
     const opened = openMaximizedState(dashboard, { kind: 'explorer', sessionId: 's2' });
     const switched = openMaximizedState(opened, { kind: 'diff', sessionId: 's2' });
     expect(switched.maximizedOrigin).toBe('dashboard');
+  });
+  it('a PR diff opens like the other tool windows, carrying the PR it shows (B4)', () => {
+    const pr = { url: 'https://github.com/o/r/pull/7', pr: null, folderBranch: false, linked: true };
+    const next = openMaximizedState(dashboard, { kind: 'prdiff', sessionId: 's2', pr });
+    expect(next.sidePanel).toEqual({ kind: 'prdiff', sessionId: 's2', pr, maximized: true });
+    expect(next.view).toBe('focus');
+    expect(dismissMaximizedState(next).view).toBe('dashboard');
   });
 });
 
@@ -126,5 +134,24 @@ describe('side panel transitions', () => {
     const maxed = maximizeSidePanelState(base, { kind: 'diff', sessionId: 's1' });
     const next = toggleSidePanelState(maxed, 'diff', 's2');
     expect(next.sidePanel).toEqual({ kind: 'diff', sessionId: 's2' });
+  });
+});
+
+describe('isMaximizedPanel (Focus renders it full-view, Esc closes it)', () => {
+  const pr = { url: 'https://github.com/o/r/pull/7', pr: null, folderBranch: false, linked: true };
+  it('is true for every maximizable kind opened full-view, including the PR diff', () => {
+    for (const panel of [
+      { kind: 'diff', sessionId: 's1' },
+      { kind: 'explorer', sessionId: 's1' },
+      { kind: 'prdiff', sessionId: 's1', pr },
+    ] as const) {
+      expect(isMaximizedPanel(openMaximizedState(base, panel).sidePanel)).toBe(true);
+    }
+  });
+  it('is false for docked panels, kinds without a full-view, and no panel', () => {
+    expect(isMaximizedPanel({ kind: 'diff', sessionId: 's1' })).toBe(false);
+    expect(isMaximizedPanel({ kind: 'terminal', sessionId: 's1' })).toBe(false);
+    expect(isMaximizedPanel({ kind: 'activity', sessionId: 's1' })).toBe(false);
+    expect(isMaximizedPanel(null)).toBe(false);
   });
 });

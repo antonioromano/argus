@@ -1,6 +1,7 @@
 import parseDiff, { type File as DiffFile } from 'parse-diff';
 
-export type DiffSource = 'unstaged' | 'staged' | 'untracked';
+/** `readonly`: a diff that isn't the working tree's (a commit, a PR) — no staging, editing or reverting. */
+export type DiffSource = 'unstaged' | 'staged' | 'untracked' | 'readonly';
 
 /**
  * One changed file, parsed exactly once. `parsed` is threaded straight into the
