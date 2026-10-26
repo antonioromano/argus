@@ -1552,6 +1552,34 @@ body {
 .argus-chat-code-lang { padding: 2px 10px; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
 .md-preview .argus-chat-code pre { margin: 0; border: none; border-radius: 0; background: transparent; padding: 10px 12px; }
 .argus-chat-code code { font-family: var(--font-mono); font-size: 0.88em; color: var(--fg-0); white-space: pre; }
+
+/* Shared syntax highlighting (src/syntax). Spans in code blocks; diff rows use
+   the CSS Custom Highlight API so their text stays one node. Colors are the
+   --syn-* tokens, so a theme switch is just a repaint. */
+.argus-syn-kw { color: var(--syn-kw); }
+.argus-syn-str { color: var(--syn-str); }
+.argus-syn-num { color: var(--syn-num); }
+.argus-syn-fn { color: var(--syn-fn); }
+.argus-syn-cm { color: var(--syn-cm); font-style: italic; }
+.argus-syn-pn { color: var(--syn-pn); }
+::highlight(argus-syn-kw) { color: var(--syn-kw); }
+::highlight(argus-syn-str) { color: var(--syn-str); }
+::highlight(argus-syn-num) { color: var(--syn-num); }
+::highlight(argus-syn-fn) { color: var(--syn-fn); }
+::highlight(argus-syn-cm) { color: var(--syn-cm); }
+::highlight(argus-syn-pn) { color: var(--syn-pn); }
+.argus-md-code {
+  margin: var(--s-3) 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-inset);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: var(--code-font-size, 13px);
+}
+.argus-md-code code { font: inherit; white-space: pre; }
 .argus-chat-chip {
   display: inline-flex;
   align-items: center;

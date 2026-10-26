@@ -1,9 +1,12 @@
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { File as DiffFile } from 'parse-diff';
 import { SplitDiff } from '../overlays/SplitDiff.js';
 import { BlockGutterCell } from '../overlays/diff/BlockGutterCell.js';
 import { type ChangeBlock, segmentChangeBlocks } from '../overlays/diff/changeBlocks.js';
 import { isNavModifier, onDiffCodeClick, useNavModifierHeld } from '../overlays/diff/diffSymbolNav.js';
+import { useDiffSyntax } from '../../syntax/diffSyntax.js';
+import { useSynRanges } from '../../syntax/useSyntax.js';
+import type { SynToken } from '../../syntax/highlighter.js';
 
 export interface DiffViewerSelectionProps {
   isChecked: (filePath: string, hash: string) => boolean;
@@ -22,6 +25,13 @@ export interface DiffViewerEditStatus {
 
 function lineText(c: { content: string }): string {
   return c.content.replace(/^[+\- ]/, '');
+}
+
+/** A span whose single text child is painted with `tokens` (CSS highlights). */
+function SynSpan({ tokens, children, ...rest }: { tokens?: SynToken[]; children: ReactNode } & React.HTMLAttributes<HTMLSpanElement>) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useSynRanges(ref, tokens);
+  return <span ref={ref} {...rest}>{children}</span>;
 }
 
 /**
@@ -51,6 +61,8 @@ export function DiffViewer({
   editStatus?: DiffViewerEditStatus;
 }) {
   const navHeld = useNavModifierHeld();
+  // Split mode highlights inside SplitDiff; only unified needs it here.
+  const syntax = useDiffSyntax(mode === 'unified' ? target : null, path);
   const nav =
     navFilePath && onOpenInEditor
       ? { filePath: navFilePath, held: navHeld, open: onOpenInEditor }
@@ -81,6 +93,7 @@ export function DiffViewer({
           }
           edit={editProps}
           nav={nav}
+          path={path}
         />
       ) : (
         target.chunks.map((chunk, i) => {
@@ -156,7 +169,8 @@ export function DiffViewer({
                     {isAdd ? '+' : isDel ? '−' : ' '}
                   </span>
                   {canEdit ? (
-                    <span
+                    <SynSpan
+                      tokens={syntax?.get(c)}
                       contentEditable
                       suppressContentEditableWarning
                       spellCheck={false}
@@ -170,11 +184,11 @@ export function DiffViewer({
                       style={{ outline: 'none', flex: 1, minWidth: 0, ...(navCursor ?? {}) }}
                     >
                       {lineText(c)}
-                    </span>
+                    </SynSpan>
                   ) : (
-                    <span {...(navProps ?? {})} style={navCursor ?? undefined}>
+                    <SynSpan tokens={syntax?.get(c)} {...(navProps ?? {})} style={navCursor ?? undefined}>
                       {lineText(c)}
-                    </span>
+                    </SynSpan>
                   )}
                 </div>
               );

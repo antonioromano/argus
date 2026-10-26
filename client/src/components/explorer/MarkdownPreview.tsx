@@ -2,12 +2,10 @@ import { useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSlug from 'rehype-slug';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useTheme } from '../../context/theme-context.js';
 import { resolveMarkdownLink, dispatchMarkdownLink } from '../../utils/resolveMarkdownLink.js';
 import { symbolNavContext } from './registerSymbolProviders.js';
 import { openExternal } from '../../utils/openExternal.js';
+import { HighlightedCode } from '../../syntax/HighlightedCode.js';
 
 interface MarkdownPreviewProps {
   source: string;
@@ -18,8 +16,6 @@ interface MarkdownPreviewProps {
 }
 
 export function MarkdownPreview({ source, filePath, rootPath }: MarkdownPreviewProps) {
-  const { isDark } = useTheme();
-  const codeStyle = isDark ? oneDark : oneLight;
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   return (
@@ -89,19 +85,11 @@ export function MarkdownPreview({ source, filePath, rootPath }: MarkdownPreviewP
               );
             }
             return (
-              <SyntaxHighlighter
-                language={langMatch?.[1] ?? 'text'}
-                style={codeStyle}
-                PreTag="div"
-                customStyle={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--code-font-size, 13px)',
-                  borderRadius: 'var(--r-2)',
-                  margin: 'var(--s-3) 0',
-                }}
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
+              <pre className="argus-md-code">
+                <code>
+                  <HighlightedCode code={String(children).replace(/\n$/, '')} language={langMatch[1]} />
+                </code>
+              </pre>
             );
           },
         }}

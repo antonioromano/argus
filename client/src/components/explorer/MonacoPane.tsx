@@ -5,10 +5,13 @@ import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbo
 import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
-import { PAINT_SURFACES } from '../../tokens/paint.js';
+import { attachShikiToMonaco, monacoThemeName } from '../../syntax/monacoShiki.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
 loader.config({ monaco });
+// Argus themes (backgrounds + syntax from the paint tokens) and the shared
+// Shiki grammars, wired once before any editor mounts.
+attachShikiToMonaco(monaco);
 
 interface MonacoPaneProps {
   value: string;
@@ -97,19 +100,6 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
     });
   };
 
-  // Register the Argus editor theme once. Background is the --bg-inset paint
-  // token so the editor well lines up with the inset terminals/code wells.
-  useEffect(() => {
-    monaco.editor.defineTheme('argus-dark', {
-      base: 'vs-dark',
-      inherit: true,
-      rules: [],
-      colors: {
-        'editor.background': PAINT_SURFACES.dark.inset,
-      },
-    });
-  }, []);
-
   // Record the reveal request and drain it. revealNonce covers jumps to the same
   // line (search re-hit, cross-file open to an identical line number) that a bare
   // revealLine dependency would swallow. drainReveal handles the case where the
@@ -163,7 +153,7 @@ export function MonacoPane({ value, onChange, language, theme, readOnly, onSaveS
       path={path}
       keepCurrentModel
       language={language}
-      theme={theme === 'dark' ? 'argus-dark' : 'vs'}
+      theme={monacoThemeName(theme)}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monacoInstance) => {
         editorRef.current = editor;
