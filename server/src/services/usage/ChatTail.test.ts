@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, echoCommandOf, parseChatEntry, parseChatLine } from './ChatTail.js';
+import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, echoCommandOf, parseChatEntry, parseChatLine, parseSkillListing } from './ChatTail.js';
 
 const user = (uuid: string, content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', uuid, timestamp: '2026-10-23T16:00:00.000Z', message: { role: 'user', content }, ...extra });
@@ -304,5 +304,58 @@ test('ChatTail: a recorded command settles an echo of its prefix, and only one e
   await t.poll();
   assert.deepEqual(t.drain().removed, ['echo-1'], 'the oldest matching echo');
   assert.deepEqual(t.messages.filter((m) => m.echo).map((m) => m.id), ['echo-2']);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+// The skill listing Claude Code attaches to a conversation (2.1.310), trimmed.
+const listing = (content: string, isInitial = true) =>
+  JSON.stringify({
+    parentUuid: 'p',
+    isSidechain: false,
+    type: 'attachment',
+    attachment: { type: 'skill_listing', content, skillCount: 3, isInitial, names: [] },
+    uuid: 'sk-1',
+    timestamp: '2026-10-26T10:00:00.000Z',
+  });
+
+test('parseSkillListing reads `- name: description` rows', () => {
+  const content =
+    '- pr-review: Review a GitHub PR (by URL, number, or repo+number) for correctness bugs — output in italiano + GH-ready comments\n' +
+    '- anthropic-skills:docx: Use this skill whenever the user wants Word documents\n' +
+    'TRIGGER — a continuation line of the previous description\n' +
+    '- init: \n' +
+    `- long: ${'x'.repeat(400)}`;
+  const out = parseSkillListing(content);
+  assert.deepEqual(out.slice(0, 3), [
+    { name: 'pr-review', description: 'Review a GitHub PR (by URL, number, or repo+number) for correctness bugs — output in italiano + GH-ready comments' },
+    { name: 'anthropic-skills:docx', description: 'Use this skill whenever the user wants Word documents' },
+    { name: 'init' },
+  ]);
+  assert.ok(out[3].description!.length <= 160 && out[3].description!.endsWith('…'));
+});
+
+test('ChatTail reports the skill listing on a reset and when it changes', async () => {
+  const f = tmpFile();
+  writeFileSync(f, user('u1', 'hi') + '\n' + listing('- pr-review: Review a PR\n- push-updates: Push') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  let d = t.drain();
+  assert.deepEqual(d.commands?.map((c) => c.name), ['pr-review', 'push-updates']);
+  assert.deepEqual(d.messages.map((m) => m.id), ['u1'], 'the listing is not a message');
+
+  appendFileSync(f, user('u2', 'more') + '\n');
+  await t.poll();
+  assert.equal(t.drain().commands, undefined, 'unchanged listing is not resent');
+
+  // A later, non-initial listing adds to it.
+  appendFileSync(f, listing('- deploy: Ship it\n- pr-review: Review a PR, v2', false) + '\n');
+  await t.poll();
+  d = t.drain();
+  assert.deepEqual(d.commands?.map((c) => [c.name, c.description]), [
+    ['push-updates', 'Push'],
+    ['deploy', 'Ship it'],
+    ['pr-review', 'Review a PR, v2'],
+  ]);
+  assert.equal(parseChatLine(listing('- x: y').replace('"isSidechain":false', '"isSidechain":true')), undefined);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });

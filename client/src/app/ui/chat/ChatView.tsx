@@ -9,6 +9,7 @@ import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
+import { ChatPromptCard } from './ChatPromptCard.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -20,7 +21,7 @@ interface ChatViewProps {
   socket: TypedSocket;
   /** Switch this session back to the terminal (the fallback when the chat can't be read). */
   onShowTerminal: () => void;
-  /** Rendered between the messages and the composer (e.g. the waiting reply buttons). */
+  /** Rendered between the messages and the composer. */
   aboveComposer?: ReactNode;
   autoFocus?: boolean;
 }
@@ -123,6 +124,23 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           </button>
         )}
       </div>
+      {session.status === 'waiting' && (
+        <div className="argus-chat-prompt-wrap">
+          <ChatPromptCard
+            // A new menu (other options) starts with no stale error.
+            key={JSON.stringify(session.promptOptions ?? null)}
+            prompt={session.lastPrompt}
+            options={session.promptOptions}
+            onAnswer={(key) =>
+              new Promise<string | null>((resolve) => {
+                socket.emit('session:answer', { sessionId: session.id, key }, (r) => resolve(r.ok ? null : r.error));
+              })
+            }
+            onCancel={() => socket.emit('session:input', { sessionId: session.id, data: '\x1b' })}
+            onShowTerminal={onShowTerminal}
+          />
+        </div>
+      )}
       {aboveComposer}
       <ChatComposer
         status={session.status}
@@ -135,6 +153,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         }
         model={session.usage?.model}
         modelSet={chat.modelSet}
+        commands={chat.commands}
         onUploadImage={(file) => api.uploadChatImage(session.id, file)}
         onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}

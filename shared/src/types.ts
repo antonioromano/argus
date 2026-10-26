@@ -765,6 +765,13 @@ export type ChatBlock =
   | { kind: 'notice'; text: string }
   | { kind: 'unknown'; type: string };
 
+/** A skill or custom slash command Claude Code offers, for the composer's `/` autocomplete. */
+export interface ChatCommand {
+  /** Without the slash: `pr-review`, `plugin:skill`. */
+  name: string;
+  description?: string;
+}
+
 /** One transcript entry rendered by the Chat view. */
 export interface ChatMessage {
   /** The entry's uuid (unique per JSONL line), or `echo-…` for a local echo. */
@@ -807,6 +814,11 @@ export interface ChatUpdate {
   modelSet?: string;
   /** Ids of earlier messages to drop (a local echo the transcript caught up with). */
   removed?: string[];
+  /**
+   * Skills and custom commands, from the transcript's skill listing (built-in
+   * commands are the client's own list). Same delivery as `permissionMode`.
+   */
+  commands?: ChatCommand[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */

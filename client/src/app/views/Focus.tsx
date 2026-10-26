@@ -456,7 +456,6 @@ export function Focus({
                   session={active}
                   socket={socket}
                   onShowTerminal={() => setViewMode('terminal')}
-                  aboveComposer={active.status === 'waiting' ? <ReplyBar session={active} onSend={sendInput} /> : undefined}
                   autoFocus
                 />
               )}

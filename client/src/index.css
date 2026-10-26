@@ -2192,6 +2192,7 @@ body {
   flex-shrink: 0;
 }
 .argus-chat-composer-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   max-width: 920px;
@@ -2203,6 +2204,52 @@ body {
   border-radius: var(--r-3);
   transition: border-color var(--dur-fast);
 }
+/* `/` autocomplete, opening upwards over the messages. */
+.argus-chat-slash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--s-1));
+  z-index: 5;
+  max-height: calc(280px * var(--ui-scale));
+  overflow-y: auto;
+  padding: var(--s-1);
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+}
+.argus-chat-slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: 4px var(--s-2);
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+.argus-chat-slash-item.is-active { background: var(--bg-3); }
+.argus-chat-slash-name { flex: none; font-family: var(--font-mono); font-size: var(--t-sm); color: var(--accent); }
+.argus-chat-slash-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-xs); color: var(--fg-2); }
+/* What Claude Code waits for (ChatPromptCard). */
+.argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
+.argus-chat-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--accent-edge);
+  border-radius: var(--r-3);
+  background: var(--accent-bg);
+}
+.argus-chat-prompt-head { display: flex; align-items: flex-start; gap: var(--s-2); color: var(--accent); }
+.argus-chat-prompt-text { color: var(--fg-0); font-size: var(--t-sm); overflow-wrap: anywhere; }
+.argus-chat-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.argus-chat-prompt-error { font-size: var(--t-xs); color: var(--danger); }
 .argus-chat-composer-box:focus-within,
 .argus-chat-composer-box.is-drag-over { border-color: var(--accent-edge); }
 .argus-chat-composer textarea {

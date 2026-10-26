@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatMessage } from '@argus/shared';
+import type { ChatBlock, ChatCommand, ChatMessage } from '@argus/shared';
 import { JsonlTailer, nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.js';
 
 /**
@@ -124,6 +124,24 @@ const MAX_MODE = 40;
 /** Claude Code's reply to `/model`: "Set model to `Opus 5.5` and saved as …". */
 const MODEL_SET_RE = /<local-command-stdout>Set model to `?([^`<\n]{1,60}?)`?(?: and |<|\n|$)/;
 
+/** Skills kept from a listing; descriptions are clipped to their first line. */
+export const MAX_CHAT_COMMANDS = 400;
+const MAX_COMMAND_DESC = 160;
+const SKILL_ROW_RE = /^- ([\w][\w:.-]{0,79}): ?(.*)$/;
+
+/** `- name: description` rows of a skill listing (continuation lines ignored). */
+export function parseSkillListing(content: string): ChatCommand[] {
+  const out: ChatCommand[] = [];
+  for (const row of content.split('\n')) {
+    const m = SKILL_ROW_RE.exec(row);
+    if (!m) continue;
+    const desc = m[2].trim();
+    out.push(desc ? { name: m[1], description: desc.length > MAX_COMMAND_DESC ? `${desc.slice(0, MAX_COMMAND_DESC - 1)}…` : desc } : { name: m[1] });
+    if (out.length >= MAX_CHAT_COMMANDS) break;
+  }
+  return out;
+}
+
 /** What one transcript line contributes to the chat. */
 export interface ChatLine {
   message?: ChatMessage;
@@ -131,6 +149,9 @@ export interface ChatLine {
   permissionMode?: string;
   /** Model display name from a `/model` reply. */
   modelSet?: string;
+  /** Skills from a skill listing; `skillsReplace` when it is a full (initial) listing. */
+  skills?: ChatCommand[];
+  skillsReplace?: boolean;
 }
 
 /**
@@ -139,7 +160,8 @@ export interface ChatLine {
  */
 export function parseChatLine(text: string): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
-  if (!text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
+  const listing = text.includes('"skill_listing"');
+  if (!listing && !text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
   let entry: any;
   try {
     entry = JSON.parse(text);
@@ -147,6 +169,11 @@ export function parseChatLine(text: string): ChatLine | undefined {
     return undefined;
   }
   if (!entry || typeof entry !== 'object') return undefined;
+  if (listing && entry.type === 'attachment') {
+    const a = entry.attachment;
+    if (entry.isSidechain || a?.type !== 'skill_listing' || typeof a.content !== 'string') return undefined;
+    return { skills: parseSkillListing(a.content), skillsReplace: a.isInitial !== false };
+  }
   const type = entry.type;
   if (type !== 'user' && type !== 'assistant' && type !== 'system') return undefined;
   if (entry.isSidechain) return undefined;
@@ -221,6 +248,8 @@ export interface ChatDelta {
   permissionMode?: string;
   /** Same, for the model set with `/model`. */
   modelSet?: string;
+  /** Same, for the skills and custom commands. */
+  commands?: ChatCommand[];
   /** Ids of echoes sent earlier that the transcript has now recorded (appends only). */
   removed?: string[];
 }
@@ -261,6 +290,8 @@ export class ChatTail extends JsonlTailer {
   permissionMode?: string;
   /** Latest model set with `/model`. */
   modelSet?: string;
+  /** Skills and custom commands, from the latest listing(s). */
+  commands?: ChatCommand[];
   private fresh: ChatMessage[] = [];
   private wasReset = true;
   /** The permission mode or the /model pick changed since the last drain. */
@@ -284,6 +315,12 @@ export class ChatTail extends JsonlTailer {
     }
     if (parsed.modelSet && parsed.modelSet !== this.modelSet) {
       this.modelSet = parsed.modelSet;
+      this.modeChanged = true;
+    }
+    if (parsed.skills) {
+      // A later, non-initial listing adds skills; same-named ones are replaced.
+      const keep = parsed.skillsReplace ? [] : (this.commands ?? []).filter((c) => !parsed.skills!.some((s) => s.name === c.name));
+      this.commands = keep.concat(parsed.skills).slice(0, MAX_CHAT_COMMANDS);
       this.modeChanged = true;
     }
     const m = parsed.message;
@@ -337,6 +374,7 @@ export class ChatTail extends JsonlTailer {
     this.removedIds = [];
     this.permissionMode = undefined;
     this.modelSet = undefined;
+    this.commands = undefined;
     this.wasReset = true;
     return had;
   }
@@ -349,6 +387,7 @@ export class ChatTail extends JsonlTailer {
     if (this.wasReset || this.modeChanged) {
       if (this.permissionMode) delta.permissionMode = this.permissionMode;
       if (this.modelSet) delta.modelSet = this.modelSet;
+      if (this.commands) delta.commands = this.commands;
     }
     if (!this.wasReset && this.removedIds.length) delta.removed = this.removedIds;
     this.fresh = [];

@@ -188,3 +188,61 @@ describe('ChatComposer — pasted images', () => {
   });
 });
 
+
+describe('ChatComposer — slash autocomplete', () => {
+  const box = () => container.querySelector('textarea')!;
+  function type(value: string) {
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+      setter.call(box(), value);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const key = (k: string) => act(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); });
+  const items = () => Array.from(container.querySelectorAll('[role="option"]')).map((o) => o.querySelector('.argus-chat-slash-name')?.textContent);
+
+  function renderWith(commands = [{ name: 'pr-review', description: 'Review a PR' }]) {
+    const onSubmit = vi.fn();
+    act(() => root.render(<ChatComposer status="idle" onSubmit={onSubmit} commands={commands} />));
+    return onSubmit;
+  }
+
+  it('opens on a leading slash with built-ins and skills, filtered as you type', () => {
+    renderWith();
+    type('/');
+    expect(items()).toContain('/model');
+    expect(items()).toContain('/pr-review');
+    type('/pr');
+    expect(items()[0]).toBe('/pr-review');
+    type('/pr-review 64');
+    expect(items()).toEqual([]);
+  });
+
+  it('arrows move, Tab/Enter complete, Enter on a full command sends', () => {
+    const onSubmit = renderWith();
+    type('/res');
+    expect(items()).toEqual(['/resume']);
+    key('Enter');
+    expect(box().value).toBe('/resume ');
+    expect(onSubmit).not.toHaveBeenCalled();
+    type('/co');
+    key('ArrowDown');
+    expect(container.querySelector('[aria-selected="true"]')?.textContent).toContain('/config');
+    key('Tab');
+    expect(box().value).toBe('/config ');
+    type('/cost');
+    key('Enter');
+    expect(onSubmit).toHaveBeenCalledWith('/cost');
+  });
+
+  it('Esc closes the list until the text changes; a click completes', () => {
+    renderWith();
+    type('/mo');
+    key('Escape');
+    expect(items()).toEqual([]);
+    type('/mod');
+    const opt = container.querySelector('[role="option"]')!;
+    act(() => { opt.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); });
+    expect(box().value).toBe('/model ');
+  });
+});

@@ -140,6 +140,32 @@ describe('ChatView', () => {
     expect(container.querySelector('.argus-chat-msg.is-echo')?.getAttribute('data-role')).toBe('user');
   });
 
+  it('shows what Claude waits for with the real menu options, answered through session:answer', () => {
+    const { socket, fire, emitted } = fakeSocket();
+    render(session({ status: 'waiting', lastPrompt: 'Do you want to run git push?', promptOptions: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }] }), socket);
+    fire('session:chat', update({}));
+    const card = container.querySelector('[data-testid="chat-prompt"]')!;
+    expect(card.textContent).toContain('Do you want to run git push?');
+    const buttons = Array.from(card.querySelectorAll('button')).map((b) => b.textContent);
+    expect(buttons).toEqual(['1 · Yes', '2 · No']);
+    act(() => (card.querySelector('button') as HTMLButtonElement).click());
+    expect(emitted.find(([ev]) => ev === 'session:answer')?.[1]).toEqual({ sessionId: 's1', key: '1' });
+    expect(container.textContent).not.toContain('y · accept');
+  });
+
+  it('a menu without readable options (a picker) points to the terminal instead', () => {
+    const { socket, fire, emitted } = fakeSocket();
+    const { onShowTerminal } = render(session({ status: 'waiting' }), socket);
+    fire('session:chat', update({}));
+    const card = container.querySelector('[data-testid="chat-prompt"]')!;
+    expect(card.textContent).toContain('showing a menu in the terminal');
+    const [open, cancel] = Array.from(card.querySelectorAll('button'));
+    act(() => open.click());
+    expect(onShowTerminal).toHaveBeenCalled();
+    act(() => cancel.click());
+    expect(emitted).toContainEqual(['session:input', { sessionId: 's1', data: '\x1b' }]);
+  });
+
   it('appends new messages and ignores other sessions', () => {
     const { socket, fire } = fakeSocket();
     render(session(), socket);

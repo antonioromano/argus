@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
-import type { SessionStatus } from '@argus/shared';
+import type { ChatCommand, SessionStatus } from '@argus/shared';
 import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
   PICKABLE_MODELS,
   PICKABLE_MODES,
   isImagePath,
+  slashQuery,
+  slashSuggestions,
   modelLabel,
   permissionModeLabel,
 } from '../../../utils/chat.js';
@@ -27,6 +29,8 @@ interface ChatComposerProps {
   onUploadImage?: (file: File) => Promise<string>;
   /** Show the terminal (the full /model picker lives there). */
   onShowTerminal?: () => void;
+  /** Skills and custom commands for the `/` autocomplete (built-ins are always offered). */
+  commands?: ChatCommand[];
   autoFocus?: boolean;
 }
 
@@ -77,7 +81,7 @@ type Menu = { kind: 'mode' | 'model'; x: number; y: number };
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -87,6 +91,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const [picked, setPicked] = useState<{ id: string; set?: string; model?: string } | null>(null);
   if (picked && (picked.set !== modelSet || picked.model !== model)) setPicked(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  // `/` autocomplete: the highlighted row, and the text it was closed at with Esc.
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashClosedAt, setSlashClosedAt] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Latest attachments for the unmount cleanup (their blob URLs).
   const attachmentsRef = useRef(attachments);
@@ -106,6 +113,16 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
   const canSend = !exited && !uploading && (text.trim().length > 0 || ready.length > 0);
+  const query = slashClosedAt === text ? null : slashQuery(text, text.length);
+  const suggestions = query === null ? [] : slashSuggestions(query, commands);
+  const slashOpen = suggestions.length > 0 && !exited;
+  const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
+  const complete = (c: ChatCommand) => {
+    setText(`/${c.name} `);
+    setSlashIndex(0);
+    ref.current?.focus();
+  };
+
   const send = () => {
     if (!canSend) return;
     onSubmit([formatPathsForPty(ready.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
@@ -212,6 +229,29 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           addFiles(e.dataTransfer.files);
         }}
       >
+        {slashOpen && (
+          <div className="argus-chat-slash" id="argus-chat-slash" role="listbox" aria-label="Slash commands">
+            {suggestions.map((c) => (
+              <div
+                key={c.name}
+                id={`argus-chat-slash-${c.name}`}
+                role="option"
+                aria-selected={c === active}
+                className={`argus-chat-slash-item${c === active ? ' is-active' : ''}`}
+                // mousedown, not click: the textarea keeps focus.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  complete(c);
+                }}
+                onMouseEnter={() => setSlashIndex(suggestions.indexOf(c))}
+                ref={c === active ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined}
+              >
+                <span className="argus-chat-slash-name">/{c.name}</span>
+                {c.description && <span className="argus-chat-slash-desc">{c.description}</span>}
+              </div>
+            ))}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="argus-chat-attachments" aria-label="Attached files">
             {attachments.map((a) => (
@@ -242,7 +282,15 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           disabled={exited}
           placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
           aria-label="Message"
-          onChange={(e) => setText(e.target.value)}
+          role="combobox"
+          aria-expanded={slashOpen}
+          aria-controls="argus-chat-slash"
+          aria-autocomplete="list"
+          aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
+          onChange={(e) => {
+            setText(e.target.value);
+            setSlashIndex(0);
+          }}
           onPaste={(e) => {
             // A screenshot on the clipboard is only bytes: upload it to get a path.
             const images = Array.from(e.clipboardData.files).filter(isImageFile);
@@ -251,6 +299,27 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             upload(images, 'Pasted image');
           }}
           onKeyDown={(e) => {
+            if (slashOpen && active && !e.nativeEvent.isComposing) {
+              const move = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+              if (move) {
+                e.preventDefault();
+                const i = suggestions.indexOf(active);
+                setSlashIndex((i + move + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setSlashClosedAt(text);
+                return;
+              }
+              // Tab always completes; Enter completes unless the command is typed in full (then it sends).
+              const typedInFull = text.slice(1).toLowerCase() === active.name.toLowerCase();
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.altKey && !typedInFull)) {
+                e.preventDefault();
+                complete(active);
+                return;
+              }
+            }
             if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               send();
