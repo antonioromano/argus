@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { ExternalLink, FileDiff, GitPullRequest, GitPullRequestArrow } from 'lucide-react';
+import type { MouseEvent as RMouseEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { ExternalLink, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MoreHorizontal } from 'lucide-react';
 import type { SessionPrEntry } from '@argus/shared';
-import { Icon, pushToast } from '../../components/primitives/index.js';
+import { AlertSheet, ContextMenu, Icon, IconButton, pushToast } from '../../components/primitives/index.js';
+import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
@@ -26,7 +29,8 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
  * popover), review, mergeability, "this branch". When
  * `ctx.onOpenPrDiff` is wired (B4) the row offers its changes — C2: as
  * `+N −M`, the lines the PR adds and deletes ("Changed files" until gh says).
- * A draft offers Mark ready (C3).
+ * A draft offers Mark ready (C3). The `…` button (or a right-click) opens the
+ * row's menu (C4): open, copy link, view changes, convert an open PR to draft.
  */
 export function PrRow({ entry, sessionId, ctx, onChanged }: {
   entry: SessionPrEntry;
@@ -39,6 +43,8 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   const ref = prRef(url, pr?.number);
   const live = !!pr && isLivePr(pr);
   const [busy, setBusy] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmDraft, setConfirmDraft] = useState(false);
 
   /** C3: `gh pr ready` / `--undo` through the server; gh's error becomes a toast. */
   const setReady = async (ready: boolean) => {
@@ -53,8 +59,33 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
       onChanged?.();
     }
   };
+  // C4: the row's `…` menu (also on right-click).
+  const copyLink = () => {
+    navigator.clipboard.writeText(url).then(
+      () => pushToast('Link copied', 'ok'),
+      (err: unknown) => pushToast(err instanceof Error ? err.message : String(err), 'danger'),
+    );
+  };
+  const menuItems: ContextMenuEntry[] = [
+    { id: 'open', label: 'Open on GitHub', icon: ExternalLink, onClick: () => openExternal(url) },
+    { id: 'copy', label: 'Copy link', icon: Link, onClick: copyLink },
+    ...(ctx.onOpenPrDiff ? [{ id: 'changes', label: 'View changes', icon: FileDiff, onClick: () => ctx.onOpenPrDiff!(sessionId, entry) }] : []),
+    ...(pr?.state === 'open' ? [
+      { separator: true as const },
+      { id: 'draft', label: 'Convert to draft', icon: GitPullRequestDraft, disabled: busy, onClick: () => setConfirmDraft(true) },
+    ] : []),
+  ];
+  const openMenuAt = (e: RMouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY });
+  };
+  const openMenuUnder = (e: RMouseEvent<HTMLButtonElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ x: r.left, y: r.bottom + 4 });
+  };
+
   return (
-    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined}>
+    <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined} onContextMenu={openMenuAt}>
       <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} className="argus-inspector-pr-glyph" />
       <div className="argus-inspector-pr-body">
         <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`Open ${ref} on GitHub`}>
@@ -102,6 +133,22 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
           </button>
         )}
       </div>
+      <span className="argus-inspector-pr-more" data-open={menu ? '' : undefined}>
+        <IconButton icon={MoreHorizontal} label={`More actions for ${ref}`} size="sm" onClick={openMenuUnder} />
+      </span>
+      {/* Portalled: the inspector column scrolls and clips. */}
+      {menu && createPortal(<ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />, document.body)}
+      {confirmDraft && createPortal(
+        <AlertSheet
+          isOpen
+          title="Convert to draft?"
+          message={`${ref} goes back to draft. Reviewers aren’t asked for a review until it is marked ready again.`}
+          confirmLabel="Convert to draft"
+          onConfirm={() => { setConfirmDraft(false); void setReady(false); }}
+          onCancel={() => setConfirmDraft(false)}
+        />,
+        document.body,
+      )}
     </li>
   );
 }

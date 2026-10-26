@@ -283,6 +283,62 @@ describe('GitHub section', () => {
     expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
   });
 
+  it('C4: the row menu opens on GitHub, copies the link, views changes; only an open PR converts to draft', async () => {
+    const open = { url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true };
+    const merged = { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [open, merged] });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const onOpenPrDiff = vi.fn();
+    await render({ ctx: ctx({ onOpenPrDiff }) });
+    const rows = () => Array.from(sectionEl('github').querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
+    const openMenu = (row: HTMLElement) => act(() => row.querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!.click());
+    const items = () => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menu"] [role="menuitem"]'));
+    const pick = (label: string) => act(() => items().find((b) => b.textContent === label)!.click());
+
+    expect(rows()[0].querySelector('.argus-inspector-pr-more button')!.getAttribute('aria-label')).toBe('More actions for o/r#42');
+    openMenu(rows()[0]);
+    expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes', 'Convert to draft']);
+    pick('Open on GitHub');
+    expect(openExternal).toHaveBeenCalledWith(FOLDER.url);
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+
+    openMenu(rows()[0]);
+    await act(async () => { items().find((b) => b.textContent === 'Copy link')!.click(); });
+    expect(writeText).toHaveBeenCalledWith(FOLDER.url);
+    expect(pushToast).toHaveBeenCalledWith('Link copied', 'ok');
+
+    openMenu(rows()[0]);
+    pick('View changes');
+    expect(onOpenPrDiff).toHaveBeenCalledWith('s1', open);
+
+    // Merged: nothing to convert. Right-click opens the menu too.
+    act(() => { rows()[1].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })); });
+    expect(items().map((b) => b.textContent)).toEqual(['Open on GitHub', 'Copy link', 'View changes']);
+  });
+
+  it('C4: Convert to draft asks first, then runs the C3 route with ready: false', async () => {
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [{ url: FOLDER.url, pr: FOLDER, folderBranch: true, linked: true }] });
+    setSessionPrReady.mockResolvedValue({ pr: { ...FOLDER, state: 'draft' } });
+    await render();
+    const openMenu = () => act(() => sectionEl('github').querySelector<HTMLButtonElement>('.argus-inspector-pr-more button')!.click());
+    const pickDraft = () => act(() => Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((b) => b.textContent === 'Convert to draft')!.click());
+    const sheetButton = (label: string) => Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find((b) => b.textContent === label)!;
+
+    openMenu();
+    pickDraft();
+    expect(document.body.textContent).toContain('Convert to draft?');
+    act(() => sheetButton('Cancel').click());
+    expect(document.body.textContent).not.toContain('Convert to draft?');
+    expect(setSessionPrReady).not.toHaveBeenCalled();
+
+    openMenu();
+    pickDraft();
+    await act(async () => { sheetButton('Convert to draft').click(); });
+    expect(setSessionPrReady).toHaveBeenCalledWith('s1', FOLDER.url, false);
+    expect(pushToast).toHaveBeenCalledWith('o/r#42 is a draft again', 'ok');
+  });
+
   it('C3: a draft PR offers Mark ready; it runs gh through the server, toasts, and reads the list again', async () => {
     const DRAFT = { ...FOLDER, state: 'draft' as const };
     getSessionPrs.mockResolvedValue({ enabled: true, prs: [

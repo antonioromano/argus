@@ -1326,7 +1326,7 @@ body {
 }
 .argus-inspector-prrow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto; /* glyph, body, C4's `…` */
   column-gap: var(--s-2);
   padding: var(--s-3) 0;
   min-width: 0;
@@ -1335,6 +1335,12 @@ body {
 .argus-inspector-prrow:last-child { padding-bottom: 0; }
 .argus-inspector-prrow + .argus-inspector-prrow { border-top: 1px solid var(--line-1); }
 .argus-inspector-pr-glyph { margin-top: 2px; color: var(--fg-3); }
+/* C4: quiet until the row is hovered or the button has focus. */
+.argus-inspector-pr-more { align-self: start; display: inline-flex; margin-top: -2px; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-prrow:hover .argus-inspector-pr-more,
+.argus-inspector-pr-more:focus-within,
+.argus-inspector-pr-more[data-open] { opacity: 1; }
+@media (hover: none) { .argus-inspector-pr-more { opacity: 1; } }
 .argus-inspector-pr-body { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
 .argus-inspector-pr {
   all: unset;
