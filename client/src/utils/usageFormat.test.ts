@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_CONFIG, type AppConfig, type SessionUsage } from '@argus/shared';
 import {
   describeUsage,
-  friendlyModel,
   effectiveWindow,
   formatResetIn,
+  formatResetPhrase,
   formatTokens,
   meterAgent,
   normalizeParts,
+  planWindowLabel,
+  planWindowKey,
   usageLevel,
   usageMeterView,
   worstLevel,
@@ -89,15 +91,23 @@ describe('usageFormat', () => {
   });
 });
 
-describe('friendlyModel', () => {
-  it.each([
-    ['claude-opus-5-5', 'Opus 5.5'],
-    ['claude-sonnet-4-5-20250929', 'Sonnet 4.5'],
-    ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
-    ['claude-haiku-4-5[1m]', 'Haiku 4.5'],
-    ['claude-fable-5-1', 'Fable 5.1'],
-    ['gpt-5.5', 'gpt-5.5'],
-  ])('%s → %s', (model, want) => {
-    expect(friendlyModel(model)).toBe(want);
+describe('plan window labels and resets', () => {
+  it('names a window by its length', () => {
+    expect(planWindowLabel(300)).toBe('Session limit');
+    expect(planWindowLabel(10_080)).toBe('Weekly limit');
+    expect(planWindowLabel(43_200)).toBe('30-day limit');
+    expect(planWindowLabel(undefined)).toBe('Plan limit');
+    expect(planWindowKey(300)).toBe('5h');
+    expect(planWindowKey(10_080)).toBe('7d');
+    expect(planWindowKey(undefined)).toBe('plan');
+  });
+
+  it('spells out a reset: relative within a day, weekday and time further out', () => {
+    expect(formatResetPhrase(NOW + 30_000, NOW)).toBe('Resets in <1 min');
+    expect(formatResetPhrase(NOW + 45 * 60_000, NOW)).toBe('Resets in 45 min');
+    expect(formatResetPhrase(NOW + 3 * 3_600_000, NOW)).toBe('Resets in 3 hr');
+    expect(formatResetPhrase(NOW + (3 * 60 + 13) * 60_000, NOW)).toBe('Resets in 3 hr 13 min');
+    const sat = new Date(2026, 9, 31, 21, 0).getTime();
+    expect(formatResetPhrase(sat, sat - 3 * 86_400_000, 'en-US')).toBe('Resets Sat 9:00 PM');
   });
 });

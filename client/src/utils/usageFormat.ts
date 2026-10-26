@@ -123,20 +123,37 @@ export function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
-const MODEL_FAMILIES = ['opus', 'sonnet', 'haiku', 'fable'];
+/** Label of a plan window: "Session limit" (hours), "Weekly limit", "30-day limit", "Plan limit" when unknown. */
+export function planWindowLabel(minutes: number | undefined): string {
+  if (!minutes) return 'Plan limit';
+  if (minutes < 48 * 60) return 'Session limit';
+  if (minutes === 7 * 1440) return 'Weekly limit';
+  return `${windowName(minutes)} limit`;
+}
+
+/** Compact key of a plan window for tight spots: "5h", "7d", "plan" when unknown. */
+export function planWindowKey(minutes: number | undefined): string {
+  if (!minutes) return 'plan';
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
 
 /**
- * Human model name: "claude-opus-5-5" → "Opus 5.5", "claude-3-5-sonnet-20241022"
- * → "Sonnet 3.5", "claude-haiku-4-5[1m]" → "Haiku 4.5". Anything that isn't a
- * Claude family (e.g. "gpt-5.5") is returned as is.
+ * When a plan window resets, spelled out: "Resets in 3 hr 13 min" within a
+ * day, "Resets Sat 9:00 PM" further out (in the viewer's locale).
  */
-export function friendlyModel(model: string): string {
-  const parts = model.replace(/\[.*\]$/, '').replace(/^claude-/, '').replace(/-\d{8}$/, '').split('-');
-  const family = parts.find((p) => MODEL_FAMILIES.includes(p));
-  if (!family) return model;
-  const version = parts.filter((p) => /^\d+$/.test(p)).join('.');
-  const name = family[0].toUpperCase() + family.slice(1);
-  return version ? `${name} ${version}` : name;
+export function formatResetPhrase(resetsAt: number, now: number, locale?: string): string {
+  const ms = resetsAt - now;
+  if (ms >= 24 * 3_600_000) {
+    const at = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(resetsAt);
+    return `Resets ${at}`;
+  }
+  if (ms < 60_000) return 'Resets in <1 min';
+  const min = Math.floor(ms / 60_000);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `Resets in ${m} min`;
+  return m ? `Resets in ${h} hr ${m} min` : `Resets in ${h} hr`;
 }
 
 /** One row of the hover breakdown. */

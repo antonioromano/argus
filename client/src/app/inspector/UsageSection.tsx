@@ -1,14 +1,15 @@
 import { useEffect, useId, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { PlanWindow, SessionUsage } from '@argus/shared';
+import type { PlanUsage, PlanWindow, SessionUsage } from '@argus/shared';
 import { Icon } from '../../components/primitives/index.js';
 import {
   effectiveWindow,
-  formatResetIn,
+  formatResetPhrase,
   formatTokens,
-  friendlyModel,
   meterAgent,
   planFor,
+  planWindowLabel,
+  planWindowKey,
   usageLevel,
   windowName,
   type UsageLevel,
@@ -18,22 +19,32 @@ import { InspectorEmpty, InspectorRow } from './InspectorRow.js';
 
 const TICK_MS = 30_000;
 
-/** A labelled usage block: "47% used · 94k / 200k" over a bar, plus an optional note. */
-function Meter({ label, pct, level, amount, note }: {
+/**
+ * One limit: a head line ("Session limit · 43%" left, the reset or the token
+ * count right, wrapping under the label when the panel is narrow) over a
+ * full-width bar. The percentage sits next to its label, in the primary
+ * colour, so the value never reads as a footnote.
+ */
+function Meter({ label, labelTitle, pct, level, aside, asideTitle }: {
   label: string;
+  /** Hover text on the label, e.g. the window length. */
+  labelTitle?: string;
   pct: number;
   level: UsageLevel;
-  /** Right-hand figure, e.g. "94k / 200k". */
-  amount?: string;
-  note?: string;
+  /** Secondary right-hand text: "Resets in 3 hr 13 min", "94k / 200k". */
+  aside?: string;
+  asideTitle?: string;
 }) {
   const clamped = Math.min(100, Math.max(0, pct));
   return (
     <div className="argus-inspector-meter" data-level={level}>
-      <div className="argus-inspector-label">{label}</div>
       <div className="argus-inspector-meter-head">
-        <span className="argus-inspector-meter-pct">{Math.round(pct)}% used</span>
-        {amount && <span className="argus-inspector-meter-amount">{amount}</span>}
+        <span className="argus-inspector-meter-title">
+          <span className="argus-inspector-meter-label" title={labelTitle}>{label}</span>
+          <span className="argus-inspector-meter-sep" aria-hidden> · </span>
+          <span className="argus-inspector-meter-pct">{Math.round(pct)}%</span>
+        </span>
+        {aside && <span className="argus-inspector-meter-aside" title={asideTitle}>{aside}</span>}
       </div>
       <div
         className="argus-inspector-meter-bar"
@@ -45,14 +56,31 @@ function Meter({ label, pct, level, amount, note }: {
       >
         <i style={{ width: `${clamped}%` }} />
       </div>
-      {note && <div className="argus-inspector-sub">{note}</div>}
     </div>
   );
 }
 
-function planLabel(w: PlanWindow): string {
+/** Now, re-read every TICK_MS while `active` so resets count down. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(t);
+  }, [active]);
+  return now;
+}
+
+/** The plan windows still worth showing, past resets folded to 0%. */
+function liveWindows(plan: PlanUsage | undefined, now: number): PlanWindow[] {
+  return [plan?.primary, plan?.secondary]
+    .map((w) => effectiveWindow(w, now))
+    .filter((w): w is PlanWindow => !!w);
+}
+
+function windowTitle(w: PlanWindow): string | undefined {
   const name = windowName(w.windowMinutes);
-  return name ? `Plan · ${name}` : 'Plan';
+  return name ? `${name[0].toUpperCase()}${name.slice(1)} window` : undefined;
 }
 
 interface Share {
@@ -71,7 +99,7 @@ function sharePct(n: number, total: number): string {
 function ShareRows({ title, rows, total }: { title: string; rows: Share[]; total: number }) {
   return (
     <div className="argus-inspector-shares">
-      <div className="argus-inspector-label">{title}</div>
+      <div className="argus-inspector-shares-title">{title}</div>
       {rows.map((r) => (
         <div key={r.key} className="argus-inspector-share" data-share={r.key}>
           <span className="argus-inspector-swatch" data-share={r.key} aria-hidden />
@@ -135,28 +163,20 @@ function UsageDetails({ usage }: { usage: SessionUsage }) {
   );
 }
 
-/** Context window and plan usage together, with the model and an expandable token breakdown. */
+/** Context window and plan limits, one meter each, with an expandable token breakdown. */
 export function UsageBody({ session, ctx }: InspectorSectionProps) {
   const meter = ctx.usageMeter;
   const agent = meterAgent(session.agentType);
   const plan = meter && agent ? planFor(meter.plans, session.agentType) : undefined;
-  const [now, setNow] = useState(() => Date.now());
   // Keyed on whether there is a plan, not on its identity: every usage:plan
   // broadcast hands a new object, which would restart the tick each time.
-  const hasPlan = !!plan;
-  useEffect(() => {
-    if (!hasPlan) return;
-    const t = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(t);
-  }, [hasPlan]);
+  const now = useNow(!!plan);
 
   if (!agent) return <InspectorEmpty>This agent doesn’t report usage.</InspectorEmpty>;
   if (!meter) return <InspectorEmpty>The usage meter is off (Settings → Shell header).</InspectorEmpty>;
 
   const usage = session.usage;
-  const windows = [plan?.primary, plan?.secondary]
-    .map((w) => effectiveWindow(w, now))
-    .filter((w): w is PlanWindow => !!w);
+  const windows = liveWindows(plan, now);
   if (!usage && windows.length === 0) return <InspectorEmpty>No usage reported yet.</InspectorEmpty>;
 
   return (
@@ -166,9 +186,10 @@ export function UsageBody({ session, ctx }: InspectorSectionProps) {
           label="Context"
           pct={usage.contextPct}
           level={usageLevel(usage.contextPct, meter.warnContext)}
-          amount={usage.contextTokens !== undefined && usage.contextWindow
+          aside={usage.contextTokens !== undefined && usage.contextWindow
             ? `${formatTokens(usage.contextTokens)} / ${formatTokens(usage.contextWindow)}`
             : undefined}
+          asideTitle="Tokens in the context window / its size"
         />
       ) : usage?.contextTokens !== undefined && (
         <InspectorRow label="Context">{formatTokens(usage.contextTokens)} tokens</InspectorRow>
@@ -176,23 +197,49 @@ export function UsageBody({ session, ctx }: InspectorSectionProps) {
       {windows.map((w, i) => (
         <Meter
           key={i}
-          label={planLabel(w)}
+          label={planWindowLabel(w.windowMinutes)}
+          labelTitle={windowTitle(w)}
           pct={w.usedPct}
           level={usageLevel(w.usedPct, meter.warnPlan)}
-          note={w.reset
-            ? 'Reset — waiting for a fresh reading'
-            : w.resetsAt !== undefined ? `Resets in ${formatResetIn(w.resetsAt - now)}` : undefined}
+          aside={w.reset
+            ? 'Just reset'
+            : w.resetsAt !== undefined ? formatResetPhrase(w.resetsAt, now) : undefined}
+          asideTitle={w.reset
+            ? 'The window has reset — waiting for a fresh reading'
+            : w.resetsAt !== undefined ? new Date(w.resetsAt).toLocaleString() : undefined}
         />
       ))}
-      {usage?.model && <InspectorRow label="Model" title={usage.model}>{friendlyModel(usage.model)}</InspectorRow>}
       {usage && <UsageDetails usage={usage} />}
     </>
   );
 }
 
-/** Collapsed-header glance: the context percentage. */
+/** Collapsed-header glance: the context percentage and the fullest plan window. */
 export function UsageGlance({ session, ctx }: InspectorSectionProps) {
+  const meter = ctx.usageMeter;
+  const plan = meter && meterAgent(session.agentType) ? planFor(meter.plans, session.agentType) : undefined;
+  const now = useNow(!!plan);
+  if (!meter || !meterAgent(session.agentType)) return null;
   const pct = session.usage?.contextPct;
-  if (!ctx.usageMeter || !meterAgent(session.agentType) || pct === undefined) return null;
-  return <span data-level={usageLevel(pct, ctx.usageMeter.warnContext)}>{Math.round(pct)}% used</span>;
+  const fullest = liveWindows(plan, now).reduce<PlanWindow | undefined>((a, w) => (!a || w.usedPct > a.usedPct ? w : a), undefined);
+  if (pct === undefined && !fullest) return null;
+  // Compact so it fits the collapsed header: "ctx 47% · 5h 96%", each key dim
+  // and each value in its level colour. The narrowest panel drops "ctx".
+  return (
+    <>
+      {pct !== undefined && (
+        <span title="Context window">
+          <span className="argus-inspector-glance-key" data-key="ctx">ctx </span>
+          <span data-level={usageLevel(pct, meter.warnContext)}>{Math.round(pct)}%</span>
+        </span>
+      )}
+      {pct !== undefined && fullest && <span aria-hidden>·</span>}
+      {fullest && (
+        <span title={planWindowLabel(fullest.windowMinutes)}>
+          <span className="argus-inspector-glance-key">{planWindowKey(fullest.windowMinutes)} </span>
+          <span data-level={usageLevel(fullest.usedPct, meter.warnPlan)}>{Math.round(fullest.usedPct)}%</span>
+        </span>
+      )}
+    </>
+  );
 }

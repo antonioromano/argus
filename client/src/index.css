@@ -1203,25 +1203,38 @@ body {
 }
 .argus-inspector-branch { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; }
 
-/* Usage meters: "47% used · 94k / 200k" over a bar. */
-.argus-inspector-meter { display: flex; flex-direction: column; gap: 3px; }
+/* Usage meters: "Session limit · 43%" left, the reset (or "94k / 200k") right,
+   over a full-width bar. Label in the label colour, percentage in the primary
+   one; the right-hand text is secondary and wraps under the label when the
+   panel is too narrow for both (space-between leaves a lone item at the start). */
+.argus-inspector-meter { display: flex; flex-direction: column; gap: var(--s-1); }
 .argus-inspector-meter-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   column-gap: var(--s-2);
+  row-gap: 1px;
+  min-width: 0;
   font-variant-numeric: tabular-nums;
 }
-.argus-inspector-meter-pct { color: var(--fg-0); font-weight: 500; }
-.argus-inspector-meter-amount { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
+.argus-inspector-meter-title { min-width: 0; overflow-wrap: anywhere; }
+.argus-inspector-meter-label { color: var(--fg-1); font-weight: 500; }
+.argus-inspector-meter-sep { color: var(--fg-3); }
+.argus-inspector-meter-pct { color: var(--fg-0); font-weight: 600; }
+.argus-inspector-meter-aside { min-width: 0; font-size: var(--t-tiny); color: var(--fg-2); }
 .argus-inspector-meter[data-level='warn'] .argus-inspector-meter-pct { color: var(--warn); }
 .argus-inspector-meter[data-level='high'] .argus-inspector-meter-pct { color: var(--danger); }
 .argus-inspector-meter-bar { height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
 .argus-inspector-meter-bar > i { display: block; height: 100%; background: var(--accent); }
 .argus-inspector-meter[data-level='warn'] .argus-inspector-meter-bar > i { background: var(--warn); }
 .argus-inspector-meter[data-level='high'] .argus-inspector-meter-bar > i { background: var(--danger); }
-.argus-inspector-sub { font-size: var(--t-tiny); color: var(--fg-3); }
+/* Collapsed-header glance keys ("ctx", "5h"): dim, so the values carry the colour. */
+.argus-inspector-glance-key { color: var(--fg-3); white-space: pre; }
+/* Narrowest panel: the first figure is the context one, as the glance always showed it. */
+@container (max-width: 200px) {
+  .argus-inspector-glance-key[data-key='ctx'] { display: none; }
+}
 
 /* Usage details: a disclosure of swatch / label / tokens / share rows. */
 .argus-inspector-disclosure { border-top: 1px solid var(--line-2); padding-top: var(--s-1); }
@@ -1244,6 +1257,7 @@ body {
 .argus-inspector-disclosure-meta { margin-left: auto; font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
 .argus-inspector-disclosure-body { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-1) 0 0; }
 .argus-inspector-shares { display: flex; flex-direction: column; gap: 3px; }
+.argus-inspector-shares-title { color: var(--fg-1); font-weight: 500; }
 .argus-inspector-share {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1253,11 +1267,14 @@ body {
 }
 .argus-inspector-share-label { min-width: 0; overflow-wrap: anywhere; color: var(--fg-1); }
 .argus-inspector-share-num,
-.argus-inspector-share-pct { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); text-align: right; }
-.argus-inspector-share-pct { min-width: 3.5em; color: var(--fg-2); }
+.argus-inspector-share-pct { font-family: var(--font-mono); font-size: var(--t-tiny); text-align: right; }
+/* Same rule as the meters: the percentage reads first, the token count is secondary. */
+.argus-inspector-share-num { color: var(--fg-2); }
+.argus-inspector-share-pct { min-width: 3.5em; color: var(--fg-0); }
 @container (max-width: 200px) {
   .argus-inspector-share { grid-template-columns: auto minmax(0, 1fr) auto; }
   .argus-inspector-share-pct { display: none; }
+  .argus-inspector-share-num { color: var(--fg-1); }
 }
 .argus-inspector-swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--fg-3); }
 .argus-inspector-swatch[data-share='used'] { background: var(--accent); }
