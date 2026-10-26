@@ -1226,7 +1226,8 @@ body {
 .argus-inspector-meter[data-level='warn'] .argus-inspector-meter-pct { color: var(--warn); }
 .argus-inspector-meter[data-level='high'] .argus-inspector-meter-pct { color: var(--danger); }
 .argus-inspector-meter-bar { height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
-.argus-inspector-meter-bar > i { display: block; height: 100%; background: var(--accent); }
+/* Green below the amber threshold: the accent is amber too, and would read as a warning. */
+.argus-inspector-meter-bar > i { display: block; height: 100%; background: var(--ok); }
 .argus-inspector-meter[data-level='warn'] .argus-inspector-meter-bar > i { background: var(--warn); }
 .argus-inspector-meter[data-level='high'] .argus-inspector-meter-bar > i { background: var(--danger); }
 /* Collapsed-header glance keys ("ctx", "5h"): dim, so the values carry the colour. */
@@ -1277,7 +1278,7 @@ body {
   .argus-inspector-share-num { color: var(--fg-1); }
 }
 .argus-inspector-swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--fg-3); }
-.argus-inspector-swatch[data-share='used'] { background: var(--accent); }
+.argus-inspector-swatch[data-share='used'] { background: var(--ok); }
 .argus-inspector-swatch[data-share='free'] { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-3); }
 .argus-inspector-swatch[data-share='input'] { background: var(--info); }
 .argus-inspector-swatch[data-share='output'] { background: var(--ok); }
