@@ -757,16 +757,52 @@ export type ChatBlock =
   /** A tool call; only the tool name is shown in phase 1. */
   | { kind: 'tool'; name: string }
   | { kind: 'image' }
+  /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
+  | { kind: 'command'; name: string; args?: string }
+  /** What a local command (or `!` bash command) printed; shown collapsed. */
+  | { kind: 'output'; text: string; stream: 'stdout' | 'stderr' }
+  /** A one-line notice from Claude Code itself ("Unknown command: /foo", …). */
+  | { kind: 'notice'; text: string }
   | { kind: 'unknown'; type: string };
+
+/** A skill or custom slash command Claude Code offers, for the composer's `/` autocomplete. */
+export interface ChatCommand {
+  /** Without the slash: `pr-review`, `plugin:skill`. */
+  name: string;
+  description?: string;
+}
+
+/** One earlier Claude conversation of a session's folder (the Chat view's /resume picker). */
+export interface ClaudeConversation {
+  /** Claude Code's conversation id (`/resume <id>`). */
+  id: string;
+  /** Custom title, else the last or first prompt. */
+  title: string;
+  /** Epoch ms of the transcript's last write. */
+  updatedAt: number;
+  /** The conversation the session is in now. */
+  current?: boolean;
+}
+
+export interface ClaudeConversationsResponse {
+  conversations: ClaudeConversation[];
+}
 
 /** One transcript entry rendered by the Chat view. */
 export interface ChatMessage {
-  /** The entry's uuid (unique per JSONL line). */
+  /** The entry's uuid (unique per JSONL line), or `echo-…` for a local echo. */
   id: string;
-  role: 'user' | 'assistant';
+  /** `system`: local command output and Claude Code notices, not a turn of either side. */
+  role: 'user' | 'assistant' | 'system';
   /** Epoch ms, when the entry carries a timestamp. */
   ts?: number;
   blocks: ChatBlock[];
+  /**
+   * A slash command sent from the Chat view that the transcript has not (yet)
+   * recorded. Claude Code never writes some commands (`/cost`, `/context`,
+   * `/help`, a dismissed picker…); the echo is replaced when it does.
+   */
+  echo?: boolean;
 }
 
 /**
@@ -792,6 +828,13 @@ export interface ChatUpdate {
    * delivery as `permissionMode`.
    */
   modelSet?: string;
+  /** Ids of earlier messages to drop (a local echo the transcript caught up with). */
+  removed?: string[];
+  /**
+   * Skills and custom commands, from the transcript's skill listing (built-in
+   * commands are the client's own list). Same delivery as `permissionMode`.
+   */
+  commands?: ChatCommand[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */
