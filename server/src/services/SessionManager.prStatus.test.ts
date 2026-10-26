@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import type { SessionPr } from '@argus/shared';
 import { SessionManager, SESSION_PRS_MAX } from './SessionManager.js';
-import { PrDiffError } from './PrStatusService.js';
+import { PrDiffError, PrWriteError } from './PrStatusService.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -34,17 +34,21 @@ function fixture() {
   const urlLookups: string[] = [];
   const diffs: Array<[string, string]> = [];
   let diffAnswer = (url: string): unknown => ({ url, diff: 'diff --git a/x b/x\n' });
+  const readies: Array<[string, string, boolean]> = [];
+  let readyAnswer = (): void => {};
   (sm as any).prService = {
     forFolder: async (f: string) => { lookups.push(f); return answer; },
     forUrl: async (url: string) => { urlLookups.push(url); return { ...PR, number: 99, url, branch: 'feat/other' }; },
     clear: () => {},
     prDiff: async (url: string, cwd: string) => { diffs.push([url, cwd]); return diffAnswer(url); },
+    setReady: async (url: string, cwd: string, ready: boolean) => { readies.push([url, cwd, ready]); readyAnswer(); },
   };
   const linkPr = (id: string, url: string | undefined) => {
     (sm as any).sessions.get(id).usage = { linkedPrUrl: () => url, snapshot: () => undefined };
   };
   return {
-    sm, emitted, lookups, urlLookups, linkPr, folder, diffs,
+    sm, emitted, lookups, urlLookups, linkPr, folder, diffs, readies,
+    setReady: (fn: () => void) => { readyAnswer = fn; },
     setAnswer: (a: SessionPr | null) => { answer = a; },
     setDiff: (fn: (url: string) => unknown) => { diffAnswer = fn; },
   };
@@ -242,4 +246,53 @@ test('sessionPrDiff: gh errors map to 503 / 504 / 502', async () => {
     f.setDiff(() => { throw new PrDiffError(kind, `gh ${kind}`); });
     assert.deepEqual(await f.sm.sessionPrDiff('a', PR.url), { ok: false, status, error: `gh ${kind}` });
   }
+});
+
+// ── C3: Mark ready ──────────────────────────────────────────────────────────
+
+test('setSessionPrReady: runs on the list\'s spelling of a session PR, in the folder, and answers it read again', async () => {
+  const f = fixture();
+  const linked = 'https://github.com/o/other/pull/3';
+  linkPrs(f, 'a', [linked]);
+  const res = await f.sm.setSessionPrReady('a', 'https://github.com/O/Other/pull/3', true);
+  assert.deepEqual(f.readies, [[linked, f.folder, true]]);
+  assert.deepEqual(res, { ok: true, pr: { ...PR, number: 99, url: linked, branch: 'feat/other' } });
+  await f.sm.setSessionPrReady('a', PR.url, false);
+  assert.deepEqual(f.readies.at(-1), [PR.url, f.folder, false]);
+});
+
+test('setSessionPrReady: a PR outside the session list, an unknown session or the feature off → refused, gh never runs', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/o/r/pull/1']);
+  assert.deepEqual(await f.sm.setSessionPrReady('a', 'https://github.com/o/r/pull/2', true), { ok: false, status: 404, error: 'Not a pull request of this session' });
+  assert.equal((await f.sm.setSessionPrReady('nope', PR.url, true)).ok, false);
+  f.sm.setPrStatusEnabled(false);
+  assert.deepEqual(await f.sm.setSessionPrReady('a', PR.url, true), { ok: false, status: 409, error: 'Pull request status is off' });
+  assert.deepEqual(f.readies, []);
+});
+
+test('setSessionPrReady: gh errors map to 503 / 504 / 502', async () => {
+  const f = fixture();
+  for (const [kind, status] of [['unavailable', 503], ['timeout', 504], ['failed', 502]] as const) {
+    f.setReady(() => { throw new PrWriteError(kind, `gh ${kind}`); });
+    assert.deepEqual(await f.sm.setSessionPrReady('a', PR.url, true), { ok: false, status, error: `gh ${kind}` });
+  }
+});
+
+test('setSessionPrReady: a sweep running during the write is followed by one more', async () => {
+  const f = fixture();
+  let release!: () => void;
+  let gate = true;
+  (f.sm as any).prService.forFolder = async (folder: string) => {
+    f.lookups.push(folder);
+    if (gate) { gate = false; await new Promise<void>((r) => { release = r; }); }
+    return PR;
+  };
+  const sweep = f.sm.pollPrStatus();
+  await new Promise((r) => setImmediate(r));
+  await f.sm.setSessionPrReady('a', PR.url, true);
+  const before = f.lookups.length;
+  release();
+  await sweep;
+  assert.ok(f.lookups.length > before, 'the chips were swept again after the running sweep');
 });

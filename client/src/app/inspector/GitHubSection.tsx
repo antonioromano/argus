@@ -1,6 +1,8 @@
-import { ExternalLink, FileDiff, GitPullRequest } from 'lucide-react';
+import { useState } from 'react';
+import { ExternalLink, FileDiff, GitPullRequest, GitPullRequestArrow } from 'lucide-react';
 import type { SessionPrEntry } from '@argus/shared';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, pushToast } from '../../components/primitives/index.js';
+import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import {
   PR_CI_LABEL, PR_REVIEW_LABEL, formatLines, PR_STATE_ICON, PR_STATE_LABEL, isLivePr, prNumberOf, prRef, prTone, summarizePrStates, worstCi,
@@ -24,11 +26,33 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
  * popover), review, mergeability, "this branch". When
  * `ctx.onOpenPrDiff` is wired (B4) the row offers its changes — C2: as
  * `+N −M`, the lines the PR adds and deletes ("Changed files" until gh says).
+ * A draft offers Mark ready (C3).
  */
-export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessionId: string; ctx: InspectorContext }) {
+export function PrRow({ entry, sessionId, ctx, onChanged }: {
+  entry: SessionPrEntry;
+  sessionId: string;
+  ctx: InspectorContext;
+  /** The PR was changed from here (C3): read the list again. */
+  onChanged?: () => void;
+}) {
   const { pr, url } = entry;
   const ref = prRef(url, pr?.number);
   const live = !!pr && isLivePr(pr);
+  const [busy, setBusy] = useState(false);
+
+  /** C3: `gh pr ready` / `--undo` through the server; gh's error becomes a toast. */
+  const setReady = async (ready: boolean) => {
+    setBusy(true);
+    try {
+      await api.setSessionPrReady(sessionId, url, ready);
+      pushToast(ready ? `${ref} is ready for review` : `${ref} is a draft again`, 'ok');
+    } catch (err) {
+      pushToast(`Couldn’t ${ready ? 'mark' : 'convert'} ${ref}${ready ? ' ready' : ' to draft'}: ${err instanceof Error ? err.message : String(err)}`, 'danger');
+    } finally {
+      setBusy(false);
+      onChanged?.();
+    }
+  };
   return (
     <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined}>
       <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} className="argus-inspector-pr-glyph" />
@@ -53,6 +77,19 @@ export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessio
             <span title={pr?.branch ? `PR of ${pr.branch}, the branch checked out in the session folder` : undefined}>this branch</span>
           )}
         </div>
+        {pr?.state === 'draft' && (
+          <button
+            type="button"
+            className="argus-inspector-pr-ready"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            title={`Mark ${ref} ready for review`}
+            onClick={() => { void setReady(true); }}
+          >
+            <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
+            {busy ? 'Marking ready…' : 'Mark ready'}
+          </button>
+        )}
         {ctx.onOpenPrDiff && (
           <button type="button" className="argus-inspector-pr-files" title="Open changes" onClick={() => ctx.onOpenPrDiff!(sessionId, entry)}>
             <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
@@ -76,7 +113,7 @@ export function PrRow({ entry, sessionId, ctx }: { entry: SessionPrEntry; sessio
  */
 export function GitHubBody({ session, ctx }: InspectorSectionProps) {
   const refreshKey = session.pr ? `${session.pr.url}|${session.pr.state}|${session.pr.ci}` : '';
-  const { prs, enabled, error } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
+  const { prs, enabled, error, reload } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
   if (!ctx.prStatusEnabled || !enabled) return <InspectorEmpty>Pull request status is off (Settings → Shell header).</InspectorEmpty>;
 
   const list = prs ?? chipEntries(session);
@@ -88,7 +125,7 @@ export function GitHubBody({ session, ctx }: InspectorSectionProps) {
     <>
       {error && prs && <InspectorEmpty>Couldn’t refresh pull requests ({error}); showing the last reading.</InspectorEmpty>}
       <ul className="argus-inspector-prs" aria-label="Pull requests">
-        {list.map((entry) => <PrRow key={entry.url} entry={entry} sessionId={session.id} ctx={ctx} />)}
+        {list.map((entry) => <PrRow key={entry.url} entry={entry} sessionId={session.id} ctx={ctx} onChanged={reload} />)}
       </ul>
     </>
   );
