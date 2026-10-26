@@ -515,7 +515,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                     onAddClick={onAddClick}
                   />
                   {/* Match the editor surface so there's no flash before Monaco paints:
-                      dark editor (argus-dark) == --bg-inset; light editor (vs) is white. */}
+                      dark editor (argus-dark) == --bg-inset; light editor (argus-light) is white. */}
                   <div
                     style={{
                       flex: 1,

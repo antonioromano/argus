@@ -23,6 +23,12 @@ export const PAINT_SURFACES = {
   },
 } as const satisfies Record<ThemeName, { terminal: string; inset: string }>;
 
+/** Mirrors of the --syn-* tokens (+ --fg-1 body text), for Monaco's themes. */
+export const PAINT_SYNTAX = {
+  dark: { fg: '#c7cad1', kw: '#C5B4FC', str: '#7CFFB2', num: '#FFD23F', fn: '#7DD3FC', cm: '#868b98', pn: '#8b919c' },
+  light: { fg: '#3a342a', kw: '#6E40B8', str: '#0C6E43', num: '#7F5912', fn: '#1562A9', cm: '#6d655b', pn: '#6a6258' },
+} as const satisfies Record<ThemeName, Record<'fg' | 'kw' | 'str' | 'num' | 'fn' | 'cm' | 'pn', string>>;
+
 /** Cell background a terminal paints, for the frame around it to match. */
 export function terminalBackground(theme: ThemeName): string {
   return PAINT_SURFACES[theme].terminal;

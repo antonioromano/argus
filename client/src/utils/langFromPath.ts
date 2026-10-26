@@ -66,6 +66,14 @@ const MONACO_LANG_MAP: Record<string, string> = {
   sql: 'sql',
   graphql: 'graphql', gql: 'graphql',
   tf: 'hcl',
+  dart: 'dart',
+  scala: 'scala', sc: 'scala',
+  ex: 'elixir', exs: 'elixir',
+  r: 'r',
+  m: 'objective-c', mm: 'objective-c',
+  ps1: 'powershell', psm1: 'powershell',
+  pl: 'perl', pm: 'perl',
+  clj: 'clojure', cljs: 'clojure', cljc: 'clojure', edn: 'clojure',
 };
 
 export function monacoLanguageFor(filePath: string): string {
