@@ -2,6 +2,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   aggregateChecks,
+  summarizeChecks,
+  PR_FAILED_CHECKS_MAX,
   parsePrView,
   isGhUnavailable,
   PrStatusService,
@@ -98,6 +100,56 @@ describe('parsePrView: title, review decision, mergeable (B3)', () => {
   });
 });
 
+describe('summarizeChecks (C1)', () => {
+  const failedRun = (name: string, extra: Record<string, unknown> = {}) => ({ ...run('COMPLETED', 'FAILURE'), name, ...extra });
+
+  test('no checks → null', () => {
+    assert.equal(summarizeChecks([]), null);
+    assert.equal(summarizeChecks(undefined), null);
+  });
+
+  test('counts every outcome; skipped apart from neutral (which passes)', () => {
+    const checks = summarizeChecks([
+      run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'SKIPPED'),
+      run('IN_PROGRESS', null), ctx('PENDING'), ctx('SUCCESS'),
+      failedRun('lint'), { ...ctx('ERROR'), context: 'ci/legacy', targetUrl: 'https://ci.example.com/1' },
+    ]);
+    assert.deepEqual(checks?.counts, { passed: 3, failed: 2, pending: 2, skipped: 1 });
+    assert.deepEqual(checks?.failed, [{ name: 'lint' }, { name: 'ci/legacy', url: 'https://ci.example.com/1' }]);
+  });
+
+  test('a failed run is named with its workflow and links its details page (https only)', () => {
+    const checks = summarizeChecks([
+      failedRun('test', { workflowName: 'CI', detailsUrl: 'https://github.com/o/r/actions/runs/1/job/2' }),
+      failedRun('build', { detailsUrl: 'javascript:alert(1)' }),
+      failedRun('', {}),
+    ]);
+    assert.deepEqual(checks?.failed, [
+      { name: 'CI / test', url: 'https://github.com/o/r/actions/runs/1/job/2' },
+      { name: 'build' },
+      { name: 'Unnamed check' },
+    ]);
+  });
+
+  test('bounds the failed list and the names, never the counts', () => {
+    const many = Array.from({ length: PR_FAILED_CHECKS_MAX + 5 }, (_, i) => failedRun(`job ${i}`));
+    const checks = summarizeChecks([...many, failedRun('x'.repeat(500))])!;
+    assert.equal(checks.counts.failed, PR_FAILED_CHECKS_MAX + 6);
+    assert.equal(checks.failed.length, PR_FAILED_CHECKS_MAX);
+    assert.equal(summarizeChecks([failedRun('x'.repeat(500))])!.failed[0].name.length, 120);
+  });
+
+  test('parsePrView carries the breakdown and the head SHA', () => {
+    const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+    const pr = parsePrView(JSON.stringify({ ...base, statusCheckRollup: [failedRun('lint')], headRefOid: 'ABCDEF1234567890' }))!;
+    assert.equal(pr.ci, 'failure');
+    assert.deepEqual(pr.checks, { counts: { passed: 0, failed: 1, pending: 0, skipped: 0 }, failed: [{ name: 'lint' }] });
+    assert.equal(pr.headSha, 'abcdef1234567890');
+    assert.equal(parsePrView(JSON.stringify({ ...base, headRefOid: 'not a sha' }))?.headSha, undefined);
+    assert.match(PR_VIEW_ARGS.join(' '), /headRefOid/);
+  });
+});
+
 describe('isGhUnavailable', () => {
   test('missing binary and logged-out are unavailable; no-PR is not', () => {
     assert.equal(isGhUnavailable({ code: 'ENOENT' }), true);
@@ -141,7 +193,7 @@ describe('PrStatusService', () => {
   test('runs gh with the json fields in the folder and parses the answer', async () => {
     const { service, calls } = harness();
     const pr = await service.forFolder('/repo');
-    assert.deepEqual(pr, { number: 7, state: 'open', url: 'https://github.com/o/r/pull/7', ci: 'success', branch: 'feat/a' });
+    assert.deepEqual(pr, { number: 7, state: 'open', url: 'https://github.com/o/r/pull/7', ci: 'success', branch: 'feat/a', checks: { counts: { passed: 1, failed: 0, pending: 0, skipped: 0 }, failed: [] } });
     assert.deepEqual(calls, [{ args: PR_VIEW_ARGS, cwd: '/repo' }]);
   });
 
@@ -264,7 +316,7 @@ describe('PrStatusService', () => {
     const url = 'https://github.com/o/other/pull/9';
     const { service, calls } = harness({ gh: async () => prJson({ number: 9, url, headRefName: 'feat/b' }) });
     const pr = await service.forUrl(url, '/hub');
-    assert.deepEqual(pr, { number: 9, state: 'open', url, ci: 'success', branch: 'feat/b' });
+    assert.deepEqual(pr, { number: 9, state: 'open', url, ci: 'success', branch: 'feat/b', checks: { counts: { passed: 1, failed: 0, pending: 0, skipped: 0 }, failed: [] } });
     await service.forUrl(url, '/elsewhere');
     assert.deepEqual(calls, [{ args: prViewArgsForUrl(url), cwd: '/hub' }]);
     assert.equal(calls[0].args[2], url);

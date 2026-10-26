@@ -154,8 +154,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Notifications',
     group: 'Behavior',
     icon: Bell,
-    keys: ['notificationsEnabled', 'notifyOnWaiting', 'notifyOnDone', 'notificationSound'],
-    keywords: ['notification', 'notify', 'alert', 'sound', 'banner', 'desktop', 'waiting', 'done', 'badge'],
+    keys: ['notificationsEnabled', 'notifyOnWaiting', 'notifyOnDone', 'notifyOnPrChecks', 'notificationSound'],
+    keywords: ['notification', 'notify', 'alert', 'sound', 'banner', 'desktop', 'waiting', 'done', 'badge', 'ci', 'checks', 'pull request'],
   },
   {
     id: 'keyboard',
@@ -285,6 +285,7 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'notificationsEnabled',
   'notifyOnWaiting',
   'notifyOnDone',
+  'notifyOnPrChecks',
   'notificationSound',
   'showClock',
   'clockShowSeconds',

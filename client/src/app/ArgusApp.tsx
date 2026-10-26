@@ -587,6 +587,7 @@ function DesktopInner() {
     enabled: config?.notificationsEnabled ?? true,
     notifyOnWaiting: config?.notifyOnWaiting ?? true,
     notifyOnDone: config?.notifyOnDone ?? false,
+    notifyOnPrChecks: config?.notifyOnPrChecks ?? true,
     notificationSound: config?.notificationSound ?? false,
     onFocusSession: highlightSession,
     onSwitchToSessionsTab: () => {},

@@ -90,6 +90,7 @@ export interface AppConfig {
   notificationsEnabled: boolean;
   notifyOnWaiting: boolean;  // notify when a session needs user input
   notifyOnDone: boolean;     // notify when a session finishes a run
+  notifyOnPrChecks?: boolean; // C1: notify when a session PR's checks finish (pending → passed / failed)
   notificationSound: boolean; // play the default system sound with each notification
   showClock?: boolean;        // show HH:MM clock in the toolbar
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
@@ -207,6 +208,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationsEnabled: false,
   notifyOnWaiting: true,
   notifyOnDone: false,
+  notifyOnPrChecks: true,
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
@@ -640,6 +642,32 @@ export interface SessionPr {
   title?: string;
   review?: PrReviewDecision;
   mergeable?: PrMergeable;
+  /** C1: per-outcome breakdown of the checks; absent when the PR has none. */
+  checks?: PrChecks;
+  /** C1: SHA of the PR's head commit (`headRefOid`), so a checks outcome is
+   *  told apart from the previous push's. */
+  headSha?: string;
+}
+
+/** C1: how many of a PR's checks passed, failed, are still running, or were skipped. */
+export interface PrCheckCounts {
+  passed: number;
+  failed: number;
+  pending: number;
+  skipped: number;
+}
+
+/** C1: one failed check; `url` is its details page when GitHub has one. */
+export interface PrFailedCheck {
+  name: string;
+  url?: string;
+}
+
+/** C1: the checks of a PR beyond the `ci` aggregate — the CI monitoring popover. */
+export interface PrChecks {
+  counts: PrCheckCounts;
+  /** Bounded list (see the server's PR_FAILED_CHECKS_MAX). */
+  failed: PrFailedCheck[];
 }
 
 /** One PR of a session in the Inspector's GitHub card (B3). */

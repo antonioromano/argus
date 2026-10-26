@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import type { TileQuickAction } from '@argus/shared';
 import { PICKABLE_QUICK_ACTIONS, tileActionMeta } from '../../constants/tileActions.js';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
+import { usePopoverDismiss } from '../../hooks/usePopoverDismiss.js';
 import { Icon } from '../../components/primitives/index.js';
 
 interface QuickActionPickerProps {
@@ -58,33 +59,9 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
   const current = tileActionMeta(value);
   const CurrentIcon = current.icon;
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      // The list lives in a portal, outside wrapRef — clicks on it are inside too.
-      const t = e.target as Node;
-      if (!wrapRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
-    };
-    // Fixed-position list: scrolling the pane or resizing would leave it behind.
-    // Close instead of chasing the button (a scroll inside the list itself is fine).
-    const onScroll = (e: Event) => {
-      if (!listRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onResize = () => setOpen(false);
-    window.addEventListener('scroll', onScroll, true);
-    window.addEventListener('resize', onResize);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); }
-    };
-    document.addEventListener('mousedown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('mousedown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('scroll', onScroll, true);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [open]);
+  // The list lives in a portal, outside wrapRef — clicks on it are inside too.
+  // Fixed-position list: a scroll or resize closes it instead of chasing the button.
+  usePopoverDismiss(open, [wrapRef, listRef], listRef, () => setOpen(false));
 
   // Measure the rendered list, then place it (before paint, so it never flashes
   // at the wrong spot).

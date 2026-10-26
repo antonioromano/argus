@@ -273,6 +273,43 @@ describe('GitHub section', () => {
     expect(onOpenPrDiff).toHaveBeenCalledWith('s1', entry);
   });
 
+  it('C1: the checks dot sums the checks up and opens the CI monitoring popover', async () => {
+    const checks = { counts: { passed: 5, failed: 2, pending: 1, skipped: 1 }, failed: [{ name: 'CI / test', url: 'https://github.com/o/r/actions/runs/1' }, { name: 'legacy' }] };
+    getSessionPrs.mockResolvedValue({ enabled: true, prs: [
+      { url: FAILING.url, pr: { ...FAILING, checks }, folderBranch: false, linked: true },
+      { url: FOLDER.url, pr: { ...FOLDER, checks: { counts: { passed: 3, failed: 0, pending: 0, skipped: 0 }, failed: [] } }, folderBranch: true, linked: true },
+      { url: OTHER.url, pr: OTHER, folderBranch: false, linked: true },
+    ] });
+    await render();
+    const rows = Array.from(sectionEl('github').querySelectorAll<HTMLElement>('.argus-inspector-prrow'));
+    const dot = rows[0].querySelector<HTMLButtonElement>('.argus-inspector-ci-btn')!;
+    expect(dot.getAttribute('title')).toBe('CI: 2 failed, 1 pending');
+    expect(rows[1].querySelector('.argus-inspector-ci-btn')!.getAttribute('title')).toBe('CI: all checks passed');
+    // Merged: its checks no longer matter, no dot.
+    expect(rows[2].querySelector('.argus-inspector-ci-btn')).toBeNull();
+
+    act(() => dot.click());
+    const pop = document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="CI monitoring"]')!;
+    expect(dot.getAttribute('aria-expanded')).toBe('true');
+    const counts = Array.from(pop.querySelectorAll('.argus-ci-popover-counts li')).map((li) => li.textContent);
+    expect(counts).toEqual(['Failed2', 'Pending1', 'Passed5', 'Skipped1']);
+    const failed = Array.from(pop.querySelectorAll('.argus-ci-popover-failed li'));
+    expect(failed.map((li) => li.textContent)).toEqual(['CI / test', 'legacy']);
+    act(() => failed[0].querySelector<HTMLButtonElement>('button')!.click());
+    expect(openExternal).toHaveBeenCalledWith('https://github.com/o/r/actions/runs/1');
+    expect(failed[1].querySelector('button')).toBeNull();
+
+    act(() => pop.querySelector<HTMLButtonElement>('.argus-ci-popover-open')!.click());
+    expect(openExternal).toHaveBeenLastCalledWith(`${FAILING.url}/checks`);
+    expect(document.body.querySelector('.argus-ci-popover')).toBeNull();
+
+    // Escape closes it too.
+    act(() => dot.click());
+    expect(document.body.querySelector('.argus-ci-popover')).not.toBeNull();
+    act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(document.body.querySelector('.argus-ci-popover')).toBeNull();
+  });
+
   it('shows the header chip PR while the list loads', async () => {
     getSessionPrs.mockReturnValue(new Promise(() => {}));
     await render({ session: session({ pr: FOLDER }) });
