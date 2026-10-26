@@ -4,7 +4,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
+import type { ClaudeConversationsResponse, CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateFlags } from '../utils/flags.js';
 
@@ -78,6 +78,17 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
     res.json(session);
   });
+
+  // Earlier Claude conversations of the session's folder (Chat view /resume picker).
+  router.get('/:id/conversations', asyncHandler(async (req, res) => {
+    const conversations = await manager.listConversations(req.params.id);
+    if (!conversations) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const body: ClaudeConversationsResponse = { conversations };
+    res.json(body);
+  }));
 
   // Write a full diagnostics dump for one session to ~/.argus/diagnostics/ and
   // return the file path. On-demand debug tool: an external agent (Claude Code)

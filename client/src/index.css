@@ -2231,6 +2231,36 @@ body {
 .argus-chat-slash-item.is-active { background: var(--bg-3); }
 .argus-chat-slash-name { flex: none; font-family: var(--font-mono); font-size: var(--t-sm); color: var(--accent); }
 .argus-chat-slash-desc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-xs); color: var(--fg-2); }
+/* The Chat's /resume picker (ChatResumePicker). */
+.argus-chat-resume {
+  display: flex;
+  flex-direction: column;
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.argus-chat-resume-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-1) var(--s-2) var(--s-1) var(--s-3); border-bottom: 1px solid var(--line-1); color: var(--fg-3); }
+.argus-chat-resume-filter { flex: 1; min-width: 0; height: var(--ctl-h-sm); background: transparent; border: none; outline: none; color: var(--fg-0); font: inherit; font-size: var(--t-sm); }
+.argus-chat-resume-filter::placeholder { color: var(--fg-3); }
+.argus-chat-resume-list { max-height: calc(260px * var(--ui-scale)); overflow-y: auto; padding: var(--s-1); }
+.argus-chat-resume-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: 6px var(--s-2);
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+.argus-chat-resume-item.is-active { background: var(--bg-3); }
+.argus-chat-resume-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); color: var(--fg-0); }
+.argus-chat-resume-when { flex: none; font-size: var(--t-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.argus-chat-resume-empty { padding: var(--s-3); font-size: var(--t-sm); color: var(--fg-3); }
 /* What Claude Code waits for (ChatPromptCard). */
 .argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
 .argus-chat-prompt {

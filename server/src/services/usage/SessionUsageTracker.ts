@@ -188,6 +188,11 @@ export class SessionUsageTracker {
     return all;
   }
 
+  /** The transcript Claude is writing now, when known. */
+  currentTranscript(): string | undefined {
+    return this.current;
+  }
+
   /** The transcript Claude is writing now. A new path starts a new tailer. */
   setTranscript(reported: string): void {
     if (this.disposed) return;

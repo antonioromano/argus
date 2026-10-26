@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { ChatView } from './ChatView.js';
+import { api } from '../../../services/api.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -164,6 +165,60 @@ describe('ChatView', () => {
     expect(onShowTerminal).toHaveBeenCalled();
     act(() => cancel.click());
     expect(emitted).toContainEqual(['session:input', { sessionId: 's1', data: '\x1b' }]);
+  });
+
+  it('/resume opens the Chat picker; picking sends /resume <id> instead of the terminal picker', async () => {
+    const list = vi.spyOn(api, 'listConversations').mockResolvedValue([
+      { id: 'aaaaaaaa-1111-4222-8333-444444444444', title: 'Fix the login bug', updatedAt: Date.now() - 3_600_000 },
+      { id: 'bbbbbbbb-1111-4222-8333-444444444444', title: 'Dashboard RBAC', updatedAt: Date.now() - 60_000, current: true },
+    ]);
+    const { socket, fire, emitted } = fakeSocket();
+    const { onShowTerminal } = render(session(), socket);
+    fire('session:chat', update({}));
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '/resume');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(emitted.some(([ev]) => ev === 'session:chat:send')).toBe(false);
+    await act(async () => {});
+    expect(list).toHaveBeenCalledWith('s1');
+    const picker = container.querySelector('[data-testid="chat-resume"]')!;
+    expect(Array.from(picker.querySelectorAll('.argus-chat-resume-title')).map((t) => t.textContent)).toEqual(['Fix the login bug', 'Dashboard RBAC']);
+    expect(picker.textContent).toContain('current');
+
+    // The filter narrows the list; Enter resumes the highlighted one.
+    const filter = picker.querySelector('input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(filter, 'rbac');
+      filter.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => { filter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/resume bbbbbbbb-1111-4222-8333-444444444444' }]);
+    expect(container.querySelector('[data-testid="chat-resume"]')).toBeNull();
+    expect(onShowTerminal).not.toHaveBeenCalled();
+    list.mockRestore();
+  });
+
+  it('the picker can hand over to the terminal picker', async () => {
+    const list = vi.spyOn(api, 'listConversations').mockResolvedValue([]);
+    const { socket, fire, emitted } = fakeSocket();
+    const { onShowTerminal } = render(session(), socket);
+    fire('session:chat', update({}));
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '/resume');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await act(async () => {});
+    expect(container.textContent).toContain('No earlier conversations in this folder.');
+    const inTerminal = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('In terminal'))!;
+    act(() => inTerminal.click());
+    expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/resume' }]);
+    expect(onShowTerminal).toHaveBeenCalled();
+    list.mockRestore();
   });
 
   it('appends new messages and ignores other sessions', () => {

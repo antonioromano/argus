@@ -4,6 +4,8 @@ import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathComp
 import type { SessionPrDiffResponse } from '@argus/shared';
 // Mark ready (C3) — its own line too, for the same reason.
 import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/shared';
+// Chat /resume picker (D1) — its own line too, for the same reason.
+import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -185,6 +187,13 @@ export const api = {
     const res = await authFetch(`${API_BASE}/fs/autocomplete?path=${encodeURIComponent(path)}`);
     const data: PathCompletionResponse = await (await requireOk(res)).json();
     return data.completions;
+  },
+
+  /** Chat view /resume picker: earlier Claude conversations of the session's folder, newest first. */
+  listConversations: async (sessionId: string): Promise<ClaudeConversation[]> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/conversations`);
+    const data: ClaudeConversationsResponse = await (await requireOk(res)).json();
+    return data.conversations;
   },
 
   /** Chat view: save a clipboard image server-side; resolves the file's path. */
