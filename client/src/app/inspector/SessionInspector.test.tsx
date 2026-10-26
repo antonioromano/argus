@@ -177,15 +177,43 @@ describe('Usage section', () => {
     });
     const meters = sectionEl('usage').querySelectorAll('.argus-inspector-meter');
     expect(meters).toHaveLength(2);
-    expect(meters[0].textContent).toContain('Context');
-    expect(meters[0].textContent).toContain('47% used');
-    expect(meters[0].textContent).toContain('94k / 200k');
+    const part = (m: Element, cls: string) => m.querySelector(`.argus-inspector-meter-${cls}`)?.textContent;
+    // Label and percentage share the left of the head line; the secondary figure sits apart.
+    expect(part(meters[0], 'label')).toBe('Context');
+    expect(part(meters[0], 'pct')).toBe('47%');
+    expect(part(meters[0], 'aside')).toBe('94k / 200k');
     expect(meters[0].getAttribute('data-level')).toBe('ok');
-    expect(meters[1].textContent).toContain('5-hour');
+    expect(part(meters[1], 'label')).toBe('Session');
+    expect(part(meters[1], 'pct')).toBe('96%');
+    expect(part(meters[1], 'aside')).toMatch(/^Resets in (1 hr|59 min)$/);
     expect(meters[1].getAttribute('data-level')).toBe('high');
-    // Short model name; the full id stays on hover.
-    expect(sectionEl('usage').textContent).toContain('Opus 5.5');
-    expect(sectionEl('usage').querySelector('[title="claude-opus-5-5"]')).not.toBeNull();
+    // The bar is the meter for assistive tech, named after the limit.
+    expect(meters[1].querySelector('[role="meter"]')!.getAttribute('aria-label')).toBe('Session');
+    // No model name in the card.
+    expect(sectionEl('usage').textContent).not.toContain('Opus');
+  });
+
+  it('labels a weekly window and shows a reset that has passed as "Just reset" at 0%', async () => {
+    await render({
+      ctx: ctx({ usageMeter: { ...usageMeterView(DEFAULT_CONFIG)!, plans: { claude: { observedAt: NOW, primary: { usedPct: 80, resetsAt: NOW - 1, windowMinutes: 300 }, secondary: { usedPct: 12, resetsAt: NOW + 3 * 86_400_000, windowMinutes: 10_080 } } } } }),
+    });
+    const meters = sectionEl('usage').querySelectorAll('.argus-inspector-meter');
+    expect(meters).toHaveLength(2);
+    expect(meters[0].querySelector('.argus-inspector-meter-pct')!.textContent).toBe('0%');
+    expect(meters[0].querySelector('.argus-inspector-meter-aside')!.textContent).toBe('Just reset');
+    expect(meters[1].querySelector('.argus-inspector-meter-label')!.textContent).toBe('Weekly');
+    expect(meters[1].querySelector('.argus-inspector-meter-aside')!.textContent).toMatch(/^Resets \S+ /);
+  });
+
+  it('glances at the context and the fullest plan window when collapsed', async () => {
+    await render({
+      collapsed: ['usage'],
+      session: session({ usage: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, updatedAt: 0, contextPct: 47 } }),
+    });
+    const glance = sectionEl('usage').querySelector('.argus-inspector-section-summary')!;
+    expect(glance.textContent).toBe('ctx 47%·5h 96%');
+    expect(glance.querySelector('[data-level="ok"]')!.textContent).toBe('47%');
+    expect(glance.querySelector('[data-level="high"]')!.textContent).toBe('96%');
   });
 
   it('expands a details breakdown of the context window and the session tokens', async () => {
