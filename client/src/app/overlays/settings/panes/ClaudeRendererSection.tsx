@@ -1,4 +1,4 @@
-import type { ClaudeRenderer } from '@argus/shared';
+import type { ClaudeRenderer, SessionViewMode } from '@argus/shared';
 import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 
@@ -14,6 +14,11 @@ const HINT: Record<ClaudeRenderer, string> = {
   inherit: 'Argus adds nothing — the tui value in your ~/.claude/settings.json decides.',
 };
 
+const VIEW_OPTIONS: readonly { value: SessionViewMode; label: string; title: string }[] = [
+  { value: 'terminal', label: 'Terminal', title: 'Open Claude shells in the terminal' },
+  { value: 'chat', label: 'Chat', title: 'Open Claude shells in the Chat view' },
+];
+
 /**
  * How Claude sessions draw their UI. Lives in Agents because it is a Claude
  * option, applied per spawned process — the user's own Claude config is never
@@ -21,6 +26,7 @@ const HINT: Record<ClaudeRenderer, string> = {
  */
 export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'config' | 'onSave'>) {
   const value: ClaudeRenderer = config.claudeRenderer ?? 'fullscreen';
+  const view: SessionViewMode = config.defaultSessionView === 'chat' ? 'chat' : 'terminal';
   return (
     <Section title="Claude display">
       <SettingRow label="Renderer" hint={`${HINT[value]} Applies to new and restarted sessions.`}>
@@ -30,6 +36,18 @@ export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'confi
           options={OPTIONS}
           compact
           onChange={(next) => { void onSave({ claudeRenderer: next }); }}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Default view"
+        hint="Where a Claude shell opens until you switch it. A shell you already switched keeps its own view. Other agents always use the terminal."
+      >
+        <Segmented
+          label="Default view for Claude shells"
+          value={view}
+          options={VIEW_OPTIONS}
+          compact
+          onChange={(next) => { void onSave({ defaultSessionView: next }); }}
         />
       </SettingRow>
     </Section>

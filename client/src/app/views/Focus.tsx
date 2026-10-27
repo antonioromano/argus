@@ -14,7 +14,7 @@ import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ChatView } from '../ui/chat/ChatView.js';
-import { useChatViewMode } from '../../hooks/useChatViewMode.js';
+import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
@@ -92,6 +92,8 @@ interface FocusProps {
   onReorder: (newOrderedIds: string[]) => void;
   /** App-wide fallback when a session has no stored engine preference. */
   defaultTerminalEngine?: TerminalEngine;
+  /** App-wide fallback view for Claude shells with no per-session choice. */
+  defaultSessionView?: SessionViewMode;
   /** True when a session is owned by a different window (multi-window). */
   isForeign?: (id: string) => boolean;
   /** Label of the window that owns a foreign session, for the OTHERS strip badge. */
@@ -139,6 +141,7 @@ export function Focus({
   onSelect,
   onReorder,
   defaultTerminalEngine,
+  defaultSessionView = 'terminal',
   isForeign,
   foreignLabel,
   onBack,
@@ -190,9 +193,10 @@ export function Focus({
     socket.emit('session:input', { sessionId: active.id, data });
   };
 
-  // Chat view (B1): Claude sessions only, terminal by default, chosen per session.
+  // Chat view (B1): Claude sessions only, chosen per session; sessions with no
+  // choice follow the app-wide defaultSessionView.
   const chatCapable = supportsChatView(active.agentType);
-  const [viewMode, setViewMode] = useChatViewMode(active.id);
+  const [viewMode, setViewMode] = useChatViewMode(active.id, defaultSessionView);
   const chatMode = chatCapable && viewMode === 'chat';
 
   useEffect(() => {
