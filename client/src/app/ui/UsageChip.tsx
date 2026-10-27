@@ -23,7 +23,12 @@ interface UsageChipProps {
   view: UsageMeterView;
   /** Fixed clock (tests, settings preview). Default: live, ticking every 30 s. */
   now?: number;
+  /** Parts a narrow header has shed (see headerShed); the tooltip still lists them. */
+  omit?: readonly UsageOmit[];
 }
+
+/** A chip part a narrow header can drop; `reset` is the ↻ age inside plan. */
+export type UsageOmit = 'ctx' | 'plan' | 'reset' | 'tok' | 'model';
 
 const TICK_MS = 30_000;
 
@@ -43,7 +48,7 @@ function shownWindow(plan: PlanUsage | undefined, now: number) {
  * Values change, the box only grows with its text: hover shows a tooltip and
  * never resizes anything.
  */
-export function UsageChip({ agentType, usage, plan, view, now: fixedNow }: UsageChipProps) {
+export function UsageChip({ agentType, usage, plan, view, now: fixedNow, omit }: UsageChipProps) {
   const agent = meterAgent(agentType);
   const planOn = view.parts.some((p) => p.id === 'plan' && p.on);
   const [liveNow, setLiveNow] = useState(() => Date.now());
@@ -65,7 +70,7 @@ export function UsageChip({ agentType, usage, plan, view, now: fixedNow }: Usage
   const pieces: { key: string; node: ReactNode; level?: UsageLevel }[] = [];
   const levels: UsageLevel[] = [];
   for (const part of view.parts) {
-    if (!part.on) continue;
+    if (!part.on || omit?.includes(part.id as UsageOmit)) continue;
     if (part.id === 'ctx' && usage) {
       if (ctxPct !== undefined) {
         levels.push(ctxLevel);
@@ -90,7 +95,7 @@ export function UsageChip({ agentType, usage, plan, view, now: fixedNow }: Usage
         node: (
           <>
             plan {Math.round(win.usedPct)}%
-            {!win.reset && win.resetsAt !== undefined && (
+            {!win.reset && win.resetsAt !== undefined && !omit?.includes('reset') && (
               <>
                 <span className="argus-usage-sep">·</span>↻ {formatResetIn(win.resetsAt - now)}
               </>
