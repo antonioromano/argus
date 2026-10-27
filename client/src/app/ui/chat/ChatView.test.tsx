@@ -273,4 +273,46 @@ describe('ChatView', () => {
     fire('session:chatMode', { sessionId: 's1', permissionMode: 'plan' });
     expect(container.querySelector('.argus-chat-composer-meta')?.textContent).toContain('Plan');
   });
+
+  describe('Stop (F3)', () => {
+    const esc = (meta: boolean) => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', metaKey: meta, bubbles: true, cancelable: true });
+      act(() => { container.querySelector('textarea')!.dispatchEvent(event); });
+      return event;
+    };
+    const interrupts = (emitted: Array<[string, unknown]>) =>
+      emitted.filter(([ev, p]) => ev === 'session:input' && (p as { data: string }).data === '\x1b').length;
+
+    it('the Stop button writes Esc to the pty while running', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => (container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement).click());
+      expect(emitted).toContainEqual(['session:input', { sessionId: 's1', data: '\x1b' }]);
+    });
+
+    it('⌘Esc stops a running turn and never reaches the window Escape handler', () => {
+      const { socket, emitted } = fakeSocket();
+      const onWindowKey = vi.fn();
+      window.addEventListener('keydown', onWindowKey);
+      try {
+        render(session({ status: 'running' }), socket);
+        expect(esc(true).defaultPrevented).toBe(true);
+        expect(interrupts(emitted)).toBe(1);
+        expect(onWindowKey).not.toHaveBeenCalled();
+        // Plain Esc keeps its behaviour: it bubbles on and types nothing.
+        esc(false);
+        expect(onWindowKey).toHaveBeenCalledTimes(1);
+        expect(interrupts(emitted)).toBe(1);
+      } finally {
+        window.removeEventListener('keydown', onWindowKey);
+      }
+    });
+
+    it('⌘Esc sends nothing when no turn is running', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'idle' }), socket);
+      esc(true);
+      expect(interrupts(emitted)).toBe(0);
+    });
+  });
 });

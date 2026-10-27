@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
+import { ChevronDown, FileText, Plus, SendHorizontal, Square, X } from 'lucide-react';
 import type { ChatCommand, SessionStatus } from '@argus/shared';
 import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
@@ -19,6 +19,8 @@ interface ChatComposerProps {
   status: SessionStatus;
   /** Type `text` into Claude's prompt and submit it (the server presses Enter). */
   onSubmit: (text: string) => void;
+  /** Interrupt the running turn; while `running` the send button becomes Stop. */
+  onStop?: () => void;
   /** Claude Code's permission mode (footer on screen, else the transcript). */
   permissionMode?: string;
   /** Ask the server to switch the permission mode; resolves false when it couldn't. */
@@ -52,6 +54,9 @@ type ElectronFiles = { getPath: (name: string) => string | undefined };
 let nextKey = 0;
 const newKey = () => `att-${++nextKey}`;
 const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
+/** The Stop button's name and tooltip; ⌘Esc is wired by ChatView. */
+export const STOP_LABEL = 'Stop (⌘Esc)';
+
 const isImageFile = (f: File) => /^image\/(png|jpeg|gif|webp)$/.test(f.type);
 
 /**
@@ -115,7 +120,7 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, onStop, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -445,7 +450,11 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           <span className="argus-chat-hint">
             {continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
           </span>
-          <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          {status === 'running' && onStop ? (
+            <IconButton icon={Square} label={STOP_LABEL} size="sm" onClick={onStop} />
+          ) : (
+            <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          )}
         </div>
       </div>
       <div className="argus-chat-composer-meta">

@@ -18,6 +18,7 @@ interface Props {
   modelSet?: string;
   onUploadImage?: (file: File) => Promise<string>;
   onSetMode?: (mode: string) => Promise<boolean>;
+  onStop?: () => void;
 }
 
 function render(props: Props = {}) {
@@ -32,6 +33,7 @@ function render(props: Props = {}) {
         modelSet={props.modelSet}
         onUploadImage={props.onUploadImage}
         onSetMode={props.onSetMode}
+        onStop={props.onStop}
       />,
     ),
   );
@@ -104,6 +106,30 @@ describe('ChatComposer — model label', () => {
     // The transcript reports something else: the truth wins over the optimistic pick.
     render({ model: 'claude-opus-5-5', modelSet: 'Haiku 5.5' });
     expect(button('Haiku 5.5')).toBeDefined();
+  });
+});
+
+describe('ChatComposer — Stop', () => {
+  const stopButton = () => container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement | null;
+  const sendButton = () => container.querySelector('button[aria-label="Send"]') as HTMLButtonElement | null;
+
+  it('replaces Send with Stop while a turn runs', () => {
+    const onStop = vi.fn();
+    render({ status: 'running', onStop });
+    expect(sendButton()).toBeNull();
+    act(() => stopButton()!.click());
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Send when idle or waiting, and without a stop handler', () => {
+    render({ status: 'idle', onStop: vi.fn() });
+    expect(stopButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
+    render({ status: 'waiting', onStop: vi.fn() });
+    expect(stopButton()).toBeNull();
+    render({ status: 'running' });
+    expect(stopButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
   });
 });
 

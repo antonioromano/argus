@@ -49,6 +49,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   // `/resume` alone opens the Chat's own picker instead of Claude Code's terminal one.
   const [resumeOpen, setResumeOpen] = useState(false);
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
+  // Esc in the pty is how Claude Code interrupts a turn.
+  const stop = () => socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
   const messages = chat.messages;
 
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
@@ -111,7 +113,19 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   }
 
   return (
-    <div ref={rootRef} className="argus-chat" data-testid="chat-view">
+    <div
+      ref={rootRef}
+      className="argus-chat"
+      data-testid="chat-view"
+      onKeyDown={(e) => {
+        // ⌘Esc stops the turn. Kept from the window's Escape handler, which
+        // ignores modifiers and would also leave focus mode; plain Esc is untouched.
+        if (e.key !== 'Escape' || !e.metaKey || e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (session.status === 'running') stop();
+      }}
+    >
       <SuppressNativeUnder target={rootRef} />
       <div className="argus-chat-main">
         {body}
@@ -165,6 +179,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       {aboveComposer}
       <ChatComposer
         status={session.status}
+        onStop={stop}
         onSubmit={(text) => {
           if (text.trim() === '/resume') setResumeOpen(true);
           else send(text);
