@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
+import type { AppConfig, BetaFlag, RunMode, SessionViewMode, TerminalEngine } from '@argus/shared';
 import {
   CaseSensitive, ChevronDown, Ellipsis, FileDiff, Gauge, GitBranch, GitMerge, GitPullRequest,
   GitPullRequestArrow, GitPullRequestDraft, Regex, Search, WholeWord, type LucideIcon,
@@ -22,6 +22,8 @@ export interface IntroResult {
   openCreate?: boolean;
   /** Beta features to switch on (no What's new step offers this right now). */
   betaFlags?: Partial<Record<BetaFlag, true>>;
+  /** What's new: "Open Claude shells in Chat by default" was ticked. */
+  defaultSessionView?: SessionViewMode;
 }
 
 interface Step { title: string; text: string; body: ReactNode }
@@ -39,12 +41,14 @@ export function IntroSheet({
 }: {
   flow: IntroFlow;
   version: string;
-  config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine'> | null;
+  config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine' | 'defaultSessionView'> | null;
   onDone: (result: IntroResult) => void;
 }) {
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<TerminalKind>(kindOf(config?.defaultRunMode, config?.defaultTerminalEngine));
   const [makeDefault, setMakeDefault] = useState(true);
+  const chatAlready = config?.defaultSessionView === 'chat';
+  const [chatDefault, setChatDefault] = useState(chatAlready);
 
   const terminalStep: Step = {
     title: 'Pick your terminal',
@@ -80,8 +84,16 @@ export function IntroSheet({
         // What's new in this release: one slide per highlight. Bump CURRENT_INTRO_ID with it.
         {
           title: 'Chat view for Claude shells',
-          text: 'In Focus, switch a Claude shell between Terminal and Chat. The conversation reads as formatted messages with pasted screenshots inline, slash commands show up in the thread with their output, and the composer formats Markdown as you type. The terminal stays the default.',
-          body: <ChatPicture />,
+          text: 'In Focus, switch a Claude shell between Terminal and Chat. The conversation reads as formatted messages with pasted screenshots inline, slash commands show up in the thread with their output, and the composer formats Markdown as you type. The terminal stays the default unless you tick the box below.',
+          body: (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+              <ChatPicture />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--t-sm)', color: 'var(--fg-1)', cursor: chatAlready ? 'default' : 'pointer' }}>
+                <input type="checkbox" checked={chatDefault} disabled={chatAlready} onChange={(e) => setChatDefault(e.target.checked)} />
+                Open Claude shells in Chat by default
+              </label>
+            </div>
+          ),
         },
         {
           title: 'Session Inspector',
@@ -106,14 +118,16 @@ export function IntroSheet({
       ];
 
   const last = step === steps.length - 1;
+  // Skip and Esc keep a ticked "Chat by default" too: the box is an explicit choice.
+  const whatsNewResult = (): IntroResult => (flow === 'whatsNew' && chatDefault && !chatAlready ? { defaultSessionView: 'chat' } : {});
   const finish = () => {
     if (flow === 'welcome') {
       onDone({ defaults: makeDefault ? settingsFor(kind) : undefined, openCreate: true });
       return;
     }
-    onDone({});
+    onDone(whatsNewResult());
   };
-  const skip = () => onDone({});
+  const skip = () => onDone(whatsNewResult());
   const current = steps[step];
 
   return (

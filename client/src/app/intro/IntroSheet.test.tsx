@@ -15,8 +15,8 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); c.remove(); });
 
-function render(flow: IntroFlow, onDone = vi.fn()) {
-  act(() => root.render(<IntroSheet flow={flow} version="0.24.0" config={{ defaultRunMode: 'persistent', defaultTerminalEngine: 'web' }} onDone={onDone} />));
+function render(flow: IntroFlow, onDone = vi.fn(), defaultSessionView: 'terminal' | 'chat' = 'terminal') {
+  act(() => root.render(<IntroSheet flow={flow} version="0.24.0" config={{ defaultRunMode: 'persistent', defaultTerminalEngine: 'web', defaultSessionView }} onDone={onDone} />));
   return onDone;
 }
 const button = (label: string) => {
@@ -26,6 +26,11 @@ const button = (label: string) => {
 };
 const tab = (label: string) => [...document.querySelectorAll('[role="radio"]')].find((x) => x.textContent?.startsWith(label)) as HTMLButtonElement;
 
+const chatBox = () => {
+  const label = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Open Claude shells in Chat by default'));
+  if (!label) throw new Error('no Chat by default checkbox');
+  return label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+};
 const title = () => document.body.textContent ?? '';
 const next = (n = 1) => { for (let i = 0; i < n; i++) act(() => button('Next').click()); };
 
@@ -35,6 +40,7 @@ describe('IntroSheet — What’s new', () => {
     expect(title()).toContain('Chat view for Claude shells');
     expect(document.querySelector('img[alt^="A Claude shell in Focus"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Step 1 of 5"]')).toBeTruthy();
+    expect(chatBox().checked).toBe(false);
     next();
     expect(title()).toContain('Session Inspector');
     expect(title()).toContain('⌘I');
@@ -60,6 +66,31 @@ describe('IntroSheet — What’s new', () => {
     const onSkip = render('whatsNew');
     act(() => button('Skip').click());
     expect(onSkip).toHaveBeenCalledWith({});
+  });
+});
+
+describe('IntroSheet — Chat by default', () => {
+  it('Done with the box ticked turns on Chat by default', () => {
+    const onDone = render('whatsNew');
+    act(() => chatBox().click());
+    next(4);
+    act(() => button('Done').click());
+    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
+  });
+
+  it('Skip with the box ticked turns it on too', () => {
+    const onDone = render('whatsNew');
+    act(() => chatBox().click());
+    act(() => button('Skip').click());
+    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
+  });
+
+  it('shows the box ticked and locked when Chat is already the default, and saves nothing', () => {
+    const onDone = render('whatsNew', vi.fn(), 'chat');
+    expect(chatBox().checked).toBe(true);
+    expect(chatBox().disabled).toBe(true);
+    act(() => button('Skip').click());
+    expect(onDone).toHaveBeenCalledWith({});
   });
 });
 

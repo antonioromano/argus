@@ -455,6 +455,8 @@ function DesktopInner() {
         : {}),
       // What's new: the beta features ticked "Turn on", in the same single save.
       ...result.betaFlags,
+      // What's new: "Open Claude shells in Chat by default".
+      ...(result.defaultSessionView ? { defaultSessionView: result.defaultSessionView } : {}),
     });
     if (result.openCreate) app.openOverlay({ kind: 'create' });
     else app.closeOverlay();
