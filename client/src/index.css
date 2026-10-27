@@ -1723,7 +1723,12 @@ body {
 }
 .argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
 .argus-chip-window-badge { font-size: 10px; opacity: 0.6; margin-left: 4px; }
-.argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
+/* `±` = uncommitted changes, after the PR glyph. */
+.argus-chip-dirty { font-family: var(--font-mono); font-size: 11px; line-height: 1; color: var(--dirty); }
+.argus-chip-pr { display: inline-flex; align-items: center; gap: 2px; }
+.argus-chip-pr-count { font-family: var(--font-mono); font-size: 10px; line-height: 1; }
+/* The tile's running crawl (.argus-tile-prog), kept clear of the rounded corners. */
+.argus-chip-prog { left: var(--r-2); right: var(--r-2); }
 
 /* Dims every tile that is not the selected one — the ONLY signal that says
    which tile is selected, since the selected one carries no mark of its own.

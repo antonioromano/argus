@@ -44,7 +44,7 @@ function fixture() {
     setReady: async (url: string, cwd: string, ready: boolean) => { readies.push([url, cwd, ready]); readyAnswer(); },
   };
   const linkPr = (id: string, url: string | undefined) => {
-    (sm as any).sessions.get(id).usage = { linkedPrUrl: () => url, snapshot: () => undefined };
+    (sm as any).sessions.get(id).usage = { linkedPrUrl: () => url, linkedPrUrls: () => (url ? [url] : []), snapshot: () => undefined };
   };
   return {
     sm, emitted, lookups, urlLookups, linkPr, folder, diffs, readies,
@@ -106,10 +106,56 @@ test('no PR on the folder branch: the PR the transcript links is shown instead',
 
 test('the folder branch PR wins over a transcript-linked one', async () => {
   const f = fixture();
-  f.linkPr('a', 'https://github.com/o/other/pull/99');
+  const url = 'https://github.com/o/other/pull/99';
+  f.linkPr('a', url);
   await f.sm.pollPrStatus();
-  assert.deepEqual(f.urlLookups, []);
+  // Read once, for the summary only.
+  assert.deepEqual(f.urlLookups, [url]);
   assert.deepEqual(f.sm.getSessionInfo('a')?.pr, PR);
+});
+
+// ── F5: the shell tab's PR summary ──────────────────────────────────────────
+
+const summaryEvents = (emitted: Array<{ event: string; payload: any }>) => emitted.filter((e) => e.event === 'session:prSummary');
+
+test('the sweep summarizes every PR of the session; the fallback PR is read once', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  const urls = ['https://github.com/o/r/pull/1', 'https://github.com/o/r/pull/2'];
+  linkPrs(f, 'a', urls);
+  await f.sm.pollPrStatus();
+  assert.deepEqual(f.urlLookups.sort(), urls, 'pull/2 is both the chip and a summary entry, read once');
+  const summary = f.sm.getSessionInfo('a')?.prSummary;
+  assert.equal(summary?.count, 2);
+  assert.equal(summary?.tone, 'pending');
+  assert.deepEqual(summary?.prs.map((p) => p.url), [urls[1], urls[0]], 'newest first');
+  assert.equal(f.sm.getSessionInfo('b')?.prSummary, undefined);
+  assert.deepEqual(summaryEvents(f.emitted).map((e) => e.payload.sessionId), ['a']);
+});
+
+test('the summary is broadcast only when it changes, and cleared when the setting goes off', async () => {
+  const f = fixture();
+  await f.sm.pollPrStatus();
+  await f.sm.pollPrStatus();
+  assert.deepEqual(summaryEvents(f.emitted).map((e) => e.payload.summary?.count), [1, 1]);
+  f.setAnswer({ ...PR, state: 'merged' });
+  await f.sm.pollPrStatus();
+  assert.deepEqual(summaryEvents(f.emitted).slice(2).map((e) => e.payload.summary?.tone), ['merged', 'merged']);
+  f.sm.setPrStatusEnabled(false);
+  assert.deepEqual(summaryEvents(f.emitted).slice(4).map((e) => e.payload), [
+    { sessionId: 'a', summary: null },
+    { sessionId: 'b', summary: null },
+  ]);
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary, undefined);
+});
+
+test('a session whose PRs are all closed has no summary', async () => {
+  const f = fixture();
+  f.setAnswer({ ...PR, state: 'closed' });
+  await f.sm.pollPrStatus();
+  assert.equal(f.sm.getSessionInfo('a')?.pr?.state, 'closed');
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary, undefined);
+  assert.equal(summaryEvents(f.emitted).length, 0);
 });
 
 // ── B3: every PR of a session (Inspector GitHub card) ─────────────────────

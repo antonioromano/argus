@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr, SessionPrSummary } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
@@ -118,6 +118,10 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, pr: pr ?? undefined } : s)));
     };
 
+    const handlePrSummary = ({ sessionId, summary }: { sessionId: string; summary: SessionPrSummary | null }) => {
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, prSummary: summary ?? undefined } : s)));
+    };
+
     const handleWorktreeStale = ({ sessionId, staleDays }: { sessionId: string; staleDays: number | null }) => {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, worktreeStaleDays: staleDays ?? undefined } : s)));
     };
@@ -141,6 +145,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:gitStatus', handleGitStatus);
     socket.on('session:shellContext', handleShellContext);
     socket.on('session:pr', handlePr);
+    socket.on('session:prSummary', handlePrSummary);
     socket.on('session:worktreeStale', handleWorktreeStale);
 
     return () => {
@@ -155,6 +160,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
       socket.off('session:pr', handlePr);
+      socket.off('session:prSummary', handlePrSummary);
       socket.off('session:worktreeStale', handleWorktreeStale);
     };
   }, [socket, applyDelta]);

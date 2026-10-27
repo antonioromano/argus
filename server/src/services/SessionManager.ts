@@ -21,6 +21,7 @@ import type {
   PromptOption,
   SessionStatusPayload,
   SessionPr,
+  SessionPrSummary,
   SessionPrEntry,
   SessionPrsResponse,
   SessionPrDiffResponse,
@@ -65,6 +66,7 @@ import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
+import { summarizePrs } from './prSummary.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
@@ -475,6 +477,8 @@ export class SessionManager {
   private prService: PrStatusService | null = null;
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
+  /** F5: every non-closed PR of a session, for the shell tabs. */
+  private prSummaryMap = new Map<string, SessionPrSummary>();
   private prPollRunning = false;
   /** A sweep was asked for while one was running (see pollPrStatus). */
   private prPollAgain = false;
@@ -692,6 +696,8 @@ export class SessionManager {
       this.prService?.clear();
       for (const id of this.prMap.keys()) this.io?.emit('session:pr', { sessionId: id, pr: null });
       this.prMap.clear();
+      for (const id of this.prSummaryMap.keys()) this.io?.emit('session:prSummary', { sessionId: id, summary: null });
+      this.prSummaryMap.clear();
     }
     this.restartPrPoll();
   }
@@ -897,13 +903,28 @@ export class SessionManager {
           p = service.forFolder(folder);
           byFolder.set(folder, p);
         }
-        let pr = await p;
+        const folderPr = await p;
+        // One read per URL per session per sweep: the chip's fallback below and
+        // the summary share it.
+        const reads = new Map<string, Promise<SessionPr | null>>();
+        const read = (url: string): Promise<SessionPr | null> => {
+          let r = reads.get(url);
+          if (!r) { r = service.forUrl(url, folder); reads.set(url, r); }
+          return r;
+        };
         // No PR on the folder's branch: fall back to the PR the conversation
         // itself created or pushed to — e.g. a hub session on `main` that works
         // in other repos. Several sessions on one PR share the service cache.
-        const linked = pr ? undefined : session.usage?.linkedPrUrl();
-        if (linked) pr = await service.forUrl(linked, folder);
+        const linked = folderPr ? undefined : session.usage?.linkedPrUrl();
+        const pr = linked ? await read(linked) : folderPr;
+        // F5: the shell tab's summary covers the same PRs as the Inspector list.
+        const entries = await this.sessionPrEntries(session, folder, service, folderPr);
+        const listed: (SessionPr | null)[] = entries.map((e) => (e.folderBranch ? e.pr : null));
+        await runBounded(entries.map((e, i) => [e, i] as const).filter(([e]) => !e.folderBranch), PR_POLL_CONCURRENCY, async ([e, i]) => {
+          listed[i] = await read(e.url);
+        });
         if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
+        this.applyPrSummary(session.id, summarizePrs(listed.filter((x): x is SessionPr => x !== null)));
         const prev = this.prMap.get(session.id) ?? null;
         if (JSON.stringify(prev) === JSON.stringify(pr)) return;
         if (pr) this.prMap.set(session.id, pr);
@@ -920,6 +941,15 @@ export class SessionManager {
       this.prPollAgain = false;
       await this.pollPrStatus();
     }
+  }
+
+  /** F5: store and broadcast a session's PR summary, only when it changed. */
+  private applyPrSummary(id: string, summary: SessionPrSummary | null): void {
+    const prev = this.prSummaryMap.get(id) ?? null;
+    if (JSON.stringify(prev) === JSON.stringify(summary)) return;
+    if (summary) this.prSummaryMap.set(id, summary);
+    else this.prSummaryMap.delete(id);
+    this.io?.emit('session:prSummary', { sessionId: id, summary });
   }
 
   /**
@@ -950,8 +980,11 @@ export class SessionManager {
    * folder PR (one cached lookup) carries `pr`. Also the allow-list of PRs
    * whose diff may be read (sessionPrDiff).
    */
-  private async sessionPrEntries(session: ManagedSession, folder: string, service: PrStatusService): Promise<SessionPrEntry[]> {
-    const folderPr = await service.forFolder(folder);
+  private async sessionPrEntries(
+    session: ManagedSession, folder: string, service: PrStatusService,
+    known?: SessionPr | null,
+  ): Promise<SessionPrEntry[]> {
+    const folderPr = known !== undefined ? known : await service.forFolder(folder);
     const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
     const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
     // The newest SESSION_PRS_MAX, the folder PR always among them (in its own
@@ -1423,6 +1456,7 @@ export class SessionManager {
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     this.prMap.delete(id);
+    this.prSummaryMap.delete(id);
     this.staleMap.delete(id);
     this.activity.drop(id);
     this.refreshCodexPoll();
@@ -2848,6 +2882,7 @@ export class SessionManager {
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
       pr: this.prMap.get(session.id),
+      prSummary: this.prSummaryMap.get(session.id),
       worktreeStaleDays: this.staleMap.get(session.id),
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,

@@ -379,6 +379,8 @@ export interface SessionInfo {
   promptOptions?: PromptOption[];
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
+  /** F5: every non-closed PR of the session at a glance (shell tabs); absent when none. */
+  prSummary?: SessionPrSummary;
   /** Beta F8: days since the worktree branch's last commit, set only once it
    *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
   worktreeStaleDays?: number;
@@ -678,6 +680,29 @@ export interface PrChecks {
   counts: PrCheckCounts;
   /** Bounded list (see the server's PR_FAILED_CHECKS_MAX). */
   failed: PrFailedCheck[];
+}
+
+/**
+ * The colour a PR is shown in (see the client's prTone): merged, closed, draft,
+ * or for an open PR blocked (conflicts / failing checks), ready or pending.
+ */
+export type PrTone = 'ready' | 'pending' | 'blocked' | 'draft' | 'merged' | 'closed';
+
+/** F5: one PR of a session's summary, as the shell tab's tooltip lists it. */
+export interface SessionPrSummaryItem {
+  url: string;
+  number: number;
+  state: PrState;
+  tone: PrTone;
+  title?: string;
+}
+
+/** F5: the session's PRs for the shell tab — closed ones left out. `tone` is
+ *  the most action-needing one (blocked → pending → ready → draft → merged). */
+export interface SessionPrSummary {
+  count: number;
+  tone: PrTone;
+  prs: SessionPrSummaryItem[];
 }
 
 /** One PR of a session in the Inspector's GitHub card (B3). */
@@ -1083,6 +1108,8 @@ export interface ServerToClientEvents {
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** The session's PR / CI state changed; null = no PR (or the feature is off). */
   'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
+  /** F5: the session's PR summary changed; null = no non-closed PR (or the feature is off). */
+  'session:prSummary': (payload: { sessionId: string; summary: SessionPrSummary | null }) => void;
   /** Beta F8: the worktree's stale marker changed; null = not stale (or the feature is off). */
   'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
   /** Beta F6: one new activity entry, emitted only to the session's room. */
