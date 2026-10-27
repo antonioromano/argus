@@ -15,6 +15,7 @@ import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
@@ -232,24 +233,7 @@ function applyBrewUpdate(
  */
 function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
-  const script = [
-    `if [ -f "${lockFile}" ]; then echo "[argus-update] phase2 already running, exiting" >> "${logFile}"; exit 0; fi`,
-    `echo $$ > "${lockFile}"`,
-    `rm -f "${failMarker}"`,
-    `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
-    `echo "[argus-update] $(date) phase2 install" >> "${logFile}"`,
-    `brew upgrade --cask ${UPDATE_CASK} >> "${logFile}" 2>&1`,
-    `BREW_EXIT=$?`,
-    `rm -f "${lockFile}"`,
-    `if [ $BREW_EXIT -eq 0 ]; then`,
-    `  echo "[argus-update] $(date) install ok, relaunching" >> "${logFile}"`,
-    `  open -a Argus`,
-    `else`,
-    `  echo "[argus-update] $(date) install failed (exit $BREW_EXIT)" >> "${logFile}"`,
-    `  echo "$BREW_EXIT" > "${failMarker}"`,
-    `  open -a Argus`,
-    `fi`,
-  ].join('\n');
+  const script = buildPhase2Script({ cask: UPDATE_CASK, parentPid: process.pid, logFile, lockFile, failMarker });
 
   const child = spawn(loginShell, ['-l', '-c', script], { detached: true, stdio: 'ignore' });
   child.unref();
