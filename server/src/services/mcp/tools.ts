@@ -5,6 +5,8 @@ import { ToolError, textResult, type ToolDef } from './protocol.js';
 export interface McpCaller {
   sessionId: string;
   name: string;
+  /** Aborts when the HTTP request goes away (the agent cancelled the call). */
+  signal?: AbortSignal;
 }
 
 export type LaunchDecision = { ok: true; sessionId: string } | { ok: false; error: string };
@@ -18,7 +20,7 @@ export interface McpHost {
   validate(req: LaunchRequest): Promise<ValidationResult>;
   /** Show the launch card (or launch directly when the caller is trusted) and
    *  resolve once the user decides. Undefined when no approval UI is attached. */
-  requestLaunch?: (v: ValidatedLaunch, caller: McpCaller) => Promise<LaunchDecision>;
+  requestLaunch?: (v: ValidatedLaunch, caller: { sessionId: string; name: string }, signal?: AbortSignal) => Promise<LaunchDecision>;
   /** Type text and press Enter (Chat-send semantics). False when it could not be sent. */
   submit(id: string, text: string): Promise<boolean>;
   /** Interrupt the running turn (Escape), never kill. */
@@ -145,7 +147,7 @@ export function createMcpTools(host: McpHost, home: string): ToolDef<McpCaller>[
         if (!host.requestLaunch) throw new ToolError('Argus cannot show an approval card right now (no app window)');
         const v = await host.validate(req);
         if (!v.ok) throw new ToolError(v.error);
-        const decision = await host.requestLaunch(v.value, caller);
+        const decision = await host.requestLaunch(v.value, { sessionId: caller.sessionId, name: caller.name }, caller.signal);
         if (!decision.ok) throw new ToolError(decision.error);
         const s = host.getSession(decision.sessionId);
         return textResult(
@@ -221,6 +223,9 @@ export function createMcpTools(host: McpHost, home: string): ToolDef<McpCaller>[
         if (text.length > MCP_MAX_INPUT) throw new ToolError(`text is longer than ${MCP_MAX_INPUT} characters`);
         if (CONTROL_EXCEPT_NL_TAB.test(text) || FORMAT.test(text)) throw new ToolError('text contains control characters');
         const s = ownChild(host, args, caller);
+        // Only Claude's input box takes a multi-line message as one (chatInputBytes);
+        // elsewhere each newline would be an Enter and a tab a completion.
+        if (s.agentType !== 'claude' && /[\n\t]/.test(text)) throw new ToolError(`"${s.name}" takes single-line input only`);
         if (!(await host.submit(s.id, text))) throw new ToolError(`Could not send to "${s.name}"`);
         return textResult(`Sent to "${s.name}".`);
       },

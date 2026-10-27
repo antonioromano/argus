@@ -4,7 +4,7 @@ import type {
 } from '@argus/shared';
 import type { ParsedLink } from './launchLink.js';
 
-export const LIMITS = { maxPending: 5, expiryMs: 600_000, burstCount: 3, burstWindowMs: 10_000, errorToastMs: 10_000 } as const;
+export const LIMITS = { maxPending: 5, expiryMs: 600_000, burstCount: 3, burstWindowMs: 10_000, errorToastMs: 10_000, maxPendingMcp: 3 } as const;
 
 export interface GateDeps {
   now(): number;
@@ -31,7 +31,7 @@ export interface LaunchGate {
   handle(link: ParsedLink): Promise<void>;
   /** MCP start_session: a card (or a direct start for a trusted requester),
    *  resolved once the user starts, discards or lets it expire. */
-  request(validated: ValidatedLaunch, requester: McpRequester): Promise<McpLaunchDecision>;
+  request(validated: ValidatedLaunch, requester: McpRequester, signal?: AbortSignal): Promise<McpLaunchDecision>;
   list(windowId: string): PendingLaunchView[];
   /** `trustRequester`: an MCP card's "don't ask again" — later requests from
    *  the same session start without a card until Argus restarts. */
@@ -62,6 +62,15 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
   const inFlightRuns = new Set<string>();
   /** Requester session ids the user chose to stop asking about (memory only). */
   const trusted = new Set<string>();
+  /** Direct (trusted) MCP starts — their own window, so they never eat the links' burst budget. */
+  let mcpRecent: number[] = [];
+  const mcpWithinBurst = () => {
+    const t = deps.now();
+    mcpRecent = mcpRecent.filter((x) => t - x < LIMITS.burstWindowMs);
+    if (mcpRecent.length >= LIMITS.burstCount) return false;
+    mcpRecent.push(t);
+    return true;
+  };
 
   const settle = (e: Entry, d: McpLaunchDecision) => {
     for (const w of e.waiters?.splice(0) ?? []) w(d);
@@ -79,12 +88,18 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
   const addCard = (validated: ValidatedLaunch, source: PendingLaunchView['source'], launcherId?: string, label?: string, requester?: McpRequester): Entry | undefined => {
     const windowId = deps.targetWindow();
     const q = validated.request;
-    const key = JSON.stringify([source, launcherId ?? requester?.sessionId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
-    for (const e of entries.values()) {
-      if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId, 'added'); return e; }
+    const key = JSON.stringify([source, launcherId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
+    // Links dedupe (a double click is one launch). MCP calls never do: two
+    // identical start_session calls are two workers, each with its own answer.
+    if (source !== 'mcp') {
+      for (const e of entries.values()) {
+        if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId, 'added'); return e; }
+      }
     }
-    if ([...entries.values()].filter((e) => e.view.state !== 'expired').length >= LIMITS.maxPending) {
-      deps.toast(windowId, 'Too many pending launches, link ignored', 'warn');
+    // Separate caps, so a runaway orchestrator can't crowd out the user's links.
+    const live = [...entries.values()].filter((e) => e.view.state !== 'expired' && (e.view.source === 'mcp') === (source === 'mcp'));
+    if (source === 'mcp' ? live.length >= LIMITS.maxPendingMcp : live.length >= LIMITS.maxPending) {
+      if (source !== 'mcp') deps.toast(windowId, 'Too many pending launches, link ignored', 'warn');
       return undefined;
     }
     const r = validated.request;
@@ -153,10 +168,11 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       }
     },
 
-    async request(validated, requester) {
-      // A trusted requester skips the card, but not the burst limit: past it,
+    async request(validated, requester, signal) {
+      if (signal?.aborted) return { ok: false, error: 'Cancelled' };
+      // A trusted requester skips the card, but not a burst limit: past it,
       // a runaway orchestrator is back to asking.
-      if (trusted.has(requester.sessionId) && withinBurst()) {
+      if (trusted.has(requester.sessionId) && mcpWithinBurst()) {
         const windowId = deps.targetWindow();
         try {
           const s = await deps.launch(validated, windowId, undefined, requester.sessionId);
@@ -168,7 +184,17 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       }
       const e = addCard(validated, 'mcp', undefined, undefined, requester);
       if (!e) return { ok: false, error: 'Too many launches are waiting for approval in Argus' };
-      return new Promise<McpLaunchDecision>((resolve) => { e.waiters?.push(resolve); });
+      return new Promise<McpLaunchDecision>((resolve) => {
+        e.waiters?.push(resolve);
+        // The caller went away (Esc in the orchestrator, client timeout): withdraw
+        // the card rather than let a later click start a session nobody hears of.
+        signal?.addEventListener('abort', () => {
+          if (entries.get(e.view.id) !== e || e.view.state === 'starting') return;
+          entries.delete(e.view.id);
+          settle(e, { ok: false, error: 'Cancelled' });
+          deps.changed(e.windowId, 'updated');
+        }, { once: true });
+      });
     },
 
     list(windowId) {
@@ -207,6 +233,8 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
         return { ok: true };
       } catch (err) {
         e.view.state = 'error'; e.view.error = errMsg(err); deps.changed(e.windowId, 'updated');
+        // The waiting start_session call learns now; Retry stays on the card for the user.
+        settle(e, { ok: false, error: `Launch failed: ${errMsg(err)}` });
         return { ok: false, error: errMsg(err) };
       }
     },

@@ -16,6 +16,7 @@ const SELF_PARSED: ReadonlyArray<{ method?: string; path: string; prefix?: true 
   { method: 'PUT', path: '/api/fs/file' }, // editor save — 2 MB (routes/filesystem.ts)
   { path: '/api/agent-signals', prefix: true }, // CLI/daemon signals — 16 KB, PreToolUse 512 KB (routes/agentSignals.ts)
   { path: '/api/debug/scroll', prefix: true }, // dev-only text sink — 1 MB (routes/debugScroll.ts)
+  { path: '/mcp', prefix: true }, // MCP server — parsed after its auth check, 256 KB (routes/mcp.ts)
 ];
 
 export function parsesOwnBody(req: Pick<Request, 'method' | 'path'>): boolean {

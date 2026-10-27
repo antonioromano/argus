@@ -23,7 +23,6 @@ let server: Server;
 let url: string;
 before(async () => {
   const app = express();
-  app.use(express.json());
   app.use('/mcp', createMcpRoutes({
     isEnabled: () => enabled,
     getSecret: () => SECRET,
@@ -101,4 +100,29 @@ test('tools/call without SSE in Accept answers plain JSON, with the caller ident
 test('a non-JSON body is a parse error', async () => {
   const res = await fetch(url, { method: 'POST', headers: { ...auth(), 'content-type': 'text/plain' }, body: 'hi' });
   assert.equal(res.status, 400);
+});
+
+test('malformed JSON is a JSON-RPC parse error; nothing is parsed before auth', async () => {
+  const bad = await fetch(url, { method: 'POST', headers: { ...auth(), 'content-type': 'application/json' }, body: '{nope' });
+  assert.equal(bad.status, 400);
+  assert.equal((await bad.json()).error.code, -32700);
+  const unauth = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{nope' });
+  assert.equal(unauth.status, 401);
+});
+
+test('a client that hangs up aborts the pending tool call', async () => {
+  let aborted = false;
+  tools.push({ name: 'wait', title: '', description: '', inputSchema: {}, run: (_a, c) => new Promise((r) => {
+    c.signal?.addEventListener('abort', () => { aborted = true; r(textResult('x')); });
+  }) });
+  const ac = new AbortController();
+  const res = await fetch(url, {
+    method: 'POST', signal: ac.signal,
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...auth() },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'wait' } }),
+  });
+  assert.equal(res.status, 200);
+  ac.abort();
+  for (let i = 0; i < 50 && !aborted; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(aborted, true);
 });

@@ -421,13 +421,54 @@ test('mcp discard and expiry resolve the waiting call with an error', async () =
   assert.equal(r.ok, false);
 });
 
-test('an identical repeated request shares the card and both calls resolve', async () => {
-  const { gate } = make();
+test('identical MCP requests are separate cards with separate answers (two workers)', async () => {
+  let n = 0;
+  const { gate } = make({ launch: async () => ({ id: `child-${++n}` }) });
   const a = gate.request(mcpV(), REQ);
   const b = gate.request(mcpV(), REQ);
+  const cards = gate.list('main');
+  assert.equal(cards.length, 2);
+  await gate.approve(cards[0].id);
+  await gate.approve(cards[1].id);
+  assert.notDeepEqual(await a, await b);
+});
+
+test('a failed launch answers the waiting call; Retry stays on the card', async () => {
+  const { gate } = make({ launch: async () => { throw new Error('worktree base not found'); } });
+  const p = gate.request(mcpV(), REQ);
+  const r = await gate.approve(gate.list('main')[0].id);
+  assert.equal(r.ok, false);
+  assert.deepEqual(await p, { ok: false, error: 'Launch failed: worktree base not found' });
+  assert.equal(gate.list('main')[0].state, 'error');
+});
+
+test('an aborted call withdraws its pending card', async () => {
+  const { gate } = make();
+  const ac = new AbortController();
+  const p = gate.request(mcpV(), REQ, ac.signal);
   assert.equal(gate.list('main').length, 1);
-  await gate.approve(gate.list('main')[0].id);
-  assert.deepEqual(await a, await b);
+  ac.abort();
+  assert.deepEqual(await p, { ok: false, error: 'Cancelled' });
+  assert.equal(gate.list('main').length, 0);
+});
+
+test('MCP cards have their own cap and never crowd out links', async () => {
+  const { gate } = make();
+  for (let i = 0; i < LIMITS.maxPendingMcp; i++) void gate.request(mcpV(`w${i}`), REQ);
+  const over = await gate.request(mcpV('over'), REQ);
+  assert.equal(over.ok, false);
+  await gate.handle(newLink());
+  assert.equal(gate.list('main').filter((c) => c.source === 'new').length, 1);
+});
+
+test('trusted MCP starts do not use up the deep-link burst budget', async () => {
+  const { gate } = make();
+  const first = gate.request(mcpV('p0'), REQ);
+  await gate.approve(gate.list('main')[0].id, undefined, true);
+  await first;
+  for (let i = 1; i <= LIMITS.burstCount; i++) await gate.request(mcpV(`p${i}`), REQ);
+  await gate.handle(newLink());
+  assert.equal(gate.list('main').filter((c) => c.source === 'new').length, 1);
 });
 
 test('trust ("don’t ask again") starts later requests from that session without a card', async () => {

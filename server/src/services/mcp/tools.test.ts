@@ -122,3 +122,24 @@ test('send_input validates text and refuses an exited child', async () => {
   sessions.set(CHILD, info(CHILD, { spawnedBy: ORCH, status: 'exited' }));
   await assert.rejects(run('send_input', { id: CHILD, text: 'hi' }), /has exited/);
 });
+
+test('send_input: multi-line text only for Claude children', async () => {
+  const { run, sessions, log } = host();
+  await run('send_input', { id: CHILD, text: 'a\nb' });
+  sessions.set(CHILD, info(CHILD, { spawnedBy: ORCH, agentType: 'codex' }));
+  await assert.rejects(run('send_input', { id: CHILD, text: 'a\nb' }), /single-line/);
+  assert.equal(log.length, 1);
+});
+
+test('start_session passes the caller’s abort signal to the approval hook', async () => {
+  let got: AbortSignal | undefined;
+  const tools = createMcpTools({
+    listSessions: () => [], getSession: () => undefined, tail: () => [], submit: async () => true, interrupt: () => {},
+    validate: async (req) => ({ ok: true, value: { request: req, agentCommand: 'claude', args: [], command: 'claude', warnings: [], folderAgentConfig: [] } }),
+    requestLaunch: async (_v, c, sig) => { got = sig; assert.deepEqual(c, { sessionId: ORCH, name: 'orchestrator' }); return { ok: false, error: 'Cancelled' }; },
+  }, '/h');
+  const ac = new AbortController();
+  const start = tools.find((t) => t.name === 'start_session')!;
+  await assert.rejects(start.run({ prompt: 'go', folder: '/repo' }, { ...caller, signal: ac.signal }), /Cancelled/);
+  assert.equal(got, ac.signal);
+});

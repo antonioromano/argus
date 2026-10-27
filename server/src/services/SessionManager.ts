@@ -2059,15 +2059,7 @@ export class SessionManager {
       sessionId: session.id,
       sessionName: session.name,
       agentType: session.agentType,
-      scrollback: () => {
-        if (session.exitedFrame) return { kind: 'frozen' as const, frame: session.exitedFrame.full };
-        const mirror = session.mirror;
-        if (!mirror || mirror.disposed) return null;
-        const frame = mirror.frozenFrame();
-        if (frame !== null) return { kind: 'frozen' as const, frame };
-        const rows = mirror.searchableRows();
-        return rows ? { kind: 'live' as const, rows } : null;
-      },
+      scrollback: () => this.scrollbackOf(session),
       transcripts: () => session.usage?.transcriptPaths() ?? [],
     }));
   }
@@ -2078,8 +2070,8 @@ export class SessionManager {
    * hibernated mirror: a sleeping or exited session is read from its stored frame.
    */
   tailLines(id: string, lines: number): string[] {
-    const target = this.searchTargets().find((t) => t.sessionId === id);
-    const sb = target?.scrollback();
+    const session = this.sessions.get(id);
+    const sb = session ? this.scrollbackOf(session) : null;
     if (!sb) return [];
     const rows = sb.kind === 'live' ? sb.rows : frameToRows(sb.frame);
     const logical: string[] = [];
@@ -2089,6 +2081,17 @@ export class SessionManager {
     }
     while (logical.length > 0 && !logical[logical.length - 1]!.trim()) logical.pop();
     return logical.slice(-lines).map((l) => l.trimEnd());
+  }
+
+  /** A session's screen without waking its mirror: the stored frame when asleep or exited. */
+  private scrollbackOf(session: ManagedSession): ReturnType<SearchTarget['scrollback']> {
+    if (session.exitedFrame) return { kind: 'frozen', frame: session.exitedFrame.full };
+    const mirror = session.mirror;
+    if (!mirror || mirror.disposed) return null;
+    const frame = mirror.frozenFrame();
+    if (frame !== null) return { kind: 'frozen', frame };
+    const rows = mirror.searchableRows();
+    return rows ? { kind: 'live', rows } : null;
   }
 
   /** Validated transcripts of a session, the current one last (F12 handoff). */

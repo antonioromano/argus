@@ -263,7 +263,7 @@ export async function hostLaunch(v: ValidatedLaunch, windowId: string, launcherI
   return session;
 }
 /** F10: the Electron launch gate's entry for MCP start_session (approval card). */
-type McpLaunchHook = (v: ValidatedLaunch, caller: McpCaller) => Promise<LaunchDecision>;
+type McpLaunchHook = (v: ValidatedLaunch, caller: Pick<McpCaller, 'sessionId' | 'name'>, signal?: AbortSignal) => Promise<LaunchDecision>;
 let mcpLaunchHook: McpLaunchHook | undefined;
 export function setMcpLaunchHook(fn: McpLaunchHook): void {
   mcpLaunchHook = fn;
@@ -359,7 +359,6 @@ app.use(MCP_PATH, createMcpRoutes({
     validate: (req) => launchService.validate(req),
     get requestLaunch() { return mcpLaunchHook; },
     submit: async (id, text) => {
-      chainEngine.noteUserInput(id);
       const write = (data: string, pause?: number) => sharedInputQueue.write(id, data, pause);
       if (sessionManager.getSessionInfo(id)?.agentType === 'claude') return sessionManager.submitChatInput(id, text, write);
       write(text, BROADCAST_ENTER_DELAY_MS);

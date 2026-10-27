@@ -1406,8 +1406,8 @@ async function main() {
   });
   setInterval(() => launchGate?.tick(), 30_000).unref();
   // F10: MCP start_session goes through the same gate (card + approval) as a link.
-  const setMcpLaunchHook = server.setMcpLaunchHook as (fn: (v: import('@argus/shared').ValidatedLaunch, caller: McpRequester) => Promise<McpLaunchDecision>) => void;
-  setMcpLaunchHook((v, caller) => launchGate!.request(v, caller));
+  const setMcpLaunchHook = server.setMcpLaunchHook as (fn: (v: import('@argus/shared').ValidatedLaunch, caller: McpRequester, signal?: AbortSignal) => Promise<McpLaunchDecision>) => void;
+  setMcpLaunchHook((v, caller, signal) => launchGate!.request(v, caller, signal));
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   /** Only an Argus window's main frame may drive launches. Returns its window id. */
