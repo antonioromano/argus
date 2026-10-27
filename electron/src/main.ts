@@ -15,7 +15,7 @@ import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
-import { buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
+import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
@@ -95,7 +95,8 @@ const UPDATE_CASK = 'argus';
  *
  *   Phase 2 (after we quit): a detached helper waits for this process to exit,
  *   installs from the warm cache (`brew upgrade --cask argus`, fast/offline),
- *   and relaunches Argus ONLY on success. brew can't replace the running
+ *   and relaunches Argus in every outcome; a failed install leaves a marker
+ *   that the next launch re-checks and surfaces. brew can't replace the running
  *   Argus.app, which is why the install is deferred to after quit.
  */
 function applyBrewUpdate(
@@ -214,8 +215,9 @@ function applyBrewUpdate(
 /**
  * Phase 2 helper: spawned detached just before we quit. Waits for this process
  * to exit, installs the already-downloaded cask from cache, and relaunches Argus
- * only on success. A lock file prevents the relaunched app from re-triggering
- * the loop; a `.failed` marker lets the next launch surface a failed install.
+ * in every outcome (the next launch surfaces a failure). A lock file prevents
+ * the relaunched app from re-triggering the loop; a `.failed` marker lets the
+ * next launch surface a failed install.
  */
 function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
@@ -1463,21 +1465,33 @@ async function main() {
   surfaceFailedInstall();
 }
 
-/** Show + clear the Phase-2 install-failure marker written by startPhase2. */
+/**
+ * Show + clear the Phase-2 install-failure marker written by startPhase2.
+ * The marker is re-checked against cask state first: older versions' phase 2
+ * trusted brew's exit code and could leave a marker although the cask upgraded.
+ */
 function surfaceFailedInstall(): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
   if (!existsSync(failMarker)) return;
   let exitCode = '';
   try { exitCode = readFileSync(failMarker, 'utf8').trim(); } catch { /* ignore */ }
   const logFile = join(app.getPath('userData'), 'update.log');
-  void dialog.showMessageBox({
-    type: 'warning',
-    title: 'Argus — Update did not install',
-    message: 'The latest version was downloaded but Homebrew could not install it.',
-    detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
-    buttons: ['OK'],
+  const shell = process.env.SHELL || '/bin/zsh';
+  execFile(shell, ['-l', '-c', buildCaskCurrentCheck(UPDATE_CASK)], (err) => {
+    if (!err) {
+      try { appendFileSync(logFile, `[argus-update] ${new Date().toISOString()} failure marker ignored: argus is current\n`); } catch { /* best-effort */ }
+      try { unlinkSync(failMarker); } catch { /* best-effort */ }
+      return;
+    }
+    void dialog.showMessageBox({
+      type: 'warning',
+      title: 'Argus — Update did not install',
+      message: 'The latest version was downloaded but Homebrew could not install it.',
+      detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
+      buttons: ['OK'],
+    });
+    try { unlinkSync(failMarker); } catch { /* best-effort */ }
   });
-  try { unlinkSync(failMarker); } catch { /* best-effort */ }
 }
 
 // Single-instance lock: a second launch of the SAME profile focuses the existing

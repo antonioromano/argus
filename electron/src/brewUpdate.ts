@@ -1,5 +1,6 @@
 /**
- * Phase-2 self-update script, built as a pure string so it can be tested
+ * Homebrew self-update scripts (phase 1 download, phase 2 install) and the
+ * cask-state check they share, built as pure strings so they can be tested
  * against fake `brew`/`open` binaries.
  *
  * Success is judged by cask state (`brew outdated --cask <cask>` exits 0 when
@@ -10,6 +11,14 @@
 
 /** Skip the auto-update and the dependents check that can fail unrelated to the cask. */
 export const BREW_QUIET_ENV = 'HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1';
+
+/**
+ * Shell command that exits 0 iff the cask is installed and current. Used by
+ * both phases and by the launch-time re-check of a leftover failure marker.
+ */
+export function buildCaskCurrentCheck(cask: string): string {
+  return `HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --cask ${cask} >/dev/null 2>&1`;
+}
 
 export type Phase2Opts = {
   cask: string;
@@ -29,7 +38,7 @@ export function buildPhase2Script(o: Phase2Opts): string {
     `${BREW_QUIET_ENV} brew upgrade --cask ${o.cask} >> "${o.logFile}" 2>&1`,
     `BREW_EXIT=$?`,
     `rm -f "${o.lockFile}"`,
-    `if HOMEBREW_NO_AUTO_UPDATE=1 brew outdated --cask ${o.cask} >/dev/null 2>&1; then`,
+    `if ${buildCaskCurrentCheck(o.cask)}; then`,
     `  if [ $BREW_EXIT -ne 0 ]; then echo "[argus-update] $(date) upgrade exited $BREW_EXIT but ${o.cask} is current — treating as installed" >> "${o.logFile}"; fi`,
     `  echo "[argus-update] $(date) install ok, relaunching" >> "${o.logFile}"`,
     `  open -a Argus`,
@@ -55,7 +64,7 @@ export function buildPhase1Script(o: { cask: string; tap: string; lockFile: stri
     `echo "@@PHASE update"`,
     `brew update 2>&1`,
     `echo "@@PHASE check"`,
-    `if brew outdated --cask ${o.cask} >/dev/null 2>&1; then echo "@@UPTODATE"; exit 0; fi`,
+    `if ${buildCaskCurrentCheck(o.cask)}; then echo "@@UPTODATE"; exit 0; fi`,
     `echo "@@PHASE download"`,
     `brew fetch --cask ${o.cask} 2>&1`,
     `FETCH_EXIT=$?`,

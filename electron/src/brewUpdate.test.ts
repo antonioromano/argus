@@ -1,17 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
+import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 
 type Fake = { upgradeExit: number; outdatedExit: number; stderr?: string };
 
 const readOr = (p: string, d: string): string => (existsSync(p) ? readFileSync(p, 'utf8') : d);
 
 /** Runs the real phase-2 script under /bin/sh with fake `brew` and `open` on PATH. */
-function runPhase2(fake: Fake, opts: { lockExists?: boolean } = {}) {
+function runPhase2(fake: Fake, opts: { lockExists?: boolean; markerExists?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'brewupdate-'));
   const bin = join(dir, 'bin');
   mkdirSync(bin);
@@ -35,6 +35,7 @@ function runPhase2(fake: Fake, opts: { lockExists?: boolean } = {}) {
   chmodSync(join(bin, 'brew'), 0o755);
   chmodSync(join(bin, 'open'), 0o755);
   if (opts.lockExists) writeFileSync(lockFile, '1');
+  if (opts.markerExists) writeFileSync(failMarker, '1');
 
   const script = buildPhase2Script({
     cask: 'argus',
@@ -43,15 +44,18 @@ function runPhase2(fake: Fake, opts: { lockExists?: boolean } = {}) {
     lockFile,
     failMarker,
   });
-  spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
-
-  return {
-    calls: readOr(callsLog, ''),
-    opens: readOr(openLog, ''),
-    marker: existsSync(failMarker) ? readFileSync(failMarker, 'utf8').trim() : null,
-    log: readOr(logFile, ''),
-    lockExistsAfter: existsSync(lockFile),
-  };
+  try {
+    spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+    return {
+      calls: readOr(callsLog, ''),
+      opens: readOr(openLog, ''),
+      marker: existsSync(failMarker) ? readFileSync(failMarker, 'utf8').trim() : null,
+      log: readOr(logFile, ''),
+      lockExistsAfter: existsSync(lockFile),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 test('clean upgrade → relaunch, no marker', () => {
@@ -74,6 +78,12 @@ test('real failure writes marker', () => {
   assert.equal(r.marker, '1');
   assert.match(r.log, /install failed \(exit 1\)/);
   assert.match(r.opens, /-a Argus/);
+  assert.equal(r.lockExistsAfter, false);
+});
+
+test('marker from an earlier failure is cleared by a clean run', () => {
+  const r = runPhase2({ upgradeExit: 0, outdatedExit: 0 }, { markerExists: true });
+  assert.equal(r.marker, null);
 });
 
 test('exit 0 but still outdated writes marker', () => {
@@ -123,11 +133,15 @@ function runPhase1(fake: Phase1Fake, opts: { lockExists?: boolean } = {}) {
   chmodSync(join(bin, 'brew'), 0o755);
   if (opts.lockExists) writeFileSync(lockFile, '1');
   const script = buildPhase1Script({ cask: 'argus', tap: 'rbly/argus', lockFile });
-  const r = spawnSync('/bin/sh', ['-c', script], {
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-    encoding: 'utf8',
-  });
-  return { stdout: r.stdout, calls: readOr(callsLog, '') };
+  try {
+    const r = spawnSync('/bin/sh', ['-c', script], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      encoding: 'utf8',
+    });
+    return { stdout: r.stdout, calls: readOr(callsLog, '') };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 test('phase1: up to date despite stderr warning', () => {
@@ -153,4 +167,42 @@ test('phase1: lock present → @@FAIL', () => {
   const r = runPhase1({ outdatedExit: 1 }, { lockExists: true });
   assert.match(r.stdout, /@@FAIL Another update is already running\./);
   assert.equal(r.calls, '');
+});
+
+/** Runs the cask-current check under /bin/sh with a fake `brew` that records its env. */
+function runCheck(outdatedExit: number) {
+  const dir = mkdtempSync(join(tmpdir(), 'brewcheck-'));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  const callsLog = join(dir, 'calls.log');
+  writeFileSync(
+    join(bin, 'brew'),
+    [
+      '#!/bin/sh',
+      `echo "$@ NO_AUTO_UPDATE=$HOMEBREW_NO_AUTO_UPDATE" >> "${callsLog}"`,
+      `case "$1" in outdated) exit ${outdatedExit};; esac`,
+      'exit 0',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'brew'), 0o755);
+  try {
+    const r = spawnSync('/bin/sh', ['-c', buildCaskCurrentCheck('argus')], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    return { status: r.status, calls: readOr(callsLog, '') };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('cask check: exits 0 when cask is current', () => {
+  assert.equal(runCheck(0).status, 0);
+});
+
+test('cask check: exits 1 when cask is outdated', () => {
+  assert.equal(runCheck(1).status, 1);
+});
+
+test('cask check: runs outdated --cask with NO_AUTO_UPDATE=1', () => {
+  assert.match(runCheck(0).calls, /outdated --cask argus NO_AUTO_UPDATE=1/);
 });

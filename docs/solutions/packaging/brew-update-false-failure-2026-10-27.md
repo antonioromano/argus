@@ -20,7 +20,7 @@ tags:
 ## Symptom
 
 - Up-to-date installs never reported "already up to date"; phase 1 always went on to download.
-- Phase 2 could report failure (and show the failure banner) although the cask had upgraded.
+- Phase 2 could report failure (and show the failure dialog) although the cask had upgraded.
 
 ## Root cause
 
@@ -30,3 +30,5 @@ tags:
 ## Rule
 
 Decide on the `brew outdated --cask <cask>` exit code (0 = installed and current, 1 = outdated or missing), never on brew's own exit status or output text. Logic lives in `electron/src/brewUpdate.ts` and is tested against fake `brew`/`open` binaries.
+
+Markers left by older versions (whose phase 2 trusted brew's exit code) are re-checked at launch with the same predicate and dropped if the cask is current.
