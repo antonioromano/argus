@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import type { AppConfig, BetaFlag, RunMode, SessionViewMode, TerminalEngine } from '@argus/shared';
+import type { AppConfig, RunMode, SessionViewMode, TerminalEngine } from '@argus/shared';
 import {
   CaseSensitive, ChevronDown, Ellipsis, FileDiff, Gauge, GitBranch, GitMerge, GitPullRequest,
   GitPullRequestArrow, GitPullRequestDraft, Regex, Search, WholeWord, type LucideIcon,
@@ -20,13 +20,14 @@ export interface IntroResult {
   defaults?: { runMode: RunMode; terminalEngine: TerminalEngine };
   /** Welcome's last button: open the New shell sheet after closing. */
   openCreate?: boolean;
-  /** Beta features to switch on (no What's new step offers this right now). */
-  betaFlags?: Partial<Record<BetaFlag, true>>;
   /** What's new: "Open Claude shells in Chat by default" was ticked. */
   defaultSessionView?: SessionViewMode;
 }
 
 interface Step { title: string; text: string; body: ReactNode }
+
+export interface IntroKeys { inspector: string; findInFiles: string }
+const DEFAULT_KEYS: IntroKeys = { inspector: '⌘I', findInFiles: '⌘⇧F' };
 
 /**
  * Step-by-step intro: one idea per screen, dots, Back / Next. Skip and Esc
@@ -37,11 +38,14 @@ export function IntroSheet({
   flow,
   version,
   config,
+  keys = DEFAULT_KEYS,
   onDone,
 }: {
   flow: IntroFlow;
   version: string;
   config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine'> | null;
+  /** Display labels of the shortcuts the slides mention, as the user has them bound. */
+  keys?: IntroKeys;
   onDone: (result: IntroResult) => void;
 }) {
   const [step, setStep] = useState(0);
@@ -96,8 +100,8 @@ export function IntroSheet({
         },
         {
           title: 'Session Inspector',
-          text: 'A side panel for the shell in front of you, with Usage, Git and GitHub cards: plan limits and when they reset, branch and changes, pull requests. Dock it left or right; ⌘I shows and hides it.',
-          body: <InspectorPicture />,
+          text: `A side panel for the shell in front of you, with Usage, Git and GitHub cards: plan limits and when they reset, branch and changes, pull requests. Dock it left or right; ${keys.inspector} shows and hides it.`,
+          body: <InspectorPicture toggleKey={keys.inspector} />,
         },
         {
           title: 'Your session’s pull requests',
@@ -106,7 +110,7 @@ export function IntroSheet({
         },
         {
           title: 'Find in Files, highlighted everywhere',
-          text: 'Press ⌘⇧F in the explorer to search the whole folder with ripgrep — match case, whole word, regex, include and exclude globs. One Shiki highlighter now colours the editor, Chat and diffs alike.',
+          text: `Press ${keys.findInFiles} in the explorer to search the whole folder with ripgrep — match case, whole word, regex, include and exclude globs. One Shiki highlighter now colours the editor, Chat and diffs alike.`,
           body: <FindPicture />,
         },
         {
@@ -134,7 +138,9 @@ export function IntroSheet({
     <Sheet
       eyebrow={flow === 'welcome' ? 'ARGUS · WELCOME' : `ARGUS · WHAT’S NEW IN ${version}`}
       title={current.title}
-      subtitle={current.text}
+      // What's new reserves four lines of text, so slides of different lengths
+      // keep the same sheet height and the footer buttons stay put.
+      subtitle={flow === 'whatsNew' ? <span style={{ display: 'block', minHeight: '4lh' }}>{current.text}</span> : current.text}
       width={600}
       onClose={skip}
       footer={
@@ -164,10 +170,13 @@ export function IntroSheet({
         </div>
       }
     >
-      <div style={{ minHeight: 260 }}>{current.body}</div>
+      <div style={{ minHeight: flow === 'whatsNew' ? WHATS_NEW_BODY_HEIGHT : 260 }}>{current.body}</div>
     </Sheet>
   );
 }
+
+/** The tallest What's new slide (Chat: screenshot + checkbox), given to every one of them. */
+const WHATS_NEW_BODY_HEIGHT = scaledPx(292);
 
 // ── Pictures: small, token-coloured sketches of the real UI ─────────────────
 
@@ -322,7 +331,7 @@ function Lines({ add, del }: { add: string; del: string }) {
   );
 }
 
-function InspectorPicture() {
+function InspectorPicture({ toggleKey }: { toggleKey: string }) {
   const bars = [70, 46, 82, 58, 34, 64, 50];
   return (
     <div style={frame}>
@@ -332,10 +341,10 @@ function InspectorPicture() {
           <div key={i} style={{ width: `${w}%`, height: scaledPx(6), borderRadius: 3, background: 'var(--bg-3)' }} />
         ))}
         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6, ...tiny, color: 'var(--fg-2)' }}>
-          <Kbd>⌘I</Kbd> show / hide
+          <Kbd>{toggleKey}</Kbd> show / hide
         </div>
       </div>
-      <div style={{ width: 210, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 10, borderLeft: '1px solid var(--line-2)' }}>
+      <div style={{ width: scaledPx(210), flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 10, borderLeft: '1px solid var(--line-2)' }}>
         <PanelCard icon={Gauge} title="Usage">
           <MiniMeter label="Session" pct={43} aside="Resets in 3 hr" />
           <MiniMeter label="Weekly" pct={18} aside="Resets Mon" />
@@ -359,7 +368,7 @@ function InspectorPicture() {
   );
 }
 
-function PrRow({ icon, tone, title, num, add, del, ci, draft }: {
+function PrRow({ icon, tone, title, num, add, del, ci, draft, popover }: {
   icon: LucideIcon;
   tone: string;
   title: string;
@@ -368,9 +377,11 @@ function PrRow({ icon, tone, title, num, add, del, ci, draft }: {
   del: string;
   ci: 'success' | 'pending' | 'failure';
   draft?: boolean;
+  /** Drawn beside the row's CI dot, as if opened from it. */
+  popover?: ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 10px', borderTop: '1px solid var(--line-2)', ...tiny }}>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 10px', borderTop: '1px solid var(--line-2)', ...tiny }}>
       <Icon icon={icon} size={14} strokeWidth={2} color={tone} style={{ flexShrink: 0, marginTop: 1 }} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-0)' }}>{title}</span>
@@ -393,6 +404,7 @@ function PrRow({ icon, tone, title, num, add, del, ci, draft }: {
         <CiDot ci={ci} />
         <Icon icon={Ellipsis} size={13} strokeWidth={1.8} color="var(--fg-3)" />
       </span>
+      {popover}
     </div>
   );
 }
@@ -400,7 +412,7 @@ function PrRow({ icon, tone, title, num, add, del, ci, draft }: {
 function PullRequestsPicture() {
   return (
     <div style={{ ...frame, alignItems: 'flex-start', justifyContent: 'center' }}>
-      <div style={{ position: 'relative', width: 330 }}>
+      <div style={{ width: scaledPx(330) }}>
         <div style={{ background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 'var(--t-xs)', fontWeight: 500, color: 'var(--fg-0)' }}>
             <Icon icon={GitPullRequest} size={12} strokeWidth={1.8} color="var(--fg-2)" />
@@ -408,26 +420,31 @@ function PullRequestsPicture() {
             <span style={{ marginLeft: 'auto', ...tiny, fontWeight: 400, color: 'var(--fg-3)' }}>3 pull requests</span>
           </div>
           <PrRow icon={GitPullRequest} tone="var(--ok)" title="Session Inspector" num={59} add="1.2k" del="88" ci="success" />
-          <PrRow icon={GitPullRequestDraft} tone="var(--fg-3)" title="What’s new for 0.30" num={55} add="412" del="37" ci="pending" draft />
+          <PrRow icon={GitPullRequestDraft} tone="var(--fg-3)" title="What’s new for 0.30" num={55} add="412" del="37" ci="pending" draft popover={<ChecksPopover />} />
           <PrRow icon={GitMerge} tone="var(--pr-merged)" title="Pull request diff" num={58} add="903" del="41" ci="success" />
         </div>
-        {/* The checks popover, opened from the draft's CI dot. */}
-        <div style={{
-          position: 'absolute', top: 96, left: 'calc(100% - 18px)', width: 132,
-          display: 'flex', flexDirection: 'column', gap: 5, padding: '8px 10px',
-          background: 'var(--bg-2)', borderRadius: 'var(--r-2)', boxShadow: 'var(--shadow-pop)', ...tiny,
-        }}
-        >
-          <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>Checks</span>
-          {([['pending', 'Pending', 1], ['success', 'Passed', 6]] as const).map(([ci, label, n]) => (
-            <span key={ci} style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fg-1)' }}>
-              <CiDot ci={ci} />
-              <span style={{ flex: 1 }}>{label}</span>
-              <span style={{ ...mono, color: 'var(--fg-2)' }}>{n}</span>
-            </span>
-          ))}
-        </div>
       </div>
+    </div>
+  );
+}
+
+/** The checks popover, opened from the draft's CI dot. */
+function ChecksPopover() {
+  return (
+    <div style={{
+      position: 'absolute', top: 'calc(100% - 6px)', right: 6, width: scaledPx(132), zIndex: 1,
+      display: 'flex', flexDirection: 'column', gap: 5, padding: '8px 10px',
+      background: 'var(--bg-2)', borderRadius: 'var(--r-2)', boxShadow: 'var(--shadow-pop)', ...tiny,
+    }}
+    >
+      <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>Checks</span>
+      {([['pending', 'Pending', 1], ['success', 'Passed', 6]] as const).map(([ci, label, n]) => (
+        <span key={ci} style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fg-1)' }}>
+          <CiDot ci={ci} />
+          <span style={{ flex: 1 }}>{label}</span>
+          <span style={{ ...mono, color: 'var(--fg-2)' }}>{n}</span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -453,7 +470,7 @@ function Match({ line, before, hit, after, on }: { line: number; before: string;
 function FindPicture() {
   return (
     <div style={{ ...frame, padding: 0, gap: 0, overflow: 'hidden' }}>
-      <div style={{ width: 236, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--line-2)' }}>
+      <div style={{ width: scaledPx(236), flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--line-2)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '8px', borderBottom: '1px solid var(--line-2)' }}>
           <span style={{ ...mono, ...tiny, letterSpacing: 'var(--tracking-eye)', color: 'var(--fg-3)' }}>FIND IN FILES</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: 'var(--ctl-h-sm)', padding: '0 6px', background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-1)' }}>

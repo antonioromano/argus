@@ -69,6 +69,19 @@ describe('IntroSheet — What’s new', () => {
   });
 });
 
+describe('IntroSheet — shortcut labels', () => {
+  it('shows the shortcuts as the user has them bound', () => {
+    act(() => root.render(
+      <IntroSheet flow="whatsNew" version="0.30.0" config={null} keys={{ inspector: '⌘⇧I', findInFiles: '⌥⌘F' }} onDone={vi.fn()} />,
+    ));
+    next();
+    expect(title()).toContain('⌘⇧I shows and hides it');
+    expect(title()).not.toContain('⌘I shows');
+    next(2);
+    expect(title()).toContain('Press ⌥⌘F in the explorer');
+  });
+});
+
 describe('IntroSheet — Chat by default', () => {
   it('Done with the box ticked turns on Chat by default', () => {
     const onDone = render('whatsNew');

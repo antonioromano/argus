@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CURRENT_INTRO_ID, introToShow } from './intro.js';
+import { CURRENT_INTRO_ID, introConfigPatch, introToShow } from './intro.js';
 
 describe('introToShow', () => {
   it('waits until both config and version are known', () => {
@@ -28,5 +28,25 @@ describe('introToShow', () => {
 
   it('shows nothing once the current intro has been seen', () => {
     expect(introToShow({ introSeen: CURRENT_INTRO_ID, quickActionPromptedAt: '0.22.0' }, '0.24.0')).toBeNull();
+  });
+});
+
+describe('introConfigPatch', () => {
+  it('stamps the intro as seen and keeps an existing quick-action stamp', () => {
+    expect(introConfigPatch({}, '0.22.0', '0.30.0')).toEqual({ introSeen: CURRENT_INTRO_ID });
+  });
+
+  it('stamps the quick-action prompt for a user who never had it', () => {
+    expect(introConfigPatch({}, '', '0.30.0')).toEqual({ introSeen: CURRENT_INTRO_ID, quickActionPromptedAt: '0.30.0' });
+  });
+
+  it('saves Chat by default in the same patch as introSeen', () => {
+    expect(introConfigPatch({ defaultSessionView: 'chat' }, '0.22.0', '0.30.0'))
+      .toEqual({ introSeen: CURRENT_INTRO_ID, defaultSessionView: 'chat' });
+  });
+
+  it('saves the Welcome terminal defaults', () => {
+    expect(introConfigPatch({ defaults: { runMode: 'direct', terminalEngine: 'web' } }, '0.22.0', '0.30.0'))
+      .toEqual({ introSeen: CURRENT_INTRO_ID, defaultRunMode: 'direct', defaultTerminalEngine: 'web' });
   });
 });
