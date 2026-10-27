@@ -67,7 +67,7 @@ test('arbiter: a readable menu after a fresh native running applies at once (Pre
   // session running, the menu paints, and the waiting Notification lands ~6s
   // later. Until then Chat showed no prompt card.
   const { sm, emitted } = mgr();
-  const options = [{ key: '1', label: 'Tea' }, { key: '2', label: 'Coffee' }];
+  let options: Array<{ key: string; label: string }> | undefined;
   const s = inject(sm, {
     agentType: 'claude',
     status: 'running',
@@ -75,6 +75,7 @@ test('arbiter: a readable menu after a fresh native running applies at once (Pre
     stateDetector: { getLastPromptText: () => 'Tea or coffee?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
   });
   sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  options = [{ key: '1', label: 'Tea' }, { key: '2', label: 'Coffee' }];
   detect(sm, 'waiting');
   assert.equal(s.status, 'waiting');
   const p = emitted.at(-1)!.p;
@@ -85,6 +86,36 @@ test('arbiter: a readable menu after a fresh native running applies at once (Pre
   sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude needs your permission', coverage: FULL });
   assert.equal(emitted.at(-1)!.p.lastPrompt, 'Claude needs your permission');
   assert.equal(emitted.at(-1)!.p.promptQuestion, 'Tea or coffee?');
+});
+
+test('arbiter: a menu already on screen at the native running is a leftover, not its prompt', () => {
+  const { sm } = mgr();
+  const options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running');
+});
+
+test('arbiter: a menu long after the native running does not override it', () => {
+  const { sm } = mgr();
+  let options: Array<{ key: string; label: string }> | undefined;
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  s.nativeLastSeenAt = Date.now() - 20_000; // still fresh (30s), past the 15s prompt window
+  options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running');
 });
 
 test('arbiter: without a readable menu a fresh native running still suppresses heuristic waiting', () => {

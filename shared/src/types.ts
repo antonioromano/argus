@@ -726,7 +726,7 @@ export interface SessionPrReadyResponse {
 }
 
 /** One choice of a waiting agent's selection menu, answered through
- *  `session:answer` with its `key` (a single digit). */
+ *  `session:answer` with its `key` ("1"–"9"; a `freeText` option also needs `text`). */
 export interface PromptOption {
   key: string;
   label: string;
@@ -1013,7 +1013,12 @@ export interface ClientToServerEvents {
   'session:mark-done': (sessionId: string) => void;
   /** Type the same text into several sessions at once (validated + rate-limited server-side). */
   'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
-  /** Answer a waiting numbered menu with one digit; refused unless that option is on screen now. */
+  /**
+   * Answer a waiting menu; refused unless that option is on screen now. `key` is
+   * an option's key, or 'next' to leave a multiSelect question (Tab); `text` is
+   * required by a `freeText` option and typed for the user. The server picks the
+   * keystrokes: the digit, or arrow keys + Enter for an unnumbered menu.
+   */
   'session:answer': (payload: { sessionId: string; key: string; text?: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */

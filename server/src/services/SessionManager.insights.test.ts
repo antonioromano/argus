@@ -195,11 +195,15 @@ test('answerPrompt types a free-text answer: digit, the text on one line, then E
   inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
   const writes: Array<[string, number | undefined]> = [];
   const answer = (key: unknown, text?: unknown) => sm.answerPrompt('s', key, text, (d, p) => writes.push([d, p]));
-  assert.equal(answer('2', '  purple\nish\x1b[A '), null);
-  assert.deepEqual(writes.map(([d]) => d), ['2', 'purple ish [A', '\r']);
+  assert.equal(answer('2', '  purple\nish\x1b[A\u009b2J '), null);
+  assert.deepEqual(writes.map(([d]) => d), ['2', 'purple ish [A 2J', '\r']);
   assert.ok(writes[0]![1]! > 0 && writes[1]![1]! > 0, 'each key read on its own');
   assert.match(answer('2', '   ')!, /Type an answer/);
   assert.match(answer('2', 42)!, /Invalid answer/);
+  // Its digit alone (an old client, the inbox) would leave Claude on an empty field.
+  writes.length = 0;
+  assert.match(answer('2')!, /Type the answer/);
+  assert.deepEqual(writes, []);
   rmSync(dataDir, { recursive: true, force: true });
 });
 

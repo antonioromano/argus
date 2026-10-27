@@ -259,6 +259,29 @@ test('ExitPlanMode approval: "Tell Claude what to change" is free text', async (
   assert.equal(r.question, 'Claude has written up a plan and is ready to execute. Would you like to proceed?');
 });
 
+test('a question line is kept whole; only a trailing aside is cut', async () => {
+  const r = await read([
+    'Is this the right file? Do you want me to apply the edit?',
+    '',
+    '  const x = ok ? a : b',
+    '│ > ',
+  ]);
+  assert.equal(r.question, 'Is this the right file? Do you want me to apply the edit?');
+});
+
+test('a picker with an "Enter to select" footer stays terminal-only', () => {
+  assert.equal(parseNavMenu([' Resume which session?', '', ' ❯ fix the build', '   add tests', '', ' Enter to select · Esc to cancel']), undefined);
+  // No question above the menu: not the trust prompt either.
+  assert.equal(parseNavMenu([' Pick one', '', ' ❯ A', '   B', '', ' Enter to confirm · Esc to cancel']), undefined);
+});
+
+test('an unnumbered option longer than the label cap is still not taken for the question', async () => {
+  const long = 'Yes, I trust this folder and every one below it ' + 'x'.repeat(50);
+  const r = await read(SCREENS.trustFolder.map((l) => (l === '   Yes, I trust this folder' ? `   ${long}` : l)));
+  assert.equal(r.menu?.options[1]!.label.length, 80);
+  assert.equal(r.question, 'Quick safety check: Is this a project you created or one you trust?');
+});
+
 test('the input box alone is not an unnumbered menu', () => {
   assert.equal(parseNavMenu([RULE, '❯ Try "how do I log an error?"', RULE, '  ⏵⏵ auto mode on (shift+tab to cycle)']), undefined);
   // Misaligned rows, two cursors, or numbered rows are not one either.

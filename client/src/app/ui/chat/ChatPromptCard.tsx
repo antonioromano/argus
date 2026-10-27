@@ -124,7 +124,9 @@ export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerm
                 e.preventDefault();
                 submitText();
               } else if (e.key === 'Escape') {
+                // Only the field closes: not the overlay / panel / focus view (window handler).
                 e.preventDefault();
+                e.stopPropagation();
                 setTyping(null);
               }
             }}

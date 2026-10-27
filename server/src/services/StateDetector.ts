@@ -127,10 +127,13 @@ const BARE_FILE_PATH = /^[~/]\S*\/.*\.[A-Za-z0-9]{1,6}$/;
 // Menu option rows ("❯ 1. Yes", "  2. No") — never the question itself.
 const MENU_OPTION = /^❯?\s*\d+\.\s/;
 
+/** A question followed by a parenthetical aside on the same row; cut at its "?". */
+const QUESTION_THEN_ASIDE = /\?\s+\(/;
+
 /** Lines that look like the agent asking something — preferred as notification body. */
 const QUESTION_SHAPED: RegExp[] = [
   /\?$/,
-  /\?\s/,                       // a wrapped question: "…one you trust? (Like your own code, a"
+  QUESTION_THEN_ASIDE,          // a wrapped question: "…one you trust? (Like your own code, a"
   /\bdo you want\b/i,
   /^(should|would|which|what|how|where|when|who|can|could|may|shall)\b/i,
 ];
@@ -218,7 +221,8 @@ export function parseMenuOptions(rows: readonly string[]): MenuOption[] | undefi
 }
 
 const NAV_CURSOR_ROW = /^(\s*)❯ (\S.*)$/;
-const NAV_FOOTER = /enter to (confirm|select)/i;
+/** The trust prompt's footer. Pickers (/resume, /agents…) say "Enter to select" and stay terminal-only. */
+const NAV_FOOTER = /^\s*enter to confirm\b/i;
 
 /**
  * An unnumbered menu (the trust-folder prompt: "❯ No, exit" over "  Yes, I
@@ -229,6 +233,13 @@ const NAV_FOOTER = /enter to (confirm|select)/i;
  * Read from the raw rows: the alignment is the signal.
  */
 export function parseNavMenu(rows: readonly string[]): ScreenMenu | undefined {
+  const block = navMenuBlock(rows);
+  if (!block) return undefined;
+  return { options: block.labels.map((l, i) => menuOption(String(i + 1), l)), cursor: block.cursor };
+}
+
+/** parseNavMenu's rows, with their uncapped labels. */
+function navMenuBlock(rows: readonly string[]): { labels: string[]; cursor: number } | undefined {
   let footer = rows.length - 1;
   while (footer >= 0 && !NAV_FOOTER.test(rows[footer] ?? '')) footer--;
   let c = footer - 1;
@@ -242,15 +253,11 @@ export function parseNavMenu(rows: readonly string[]): ScreenMenu | undefined {
   let end = c;
   while (end + 1 < footer && aligned(rows[end + 1])) end++;
   for (let i = end + 1; i < footer; i++) if (rows[i]!.trim()) return undefined;
-  const block = rows.slice(start, end + 1);
-  if (block.length < 2 || block.length > 9) return undefined;
-  const options: MenuOption[] = [];
-  for (let i = 0; i < block.length; i++) {
-    const label = block[i]!.slice(col).trim();
-    if (MENU_OPTION_ROW.test(label)) return undefined;
-    options.push(menuOption(String(i + 1), label));
-  }
-  return { options, cursor: c - start };
+  // The question above it asks something (a bare picker has only a title).
+  if (!rows.slice(0, start).some((r) => r.includes('?'))) return undefined;
+  const labels = rows.slice(start, end + 1).map((r) => r.slice(col).trim());
+  if (labels.length < 2 || labels.length > 9 || labels.some((l) => MENU_OPTION_ROW.test(l))) return undefined;
+  return { labels, cursor: c - start };
 }
 
 /** The menu on screen: a numbered one wins, else an unnumbered one (see parseNavMenu). */
@@ -721,7 +728,7 @@ export class StateDetector {
     if (promptIdx === -1) return undefined;
 
     // An unnumbered menu's rows (trust prompt) are choices, never the question.
-    const navLabels = new Set(parseNavMenu(rows)?.options.map((o) => o.label.replace(BOX_DRAWING_CHARS, ' ').trim()));
+    const navLabels = new Set(navMenuBlock(rows)?.labels.map((l) => l.replace(BOX_DRAWING_CHARS, ' ').trim()));
     // Walk upward, collect non-noise, non-empty lines (stripped).
     const candidates: string[] = [];
     for (let i = promptIdx - 1; i >= 0; i--) {
@@ -745,8 +752,8 @@ export class StateDetector {
     // Prefer the nearest question-shaped line; otherwise the closest
     // meaningful line above the input box wins.
     const shaped = candidates.find((c) => QUESTION_SHAPED.some((p) => p.test(c)));
-    // A question that runs on past its "?" (wrapped prose) is cut at it.
-    const picked = shaped?.replace(/^(.*?\?)\s.*$/, '$1') ?? candidates[0];
+    // A question that runs on into an aside ("…you trust? (Like your…") is cut at it.
+    const picked = shaped?.replace(/^(.*?\?)\s+\(.*$/, '$1') ?? candidates[0];
     if (!picked) return undefined;
     return picked.length > MAX_PROMPT_LEN ? `${picked.slice(0, MAX_PROMPT_LEN - 1)}…` : picked;
   }

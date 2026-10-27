@@ -74,9 +74,13 @@ describe('ChatPromptCard', () => {
     ]);
     act(() => button('Tell Claude').click());
     const input = container.querySelector<HTMLInputElement>('[data-testid="chat-prompt-free"] input')!;
+    const outside = vi.fn();
+    window.addEventListener('keydown', outside);
     act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    window.removeEventListener('keydown', outside);
     expect(container.querySelector('[data-testid="chat-prompt-free"]')).toBeNull();
     expect(onAnswer).not.toHaveBeenCalled();
+    expect(outside).not.toHaveBeenCalled(); // the app's Escape (close overlay / leave focus) stays out of it
   });
 
   it('a multiSelect question: toggles show their state, Continue moves on, free text points to the terminal', async () => {

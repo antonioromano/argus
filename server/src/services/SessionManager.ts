@@ -150,6 +150,8 @@ interface ManagedSession {
    *  heuristic transitions for covered states. */
   nativeLastSeenAt?: number;
   nativeState?: AgentSignalState;
+  /** A menu was already on screen when the last native 'running' arrived (a leftover, not its prompt). */
+  menuAtNativeRunning?: boolean;
   nativeCoverage?: Set<AgentSignalState>;
   /** Last few raw native signals — diagnostics dump only, never control flow. */
   nativeRing?: AgentSignal[];
@@ -288,6 +290,8 @@ const RAW_TAIL_BYTES = 16 * 1024;
 // event; once stale (old CLI, user stripped the hook config), the heuristic
 // detector silently takes back over (plan 2026-07-22-001, R4).
 const NATIVE_FRESHNESS_MS = 30_000;
+/** How long after a native 'running' a newly painted menu is taken as that tool's prompt. */
+const MENU_AFTER_RUNNING_MS = 15_000;
 /** Hold 'done' promotion until the screen stops painting for this long. */
 const DONE_GRACE_MS = 2_000;
 /** Output younger than this at grace-fire means the session is still working. */
@@ -1631,8 +1635,12 @@ export class SessionManager {
     // tool's permission prompt / AskUserQuestion / plan approval) and the screen
     // now shows a menu it can read. Claude's waiting Notification follows only
     // seconds later, so dropping this left Chat with no prompt card meanwhile.
+    // Only a menu painted since that signal, and soon after it: one already on
+    // screen then is a leftover, not the tool's prompt.
     const menuAfterNativeRunning =
-      detected === 'waiting' && session.nativeState === 'running' && !!session.stateDetector.getMenuOptions?.();
+      detected === 'waiting' && session.nativeState === 'running' && session.menuAtNativeRunning === false &&
+      Date.now() - (session.nativeLastSeenAt ?? 0) < MENU_AFTER_RUNNING_MS &&
+      !!session.stateDetector.getMenuOptions?.();
     if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle && !interrupted && !menuAfterNativeRunning) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
       if (coverage.has(detected as AgentSignalState)) {
@@ -1730,10 +1738,12 @@ export class SessionManager {
     const index = menu.options.findIndex((o) => o.key === key);
     const option = menu.options[index];
     if (!option) return changed;
+    // A free-text option's digit alone would leave Claude on an empty field.
+    if (option.freeText && option.checked === undefined && text === undefined) return 'Type the answer in Chat or the terminal';
     if (text !== undefined) {
       // A multiSelect "Type something" only toggles: its field needs the cursor on it.
       if (!option.freeText || option.checked !== undefined || menu.cursor !== undefined) return changed;
-      const line = text.replace(/[\x00-\x1f\x7f]+/g, ' ').trim();
+      const line = text.replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
       if (!line) return 'Type an answer first';
       if (line.length > MAX_FREE_TEXT_ANSWER) return 'That answer is too long';
       write(key, ANSWER_KEY_PAUSE_MS);
@@ -1822,6 +1832,7 @@ export class SessionManager {
 
     session.nativeLastSeenAt = Date.now();
     session.nativeState = signal.state;
+    session.menuAtNativeRunning = signal.state === 'running' ? !!session.stateDetector.getMenuOptions?.() : undefined;
     if (signal.coverage && signal.coverage.length > 0) {
       session.nativeCoverage = new Set(signal.coverage);
     }
