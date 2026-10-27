@@ -8,7 +8,7 @@ import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
 interface SheetProps {
   title?: string;
   eyebrow?: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
   width?: number;
   children?: ReactNode;
   footer?: ReactNode;

@@ -1,4 +1,5 @@
 import type { AppConfig } from '@argus/shared';
+import type { IntroResult } from './IntroSheet.js';
 
 /**
  * The one-time intro shown after an update (What's new) or on a first launch
@@ -7,7 +8,7 @@ import type { AppConfig } from '@argus/shared';
  * new to show and every existing user sees it once. An id rather than the app
  * version, so a patch release doesn't re-show the same content.
  */
-export const CURRENT_INTRO_ID = 'beta-features';
+export const CURRENT_INTRO_ID = 'release-0.30';
 
 export type IntroFlow = 'whatsNew' | 'welcome';
 
@@ -27,4 +28,25 @@ export function introToShow(
   if (config.introSeen === CURRENT_INTRO_ID) return null;
   if (!config.introSeen && !config.quickActionPromptedAt) return 'welcome';
   return 'whatsNew';
+}
+
+/**
+ * The single config save made when the intro closes: the intro is stamped as
+ * seen, plus whatever the user chose on its steps.
+ */
+export function introConfigPatch(
+  result: IntroResult,
+  quickActionPromptedAt: string | undefined,
+  version: string,
+): Partial<AppConfig> {
+  return {
+    introSeen: CURRENT_INTRO_ID,
+    // Welcome replaces the older quick-action prompt for new users.
+    ...(quickActionPromptedAt ? {} : { quickActionPromptedAt: version }),
+    ...(result.defaults
+      ? { defaultRunMode: result.defaults.runMode, defaultTerminalEngine: result.defaults.terminalEngine }
+      : {}),
+    // What's new: "Open Claude shells in Chat by default".
+    ...(result.defaultSessionView ? { defaultSessionView: result.defaultSessionView } : {}),
+  };
 }

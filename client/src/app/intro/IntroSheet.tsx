@@ -1,52 +1,33 @@
 import { useState, type ReactNode } from 'react';
-import type { AppConfig, BetaFlag, RunMode, TerminalEngine } from '@argus/shared';
-import { Activity, Check, Forward, Gauge, GitBranch, LayoutGrid, Link, SlidersHorizontal, type LucideIcon } from 'lucide-react';
-import { Sheet, Button, Icon } from '../../components/primitives/index.js';
+import type { AppConfig, RunMode, SessionViewMode, TerminalEngine } from '@argus/shared';
+import {
+  CaseSensitive, ChevronDown, Ellipsis, FileDiff, Gauge, GitBranch, GitMerge, GitPullRequest,
+  GitPullRequestArrow, GitPullRequestDraft, Regex, Search, WholeWord, type LucideIcon,
+} from 'lucide-react';
+import { Sheet, Button, CodeLine, Icon, Kbd, Tok, scaledPx } from '../../components/primitives/index.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { KIND_LABEL, kindOf, settingsFor, type TerminalKind } from '../ui/terminalKind.js';
-import { BETA_FEATURES } from '../../utils/betaFlags.js';
 import type { IntroFlow } from './intro.js';
-
-/** Per-feature slide copy and picture for the What's new carousel, in BETA_FEATURES order. */
-const BETA_SLIDES: Record<BetaFlag, { text: string; icon: LucideIcon; picture: () => ReactNode }> = {
-  betaWorktreeLifecycle: {
-    text: 'Right-click a worktree shell → Finish… commits, pushes and opens a PR from one sheet. Merged worktrees can be removed; stale ones get flagged.',
-    icon: GitBranch,
-    picture: () => <WorktreePicture />,
-  },
-  betaActivityTimeline: {
-    text: 'Focus a Claude shell and click Activity: a live feed of prompts, tool calls (command or file path, never contents), subagents and compactions. Applies to new or restarted shells.',
-    icon: Activity,
-    picture: () => <ActivityPicture />,
-  },
-  betaSessionTemplates: {
-    text: 'Save a set of shells — agent, folder, optional new worktree, first prompt — and start them together into a new group. Settings → Launchers, or ⌘K → Launch template.',
-    icon: LayoutGrid,
-    picture: () => <TemplatesPicture />,
-  },
-  betaHandoff: {
-    text: 'Right-click a shell → Hand off… starts a new shell with a brief of the old one: its diff and last messages. Built locally — no model call, no extra cost.',
-    icon: Forward,
-    picture: () => <HandoffPicture />,
-  },
-  betaSessionChains: {
-    text: 'Right-click a shell → Chain to…: when it goes idle, waiting or done, Argus types a prompt into another shell. Fires once by default, loop-guarded and rate-capped.',
-    icon: Link,
-    picture: () => <ChainsPicture />,
-  },
-};
+import chatViewShot from './assets/chat-view.webp';
+import appIconDefault from './assets/app-icon-default.webp';
+import appIconDark from './assets/app-icon-dark.webp';
+import appIconTinted from './assets/app-icon-tinted.webp';
+import appIconClear from './assets/app-icon-clear.webp';
 
 export interface IntroResult {
   /** Present when the user kept "Use … for new shells" ticked on the terminal step. */
   defaults?: { runMode: RunMode; terminalEngine: TerminalEngine };
   /** Welcome's last button: open the New shell sheet after closing. */
   openCreate?: boolean;
-  /** What's new: the beta features the user ticked "Turn on" for. Only ticked ones appear. */
-  betaFlags?: Partial<Record<BetaFlag, true>>;
+  /** What's new: "Open Claude shells in Chat by default" was ticked. */
+  defaultSessionView?: SessionViewMode;
 }
 
 interface Step { title: string; text: string; body: ReactNode }
+
+export interface IntroKeys { inspector: string; findInFiles: string }
+const DEFAULT_KEYS: IntroKeys = { inspector: '⌘I', findInFiles: '⌘⇧F' };
 
 /**
  * Step-by-step intro: one idea per screen, dots, Back / Next. Skip and Esc
@@ -57,22 +38,20 @@ export function IntroSheet({
   flow,
   version,
   config,
+  keys = DEFAULT_KEYS,
   onDone,
 }: {
   flow: IntroFlow;
   version: string;
   config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine'> | null;
+  /** Display labels of the shortcuts the slides mention, as the user has them bound. */
+  keys?: IntroKeys;
   onDone: (result: IntroResult) => void;
 }) {
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<TerminalKind>(kindOf(config?.defaultRunMode, config?.defaultTerminalEngine));
   const [makeDefault, setMakeDefault] = useState(true);
-  const [turnOn, setTurnOn] = useState<ReadonlySet<BetaFlag>>(new Set());
-  const toggleTurnOn = (flag: BetaFlag, on: boolean) => setTurnOn((prev) => {
-    const next = new Set(prev);
-    if (on) next.add(flag); else next.delete(flag);
-    return next;
-  });
+  const [chatDefault, setChatDefault] = useState(false);
 
   const terminalStep: Step = {
     title: 'Pick your terminal',
@@ -105,59 +84,63 @@ export function IntroSheet({
         },
       ]
     : [
+        // What's new in this release: one slide per highlight. Bump CURRENT_INTRO_ID with it.
         {
-          title: 'Plan usage in the shell header',
-          text: 'Claude and Codex shells now show how full the context is and how much of your plan’s usage window is left, with its reset time. The cost estimate is gone. Applies to new or restarted shells.',
-          body: <UsagePicture />,
-        },
-        {
-          title: 'Five beta features to try',
-          text: 'Early features, all off by default. Next: what each one does and where to find it. Tick the ones you want.',
-          body: <BetaListPicture />,
-        },
-        ...BETA_FEATURES.map((f): Step => ({
-          title: f.label,
-          text: BETA_SLIDES[f.flag].text,
+          title: 'Chat view for Claude shells',
+          text: 'In Focus, switch a Claude shell between Terminal and Chat. The conversation reads as formatted messages with pasted screenshots inline, slash commands show up in the thread with their output, and the composer formats Markdown as you type. Tick the box below to open Claude shells in Chat by default.',
           body: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
-              {BETA_SLIDES[f.flag].picture()}
+              <ChatPicture />
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--t-sm)', color: 'var(--fg-1)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  data-testid={`intro-turn-on-${f.flag}`}
-                  checked={turnOn.has(f.flag)}
-                  onChange={(e) => toggleTurnOn(f.flag, e.target.checked)}
-                />
-                Turn on {f.label}
+                <input type="checkbox" checked={chatDefault} onChange={(e) => setChatDefault(e.target.checked)} />
+                Open Claude shells in Chat by default
               </label>
             </div>
           ),
-        })),
+        },
         {
-          title: 'You’re set',
-          text: 'Change any of these later in Settings → Beta features.',
-          body: <SummaryPicture on={BETA_FEATURES.filter((f) => turnOn.has(f.flag)).map((f) => f.label)} />,
+          title: 'Session Inspector',
+          text: `A side panel for the shell in front of you, with Usage, Git and GitHub cards: plan limits and when they reset, branch and changes, pull requests. Dock it left or right; ${keys.inspector} shows and hides it.`,
+          body: <InspectorPicture toggleKey={keys.inspector} />,
+        },
+        {
+          title: 'Your session’s pull requests',
+          text: 'The GitHub card lists every pull request the session opened or pushed to. A dot tracks CI and opens the checks, +N −M opens the PR’s diff, Mark ready takes a draft out of draft, and the … menu has the rest.',
+          body: <PullRequestsPicture />,
+        },
+        {
+          title: 'Find in Files, highlighted everywhere',
+          text: `Press ${keys.findInFiles} in the explorer to search the whole folder with ripgrep — match case, whole word, regex, include and exclude globs. One Shiki highlighter now colours the editor, Chat and diffs alike.`,
+          body: <FindPicture />,
+        },
+        {
+          title: 'An icon for every macOS style',
+          text: 'The Argus icon is now a layered macOS icon, so it follows the icon style you pick in System Settings → Appearance: Default, Dark with the amber glyph, Tinted and Clear.',
+          body: <AppIconPicture />,
         },
       ];
 
   const last = step === steps.length - 1;
+  // The box starts unticked and only ever turns Chat on; Done, Skip and Esc all
+  // honour a tick, since ticking it is an explicit choice.
+  const whatsNewResult = (): IntroResult => (flow === 'whatsNew' && chatDefault ? { defaultSessionView: 'chat' } : {});
   const finish = () => {
     if (flow === 'welcome') {
       onDone({ defaults: makeDefault ? settingsFor(kind) : undefined, openCreate: true });
       return;
     }
-    const betaFlags: Partial<Record<BetaFlag, true>> = {};
-    for (const flag of turnOn) betaFlags[flag] = true;
-    onDone({ betaFlags });
+    onDone(whatsNewResult());
   };
-  const skip = () => onDone({});
+  const skip = () => onDone(whatsNewResult());
   const current = steps[step];
 
   return (
     <Sheet
       eyebrow={flow === 'welcome' ? 'ARGUS · WELCOME' : `ARGUS · WHAT’S NEW IN ${version}`}
       title={current.title}
-      subtitle={current.text}
+      // What's new reserves four lines of text, so slides of different lengths
+      // keep the same sheet height and the footer buttons stay put.
+      subtitle={flow === 'whatsNew' ? <span style={{ display: 'block', minHeight: '4lh' }}>{current.text}</span> : current.text}
       width={600}
       onClose={skip}
       footer={
@@ -187,10 +170,13 @@ export function IntroSheet({
         </div>
       }
     >
-      <div style={{ minHeight: 260 }}>{current.body}</div>
+      <div style={{ minHeight: flow === 'whatsNew' ? WHATS_NEW_BODY_HEIGHT : 260 }}>{current.body}</div>
     </Sheet>
   );
 }
+
+/** The tallest What's new slide (Chat: screenshot + checkbox), given to every one of them. */
+const WHATS_NEW_BODY_HEIGHT = scaledPx(292);
 
 // ── Pictures: small, token-coloured sketches of the real UI ─────────────────
 
@@ -278,141 +264,272 @@ function FirstShellPicture() {
   );
 }
 
-// ── What's new: one sketch per beta feature ─────────────────────────────────
+// ── What's new ──────────────────────────────────────────────────────────────
 
-/** A one-line row inside a picture: optional leading glyph, name, detail, trailing slot. */
-function MiniRow({ lead, name, detail, trail }: { lead?: ReactNode; name: ReactNode; detail?: ReactNode; trail?: ReactNode }) {
+/** A real Focus screenshot (dark theme, 2x). */
+function ChatPicture() {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px',
-      background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
-    }}
-    >
-      {lead !== undefined && (
-        <span style={{
-          width: 22, height: 22, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: 'var(--r-1)', background: 'var(--bg-3)', color: 'var(--fg-2)', fontSize: 'var(--t-tiny)', fontWeight: 600,
-        }}
-        >
-          {lead}
-        </span>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-0)' }}>{name}</div>
-        {detail && <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>{detail}</div>}
+    <img
+      src={chatViewShot}
+      alt="A Claude shell in Focus with the Chat view on: a short exchange and the composer"
+      style={{ display: 'block', width: '100%', height: 'auto', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)' }}
+    />
+  );
+}
+
+// Sketches of the Session Inspector, its GitHub card and Find in Files. They
+// borrow the real components' tokens (meter colours, CI dots, +N −M, match
+// highlight), so they follow the theme like the UI they stand for.
+
+const tiny = { fontSize: 'var(--t-tiny)' } as const;
+const mono = { fontFamily: 'var(--font-mono)' } as const;
+
+/** A collapsible inspector section, drawn open. */
+function PanelCard({ icon, title, children }: { icon: LucideIcon; title: string; children: ReactNode }) {
+  return (
+    <div style={{ background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', borderBottom: '1px solid var(--line-2)', fontSize: 'var(--t-xs)', fontWeight: 500, color: 'var(--fg-0)' }}>
+        <Icon icon={ChevronDown} size={11} strokeWidth={2} color="var(--fg-2)" />
+        <Icon icon={icon} size={12} strokeWidth={1.8} color="var(--fg-2)" />
+        {title}
       </div>
-      {trail}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, padding: '7px 8px' }}>{children}</div>
     </div>
   );
 }
 
-const column = { ...frame, flexDirection: 'column', gap: 6 } as const;
+/** Usage meter as D3 lays it out: label · % left, reset right, bar below. */
+function MiniMeter({ label, pct, aside }: { label: string; pct: number; aside: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, ...tiny }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+        <span>
+          <span style={{ color: 'var(--fg-1)', fontWeight: 500 }}>{label}</span>
+          <span style={{ color: 'var(--fg-3)' }}> · </span>
+          <span style={{ color: 'var(--fg-0)', fontWeight: 600 }}>{pct}%</span>
+        </span>
+        <span style={{ color: 'var(--fg-2)' }}>{aside}</span>
+      </div>
+      <div style={{ height: scaledPx(4), borderRadius: 2, background: 'var(--bg-3)', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: 'var(--ok)' }} />
+      </div>
+    </div>
+  );
+}
 
-const mono = {
-  flex: 1, padding: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', lineHeight: 1.6, color: 'var(--fg-2)',
-  background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
-} as const;
+function CiDot({ ci }: { ci: 'success' | 'pending' | 'failure' }) {
+  return <span className="argus-pr-ci" data-ci={ci} />;
+}
 
-/** A terminal sketch beside a list of labelled events. */
-function TermAndFeed({ lines, feed }: { lines: string[]; feed: [string, string][] }) {
+function Lines({ add, del }: { add: string; del: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...mono, fontWeight: 500 }}>
+      <span style={{ color: 'var(--ok)' }}>+{add}</span>
+      <span style={{ color: 'var(--danger)' }}>−{del}</span>
+      <Icon icon={FileDiff} size={11} strokeWidth={1.8} color="var(--fg-3)" />
+    </span>
+  );
+}
+
+function InspectorPicture({ toggleKey }: { toggleKey: string }) {
+  const bars = [70, 46, 82, 58, 34, 64, 50];
   return (
     <div style={frame}>
-      <div style={mono}>{lines.map((l) => <div key={l}>{l}</div>)}</div>
-      <div style={{ ...mono, fontFamily: 'inherit' }}>
-        {feed.map(([k, v]) => (
-          <div key={k} style={{ padding: '3px 0', borderBottom: '1px solid var(--line-2)' }}>
-            <div style={{ fontWeight: 600, color: 'var(--fg-0)' }}>{k}</div>
-            {v}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+        <MiniTabs items={[<><AgentGlyph agent="claude" size={12} /> my-app</>]} />
+        {bars.map((w, i) => (
+          <div key={i} style={{ width: `${w}%`, height: scaledPx(6), borderRadius: 3, background: 'var(--bg-3)' }} />
+        ))}
+        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 6, ...tiny, color: 'var(--fg-2)' }}>
+          <Kbd>{toggleKey}</Kbd> show / hide
+        </div>
+      </div>
+      <div style={{ width: scaledPx(210), flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: 10, borderLeft: '1px solid var(--line-2)' }}>
+        <PanelCard icon={Gauge} title="Usage">
+          <MiniMeter label="Session" pct={43} aside="Resets in 3 hr" />
+          <MiniMeter label="Weekly" pct={18} aside="Resets Mon" />
+        </PanelCard>
+        <PanelCard icon={GitBranch} title="Git">
+          <div style={{ display: 'flex', justifyContent: 'space-between', ...tiny, ...mono }}>
+            <span style={{ color: 'var(--fg-0)' }}>feat/chat-view</span>
+            <span style={{ color: 'var(--fg-2)' }}>↑2</span>
+          </div>
+          <div style={{ ...tiny, color: 'var(--fg-2)' }}>3 changed files</div>
+        </PanelCard>
+        <PanelCard icon={GitPullRequest} title="GitHub">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...tiny }}>
+            <Icon icon={GitPullRequest} size={12} strokeWidth={2} color="var(--ok)" />
+            <span style={{ flex: 1, color: 'var(--fg-0)' }}>Chat view</span>
+            <CiDot ci="success" />
+          </div>
+        </PanelCard>
+      </div>
+    </div>
+  );
+}
+
+function PrRow({ icon, tone, title, num, add, del, ci, draft, popover }: {
+  icon: LucideIcon;
+  tone: string;
+  title: string;
+  num: number;
+  add: string;
+  del: string;
+  ci: 'success' | 'pending' | 'failure';
+  draft?: boolean;
+  /** Drawn beside the row's CI dot, as if opened from it. */
+  popover?: ReactNode;
+}) {
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 8, padding: '7px 10px', borderTop: '1px solid var(--line-2)', ...tiny }}>
+      <Icon icon={icon} size={14} strokeWidth={2} color={tone} style={{ flexShrink: 0, marginTop: 1 }} />
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-0)' }}>{title}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--fg-3)' }}>
+          <span style={mono}>#{num}</span>
+          <Lines add={add} del={del} />
+        </span>
+        {draft && (
+          <span style={{
+            alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4,
+            height: 'var(--ctl-h-sm)', padding: '0 var(--s-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', color: 'var(--fg-1)',
+          }}
+          >
+            <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
+            Mark ready
+          </span>
+        )}
+      </div>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, height: scaledPx(16) }}>
+        <CiDot ci={ci} />
+        <Icon icon={Ellipsis} size={13} strokeWidth={1.8} color="var(--fg-3)" />
+      </span>
+      {popover}
+    </div>
+  );
+}
+
+function PullRequestsPicture() {
+  return (
+    <div style={{ ...frame, alignItems: 'flex-start', justifyContent: 'center' }}>
+      <div style={{ width: scaledPx(330) }}>
+        <div style={{ background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', fontSize: 'var(--t-xs)', fontWeight: 500, color: 'var(--fg-0)' }}>
+            <Icon icon={GitPullRequest} size={12} strokeWidth={1.8} color="var(--fg-2)" />
+            GitHub
+            <span style={{ marginLeft: 'auto', ...tiny, fontWeight: 400, color: 'var(--fg-3)' }}>3 pull requests</span>
+          </div>
+          <PrRow icon={GitPullRequest} tone="var(--ok)" title="Session Inspector" num={59} add="1.2k" del="88" ci="success" />
+          <PrRow icon={GitPullRequestDraft} tone="var(--fg-3)" title="What’s new for 0.30" num={55} add="412" del="37" ci="pending" draft popover={<ChecksPopover />} />
+          <PrRow icon={GitMerge} tone="var(--pr-merged)" title="Pull request diff" num={58} add="903" del="41" ci="success" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The checks popover, opened from the draft's CI dot. */
+function ChecksPopover() {
+  return (
+    <div style={{
+      position: 'absolute', top: 'calc(100% - 6px)', right: 6, width: scaledPx(132), zIndex: 1,
+      display: 'flex', flexDirection: 'column', gap: 5, padding: '8px 10px',
+      background: 'var(--bg-2)', borderRadius: 'var(--r-2)', boxShadow: 'var(--shadow-pop)', ...tiny,
+    }}
+    >
+      <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>Checks</span>
+      {([['pending', 'Pending', 1], ['success', 'Passed', 6]] as const).map(([ci, label, n]) => (
+        <span key={ci} style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--fg-1)' }}>
+          <CiDot ci={ci} />
+          <span style={{ flex: 1 }}>{label}</span>
+          <span style={{ ...mono, color: 'var(--fg-2)' }}>{n}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One result line, the match marked as FindInFilesPanel marks it. */
+function Match({ line, before, hit, after, on }: { line: number; before: string; hit: string; after: string; on?: boolean }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, minHeight: scaledPx(20), padding: '0 6px 0 22px', ...mono, fontSize: 'var(--t-tiny)',
+      background: on ? 'var(--bg-3)' : 'transparent', borderLeft: `2px solid ${on ? 'var(--accent)' : 'transparent'}`,
+    }}
+    >
+      <span style={{ color: 'var(--fg-3)', minWidth: '3ch', textAlign: 'right' }}>{line}</span>
+      <span style={{ color: 'var(--fg-1)', whiteSpace: 'pre', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {before}
+        <mark style={{ background: 'var(--accent-bg)', color: 'var(--accent)', outline: '1px solid var(--accent-edge)', borderRadius: 2 }}>{hit}</mark>
+        {after}
+      </span>
+    </div>
+  );
+}
+
+function FindPicture() {
+  return (
+    <div style={{ ...frame, padding: 0, gap: 0, overflow: 'hidden' }}>
+      <div style={{ width: scaledPx(236), flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--line-2)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '8px', borderBottom: '1px solid var(--line-2)' }}>
+          <span style={{ ...mono, ...tiny, letterSpacing: 'var(--tracking-eye)', color: 'var(--fg-3)' }}>FIND IN FILES</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: 'var(--ctl-h-sm)', padding: '0 6px', background: 'var(--bg-0)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-1)' }}>
+            <Icon icon={Search} size={12} strokeWidth={1.6} color="var(--fg-3)" />
+            <span style={{ flex: 1, ...mono, fontSize: 'var(--t-xs)', color: 'var(--fg-0)' }}>useSocket</span>
+            {[CaseSensitive, WholeWord, Regex].map((g, i) => <Icon key={i} icon={g} size={12} strokeWidth={1.6} color="var(--fg-3)" />)}
+          </div>
+          <span style={{ ...mono, ...tiny, color: 'var(--fg-3)' }}>5 results in 2 files</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: scaledPx(20), padding: '0 8px 0 6px', ...mono, fontSize: 'var(--t-tiny)' }}>
+          <Icon icon={ChevronDown} size={11} strokeWidth={1.6} color="var(--fg-3)" />
+          <span style={{ color: 'var(--fg-0)' }}>useSessions.ts</span>
+          <span style={{ flex: 1, color: 'var(--fg-3)' }}>hooks</span>
+          <span style={{ color: 'var(--fg-2)', background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: '0 5px' }}>3</span>
+        </div>
+        <Match line={2} before="import { " hit="useSocket" after=" } from" />
+        <Match line={14} before="const s = " hit="useSocket" after="();" on />
+        <Match line={41} before="// " hit="useSocket" after=" reconnects" />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 4px', background: 'var(--bg-0)' }}>
+        <CodeLine n={13}><Tok kind="kw">export function</Tok> <Tok kind="fn">useSessions</Tok><Tok kind="pn">() {'{'}</Tok></CodeLine>
+        <CodeLine n={14}>{'\u00a0\u00a0'}<Tok kind="kw">const</Tok> s <Tok kind="pn">=</Tok> <Tok kind="fn">useSocket</Tok><Tok kind="pn">();</Tok></CodeLine>
+        <CodeLine n={15}>{'\u00a0\u00a0'}<Tok kind="cm">{'// one highlighter, every view'}</Tok></CodeLine>
+        <CodeLine n={16}>{'\u00a0\u00a0'}<Tok kind="kw">return</Tok> s<Tok kind="pn">.</Tok><Tok kind="fn">list</Tok><Tok kind="pn">(</Tok><Tok kind="str">{"'sessions'"}</Tok><Tok kind="pn">,</Tok> <Tok kind="num">50</Tok><Tok kind="pn">);</Tok></CodeLine>
+        <div style={{ margin: '8px 8px 0', paddingTop: 8, borderTop: '1px solid var(--line-2)', ...tiny, ...mono, color: 'var(--fg-3)' }}>diff</div>
+        <div style={{ background: 'var(--diff-del)' }}>
+          <CodeLine n="−"><Tok kind="kw">const</Tok> limit <Tok kind="pn">=</Tok> <Tok kind="num">20</Tok><Tok kind="pn">;</Tok></CodeLine>
+        </div>
+        <div style={{ background: 'var(--diff-add)' }}>
+          <CodeLine n="+"><Tok kind="kw">const</Tok> limit <Tok kind="pn">=</Tok> <Tok kind="num">50</Tok><Tok kind="pn">;</Tok></CodeLine>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The app icon in four macOS styles, exported from electron/assets/Argus.icon
+ * with Icon Composer's ictool (144px WebP) — the system's own renderings,
+ * so they keep their colours whatever theme Argus uses.
+ */
+const ICON_STYLES = [
+  { label: 'Default', src: appIconDefault },
+  { label: 'Dark', src: appIconDark },
+  { label: 'Tinted', src: appIconTinted },
+  { label: 'Clear', src: appIconClear },
+];
+
+function AppIconPicture() {
+  return (
+    <Centered>
+      <div style={{ display: 'flex', gap: 24 }}>
+        {ICON_STYLES.map(({ label, src }) => (
+          <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <img src={src} alt={`Argus icon, ${label} style`} style={{ width: scaledPx(72), height: scaledPx(72) }} />
+            <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>{label}</span>
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function UsagePicture() {
-  const chip = { fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' } as const;
-  return (
-    <div style={column}>
-      <MiniRow lead={<Icon icon={Gauge} size={13} />} name={<span style={chip}>ctx 47% · plan 20% · ↻ 2h19m</span>} detail="Hover the chip for the full breakdown" />
-      <MiniRow lead={<Icon icon={SlidersHorizontal} size={13} />} name="Settings → Shell header" detail="Reorder or hide parts, set amber/red warnings" />
-      <MiniRow lead="–" name="No more cost estimate" detail="It was priced at API rates, not what a Pro/Max plan pays" />
-    </div>
-  );
-}
-
-function BetaListPicture() {
-  return (
-    <div style={column}>
-      {BETA_FEATURES.map((f) => {
-        const Glyph = BETA_SLIDES[f.flag].icon;
-        return <MiniRow key={f.flag} lead={<Icon icon={Glyph} size={13} />} name={f.label} />;
-      })}
-    </div>
-  );
-}
-
-function WorktreePicture() {
-  return (
-    <div style={column}>
-      <MiniRow lead={<Icon icon={Check} size={13} />} name="Commit" detail="smoke: add f8.txt" />
-      <MiniRow lead={<Icon icon={Check} size={13} />} name="Push" detail="origin/feat-x" />
-      <MiniRow lead="◌" name="Open PR" detail="via gh" />
-    </div>
-  );
-}
-
-function ActivityPicture() {
-  return (
-    <TermAndFeed
-      lines={['❯ run the tests', '● Bash npm test', '● Read src/app.ts', '✻ done']}
-      feed={[['Stop', 'waiting for input'], ['Read', 'src/app.ts'], ['Bash', 'npm test'], ['Prompt', 'run the tests']]}
-    />
-  );
-}
-
-function TemplatesPicture() {
-  return (
-    <Centered>
-      <div style={{ width: '100%' }}>
-        <MiniRow
-          lead={<Icon icon={LayoutGrid} size={13} />}
-          name="API + client + reviewer"
-          detail="3 shells · 2 new worktrees"
-          trail={<Button variant="primary" size="sm">Launch</Button>}
-        />
-      </div>
     </Centered>
-  );
-}
-
-function HandoffPicture() {
-  return (
-    <TermAndFeed
-      lines={['# Handoff brief', 'branch: feat/login', 'M src/auth.ts  +42 −7', 'last 10 messages…']}
-      feed={[['New shell', 'claude · same folder'], ['First prompt', 'Read the brief and continue']]}
-    />
-  );
-}
-
-function ChainsPicture() {
-  return (
-    <div style={column}>
-      <MiniRow lead="A" name="api-tests → idle" />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-        <Icon icon={Link} size={12} /> types “review the failing tests”
-      </div>
-      <MiniRow lead="B" name="reviewer" />
-    </div>
-  );
-}
-
-function SummaryPicture({ on }: { on: string[] }) {
-  return (
-    <div style={column} data-testid="intro-summary">
-      {on.length
-        ? on.map((label) => <MiniRow key={label} lead={<Icon icon={Check} size={13} />} name={label} detail="turned on" />)
-        : <MiniRow name="Nothing turned on" detail="All five stay off" />}
-    </div>
   );
 }

@@ -26,84 +26,82 @@ const button = (label: string) => {
 };
 const tab = (label: string) => [...document.querySelectorAll('[role="radio"]')].find((x) => x.textContent?.startsWith(label)) as HTMLButtonElement;
 
-const checkbox = (flag: string) => document.querySelector(`[data-testid="intro-turn-on-${flag}"]`) as HTMLInputElement | null;
+const chatBox = () => {
+  const label = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Open Claude shells in Chat by default'));
+  if (!label) throw new Error('no Chat by default checkbox');
+  return label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+};
 const title = () => document.body.textContent ?? '';
 const next = (n = 1) => { for (let i = 0; i < n; i++) act(() => button('Next').click()); };
 
-const FEATURE_TITLES = ['Worktree lifecycle', 'Activity timeline', 'Session templates', 'Agent handoff', 'Session chains'];
-
 describe('IntroSheet — What’s new', () => {
-  it('walks intro → one slide per beta feature in order → summary, with Back', () => {
+  it('walks the five release slides, without the terminal step or beta opt-ins', () => {
     render('whatsNew');
-    expect(title()).toContain('Plan usage in the shell header');
-    expect(title()).toContain('ctx 47% · plan 20% · ↻ 2h19m');
-    expect(document.querySelector('[aria-label="Step 1 of 8"]')).toBeTruthy();
-    expect(document.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(title()).toContain('Chat view for Claude shells');
+    expect(document.querySelector('img[alt^="A Claude shell in Focus"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="Step 1 of 5"]')).toBeTruthy();
+    expect(chatBox().checked).toBe(false);
     next();
-    expect(title()).toContain('Five beta features to try');
+    expect(title()).toContain('Session Inspector');
+    expect(title()).toContain('⌘I');
+    next();
+    expect(title()).toContain('Your session’s pull requests');
+    expect(title()).toContain('Mark ready');
+    next();
+    expect(title()).toContain('Find in Files, highlighted everywhere');
+    next();
+    expect(title()).toContain('An icon for every macOS style');
+    for (const style of ['Default', 'Dark', 'Tinted', 'Clear']) expect(document.querySelector(`img[alt="Argus icon, ${style} style"]`)).toBeTruthy();
+    expect(document.querySelector('[aria-label="Step 5 of 5"]')).toBeTruthy();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
-    for (const t of FEATURE_TITLES) {
-      next();
-      expect(title()).toContain(t);
-      expect(title()).toContain(`Turn on ${t}`);
-    }
-    act(() => button('Back').click());
-    expect(title()).toContain('Turn on Agent handoff');
-    next(2);
-    expect(title()).toContain('You’re set');
-    expect(button('Done')).toBeTruthy();
-    // The terminal-kinds step is gone from What's new.
     expect(title()).not.toContain('Pick your terminal');
+    expect(() => button('Next')).toThrow();
   });
 
-  it('starts with every Turn on box unchecked and keeps ticks across Back/Next', () => {
-    render('whatsNew');
-    next(); // past the Usage meter slide
-    next();
-    const box = checkbox('betaWorktreeLifecycle')!;
-    expect(box.checked).toBe(false);
-    act(() => box.click());
-    next();
-    expect(checkbox('betaActivityTimeline')!.checked).toBe(false);
-    act(() => button('Back').click());
-    expect(checkbox('betaWorktreeLifecycle')!.checked).toBe(true);
-  });
-
-  it('Done saves only the ticked flags, and the summary lists them', () => {
+  it('Done and Skip both close it with nothing to apply', () => {
     const onDone = render('whatsNew');
-    next(); // past the Usage meter slide
-    next(2); // Activity timeline
-    act(() => checkbox('betaActivityTimeline')!.click());
-    next(3); // Session chains
-    act(() => checkbox('betaSessionChains')!.click());
-    next();
-    const summary = document.querySelector('[data-testid="intro-summary"]')!.textContent;
-    expect(summary).toContain('Activity timeline');
-    expect(summary).toContain('Session chains');
-    expect(summary).not.toContain('Worktree lifecycle');
-    expect(summary).not.toContain('Nothing turned on');
+    next(4);
     act(() => button('Done').click());
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect(onDone).toHaveBeenCalledWith({ betaFlags: { betaActivityTimeline: true, betaSessionChains: true } });
+    expect(onDone).toHaveBeenCalledWith({});
+    const onSkip = render('whatsNew');
+    act(() => button('Skip').click());
+    expect(onSkip).toHaveBeenCalledWith({});
   });
+});
 
-  it('a box ticked then cleared is not saved', () => {
-    const onDone = render('whatsNew');
-    next(); // past the Usage meter slide
+describe('IntroSheet — shortcut labels', () => {
+  it('shows the shortcuts as the user has them bound', () => {
+    act(() => root.render(
+      <IntroSheet flow="whatsNew" version="0.30.0" config={null} keys={{ inspector: '⌘⇧I', findInFiles: '⌥⌘F' }} onDone={vi.fn()} />,
+    ));
     next();
-    act(() => checkbox('betaWorktreeLifecycle')!.click());
-    act(() => checkbox('betaWorktreeLifecycle')!.click());
-    next(5);
-    expect(document.querySelector('[data-testid="intro-summary"]')!.textContent).toContain('Nothing turned on');
+    expect(title()).toContain('⌘⇧I shows and hides it');
+    expect(title()).not.toContain('⌘I shows');
+    next(2);
+    expect(title()).toContain('Press ⌥⌘F in the explorer');
+  });
+});
+
+describe('IntroSheet — Chat by default', () => {
+  it('Done with the box ticked turns on Chat by default', () => {
+    const onDone = render('whatsNew');
+    act(() => chatBox().click());
+    next(4);
     act(() => button('Done').click());
-    expect(onDone).toHaveBeenCalledWith({ betaFlags: {} });
+    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
   });
 
-  it('Skip turns nothing on, even with boxes ticked', () => {
+  it('Skip with the box ticked turns it on too', () => {
     const onDone = render('whatsNew');
-    next(); // past the Usage meter slide
-    next();
-    act(() => checkbox('betaWorktreeLifecycle')!.click());
+    act(() => chatBox().click());
+    act(() => button('Skip').click());
+    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
+  });
+
+  it('starts unticked and saves nothing when left alone', () => {
+    const onDone = render('whatsNew');
+    expect(chatBox().checked).toBe(false);
+    expect(chatBox().disabled).toBe(false);
     act(() => button('Skip').click());
     expect(onDone).toHaveBeenCalledWith({});
   });
