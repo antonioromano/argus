@@ -56,4 +56,17 @@ describe('ChatMessageItem — images', () => {
     await render(message([{ kind: 'text', text: '- first\n- second' }]));
     expect(container.querySelectorAll('li')).toHaveLength(2);
   });
+
+  it('renders a prompt as typed: newlines kept, words after ``` inside the block', async () => {
+    await render(message([{ kind: 'text', text: '- here \n`then`\n```then a code block\n```' }]));
+    expect(container.querySelector('li br')).not.toBeNull();
+    expect(container.querySelector('.argus-chat-code code')?.textContent).toBe('then a code block');
+    expect(container.querySelector('.argus-chat-code-lang')).toBeNull();
+  });
+
+  it('leaves Claude replies to plain Markdown', async () => {
+    await render({ id: 'a1', role: 'assistant', blocks: [{ kind: 'text', text: 'one\ntwo' }] });
+    expect(container.querySelector('br')).toBeNull();
+  });
 });
+

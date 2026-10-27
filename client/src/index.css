@@ -2345,17 +2345,23 @@ body {
 .argus-cmp-content .is-bold { text-shadow: 0.45px 0 0 currentColor; }
 /* Plex ships no italic face here, so this is a synthetic slant of the same glyphs. */
 .argus-cmp-content .is-italic { font-style: italic; }
-.argus-cmp-content span.is-code { background: var(--bg-inset); border-radius: 3px; box-shadow: 0 0 0 1px var(--bg-inset); }
+.argus-cmp-content span.is-code { background: var(--bg-3); color: var(--fg-0); box-shadow: 0 0 0 1px var(--bg-3); }
+/* One pill across the backticks and the code: only its ends are rounded. */
+.argus-cmp-content span.is-code.is-open { border-radius: 4px 0 0 4px; }
+.argus-cmp-content span.is-code.is-close { border-radius: 0 4px 4px 0; }
 .argus-cmp-content .is-number { color: var(--accent); }
 .argus-cmp-content .is-bullet { position: relative; color: transparent; }
 .argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
 .argus-cmp-line.is-quote { color: var(--fg-2); }
-.argus-cmp-line.is-code,
-.argus-cmp-line.is-fence {
-  /* A full-width band; the matching padding keeps the text where it was. */
-  margin: 0 calc(-1 * var(--s-3));
-  padding: 0 var(--s-3);
+/* A fenced block is one box, like the Chat's code blocks. The matching
+   padding keeps the text where it was; an inset shadow draws the edge without
+   taking height, so the rows still line up with the textarea's. */
+.argus-cmp-codebox {
+  margin: 0 calc(-1 * var(--s-2));
+  padding: 0 var(--s-2);
+  border-radius: var(--r-2);
   background: var(--bg-inset);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .argus-cmp-line.is-fence { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }

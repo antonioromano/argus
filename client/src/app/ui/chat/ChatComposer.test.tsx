@@ -288,7 +288,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
   const key = (k: string, init: KeyboardEventInit = {}) =>
     act(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })); });
   const layerText = () =>
-    Array.from(container.querySelectorAll('[data-testid="composer-highlight"] > .argus-cmp-line'))
+    Array.from(container.querySelectorAll('[data-testid="composer-highlight"] .argus-cmp-line'))
       .map((l) => (l.textContent ?? '').replace(/\u200b/g, ''))
       .join('\n');
 
@@ -377,6 +377,17 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('typing ``` opens a code block with its closing fence, caret inside', () => {
+    render();
+    type('``');
+    const event = new InputEvent('beforeinput', { data: '`', inputType: 'insertText', bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(box().value).toBe('```\n\n```');
+    expect(box().selectionStart).toBe(4);
+    expect(container.querySelector('[data-testid="composer-codebox"]')).not.toBeNull();
+  });
+
   it('draws a styled copy of exactly the typed text, and sends plain Markdown', () => {
     const onSubmit = render();
     const src = '**bold** _it_ `code`\n- item\n\n```js\nconst x = 1;\n```';
@@ -384,7 +395,8 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(layerText()).toBe(src);
     expect(container.querySelector('.is-bold')?.textContent).toBe('bold');
     expect(container.querySelector('.is-italic')?.textContent).toBe('it');
-    expect(container.querySelector('span.is-code')?.textContent).toBe('code');
+    expect(container.querySelector('span.is-code:not(.is-mark)')?.textContent).toBe('code');
+    expect(container.querySelector('[data-testid="composer-codebox"]')?.textContent).toBe('```jsconst x = 1;```');
     expect(container.querySelector('.is-bullet')?.textContent).toBe('-');
     expect(container.querySelector('.argus-cmp-line.is-code')?.textContent).toBe('const x = 1;');
     key('Enter', { metaKey: true });

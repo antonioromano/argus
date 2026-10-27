@@ -7,6 +7,7 @@ import { Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
 import { api } from '../../../services/api.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
+import { userMarkdown } from './userMarkdown.js';
 
 const markdownComponents: Components = {
   // Links open in the system browser, never inside the sandboxed renderer.
@@ -82,13 +83,14 @@ function firstLine(text: string): string {
   return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 
-function Block({ block }: { block: ChatBlock }) {
+/** `user`: a prompt, rendered as typed (userMarkdown). */
+function Block({ block, user }: { block: ChatBlock; user: boolean }) {
   switch (block.kind) {
     case 'text':
       return (
         <div className="md-preview argus-chat-md">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} skipHtml>
-            {block.text}
+            {user ? userMarkdown(block.text) : block.text}
           </ReactMarkdown>
         </div>
       );
@@ -156,7 +158,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
       {showRole && !system && <div className="argus-chat-role eyebrow">{user ? 'You' : 'Claude'}</div>}
       <div className="argus-chat-body">
         {message.blocks.map((b, i) => (
-          <Block key={i} block={b} />
+          <Block key={i} block={b} user={user} />
         ))}
       </div>
     </div>

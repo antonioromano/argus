@@ -13,7 +13,7 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './composerMarkdown.js';
 
 interface ChatComposerProps {
   status: SessionStatus;
@@ -146,6 +146,22 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   }, [autoFocus]);
 
   useEffect(() => () => revoke(attachmentsRef.current), []);
+
+  // A typed ``` opens a code block with its closing fence. Native beforeinput:
+  // it carries the typed text and can be cancelled before the textarea changes.
+  useEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== 'insertText' || e.isComposing || !e.data) return;
+      const edit = fenceEdit(box.value, box.selectionStart, box.selectionEnd, e.data);
+      if (!edit) return;
+      e.preventDefault();
+      applyEdit(box, edit);
+    };
+    box.addEventListener('beforeinput', onBeforeInput);
+    return () => box.removeEventListener('beforeinput', onBeforeInput);
+  }, []);
 
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
