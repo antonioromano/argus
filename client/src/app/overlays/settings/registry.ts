@@ -106,8 +106,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Agents',
     group: 'Workspace',
     icon: Cpu,
-    keys: ['defaultAgent', 'customAgents', 'agentFlags', 'claudeRenderer'],
-    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback'],
+    keys: ['defaultAgent', 'customAgents', 'agentFlags', 'claudeRenderer', 'defaultSessionView'],
+    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback', 'chat', 'chat view', 'default view', 'terminal view'],
   },
   {
     id: 'groups',
@@ -307,6 +307,7 @@ export const RESETTABLE_KEYS: ConfigKey[] = [
   'defaultRunMode',
   'confirmQuitDirectSessions',
   'claudeRenderer',
+  'defaultSessionView',
   'betaActivityTimeline',
   'betaWorktreeLifecycle',
   'betaSessionTemplates',
