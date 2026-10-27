@@ -61,7 +61,7 @@ export function useHeaderShed(
     setLevel(0);
   }
   const widthRef = useRef(0);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -79,36 +79,57 @@ export function useHeaderShed(
     return () => ro.disconnect();
   }, [ref]);
 
-  // No deps on purpose: any render can change what the region holds (a usage
-  // value ticking up a digit), so every render re-checks the fit.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Re-check the fit only when something that can change it did: a step up,
+  // new content, or a resize. Not on every render — that is a forced reflow
+  // per tile on each session update.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || level >= MAX_SHED) return;
     if (overflows(el, nameRef.current)) setLevel(level + 1);
-  });
+  }, [ref, nameRef, level, contentKey, tick]);
 
   return level;
 }
 
-/** What `level` hid from a shell header, as tooltip rows (empty at level 0). */
-export function shedRows(
+/** A piece of sheddable header info, as a tooltip row, tagged with the level that hides it. */
+export interface ShedRow extends UsageRow {
+  level: number;
+}
+
+/**
+ * Every piece of info a header can shed, as tooltip rows. Doubles as the
+ * content key: when any of it changes, the fit starts over. Usage only lists
+ * once the whole chip is gone — before that the chip's own tooltip has it.
+ * `branch` / `gitAndPr`: whether the header shows those at all (Focus never
+ * shows the branch; with the inspector open it shows neither git nor PR).
+ */
+export function shedInfo(
   session: SessionInfo,
-  level: number,
-  opts: { usageMeter?: UsageMeterState | null; chainCount?: number; pills?: boolean; usage?: boolean } = {},
-): UsageRow[] {
-  const rows: UsageRow[] = [];
-  if (level >= SHED.status) rows.push({ label: 'Status', value: STATUS_LABELS[session.status] });
-  if (level >= SHED.pills && opts.pills !== false) {
-    if (session.worktreeBranch) rows.push({ label: 'Branch', value: session.worktreeBranch });
-    if (session.runMode === 'direct') rows.push({ label: 'Terminal', value: 'Native — stops when Argus quits' });
-    if (session.worktreeStaleDays !== undefined) rows.push({ label: 'Stale', value: `No commit for ${session.worktreeStaleDays} days` });
-    if (opts.chainCount) rows.push({ label: 'Chains', value: String(opts.chainCount) });
-    if (session.cwd && session.shellGit) rows.push({ label: 'Git', value: describeShellGit(session.cwd, session.shellGit) });
-    if (session.pr) rows.push({ label: 'PR', value: describePr(session.pr) });
+  opts: { usageMeter?: UsageMeterState | null; chainCount?: number; branch?: boolean; gitAndPr?: boolean } = {},
+): ShedRow[] {
+  const { pills, status, ctx } = SHED;
+  const rows: ShedRow[] = [{ level: status, label: 'Status', value: STATUS_LABELS[session.status] }];
+  if (opts.branch !== false && session.worktreeBranch) rows.push({ level: pills, label: 'Branch', value: session.worktreeBranch });
+  if (session.runMode === 'direct') rows.push({ level: pills, label: 'Terminal', value: 'Native — stops when Argus quits' });
+  if (session.worktreeStaleDays !== undefined) rows.push({ level: pills, label: 'Stale', value: `No commit for ${session.worktreeStaleDays} days` });
+  if (opts.chainCount) rows.push({ level: pills, label: 'Chains', value: String(opts.chainCount) });
+  if (opts.gitAndPr !== false) {
+    if (session.cwd && session.shellGit) rows.push({ level: pills, label: 'Git', value: describeShellGit(session.cwd, session.shellGit) });
+    if (session.pr) rows.push({ level: pills, label: 'PR', value: describePr(session.pr) });
   }
-  if (level >= SHED.reset && opts.usage !== false && opts.usageMeter) {
-    rows.push(...describeUsage(session.usage, planFor(opts.usageMeter.plans, session.agentType), opts.usageMeter, Date.now()));
+  if (opts.usageMeter) {
+    const plan = planFor(opts.usageMeter.plans, session.agentType);
+    for (const r of describeUsage(session.usage, plan, opts.usageMeter, Date.now())) rows.push({ level: ctx, ...r });
   }
   return rows;
+}
+
+/** The rows `level` has hidden, for the name tooltip. */
+export function shedRows(info: readonly ShedRow[], level: number): UsageRow[] {
+  return info.filter((r) => r.level <= level);
+}
+
+/** Content key of a header's sheddable info (see shedInfo). */
+export function shedKey(info: readonly ShedRow[]): string {
+  return info.map((r) => `${r.label}=${r.value}`).join('|');
 }

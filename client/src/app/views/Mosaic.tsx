@@ -6,7 +6,7 @@ import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
-import { SHED, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
+import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
 import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
@@ -795,10 +795,9 @@ function MosaicTileInner({
   const infoRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLSpanElement>(null);
   const renaming = sessionMenu.isRenaming(session.id, 'tile');
+  const headerInfo = shedInfo(session, { usageMeter, chainCount });
   const shed = useHeaderShed(infoRef, nameRef, [
-    shellLabel(session), session.status, session.worktreeBranch, session.runMode, session.worktreeStaleDays,
-    chainCount, session.shellGit?.branch, session.shellGit?.changes, session.pr?.number, session.pr?.state,
-    !!usageMeter, copied, renaming,
+    shellLabel(session), !!groupColor, session.hasGitChanges, renaming, shedKey(headerInfo),
   ].join('|'));
   const showPills = shed < SHED.pills;
   const nameHint = 'Click to copy path · right-click for actions';
@@ -921,7 +920,7 @@ function MosaicTileInner({
               style={{ flex: '0 1 220px', fontSize: 'var(--t-sm)' }}
             />
           ) : (
-            <Tooltip content={<ShedTooltip hint={nameHint} rows={shedRows(session, shed, { usageMeter, chainCount })} />}>
+            <Tooltip content={<ShedTooltip hint={nameHint} rows={shedRows(headerInfo, shed)} />}>
               <span
                 ref={nameRef}
                 role="button"

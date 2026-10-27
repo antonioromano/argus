@@ -235,6 +235,18 @@ describe('Mosaic tile header (F12)', () => {
     expect(Object.values(shown(container.querySelector('[data-testid="tile-info"]')!)).every(Boolean)).toBe(true);
   });
 
+  it('gets shed info back when the content shrinks, at the same width', () => {
+    renderMosaic(session());
+    const region = () => container.querySelector('[data-testid="tile-info"]')!;
+    // Narrow enough that the pills go, but no further.
+    let w = 1000;
+    while (shown(region()).pills && w > 40) resizeTo(w -= 10);
+    expect(shown(region()).pills).toBe(false);
+    expect(shown(region()).status).toBe(true);
+    renderMosaic(session({ pr: undefined, worktreeBranch: undefined }));
+    expect(Number(region().getAttribute('data-shed'))).toBeLessThan(4);
+  });
+
   it('lists what was shed in the name tooltip', () => {
     renderMosaic(session());
     resizeTo(60);

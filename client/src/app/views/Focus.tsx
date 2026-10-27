@@ -9,7 +9,7 @@ import { UsageChip } from '../ui/UsageChip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
-import { SHED, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
+import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
 import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
@@ -180,10 +180,12 @@ export function Focus({
   const infoRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLSpanElement>(null);
   const renaming = sessionMenu.isRenaming(active.id, 'focus');
+  // The header never shows the branch; with the inspector up, no git, PR or usage either.
+  const headerInfo = shedInfo(active, {
+    usageMeter: inspectorShown ? null : usageMeter, branch: false, gitAndPr: !inspectorShown,
+  });
   const shed = useHeaderShed(infoRef, nameRef, [
-    shellLabel(active), active.status, active.runMode, active.worktreeStaleDays, active.shellGit?.branch,
-    active.shellGit?.changes, active.hasGitChanges, active.pr?.number, active.pr?.state, !!usageMeter,
-    inspectorShown, copied, renaming,
+    shellLabel(active), active.hasGitChanges, inspectorShown, renaming, shedKey(headerInfo),
   ].join('|'));
   const showPills = shed < SHED.pills;
   // Side panels dock below the conversation in the stacked layout, and beside
@@ -331,7 +333,7 @@ export function Focus({
                   style={{ flex: '0 1 260px', fontSize: 'var(--t-sm)' }}
                 />
               ) : (
-              <Tooltip content={<ShedTooltip hint="Click to copy path · right-click for actions" rows={shedRows(active, shed, { usageMeter, usage: !inspectorShown })} />}>
+              <Tooltip content={<ShedTooltip hint="Click to copy path · right-click for actions" rows={shedRows(headerInfo, shed)} />}>
                 <span
                   ref={nameRef}
                   role="button"

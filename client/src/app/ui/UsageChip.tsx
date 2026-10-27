@@ -11,6 +11,7 @@ import {
   usageLevel,
   worstLevel,
   type UsageLevel,
+  type UsageRow,
   type UsageMeterView,
 } from '../../utils/usageFormat.js';
 
@@ -31,6 +32,20 @@ interface UsageChipProps {
 export type UsageOmit = 'ctx' | 'plan' | 'reset' | 'tok' | 'model';
 
 const TICK_MS = 30_000;
+
+/** Label / value grid of a usage-style tooltip (the chip's breakdown, a shed header's info). */
+export function UsageRows({ rows, testId }: { rows: readonly UsageRow[]; testId?: string }) {
+  return (
+    <span className="argus-usage-pop" data-testid={testId}>
+      {rows.map((r, i) => (
+        <span key={i} className="argus-usage-pop-row">
+          <b>{r.label}</b>
+          <span>{r.value}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /** The plan window nearest its limit (the one the chip shows). */
 function shownWindow(plan: PlanUsage | undefined, now: number) {
@@ -68,12 +83,18 @@ export function UsageChip({ agentType, usage, plan, view, now: fixedNow, omit }:
   const planLevel = usageLevel(win?.usedPct, view.warnPlan);
 
   const pieces: { key: string; node: ReactNode; level?: UsageLevel }[] = [];
+  // The chip's warning counts every part that is on, shed or not: a narrow
+  // header may drop the plan figure, never the alarm on the border.
   const levels: UsageLevel[] = [];
+  for (const part of view.parts) {
+    if (!part.on) continue;
+    if (part.id === 'ctx' && ctxPct !== undefined) levels.push(ctxLevel);
+    if (part.id === 'plan' && win) levels.push(planLevel);
+  }
   for (const part of view.parts) {
     if (!part.on || omit?.includes(part.id as UsageOmit)) continue;
     if (part.id === 'ctx' && usage) {
       if (ctxPct !== undefined) {
-        levels.push(ctxLevel);
         pieces.push({
           key: 'ctx',
           level: ctxLevel,
@@ -88,7 +109,6 @@ export function UsageChip({ agentType, usage, plan, view, now: fixedNow, omit }:
         pieces.push({ key: 'ctx', node: <>ctx {formatTokens(usage.contextTokens)}</> });
       }
     } else if (part.id === 'plan' && win) {
-      levels.push(planLevel);
       pieces.push({
         key: 'plan',
         level: planLevel,
@@ -111,17 +131,7 @@ export function UsageChip({ agentType, usage, plan, view, now: fixedNow, omit }:
   }
   if (pieces.length === 0) return null;
 
-  const rows = describeUsage(usage, plan, view, now);
-  const breakdown = (
-    <span className="argus-usage-pop">
-      {rows.map((r, i) => (
-        <span key={i} className="argus-usage-pop-row">
-          <b>{r.label}</b>
-          <span>{r.value}</span>
-        </span>
-      ))}
-    </span>
-  );
+  const breakdown = <UsageRows rows={describeUsage(usage, plan, view, now)} />;
 
   return (
     <Tooltip content={breakdown} position="bottom">
