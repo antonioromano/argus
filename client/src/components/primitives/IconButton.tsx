@@ -14,6 +14,8 @@ interface IconButtonProps {
   disabled?: boolean;
   className?: string;
   style?: React.CSSProperties;
+  /** false: no hover tooltip, for a self-explanatory glyph (a `…` menu). `label` stays the accessible name. */
+  tooltip?: boolean;
 }
 
 export function IconButton({
@@ -27,6 +29,7 @@ export function IconButton({
   disabled = false,
   className,
   style,
+  tooltip = true,
 }: IconButtonProps) {
   const dim = size === 'sm' ? 'var(--ctl-h-sm)' : 'var(--ctl-h-md)';
   const iconSize = size === 'sm' ? 12 : 14;
@@ -48,18 +51,17 @@ export function IconButton({
     ...style,
   };
   const btnClass = [!disabled && !active ? 'hover-bg-3' : '', className].filter(Boolean).join(' ');
-  return (
-    <Tooltip content={label} position="top">
-      <button
-        aria-label={label}
-        aria-pressed={pressed}
-        onClick={disabled ? undefined : onClick}
-        disabled={disabled}
-        className={btnClass}
-        style={base}
-      >
-        <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />
-      </button>
-    </Tooltip>
+  const button = (
+    <button
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={btnClass}
+      style={base}
+    >
+      <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />
+    </button>
   );
+  return tooltip ? <Tooltip content={label} position="top">{button}</Tooltip> : button;
 }

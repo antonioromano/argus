@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationsEnabled: false,
   notifyOnWaiting: true,
   notifyOnDone: false,
+  notifyOnPrChecks: true,
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,

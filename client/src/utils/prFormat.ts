@@ -35,6 +35,12 @@ export function prRef(url: string, number = prNumberOf(url)): string {
   return repo ? `${repo}#${number}` : `#${number}`;
 }
 
+/** Compact `repo #n` for the Inspector's rows (prRef keeps the owner, for tooltips and toasts). */
+export function prShortRef(url: string, number = prNumberOf(url)): string {
+  const repo = prRepo(url);
+  return repo ? `${repo.split('/')[1]} #${number}` : `#${number}`;
+}
+
 export function describePr(pr: SessionPr): string {
   const ci = pr.state === 'open' || pr.state === 'draft' ? ` · ${PR_CI_LABEL[pr.ci]}` : '';
   return `${PR_STATE_LABEL[pr.state]} PR ${prRef(pr.url, pr.number)}${ci} — click to open on GitHub`;
@@ -98,3 +104,26 @@ export function summarizePrStates(prs: readonly (SessionPr | null)[]): string {
   const order: (PrState | 'unknown')[] = ['open', 'draft', 'merged', 'closed', 'unknown'];
   return order.filter((k) => counts.has(k)).map((k) => `${counts.get(k)} ${k}`).join(', ');
 }
+
+/**
+ * C1: one-line checks summary for the CI dot's tooltip — "CI: all checks
+ * passed", "CI: 1 failed, 2 pending". Falls back to the aggregate when the
+ * per-outcome counts are missing (an answer from an older server).
+ */
+export function ciSummary(pr: SessionPr): string {
+  if (pr.ci === 'none') return 'CI: no checks';
+  const c = pr.checks?.counts;
+  if (!c) return `CI: ${PR_CI_LABEL[pr.ci]}`;
+  const parts: string[] = [];
+  if (c.failed) parts.push(`${c.failed} failed`);
+  if (c.pending) parts.push(`${c.pending} pending`);
+  if (parts.length > 0) return `CI: ${parts.join(', ')}`;
+  return c.skipped ? `CI: all checks passed (${c.skipped} skipped)` : 'CI: all checks passed';
+}
+
+/** C1: GitHub's checks tab of a PR. */
+export const prChecksUrl = (url: string): string => `${url.replace(/\/+$/, '')}/checks`;
+
+const COUNT = new Intl.NumberFormat('en-US');
+/** C2: a line count as the row's diff button shows it (`4,024`). */
+export const formatLines = (n: number): string => COUNT.format(n);

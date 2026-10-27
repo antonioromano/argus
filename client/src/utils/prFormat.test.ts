@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SessionPr } from '@argus/shared';
-import { prNumberOf, prRef, prTone, summarizePrStates, worstCi } from './prFormat.js';
+import { ciSummary, prChecksUrl, prNumberOf, prRef, prTone, summarizePrStates, worstCi } from './prFormat.js';
 
 const pr = (state: SessionPr['state'], ci: SessionPr['ci']): SessionPr => ({ number: 1, state, ci, url: 'https://github.com/o/r/pull/1', branch: 'b' });
 
@@ -51,5 +51,22 @@ describe('prTone', () => {
     expect(prTone(open({ mergeable: 'mergeable', review: 'changes_requested' }))).toBe('pending');
     expect(prTone(open({ mergeable: 'unknown' }))).toBe('pending');
     expect(prTone(open({}))).toBe('pending');
+  });
+});
+
+describe('ciSummary (C1)', () => {
+  const counts = (passed: number, failed: number, pending: number, skipped: number) => ({ counts: { passed, failed, pending, skipped }, failed: [] });
+  it('names failed and pending checks, else says everything passed', () => {
+    expect(ciSummary({ ...pr('open', 'failure'), checks: counts(3, 1, 2, 0) })).toBe('CI: 1 failed, 2 pending');
+    expect(ciSummary({ ...pr('open', 'pending'), checks: counts(3, 0, 2, 0) })).toBe('CI: 2 pending');
+    expect(ciSummary({ ...pr('open', 'success'), checks: counts(3, 0, 0, 0) })).toBe('CI: all checks passed');
+    expect(ciSummary({ ...pr('open', 'success'), checks: counts(3, 0, 0, 2) })).toBe('CI: all checks passed (2 skipped)');
+  });
+  it('falls back to the aggregate without counts', () => {
+    expect(ciSummary(pr('open', 'none'))).toBe('CI: no checks');
+    expect(ciSummary(pr('open', 'failure'))).toBe('CI: checks failing');
+  });
+  it('links the checks tab', () => {
+    expect(prChecksUrl('https://github.com/o/r/pull/1')).toBe('https://github.com/o/r/pull/1/checks');
   });
 });

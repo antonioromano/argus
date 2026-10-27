@@ -9,6 +9,8 @@ import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
+import { ChatPromptCard } from './ChatPromptCard.js';
+import { ChatResumePicker } from './ChatResumePicker.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -20,7 +22,7 @@ interface ChatViewProps {
   socket: TypedSocket;
   /** Switch this session back to the terminal (the fallback when the chat can't be read). */
   onShowTerminal: () => void;
-  /** Rendered between the messages and the composer (e.g. the waiting reply buttons). */
+  /** Rendered between the messages and the composer. */
   aboveComposer?: ReactNode;
   autoFocus?: boolean;
 }
@@ -44,6 +46,9 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
+  // `/resume` alone opens the Chat's own picker instead of Claude Code's terminal one.
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
   const messages = chat.messages;
 
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
@@ -123,10 +128,47 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           </button>
         )}
       </div>
+      {resumeOpen && (
+        <div className="argus-chat-prompt-wrap">
+          <ChatResumePicker
+            load={() => api.listConversations(session.id)}
+            onPick={(id) => {
+              setResumeOpen(false);
+              send(`/resume ${id}`);
+            }}
+            onUseTerminal={() => {
+              setResumeOpen(false);
+              send('/resume');
+              onShowTerminal();
+            }}
+            onClose={() => setResumeOpen(false)}
+          />
+        </div>
+      )}
+      {session.status === 'waiting' && (
+        <div className="argus-chat-prompt-wrap">
+          <ChatPromptCard
+            // A new menu (other options) starts with no stale error.
+            key={JSON.stringify(session.promptOptions ?? null)}
+            prompt={session.lastPrompt}
+            options={session.promptOptions}
+            onAnswer={(key) =>
+              new Promise<string | null>((resolve) => {
+                socket.emit('session:answer', { sessionId: session.id, key }, (r) => resolve(r.ok ? null : r.error));
+              })
+            }
+            onCancel={() => socket.emit('session:input', { sessionId: session.id, data: '\x1b' })}
+            onShowTerminal={onShowTerminal}
+          />
+        </div>
+      )}
       {aboveComposer}
       <ChatComposer
         status={session.status}
-        onSubmit={(text) => socket.emit('session:chat:send', { sessionId: session.id, text })}
+        onSubmit={(text) => {
+          if (text.trim() === '/resume') setResumeOpen(true);
+          else send(text);
+        }}
         permissionMode={chat.permissionMode}
         onSetMode={(mode) =>
           new Promise<boolean>((resolve) => {
@@ -135,6 +177,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         }
         model={session.usage?.model}
         modelSet={chat.modelSet}
+        commands={chat.commands}
         onUploadImage={(file) => api.uploadChatImage(session.id, file)}
         onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}

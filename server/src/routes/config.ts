@@ -65,7 +65,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -113,6 +113,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       notificationsEnabled: notificationsEnabled ?? current.notificationsEnabled,
       notifyOnWaiting: notifyOnWaiting ?? current.notifyOnWaiting,
       notifyOnDone: notifyOnDone ?? current.notifyOnDone,
+      notifyOnPrChecks: notifyOnPrChecks !== undefined ? !!notifyOnPrChecks : current.notifyOnPrChecks,
       notificationSound: notificationSound ?? current.notificationSound,
       showClock: showClock !== undefined ? !!showClock : current.showClock,
       clockShowSeconds: clockShowSeconds !== undefined ? !!clockShowSeconds : current.clockShowSeconds,

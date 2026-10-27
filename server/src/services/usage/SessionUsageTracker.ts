@@ -1,7 +1,7 @@
 import path from 'path';
 import os from 'os';
 import { realpathSync, statSync } from 'fs';
-import type { ChatMessage, ChatUpdate, SessionUsage } from '@argus/shared';
+import type { ChatCommand, ChatMessage, ChatUpdate, SessionUsage } from '@argus/shared';
 import { contextWindowFor } from './contextWindows.js';
 import { ChatTail } from './ChatTail.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
@@ -46,6 +46,7 @@ export interface ChatSnapshot {
   messages: ChatMessage[];
   permissionMode?: string;
   modelSet?: string;
+  commands?: ChatCommand[];
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
@@ -185,6 +186,11 @@ export class SessionUsageTracker {
     const i = this.current ? all.indexOf(this.current) : -1;
     if (i >= 0) all.push(...all.splice(i, 1));
     return all;
+  }
+
+  /** The transcript Claude is writing now, when known. */
+  currentTranscript(): string | undefined {
+    return this.current;
   }
 
   /** The transcript Claude is writing now. A new path starts a new tailer. */
@@ -363,7 +369,19 @@ export class SessionUsageTracker {
     const snap: ChatSnapshot = { available, messages: [...this.chat!.messages] };
     if (this.chat!.permissionMode) snap.permissionMode = this.chat!.permissionMode;
     if (this.chat!.modelSet) snap.modelSet = this.chat!.modelSet;
+    if (this.chat!.commands) snap.commands = this.chat!.commands;
     return snap;
+  }
+
+  /**
+   * The Chat view is about to type `text` into the session: echo it when it
+   * is a slash command (see ChatTail.echo), so it shows even if Claude Code
+   * never records it.
+   */
+  echoChatInput(text: string): void {
+    const chat = this.chat;
+    if (!this.chatSink || !chat || chat.path !== this.current) return;
+    if (chat.echo(text)) void this.readChatSoon();
   }
 
   /** Queue one chat read behind any in flight; resolves when it is done. */
@@ -395,11 +413,13 @@ export class SessionUsageTracker {
     // Closed, or moved to another transcript, while reading: that read is stale.
     if (this.chatSink !== sink || this.chat !== chat) return;
     const delta = chat.drain();
-    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined;
+    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined || !!delta.removed || !!delta.commands;
     if (delta.reset ? !swallow : delta.messages.length > 0 || meta) {
       const update: Parameters<ChatSink>[0] = { reset: delta.reset, available: true, messages: delta.messages };
       if (delta.permissionMode !== undefined) update.permissionMode = delta.permissionMode;
       if (delta.modelSet !== undefined) update.modelSet = delta.modelSet;
+      if (delta.removed) update.removed = delta.removed;
+      if (delta.commands) update.commands = delta.commands;
       sink(update);
     }
   }

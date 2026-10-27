@@ -90,6 +90,7 @@ export interface AppConfig {
   notificationsEnabled: boolean;
   notifyOnWaiting: boolean;  // notify when a session needs user input
   notifyOnDone: boolean;     // notify when a session finishes a run
+  notifyOnPrChecks?: boolean; // C1: notify when a session PR's checks finish (pending → passed / failed)
   notificationSound: boolean; // play the default system sound with each notification
   showClock?: boolean;        // show HH:MM clock in the toolbar
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
@@ -207,6 +208,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationsEnabled: false,
   notifyOnWaiting: true,
   notifyOnDone: false,
+  notifyOnPrChecks: true,
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
@@ -640,6 +642,35 @@ export interface SessionPr {
   title?: string;
   review?: PrReviewDecision;
   mergeable?: PrMergeable;
+  /** C1: per-outcome breakdown of the checks; absent when the PR has none. */
+  checks?: PrChecks;
+  /** C1: SHA of the PR's head commit (`headRefOid`), so a checks outcome is
+   *  told apart from the previous push's. */
+  headSha?: string;
+  /** C2: lines added / deleted over the whole PR; both or neither. */
+  additions?: number;
+  deletions?: number;
+}
+
+/** C1: how many of a PR's checks passed, failed, are still running, or were skipped. */
+export interface PrCheckCounts {
+  passed: number;
+  failed: number;
+  pending: number;
+  skipped: number;
+}
+
+/** C1: one failed check; `url` is its details page when GitHub has one. */
+export interface PrFailedCheck {
+  name: string;
+  url?: string;
+}
+
+/** C1: the checks of a PR beyond the `ci` aggregate — the CI monitoring popover. */
+export interface PrChecks {
+  counts: PrCheckCounts;
+  /** Bounded list (see the server's PR_FAILED_CHECKS_MAX). */
+  failed: PrFailedCheck[];
 }
 
 /** One PR of a session in the Inspector's GitHub card (B3). */
@@ -671,6 +702,18 @@ export interface SessionPrDiffResponse {
   /** The diff exceeded `limitBytes`: only the changed paths are listed —
    *  every one when `complete`, else a partial list (possibly empty). */
   truncated?: { files: string[]; complete: boolean; limitBytes: number };
+}
+
+/** POST /api/sessions/:id/prs/ready (C3) — `gh pr ready` (or `--undo` when
+ *  `ready` is false) on one of the session's PRs (see SessionPrsResponse). */
+export interface SessionPrReadyRequest {
+  url: string;
+  ready: boolean;
+}
+
+/** The PR read again after the change; null when gh couldn't read it. */
+export interface SessionPrReadyResponse {
+  pr: SessionPr | null;
 }
 
 /** One numbered choice of a waiting agent's selection menu. Sending `key`
@@ -714,16 +757,52 @@ export type ChatBlock =
   /** A tool call; only the tool name is shown in phase 1. */
   | { kind: 'tool'; name: string }
   | { kind: 'image' }
+  /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
+  | { kind: 'command'; name: string; args?: string }
+  /** What a local command (or `!` bash command) printed; shown collapsed. */
+  | { kind: 'output'; text: string; stream: 'stdout' | 'stderr' }
+  /** A one-line notice from Claude Code itself ("Unknown command: /foo", …). */
+  | { kind: 'notice'; text: string }
   | { kind: 'unknown'; type: string };
+
+/** A skill or custom slash command Claude Code offers, for the composer's `/` autocomplete. */
+export interface ChatCommand {
+  /** Without the slash: `pr-review`, `plugin:skill`. */
+  name: string;
+  description?: string;
+}
+
+/** One earlier Claude conversation of a session's folder (the Chat view's /resume picker). */
+export interface ClaudeConversation {
+  /** Claude Code's conversation id (`/resume <id>`). */
+  id: string;
+  /** Custom title, else the last or first prompt. */
+  title: string;
+  /** Epoch ms of the transcript's last write. */
+  updatedAt: number;
+  /** The conversation the session is in now. */
+  current?: boolean;
+}
+
+export interface ClaudeConversationsResponse {
+  conversations: ClaudeConversation[];
+}
 
 /** One transcript entry rendered by the Chat view. */
 export interface ChatMessage {
-  /** The entry's uuid (unique per JSONL line). */
+  /** The entry's uuid (unique per JSONL line), or `echo-…` for a local echo. */
   id: string;
-  role: 'user' | 'assistant';
+  /** `system`: local command output and Claude Code notices, not a turn of either side. */
+  role: 'user' | 'assistant' | 'system';
   /** Epoch ms, when the entry carries a timestamp. */
   ts?: number;
   blocks: ChatBlock[];
+  /**
+   * A slash command sent from the Chat view that the transcript has not (yet)
+   * recorded. Claude Code never writes some commands (`/cost`, `/context`,
+   * `/help`, a dismissed picker…); the echo is replaced when it does.
+   */
+  echo?: boolean;
 }
 
 /**
@@ -749,6 +828,13 @@ export interface ChatUpdate {
    * delivery as `permissionMode`.
    */
   modelSet?: string;
+  /** Ids of earlier messages to drop (a local echo the transcript caught up with). */
+  removed?: string[];
+  /**
+   * Skills and custom commands, from the transcript's skill listing (built-in
+   * commands are the client's own list). Same delivery as `permissionMode`.
+   */
+  commands?: ChatCommand[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */

@@ -2,6 +2,8 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   aggregateChecks,
+  summarizeChecks,
+  PR_FAILED_CHECKS_MAX,
   parsePrView,
   isGhUnavailable,
   PrStatusService,
@@ -12,6 +14,8 @@ import {
   PR_VIEW_ARGS,
   prViewArgsForUrl,
   PrDiffError,
+  PrWriteError,
+  PR_WRITE_TIMEOUT_MS,
   PR_DIFF_MAX_BYTES,
   PR_DIFF_MAX_FILES,
   PR_DIFF_TIMEOUT_MS,
@@ -98,6 +102,70 @@ describe('parsePrView: title, review decision, mergeable (B3)', () => {
   });
 });
 
+describe('summarizeChecks (C1)', () => {
+  const failedRun = (name: string, extra: Record<string, unknown> = {}) => ({ ...run('COMPLETED', 'FAILURE'), name, ...extra });
+
+  test('no checks → null', () => {
+    assert.equal(summarizeChecks([]), null);
+    assert.equal(summarizeChecks(undefined), null);
+  });
+
+  test('counts every outcome; skipped apart from neutral (which passes)', () => {
+    const checks = summarizeChecks([
+      run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'NEUTRAL'), run('COMPLETED', 'SKIPPED'),
+      run('IN_PROGRESS', null), ctx('PENDING'), ctx('SUCCESS'),
+      failedRun('lint'), { ...ctx('ERROR'), context: 'ci/legacy', targetUrl: 'https://ci.example.com/1' },
+    ]);
+    assert.deepEqual(checks?.counts, { passed: 3, failed: 2, pending: 2, skipped: 1 });
+    assert.deepEqual(checks?.failed, [{ name: 'lint' }, { name: 'ci/legacy', url: 'https://ci.example.com/1' }]);
+  });
+
+  test('a failed run is named with its workflow and links its details page (https only)', () => {
+    const checks = summarizeChecks([
+      failedRun('test', { workflowName: 'CI', detailsUrl: 'https://github.com/o/r/actions/runs/1/job/2' }),
+      failedRun('build', { detailsUrl: 'javascript:alert(1)' }),
+      failedRun('', {}),
+    ]);
+    assert.deepEqual(checks?.failed, [
+      { name: 'CI / test', url: 'https://github.com/o/r/actions/runs/1/job/2' },
+      { name: 'build' },
+      { name: 'Unnamed check' },
+    ]);
+  });
+
+  test('bounds the failed list and the names, never the counts', () => {
+    const many = Array.from({ length: PR_FAILED_CHECKS_MAX + 5 }, (_, i) => failedRun(`job ${i}`));
+    const checks = summarizeChecks([...many, failedRun('x'.repeat(500))])!;
+    assert.equal(checks.counts.failed, PR_FAILED_CHECKS_MAX + 6);
+    assert.equal(checks.failed.length, PR_FAILED_CHECKS_MAX);
+    assert.equal(summarizeChecks([failedRun('x'.repeat(500))])!.failed[0].name.length, 120);
+  });
+
+  test('parsePrView carries the breakdown and the head SHA', () => {
+    const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+    const pr = parsePrView(JSON.stringify({ ...base, statusCheckRollup: [failedRun('lint')], headRefOid: 'ABCDEF1234567890' }))!;
+    assert.equal(pr.ci, 'failure');
+    assert.deepEqual(pr.checks, { counts: { passed: 0, failed: 1, pending: 0, skipped: 0 }, failed: [{ name: 'lint' }] });
+    assert.equal(pr.headSha, 'abcdef1234567890');
+    assert.equal(parsePrView(JSON.stringify({ ...base, headRefOid: 'not a sha' }))?.headSha, undefined);
+    assert.match(PR_VIEW_ARGS.join(' '), /headRefOid/);
+  });
+});
+
+describe('parsePrView: changed lines (C2)', () => {
+  const base = { number: 1, state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/1', headRefName: 'b' };
+  test('carries additions and deletions together, only as non-negative integers', () => {
+    const pr = parsePrView(JSON.stringify({ ...base, additions: 4024, deletions: 0 }))!;
+    assert.equal(pr.additions, 4024);
+    assert.equal(pr.deletions, 0);
+    for (const bad of [{ additions: 3 }, { additions: -1, deletions: 2 }, { additions: '3', deletions: 2 }, { additions: 1.5, deletions: 2 }]) {
+      const p = parsePrView(JSON.stringify({ ...base, ...bad }))!;
+      assert.equal('additions' in p || 'deletions' in p, false);
+    }
+    assert.match(PR_VIEW_ARGS.join(' '), /additions,deletions/);
+  });
+});
+
 describe('isGhUnavailable', () => {
   test('missing binary and logged-out are unavailable; no-PR is not', () => {
     assert.equal(isGhUnavailable({ code: 'ENOENT' }), true);
@@ -141,7 +209,7 @@ describe('PrStatusService', () => {
   test('runs gh with the json fields in the folder and parses the answer', async () => {
     const { service, calls } = harness();
     const pr = await service.forFolder('/repo');
-    assert.deepEqual(pr, { number: 7, state: 'open', url: 'https://github.com/o/r/pull/7', ci: 'success', branch: 'feat/a' });
+    assert.deepEqual(pr, { number: 7, state: 'open', url: 'https://github.com/o/r/pull/7', ci: 'success', branch: 'feat/a', checks: { counts: { passed: 1, failed: 0, pending: 0, skipped: 0 }, failed: [] } });
     assert.deepEqual(calls, [{ args: PR_VIEW_ARGS, cwd: '/repo' }]);
   });
 
@@ -264,7 +332,7 @@ describe('PrStatusService', () => {
     const url = 'https://github.com/o/other/pull/9';
     const { service, calls } = harness({ gh: async () => prJson({ number: 9, url, headRefName: 'feat/b' }) });
     const pr = await service.forUrl(url, '/hub');
-    assert.deepEqual(pr, { number: 9, state: 'open', url, ci: 'success', branch: 'feat/b' });
+    assert.deepEqual(pr, { number: 9, state: 'open', url, ci: 'success', branch: 'feat/b', checks: { counts: { passed: 1, failed: 0, pending: 0, skipped: 0 }, failed: [] } });
     await service.forUrl(url, '/elsewhere');
     assert.deepEqual(calls, [{ args: prViewArgsForUrl(url), cwd: '/hub' }]);
     assert.equal(calls[0].args[2], url);
@@ -365,5 +433,119 @@ describe('PrStatusService.prDiff (B4)', () => {
     assert.equal(off.calls.length, 1, 'no second gh call while unavailable');
     await reject(Object.assign(new Error('x'), { killed: true, signal: 'SIGTERM' }), 'timeout', /30s/);
     await reject(Object.assign(new Error('x'), { code: 1, stderr: 'could not find pull request\nmore' }), 'failed', /^could not find pull request$/);
+  });
+});
+
+// ── C3: gh pr ready ─────────────────────────────────────────────────────────
+
+describe('PrStatusService.setReady (C3)', () => {
+  const url = 'https://github.com/o/r/pull/7';
+
+  test('runs gh pr ready (or --undo) on the URL in cwd, with the write timeout', async () => {
+    const seen: { args: string[]; timeoutMs?: number }[] = [];
+    const service = new PrStatusService({
+      runGh: async (args, _cwd, opts) => { seen.push({ args, timeoutMs: opts?.timeoutMs }); return ''; },
+      headInfo: async () => null,
+      defaultBranch: async () => 'main',
+    });
+    await service.setReady(url, '/repo', true);
+    await service.setReady(url, '/repo', false);
+    assert.deepEqual(seen, [
+      { args: ['pr', 'ready', url], timeoutMs: PR_WRITE_TIMEOUT_MS },
+      { args: ['pr', 'ready', '--undo', url], timeoutMs: PR_WRITE_TIMEOUT_MS },
+    ]);
+  });
+
+  test('drops the cached readings of that PR (by URL and by branch), success or not', async () => {
+    let state = 'OPEN';
+    let draft = true;
+    let fail = false;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') {
+          if (fail) throw Object.assign(new Error('x'), { code: 1, stderr: 'GraphQL: Resource not accessible\n' });
+          draft = args[2] === '--undo';
+          return '';
+        }
+        return prJson({ isDraft: draft, state });
+      },
+    });
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'draft');
+    assert.equal((await service.forFolder('/repo'))?.state, 'draft');
+    await service.setReady(url, '/repo', true);
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open');
+    assert.equal((await service.forFolder('/repo'))?.state, 'open');
+    const views = calls.filter((c) => c.args[1] === 'view').length;
+    assert.equal(views, 4);
+
+    fail = true;
+    state = 'CLOSED';
+    await assert.rejects(service.setReady(url, '/repo', false), (e: unknown) => e instanceof PrWriteError && e.kind === 'failed' && e.message === 'GraphQL: Resource not accessible');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'closed', 'read again after a failed write too');
+  });
+
+  test('a lookup in flight during the write does not cache its stale answer', async () => {
+    let release!: () => void;
+    let first = true;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        if (first) { first = false; await new Promise<void>((r) => { release = r; }); return prJson({ isDraft: true }); }
+        return prJson({ isDraft: false });
+      },
+    });
+    const stale = service.forUrl(url, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    release();
+    assert.equal((await stale)?.state, 'draft');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 2);
+  });
+
+  test('a caller after the write does not join a lookup that started before it', async () => {
+    let release!: () => void;
+    let first = true;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        if (first) { first = false; await new Promise<void>((r) => { release = r; }); return prJson({ isDraft: true }); }
+        return prJson({ isDraft: false });
+      },
+    });
+    const stale = service.forUrl(url, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    const fresh = service.forUrl(url, '/repo');
+    assert.equal((await fresh)?.state, 'open', 'a new lookup, not the pre-write one');
+    release();
+    assert.equal((await stale)?.state, 'draft');
+    assert.equal((await service.forUrl(url, '/repo'))?.state, 'open', 'the stale answer finishing late did not overwrite the cache');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 2);
+  });
+
+  test('a write to one PR still lets an unrelated lookup in flight cache its answer', async () => {
+    const other = 'https://github.com/o/r/pull/8';
+    let release!: () => void;
+    const { service, calls } = harness({
+      gh: async (args) => {
+        if (args[1] === 'ready') return '';
+        await new Promise<void>((r) => { release = r; });
+        return prJson({ number: 8, url: other });
+      },
+    });
+    const pending = service.forUrl(other, '/repo');
+    await new Promise((r) => setImmediate(r));
+    await service.setReady(url, '/repo', true);
+    release();
+    await pending;
+    await service.forUrl(other, '/repo');
+    assert.equal(calls.filter((c) => c.args[1] === 'view').length, 1, 'cached: the write was about another PR');
+  });
+
+  test('maps gh missing / logged out and timeouts', async () => {
+    const mk = (err: unknown) => new PrStatusService({ runGh: async () => { throw err; }, headInfo: async () => null, defaultBranch: async () => 'main' });
+    await assert.rejects(mk({ code: 'ENOENT' }).setReady(url, '/r', true), (e: unknown) => e instanceof PrWriteError && e.kind === 'unavailable');
+    await assert.rejects(mk({ killed: true, signal: 'SIGTERM' }).setReady(url, '/r', true), (e: unknown) => e instanceof PrWriteError && e.kind === 'timeout');
   });
 });

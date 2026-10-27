@@ -190,6 +190,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     notificationsEnabled: true,
     notifyOnWaiting: false,
     notifyOnDone: true,
+    notifyOnPrChecks: false,
     notificationSound: true,
     showClock: true,
     clockShowSeconds: true,

@@ -2,6 +2,10 @@ import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathComp
 
 // PR diff (B4) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
 import type { SessionPrDiffResponse } from '@argus/shared';
+// Mark ready (C3) — its own line too, for the same reason.
+import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/shared';
+// Chat /resume picker (D1) — its own line too, for the same reason.
+import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
 
 // Git Manager, read-only (B5) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
 import type { GitHistoryResponse, GitCommitDetail, GitRefsResponse } from '@argus/shared';
@@ -186,6 +190,13 @@ export const api = {
     const res = await authFetch(`${API_BASE}/fs/autocomplete?path=${encodeURIComponent(path)}`);
     const data: PathCompletionResponse = await (await requireOk(res)).json();
     return data.completions;
+  },
+
+  /** Chat view /resume picker: earlier Claude conversations of the session's folder, newest first. */
+  listConversations: async (sessionId: string): Promise<ClaudeConversation[]> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/conversations`);
+    const data: ClaudeConversationsResponse = await (await requireOk(res)).json();
+    return data.conversations;
   },
 
   /** Chat view: save a clipboard image server-side; resolves the file's path. */
@@ -468,6 +479,17 @@ export const api = {
   /** B4: changed files + diff of one of the session's PRs (`url` from getSessionPrs). */
   getSessionPrDiff: async (sessionId: string, url: string): Promise<SessionPrDiffResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/pr-diff?url=${encodeURIComponent(url)}`);
+    return (await requireOk(res)).json();
+  },
+
+  /** C3: `gh pr ready` (`ready: false` → back to draft) on one of the session's PRs. */
+  setSessionPrReady: async (sessionId: string, url: string, ready: boolean): Promise<SessionPrReadyResponse> => {
+    const body: SessionPrReadyRequest = { url, ready };
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/prs/ready`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     return (await requireOk(res)).json();
   },
 

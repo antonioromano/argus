@@ -61,6 +61,12 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
               onChange={(v) => { void onSave({ notifyOnDone: v }); }}
             />
           </SettingRow>
+          <SettingRow label="A pull request's checks finish" hint="Passed or failed, for the PR shown in a shell's header">
+            <Toggle
+              checked={config.notifyOnPrChecks ?? true}
+              onChange={(v) => { void onSave({ notifyOnPrChecks: v }); }}
+            />
+          </SettingRow>
           <SettingRow label="Play a sound" hint="Plays the default system sound with each notification">
             <Toggle
               checked={config.notificationSound ?? false}

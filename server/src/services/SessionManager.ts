@@ -6,6 +6,7 @@ import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
+  ClaudeConversation,
   SessionInfo,
   SessionStatus,
   AgentSignalState,
@@ -63,9 +64,10 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
-import { PrDiffError, type PrStatusService } from './PrStatusService.js';
+import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
-import { SessionUsageTracker, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
 import {
   CodexRolloutTailer,
@@ -422,6 +424,14 @@ export type PrDiffOutcome =
   | { ok: true; diff: SessionPrDiffResponse }
   | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
 
+/** setSessionPrReady's answer (C3): the PR read again, or the HTTP status and message. */
+export type PrReadyOutcome =
+  | { ok: true; pr: SessionPr | null }
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+
+/** gh failure kind → HTTP status. */
+const GH_ERROR_STATUS = { unavailable: 503, timeout: 504, failed: 502 } as const;
+
 async function runBounded<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -466,6 +476,8 @@ export class SessionManager {
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
   private prPollRunning = false;
+  /** A sweep was asked for while one was running (see pollPrStatus). */
+  private prPollAgain = false;
   private prPollTimer: ReturnType<typeof setInterval> | null = null;
   private prKickTimer: ReturnType<typeof setTimeout> | null = null;
   /** Beta F8 (`betaWorktreeLifecycle`): stale-worktree marker. Off ⇒ never computed. */
@@ -856,6 +868,15 @@ export class SessionManager {
   }
 
   /**
+   * C3: refresh the header chips after a write. A sweep already running may
+   * have read the PR before the write, so it is followed by one more.
+   */
+  private sweepPrsAfterWrite(): void {
+    if (this.prPollRunning) this.prPollAgain = true;
+    else void this.pollPrStatus();
+  }
+
+  /**
    * One PR/CI sweep: one lookup per folder per tick (sessions sharing a folder
    * share it; the service further dedupes per gitRoot+branch), bounded like the
    * git poll. Emits `session:pr` only when a session's answer changed.
@@ -894,6 +915,10 @@ export class SessionManager {
       });
     } finally {
       this.prPollRunning = false;
+    }
+    if (this.prPollAgain) {
+      this.prPollAgain = false;
+      await this.pollPrStatus();
     }
   }
 
@@ -949,6 +974,47 @@ export class SessionManager {
    * the session's work root, resolved through pathScope.
    */
   async sessionPrDiff(id: string, url: string): Promise<PrDiffOutcome> {
+    const found = await this.findSessionPr(id, url);
+    if (!found.ok) return found;
+    try {
+      return { ok: true, diff: await found.service.prDiff(found.url, found.folder) };
+    } catch (err) {
+      if (!(err instanceof PrDiffError)) throw err;
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+    }
+  }
+
+  /**
+   * C3: mark one of the session's PRs ready for review (`gh pr ready`), or
+   * back to draft (`--undo`). The first route that writes to GitHub, so it is
+   * held to the same allow-list as the diff: only a URL of the session's own
+   * PR list, run in its work root. Answers the PR read again (the service
+   * dropped its cached readings) and refreshes the header chips right away.
+   */
+  async setSessionPrReady(id: string, url: string, ready: boolean): Promise<PrReadyOutcome> {
+    const found = await this.findSessionPr(id, url);
+    if (!found.ok) return found;
+    try {
+      await found.service.setReady(found.url, found.folder, ready);
+    } catch (err) {
+      if (!(err instanceof PrWriteError)) throw err;
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+    }
+    const pr = await found.service.forUrl(found.url, found.folder);
+    this.sweepPrsAfterWrite();
+    return { ok: true, pr };
+  }
+
+  /**
+   * The session's own spelling of `url` when it is one of its PRs
+   * (listSessionPrs), with the service and the work root gh runs in
+   * (resolved through pathScope). The URL gh is handed comes from that list,
+   * never from the request.
+   */
+  private async findSessionPr(id: string, url: string): Promise<
+    | { ok: true; url: string; folder: string; service: PrStatusService }
+    | { ok: false; status: 404 | 409; error: string }
+  > {
     const session = this.sessions.get(id);
     if (!session) return { ok: false, status: 404, error: 'Session not found' };
     if (!this.prService || !this.prEnabled) return { ok: false, status: 409, error: 'Pull request status is off' };
@@ -961,13 +1027,7 @@ export class SessionManager {
     const listed = recent.find((u) => samePrUrl(url, u))
       ?? (await this.sessionPrEntries(session, folder, service)).find((e) => samePrUrl(url, e.url))?.url;
     if (!listed) return { ok: false, status: 404, error: 'Not a pull request of this session' };
-    try {
-      return { ok: true, diff: await service.prDiff(listed, folder) };
-    } catch (err) {
-      if (!(err instanceof PrDiffError)) throw err;
-      const status = err.kind === 'unavailable' ? 503 : err.kind === 'timeout' ? 504 : 502;
-      return { ok: false, status, error: err.message };
-    }
+    return { ok: true, url: listed, folder, service };
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
@@ -1855,6 +1915,9 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // Before the write, so a command recorded at once still finds its echo. Not
+    // at a menu: there the text answers the menu, it does not run a command.
+    if (session.status !== 'waiting') session.usage?.echoChatInput(text);
     write(chatInputBytes(text), BROADCAST_ENTER_DELAY_MS);
     write('\r');
     for (let i = 0; i < CHAT_ENTER_RETRIES; i++) {
@@ -1863,6 +1926,20 @@ export class SessionManager {
       write('\r');
     }
     return true;
+  }
+
+  /**
+   * Earlier Claude conversations of a Claude session's folder, newest first
+   * (the Chat view's /resume picker). Looks in the current transcript's
+   * project dir and in the one Claude Code derives from the session folder.
+   * Undefined for an unknown or non-Claude session.
+   */
+  async listConversations(id: string): Promise<ClaudeConversation[] | undefined> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return undefined;
+    const roots = transcriptRoots();
+    const dirs = conversationDirs(session.usage?.currentTranscript(), workRootOf(session), roots);
+    return listClaudeConversations(dirs, { currentId: session.claudeSessionId, roots });
   }
 
   /** A Chat view closed; the last one stops the feed and frees its messages. */

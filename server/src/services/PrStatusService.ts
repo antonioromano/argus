@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrCiStatus, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
+import type { PrChecks, PrCiStatus, PrFailedCheck, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
 
 /**
@@ -44,6 +44,10 @@ const DEFAULT_BRANCH_TTL_MS = 10 * 60_000;
 const GH_TIMEOUT_MS = 8_000;
 /** `gh pr create` pushes metadata to GitHub; allow it longer than a lookup. */
 const PR_CREATE_TIMEOUT_MS = 60_000;
+/** C3: `gh pr ready` writes to GitHub; allow it longer than a lookup. */
+export const PR_WRITE_TIMEOUT_MS = 30_000;
+/** C3: PRs whose latest write is remembered, to keep in-flight lookups from caching stale answers. */
+const WRITTEN_AT_MAX = 256;
 /** B4: a PR diff larger than this is not shown; only its file list is. */
 export const PR_DIFF_MAX_BYTES = 8 * 1024 * 1024;
 /** `gh pr diff` downloads the whole patch; allow it longer than a lookup. */
@@ -54,7 +58,7 @@ export const PR_DIFF_MAX_FILES = 3_000;
 const PR_URL_PARTS = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/([0-9]+)$/;
 const GH_STDOUT_MAX_BYTES = 2 * 1024 * 1024;
 
-const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable';
+const PR_VIEW_FIELDS = 'number,state,isDraft,url,statusCheckRollup,headRefName,title,reviewDecision,mergeable,headRefOid,additions,deletions';
 export const PR_VIEW_ARGS = ['pr', 'view', '--json', PR_VIEW_FIELDS];
 /** `gh pr view <url>`: works from any folder, so a PR in another repo resolves too. */
 export const prViewArgsForUrl = (url: string): string[] => ['pr', 'view', url, '--json', PR_VIEW_FIELDS];
@@ -65,36 +69,81 @@ const FAILED_CONCLUSIONS = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION
 const FAILED_STATES = new Set(['FAILURE', 'ERROR']);
 const PENDING_STATES = new Set(['PENDING', 'EXPECTED']);
 
-type CheckVerdict = 'failure' | 'pending' | 'success';
+/** C1: a check's outcome as the popover counts it — a skipped run is shown apart. */
+type CheckOutcome = 'failed' | 'pending' | 'passed' | 'skipped';
+
+const upper = (v: unknown): string => (typeof v === 'string' ? v.toUpperCase() : '');
 
 /** One rollup entry: a CheckRun (`status` + `conclusion`) or a commit
- *  StatusContext (`state`). Neutral and skipped runs count as passing. */
-function checkVerdict(entry: unknown): CheckVerdict {
+ *  StatusContext (`state`). */
+function checkOutcome(entry: unknown): CheckOutcome {
   const e = (entry ?? {}) as { status?: unknown; conclusion?: unknown; state?: unknown };
-  const upper = (v: unknown): string => (typeof v === 'string' ? v.toUpperCase() : '');
   const state = upper(e.state);
   if (state) {
-    if (FAILED_STATES.has(state)) return 'failure';
+    if (FAILED_STATES.has(state)) return 'failed';
     if (PENDING_STATES.has(state)) return 'pending';
-    return 'success';
+    return 'passed';
   }
   const status = upper(e.status);
   if (status && status !== 'COMPLETED') return 'pending';
   const conclusion = upper(e.conclusion);
   if (!conclusion) return 'pending';
-  return FAILED_CONCLUSIONS.has(conclusion) ? 'failure' : 'success';
+  if (FAILED_CONCLUSIONS.has(conclusion)) return 'failed';
+  return conclusion === 'SKIPPED' ? 'skipped' : 'passed';
 }
 
-/** Any failure wins, then any still-running check; no checks at all → none. */
+/** The aggregate of a breakdown: any failure wins, then any still-running
+ *  check; neutral and skipped runs count as passing; no checks → none. */
+function ciOf(checks: PrChecks | null): PrCiStatus {
+  if (!checks) return 'none';
+  return checks.counts.failed ? 'failure' : checks.counts.pending ? 'pending' : 'success';
+}
+
+/** The rollup reduced to one aggregate (see ciOf). */
 export function aggregateChecks(rollup: unknown): PrCiStatus {
-  if (!Array.isArray(rollup) || rollup.length === 0) return 'none';
-  let pending = false;
+  return ciOf(summarizeChecks(rollup));
+}
+
+/** C1: failed checks listed in the CI popover; the counts still cover every one. */
+export const PR_FAILED_CHECKS_MAX = 20;
+const CHECK_NAME_MAX_LEN = 120;
+const CHECK_URL_MAX_LEN = 500;
+
+/** A check's display name: the run's `name` (with its workflow when it has
+ *  one) or the status context's `context`. */
+function checkName(e: { name?: unknown; workflowName?: unknown; context?: unknown }): string {
+  const name = typeof e.name === 'string' && e.name ? e.name : typeof e.context === 'string' ? e.context : '';
+  const workflow = typeof e.workflowName === 'string' ? e.workflowName : '';
+  const full = workflow && name && workflow !== name ? `${workflow} / ${name}` : name || workflow || 'Unnamed check';
+  return full.slice(0, CHECK_NAME_MAX_LEN);
+}
+
+/** `detailsUrl` (CheckRun) or `targetUrl` (StatusContext), https only. */
+function checkUrl(e: { detailsUrl?: unknown; targetUrl?: unknown }): string | undefined {
+  const url = typeof e.detailsUrl === 'string' && e.detailsUrl ? e.detailsUrl : e.targetUrl;
+  return typeof url === 'string' && /^https:\/\//.test(url) && url.length <= CHECK_URL_MAX_LEN ? url : undefined;
+}
+
+/**
+ * C1: the rollup broken down per outcome, plus the failed checks (bounded)
+ * with a link each — compact, since it rides along every PR answer. null when
+ * the PR has no checks.
+ */
+export function summarizeChecks(rollup: unknown): PrChecks | null {
+  if (!Array.isArray(rollup) || rollup.length === 0) return null;
+  const counts = { passed: 0, failed: 0, pending: 0, skipped: 0 };
+  const failed: PrFailedCheck[] = [];
   for (const entry of rollup) {
-    const v = checkVerdict(entry);
-    if (v === 'failure') return 'failure';
-    if (v === 'pending') pending = true;
+    const outcome = checkOutcome(entry);
+    counts[outcome]++;
+    if (outcome !== 'failed' || failed.length >= PR_FAILED_CHECKS_MAX) continue;
+    const e = (entry ?? {}) as Record<string, unknown>;
+    const check: PrFailedCheck = { name: checkName(e) };
+    const url = checkUrl(e);
+    if (url) check.url = url;
+    failed.push(check);
   }
-  return pending ? 'pending' : 'success';
+  return { counts, failed };
 }
 
 function prState(state: unknown, isDraft: unknown): PrState {
@@ -122,6 +171,8 @@ function mergeable(v: unknown): PrMergeable | undefined {
   return s === 'MERGEABLE' ? 'mergeable' : s === 'CONFLICTING' ? 'conflicting' : 'unknown';
 }
 
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
 /** Parse `gh pr view --json …` output; null when it is not a usable PR. */
 export function parsePrView(stdout: string): SessionPr | null {
   let raw: unknown;
@@ -132,14 +183,16 @@ export function parsePrView(stdout: string): SessionPr | null {
   }
   const o = raw as {
     number?: unknown; state?: unknown; isDraft?: unknown; url?: unknown; statusCheckRollup?: unknown; headRefName?: unknown;
-    title?: unknown; reviewDecision?: unknown; mergeable?: unknown;
+    title?: unknown; reviewDecision?: unknown; mergeable?: unknown; headRefOid?: unknown;
+    additions?: unknown; deletions?: unknown;
   };
   if (!o || typeof o.number !== 'number' || typeof o.url !== 'string' || !/^https:\/\//.test(o.url)) return null;
+  const checks = summarizeChecks(o.statusCheckRollup);
   const pr: SessionPr = {
     number: o.number,
     state: prState(o.state, o.isDraft),
     url: o.url,
-    ci: aggregateChecks(o.statusCheckRollup),
+    ci: ciOf(checks),
     branch: typeof o.headRefName === 'string' ? o.headRefName : '',
   };
   if (typeof o.title === 'string') pr.title = o.title.slice(0, MAX_TITLE_LEN);
@@ -147,6 +200,13 @@ export function parsePrView(stdout: string): SessionPr | null {
   if (review) pr.review = review;
   const merge = mergeable(o.mergeable);
   if (merge) pr.mergeable = merge;
+  if (checks) pr.checks = checks;
+  // C2: lines changed, for the row's `+N −M` button.
+  if (isCount(o.additions) && isCount(o.deletions)) {
+    pr.additions = o.additions;
+    pr.deletions = o.deletions;
+  }
+  if (typeof o.headRefOid === 'string' && /^[0-9a-f]{7,64}$/i.test(o.headRefOid)) pr.headSha = o.headRefOid.toLowerCase();
   return pr;
 }
 
@@ -163,6 +223,13 @@ export function isGhUnavailable(err: unknown): boolean {
 
 /** Why a PR diff couldn't be read: gh missing / logged out, too slow, or it failed. */
 export class PrDiffError extends Error {
+  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+    super(message);
+  }
+}
+
+/** C3: why `gh pr ready` failed — same kinds as PrDiffError. */
+export class PrWriteError extends Error {
   constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
     super(message);
   }
@@ -245,9 +312,18 @@ export class PrStatusService {
   private readonly defaultBranchOf: PrStatusDeps['defaultBranch'];
   private readonly now: () => number;
   private cache = new Map<string, CacheEntry>();
-  private inflight = new Map<string, Promise<SessionPr | null>>();
+  /** Lookups running, with the write sequence they started at (see writeSeq). */
+  private inflight = new Map<string, { p: Promise<SessionPr | null>; seq: number }>();
   private diffInflight = new Map<string, Promise<SessionPrDiffResponse>>();
   private defaultBranches = new Map<string, { branch: string; at: number }>();
+  /**
+   * C3: bumped by every write. A lookup that started before the latest write
+   * is not joined by a later caller (it may predate the write), and doesn't
+   * cache an answer about a PR written since it started.
+   */
+  private writeSeq = 0;
+  /** Lower-cased PR URL → writeSeq of its latest write (bounded, oldest out). */
+  private writtenAt = new Map<string, number>();
   /** Epoch ms until which `gh` is considered unusable (missing / logged out). */
   private unavailableUntil = 0;
   private warned = false;
@@ -296,10 +372,13 @@ export class PrStatusService {
     const hit = this.cache.get(key);
     if (hit && this.now() < hit.expiresAt) return hit.value;
     const running = this.inflight.get(key);
-    if (running) return running;
-    const p = this.fetch(key, args, cwd).finally(() => this.inflight.delete(key));
-    this.inflight.set(key, p);
-    return p;
+    if (running && running.seq === this.writeSeq) return running.p;
+    const entry = { p: null as unknown as Promise<SessionPr | null>, seq: this.writeSeq };
+    entry.p = this.fetch(key, args, cwd, entry.seq).finally(() => {
+      if (this.inflight.get(key) === entry) this.inflight.delete(key);
+    });
+    this.inflight.set(key, entry);
+    return entry.p;
   }
 
   /**
@@ -391,13 +470,48 @@ export class PrStatusService {
     }
   }
 
+  /**
+   * C3: `gh pr ready <url>` (or `--undo`: back to draft) — the first call that
+   * writes to GitHub. The caller passes a validated PR URL of the session.
+   * Whatever the outcome, the cached readings of that PR are dropped so the
+   * row and the chip show its real state on the next lookup. Rejects with
+   * PrWriteError.
+   */
+  async setReady(url: string, cwd: string, ready: boolean): Promise<void> {
+    if (this.now() < this.unavailableUntil) throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    try {
+      await this.runGh(['pr', 'ready', ...(ready ? [] : ['--undo']), url], cwd, { timeoutMs: PR_WRITE_TIMEOUT_MS });
+    } catch (err) {
+      if (isGhUnavailable(err)) {
+        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+        throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+      }
+      if (isTimeout(err)) throw new PrWriteError('timeout', `gh pr ready took longer than ${PR_WRITE_TIMEOUT_MS / 1000}s`);
+      throw new PrWriteError('failed', ghMessage(err));
+    } finally {
+      this.invalidatePr(url);
+    }
+  }
+
+  /** Drop every cached reading of one PR: by its URL, and the branch lookup that answered it. */
+  invalidatePr(url: string): void {
+    const want = url.toLowerCase();
+    this.writeSeq++;
+    this.writtenAt.delete(want); // re-insert as the newest
+    this.writtenAt.set(want, this.writeSeq);
+    if (this.writtenAt.size > WRITTEN_AT_MAX) this.writtenAt.delete(this.writtenAt.keys().next().value as string);
+    for (const [key, entry] of this.cache) {
+      if (key.toLowerCase() === `url\0${want}` || entry.value?.url.toLowerCase() === want) this.cache.delete(key);
+    }
+  }
+
   /** Forget everything (the feature was switched off). */
   clear(): void {
     this.cache.clear();
     this.defaultBranches.clear();
   }
 
-  private async fetch(key: string, args: string[], cwd: string): Promise<SessionPr | null> {
+  private async fetch(key: string, args: string[], cwd: string, startSeq: number): Promise<SessionPr | null> {
     if (this.now() < this.unavailableUntil) return null;
     let value: SessionPr | null = null;
     try {
@@ -417,7 +531,13 @@ export class PrStatusService {
     const ttl = value?.state === 'open' || value?.state === 'draft'
       ? (value.ci === 'pending' || value.mergeable === 'unknown' ? PR_PENDING_TTL_MS : PR_SETTLED_TTL_MS)
       : value ? PR_FINAL_TTL_MS : PR_SETTLED_TTL_MS;
-    this.cache.set(key, { value, expiresAt: this.now() + ttl });
+    // A write (C3) to this PR landed while gh was answering: the reading may predate it.
+    const urlKey = key.startsWith('url\0') ? key.slice(4).toLowerCase() : null;
+    const written = Math.max(
+      urlKey ? this.writtenAt.get(urlKey) ?? 0 : 0,
+      value ? this.writtenAt.get(value.url.toLowerCase()) ?? 0 : 0,
+    );
+    if (written <= startSeq) this.cache.set(key, { value, expiresAt: this.now() + ttl });
     return value;
   }
 
