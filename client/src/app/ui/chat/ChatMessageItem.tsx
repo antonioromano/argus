@@ -140,15 +140,18 @@ interface ChatMessageItemProps {
   message: ChatMessage;
   /** First of a run of messages from the same role: shows the role label. */
   showRole: boolean;
+  /** Sent from the composer, not in the transcript yet. */
+  pending?: boolean;
 }
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole }: ChatMessageItemProps) {
+export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending }: ChatMessageItemProps) {
   const user = message.role === 'user';
   const system = message.role === 'system';
   const command = user && message.blocks[0]?.kind === 'command';
   const cls = ['argus-chat-msg', user ? 'is-user' : system ? 'is-system' : 'is-assistant'];
   if (command) cls.push('is-command');
   if (message.echo) cls.push('is-echo');
+  if (pending) cls.push('is-pending');
   return (
     <div
       className={cls.join(' ')}

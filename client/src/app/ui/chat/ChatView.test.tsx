@@ -315,4 +315,68 @@ describe('ChatView', () => {
       expect(interrupts(emitted)).toBe(0);
     });
   });
+
+  describe('sent prompts and Stop feedback (F3)', () => {
+    const typeAndSend = (text: string) => {
+      const box = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    };
+    const userBodies = () => Array.from(container.querySelectorAll('.argus-chat-msg.is-user')).map((m) => m.textContent);
+    const stopButton = () => container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement;
+    const history = [{ id: 'u0', role: 'user' as const, blocks: [{ kind: 'text' as const, text: 'before' }] }];
+
+    it('shows a sent prompt at once, then the transcript copy replaces it', () => {
+      const { socket, fire } = fakeSocket();
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('hello there');
+      expect(userBodies()).toEqual(['Youbefore', 'hello there']);
+      expect(container.querySelectorAll('.argus-chat-msg.is-pending')).toHaveLength(1);
+
+      fire('session:chat', update({ messages: [...history, { id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'hello there' }] }] }));
+      expect(userBodies()).toEqual(['Youbefore', 'hello there']);
+      expect(container.querySelector('.argus-chat-msg.is-pending')).toBeNull();
+    });
+
+    it('a slash command is not echoed by the client', () => {
+      const { socket, fire } = fakeSocket();
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('/cost');
+      expect(container.querySelector('.argus-chat-msg.is-pending')).toBeNull();
+    });
+
+    it('Stop says "Stopping…" until the turn ends, and a prompt stopped unrecorded stays visible', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('do the thing');
+      act(() => stopButton().click());
+      expect(stopButton().disabled).toBe(true);
+      expect(container.querySelector('.argus-chat-hint')?.textContent).toBe('Stopping…');
+      // A second click while stopping types nothing more.
+      act(() => stopButton().click());
+      expect(emitted.filter(([ev]) => ev === 'session:input')).toHaveLength(1);
+
+      render(session({ status: 'idle' }), socket);
+      expect(container.querySelector('.argus-chat-hint')?.textContent).not.toBe('Stopping…');
+      const last = container.querySelectorAll('.argus-chat-msg.is-user');
+      expect(last[last.length - 1].textContent).toContain('do the thing');
+      expect(last[last.length - 1].textContent).toContain('Stopped before Claude recorded it');
+    });
+
+    it('gives the Stop button back when the turn keeps running', () => {
+      vi.useFakeTimers();
+      const { socket } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => stopButton().click());
+      expect(stopButton().disabled).toBe(true);
+      act(() => { vi.advanceTimersByTime(8000); });
+      expect(stopButton().disabled).toBe(false);
+    });
+  });
 });

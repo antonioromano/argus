@@ -85,12 +85,12 @@ describe('ChatComposer — mode and model', () => {
     const onSubmit = render({ model: 'claude-opus-5-5' });
     act(() => button('Opus 5.5')!.click());
     act(() => menuItem('Sonnet 5.5')!.click());
-    expect(onSubmit).toHaveBeenCalledWith('/model claude-sonnet-5-5');
+    expect(onSubmit).toHaveBeenCalledWith('/model claude-sonnet-5-5', expect.any(Array));
     expect(button('Sonnet 5.5')).toBeDefined();
     // Quick switch back: sent again, and the label follows.
     act(() => button('Sonnet 5.5')!.click());
     act(() => menuItem('Opus 5.5')!.click());
-    expect(onSubmit).toHaveBeenLastCalledWith('/model claude-opus-5-5');
+    expect(onSubmit).toHaveBeenLastCalledWith('/model claude-opus-5-5', []);
     expect(button('Opus 5.5')).toBeDefined();
   });
 });
@@ -133,6 +133,23 @@ describe('ChatComposer — Stop', () => {
   });
 });
 
+describe('ChatComposer — preview of the sent message', () => {
+  it('passes the typed text and one block per attachment', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    const onSubmit = render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, 'look');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\nlook', [{ kind: 'text', text: 'look' }, { kind: 'image' }]);
+  });
+});
+
 describe('ChatComposer — attachments', () => {
   it('offers "+" only in Electron', () => {
     render();
@@ -152,7 +169,7 @@ describe('ChatComposer — attachments', () => {
 
     const send = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
     act(() => send.click());
-    expect(onSubmit).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"');
+    expect(onSubmit).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"', expect.any(Array));
     expect(container.querySelector('.argus-chat-attachment')).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
   });
@@ -169,7 +186,7 @@ describe('ChatComposer — attachments', () => {
       box.dispatchEvent(new Event('input', { bubbles: true }));
     });
     act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
-    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\n- first\n- second');
+    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\n- first\n- second', expect.any(Array));
   });
 
   it('shows non-image files by name and removes them', () => {
@@ -208,7 +225,7 @@ describe('ChatComposer — pasted images', () => {
     await act(async () => { resolve('/tmp/argus-chat-images/abc.png'); });
     expect(container.querySelector('.argus-chat-attachment.is-uploading')).toBeNull();
     act(() => send.click());
-    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus-chat-images/abc.png');
+    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus-chat-images/abc.png', expect.any(Array));
   });
 
   it('marks a failed upload and never sends it', async () => {
@@ -273,14 +290,14 @@ describe('ChatComposer — slash autocomplete', () => {
     expect(box().value).toBe('/config ');
     type('/cost');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('/cost');
+    expect(onSubmit).toHaveBeenCalledWith('/cost', expect.any(Array));
   });
 
   it('Enter sends a custom command typed in full even when a longer one is listed first', () => {
     const onSubmit = renderWith([{ name: 'deploy-staging', description: 'Staging' }, { name: 'deploy', description: 'Prod' }]);
     type('/deploy');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('/deploy');
+    expect(onSubmit).toHaveBeenCalledWith('/deploy', expect.any(Array));
   });
 
   it('stays closed while Claude waits at a menu', () => {
@@ -329,7 +346,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     key('Enter');
     expect(box().value).toBe('- one\n');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('- one');
+    expect(onSubmit).toHaveBeenCalledWith('- one', expect.any(Array));
   });
 
   it('numbered lists continue and renumber; Cmd+Enter sends from inside a list', () => {
@@ -338,7 +355,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     key('Enter');
     expect(box().value).toBe('1. a\n2. \n3. b');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith('1. a\n2. \n3. b');
+    expect(onSubmit).toHaveBeenCalledWith('1. a\n2. \n3. b', expect.any(Array));
   });
 
   it('Tab nests a list item and Shift+Tab steps it out; Tab elsewhere is left to the browser', () => {
@@ -366,7 +383,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     const onSubmit = render();
     type('ends with spaces  \n  \n');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith('ends with spaces  ');
+    expect(onSubmit).toHaveBeenCalledWith('ends with spaces  ', expect.any(Array));
   });
 
   it('applies a list edit through insertText on just the changed span (native undo)', () => {
@@ -426,6 +443,6 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(container.querySelector('.is-bullet')?.textContent).toBe('-');
     expect(container.querySelector('.argus-cmp-line.is-code')?.textContent).toBe('const x = 1;');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith(src);
+    expect(onSubmit).toHaveBeenCalledWith(src, expect.any(Array));
   });
 });

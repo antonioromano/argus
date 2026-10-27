@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
+import type { ChatBlock, ChatMessage, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
@@ -16,6 +16,22 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 /** Distance from the bottom (px) that still counts as "following" new messages. */
 const STICK_THRESHOLD = 48;
+/** A stop that hasn't ended the turn by then gives the Stop button back. */
+const STOP_RETRY_MS = 8000;
+
+/**
+ * A prompt sent from the composer, shown until the transcript records it.
+ * `at` is the user message it will become (their count when it lands).
+ */
+interface Pending {
+  id: string;
+  blocks: ChatBlock[];
+  at: number;
+  /** Stop was pressed while it was still unrecorded. */
+  stopped?: boolean;
+}
+const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
+let pendingSeq = 0;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -49,9 +65,49 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   // `/resume` alone opens the Chat's own picker instead of Claude Code's terminal one.
   const [resumeOpen, setResumeOpen] = useState(false);
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [stopAsked, setStopAsked] = useState(false);
+  const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const running = session.status === 'running';
+  const stopping = stopAsked && running;
   // Esc in the pty is how Claude Code interrupts a turn.
-  const stop = () => socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
-  const messages = chat.messages;
+  const stop = () => {
+    if (stopping) return;
+    socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
+    setStopAsked(true);
+    setPending((cur) => cur.map((p) => ({ ...p, stopped: true })));
+    clearTimeout(stopTimer.current);
+    stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
+  };
+  useEffect(() => () => clearTimeout(stopTimer.current), []);
+  useEffect(() => {
+    // The turn ended: the next Stop starts fresh.
+    if (!running) setStopAsked(false);
+  }, [running]);
+
+  const userCount = useMemo(() => chat.messages.filter((m) => m.role === 'user').length, [chat.messages]);
+  // A prompt drops out once the transcript holds that many user messages.
+  const shown = useMemo(() => pending.filter((p) => p.at > userCount), [pending, userCount]);
+  useEffect(() => {
+    // Prune what the transcript has caught up with.
+    if (shown.length !== pending.length) setPending(shown);
+  }, [shown, pending.length]);
+  const messages = useMemo<ChatMessage[]>(
+    () =>
+      shown.length === 0
+        ? chat.messages
+        : chat.messages.concat(
+            shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
+          ),
+    [chat.messages, shown, stopping],
+  );
+  const pendingIds = new Set(shown.map((p) => p.id));
+  /** Show a plain prompt at once; a slash command gets its echo from the server. */
+  const echo = (text: string, preview: ChatBlock[]) => {
+    if (preview.length === 0 || text.trim().startsWith('/') || session.status === 'waiting') return;
+    setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
+    setFollowing(true);
+  };
 
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
   const virtualizer = useVirtualizer({
@@ -103,7 +159,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               >
-                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} />
+                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} pending={pendingIds.has(m.id)} />
               </div>
             );
           })}
@@ -180,9 +236,13 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       <ChatComposer
         status={session.status}
         onStop={stop}
-        onSubmit={(text) => {
+        stopping={stopping}
+        onSubmit={(text, preview) => {
           if (text.trim() === '/resume') setResumeOpen(true);
-          else send(text);
+          else {
+            echo(text, preview);
+            send(text);
+          }
         }}
         permissionMode={chat.permissionMode}
         onSetMode={(mode) =>
