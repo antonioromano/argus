@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildPhase2Script } from './brewUpdate.js';
+import { buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 
 type Fake = { upgradeExit: number; outdatedExit: number; stderr?: string };
 
@@ -99,4 +99,58 @@ test('lock present exits without running brew', () => {
   const r = runPhase2({ upgradeExit: 0, outdatedExit: 0 }, { lockExists: true });
   assert.equal(r.calls, '');
   assert.match(r.log, /phase2 already running/);
+});
+
+type Phase1Fake = { outdatedExit: number; fetchExit?: number };
+
+/** Runs the real phase-1 script under /bin/sh with a fake `brew` that always warns on stderr. */
+function runPhase1(fake: Phase1Fake, opts: { lockExists?: boolean } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'brewupdate1-'));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  const callsLog = join(dir, 'calls.log');
+  const lockFile = join(dir, 'update.lock');
+  writeFileSync(
+    join(bin, 'brew'),
+    [
+      '#!/bin/sh',
+      `echo "$@" >> "${callsLog}"`,
+      `echo 'Warning: Calling \`postflight\` is deprecated!' >&2`,
+      `case "$1" in outdated) exit ${fake.outdatedExit};; fetch) exit ${fake.fetchExit ?? 0};; esac`,
+      'exit 0',
+    ].join('\n'),
+  );
+  chmodSync(join(bin, 'brew'), 0o755);
+  if (opts.lockExists) writeFileSync(lockFile, '1');
+  const script = buildPhase1Script({ cask: 'argus', tap: 'rbly/argus', lockFile });
+  const r = spawnSync('/bin/sh', ['-c', script], {
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    encoding: 'utf8',
+  });
+  return { stdout: r.stdout, calls: readOr(callsLog, '') };
+}
+
+test('phase1: up to date despite stderr warning', () => {
+  const r = runPhase1({ outdatedExit: 0 });
+  assert.match(r.stdout, /@@UPTODATE/);
+  assert.doesNotMatch(r.calls, /fetch/);
+});
+
+test('phase1: outdated → fetch then @@OK', () => {
+  const r = runPhase1({ outdatedExit: 1 });
+  assert.match(r.calls, /fetch --cask argus/);
+  assert.match(r.stdout.trim(), /@@OK$/);
+  assert.doesNotMatch(r.stdout, /@@UPTODATE/);
+});
+
+test('phase1: fetch failure → @@FAIL_EXIT', () => {
+  const r = runPhase1({ outdatedExit: 1, fetchExit: 2 });
+  assert.match(r.stdout, /@@FAIL_EXIT 2/);
+  assert.doesNotMatch(r.stdout, /@@OK/);
+});
+
+test('phase1: lock present → @@FAIL', () => {
+  const r = runPhase1({ outdatedExit: 1 }, { lockExists: true });
+  assert.match(r.stdout, /@@FAIL Another update is already running\./);
+  assert.equal(r.calls, '');
 });

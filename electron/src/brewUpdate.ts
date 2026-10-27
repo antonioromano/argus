@@ -40,3 +40,26 @@ export function buildPhase2Script(o: Phase2Opts): string {
     `fi`,
   ].join('\n');
 }
+
+/**
+ * Phase-1 script: trust tap, update, check, download. Emits @@-prefixed markers
+ * that `applyBrewUpdate` parses. The up-to-date check uses the exit code of
+ * `brew outdated --cask` only; brew prints deprecation warnings on stderr, so
+ * its output text is never empty and must not be used.
+ */
+export function buildPhase1Script(o: { cask: string; tap: string; lockFile: string }): string {
+  return [
+    `if [ -f "${o.lockFile}" ]; then echo "@@FAIL Another update is already running."; exit 0; fi`,
+    `echo "@@PHASE trust"`,
+    `brew trust ${o.tap} 2>&1`,
+    `echo "@@PHASE update"`,
+    `brew update 2>&1`,
+    `echo "@@PHASE check"`,
+    `if brew outdated --cask ${o.cask} >/dev/null 2>&1; then echo "@@UPTODATE"; exit 0; fi`,
+    `echo "@@PHASE download"`,
+    `brew fetch --cask ${o.cask} 2>&1`,
+    `FETCH_EXIT=$?`,
+    `if [ "$FETCH_EXIT" != "0" ]; then echo "@@FAIL_EXIT $FETCH_EXIT"; exit 0; fi`,
+    `echo "@@OK"`,
+  ].join('\n');
+}

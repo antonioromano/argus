@@ -15,7 +15,7 @@ import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
-import { buildPhase2Script } from './brewUpdate.js';
+import { buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
@@ -126,21 +126,7 @@ function applyBrewUpdate(
       // run `brew trust` explicitly (the Homebrew 4.x untrusted-tap gate) and
       // check `brew outdated` before downloading so an up-to-date install is
       // reported honestly instead of a no-op masquerading as success.
-      const phase1 = [
-        `if [ -f "${lockFile}" ]; then echo "@@FAIL Another update is already running."; exit 0; fi`,
-        `echo "@@PHASE trust"`,
-        `brew trust ${UPDATE_TAP} 2>&1`,
-        `echo "@@PHASE update"`,
-        `brew update 2>&1`,
-        `echo "@@PHASE check"`,
-        `OUTDATED=$(brew outdated --cask ${UPDATE_CASK} 2>&1)`,
-        `if [ -z "$OUTDATED" ]; then echo "@@UPTODATE"; exit 0; fi`,
-        `echo "@@PHASE download"`,
-        `brew fetch --cask ${UPDATE_CASK} 2>&1`,
-        `FETCH_EXIT=$?`,
-        `if [ "$FETCH_EXIT" != "0" ]; then echo "@@FAIL_EXIT $FETCH_EXIT"; exit 0; fi`,
-        `echo "@@OK"`,
-      ].join('\n');
+      const phase1 = buildPhase1Script({ cask: UPDATE_CASK, tap: UPDATE_TAP, lockFile });
 
       log(`[argus-update] ${new Date().toISOString()} phase1 start`);
       const proc = spawn(loginShell, ['-l', '-c', phase1], { stdio: ['ignore', 'pipe', 'pipe'] });
