@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { comboMatches, normalizeCombo } from './combo.js';
-import { SHORTCUTS, type ShortcutActionId } from './registry.js';
+import { SHORTCUTS, scopeOf, type ShortcutActionId, type ShortcutScope } from './registry.js';
 
 export type ResolvedShortcuts = Record<ShortcutActionId, string>;
 
@@ -19,20 +19,30 @@ export function resolveShortcuts(overrides?: Record<string, string>): ResolvedSh
   return out;
 }
 
-/** First action (in registry order) whose resolved combo matches the event, else null. */
-export function matchEvent(e: KeyboardEvent, resolved: ResolvedShortcuts): ShortcutActionId | null {
+/** The action whose resolved combo matches the event, else null. Actions of an active
+ *  scope (see keyboard/scopes) win over global ones; inactive scoped actions never match. */
+export function matchEvent(
+  e: KeyboardEvent,
+  resolved: ResolvedShortcuts,
+  scopes: ReadonlySet<ShortcutScope> = new Set(),
+): ShortcutActionId | null {
   for (const a of SHORTCUTS) {
-    if (comboMatches(e, resolved[a.id])) return a.id;
+    const scope = scopeOf(a);
+    if (scope !== 'global' && scopes.has(scope) && comboMatches(e, resolved[a.id])) return a.id;
+  }
+  for (const a of SHORTCUTS) {
+    if (scopeOf(a) === 'global' && comboMatches(e, resolved[a.id])) return a.id;
   }
   return null;
 }
 
-/** Action ids that resolve to the same combo as another action (for conflict warnings). */
+/** Action ids that resolve to the same combo as another action in the same scope (for
+ *  conflict warnings). A scoped action shadowing a global one is intended, not a conflict. */
 export function findConflicts(resolved: ResolvedShortcuts): Set<ShortcutActionId> {
   const seen = new Map<string, ShortcutActionId>();
   const conflicting = new Set<ShortcutActionId>();
   for (const a of SHORTCUTS) {
-    const combo = resolved[a.id];
+    const combo = `${scopeOf(a)}:${resolved[a.id]}`;
     const prev = seen.get(combo);
     if (prev) {
       conflicting.add(prev);
@@ -46,7 +56,7 @@ export function findConflicts(resolved: ResolvedShortcuts): Set<ShortcutActionId
 
 export interface ShortcutsApi {
   resolved: ResolvedShortcuts;
-  match: (e: KeyboardEvent) => ShortcutActionId | null;
+  match: (e: KeyboardEvent, scopes?: ReadonlySet<ShortcutScope>) => ShortcutActionId | null;
   comboFor: (id: ShortcutActionId) => string;
   conflicts: Set<ShortcutActionId>;
 }
@@ -57,7 +67,7 @@ export function useShortcuts(overrides?: Record<string, string>): ShortcutsApi {
     const resolved = resolveShortcuts(overrides);
     return {
       resolved,
-      match: (e: KeyboardEvent) => matchEvent(e, resolved),
+      match: (e: KeyboardEvent, scopes?: ReadonlySet<ShortcutScope>) => matchEvent(e, resolved, scopes),
       comboFor: (id: ShortcutActionId) => resolved[id],
       conflicts: findConflicts(resolved),
     };

@@ -3,6 +3,9 @@ import type { File as DiffFile, Chunk, Change } from 'parse-diff';
 import { segmentChangeBlocks, type ChangeBlock } from './diff/changeBlocks.js';
 import { BlockGutterCell } from './diff/BlockGutterCell.js';
 import { diffNavHandlers, type DiffNav } from './diff/diffSymbolNav.js';
+import { diffPath, useDiffSyntax, type DiffSyntax } from '../../syntax/diffSyntax.js';
+import { useSynRanges } from '../../syntax/useSyntax.js';
+import type { SynToken } from '../../syntax/highlighter.js';
 
 const GUTTER = 34;
 const BLOCK_GUTTER_W = 50;
@@ -80,14 +83,16 @@ const codeStyle: React.CSSProperties = {
   paddingRight: 8,
 };
 
-function DelRow({ c, nav }: { c: Change; nav?: DiffNav | null }) {
+function DelRow({ c, nav, tokens }: { c: Change; nav?: DiffNav | null; tokens?: SynToken[] }) {
   const ln = (c as Change & { ln?: number }).ln;
   const { handlers, cursor } = diffNavHandlers(nav, ln);
+  const codeRef = useRef<HTMLDivElement>(null);
+  useSynRanges(codeRef, tokens);
   return (
     <div style={{ ...rowStyle, background: 'var(--diff-del)', color: 'var(--diff-del-fg)' }}>
       <div style={{ ...lnStyle, background: 'transparent' }}>{ln}</div>
       <div style={{ ...markStyle, color: 'var(--diff-del-tok)' }}>−</div>
-      <div {...handlers} style={{ ...codeStyle, cursor }}>{lineText(c)}</div>
+      <div ref={codeRef} {...handlers} style={{ ...codeStyle, cursor }}>{lineText(c)}</div>
     </div>
   );
 }
@@ -96,14 +101,19 @@ function EditableCode({
   text,
   lineNo,
   editLine,
+  tokens,
 }: {
   text: string;
   lineNo: number | undefined;
   editLine: (lineNo: number, text: string) => void;
+  tokens?: SynToken[];
 }) {
-  if (lineNo == null) return <span>{text}</span>;
+  const ref = useRef<HTMLSpanElement>(null);
+  useSynRanges(ref, tokens);
+  if (lineNo == null) return <span ref={ref}>{text}</span>;
   return (
     <span
+      ref={ref}
       contentEditable
       suppressContentEditableWarning
       spellCheck={false}
@@ -120,16 +130,18 @@ function EditableCode({
   );
 }
 
-function AddRow({ c, edit, nav }: { c: Change; edit?: SplitDiffEditProps; nav?: DiffNav | null }) {
+function AddRow({ c, edit, nav, tokens }: { c: Change; edit?: SplitDiffEditProps; nav?: DiffNav | null; tokens?: SynToken[] }) {
   const ln = (c as Change & { ln?: number }).ln;
   const { handlers, cursor } = diffNavHandlers(nav, ln);
+  const codeRef = useRef<HTMLDivElement>(null);
+  useSynRanges(codeRef, edit ? null : tokens);
   return (
     <div style={{ ...rowStyle, background: 'var(--diff-add)', color: 'var(--diff-add-fg)' }}>
       <div style={{ ...lnStyle, background: 'transparent' }}>{ln}</div>
       <div style={{ ...markStyle, color: 'var(--diff-add-tok)' }}>+</div>
-      <div {...handlers} style={{ ...codeStyle, cursor }}>
+      <div ref={codeRef} {...handlers} style={{ ...codeStyle, cursor }}>
         {edit ? (
-          <EditableCode text={lineText(c)} lineNo={ln} editLine={edit.editLine} />
+          <EditableCode text={lineText(c)} lineNo={ln} editLine={edit.editLine} tokens={tokens} />
         ) : (
           lineText(c)
         )}
@@ -143,22 +155,26 @@ function CtxRow({
   side,
   edit,
   nav,
+  tokens,
 }: {
   c: Change;
   side: 'l' | 'r';
   edit?: SplitDiffEditProps;
   nav?: DiffNav | null;
+  tokens?: SynToken[];
 }) {
   const n = side === 'l' ? (c as Change & { ln1?: number }).ln1 : (c as Change & { ln2?: number }).ln2;
   const editable = edit && side === 'r' && n != null;
   const { handlers, cursor } = diffNavHandlers(nav, n);
+  const codeRef = useRef<HTMLDivElement>(null);
+  useSynRanges(codeRef, editable ? null : tokens);
   return (
     <div style={{ ...rowStyle, color: 'var(--fg-1)' }}>
       <div style={lnStyle}>{n}</div>
       <div style={{ ...markStyle, color: 'var(--fg-4)' }} />
-      <div {...handlers} style={{ ...codeStyle, cursor }}>
+      <div ref={codeRef} {...handlers} style={{ ...codeStyle, cursor }}>
         {editable ? (
-          <EditableCode text={lineText(c)} lineNo={n} editLine={edit.editLine} />
+          <EditableCode text={lineText(c)} lineNo={n} editLine={edit.editLine} tokens={tokens} />
         ) : (
           lineText(c)
         )}
@@ -183,12 +199,14 @@ function ChunkSplit({
   selection,
   edit,
   nav,
+  syntax,
 }: {
   chunk: Chunk;
   chunkIndex: number;
   selection?: SplitDiffSelectionProps;
   edit?: SplitDiffEditProps;
   nav?: DiffNav | null;
+  syntax: DiffSyntax | null;
 }) {
   const uid = useId();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -264,16 +282,17 @@ function ChunkSplit({
   const gutterRows: React.ReactNode[] = [];
   for (const s of segs) {
     if (s.type === 'ctx') {
-      leftRows.push(<CtxRow key={rowKey} c={s.change} side="l" nav={nav} />);
-      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" edit={edit} nav={nav} />);
+      const tokens = syntax?.get(s.change);
+      leftRows.push(<CtxRow key={rowKey} c={s.change} side="l" nav={nav} tokens={tokens} />);
+      rightRows.push(<CtxRow key={rowKey} c={s.change} side="r" edit={edit} nav={nav} tokens={tokens} />);
       if (selection) gutterRows.push(<BlockGutterCell key={rowKey} block={null} isChecked={false} onToggle={() => {}} onRevert={() => {}} />);
       rowKey += 1;
     } else {
       const h = Math.max(s.dels.length, s.adds.length);
       const blk = selection ? changeBlocks[blockCursor] : null;
       for (let k = 0; k < h; k++) {
-        leftRows.push(k < s.dels.length ? <DelRow key={rowKey} c={s.dels[k]} nav={nav} /> : <FillRow key={rowKey} />);
-        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} edit={edit} nav={nav} /> : <FillRow key={rowKey} />);
+        leftRows.push(k < s.dels.length ? <DelRow key={rowKey} c={s.dels[k]} nav={nav} tokens={syntax?.get(s.dels[k])} /> : <FillRow key={rowKey} />);
+        rightRows.push(k < s.adds.length ? <AddRow key={rowKey} c={s.adds[k]} edit={edit} nav={nav} tokens={syntax?.get(s.adds[k])} /> : <FillRow key={rowKey} />);
         if (selection) {
           const isFirstRow = k === 0;
           gutterRows.push(
@@ -339,16 +358,20 @@ export function SplitDiff({
   selection,
   edit,
   nav,
+  path,
 }: {
   target: DiffFile;
   selection?: SplitDiffSelectionProps;
   edit?: SplitDiffEditProps;
   nav?: DiffNav | null;
+  /** Repo path used to pick the grammar; defaults to the diff's own path. */
+  path?: string;
 }) {
+  const syntax = useDiffSyntax(target, path ?? diffPath(target));
   return (
     <>
       {target.chunks.map((chunk, i) => (
-        <ChunkSplit key={i} chunk={chunk} chunkIndex={i} selection={selection} edit={edit} nav={nav} />
+        <ChunkSplit key={i} chunk={chunk} chunkIndex={i} selection={selection} edit={edit} nav={nav} syntax={syntax} />
       ))}
     </>
   );

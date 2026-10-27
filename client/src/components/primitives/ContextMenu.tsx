@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 import { Icon } from './Icon.js';
@@ -22,6 +23,9 @@ interface ContextMenuProps {
   onClose: () => void;
   /** 'above' opens upward from (x, y) — for menus anchored to a control near the bottom. */
   placement?: 'below' | 'above';
+  /** The control that opened the menu: a press on it doesn't count as
+   *  "outside", so its own click can toggle the menu closed. */
+  anchor?: RefObject<HTMLElement | null>;
 }
 
 function isSeparator(entry: ContextMenuEntry): entry is { separator: true } {
@@ -34,7 +38,7 @@ function isHeader(entry: ContextMenuEntry): entry is { header: string } {
 
 const MENU_W = 200;
 
-export function ContextMenu({ x, y, items, onClose, placement = 'below' }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -54,7 +58,8 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below' }: Conte
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const t = e.target as Node;
+      if (ref.current && !ref.current.contains(t) && !anchor?.current?.contains(t)) onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
@@ -70,7 +75,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below' }: Conte
       window.removeEventListener('resize', onClose);
       window.removeEventListener('blur', onClose);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   return (
     <div

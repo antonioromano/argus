@@ -4,9 +4,12 @@ import {
   describeUsage,
   effectiveWindow,
   formatResetIn,
+  formatResetPhrase,
   formatTokens,
   meterAgent,
   normalizeParts,
+  planWindowLabel,
+  planWindowKey,
   usageLevel,
   usageMeterView,
   worstLevel,
@@ -85,5 +88,26 @@ describe('usageFormat', () => {
     expect(text).toContain('Model: claude-opus-5-5');
     expect(text).toContain('Warns at: context 70/90% · plan 80/95%');
     expect(text).not.toContain('$');
+  });
+});
+
+describe('plan window labels and resets', () => {
+  it('names a window by its length', () => {
+    expect(planWindowLabel(300)).toBe('Session');
+    expect(planWindowLabel(10_080)).toBe('Weekly');
+    expect(planWindowLabel(43_200)).toBe('30-day');
+    expect(planWindowLabel(undefined)).toBe('Plan');
+    expect(planWindowKey(300)).toBe('5h');
+    expect(planWindowKey(10_080)).toBe('7d');
+    expect(planWindowKey(undefined)).toBe('plan');
+  });
+
+  it('spells out a reset: relative within a day, weekday and time further out', () => {
+    expect(formatResetPhrase(NOW + 30_000, NOW)).toBe('Resets in <1 min');
+    expect(formatResetPhrase(NOW + 45 * 60_000, NOW)).toBe('Resets in 45 min');
+    expect(formatResetPhrase(NOW + 3 * 3_600_000, NOW)).toBe('Resets in 3 hr');
+    expect(formatResetPhrase(NOW + (3 * 60 + 13) * 60_000, NOW)).toBe('Resets in 3 hr 13 min');
+    const sat = new Date(2026, 9, 31, 21, 0).getTime();
+    expect(formatResetPhrase(sat, sat - 3 * 86_400_000, 'en-US')).toBe('Resets Sat 9:00 PM');
   });
 });

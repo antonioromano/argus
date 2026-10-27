@@ -1,4 +1,4 @@
-import type { AgentType, ChatMessage, ChatUpdate } from '@argus/shared';
+import type { AgentType, ChatCommand, ChatMessage, ChatUpdate } from '@argus/shared';
 
 /** Client-side cap, matching the server's per-transcript window. */
 export const MAX_CLIENT_CHAT_MESSAGES = 2000;
@@ -13,6 +13,8 @@ export interface ChatState {
   permissionMode?: string;
   /** Display name of the model last set with `/model`, when there was one. */
   modelSet?: string;
+  /** Skills and custom commands from the transcript (the composer adds the built-ins). */
+  commands?: ChatCommand[];
 }
 
 export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages: [] };
@@ -24,7 +26,7 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
  */
 export function applyChatUpdate(
   prev: ChatState,
-  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet'>,
+  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed' | 'commands'>,
 ): ChatState {
   if (update.reset) {
     return {
@@ -33,24 +35,32 @@ export function applyChatUpdate(
       messages: update.messages.slice(-MAX_CLIENT_CHAT_MESSAGES),
       permissionMode: update.permissionMode,
       modelSet: update.modelSet,
+      commands: update.commands,
     };
   }
   // Appends carry the mode and model only when they changed.
   const permissionMode = update.permissionMode ?? prev.permissionMode;
   const modelSet = update.modelSet ?? prev.modelSet;
-  const seen = new Set(prev.messages.map((m) => m.id));
+  const commands = update.commands ?? prev.commands;
+  // Echoes the transcript caught up with (see ChatMessage.echo).
+  const removed = update.removed?.length ? new Set(update.removed) : undefined;
+  const filtered = removed ? prev.messages.filter((m) => !removed.has(m.id)) : prev.messages;
+  const kept = filtered.length === prev.messages.length ? prev.messages : filtered;
+  const seen = new Set(kept.map((m) => m.id));
   const fresh = update.messages.filter((m) => !seen.has(m.id));
   if (
     fresh.length === 0 &&
+    kept === prev.messages &&
     prev.loaded &&
     prev.available === update.available &&
     prev.permissionMode === permissionMode &&
-    prev.modelSet === modelSet
+    prev.modelSet === modelSet &&
+    prev.commands === commands
   ) {
     return prev;
   }
-  const messages = fresh.length ? prev.messages.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : prev.messages;
-  return { loaded: true, available: update.available, messages, permissionMode, modelSet };
+  const messages = fresh.length ? kept.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : kept;
+  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands };
 }
 
 const MODE_LABELS: Record<string, string> = {
@@ -99,3 +109,72 @@ export function supportsChatView(agentType: AgentType): boolean {
   return agentType === 'claude';
 }
 
+
+/**
+ * Claude Code's built-in slash commands, for the composer's `/` autocomplete.
+ * Skills and custom commands come from the transcript (ChatState.commands).
+ */
+export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
+  { name: 'add-dir', description: 'Add a working directory' },
+  { name: 'agents', description: 'Manage subagents' },
+  { name: 'clear', description: 'Start a new conversation' },
+  { name: 'compact', description: 'Summarize the conversation to free context' },
+  { name: 'config', description: 'Open settings' },
+  { name: 'context', description: 'Show what fills the context window' },
+  { name: 'cost', description: 'Show usage and limits' },
+  { name: 'doctor', description: 'Check the Claude Code install' },
+  { name: 'effort', description: 'Set the reasoning effort' },
+  { name: 'export', description: 'Export the conversation' },
+  { name: 'help', description: 'Show help and commands' },
+  { name: 'hooks', description: 'Manage hooks' },
+  { name: 'init', description: 'Create a CLAUDE.md for this project' },
+  { name: 'mcp', description: 'Manage MCP servers' },
+  { name: 'memory', description: 'Edit memory files' },
+  { name: 'model', description: 'Switch the model' },
+  { name: 'permissions', description: 'Manage tool permissions' },
+  { name: 'plugin', description: 'Manage plugins' },
+  { name: 'resume', description: 'Resume an earlier conversation' },
+  { name: 'review', description: 'Review a pull request' },
+  { name: 'rewind', description: 'Go back to an earlier point' },
+  { name: 'status', description: 'Show version, model and account' },
+  { name: 'usage', description: 'Show plan usage' },
+];
+
+/** Suggestions shown at most. */
+export const MAX_SLASH_SUGGESTIONS = 50;
+
+/**
+ * Commands for a `/query` typed at the start of the composer: the exact name
+ * first (so Enter on a command typed in full sends it), then names starting
+ * with it (also the part after a `plugin:` prefix), then names that contain
+ * it; built-ins before skills of the same rank, duplicates dropped.
+ */
+export function slashSuggestions(query: string, custom: readonly ChatCommand[] = []): ChatCommand[] {
+  const q = query.toLowerCase();
+  const seen = new Set<string>();
+  const all: ChatCommand[] = [];
+  for (const c of [...BUILTIN_COMMANDS, ...custom]) {
+    if (seen.has(c.name)) continue;
+    seen.add(c.name);
+    all.push(c);
+  }
+  const rank = (c: ChatCommand): number => {
+    const n = c.name.toLowerCase();
+    if (n === q) return 0;
+    if (n.startsWith(q)) return 1;
+    if (n.slice(n.lastIndexOf(':') + 1).startsWith(q)) return 2;
+    return n.includes(q) ? 3 : -1;
+  };
+  return all
+    .map((c, i) => ({ c, r: rank(c), i }))
+    .filter((x) => x.r >= 0)
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .slice(0, MAX_SLASH_SUGGESTIONS)
+    .map((x) => x.c);
+}
+
+/** The `/query` being typed (a single token at the very start, caret at its end), else null. */
+export function slashQuery(value: string, caret: number): string | null {
+  const m = /^\/([\w:.-]*)$/.exec(value);
+  return m && caret === value.length ? m[1] : null;
+}

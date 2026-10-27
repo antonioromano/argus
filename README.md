@@ -211,7 +211,7 @@ The installed app keeps `argus://`; the two never collide. If the dev app is not
 | **Client** | React 19, xterm.js (DOM renderer), Socket.io-client, @dnd-kit, Vite |
 | **Shared** | TypeScript strict types for session models, REST shapes, Socket.io event maps |
 | **Styling** | CSS custom properties (design tokens) — no CSS framework |
-| **Syntax highlighting** | react-syntax-highlighter (Prism, 29 languages) |
+| **Syntax highlighting** | Shiki (JS regex engine, lazy grammars), shared by Monaco, Chat, Markdown and diffs |
 | **Icons** | lucide-react |
 | **Session survival** | `argusd` pty daemon (Go, bundled); tmux fallback |
 

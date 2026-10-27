@@ -12,15 +12,22 @@ export type ShortcutActionId =
   | 'command-palette'
   | 'waiting-inbox'
   | 'session-search'
+  | 'find-in-files'
   | 'open-settings'
   | 'open-diff'
   | 'open-files'
   | 'open-shell'
+  | 'toggle-inspector'
   | 'terminal-search'
   | 'clear-terminal'
   | 'terminal-newline';
 
-export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Terminal';
+export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Explorer' | 'Terminal';
+
+/** Where an action is live. Global actions go through the app-wide keydown
+ *  handler; an `explorer` action only while a file explorer is open, where it
+ *  takes precedence over a global action bound to the same combo. */
+export type ShortcutScope = 'global' | 'explorer';
 
 export interface ShortcutAction {
   id: ShortcutActionId;
@@ -32,6 +39,8 @@ export interface ShortcutAction {
   fixed?: boolean;
   /** Optional note rendered beside the binding in settings. */
   note?: string;
+  /** Defaults to 'global'. */
+  scope?: ShortcutScope;
 }
 
 export const SHORTCUTS: readonly ShortcutAction[] = [
@@ -48,6 +57,13 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'open-diff', label: 'Diff for the focused shell', category: 'Navigation', defaultCombo: 'mod+d' },
   { id: 'open-files', label: 'Files for the focused shell', category: 'Navigation', defaultCombo: 'mod+e' },
   { id: 'open-shell', label: 'Terminal for the focused shell', category: 'Navigation', defaultCombo: 'mod+t' },
+  // Renderer keydown only, no app-menu twin: a toggle fired by both paths for
+  // one keystroke would cancel itself out. Inside a Monaco editor ⌘I stays
+  // Monaco's own (trigger suggest).
+  { id: 'toggle-inspector', label: 'Show or hide the Session Inspector', category: 'Navigation', defaultCombo: 'mod+i' },
+  // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): while
+  // the explorer scope is active its action wins (see keyboard/scopes).
+  { id: 'find-in-files', label: 'Find in files', category: 'Explorer', defaultCombo: 'mod+shift+f', scope: 'explorer', note: 'While the file explorer is open' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },
   { id: 'terminal-newline', label: 'Insert newline (multi-line prompt)', category: 'Terminal', defaultCombo: 'shift+enter', fixed: true },
@@ -57,4 +73,6 @@ export const SHORTCUTS_BY_ID: Record<ShortcutActionId, ShortcutAction> = Object.
   SHORTCUTS.map((s) => [s.id, s]),
 ) as Record<ShortcutActionId, ShortcutAction>;
 
-export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Terminal'];
+export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Explorer', 'Terminal'];
+
+export const scopeOf = (a: ShortcutAction): ShortcutScope => a.scope ?? 'global';

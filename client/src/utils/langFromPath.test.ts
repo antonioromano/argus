@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { previewKind, isMarkdownPath, isImagePath } from './langFromPath.js';
+import { previewKind, isMarkdownPath, isImagePath, monacoLanguageFor } from './langFromPath.js';
 
 describe('previewKind', () => {
   it('detects markdown variants', () => {
@@ -38,5 +38,15 @@ describe('isImagePath', () => {
     expect(isImagePath('/r/README.md')).toBe(false);
     expect(isImagePath('/r/Makefile')).toBe(false);
     expect(isImagePath('/r/archive.png.zip')).toBe(false);
+  });
+});
+
+describe('monacoLanguageFor', () => {
+  it('maps languages beyond the web stack (Dart, Elixir, …)', () => {
+    expect(monacoLanguageFor('/app/lib/pages/game_summary_desktop.dart')).toBe('dart');
+    expect(monacoLanguageFor('/app/lib/x.ex')).toBe('elixir');
+    expect(monacoLanguageFor('/app/build.ps1')).toBe('powershell');
+    expect(monacoLanguageFor('/app/main.tsx')).toBe('typescript');
+    expect(monacoLanguageFor('/app/NOTES')).toBe('plaintext');
   });
 });

@@ -11,6 +11,8 @@ import { BINARY_EXTENSIONS, EXCLUDED_SEARCH_DIRS, EXCLUDED_SEARCH_EXTS } from '.
 import type { SessionManager } from '../services/SessionManager.js';
 import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
 import { workRootOf } from '../utils/workRoot.js';
+import { getRipgrepPath } from '../utils/ripgrep.js';
+import { findInFiles, parseGlobList, FindInFilesError, FIND_QUERY_MAX } from '../services/search/findInFiles.js';
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
 const MAX_IMAGE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
@@ -323,17 +325,27 @@ export function createFilesystemRoutes(
 
     await walk(resolved, 0);
 
-    // Content search via grep (best-effort) — -rn gives path:line:content output
+    // Content search (best-effort): first matching line per file. ripgrep when
+    // available (same binary as routes/symbols), grep otherwise.
     const contentResults: { path: string; name: string; ext: string; lineNumber: number }[] = [];
     await new Promise<void>((resolve) => {
-      const excludeDirArgs = [...EXCLUDED_SEARCH_DIRS].flatMap(d => ['--exclude-dir', d]);
+      const rg = getRipgrepPath();
       // -F: treat query as a literal string, not a regex (avoids errors/odd matches
       // on chars like [ ( etc). -e: bind it as the pattern so a leading '-' isn't
       // parsed as a flag. --: end options before the path operand.
+      const [cmd, args] = rg
+        ? [rg, [
+          // --no-ignore: grep searched gitignored files and the filename walk above
+          // still does, so content hits must not silently drop them.
+          '--no-config', '--hidden', '--no-ignore', '--no-heading', '-n', '--color', 'never', '--max-count', '1', '-F',
+          ...[...EXCLUDED_SEARCH_DIRS].map((d) => `--glob=!**/${d}/**`),
+          '-e', query, '--', resolved,
+        ]]
+        : ['grep', ['-rn', '-F', '-e', query, ...[...EXCLUDED_SEARCH_DIRS].flatMap((d) => ['--exclude-dir', d]), '--', resolved]];
       execFile(
-        'grep',
-        ['-rn', '-F', '-e', query, ...excludeDirArgs, '--', resolved],
-        { timeout: 8000 },
+        cmd,
+        args,
+        { timeout: 8000, maxBuffer: 16 * 1024 * 1024 },
         (_err, stdout) => {
           const lines = stdout ? stdout.trim().split('\n').filter(Boolean) : [];
           const seenPaths = new Set<string>();
@@ -365,6 +377,62 @@ export function createFilesystemRoutes(
     ];
 
     res.json({ results, query });
+  });
+
+  // Find in Files: ripgrep content search with regex / case / whole-word and
+  // include/exclude globs, grouped by file. Scoped to a session folder; every
+  // user value is bound to its rg flag (see buildRgArgs), with a timeout and caps.
+  router.get('/find', async (req, res) => {
+    const rootPath = req.query.path;
+    const query = req.query.q;
+    if (typeof rootPath !== 'string' || !rootPath || typeof query !== 'string' || !query) {
+      res.status(400).json({ error: 'path and q are required' });
+      return;
+    }
+    if (query.length > FIND_QUERY_MAX || /[\0\r\n]/.test(query)) {
+      res.status(400).json({ error: `q must be at most ${FIND_QUERY_MAX} characters on one line` });
+      return;
+    }
+    const include = parseGlobList(req.query.include);
+    const exclude = parseGlobList(req.query.exclude);
+    if (!include || !exclude) {
+      res.status(400).json({ error: 'invalid include/exclude globs' });
+      return;
+    }
+
+    const resolved = sessionManager.resolveWithinAnySession(rootPath);
+    if (!resolved) {
+      res.status(403).json({ error: 'path is outside any session working directory' });
+      return;
+    }
+    const isDir = await stat(resolved).then((st) => st.isDirectory(), () => false);
+    if (!isDir) {
+      res.status(400).json({ error: 'path is not a directory' });
+      return;
+    }
+    const rg = getRipgrepPath();
+    if (!rg) {
+      res.status(503).json({ error: 'ripgrep is not available' });
+      return;
+    }
+
+    const flag = (v: unknown) => v === '1' || v === 'true';
+    try {
+      res.json(await findInFiles(rg, resolved, {
+        query,
+        regex: flag(req.query.regex),
+        caseSensitive: flag(req.query.case),
+        wholeWord: flag(req.query.word),
+        include,
+        exclude,
+      }));
+    } catch (err) {
+      if (err instanceof FindInFilesError) {
+        res.status(400).json({ error: err.message });
+      } else {
+        res.status(500).json({ error: 'search failed' });
+      }
+    }
   });
 
   router.post('/open', express.json(), async (req, res) => {

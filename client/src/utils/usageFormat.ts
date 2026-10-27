@@ -123,6 +123,39 @@ export function shortModel(model: string): string {
   return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
 }
 
+/** Label of a plan window: "Session" (hours), "Weekly", "30-day", "Plan" when unknown. */
+export function planWindowLabel(minutes: number | undefined): string {
+  if (!minutes) return 'Plan';
+  if (minutes < 48 * 60) return 'Session';
+  if (minutes === 7 * 1440) return 'Weekly';
+  return windowName(minutes);
+}
+
+/** Compact key of a plan window for tight spots: "5h", "7d", "plan" when unknown. */
+export function planWindowKey(minutes: number | undefined): string {
+  if (!minutes) return 'plan';
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)}h`;
+  return `${Math.round(minutes / 1440)}d`;
+}
+
+/**
+ * When a plan window resets, spelled out: "Resets in 3 hr 13 min" within a
+ * day, "Resets Sat 9:00 PM" further out (in the viewer's locale).
+ */
+export function formatResetPhrase(resetsAt: number, now: number, locale?: string): string {
+  const ms = resetsAt - now;
+  if (ms >= 24 * 3_600_000) {
+    const at = new Intl.DateTimeFormat(locale, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(resetsAt);
+    return `Resets ${at}`;
+  }
+  if (ms < 60_000) return 'Resets in <1 min';
+  const min = Math.floor(ms / 60_000);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (!h) return `Resets in ${m} min`;
+  return m ? `Resets in ${h} hr ${m} min` : `Resets in ${h} hr`;
+}
+
 /** One row of the hover breakdown. */
 export interface UsageRow {
   label: string;

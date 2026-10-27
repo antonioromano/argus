@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { PAINT_SURFACES, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS } from './paint.js';
+import { PAINT_SURFACES, PAINT_SYNTAX, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS } from './paint.js';
 import { GROUP_COLORS } from '../constants/groupColors.js';
 
 // WCAG 2.1 AA guard for the color tokens. Every pair below is one the UI
@@ -87,10 +87,10 @@ const PAIRS: Pair[] = [
   ...on('text hierarchy', ['--fg-0', '--fg-1', '--fg-2', '--fg-3'], TEXT),
   ...on('disabled / decorative text', ['--fg-4'], UI),
   ...on('accent text (links, active nav, Remote URL)', ['--accent'], TEXT),
-  ...on('semantic text', ['--danger', '--warn', '--info', '--ok', '--dirty'], TEXT),
+  ...on('semantic text', ['--danger', '--warn', '--info', '--ok', '--dirty', '--pr-merged', '--pr-pending'], TEXT),
   ...on('status labels', ['--status-waiting', '--status-running', '--status-idle', '--status-done', '--status-exited'], TEXT),
   ...on('agent glyphs / labels', ['--agent-claude', '--agent-gemini', '--agent-codex'], TEXT),
-  ...on('syntax (markdown, mobile diff)', ['--syn-kw', '--syn-str', '--syn-num', '--syn-fn', '--syn-cm', '--syn-pn'], TEXT),
+  ...on('syntax (code blocks, Monaco, diffs, mobile diff)', ['--syn-kw', '--syn-str', '--syn-num', '--syn-fn', '--syn-cm', '--syn-pn'], TEXT),
 
   // Chips: StatusPill, PR chip, Usage pill, Stale chip, DirtyBadge — tinted
   // fill over the card / panel they sit on.
@@ -110,6 +110,8 @@ const PAIRS: Pair[] = [
   // Diff viewer (DiffViewer / SplitDiff).
   ...on('diff add row', ['--diff-add-fg', '--fg-1'], TEXT, ['--diff-add']),
   ...on('diff del row', ['--diff-del-fg', '--fg-1'], TEXT, ['--diff-del']),
+  // Comments/punctuation on changed rows keep --diff-*-fg (diffSyntax.CHANGED_ROW_SLOTS).
+  ...on('syntax on diff rows', ['--syn-kw', '--syn-str', '--syn-num', '--syn-fn'], TEXT, ['--diff-add', '--diff-del']),
   ...on('diff +/− marker', ['--diff-add-tok'], UI, ['--diff-add', '--bg-2']),
   ...on('diff +/− marker', ['--diff-del-tok'], UI, ['--diff-del', '--bg-2']),
 
@@ -136,6 +138,14 @@ describe('color tokens meet WCAG AA', () => {
 
 describe('paint tokens (xterm / Monaco) mirror tokens.css', () => {
   for (const theme of ['dark', 'light'] as const) {
+    it(`${theme}: Monaco syntax colors equal --syn-* / --fg-1`, () => {
+      const { fg, ...slots } = PAINT_SYNTAX[theme];
+      expect(fg.toLowerCase()).toBe(TOKENS[theme]['--fg-1'].toLowerCase());
+      for (const [slot, color] of Object.entries(slots)) {
+        expect(color.toLowerCase(), slot).toBe(TOKENS[theme][`--syn-${slot}`].toLowerCase());
+      }
+    });
+
     it(`${theme}: terminal and inset surfaces equal --bg-2 / --bg-inset`, () => {
       expect(PAINT_SURFACES[theme].terminal.toLowerCase()).toBe(TOKENS[theme]['--bg-2'].toLowerCase());
       expect(PAINT_SURFACES[theme].inset.toLowerCase()).toBe(TOKENS[theme]['--bg-inset'].toLowerCase());

@@ -36,9 +36,12 @@ const DiffWorkbench = lazy(() =>
 const ExplorerWorkbench = lazy(() =>
   import('../panels/ExplorerWorkbench.js').then((m) => ({ default: m.ExplorerWorkbench })),
 );
+const PrDiffView = lazy(() =>
+  import('../panels/PrDiffView.js').then((m) => ({ default: m.PrDiffView })),
+);
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
-import type { SidePanel } from '../types.js';
+import { isMaximizedPanel, type SidePanel } from '../types.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 
 const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
@@ -75,6 +78,10 @@ interface FocusProps {
   usageMeter?: UsageMeterState | null;
   /** Mosaic layout setting: 'vertical' (stacked) docks the companion shell below the conversation instead of beside it. */
   orientation?: MosaicOrientation;
+  /** The Session Inspector is docked as a right-hand column: the companion shell moves below the conversation to leave it the side. */
+  inspectorColumn?: boolean;
+  /** The Session Inspector is on screen (either placement): it shows usage, git and PR, so the header drops those chips. */
+  inspectorShown?: boolean;
   sessions: SessionInfo[];
   active: SessionInfo;
   socket: TypedSocket;
@@ -121,6 +128,8 @@ export function Focus({
   runningIndicator = 'hairline',
   usageMeter,
   orientation = 'horizontal',
+  inspectorColumn = false,
+  inspectorShown = false,
   sessions,
   active,
   socket,
@@ -161,7 +170,9 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
-  const stacked = orientation === 'vertical';
+  // Side panels dock below the conversation in the stacked layout, and beside
+  // it otherwise — unless the inspector column already holds the right side.
+  const stacked = orientation === 'vertical' || inspectorColumn;
 
   // Native terminal overlay (Phase 1, dark by default): opt in via build flag,
   // then confirm the addon actually loaded in this process before trusting it.
@@ -250,10 +261,7 @@ export function Focus({
     sidePanel && sidePanel.sessionId === active.id && (sidePanel.kind !== 'activity' || activityEnabled)
       ? sidePanel
       : null;
-  const maximized =
-    panelForActive && (panelForActive.kind === 'diff' || panelForActive.kind === 'explorer') && panelForActive.maximized
-      ? panelForActive
-      : null;
+  const maximized = isMaximizedPanel(panelForActive) ? panelForActive : null;
   const dockedOpen = !!panelForActive && !maximized;
 
   // Restore the split and re-focus / re-fit the terminal (keeps xterm mounted while
@@ -340,12 +348,14 @@ export function Focus({
                 <span className="argus-tile-branch">Native</span>
               </Tooltip>
             )}
-            {active.shellGit !== undefined ? (
+            {/* Git, PR and usage live in the Session Inspector; they come back
+                here only while it is hidden, so the information never vanishes. */}
+            {!inspectorShown && (active.shellGit !== undefined ? (
               active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
-            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />}
+            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
             <StaleChip staleDays={active.worktreeStaleDays} />
-            {active.pr && <PrChip pr={active.pr} />}
-            {usageMeter && (
+            {!inspectorShown && active.pr && <PrChip pr={active.pr} />}
+            {!inspectorShown && usageMeter && (
               <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
             )}
             <div style={{ flex: 1 }} />
@@ -371,40 +381,27 @@ export function Focus({
                 </Button>
               </div>
             )}
-            <Button
-              variant={sidePanel?.kind === 'diff' ? 'solid' : 'ghost'}
-              size="sm"
-              icon={GitCompare}
-              onClick={onToggleDiff}
-            >
-              Diff
-            </Button>
-            <Button
-              variant={sidePanel?.kind === 'explorer' ? 'solid' : 'ghost'}
-              size="sm"
-              icon={FolderOpen}
-              onClick={onToggleExplorer}
-            >
-              Files
-            </Button>
+            {/* Tool windows: icon-only toggles, named by their tooltip. */}
+            <IconButton icon={GitCompare} label="Diff" size="sm" active={sidePanel?.kind === 'diff'} pressed={sidePanel?.kind === 'diff'} onClick={onToggleDiff} />
+            <IconButton icon={FolderOpen} label="Files" size="sm" active={sidePanel?.kind === 'explorer'} pressed={sidePanel?.kind === 'explorer'} onClick={onToggleExplorer} />
             {activityEnabled && onToggleActivity && (
-              <Button
-                variant={!maximized && panelForActive?.kind === 'activity' ? 'solid' : 'ghost'}
-                size="sm"
+              <IconButton
                 icon={Activity}
+                label="Activity"
+                size="sm"
+                active={!maximized && panelForActive?.kind === 'activity'}
+                pressed={!maximized && panelForActive?.kind === 'activity'}
                 onClick={onToggleActivity}
-              >
-                Activity
-              </Button>
+              />
             )}
-            <Button
-              variant={!maximized && sidePanel?.kind === 'terminal' ? 'solid' : 'ghost'}
-              size="sm"
+            <IconButton
               icon={Terminal}
+              label="Shell"
+              size="sm"
+              active={!maximized && sidePanel?.kind === 'terminal'}
+              pressed={!maximized && sidePanel?.kind === 'terminal'}
               onClick={onShellClick}
-            >
-              Shell
-            </Button>
+            />
             <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
             <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
             <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
@@ -459,7 +456,6 @@ export function Focus({
                   session={active}
                   socket={socket}
                   onShowTerminal={() => setViewMode('terminal')}
-                  aboveComposer={active.status === 'waiting' ? <ReplyBar session={active} onSend={sendInput} /> : undefined}
                   autoFocus
                 />
               )}
@@ -496,7 +492,15 @@ export function Focus({
                       </div>
                     }
                   >
-                    {maximized.kind === 'diff' ? (
+                    {maximized.kind === 'prdiff' ? (
+                      <PrDiffView
+                        // Another PR clicked while one is open: start over.
+                        key={maximized.pr.url}
+                        session={active}
+                        entry={maximized.pr}
+                        onClose={restoreToShell}
+                      />
+                    ) : maximized.kind === 'diff' ? (
                       <DiffWorkbench
                         key={workRoot(active)}
                         session={active}

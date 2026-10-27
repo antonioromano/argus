@@ -208,6 +208,7 @@ export function setupSocketHandler(
             messages: snap?.messages ?? [],
             ...(snap?.permissionMode ? { permissionMode: snap.permissionMode } : {}),
             ...(snap?.modelSet ? { modelSet: snap.modelSet } : {}),
+            ...(snap?.commands ? { commands: snap.commands } : {}),
           });
         })
         .catch((err) => console.error('[chat] subscribe failed:', err));

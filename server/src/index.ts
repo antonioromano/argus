@@ -43,6 +43,7 @@ import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
 import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
+import { createSessionPrRoutes } from './routes/sessionPrs.js';
 import { createNgrokRoutes } from './routes/ngrok.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createAutoApprovalRoutes } from './routes/autoApproval.js';
@@ -62,6 +63,7 @@ import { createWorktreeRoutes } from './routes/worktrees.js';
 import { createSearchRoutes } from './routes/search.js';
 import { setupSocketHandler } from './socket/handler.js';
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createChatImageRoutes } from './routes/chatImages.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { createJsonBodyParser } from './middleware/bodyParsers.js';
@@ -402,6 +404,10 @@ app.use('/api/sessions', createHandoffRoutes({
   }),
 }));
 app.use('/api/sessions', createSessionRoutes(sessionManager, orderStore, mosaicOrderStore, groupStore, configStore));
+// B1 Chat view: clipboard images pasted in the composer, saved to a private temp dir.
+app.use('/api/sessions', createChatImageRoutes({
+  isChatSession: (id) => sessionManager.getSessionInfo(id)?.agentType === 'claude',
+}));
 // Beta F10 session templates: /api/templates CRUD + launch (404 while the flag is off).
 // Own file (templates.json), never config.json; deliberately no deep-link path.
 app.use('/api/templates', createTemplateRoutes({
@@ -442,6 +448,7 @@ app.use('/api/chains', createChainRoutes({
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
+app.use('/api', createSessionPrRoutes(sessionManager));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
 // Plan usage per agent account (the usage meter); live updates ride `usage:plan`.

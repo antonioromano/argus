@@ -4,6 +4,7 @@ import type { AgentRegistry } from '../services/AgentRegistry.js';
 import type { AgentDefinition, AgentFlag, AppConfig, TileQuickAction } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { isUsageMeterParts, isWarnThresholds } from '../utils/usageMeter.js';
+import { INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX, INSPECTOR_SECTION_ID, INSPECTOR_SECTIONS_MAX } from '../constants/inspector.js';
 
 const TILE_QUICK_ACTIONS: readonly TileQuickAction[] = ['diff', 'files', 'shell', 'clone', 'restart', 'done', 'apply', 'none'];
 
@@ -20,6 +21,12 @@ const COMMAND_PATTERN = /^[a-zA-Z0-9_@./\- ]+$/;
 function isStringRecord(v: unknown): v is Record<string, string> {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
   return Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string');
+}
+
+function isInspectorSectionList(v: unknown): v is string[] {
+  return Array.isArray(v)
+    && v.length <= INSPECTOR_SECTIONS_MAX
+    && v.every((id) => typeof id === 'string' && INSPECTOR_SECTION_ID.test(id));
 }
 
 function validateAgentFlags(agentFlags: Record<string, AgentFlag[]>): string | null {
@@ -58,7 +65,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -75,6 +82,11 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
         res.status(400).json({ error: `${key} must be { amber, red }: numbers from 5 to 99, red above amber.` });
         return;
       }
+    }
+
+    if (inspectorCollapsed !== undefined && !isInspectorSectionList(inspectorCollapsed)) {
+      res.status(400).json({ error: `inspectorCollapsed must be a list of at most ${INSPECTOR_SECTIONS_MAX} section ids.` });
+      return;
     }
 
     if (agentFlags) {
@@ -101,6 +113,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       notificationsEnabled: notificationsEnabled ?? current.notificationsEnabled,
       notifyOnWaiting: notifyOnWaiting ?? current.notifyOnWaiting,
       notifyOnDone: notifyOnDone ?? current.notifyOnDone,
+      notifyOnPrChecks: notifyOnPrChecks !== undefined ? !!notifyOnPrChecks : current.notifyOnPrChecks,
       notificationSound: notificationSound ?? current.notificationSound,
       showClock: showClock !== undefined ? !!showClock : current.showClock,
       clockShowSeconds: clockShowSeconds !== undefined ? !!clockShowSeconds : current.clockShowSeconds,
@@ -156,6 +169,16 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       usageWarnContext: usageWarnContext !== undefined ? { amber: usageWarnContext.amber, red: usageWarnContext.red } : current.usageWarnContext,
       usageWarnPlan: usageWarnPlan !== undefined ? { amber: usageWarnPlan.amber, red: usageWarnPlan.red } : current.usageWarnPlan,
       showPrStatus: showPrStatus !== undefined ? !!showPrStatus : current.showPrStatus,
+      inspectorSide: (inspectorSide === 'left' || inspectorSide === 'right') ? inspectorSide : current.inspectorSide,
+      // Strict boolean: a truthy string must not flip the panel.
+      inspectorVisible: typeof inspectorVisible === 'boolean' ? inspectorVisible : current.inspectorVisible,
+      // A dragged width: clamp rather than reject, so a stale client never loses the save.
+      inspectorWidth: typeof inspectorWidth === 'number' && Number.isFinite(inspectorWidth)
+        ? Math.round(Math.min(INSPECTOR_WIDTH_MAX, Math.max(INSPECTOR_WIDTH_MIN, inspectorWidth)))
+        : current.inspectorWidth,
+      inspectorCollapsed: inspectorCollapsed !== undefined
+        ? [...new Set(inspectorCollapsed as string[])]
+        : current.inspectorCollapsed,
       // Strict boolean: only an explicit true turns the feature on.
       autoApprovalEnabled: typeof autoApprovalEnabled === 'boolean' ? autoApprovalEnabled : current.autoApprovalEnabled,
       claudeRenderer: (claudeRenderer === 'fullscreen' || claudeRenderer === 'classic' || claudeRenderer === 'inherit')

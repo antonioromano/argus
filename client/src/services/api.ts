@@ -1,4 +1,11 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap, GitSummaryResponse, SessionPrsResponse } from '@argus/shared';
+
+// PR diff (B4) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
+import type { SessionPrDiffResponse } from '@argus/shared';
+// Mark ready (C3) — its own line too, for the same reason.
+import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/shared';
+// Chat /resume picker (D1) — its own line too, for the same reason.
+import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -48,6 +55,15 @@ async function requireTemplateOk(res: Response): Promise<Response> {
   let body: TemplateErrorResponse | null = null;
   try { body = await res.json() as TemplateErrorResponse; } catch { /* not JSON */ }
   throw new TemplateApiError(res.status, body?.error || res.statusText || `HTTP ${res.status}`, body?.specErrors);
+}
+
+/** Find in Files options; include/exclude are comma-separated glob lists. */
+export interface FindInFilesQuery {
+  regex: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  include: string;
+  exclude: string;
 }
 
 async function requireOk(res: Response): Promise<Response> {
@@ -173,6 +189,24 @@ export const api = {
     return data.completions;
   },
 
+  /** Chat view /resume picker: earlier Claude conversations of the session's folder, newest first. */
+  listConversations: async (sessionId: string): Promise<ClaudeConversation[]> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/conversations`);
+    const data: ClaudeConversationsResponse = await (await requireOk(res)).json();
+    return data.conversations;
+  },
+
+  /** Chat view: save a clipboard image server-side; resolves the file's path. */
+  uploadChatImage: async (sessionId: string, image: Blob): Promise<string> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/chat-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': image.type },
+      body: image,
+    });
+    const data: { path: string } = await (await requireOk(res)).json();
+    return data.path;
+  },
+
   openPath: async (sessionId: string, filePath: string, reveal = false): Promise<void> => {
     const res = await authFetch(`${API_BASE}/fs/open`, {
       method: 'POST',
@@ -199,6 +233,17 @@ export const api = {
   searchFiles: async (rootPath: string, query: string): Promise<FileSearchResponse> => {
     const params = new URLSearchParams({ path: rootPath, q: query });
     const res = await authFetch(`${API_BASE}/fs/search?${params}`);
+    return (await requireOk(res)).json();
+  },
+
+  findInFiles: async (rootPath: string, query: string, opts: FindInFilesQuery, signal?: AbortSignal): Promise<FindInFilesResponse> => {
+    const params = new URLSearchParams({ path: rootPath, q: query });
+    if (opts.regex) params.set('regex', '1');
+    if (opts.caseSensitive) params.set('case', '1');
+    if (opts.wholeWord) params.set('word', '1');
+    if (opts.include.trim()) params.set('include', opts.include.trim());
+    if (opts.exclude.trim()) params.set('exclude', opts.exclude.trim());
+    const res = await authFetch(`${API_BASE}/fs/find?${params}`, { signal });
     return (await requireOk(res)).json();
   },
 
@@ -414,6 +459,34 @@ export const api = {
 
   getGitLog: async (sessionId: string): Promise<GitLogResponse> => {
     const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-log`);
+    return (await requireOk(res)).json();
+  },
+
+  getGitSummary: async (sessionId: string): Promise<GitSummaryResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-summary`);
+    return (await requireOk(res)).json();
+  },
+
+  /** B3: every PR of a session with its live status (Inspector GitHub card). */
+  getSessionPrs: async (sessionId: string): Promise<SessionPrsResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/prs`);
+    return (await requireOk(res)).json();
+  },
+
+  /** B4: changed files + diff of one of the session's PRs (`url` from getSessionPrs). */
+  getSessionPrDiff: async (sessionId: string, url: string): Promise<SessionPrDiffResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/pr-diff?url=${encodeURIComponent(url)}`);
+    return (await requireOk(res)).json();
+  },
+
+  /** C3: `gh pr ready` (`ready: false` → back to draft) on one of the session's PRs. */
+  setSessionPrReady: async (sessionId: string, url: string, ready: boolean): Promise<SessionPrReadyResponse> => {
+    const body: SessionPrReadyRequest = { url, ready };
+    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/prs/ready`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     return (await requireOk(res)).json();
   },
 

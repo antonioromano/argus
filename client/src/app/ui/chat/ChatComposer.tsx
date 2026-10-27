@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
-import type { SessionStatus } from '@argus/shared';
+import type { ChatCommand, SessionStatus } from '@argus/shared';
 import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
   PICKABLE_MODELS,
   PICKABLE_MODES,
   isImagePath,
+  slashQuery,
+  slashSuggestions,
   modelLabel,
   permissionModeLabel,
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
+import { ComposerHighlight } from './ComposerHighlight.js';
+import { enterContinues, enterEdit, indentEdit, type Edit } from './composerMarkdown.js';
 
 interface ChatComposerProps {
   status: SessionStatus;
@@ -23,32 +27,48 @@ interface ChatComposerProps {
   model?: string;
   /** Display name of the model last set with `/model` (from the transcript); wins over `model`. */
   modelSet?: string;
+  /** Save an image with no file behind it (pasted from the clipboard) and resolve its path. */
+  onUploadImage?: (file: File) => Promise<string>;
   /** Show the terminal (the full /model picker lives there). */
   onShowTerminal?: () => void;
+  /** Skills and custom commands for the `/` autocomplete (built-ins are always offered). */
+  commands?: ChatCommand[];
   autoFocus?: boolean;
 }
 
 interface Attachment {
-  path: string;
+  key: string;
+  /** Absolute path sent to Claude; undefined while a pasted image uploads. */
+  path?: string;
   name: string;
   /** blob: URL of an image, for the thumbnail. */
   preview?: string;
+  /** The upload failed: shown as an error, never sent. */
+  failed?: boolean;
 }
 
 type ElectronFiles = { getPath: (name: string) => string | undefined };
 
-/** Picked or dropped files with their absolute paths. Only Electron's preload
- *  can see the paths (it records them on drop and file-input change). */
-function toAttachments(files: FileList | File[] | null): Attachment[] {
+let nextKey = 0;
+const newKey = () => `att-${++nextKey}`;
+const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
+const isImageFile = (f: File) => /^image\/(png|jpeg|gif|webp)$/.test(f.type);
+
+/**
+ * Split picked or dropped files into those with a path on disk (only Electron's
+ * preload can see it: it records paths on drop and file-input change) and
+ * images without one (a screenshot dragged from its preview), which get uploaded.
+ */
+function sortFiles(files: FileList | File[] | null): { withPath: Attachment[]; toUpload: File[] } {
   const bridge = (window as Window & { electronFiles?: ElectronFiles }).electronFiles;
-  if (!bridge || !files) return [];
-  const out: Attachment[] = [];
-  for (const f of Array.from(files)) {
-    const path = bridge.getPath(f.name);
-    if (!path) continue;
-    out.push({ path, name: f.name, preview: isImagePath(path) && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined });
+  const withPath: Attachment[] = [];
+  const toUpload: File[] = [];
+  for (const f of Array.from(files ?? [])) {
+    const path = bridge?.getPath(f.name);
+    if (path) withPath.push({ key: newKey(), path, name: f.name, preview: isImagePath(path) ? previewOf(f) : undefined });
+    else if (isImageFile(f)) toUpload.push(f);
   }
-  return out;
+  return { withPath, toUpload };
 }
 
 const revoke = (list: Attachment[]) => list.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
@@ -57,13 +77,45 @@ const canPickFiles = () => typeof window !== 'undefined' && 'electronFiles' in w
 type Menu = { kind: 'mode' | 'model'; x: number; y: number };
 
 /**
+ * Apply a list edit as one replacement of the changed span, through the
+ * browser's own insertText so it lands on the textarea's undo stack (setting
+ * `value` would wipe it). Falls back to setRangeText + an input event where
+ * execCommand is missing (jsdom).
+ */
+function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
+  const old = box.value;
+  const next = edit.value;
+  let a = 0;
+  while (a < old.length && a < next.length && old[a] === next[a]) a++;
+  let b = 0;
+  while (b < old.length - a && b < next.length - a && old[old.length - 1 - b] === next[next.length - 1 - b]) b++;
+  const insert = next.slice(a, next.length - b);
+  box.setSelectionRange(a, old.length - b);
+  let done = false;
+  try {
+    done = typeof document.execCommand === 'function' && document.execCommand('insertText', false, insert);
+  } catch {
+    done = false;
+  }
+  if (!done || box.value !== next) {
+    // The prototype setter, so React's value tracker sees a change and fires onChange.
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(box, next);
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  box.setSelectionRange(edit.selStart, edit.selEnd);
+}
+
+/**
  * The Chat view's prompt box. Text goes to the agent through the pty, exactly
  * as if typed in the terminal (the server types it, presses Enter and checks it
- * was submitted). Enter sends, Shift+Enter adds a line. Attached files are sent as their paths
+ * was submitted). Enter sends, Shift+Enter adds a line; in a list or code
+ * block Enter continues it and Cmd+Enter sends (D2: the Markdown is styled
+ * live by a layer under the textarea, the text sent stays plain Markdown).
+ * Attached files are sent as their paths
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onShowTerminal, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -73,6 +125,12 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const [picked, setPicked] = useState<{ id: string; set?: string; model?: string } | null>(null);
   if (picked && (picked.set !== modelSet || picked.model !== model)) setPicked(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  // `/` autocomplete: the highlighted row, and the text it was closed at with Esc.
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashClosedAt, setSlashClosedAt] = useState<string | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  // Enter adds an item / line here instead of sending (drives the hint).
+  const [continues, setContinues] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   // Latest attachments for the unmount cleanup (their blob URLs).
   const attachmentsRef = useRef(attachments);
@@ -89,10 +147,40 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
 
   useEffect(() => () => revoke(attachmentsRef.current), []);
 
-  const canSend = !exited && (text.trim().length > 0 || attachments.length > 0);
+  const uploading = attachments.some((a) => !a.path && !a.failed);
+  const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
+  const canSend = !exited && !uploading && (text.trim().length > 0 || ready.length > 0);
+  const query = slashClosedAt === text ? null : slashQuery(text, text.length);
+  const suggestions = query === null ? [] : slashSuggestions(query, commands);
+  // Not at a menu: there a slash command would only be typed into the menu.
+  const slashOpen = suggestions.length > 0 && atPrompt;
+  const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
+  const complete = (c: ChatCommand) => {
+    setText(`/${c.name} `);
+    setSlashIndex(0);
+    ref.current?.focus();
+  };
+
+  // The highlight layer scrolls with the textarea.
+  const syncLayer = () => {
+    const box = ref.current;
+    const layer = layerRef.current;
+    if (box && layer) layer.style.transform = `translate(${-box.scrollLeft}px, ${-box.scrollTop}px)`;
+  };
+  useLayoutEffect(syncLayer, [text]);
+
+  const trackCaret = () => {
+    const box = ref.current;
+    if (!box) return;
+    // Always set: two calls in one event would compare against a stale `continues`.
+    setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
+  };
+
   const send = () => {
     if (!canSend) return;
-    onSubmit([formatPathsForPty(attachments.map((a) => a.path)), text].filter((s) => s.trim()).join(' '));
+    // An ended list leaves an empty last line; it is not part of the message.
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
+    setContinues(false);
     revoke(attachments);
     setAttachments([]);
     setText('');
@@ -101,18 +189,39 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const attach = (list: Attachment[]) => {
     if (list.length === 0) return;
     setAttachments((cur) => {
-      const have = new Set(cur.map((a) => a.path));
-      const fresh = list.filter((a) => !have.has(a.path));
-      revoke(list.filter((a) => have.has(a.path)));
+      const have = new Set(cur.map((a) => a.path).filter(Boolean));
+      const fresh = list.filter((a) => !a.path || !have.has(a.path));
+      revoke(list.filter((a) => !fresh.includes(a)));
       return cur.concat(fresh);
     });
     ref.current?.focus();
   };
 
-  const remove = (path: string) =>
+  const update = (key: string, patch: Partial<Attachment>) =>
+    setAttachments((cur) => cur.map((a) => (a.key === key ? { ...a, ...patch } : a)));
+
+  /** Show images right away and upload them; each gets its path when saved. */
+  const upload = (files: File[], name?: string) => {
+    if (!onUploadImage || files.length === 0) return;
+    const list = files.map((f) => ({ key: newKey(), name: name ?? f.name, preview: previewOf(f) }));
+    attach(list);
+    files.forEach((f, i) => {
+      onUploadImage(f)
+        .then((path) => update(list[i].key, { path }))
+        .catch(() => update(list[i].key, { failed: true }));
+    });
+  };
+
+  const addFiles = (files: FileList | File[] | null) => {
+    const { withPath, toUpload } = sortFiles(files);
+    attach(withPath);
+    upload(toUpload);
+  };
+
+  const remove = (key: string) =>
     setAttachments((cur) => {
-      revoke(cur.filter((a) => a.path === path));
-      return cur.filter((a) => a.path !== path);
+      revoke(cur.filter((a) => a.key === key));
+      return cur.filter((a) => a.key !== key);
     });
 
   const openMenu = (kind: Menu['kind'], e: React.MouseEvent<HTMLButtonElement>) => {
@@ -170,16 +279,42 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
         onDrop={(e) => {
           setDragOver(false);
           if (exited) return;
-          const list = toAttachments(e.dataTransfer.files);
-          if (list.length === 0) return;
+          if (e.dataTransfer.files.length === 0) return;
           e.preventDefault();
-          attach(list);
+          addFiles(e.dataTransfer.files);
         }}
       >
+        {slashOpen && (
+          <div className="argus-chat-slash" id="argus-chat-slash" role="listbox" aria-label="Slash commands">
+            {suggestions.map((c) => (
+              <div
+                key={c.name}
+                id={`argus-chat-slash-${c.name}`}
+                role="option"
+                aria-selected={c === active}
+                className={`argus-chat-slash-item${c === active ? ' is-active' : ''}`}
+                // mousedown, not click: the textarea keeps focus.
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  complete(c);
+                }}
+                onMouseEnter={() => setSlashIndex(suggestions.indexOf(c))}
+                ref={c === active ? (el) => el?.scrollIntoView?.({ block: 'nearest' }) : undefined}
+              >
+                <span className="argus-chat-slash-name">/{c.name}</span>
+                {c.description && <span className="argus-chat-slash-desc">{c.description}</span>}
+              </div>
+            ))}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="argus-chat-attachments" aria-label="Attached files">
             {attachments.map((a) => (
-              <div key={a.path} className="argus-chat-attachment" title={a.path}>
+              <div
+                key={a.key}
+                className={`argus-chat-attachment${a.path ? '' : a.failed ? ' is-failed' : ' is-uploading'}`}
+                title={a.failed ? 'Upload failed — remove it and try again' : (a.path ?? 'Uploading…')}
+              >
                 {a.preview ? (
                   <img src={a.preview} alt={a.name} />
                 ) : (
@@ -188,28 +323,89 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                     <span>{a.name}</span>
                   </div>
                 )}
-                <button type="button" className="argus-chat-attachment-remove" aria-label={`Remove ${a.name}`} onClick={() => remove(a.path)}>
+                <button type="button" className="argus-chat-attachment-remove" aria-label={`Remove ${a.name}`} onClick={() => remove(a.key)}>
                   <Icon icon={X} size={10} aria-hidden />
                 </button>
               </div>
             ))}
           </div>
         )}
+        <div className="argus-cmp-field">
+        <ComposerHighlight ref={layerRef} text={text} />
         <textarea
           ref={ref}
+          className="argus-cmp-input"
           value={text}
           rows={Math.min(8, Math.max(1, text.split('\n').length))}
           disabled={exited}
           placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
           aria-label="Message"
-          onChange={(e) => setText(e.target.value)}
+          role="combobox"
+          aria-expanded={slashOpen}
+          aria-controls="argus-chat-slash"
+          aria-autocomplete="list"
+          aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
+          spellCheck
+          onChange={(e) => {
+            setText(e.target.value);
+            setSlashIndex(0);
+            trackCaret();
+          }}
+          onScroll={syncLayer}
+          onSelect={trackCaret}
+          onPaste={(e) => {
+            // A screenshot on the clipboard is only bytes: upload it to get a path.
+            const images = Array.from(e.clipboardData.files).filter(isImageFile);
+            if (images.length === 0 || !onUploadImage || exited) return;
+            e.preventDefault();
+            upload(images, 'Pasted image');
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.nativeEvent.isComposing) {
+            // Never during IME composition: Enter / Tab there confirm the candidate.
+            if (e.nativeEvent.isComposing) return;
+            if (slashOpen && active) {
+              const move = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+              if (move) {
+                e.preventDefault();
+                const i = suggestions.indexOf(active);
+                setSlashIndex((i + move + suggestions.length) % suggestions.length);
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setSlashClosedAt(text);
+                return;
+              }
+              // Tab always completes; Enter completes unless the command is typed in full (then it sends).
+              const typedInFull = text.slice(1).toLowerCase() === active.name.toLowerCase();
+              if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.altKey && !typedInFull)) {
+                e.preventDefault();
+                complete(active);
+                return;
+              }
+            }
+            const box = e.currentTarget;
+            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
               e.preventDefault();
-              send();
+              // In a list or code block Enter edits; Cmd/Ctrl+Enter always sends.
+              const edit = e.metaKey || e.ctrlKey ? undefined : enterEdit(box.value, box.selectionStart, box.selectionEnd);
+              if (!edit) {
+                send();
+                return;
+              }
+              applyEdit(box, edit);
+              // The caret is final only now: the input event saw the end of the replaced span.
+              trackCaret();
+            } else if (e.key === 'Tab' && !e.altKey && !e.metaKey && !e.ctrlKey) {
+              const edit = indentEdit(box.value, box.selectionStart, box.selectionEnd, e.shiftKey);
+              if (!edit) return;
+              e.preventDefault();
+              applyEdit(box, edit);
+              trackCaret();
             }
           }}
         />
+        </div>
         <div className="argus-chat-composer-actions">
           {canPickFiles() && (
             <>
@@ -221,14 +417,16 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                 hidden
                 data-testid="chat-file-input"
                 onChange={(e) => {
-                  attach(toAttachments(e.target.files));
+                  addFiles(e.target.files);
                   e.target.value = '';
                 }}
               />
             </>
           )}
           <div style={{ flex: 1 }} />
-          <span className="argus-chat-hint">Enter to send · Shift+Enter for a new line</span>
+          <span className="argus-chat-hint">
+            {continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
+          </span>
           <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
         </div>
       </div>

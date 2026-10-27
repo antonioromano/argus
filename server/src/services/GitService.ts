@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
 import { appendFile, readFile } from 'fs/promises';
 import path from 'path';
-import type { ShellGitContext, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
+import type { ShellGitContext, GitSummary, GitSummaryFile, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
 
 function findGit(): string {
   try {
@@ -420,6 +420,8 @@ export function parseWordDiff(rawOutput: string): StructuredDiffResponse {
 export class GitService {
   private undoBuffer = new Map<string, UndoEntry>();
   private blameCache = new Map<string, { data: BlameResponse; headSha: string }>();
+  /** Folder → repo root for summary(); dropped when the folder stops being a repo. */
+  private summaryRoots = new Map<string, string>();
 
   async isGitRepo(folderPath: string): Promise<boolean> {
     try {
@@ -928,6 +930,32 @@ export class GitService {
     return parseShellContext(out, root.trim());
   }
 
+  /**
+   * Branch, upstream, ahead/behind and the changed files of `folder` — one
+   * read-only `git status` (Session Inspector). null when it isn't a repo.
+   */
+  async summary(folder: string): Promise<GitSummary | null> {
+    let out: string;
+    let root = this.summaryRoots.get(folder);
+    try {
+      // Polled every few seconds: the repo root of a folder doesn't move, so
+      // resolve it once and keep each poll to a single `git status`.
+      if (root === undefined) {
+        [out, root] = await Promise.all([
+          execGit(['--no-optional-locks', 'status', '--porcelain=v2', '--branch', '-z'], folder),
+          execGit(['rev-parse', '--show-toplevel'], folder).then((r) => r.trim()),
+        ]);
+        this.summaryRoots.set(folder, root);
+      } else {
+        out = await execGit(['--no-optional-locks', 'status', '--porcelain=v2', '--branch', '-z'], folder);
+      }
+    } catch {
+      this.summaryRoots.delete(folder);
+      return null;
+    }
+    return parseGitSummary(out, root);
+  }
+
   /** Repo root and checked-out branch of `folder` in one `git rev-parse`;
    *  branch is `HEAD` when detached. null when not a repo. */
   async headInfo(folder: string): Promise<{ root: string; branch: string } | null> {
@@ -1248,6 +1276,69 @@ export function gitignoreRuleFor(folderPath: string, filePath: string): string |
   // Escape gitignore metacharacters; a trailing space is significant only escaped.
   const escaped = posix.replace(/[\\*?[\]]/g, (c) => `\\${c}`).replace(/ $/, '\\ ');
   return `/${escaped}`;
+}
+
+/** Most files a git summary lists; the Inspector is a glance, the Diff has the rest. */
+export const GIT_SUMMARY_MAX_FILES = 200;
+
+function summaryStatus(xy: string): GitSummaryFile['status'] {
+  const x = xy[0];
+  const y = xy[1];
+  const side = x !== '.' ? x : y;
+  return side === 'A' || side === 'D' || side === 'R' || side === 'C' ? side : 'M';
+}
+
+/**
+ * Parse `git status --porcelain=v2 --branch -z`. NUL-separated, so paths with
+ * spaces or quotes arrive verbatim; a rename (`2 …`) carries its original path
+ * in the following entry, which is skipped.
+ */
+export function parseGitSummary(out: string, root: string): GitSummary {
+  let branch: string | null = null;
+  let oid: string | null = null;
+  let upstream: string | null = null;
+  let ahead: number | null = null;
+  let behind: number | null = null;
+  let changes = 0;
+  const files: GitSummaryFile[] = [];
+  const push = (f: GitSummaryFile) => {
+    changes++;
+    if (files.length < GIT_SUMMARY_MAX_FILES) files.push(f);
+  };
+  const entries = out.split('\0');
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (e.startsWith('# branch.head ')) {
+      const head = e.slice('# branch.head '.length).trim();
+      branch = head === '(detached)' ? null : head;
+    } else if (e.startsWith('# branch.oid ')) {
+      const o = e.slice('# branch.oid '.length).trim();
+      oid = o === '(initial)' ? null : o.slice(0, 7);
+    } else if (e.startsWith('# branch.upstream ')) {
+      upstream = e.slice('# branch.upstream '.length).trim() || null;
+    } else if (e.startsWith('# branch.ab ')) {
+      const m = /\+(\d+) -(\d+)/.exec(e);
+      if (m) {
+        ahead = Number(m[1]);
+        behind = Number(m[2]);
+      }
+    } else if (e.startsWith('1 ')) {
+      // 1 XY sub mH mI mW hH hI path
+      const parts = e.split(' ');
+      push({ path: parts.slice(8).join(' '), status: summaryStatus(parts[1]), staged: parts[1][0] !== '.' });
+    } else if (e.startsWith('2 ')) {
+      // 2 XY sub mH mI mW hH hI Xscore path, then origPath as its own entry
+      const parts = e.split(' ');
+      push({ path: parts.slice(9).join(' '), status: summaryStatus(parts[1]), staged: parts[1][0] !== '.' });
+      i++;
+    } else if (e.startsWith('u ')) {
+      // u XY sub m1 m2 m3 mW h1 h2 h3 path
+      push({ path: e.split(' ').slice(10).join(' '), status: 'U', staged: false });
+    } else if (e.startsWith('? ')) {
+      push({ path: e.slice(2), status: '?', staged: false });
+    }
+  }
+  return { root, branch: branch ?? oid, detached: branch === null, ahead, behind, changes, upstream, files };
 }
 
 /** Parse `git status --porcelain=v2 --branch` into the Shell header's git context. */

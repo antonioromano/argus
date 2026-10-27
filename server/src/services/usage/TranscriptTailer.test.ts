@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, renameSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { TranscriptTailer, isGithubPrUrl, type TranscriptFs } from './TranscriptTailer.js';
+import { TranscriptTailer, isGithubPrUrl, MAX_PR_URLS, type TranscriptFs } from './TranscriptTailer.js';
 
 function tmpFile(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-tailer-'));
@@ -262,8 +262,48 @@ test('ignores pr-link entries whose URL is not a github.com PR', async () => {
   const t = new TranscriptTailer(f);
   await t.poll();
   assert.equal(t.prUrl, 'https://github.com/o/r/pull/1');
-  assert.equal(TranscriptTailer.restore({ ...t.serialize(), prUrl: 'javascript:alert(1)' }).prUrl, undefined);
+  assert.equal(TranscriptTailer.restore({ ...t.serialize(), prUrls: undefined, prUrl: 'javascript:alert(1)' }).prUrl, undefined);
+  assert.deepEqual(
+    TranscriptTailer.restore({ ...t.serialize(), prUrls: ['https://evil.example/o/r/pull/2', 'https://github.com/o/r/pull/5'] }).prUrls,
+    ['https://github.com/o/r/pull/5'],
+  );
   assert.equal(isGithubPrUrl('https://github.com/o/r/pull/new/feat'), false);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('collects every pr-link, deduped, a re-linked PR moving to the end; persists the list', async () => {
+  const f = tmpFile();
+  const [a, b, c] = ['https://github.com/o/r/pull/1', 'https://github.com/o/s/pull/2', 'https://github.com/o/r/pull/3'];
+  writeFileSync(f, prLink(a) + prLink(b) + prLink(a) + prLink(c));
+  const t = new TranscriptTailer(f);
+  await t.poll();
+  assert.deepEqual(t.prUrls, [b, a, c]);
+  assert.equal(t.prUrl, c);
+  const state = JSON.parse(JSON.stringify(t.serialize()));
+  assert.deepEqual(state.prUrls, [b, a, c]);
+  assert.equal(state.prUrl, c, 'the single-PR field is still written for older builds');
+  assert.deepEqual(TranscriptTailer.restore(state).prUrls, [b, a, c]);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('restores state written before the PR list (prUrl only)', () => {
+  const t = new TranscriptTailer('/x.jsonl');
+  const legacy = { ...t.serialize(), prUrls: undefined, prUrl: 'https://github.com/o/r/pull/9' };
+  delete (legacy as { prUrls?: unknown }).prUrls;
+  assert.deepEqual(TranscriptTailer.restore(legacy).prUrls, ['https://github.com/o/r/pull/9']);
+  assert.equal('prUrls' in t.serialize() && t.serialize().prUrls !== undefined, false, 'no list written when empty');
+});
+
+test('keeps only the newest MAX_PR_URLS links', async () => {
+  const f = tmpFile();
+  let body = '';
+  for (let i = 1; i <= MAX_PR_URLS + 5; i++) body += prLink(`https://github.com/o/r/pull/${i}`);
+  writeFileSync(f, body);
+  const t = new TranscriptTailer(f);
+  await t.poll();
+  assert.equal(t.prUrls.length, MAX_PR_URLS);
+  assert.equal(t.prUrls[0], 'https://github.com/o/r/pull/6');
+  assert.equal(t.prUrl, `https://github.com/o/r/pull/${MAX_PR_URLS + 5}`);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
 

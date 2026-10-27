@@ -6,6 +6,7 @@ import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
+  ClaudeConversation,
   SessionInfo,
   SessionStatus,
   AgentSignalState,
@@ -20,6 +21,9 @@ import type {
   PromptOption,
   SessionStatusPayload,
   SessionPr,
+  SessionPrEntry,
+  SessionPrsResponse,
+  SessionPrDiffResponse,
   AppConfig,
   ActivityEvent,
 } from '@argus/shared';
@@ -60,9 +64,10 @@ import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
-import type { PrStatusService } from './PrStatusService.js';
+import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
 import { staleDays } from './worktreeLifecycle.js';
-import { SessionUsageTracker, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
 import {
   CodexRolloutTailer,
@@ -251,6 +256,8 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const PR_POLL_INTERVAL_MS = 30_000;
 /** Parallel `gh pr view` runs per sweep. */
 const PR_POLL_CONCURRENCY = 2;
+/** B3: most PRs one Inspector list request reads (the newest win). */
+export const SESSION_PRS_MAX = 20;
 /** Beta F8: re-read a worktree's last-commit time at most this often. Staleness
  *  is measured in days, so a 10 s git-poll tick needs no fresh `git log`. */
 const STALE_RECHECK_MS = 5 * 60_000;
@@ -403,6 +410,28 @@ export interface SessionReplayFrame {
  * Run `fn` over `items` with at most `limit` calls in flight. Resolves once all
  * have settled; `fn` is expected to handle its own errors.
  */
+/** The SessionPr fields the header chip renders (see pollPrStatus). */
+function chipKey(pr: SessionPr | null): string {
+  return pr ? `${pr.url}\0${pr.number}\0${pr.state}\0${pr.ci}\0${pr.branch}` : '';
+}
+
+/** PR URLs compared case-insensitively: GitHub owner/repo names are, and a
+ *  `pr-link` may spell them differently from gh's canonical URL. */
+const samePrUrl = (a: string, b: string | undefined): boolean => !!b && a.toLowerCase() === b.toLowerCase();
+
+/** sessionPrDiff's answer: the diff, or the HTTP status and message to reply with. */
+export type PrDiffOutcome =
+  | { ok: true; diff: SessionPrDiffResponse }
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+
+/** setSessionPrReady's answer (C3): the PR read again, or the HTTP status and message. */
+export type PrReadyOutcome =
+  | { ok: true; pr: SessionPr | null }
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+
+/** gh failure kind → HTTP status. */
+const GH_ERROR_STATUS = { unavailable: 503, timeout: 504, failed: 502 } as const;
+
 async function runBounded<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
   let next = 0;
   const worker = async (): Promise<void> => {
@@ -447,6 +476,8 @@ export class SessionManager {
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
   private prPollRunning = false;
+  /** A sweep was asked for while one was running (see pollPrStatus). */
+  private prPollAgain = false;
   private prPollTimer: ReturnType<typeof setInterval> | null = null;
   private prKickTimer: ReturnType<typeof setTimeout> | null = null;
   /** Beta F8 (`betaWorktreeLifecycle`): stale-worktree marker. Off ⇒ never computed. */
@@ -837,6 +868,15 @@ export class SessionManager {
   }
 
   /**
+   * C3: refresh the header chips after a write. A sweep already running may
+   * have read the PR before the write, so it is followed by one more.
+   */
+  private sweepPrsAfterWrite(): void {
+    if (this.prPollRunning) this.prPollAgain = true;
+    else void this.pollPrStatus();
+  }
+
+  /**
    * One PR/CI sweep: one lookup per folder per tick (sessions sharing a folder
    * share it; the service further dedupes per gitRoot+branch), bounded like the
    * git poll. Emits `session:pr` only when a session's answer changed.
@@ -868,11 +908,126 @@ export class SessionManager {
         if (JSON.stringify(prev) === JSON.stringify(pr)) return;
         if (pr) this.prMap.set(session.id, pr);
         else this.prMap.delete(session.id);
+        // Broadcast only what the chip shows: a title edit or GitHub recomputing
+        // mergeability after a push is not worth a re-render in every window.
+        if (chipKey(prev) === chipKey(pr)) return;
         this.io?.emit('session:pr', { sessionId: session.id, pr });
       });
     } finally {
       this.prPollRunning = false;
     }
+    if (this.prPollAgain) {
+      this.prPollAgain = false;
+      await this.pollPrStatus();
+    }
+  }
+
+  /**
+   * B3: every PR of a session for the Inspector's GitHub card, newest first —
+   * the ones its conversations created or pushed to (`pr-link`), plus the PR of
+   * the folder's branch, marked as such. Asked only while the card is open;
+   * every lookup goes through the PrStatusService cache and back-off, so the
+   * sweep and the card share `gh` answers. null: no such session.
+   */
+  async listSessionPrs(id: string): Promise<SessionPrsResponse | null> {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    if (!this.prService || !this.prEnabled) return { enabled: false, prs: [] };
+    const service = this.prService;
+    // `gh` runs only inside a folder Argus manages (path-scope containment).
+    const folder = this.resolveWithinAnySession(workRootOf(session));
+    if (!folder) return { enabled: true, prs: [] };
+
+    const prs = await this.sessionPrEntries(session, folder, service);
+    await runBounded(prs.filter((e) => !e.folderBranch), PR_POLL_CONCURRENCY, async (e) => {
+      e.pr = await service.forUrl(e.url, folder);
+    });
+    return { enabled: true, prs };
+  }
+
+  /**
+   * The PRs listSessionPrs shows, before their status is read: only the
+   * folder PR (one cached lookup) carries `pr`. Also the allow-list of PRs
+   * whose diff may be read (sessionPrDiff).
+   */
+  private async sessionPrEntries(session: ManagedSession, folder: string, service: PrStatusService): Promise<SessionPrEntry[]> {
+    const folderPr = await service.forFolder(folder);
+    const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
+    const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
+    // The newest SESSION_PRS_MAX, the folder PR always among them (in its own
+    // place when it is within the cap, else last: it is the oldest kept).
+    const prs = all.slice(0, SESSION_PRS_MAX);
+    const own = all.find((e) => e.folderBranch);
+    if (own && !prs.includes(own)) prs.splice(SESSION_PRS_MAX - 1, 1, own);
+    if (folderPr && !own) {
+      if (prs.length >= SESSION_PRS_MAX) prs.pop();
+      prs.unshift({ url: folderPr.url, pr: folderPr, folderBranch: true, linked: false });
+    }
+    if (own) own.pr = folderPr;
+    return prs;
+  }
+
+  /**
+   * B4: the changed files and diff of one of the session's PRs. `url` is only
+   * matched against the session's own PR list (listSessionPrs) — the one gh
+   * is handed comes from that list, never from the request — and gh runs in
+   * the session's work root, resolved through pathScope.
+   */
+  async sessionPrDiff(id: string, url: string): Promise<PrDiffOutcome> {
+    const found = await this.findSessionPr(id, url);
+    if (!found.ok) return found;
+    try {
+      return { ok: true, diff: await found.service.prDiff(found.url, found.folder) };
+    } catch (err) {
+      if (!(err instanceof PrDiffError)) throw err;
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+    }
+  }
+
+  /**
+   * C3: mark one of the session's PRs ready for review (`gh pr ready`), or
+   * back to draft (`--undo`). The first route that writes to GitHub, so it is
+   * held to the same allow-list as the diff: only a URL of the session's own
+   * PR list, run in its work root. Answers the PR read again (the service
+   * dropped its cached readings) and refreshes the header chips right away.
+   */
+  async setSessionPrReady(id: string, url: string, ready: boolean): Promise<PrReadyOutcome> {
+    const found = await this.findSessionPr(id, url);
+    if (!found.ok) return found;
+    try {
+      await found.service.setReady(found.url, found.folder, ready);
+    } catch (err) {
+      if (!(err instanceof PrWriteError)) throw err;
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+    }
+    const pr = await found.service.forUrl(found.url, found.folder);
+    this.sweepPrsAfterWrite();
+    return { ok: true, pr };
+  }
+
+  /**
+   * The session's own spelling of `url` when it is one of its PRs
+   * (listSessionPrs), with the service and the work root gh runs in
+   * (resolved through pathScope). The URL gh is handed comes from that list,
+   * never from the request.
+   */
+  private async findSessionPr(id: string, url: string): Promise<
+    | { ok: true; url: string; folder: string; service: PrStatusService }
+    | { ok: false; status: 404 | 409; error: string }
+  > {
+    const session = this.sessions.get(id);
+    if (!session) return { ok: false, status: 404, error: 'Session not found' };
+    if (!this.prService || !this.prEnabled) return { ok: false, status: 409, error: 'Pull request status is off' };
+    const service = this.prService;
+    const folder = this.resolveWithinAnySession(workRootOf(session));
+    if (!folder) return { ok: false, status: 404, error: 'The session folder is not available' };
+    // The newest SESSION_PRS_MAX - 1 linked PRs are always in the list (only its
+    // last slot can go to the folder PR), so they need no folder lookup.
+    const recent = (session.usage?.linkedPrUrls() ?? []).slice(-(SESSION_PRS_MAX - 1));
+    const listed = recent.find((u) => samePrUrl(url, u))
+      ?? (await this.sessionPrEntries(session, folder, service)).find((e) => samePrUrl(url, e.url))?.url;
+    if (!listed) return { ok: false, status: 404, error: 'Not a pull request of this session' };
+    return { ok: true, url: listed, folder, service };
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
@@ -1760,6 +1915,9 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // Before the write, so a command recorded at once still finds its echo. Not
+    // at a menu: there the text answers the menu, it does not run a command.
+    if (session.status !== 'waiting') session.usage?.echoChatInput(text);
     write(chatInputBytes(text), BROADCAST_ENTER_DELAY_MS);
     write('\r');
     for (let i = 0; i < CHAT_ENTER_RETRIES; i++) {
@@ -1768,6 +1926,20 @@ export class SessionManager {
       write('\r');
     }
     return true;
+  }
+
+  /**
+   * Earlier Claude conversations of a Claude session's folder, newest first
+   * (the Chat view's /resume picker). Looks in the current transcript's
+   * project dir and in the one Claude Code derives from the session folder.
+   * Undefined for an unknown or non-Claude session.
+   */
+  async listConversations(id: string): Promise<ClaudeConversation[] | undefined> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude') return undefined;
+    const roots = transcriptRoots();
+    const dirs = conversationDirs(session.usage?.currentTranscript(), workRootOf(session), roots);
+    return listClaudeConversations(dirs, { currentId: session.claudeSessionId, roots });
   }
 
   /** A Chat view closed; the last one stops the feed and frees its messages. */
