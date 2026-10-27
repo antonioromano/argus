@@ -1477,7 +1477,10 @@ function surfaceFailedInstall(): void {
   try { exitCode = readFileSync(failMarker, 'utf8').trim(); } catch { /* ignore */ }
   const logFile = join(app.getPath('userData'), 'update.log');
   const shell = process.env.SHELL || '/bin/zsh';
-  execFile(shell, ['-l', '-c', buildCaskCurrentCheck(UPDATE_CASK)], (err) => {
+  // execFile has no default timeout: a held brew lock or a blocking rc file would
+  // park the login shell and swallow a real failure. A timeout sets `err`, so a
+  // hang falls through to the dialog (fails closed).
+  execFile(shell, ['-l', '-c', buildCaskCurrentCheck(UPDATE_CASK)], { timeout: 15000, killSignal: 'SIGKILL' }, (err) => {
     if (!err) {
       try { appendFileSync(logFile, `[argus-update] ${new Date().toISOString()} failure marker ignored: argus is current\n`); } catch { /* best-effort */ }
       try { unlinkSync(failMarker); } catch { /* best-effort */ }
