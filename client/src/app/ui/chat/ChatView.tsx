@@ -30,6 +30,8 @@ interface Pending {
   /** Stop was pressed while it was still unrecorded. */
   stopped?: boolean;
 }
+/** Matches the notice ChatTail makes of Claude Code's "[Request interrupted by user]". */
+const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
 let pendingSeq = 0;
 /** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
@@ -68,6 +70,9 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const [resumeOpen, setResumeOpen] = useState(false);
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
   const [pending, setPending] = useState<Pending[]>([]);
+  /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
+  const [stoppedId, setStoppedId] = useState<string | null>(null);
+  const userCount = useMemo(() => chat.messages.filter((m) => m.role === 'user').length, [chat.messages]);
   const [stopAsked, setStopAsked] = useState(false);
   const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const running = session.status === 'running';
@@ -78,6 +83,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
     setStopAsked(true);
     setPending((cur) => cur.map((p) => ({ ...p, stopped: true })));
+    const lastUser = chat.messages.findLast((m) => m.role === 'user');
+    setStoppedId(pending.some((p) => p.at > userCount) ? null : (lastUser?.id ?? null));
     clearTimeout(stopTimer.current);
     stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
   };
@@ -87,21 +94,30 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     if (!running) setStopAsked(false);
   }, [running]);
 
-  const userCount = useMemo(() => chat.messages.filter((m) => m.role === 'user').length, [chat.messages]);
   // A prompt drops out once the transcript holds that many user messages.
   const shown = useMemo(() => pending.filter((p) => p.at > userCount), [pending, userCount]);
   useEffect(() => {
     // Prune what the transcript has caught up with.
     if (shown.length !== pending.length) setPending(shown);
   }, [shown, pending.length]);
+  const recorded = useMemo(() => {
+    const i = stoppedId && !stopping ? chat.messages.findIndex((m) => m.id === stoppedId) : -1;
+    if (i < 0) return chat.messages;
+    // Stopped mid-reply, Claude Code records its own "Stopped"; a reply with no
+    // marker means the turn had already ended and Stop had nothing to stop.
+    if (chat.messages.slice(i + 1).some((m) => m.role === 'assistant' || m.role === 'system')) return chat.messages;
+    const out = chat.messages.slice();
+    out[i] = { ...out[i], blocks: [...out[i].blocks, STOPPED_MARK] };
+    return out;
+  }, [chat.messages, stoppedId, stopping]);
   const messages = useMemo<ChatMessage[]>(
     () =>
       shown.length === 0
-        ? chat.messages
-        : chat.messages.concat(
+        ? recorded
+        : recorded.concat(
             shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
           ),
-    [chat.messages, shown, stopping],
+    [recorded, shown, stopping],
   );
   const pendingIds = new Set(shown.map((p) => p.id));
   /**

@@ -385,6 +385,27 @@ describe('ChatView', () => {
       expect(last[last.length - 1].textContent).toContain('Stopped before Claude recorded it');
     });
 
+    it('a recorded prompt stopped before any reply is marked "Stopped"', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      act(() => stopButton().click());
+      expect(container.textContent).not.toContain('Stopped');
+      render(session({ status: 'idle' }), socket);
+      const mine = container.querySelectorAll('.argus-chat-msg.is-user');
+      expect(mine[mine.length - 1].querySelector('.argus-chat-notice')?.textContent).toContain('Stopped');
+    });
+
+    it('no client mark once Claude replied: the turn had ended, or Claude Code marks it itself', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      act(() => stopButton().click());
+      fire('session:chat', update({ messages: [...history, { id: 'a1', role: 'assistant', blocks: [{ kind: 'text', text: 'done' }] }] }));
+      render(session({ status: 'idle' }), socket);
+      expect(container.querySelector('.argus-chat-msg.is-user .argus-chat-notice')).toBeNull();
+    });
+
     it('gives the Stop button back when the turn keeps running', () => {
       vi.useFakeTimers();
       const { socket } = fakeSocket();

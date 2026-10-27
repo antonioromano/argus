@@ -20,7 +20,7 @@ const MAX_NAME = 80;
 const TRUNCATED = '\n\n… (truncated)';
 
 /** Harness-only wrappers stripped from user text (never typed by the user). */
-const HIDDEN_TAGS = ['system-reminder', 'local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'bash-stdout', 'bash-stderr'];
+const HIDDEN_TAGS = ['system-reminder', 'task-notification', 'local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'bash-stdout', 'bash-stderr'];
 const HIDDEN_RE = new RegExp(`<(${HIDDEN_TAGS.join('|')})>[\\s\\S]*?</\\1>`, 'g');
 /** Claude Code wraps a pasted text in `<pasted_content id="…">…</pasted_content id="…">`; the text is kept. */
 const PASTED_RE = /<pasted_content\b[^>]*>\n?([\s\S]*?)\n?<\/pasted_content\b[^>]*>/g;
@@ -30,6 +30,9 @@ const IMAGE_REF_RE = /\[Image #\d+\][ \t]*/g;
 const ARGUS_IMAGE_RE = /(?:"[^"\n]*|[^\s"]*)\/argus-chat-images\/[\w-]+\.(?:png|jpe?g|gif|webp)"?[ \t]*/g;
 /** An absolute image path in a prompt (an attached file Claude Code reads as an image). */
 const IMAGE_PATH_RE = /"(\/[^"\n]+\.(?:png|jpe?g|gif|webp))"|(?<![^\s])(\/[^\s"]+\.(?:png|jpe?g|gif|webp))(?![^\s])/gi;
+/** What Claude Code records when a turn is stopped mid-reply. */
+const INTERRUPTED_RE = /^\[Request interrupted by user[^\]\n]*\]$/;
+const STOPPED_TEXT = 'Stopped';
 /** Command output wrappers, shown as collapsed output blocks. */
 const OUTPUT_RE = /<(local-command|bash)-(stdout|stderr)>([\s\S]*?)<\/\1-\2>/g;
 /** Claude Code writes command output as the whole entry, so the wrapper opens it. */
@@ -100,6 +103,7 @@ function userStringBlocks(raw: string): ChatBlock[] {
   if (command) return [{ kind: 'command', ...command }];
   if (HAS_OUTPUT_RE.test(raw)) return outputsOf(raw);
   const text = cleanUserText(raw);
+  if (INTERRUPTED_RE.test(text)) return [{ kind: 'notice', text: STOPPED_TEXT }];
   return text ? [{ kind: 'text', text: clip(text) }] : [];
 }
 
@@ -126,7 +130,8 @@ function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
       case 'text': {
         if (typeof b.text !== 'string') break;
         const text = role === 'user' ? cleanUserText(b.text, hasImage) : b.text.trim();
-        if (text) out.push({ kind: 'text', text: clip(text) });
+        if (role === 'user' && INTERRUPTED_RE.test(text)) out.push({ kind: 'notice', text: STOPPED_TEXT });
+        else if (text) out.push({ kind: 'text', text: clip(text) });
         break;
       }
       case 'tool_use':
@@ -228,7 +233,7 @@ export function parseChatEntry(text: string): ChatMessage | undefined {
 /** Commands are the user's; output and notices belong to neither side. */
 function roleOf(type: 'user' | 'assistant', blocks: ChatBlock[]): ChatMessage['role'] {
   if (type === 'assistant') return 'assistant';
-  return blocks.every((b) => b.kind === 'output') ? 'system' : 'user';
+  return blocks.every((b) => b.kind === 'output' || b.kind === 'notice') ? 'system' : 'user';
 }
 
 function withMeta(entry: any, role: ChatMessage['role'], blocks: ChatBlock[]): ChatMessage {

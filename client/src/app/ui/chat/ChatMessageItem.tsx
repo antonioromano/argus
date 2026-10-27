@@ -2,7 +2,7 @@ import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatBlock, ChatMessage } from '@argus/shared';
-import { Image as ImageIcon, Wrench, HelpCircle, ChevronRight, Info } from 'lucide-react';
+import { Image as ImageIcon, Wrench, HelpCircle, ChevronRight, Info, CircleStop } from 'lucide-react';
 import { Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
 import { api } from '../../../services/api.js';
@@ -121,12 +121,15 @@ function Block({ block, user }: { block: ChatBlock; user: boolean }) {
           <pre className="argus-chat-output-text">{block.text}</pre>
         </details>
       );
-    case 'notice':
+    case 'notice': {
+      // A stopped turn (F3) reads as a stop, not as information.
+      const stopped = block.text.startsWith('Stopped');
       return (
-        <span className="argus-chat-notice">
-          <Icon icon={Info} size={12} aria-hidden /> {block.text}
+        <span className={`argus-chat-notice${stopped ? ' is-stopped' : ''}`}>
+          <Icon icon={stopped ? CircleStop : Info} size={12} aria-hidden /> {block.text}
         </span>
       );
+    }
     default:
       return (
         <span className="argus-chat-chip argus-chat-chip-muted" title="Not shown in the Chat view — see the terminal">

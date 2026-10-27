@@ -2180,6 +2180,7 @@ body {
   overflow-wrap: anywhere;
 }
 .argus-chat-notice { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-3); }
+.argus-chat-notice.is-stopped { color: var(--fg-1); }
 .argus-chat-jump {
   all: unset;
   position: absolute;

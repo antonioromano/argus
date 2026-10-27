@@ -215,6 +215,10 @@ interface ManagedSession {
   permissionMode?: string;
   /** Called with the bottom rows of the next settled screen (mode switch, chat submit). */
   settleWaiters?: Set<(rows: string[]) => void>;
+  /** Bottom rows of the last settled screen. */
+  settledRows?: string[];
+  /** The last text a Chat view typed into Claude's prompt. */
+  lastChatInput?: string;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
@@ -225,6 +229,8 @@ const MODE_SWITCH_TIMEOUT_MS = 2_500;
 const CHAT_SUBMIT_CHECK_MS = 2_000;
 /** Chat submit: extra Enters pressed when the text is still in the input box. */
 const CHAT_ENTER_RETRIES = 2;
+/** Clears Claude Code's input box (with text in it; it only warns on an empty one). */
+const CLEAR_INPUT_KEY = '\x03';
 /** Longest Chat view message accepted (characters). */
 const MAX_CHAT_INPUT = 100_000;
 
@@ -1862,6 +1868,7 @@ export class SessionManager {
       session.permissionMode = mode;
       if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
     }
+    session.settledRows = rows;
     const waiters = session.settleWaiters;
     session.settleWaiters = undefined;
     waiters?.forEach((w) => w(rows));
@@ -1915,6 +1922,17 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // A stopped turn puts its prompt back into Claude's input box, out of the
+    // Chat view's sight: typing now would append to it (and send both). Clear
+    // it first, but only text this view sent, and never mid-turn or at a menu,
+    // where Ctrl+C means something else.
+    const idle = session.status === 'idle' || session.status === 'done';
+    if (idle && session.lastChatInput && session.settledRows && inputStillPending(session.settledRows, session.lastChatInput)) {
+      write(CLEAR_INPUT_KEY);
+      await this.nextSettle(session, CHAT_SUBMIT_CHECK_MS);
+      if (this.sessions.get(id) !== session) return false;
+    }
+    session.lastChatInput = text;
     // Before the write, so a command recorded at once still finds its echo. Not
     // at a menu: there the text answers the menu, it does not run a command.
     if (session.status !== 'waiting') session.usage?.echoChatInput(text);
