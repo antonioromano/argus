@@ -45,7 +45,7 @@ describe('IntroSheet — What’s new', () => {
     expect(title()).toContain('Find in Files, highlighted everywhere');
     next();
     expect(title()).toContain('An icon for every macOS style');
-    for (const style of ['Default', 'Dark', 'Tinted', 'Clear']) expect(title()).toContain(style);
+    for (const style of ['Default', 'Dark', 'Tinted', 'Clear']) expect(document.querySelector(`img[alt="Argus icon, ${style} style"]`)).toBeTruthy();
     expect(document.querySelector('[aria-label="Step 5 of 5"]')).toBeTruthy();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     expect(title()).not.toContain('Pick your terminal');

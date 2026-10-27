@@ -10,6 +10,10 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { KIND_LABEL, kindOf, settingsFor, type TerminalKind } from '../ui/terminalKind.js';
 import type { IntroFlow } from './intro.js';
 import chatViewShot from './assets/chat-view.webp';
+import appIconDefault from './assets/app-icon-default.webp';
+import appIconDark from './assets/app-icon-dark.webp';
+import appIconTinted from './assets/app-icon-tinted.webp';
+import appIconClear from './assets/app-icon-clear.webp';
 
 export interface IntroResult {
   /** Present when the user kept "Use … for new shells" ticked on the terminal step. */
@@ -96,7 +100,7 @@ export function IntroSheet({
         },
         {
           title: 'An icon for every macOS style',
-          text: 'The Argus icon is now a layered macOS icon, so it follows the Dock and Finder style you pick: Default, Dark with the amber glyph, Tinted and Clear.',
+          text: 'The Argus icon is now a layered macOS icon, so it follows the icon style you pick in System Settings → Appearance: Default, Dark with the amber glyph, Tinted and Clear.',
           body: <AppIconPicture />,
         },
       ];
@@ -472,52 +476,25 @@ function FindPicture() {
   );
 }
 
-// The Argus app icon: the crest and helmet layers of electron/assets/Argus.icon
-// (1024 canvas, drawn at 2x like the source SVGs).
-const CREST = 'M 238 18 Q 256 14 274 18 L 328 108 L 184 108 Z';
-const HELMET = 'M 128 168 Q 256 -22 384 168 L 440 168 L 440 328 Q 428 412 346 442 Q 312 454 256 456 Q 200 454 166 442 Q 84 412 72 328 L 72 168 Z '
-  + 'M 142 214 H 226 Q 236 214 236 224 V 250 Q 236 260 226 260 H 142 Q 132 260 132 250 V 224 Q 132 214 142 214 Z '
-  + 'M 286 214 H 370 Q 380 214 380 224 V 250 Q 380 260 370 260 H 286 Q 276 260 276 250 V 224 Q 276 214 286 214 Z';
-
 /**
- * The four system appearances, filled as icon.json fills them. These are the
- * icon's own brand colours, not theme tokens: the Dock icon looks the same
- * whichever theme Argus uses. Tinted and Clear are macOS's renderings,
- * approximated with a blue tint and a frosted tile over a wallpaper.
+ * The app icon in four macOS styles, exported from electron/assets/Argus.icon
+ * with Icon Composer's ictool (144px WebP) — the system's own renderings,
+ * so they keep their colours whatever theme Argus uses.
  */
-const ICON_STYLES: { label: string; tile: string; glyph: string }[] = [
-  { label: 'Default', tile: '#FFB454', glyph: '#1A1A1A' },
-  { label: 'Dark', tile: '#1A1A1A', glyph: '#FFB454' },
-  { label: 'Tinted', tile: 'linear-gradient(160deg, #3A4F78, #1C2740)', glyph: '#D6E4FF' },
-  { label: 'Clear', tile: 'rgba(255, 255, 255, 0.22)', glyph: 'rgba(255, 255, 255, 0.9)' },
+const ICON_STYLES = [
+  { label: 'Default', src: appIconDefault },
+  { label: 'Dark', src: appIconDark },
+  { label: 'Tinted', src: appIconTinted },
+  { label: 'Clear', src: appIconClear },
 ];
 
 function AppIconPicture() {
   return (
     <Centered>
-      <div style={{ display: 'flex', gap: 22 }}>
-        {ICON_STYLES.map(({ label, tile, glyph }) => (
+      <div style={{ display: 'flex', gap: 24 }}>
+        {ICON_STYLES.map(({ label, src }) => (
           <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-            {/* Clear is glass: give it a wallpaper to show through. */}
-            <div style={{
-              padding: 6, borderRadius: 'var(--r-3)',
-              background: label === 'Clear' ? 'linear-gradient(135deg, #C2603A, #6C4BA8 55%, #2E7BA6)' : 'transparent',
-            }}
-            >
-              <div style={{
-                width: scaledPx(72), height: scaledPx(72), borderRadius: '22.5%', background: tile,
-                boxShadow: '0 4px 12px rgba(0,0,0,.25), inset 0 0 0 1px rgba(255,255,255,.12)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              >
-                <svg viewBox="0 0 1024 1024" aria-hidden style={{ width: '78%', height: '78%' }}>
-                  <g transform="scale(2)" fill={glyph}>
-                    <path d={CREST} />
-                    <path d={HELMET} fillRule="evenodd" />
-                  </g>
-                </svg>
-              </div>
-            </div>
+            <img src={src} alt={`Argus icon, ${label} style`} style={{ width: scaledPx(72), height: scaledPx(72) }} />
             <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>{label}</span>
           </div>
         ))}
