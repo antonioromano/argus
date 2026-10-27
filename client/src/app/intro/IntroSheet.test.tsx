@@ -30,18 +30,28 @@ const title = () => document.body.textContent ?? '';
 const next = (n = 1) => { for (let i = 0; i < n; i++) act(() => button('Next').click()); };
 
 describe('IntroSheet — What’s new', () => {
-  it('shows only the Chat view slide, without the terminal step or beta opt-ins', () => {
+  it('walks the four release slides, without the terminal step or beta opt-ins', () => {
     render('whatsNew');
     expect(title()).toContain('Chat view for Claude shells');
     expect(document.querySelector('img[alt^="A Claude shell in Focus"]')).toBeTruthy();
-    expect(document.querySelector('[aria-label="Step 1 of 1"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="Step 1 of 4"]')).toBeTruthy();
+    next();
+    expect(title()).toContain('Session Inspector');
+    expect(title()).toContain('⌘I');
+    next();
+    expect(title()).toContain('Your session’s pull requests');
+    expect(title()).toContain('Mark ready');
+    next();
+    expect(title()).toContain('Find in Files, highlighted everywhere');
+    expect(document.querySelector('[aria-label="Step 4 of 4"]')).toBeTruthy();
     expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     expect(title()).not.toContain('Pick your terminal');
-    expect(title()).not.toContain('Plan usage in the shell header');
+    expect(() => button('Next')).toThrow();
   });
 
   it('Done and Skip both close it with nothing to apply', () => {
     const onDone = render('whatsNew');
+    next(3);
     act(() => button('Done').click());
     expect(onDone).toHaveBeenCalledWith({});
     const onSkip = render('whatsNew');
