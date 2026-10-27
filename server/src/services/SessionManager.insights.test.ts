@@ -168,17 +168,71 @@ test('a repaint that changes the menu re-announces the options; an identical one
   rmSync(dataDir, { recursive: true, force: true });
 });
 
-test('checkPromptAnswer re-reads the screen and refuses a digit the menu no longer has', () => {
+test('answerPrompt re-reads the screen and refuses a key the menu no longer has', () => {
   const { sm, dataDir } = mgr();
-  let options: Array<{ key: string; label: string }> | undefined = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
-  const s = inject(sm, { status: 'waiting', stateDetector: { getMenuOptions: () => options } });
-  assert.equal(sm.checkPromptAnswer('s', '2'), null);
-  assert.match(sm.checkPromptAnswer('s', '3')!, /prompt changed/);
-  assert.match(sm.checkPromptAnswer('s', '1; rm')!, /Invalid choice/);
-  options = undefined; // the menu went away
-  assert.match(sm.checkPromptAnswer('s', '1')!, /prompt changed/);
+  let menu: { options: Array<{ key: string; label: string }> } | undefined = { options: [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }] };
+  const s = inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
+  const writes: Array<[string, number | undefined]> = [];
+  const answer = (key: unknown, text?: unknown) => sm.answerPrompt('s', key, text, (d, p) => writes.push([d, p]));
+  assert.equal(answer('2'), null);
+  assert.deepEqual(writes, [['2', undefined]]);
+  assert.match(answer('3')!, /prompt changed/);
+  assert.match(answer('1; rm')!, /Invalid choice/);
+  assert.match(answer('next')!, /prompt changed/, 'next is for multiSelect questions only');
+  assert.match(answer('1', 'hello')!, /prompt changed/, 'text only for a free-text option');
+  menu = undefined; // the menu went away
+  assert.match(answer('1')!, /prompt changed/);
   s.status = 'running';
-  assert.match(sm.checkPromptAnswer('s', '1')!, /no longer waiting/);
-  assert.match(sm.checkPromptAnswer('nope', '1')!, /not found/);
+  assert.match(answer('1')!, /no longer waiting/);
+  assert.match(sm.answerPrompt('nope', '1', undefined, () => {})!, /not found/);
+  assert.equal(writes.length, 1, 'nothing typed for a refused answer');
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('answerPrompt types a free-text answer: digit, the text on one line, then Enter', () => {
+  const { sm, dataDir } = mgr();
+  const menu = { options: [{ key: '1', label: 'Red' }, { key: '2', label: 'Type something.', freeText: true }] };
+  inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
+  const writes: Array<[string, number | undefined]> = [];
+  const answer = (key: unknown, text?: unknown) => sm.answerPrompt('s', key, text, (d, p) => writes.push([d, p]));
+  assert.equal(answer('2', '  purple\nish\x1b[A '), null);
+  assert.deepEqual(writes.map(([d]) => d), ['2', 'purple ish [A', '\r']);
+  assert.ok(writes[0]![1]! > 0 && writes[1]![1]! > 0, 'each key read on its own');
+  assert.match(answer('2', '   ')!, /Type an answer/);
+  assert.match(answer('2', 42)!, /Invalid answer/);
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('answerPrompt: multiSelect toggles with the digit and Continue sends Tab; its free text stays in the terminal', () => {
+  const { sm, dataDir } = mgr();
+  const menu = { options: [
+    { key: '1', label: 'Apple', checked: false },
+    { key: '2', label: 'Type something', checked: false, freeText: true },
+  ] };
+  inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
+  const writes: string[] = [];
+  const answer = (key: unknown, text?: unknown) => sm.answerPrompt('s', key, text, (d) => writes.push(d));
+  assert.equal(answer('1'), null);
+  assert.equal(answer('next'), null);
+  assert.deepEqual(writes, ['1', '\t']);
+  assert.match(answer('2', 'pear')!, /prompt changed/);
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+test('answerPrompt: an unnumbered menu (trust prompt) is answered with arrows from the cursor, then Enter', () => {
+  const { sm, dataDir } = mgr();
+  let menu = { options: [{ key: '1', label: 'No, exit' }, { key: '2', label: 'Yes, I trust this folder' }], cursor: 0 };
+  inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
+  const writes: string[] = [];
+  const answer = (key: string) => sm.answerPrompt('s', key, undefined, (d) => writes.push(d));
+  assert.equal(answer('2'), null);
+  assert.deepEqual(writes, ['\x1b[B', '\r']);
+  writes.length = 0;
+  menu = { ...menu, cursor: 1 };
+  assert.equal(answer('1'), null);
+  assert.deepEqual(writes, ['\x1b[A', '\r']);
+  writes.length = 0;
+  assert.equal(answer('2'), null);
+  assert.deepEqual(writes, ['\r'], 'already on it: just Enter');
   rmSync(dataDir, { recursive: true, force: true });
 });

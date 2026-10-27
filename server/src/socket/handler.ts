@@ -346,12 +346,10 @@ export function setupSocketHandler(
 
     socket.on('session:answer', (payload, ack) => {
       const reply = typeof ack === 'function' ? ack : () => {};
-      const { sessionId, key } = (payload ?? {}) as { sessionId?: unknown; key?: unknown };
+      const { sessionId, key, text } = (payload ?? {}) as { sessionId?: unknown; key?: unknown; text?: unknown };
       if (typeof sessionId !== 'string') { reply({ ok: false, error: 'Invalid request' }); return; }
-      const error = manager.checkPromptAnswer(sessionId, key);
-      if (error) { reply({ ok: false, error }); return; }
-      inputQueue.write(sessionId, key as string);
-      reply({ ok: true });
+      const error = manager.answerPrompt(sessionId, key, text, (data, pauseAfter) => inputQueue.write(sessionId, data, pauseAfter));
+      reply(error ? { ok: false, error } : { ok: true });
     });
 
     socket.on('session:resize', ({ sessionId, cols: rawCols, rows: rawRows }) => {

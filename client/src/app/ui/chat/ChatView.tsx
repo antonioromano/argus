@@ -267,11 +267,12 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           <ChatPromptCard
             // A new menu (other options) starts with no stale error.
             key={JSON.stringify(session.promptOptions ?? null)}
-            prompt={session.lastPrompt}
+            prompt={session.promptQuestion ?? session.lastPrompt}
             options={session.promptOptions}
-            onAnswer={(key) =>
+            onAnswer={(key, text) =>
               new Promise<string | null>((resolve) => {
-                socket.emit('session:answer', { sessionId: session.id, key }, (r) => resolve(r.ok ? null : r.error));
+                const payload = text === undefined ? { sessionId: session.id, key } : { sessionId: session.id, key, text };
+                socket.emit('session:answer', payload, (r) => resolve(r.ok ? null : r.error));
               })
             }
             onCancel={() => socket.emit('session:input', { sessionId: session.id, data: '\x1b' })}

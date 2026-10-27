@@ -375,8 +375,10 @@ export interface SessionInfo {
   claudeSessionId?: string;
   /** Epoch ms the session entered `waiting`; set only while waiting. */
   waitingSince?: number;
-  /** While waiting: the numbered menu choices on screen, when they could be read reliably. */
+  /** While waiting: the menu choices on screen, when they could be read reliably. */
   promptOptions?: PromptOption[];
+  /** With promptOptions: the menu's question as shown on screen (lastPrompt may be a hook's generic text). */
+  promptQuestion?: string;
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
   /** Beta F8: days since the worktree branch's last commit, set only once it
@@ -723,11 +725,15 @@ export interface SessionPrReadyResponse {
   pr: SessionPr | null;
 }
 
-/** One numbered choice of a waiting agent's selection menu. Sending `key`
- *  (a single digit) to the session picks it. */
+/** One choice of a waiting agent's selection menu, answered through
+ *  `session:answer` with its `key` (a single digit). */
 export interface PromptOption {
   key: string;
   label: string;
+  /** multiSelect question: whether the option is ticked (its key toggles it). */
+  checked?: boolean;
+  /** Free-text choice ("Type something."): answered with `key` plus the typed `text`. */
+  freeText?: boolean;
 }
 
 /**
@@ -1008,7 +1014,7 @@ export interface ClientToServerEvents {
   /** Type the same text into several sessions at once (validated + rate-limited server-side). */
   'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
   /** Answer a waiting numbered menu with one digit; refused unless that option is on screen now. */
-  'session:answer': (payload: { sessionId: string; key: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
+  'session:answer': (payload: { sessionId: string; key: string; text?: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */
   /** Start receiving `session:chat` updates for a Claude session (B1 Chat view). */
@@ -1060,6 +1066,7 @@ export interface SessionStatusPayload {
   /** See SessionInfo.waitingSince / promptOptions — present only while waiting. */
   waitingSince?: number;
   promptOptions?: PromptOption[];
+  promptQuestion?: string;
 }
 
 export interface ServerToClientEvents {

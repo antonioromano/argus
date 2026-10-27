@@ -2296,6 +2296,8 @@ body {
 .argus-chat-prompt-text { color: var(--fg-0); font-size: var(--t-sm); overflow-wrap: anywhere; }
 .argus-chat-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .argus-chat-prompt-error { font-size: var(--t-xs); color: var(--danger); }
+.argus-chat-prompt-free { display: flex; align-items: center; gap: var(--s-2); }
+.argus-chat-prompt-free > .text-input-wrap { flex: 1; min-width: 0; }
 .argus-chat-composer-box:focus-within,
 .argus-chat-composer-box.is-drag-over { border-color: var(--accent-edge); }
 .argus-chat-composer textarea {

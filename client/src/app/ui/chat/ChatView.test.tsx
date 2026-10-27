@@ -155,6 +155,28 @@ describe('ChatView', () => {
     expect(container.textContent).not.toContain('y · accept');
   });
 
+  it('prefers the menu question read off the screen and sends a free-text answer with its text', () => {
+    const { socket, fire, emitted } = fakeSocket();
+    render(session({
+      status: 'waiting',
+      lastPrompt: 'Claude needs your permission',
+      promptQuestion: 'Tea or coffee?',
+      promptOptions: [{ key: '1', label: 'Tea' }, { key: '2', label: 'Type something.', freeText: true }],
+    }), socket);
+    fire('session:chat', update({}));
+    const card = container.querySelector('[data-testid="chat-prompt"]')!;
+    expect(card.textContent).toContain('Tea or coffee?');
+    expect(card.textContent).not.toContain('needs your permission');
+    act(() => Array.from(card.querySelectorAll('button')).find((b) => b.textContent?.includes('Type something'))!.click());
+    const input = card.querySelector<HTMLInputElement>('[data-testid="chat-prompt-free"] input')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'matcha');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(emitted.find(([ev]) => ev === 'session:answer')?.[1]).toEqual({ sessionId: 's1', key: '2', text: 'matcha' });
+  });
+
   it('an answer with no reply frees the buttons again with an error', async () => {
     vi.useFakeTimers();
     const { socket, fire } = fakeSocket(); // its emit never calls the ack
