@@ -22,7 +22,7 @@ export interface IntroResult {
   openCreate?: boolean;
   /** Beta features to switch on (no What's new step offers this right now). */
   betaFlags?: Partial<Record<BetaFlag, true>>;
-  /** What's new: "Open Claude shells in Chat by default" was changed from the current setting. */
+  /** What's new: "Open Claude shells in Chat by default" was ticked. */
   defaultSessionView?: SessionViewMode;
 }
 
@@ -41,14 +41,13 @@ export function IntroSheet({
 }: {
   flow: IntroFlow;
   version: string;
-  config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine' | 'defaultSessionView'> | null;
+  config: Pick<AppConfig, 'defaultRunMode' | 'defaultTerminalEngine'> | null;
   onDone: (result: IntroResult) => void;
 }) {
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<TerminalKind>(kindOf(config?.defaultRunMode, config?.defaultTerminalEngine));
   const [makeDefault, setMakeDefault] = useState(true);
-  const chatNow = config?.defaultSessionView === 'chat';
-  const [chatDefault, setChatDefault] = useState(chatNow);
+  const [chatDefault, setChatDefault] = useState(false);
 
   const terminalStep: Step = {
     title: 'Pick your terminal',
@@ -118,10 +117,9 @@ export function IntroSheet({
       ];
 
   const last = step === steps.length - 1;
-  // The box starts at the current setting; Done, Skip and Esc all save a change
-  // to it, since toggling it is an explicit choice.
-  const whatsNewResult = (): IntroResult =>
-    (flow === 'whatsNew' && chatDefault !== chatNow ? { defaultSessionView: chatDefault ? 'chat' : 'terminal' } : {});
+  // The box starts unticked and only ever turns Chat on; Done, Skip and Esc all
+  // honour a tick, since ticking it is an explicit choice.
+  const whatsNewResult = (): IntroResult => (flow === 'whatsNew' && chatDefault ? { defaultSessionView: 'chat' } : {});
   const finish = () => {
     if (flow === 'welcome') {
       onDone({ defaults: makeDefault ? settingsFor(kind) : undefined, openCreate: true });

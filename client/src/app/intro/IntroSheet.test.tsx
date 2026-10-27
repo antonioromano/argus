@@ -15,8 +15,8 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); c.remove(); });
 
-function render(flow: IntroFlow, onDone = vi.fn(), defaultSessionView: 'terminal' | 'chat' = 'terminal') {
-  act(() => root.render(<IntroSheet flow={flow} version="0.24.0" config={{ defaultRunMode: 'persistent', defaultTerminalEngine: 'web', defaultSessionView }} onDone={onDone} />));
+function render(flow: IntroFlow, onDone = vi.fn()) {
+  act(() => root.render(<IntroSheet flow={flow} version="0.24.0" config={{ defaultRunMode: 'persistent', defaultTerminalEngine: 'web' }} onDone={onDone} />));
   return onDone;
 }
 const button = (label: string) => {
@@ -85,18 +85,10 @@ describe('IntroSheet — Chat by default', () => {
     expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
   });
 
-  it('starts ticked when Chat is already the default; unticking switches back to Terminal', () => {
-    const onDone = render('whatsNew', vi.fn(), 'chat');
-    expect(chatBox().checked).toBe(true);
-    expect(chatBox().disabled).toBe(false);
-    act(() => chatBox().click());
+  it('starts unticked and saves nothing when left alone', () => {
+    const onDone = render('whatsNew');
     expect(chatBox().checked).toBe(false);
-    act(() => button('Skip').click());
-    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'terminal' });
-  });
-
-  it('saves nothing when the box is left at the current setting', () => {
-    const onDone = render('whatsNew', vi.fn(), 'chat');
+    expect(chatBox().disabled).toBe(false);
     act(() => button('Skip').click());
     expect(onDone).toHaveBeenCalledWith({});
   });
