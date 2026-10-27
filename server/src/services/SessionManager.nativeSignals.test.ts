@@ -292,3 +292,40 @@ test('a quiet screen with the working footer still on it keeps waiting (backgrou
   assert.notEqual(s.doneTimer, undefined);
   clearTimeout(s.doneTimer);
 });
+
+test('an Esc interrupt lets the settled idle through a fresh native running (no Stop hook fires)', () => {
+  const { sm, emitted } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', pty: { write: () => {} } });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  s.nativeLastSeenAt = Date.now() - 10; // the hook came before the Esc
+  sm.writeToSession('s', '\x1b');
+  emitted.length = 0;
+
+  detect(sm, 'idle');
+  assert.equal(s.status, 'idle', 'a stopped turn is idle, not done');
+  assert.equal(emitted.length, 1);
+});
+
+test('a native signal after the Esc ends the interrupt exception', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', pty: { write: () => {} } });
+  sm.writeToSession('s', '\x1b');
+  s.interruptedAt = Date.now() - 10;
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL }); // a new turn started
+
+  detect(sm, 'idle');
+  assert.equal(s.status, 'running', 'heuristic idle suppressed again');
+});
+
+test('after an Esc interrupt the settled idle is re-applied when no transition comes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', pty: { write: () => {} } });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  s.nativeLastSeenAt = Date.now() - 10;
+  sm.writeToSession('s', '\x1b');
+  assert.equal(s.status, 'running');
+
+  t.mock.timers.tick(1_500);
+  assert.equal(s.status, 'idle', 'the detector already read idle: the session leaves running');
+});

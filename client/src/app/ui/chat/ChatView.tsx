@@ -34,6 +34,8 @@ interface Pending {
 const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
 let pendingSeq = 0;
+/** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
+let lastChat: HTMLElement | null = null;
 /** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
 const SLASH_COMMAND_RE = /^\/[^\s/]+(?:\s|$)/;
 
@@ -89,6 +91,38 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
   };
   useEffect(() => () => clearTimeout(stopTimer.current), []);
+  const onStopKey = useRef<() => void>(undefined);
+  onStopKey.current = () => {
+    if (running) stop();
+  };
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const mark = () => { lastChat = root; };
+    // ⌘Esc stops the turn while this view has focus, or while nothing does
+    // (a clicked Stop button disables itself and drops focus to the body).
+    // Window capture, so the window's Escape handler, which ignores modifiers
+    // and would also leave focus mode, never sees it; plain Esc is untouched.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !e.metaKey || e.isComposing) return;
+      const at = document.activeElement;
+      const idle = !at || at === document.body;
+      const inside = root.contains(e.target as Node | null) || root.contains(at);
+      if (!inside && !(idle && lastChat === root)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onStopKey.current?.();
+    };
+    root.addEventListener('pointerdown', mark);
+    root.addEventListener('focusin', mark);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      root.removeEventListener('pointerdown', mark);
+      root.removeEventListener('focusin', mark);
+      window.removeEventListener('keydown', onKey, true);
+      if (lastChat === root) lastChat = null;
+    };
+  }, []);
   useEffect(() => {
     // The turn ended: the next Stop starts fresh.
     if (!running) setStopAsked(false);
@@ -194,14 +228,6 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       ref={rootRef}
       className="argus-chat"
       data-testid="chat-view"
-      onKeyDown={(e) => {
-        // ⌘Esc stops the turn. Kept from the window's Escape handler, which
-        // ignores modifiers and would also leave focus mode; plain Esc is untouched.
-        if (e.key !== 'Escape' || !e.metaKey || e.nativeEvent.isComposing) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (session.status === 'running') stop();
-      }}
     >
       <SuppressNativeUnder target={rootRef} />
       <div className="argus-chat-main">

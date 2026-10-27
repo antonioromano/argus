@@ -308,6 +308,17 @@ describe('ChatView', () => {
       }
     });
 
+    it('⌘Esc still stops once a clicked Stop has dropped focus to the body', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => { container.querySelector('[data-testid="chat-view"]')!.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+      (document.activeElement as HTMLElement | null)?.blur();
+      const event = new KeyboardEvent('keydown', { key: 'Escape', metaKey: true, bubbles: true, cancelable: true });
+      act(() => { document.body.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+      expect(interrupts(emitted)).toBe(1);
+    });
+
     it('⌘Esc sends nothing when no turn is running', () => {
       const { socket, emitted } = fakeSocket();
       render(session({ status: 'idle' }), socket);

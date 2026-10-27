@@ -219,6 +219,8 @@ interface ManagedSession {
   settledRows?: string[];
   /** The last text a Chat view typed into Claude's prompt. */
   lastChatInput?: string;
+  /** When Esc was written to a running session (an interrupt; Claude Code fires no Stop hook for it). */
+  interruptedAt?: number;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
@@ -282,6 +284,8 @@ const NATIVE_FRESHNESS_MS = 30_000;
 const DONE_GRACE_MS = 2_000;
 /** Output younger than this at grace-fire means the session is still working. */
 const DONE_QUIET_MS = 1_200;
+/** After an Esc interrupt, re-read the settled screen once this long later. */
+const INTERRUPT_SETTLE_MS = 1_500;
 // Depth of the per-session raw-signal ring kept for the diagnostics dump.
 const NATIVE_RING_SIZE = 5;
 /**
@@ -1612,7 +1616,10 @@ export class SessionManager {
     // applyNativeSignal) so the session is still 'running', and now the screen
     // agrees it is idle. Dropping that stranded the session on 'running' for good.
     const deferredNativeIdle = detected === 'idle' && session.nativeState === 'idle' && session.status === 'running';
-    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle) {
+    // Exception: Esc interrupted the turn. Claude Code fires no Stop hook for an
+    // interrupt, so the native 'running' would hold the status for good.
+    const interrupted = detected === 'idle' && this.interruptPending(session);
+    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle && !interrupted) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
       if (coverage.has(detected as AgentSignalState)) return;
     }
@@ -1621,7 +1628,8 @@ export class SessionManager {
     if (detected === 'idle' || detected === 'waiting') {
       // A plain shell finishing a command is its normal rhythm, not a run worth
       // flagging — promoting it would raise a 'done' notification after every `ls`.
-      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
+      // Nor is a turn the user stopped.
+      if (!session.suppressDonePromotion && !interrupted && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
         status = 'done';
       }
     }
@@ -1725,6 +1733,15 @@ export class SessionManager {
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
     this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
+  }
+
+  /** Esc was written to the running session and no native signal has come since. */
+  private interruptPending(session: ManagedSession): boolean {
+    return (
+      session.interruptedAt !== undefined &&
+      session.nativeState === 'running' &&
+      session.interruptedAt >= (session.nativeLastSeenAt ?? 0)
+    );
   }
 
   private nativeIsFresh(session: ManagedSession): boolean {
@@ -2483,12 +2500,27 @@ export class SessionManager {
 
     session.suppressDonePromotion = false;
     session.hasUserInputSinceIdle = true;
+    if (data === '\x1b' && session.status === 'running') this.noteInterrupt(id, session);
     // User sent input — exit sticky-done so StateDetector can track the new run.
     if (session.status === 'done') {
       session.status = 'idle';
       this.emitStatus({ sessionId: id, status: 'idle' });
     }
     session.pty.write(data);
+  }
+
+  /**
+   * Esc on a running session may interrupt the turn. The screen settling idle
+   * then ends it (see applyDetectedStatus). If the detector already read idle
+   * before the Esc (a turn that only waits on a background task), no new
+   * transition comes, so the settled status is re-applied once.
+   */
+  private noteInterrupt(id: string, session: ManagedSession): void {
+    session.interruptedAt = Date.now();
+    setTimeout(() => {
+      if (this.sessions.get(id) !== session || session.status !== 'running') return;
+      if (session.stateDetector.getStatus() === 'idle') this.applyDetectedStatus(id, 'idle');
+    }, INTERRUPT_SETTLE_MS).unref?.();
   }
 
   resizeSession(id: string, cols: number, rows: number): void {
