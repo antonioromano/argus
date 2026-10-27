@@ -32,6 +32,8 @@ interface Pending {
 }
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
 let pendingSeq = 0;
+/** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
+const SLASH_COMMAND_RE = /^\/[^\s/]+(?:\s|$)/;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -102,9 +104,12 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     [chat.messages, shown, stopping],
   );
   const pendingIds = new Set(shown.map((p) => p.id));
-  /** Show a plain prompt at once; a slash command gets its echo from the server. */
+  /**
+   * Show a plain prompt at once; a slash command gets its echo from the server.
+   * (A message can start with an attachment's path: `/var/…` is no command.)
+   */
   const echo = (text: string, preview: ChatBlock[]) => {
-    if (preview.length === 0 || text.trim().startsWith('/') || session.status === 'waiting') return;
+    if (preview.length === 0 || SLASH_COMMAND_RE.test(text.trim()) || session.status === 'waiting') return;
     setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
     setFollowing(true);
   };

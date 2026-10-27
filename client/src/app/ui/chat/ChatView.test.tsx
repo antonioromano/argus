@@ -342,6 +342,22 @@ describe('ChatView', () => {
       expect(container.querySelector('.argus-chat-msg.is-pending')).toBeNull();
     });
 
+    it('a prompt with an attachment shows at once too (its text starts with the path)', () => {
+      const { socket, fire } = fakeSocket();
+      (window as Window & { electronFiles?: unknown }).electronFiles = { getPath: () => '/var/folders/x/shot.png' };
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+      URL.createObjectURL = vi.fn(() => 'blob:preview');
+      Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], 'shot.png', { type: 'image/png' })] });
+      act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+      typeAndSend('look at this');
+      const pending = container.querySelector('.argus-chat-msg.is-pending');
+      expect(pending?.textContent).toContain('look at this');
+      expect(pending?.querySelector('.argus-chat-chip')?.textContent).toContain('image');
+      delete (window as Window & { electronFiles?: unknown }).electronFiles;
+    });
+
     it('a slash command is not echoed by the client', () => {
       const { socket, fire } = fakeSocket();
       render(session(), socket);
