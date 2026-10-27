@@ -8,6 +8,8 @@ import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
+import { ChipMarks } from '../ui/MinimizedChip.js';
+import { chipClass } from '../ui/chipFormat.js';
 import { ChainChip } from '../ui/ChainChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
 import { canResume } from '../../utils/resume.js';
@@ -691,7 +693,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
   return (
     <button
       ref={setNodeRef}
-      className={isNew ? 'argus-chip argus-chip--entering' : 'argus-chip'}
+      className={chipClass(session, isNew ? 'argus-chip--entering' : undefined)}
       style={style}
       onClick={onClick}
       {...listeners}
@@ -701,7 +703,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
       {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
-      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+      <ChipMarks session={session} />
     </button>
   );
 }
@@ -710,11 +712,11 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
 
 function ChipDragPreview({ session }: { session: SessionInfo }) {
   return (
-    <button type="button" className="argus-chip argus-chip-drag-overlay">
+    <button type="button" className={chipClass(session, 'argus-chip-drag-overlay')}>
       <StatusDot status={session.status} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
-      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+      <ChipMarks session={session} />
     </button>
   );
 }
