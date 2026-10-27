@@ -2124,6 +2124,15 @@ body {
   background: var(--bg-1);
 }
 .argus-chat-chip-muted { color: var(--fg-3); border-style: dashed; }
+.argus-chat-image {
+  display: block;
+  max-width: calc(160px * var(--ui-scale));
+  max-height: calc(120px * var(--ui-scale));
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  object-fit: contain;
+}
 .argus-chat-command {
   font-family: var(--font-mono);
   font-size: var(--t-sm);

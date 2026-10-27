@@ -1,10 +1,11 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatBlock, ChatMessage } from '@argus/shared';
 import { Image as ImageIcon, Wrench, HelpCircle, ChevronRight, Info } from 'lucide-react';
 import { Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
+import { api } from '../../../services/api.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
 
 const markdownComponents: Components = {
@@ -40,6 +41,41 @@ const markdownComponents: Components = {
   },
 };
 
+const imageChip = (
+  <span className="argus-chat-chip">
+    <Icon icon={ImageIcon} size={12} aria-hidden /> image
+  </span>
+);
+
+/**
+ * An attached image: a thumbnail when its file is still readable through the
+ * session-scoped image route, else the plain chip (Argus's temp images, a
+ * deleted file, a path outside every session folder).
+ */
+function ChatImage({ path }: { path?: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!path) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    api.getImageBlob(path).then(
+      (blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setUrl(null);
+    };
+  }, [path]);
+  if (!url) return imageChip;
+  return <img className="argus-chat-image" src={url} alt="" title={path} data-testid="chat-image" />;
+}
+
 /** First line of a command's output, for the collapsed summary. */
 function firstLine(text: string): string {
   const line = text.split('\n', 1)[0];
@@ -63,11 +99,7 @@ function Block({ block }: { block: ChatBlock }) {
         </span>
       );
     case 'image':
-      return (
-        <span className="argus-chat-chip">
-          <Icon icon={ImageIcon} size={12} aria-hidden /> image
-        </span>
-      );
+      return <ChatImage path={block.path} />;
     case 'command':
       return (
         <code className="argus-chat-command" data-testid="chat-command">

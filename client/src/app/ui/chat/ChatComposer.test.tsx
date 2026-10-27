@@ -131,6 +131,21 @@ describe('ChatComposer — attachments', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
   });
 
+  it('sends the paths on their own line, so a leading list item stays one (F2)', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    const onSubmit = render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '- first\n- second');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\n- first\n- second');
+  });
+
   it('shows non-image files by name and removes them', () => {
     const file = pick('notes.md', '/tmp/notes.md', 'text/markdown');
     render();

@@ -22,6 +22,14 @@ const TRUNCATED = '\n\n… (truncated)';
 /** Harness-only wrappers stripped from user text (never typed by the user). */
 const HIDDEN_TAGS = ['system-reminder', 'local-command-caveat', 'local-command-stdout', 'local-command-stderr', 'bash-stdout', 'bash-stderr'];
 const HIDDEN_RE = new RegExp(`<(${HIDDEN_TAGS.join('|')})>[\\s\\S]*?</\\1>`, 'g');
+/** Claude Code wraps a pasted text in `<pasted_content id="…">…</pasted_content id="…">`; the text is kept. */
+const PASTED_RE = /<pasted_content\b[^>]*>\n?([\s\S]*?)\n?<\/pasted_content\b[^>]*>/g;
+/** The placeholder Claude Code leaves where an attached image went. */
+const IMAGE_REF_RE = /\[Image #\d+\][ \t]*/g;
+/** A path of Argus's own uploaded clipboard images (routes/chatImages), quoted or not. */
+const ARGUS_IMAGE_RE = /(?:"[^"\n]*|[^\s"]*)\/argus-chat-images\/[\w-]+\.(?:png|jpe?g|gif|webp)"?[ \t]*/g;
+/** An absolute image path in a prompt (an attached file Claude Code reads as an image). */
+const IMAGE_PATH_RE = /"(\/[^"\n]+\.(?:png|jpe?g|gif|webp))"|(?<![^\s])(\/[^\s"]+\.(?:png|jpe?g|gif|webp))(?![^\s])/gi;
 /** Command output wrappers, shown as collapsed output blocks. */
 const OUTPUT_RE = /<(local-command|bash)-(stdout|stderr)>([\s\S]*?)<\/\1-\2>/g;
 /** Claude Code writes command output as the whole entry, so the wrapper opens it. */
@@ -61,11 +69,26 @@ function outputsOf(raw: string): ChatBlock[] {
 /**
  * The user-visible part of a user prompt: harness wrappers removed, a slash
  * command shown as typed (`/model opus`), a `!` bash command as `! cmd`.
+ * A pasted text is unwrapped and Argus's temp image paths dropped; with
+ * `hasImage` (the entry carries the image itself) so are `[Image #N]` markers.
  */
-export function cleanUserText(raw: string): string {
+export function cleanUserText(raw: string, hasImage = false): string {
   const command = commandOf(raw);
   if (command) return [command.name, command.args].filter(Boolean).join(' ');
-  return raw.replace(HIDDEN_RE, '').trim();
+  let text = raw.replace(HIDDEN_RE, '').replace(PASTED_RE, '$1').replace(ARGUS_IMAGE_RE, '');
+  if (hasImage) text = text.replace(IMAGE_REF_RE, '');
+  return text.trim();
+}
+
+/**
+ * The image paths of a prompt, in order; Argus's temp images are `undefined`:
+ * they sit outside every session folder, so no scoped route can read them.
+ */
+function imagePathsOf(raw: string): (string | undefined)[] {
+  return Array.from(raw.matchAll(IMAGE_PATH_RE), (m) => {
+    const p = m[1] ?? m[2];
+    return p.includes('/argus-chat-images/') ? undefined : p;
+  });
 }
 
 /**
@@ -93,22 +116,27 @@ function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
   }
   if (!Array.isArray(content)) return [];
   const out: ChatBlock[] = [];
+  const hasImage = content.some((b) => b?.type === 'image');
+  // An image block carries no path; the prompt text names the file, in order.
+  const paths = role === 'user' && hasImage ? content.flatMap((b) => (b?.type === 'text' && typeof b.text === 'string' ? imagePathsOf(b.text) : [])) : [];
   for (const b of content) {
     if (!b || typeof b !== 'object') continue;
     const type = typeof b.type === 'string' ? b.type : '';
     switch (type) {
       case 'text': {
         if (typeof b.text !== 'string') break;
-        const text = role === 'user' ? cleanUserText(b.text) : b.text.trim();
+        const text = role === 'user' ? cleanUserText(b.text, hasImage) : b.text.trim();
         if (text) out.push({ kind: 'text', text: clip(text) });
         break;
       }
       case 'tool_use':
         out.push({ kind: 'tool', name: typeof b.name === 'string' ? b.name.slice(0, MAX_NAME) : 'tool' });
         break;
-      case 'image':
-        out.push({ kind: 'image' });
+      case 'image': {
+        const path = paths.shift();
+        out.push(path ? { kind: 'image', path } : { kind: 'image' });
         break;
+      }
       // Not shown in phase 1: tool output is noise in a chat, thinking is often redacted.
       case 'tool_result':
       case 'thinking':

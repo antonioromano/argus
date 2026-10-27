@@ -111,7 +111,7 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * was submitted). Enter sends, Shift+Enter adds a line; in a list or code
  * block Enter continues it and Cmd+Enter sends (D2: the Markdown is styled
  * live by a layer under the textarea, the text sent stays plain Markdown).
- * Attached files are sent as their paths
+ * Attached files are sent as their paths, on a line
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
@@ -179,7 +179,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const send = () => {
     if (!canSend) return;
     // An ended list leaves an empty last line; it is not part of the message.
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
+    // Paths go on their own line: on the text's first line a leading `- ` or `#`
+    // would no longer start the line, and the sent message would lose it.
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join('\n'));
     setContinues(false);
     revoke(attachments);
     setAttachments([]);
