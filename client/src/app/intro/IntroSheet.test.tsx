@@ -85,10 +85,18 @@ describe('IntroSheet — Chat by default', () => {
     expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
   });
 
-  it('shows the box ticked and locked when Chat is already the default, and saves nothing', () => {
+  it('starts ticked when Chat is already the default; unticking switches back to Terminal', () => {
     const onDone = render('whatsNew', vi.fn(), 'chat');
     expect(chatBox().checked).toBe(true);
-    expect(chatBox().disabled).toBe(true);
+    expect(chatBox().disabled).toBe(false);
+    act(() => chatBox().click());
+    expect(chatBox().checked).toBe(false);
+    act(() => button('Skip').click());
+    expect(onDone).toHaveBeenCalledWith({ defaultSessionView: 'terminal' });
+  });
+
+  it('saves nothing when the box is left at the current setting', () => {
+    const onDone = render('whatsNew', vi.fn(), 'chat');
     act(() => button('Skip').click());
     expect(onDone).toHaveBeenCalledWith({});
   });

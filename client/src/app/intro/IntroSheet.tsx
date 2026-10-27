@@ -22,7 +22,7 @@ export interface IntroResult {
   openCreate?: boolean;
   /** Beta features to switch on (no What's new step offers this right now). */
   betaFlags?: Partial<Record<BetaFlag, true>>;
-  /** What's new: "Open Claude shells in Chat by default" was ticked. */
+  /** What's new: "Open Claude shells in Chat by default" was changed from the current setting. */
   defaultSessionView?: SessionViewMode;
 }
 
@@ -47,8 +47,8 @@ export function IntroSheet({
   const [step, setStep] = useState(0);
   const [kind, setKind] = useState<TerminalKind>(kindOf(config?.defaultRunMode, config?.defaultTerminalEngine));
   const [makeDefault, setMakeDefault] = useState(true);
-  const chatAlready = config?.defaultSessionView === 'chat';
-  const [chatDefault, setChatDefault] = useState(chatAlready);
+  const chatNow = config?.defaultSessionView === 'chat';
+  const [chatDefault, setChatDefault] = useState(chatNow);
 
   const terminalStep: Step = {
     title: 'Pick your terminal',
@@ -84,12 +84,12 @@ export function IntroSheet({
         // What's new in this release: one slide per highlight. Bump CURRENT_INTRO_ID with it.
         {
           title: 'Chat view for Claude shells',
-          text: 'In Focus, switch a Claude shell between Terminal and Chat. The conversation reads as formatted messages with pasted screenshots inline, slash commands show up in the thread with their output, and the composer formats Markdown as you type. The terminal stays the default unless you tick the box below.',
+          text: 'In Focus, switch a Claude shell between Terminal and Chat. The conversation reads as formatted messages with pasted screenshots inline, slash commands show up in the thread with their output, and the composer formats Markdown as you type. Tick the box below to open Claude shells in Chat by default.',
           body: (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
               <ChatPicture />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--t-sm)', color: 'var(--fg-1)', cursor: chatAlready ? 'default' : 'pointer' }}>
-                <input type="checkbox" checked={chatDefault} disabled={chatAlready} onChange={(e) => setChatDefault(e.target.checked)} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--t-sm)', color: 'var(--fg-1)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={chatDefault} onChange={(e) => setChatDefault(e.target.checked)} />
                 Open Claude shells in Chat by default
               </label>
             </div>
@@ -118,8 +118,10 @@ export function IntroSheet({
       ];
 
   const last = step === steps.length - 1;
-  // Skip and Esc keep a ticked "Chat by default" too: the box is an explicit choice.
-  const whatsNewResult = (): IntroResult => (flow === 'whatsNew' && chatDefault && !chatAlready ? { defaultSessionView: 'chat' } : {});
+  // The box starts at the current setting; Done, Skip and Esc all save a change
+  // to it, since toggling it is an explicit choice.
+  const whatsNewResult = (): IntroResult =>
+    (flow === 'whatsNew' && chatDefault !== chatNow ? { defaultSessionView: chatDefault ? 'chat' : 'terminal' } : {});
   const finish = () => {
     if (flow === 'welcome') {
       onDone({ defaults: makeDefault ? settingsFor(kind) : undefined, openCreate: true });
