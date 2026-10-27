@@ -368,7 +368,8 @@ export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMod
           ref={ref}
           className="argus-cmp-input"
           value={text}
-          rows={Math.min(8, Math.max(1, text.split('\n').length))}
+          // The height follows the text (CSS field-sizing), capped at ~45% of the view.
+          rows={1}
           disabled={exited}
           placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
           aria-label="Message"
