@@ -151,6 +151,9 @@ export interface AppConfig {
   inspectorCollapsed?: string[];
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
   autoApprovalEnabled?: boolean;
+  // F10: expose the Argus MCP server (/mcp) and hand it to new Claude sessions
+  // via --mcp-config, so one session can start and drive others (default: false).
+  mcpServerEnabled?: boolean;
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
   // so it reaches new and restarted sessions only.
   claudeRenderer?: ClaudeRenderer;
@@ -248,6 +251,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
+  mcpServerEnabled: false,
   claudeRenderer: 'fullscreen',
   defaultSessionView: 'terminal',
   betaActivityTimeline: false,
@@ -315,8 +319,11 @@ export type PendingLaunchState = 'pending' | 'starting' | 'error' | 'expired';
 
 export interface PendingLaunchView {
   id: string;
-  source: 'new' | 'run';
+  /** 'mcp' = an Argus session asked for it with the MCP start_session tool (F10). */
+  source: 'new' | 'run' | 'mcp';
   launcherId?: string;
+  /** source 'mcp': name of the session that asked. */
+  requestedBy?: string;
   label: string;
   agent: string;
   folder: string;
@@ -366,6 +373,8 @@ export interface SessionInfo {
   runMode?: RunMode;
   /** Deep-link launcher that started this session. */
   launcherId?: string;
+  /** F10: the Argus session whose MCP start_session call created this one. */
+  spawnedBy?: string;
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;

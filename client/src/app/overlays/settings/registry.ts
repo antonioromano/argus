@@ -130,8 +130,8 @@ export const PANES: readonly PaneDef[] = [
     label: 'Launchers',
     group: 'Workspace',
     icon: Rocket,
-    keys: ['launchFolderRoots'],
-    keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots', 'template', 'templates', 'multi-session', 'spawn'],
+    keys: ['launchFolderRoots', 'mcpServerEnabled'],
+    keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots', 'template', 'templates', 'multi-session', 'spawn', 'mcp', 'orchestrator', 'orchestrate', 'start_session'],
   },
   {
     id: 'confirmations',

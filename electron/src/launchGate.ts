@@ -11,7 +11,7 @@ export interface GateDeps {
   newId(): string;
   validate(req: LaunchRequest): Promise<ValidationResult>;
   resolveRun(id: string): Promise<RunResolution>;
-  launch(v: ValidatedLaunch, windowId: string, launcherId?: string): Promise<{ id: string }>;
+  launch(v: ValidatedLaunch, windowId: string, launcherId?: string, spawnedBy?: string): Promise<{ id: string }>;
   saveLauncher(input: { id: string; label: string; validated: ValidatedLaunch; overwrite?: boolean }): Promise<LaunchActionResult>;
   targetWindow(): string;
   /** Pending cards of `windowId` changed. `added` = a card appeared or a dedupe
@@ -23,10 +23,19 @@ export interface GateDeps {
   notifyIfBackground(view: PendingLaunchView, windowId: string): void;
 }
 
+/** The Argus session behind an MCP start_session call (F10). */
+export interface McpRequester { sessionId: string; name: string }
+export type McpLaunchDecision = { ok: true; sessionId: string } | { ok: false; error: string };
+
 export interface LaunchGate {
   handle(link: ParsedLink): Promise<void>;
+  /** MCP start_session: a card (or a direct start for a trusted requester),
+   *  resolved once the user starts, discards or lets it expire. */
+  request(validated: ValidatedLaunch, requester: McpRequester): Promise<McpLaunchDecision>;
   list(windowId: string): PendingLaunchView[];
-  approve(id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult>;
+  /** `trustRequester`: an MCP card's "don't ask again" — later requests from
+   *  the same session start without a card until Argus restarts. */
+  approve(id: string, saveAs?: SaveAsLauncher, trustRequester?: boolean): Promise<LaunchActionResult>;
   discard(id: string): void;
   tick(): void;
   has(id: string): boolean;
@@ -34,7 +43,12 @@ export interface LaunchGate {
   rehome(closedWindowId: string): void;
 }
 
-interface Entry { view: PendingLaunchView; validated: ValidatedLaunch; windowId: string; key: string; savedAs?: string }
+interface Entry {
+  view: PendingLaunchView; validated: ValidatedLaunch; windowId: string; key: string; savedAs?: string;
+  /** source 'mcp': who asked, and the start_session calls waiting on this card. */
+  requester?: McpRequester;
+  waiters?: ((d: McpLaunchDecision) => void)[];
+}
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const basename = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
@@ -46,6 +60,12 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
   let suppressedErrors = 0;
   let lastBurstWarnWindow = -Infinity;
   const inFlightRuns = new Set<string>();
+  /** Requester session ids the user chose to stop asking about (memory only). */
+  const trusted = new Set<string>();
+
+  const settle = (e: Entry, d: McpLaunchDecision) => {
+    for (const w of e.waiters?.splice(0) ?? []) w(d);
+  };
 
   const errorToast = (windowId: string, message: string) => {
     const t = deps.now();
@@ -56,10 +76,10 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     deps.toast(windowId, message + extra, 'danger');
   };
 
-  const addCard = (validated: ValidatedLaunch, source: 'new' | 'run', launcherId?: string, label?: string): Entry | undefined => {
+  const addCard = (validated: ValidatedLaunch, source: PendingLaunchView['source'], launcherId?: string, label?: string, requester?: McpRequester): Entry | undefined => {
     const windowId = deps.targetWindow();
     const q = validated.request;
-    const key = JSON.stringify([source, launcherId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
+    const key = JSON.stringify([source, launcherId ?? requester?.sessionId ?? '', q.agent, q.folder, q.flags, q.prompt ?? null, q.engine ?? null, q.mode ?? null, q.name ?? null, q.worktree ?? null, q.base ?? null]);
     for (const e of entries.values()) {
       if (e.key === key && e.view.state !== 'expired') { deps.changed(e.windowId, 'added'); return e; }
     }
@@ -69,14 +89,14 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
     }
     const r = validated.request;
     const view: PendingLaunchView = {
-      id: deps.newId(), source, launcherId,
+      id: deps.newId(), source, launcherId, requestedBy: requester?.name,
       label: label ?? r.name ?? basename(r.folder),
       agent: r.agent, folder: r.folder, args: validated.args, prompt: r.prompt, command: validated.command,
       engine: r.engine, mode: r.mode, name: r.name, worktree: r.worktree, base: r.base,
       warnings: validated.warnings, state: 'pending', receivedAt: deps.now(),
       canSaveAsLauncher: source === 'new' && !r.worktree,
     };
-    const entry: Entry = { view, validated, windowId, key };
+    const entry: Entry = { view, validated, windowId, key, requester, waiters: requester ? [] : undefined };
     entries.set(view.id, entry);
     deps.changed(windowId, 'added');
     deps.notifyIfBackground(view, windowId);
@@ -133,20 +153,39 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       }
     },
 
+    async request(validated, requester) {
+      // A trusted requester skips the card, but not the burst limit: past it,
+      // a runaway orchestrator is back to asking.
+      if (trusted.has(requester.sessionId) && withinBurst()) {
+        const windowId = deps.targetWindow();
+        try {
+          const s = await deps.launch(validated, windowId, undefined, requester.sessionId);
+          deps.toast(windowId, `Started ${validated.request.name ?? basename(validated.request.folder)} for ${requester.name}`, 'ok');
+          return { ok: true, sessionId: s.id };
+        } catch (err) {
+          return { ok: false, error: errMsg(err) };
+        }
+      }
+      const e = addCard(validated, 'mcp', undefined, undefined, requester);
+      if (!e) return { ok: false, error: 'Too many launches are waiting for approval in Argus' };
+      return new Promise<McpLaunchDecision>((resolve) => { e.waiters?.push(resolve); });
+    },
+
     list(windowId) {
       return [...entries.values()].filter((e) => e.windowId === windowId).map((e) => ({ ...e.view }));
     },
 
-    async approve(id, saveAs) {
+    async approve(id, saveAs, trustRequester) {
       const e = entries.get(id);
       if (!e) return { ok: false, error: 'No such pending launch' };
       if (e.view.state === 'expired') return { ok: false, error: 'This launch expired' };
       if (e.view.state === 'starting') return { ok: false, error: 'Already starting' };
       if (e.view.state === 'pending' && deps.now() - e.view.receivedAt > LIMITS.expiryMs) {
-        e.view.state = 'expired'; deps.changed(e.windowId, 'updated');
+        e.view.state = 'expired'; settle(e, { ok: false, error: 'Nobody approved this launch in time' }); deps.changed(e.windowId, 'updated');
         return { ok: false, error: 'This launch expired' };
       }
       const isRun = e.view.source === 'run';
+      if (trustRequester && !e.requester) return { ok: false, error: 'Only an MCP launch can be trusted' };
       if (saveAs && (isRun ? saveAs.id !== e.view.launcherId : !e.view.canSaveAsLauncher)) {
         return { ok: false, error: 'This launch can’t be saved as a launcher' };
       }
@@ -158,7 +197,9 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
           e.savedAs = saveAs.id;
         }
         const launcherId = saveAs?.id ?? e.savedAs ?? e.view.launcherId;
-        const s = await deps.launch(e.validated, e.windowId, launcherId);
+        const s = await deps.launch(e.validated, e.windowId, launcherId, e.requester?.sessionId);
+        if (trustRequester && e.requester) trusted.add(e.requester.sessionId);
+        settle(e, { ok: true, sessionId: s.id });
         entries.delete(id);
         deps.changed(e.windowId, 'updated');
         deps.highlight(e.windowId, s.id);
@@ -174,6 +215,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       const e = entries.get(id);
       if (!e) return;
       entries.delete(id);
+      settle(e, { ok: false, error: 'The user discarded this launch in Argus' });
       deps.changed(e.windowId, 'updated');
     },
 
@@ -182,6 +224,7 @@ export function createLaunchGate(deps: GateDeps): LaunchGate {
       for (const e of entries.values()) {
         if (e.view.state === 'pending' && t - e.view.receivedAt > LIMITS.expiryMs) {
           e.view.state = 'expired';
+          settle(e, { ok: false, error: 'Nobody approved this launch in time' });
           deps.changed(e.windowId, 'updated');
         }
       }

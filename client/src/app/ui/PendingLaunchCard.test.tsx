@@ -209,4 +209,23 @@ describe('PendingLaunchCard', () => {
     await act(async () => { q('[data-testid="launch-card"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(h.onDiscard).toHaveBeenCalledWith('id-1');
   });
+
+  it('MCP card names the requesting session and passes "don’t ask again" through', async () => {
+    const h = await render({ source: 'mcp', requestedBy: 'Orchestrator', canSaveAsLauncher: false });
+    expect(q('[data-testid="launch-requested-by"]').textContent).toContain('Orchestrator');
+    expect(q('[data-testid="launch-save-toggle"]')).toBeNull();
+    await act(async () => { (q('[data-testid="launch-trust-toggle"]') as HTMLInputElement).click(); });
+    await act(async () => { vi.advanceTimersByTime(START_DELAY_MS); });
+    await act(async () => { start().click(); });
+    expect(h.onApprove).toHaveBeenCalledWith('id-1', undefined, true);
+  });
+
+  it('non-MCP cards have no trust option and never pass it', async () => {
+    const h = await render();
+    expect(q('[data-testid="launch-trust-toggle"]')).toBeNull();
+    expect(q('[data-testid="launch-requested-by"]')).toBeNull();
+    await act(async () => { vi.advanceTimersByTime(START_DELAY_MS); });
+    await act(async () => { start().click(); });
+    expect(h.onApprove).toHaveBeenCalledWith('id-1', undefined);
+  });
 });

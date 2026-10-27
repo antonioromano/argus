@@ -382,3 +382,81 @@ test('fix11: invalid run → danger toast', async () => {
   await gate.handle(runLink('bad'));
   assert.ok(log.some((l) => l.startsWith('toast:main:danger:') && l.includes('Launcher "bad"')));
 });
+
+// ── F10: MCP start_session ───────────────────────────────────────────────────
+const REQ = { sessionId: 'orch-1', name: 'Orchestrator' };
+const mcpV = (prompt = 'build it') => V({ request: { flags: [], prompt } }) as any;
+
+test('mcp request → pending card naming the requester; nothing starts until approved', async () => {
+  const { gate, log } = make();
+  const p = gate.request(mcpV(), REQ);
+  const [card] = gate.list('main');
+  assert.equal(card.source, 'mcp');
+  assert.equal(card.requestedBy, 'Orchestrator');
+  assert.equal(card.canSaveAsLauncher, false);
+  assert.ok(!log.some((l) => l.startsWith('launch:')));
+  assert.deepEqual(await gate.approve(card.id), { ok: true });
+  assert.deepEqual(await p, { ok: true, sessionId: 'sess-new' });
+});
+
+test('mcp approve launches with the requester as spawnedBy', async () => {
+  let by: string | undefined;
+  const { gate } = make({ launch: async (_v, _w, _l, s) => { by = s; return { id: 'child' }; } });
+  const p = gate.request(mcpV(), REQ);
+  await gate.approve(gate.list('main')[0].id);
+  assert.equal(by, 'orch-1');
+  assert.deepEqual(await p, { ok: true, sessionId: 'child' });
+});
+
+test('mcp discard and expiry resolve the waiting call with an error', async () => {
+  const { gate, advance } = make();
+  const discarded = gate.request(mcpV('a'), REQ);
+  gate.discard(gate.list('main')[0].id);
+  assert.deepEqual(await discarded, { ok: false, error: 'The user discarded this launch in Argus' });
+
+  const expiring = gate.request(mcpV('b'), REQ);
+  advance(LIMITS.expiryMs + 1);
+  gate.tick();
+  const r = await expiring;
+  assert.equal(r.ok, false);
+});
+
+test('an identical repeated request shares the card and both calls resolve', async () => {
+  const { gate } = make();
+  const a = gate.request(mcpV(), REQ);
+  const b = gate.request(mcpV(), REQ);
+  assert.equal(gate.list('main').length, 1);
+  await gate.approve(gate.list('main')[0].id);
+  assert.deepEqual(await a, await b);
+});
+
+test('trust ("don’t ask again") starts later requests from that session without a card', async () => {
+  const { gate, log } = make();
+  const first = gate.request(mcpV('one'), REQ);
+  await gate.approve(gate.list('main')[0].id, undefined, true);
+  await first;
+  const second = await gate.request(mcpV('two'), REQ);
+  assert.deepEqual(second, { ok: true, sessionId: 'sess-new' });
+  assert.equal(gate.list('main').length, 0, 'no card for a trusted requester');
+  assert.ok(log.some((l) => l.startsWith('toast:main:ok:Started')));
+  // Another session is still asked.
+  void gate.request(mcpV('three'), { sessionId: 'orch-2', name: 'Other' });
+  assert.equal(gate.list('main').length, 1);
+});
+
+test('a trusted requester past the burst limit is back to a card', async () => {
+  const { gate } = make();
+  const first = gate.request(mcpV('p0'), REQ);
+  await gate.approve(gate.list('main')[0].id, undefined, true);
+  await first;
+  for (let i = 1; i <= LIMITS.burstCount; i++) await gate.request(mcpV(`p${i}`), REQ);
+  void gate.request(mcpV('over'), REQ);
+  assert.equal(gate.list('main').length, 1);
+});
+
+test('trust is refused for a non-MCP card', async () => {
+  const { gate } = make();
+  await gate.handle(newLink());
+  const r = await gate.approve(gate.list('main')[0].id, undefined, true);
+  assert.equal(r.ok, false);
+});

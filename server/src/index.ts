@@ -73,6 +73,9 @@ import { getOrCreateSignalSecret } from './services/agentSignals/token.js';
 import { resolveSignalBin } from './services/agentSignals/resolveBin.js';
 import { registerProcessHandlers } from './process/globalHandlers.js';
 import { scrubParentAgentEnv } from './utils/scrubParentAgentEnv.js';
+import { createMcpRoutes } from './routes/mcp.js';
+import { createMcpTools, type McpCaller, type LaunchDecision } from './services/mcp/tools.js';
+import { MCP_PATH } from './services/mcp/injection.js';
 
 registerProcessHandlers();
 
@@ -158,6 +161,7 @@ let currentConfig: AppConfig | null = null;
 function applyConfig(cfg: AppConfig): void {
   currentConfig = cfg;
   sessionManager.setPreventSleepWhileRunning(!!cfg.preventSleepWhileRunning);
+  sessionManager.setMcpServerEnabled(cfg.mcpServerEnabled === true);
   sessionManager.setPrStatusEnabled(cfg.showPrStatus !== false);
   sessionManager.setWorktreeLifecycleEnabled(isBetaEnabled(cfg, 'betaWorktreeLifecycle'));
   sessionManager.setActivityTimelineEnabled(isBetaEnabled(cfg, 'betaActivityTimeline'));
@@ -247,15 +251,22 @@ const launchService = new LaunchService({
 export function getLaunchService(): LaunchService {
   return launchService;
 }
-/** Create a session from an approved/ready launch and give it to `windowId`. */
-export async function hostLaunch(v: ValidatedLaunch, windowId: string, launcherId?: string): Promise<SessionInfo> {
+/** Create a session from an approved/ready launch and give it to `windowId`.
+ *  `spawnedBy`: the orchestrating session of an MCP start_session (F10). */
+export async function hostLaunch(v: ValidatedLaunch, windowId: string, launcherId?: string, spawnedBy?: string): Promise<SessionInfo> {
   const r = v.request;
   const session = await sessionManager.createSession(
     r.folder, r.name, r.agent, r.flags, undefined, undefined, r.worktree, r.base, false, r.engine, r.mode, false,
-    { initialPrompt: r.prompt, launcherId },
+    { initialPrompt: r.prompt, launcherId, spawnedBy },
   );
   await windowRegistry.assign(session.id, windowId);
   return session;
+}
+/** F10: the Electron launch gate's entry for MCP start_session (approval card). */
+type McpLaunchHook = (v: ValidatedLaunch, caller: McpCaller) => Promise<LaunchDecision>;
+let mcpLaunchHook: McpLaunchHook | undefined;
+export function setMcpLaunchHook(fn: McpLaunchHook): void {
+  mcpLaunchHook = fn;
 }
 let sessionsRestored: Promise<void> = Promise.resolve();
 /** Resolves once restoreSessions (started in the background by startServer) settles. */
@@ -331,6 +342,33 @@ app.use('/api/agent-signals', createAgentSignalRoutes(
   () => signalSecret,
   (sessionId, hook) => autoApprovalService.decide(sessionId, hook),
 ));
+
+// F10 Argus MCP server — also before the bearer-auth middleware: callers are
+// agent sessions holding a per-session HMAC token (see routes/mcp.ts).
+app.use(MCP_PATH, createMcpRoutes({
+  isEnabled: () => currentConfig?.mcpServerEnabled === true,
+  getSecret: () => signalSecret,
+  caller: (id) => {
+    const s = sessionManager.getSessionInfo(id);
+    return s ? { sessionId: s.id, name: s.name } : undefined;
+  },
+  tools: createMcpTools({
+    listSessions: () => sessionManager.getAllSessions(),
+    getSession: (id) => sessionManager.getSessionInfo(id),
+    tail: (id, lines) => sessionManager.tailLines(id, lines),
+    validate: (req) => launchService.validate(req),
+    get requestLaunch() { return mcpLaunchHook; },
+    submit: async (id, text) => {
+      chainEngine.noteUserInput(id);
+      const write = (data: string, pause?: number) => sharedInputQueue.write(id, data, pause);
+      if (sessionManager.getSessionInfo(id)?.agentType === 'claude') return sessionManager.submitChatInput(id, text, write);
+      write(text, BROADCAST_ENTER_DELAY_MS);
+      write('\r');
+      return true;
+    },
+    interrupt: (id) => sharedInputQueue.write(id, '\x1b'),
+  }, os.homedir()),
+}));
 
 // Auth middleware — before routes
 app.use(createAuthMiddleware(authService));
