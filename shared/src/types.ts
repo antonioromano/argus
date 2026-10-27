@@ -154,6 +154,9 @@ export interface AppConfig {
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
   // so it reaches new and restarted sessions only.
   claudeRenderer?: ClaudeRenderer;
+  // Which view a Claude shell opens in when it has no per-session choice
+  // (default: 'terminal'). Other agents always use the terminal.
+  defaultSessionView?: SessionViewMode;
   // Beta features (Settings → Beta features). All default off; while a flag is
   // off its feature is inert — no UI, no polling, no timers. See BetaFlag.
   betaActivityTimeline?: boolean; // F6
@@ -197,6 +200,9 @@ export type BetaFlag =
  *  - inherit: Argus sets nothing; the user's own `tui` setting applies.
  */
 export type ClaudeRenderer = 'fullscreen' | 'classic' | 'inherit';
+
+/** How a Claude shell is shown: the raw terminal or the Chat view (B1). */
+export type SessionViewMode = 'terminal' | 'chat';
 
 /** Every AppConfig key with its shipped default. The single source of truth for
  *  both the server store (a partial file is merged over this) and the settings
@@ -243,6 +249,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
+  defaultSessionView: 'terminal',
   betaActivityTimeline: false,
   betaWorktreeLifecycle: false,
   betaSessionTemplates: false,

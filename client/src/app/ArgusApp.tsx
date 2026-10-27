@@ -1196,6 +1196,7 @@ function DesktopInner() {
               onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
               defaultTerminalEngine={config?.defaultTerminalEngine}
+              defaultSessionView={config ? config.defaultSessionView : null}
               isForeign={windowsApi.isForeign}
               foreignLabel={foreignLabel}
               onBack={app.exitFocus}
