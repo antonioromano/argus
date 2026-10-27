@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'os';
 import path from 'path';
 import type { SessionPr } from '@argus/shared';
-import { SessionManager, SESSION_PRS_MAX } from './SessionManager.js';
+import { SessionManager, SESSION_PRS_MAX, PR_SUMMARY_INTERVAL_MS } from './SessionManager.js';
 import { PrDiffError, PrWriteError } from './PrStatusService.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
@@ -147,6 +147,70 @@ test('the summary is broadcast only when it changes, and cleared when the settin
     { sessionId: 'b', summary: null },
   ]);
   assert.equal(f.sm.getSessionInfo('a')?.prSummary, undefined);
+});
+
+test('every header chip goes out before the summaries read the linked PRs', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/o/r/pull/1']);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  (f.sm as any).prService.forUrl = async (url: string) => { await gate; return { ...PR, number: 1, url }; };
+  const sweep = f.sm.pollPrStatus();
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(prEvents(f.emitted).map((e) => e.payload.sessionId), ['a', 'b']);
+  assert.equal(summaryEvents(f.emitted).filter((e) => e.payload.sessionId === 'a').length, 0);
+  release();
+  await sweep;
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary?.count, 2);
+});
+
+test('linked PRs are re-read for the summary only every PR_SUMMARY_INTERVAL_MS, or when the header PR changes', async () => {
+  const f = fixture();
+  linkPrs(f, 'a', ['https://github.com/o/r/pull/1']);
+  await f.sm.pollPrStatus();
+  assert.equal(f.urlLookups.length, 1);
+  await f.sm.pollPrStatus();
+  assert.equal(f.urlLookups.length, 1, 'not due yet');
+  f.setAnswer({ ...PR, mergeable: 'conflicting' });
+  await f.sm.pollPrStatus();
+  assert.equal(f.urlLookups.length, 2, 'the header PR changed');
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary?.tone, 'blocked');
+  (f.sm as any).prSummaryAt.set('a', Date.now() - PR_SUMMARY_INTERVAL_MS);
+  await f.sm.pollPrStatus();
+  assert.equal(f.urlLookups.length, 3, 'due again');
+});
+
+test('a linked PR gh could not read keeps its last reading in the summary', async () => {
+  const f = fixture();
+  const blocked = 'https://github.com/o/r/pull/1';
+  linkPrs(f, 'a', [blocked]);
+  (f.sm as any).prService.forUrl = async (url: string) => ({ ...PR, number: 1, url, ci: 'failure' });
+  await f.sm.pollPrStatus();
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary?.tone, 'blocked');
+  (f.sm as any).prService.forUrl = async () => null;
+  (f.sm as any).prSummaryAt.clear();
+  await f.sm.pollPrStatus();
+  const summary = f.sm.getSessionInfo('a')?.prSummary;
+  assert.equal(summary?.count, 2);
+  assert.equal(summary?.tone, 'blocked');
+});
+
+test('one PR linked under two spellings is counted once', async () => {
+  const f = fixture();
+  f.setAnswer(null);
+  linkPrs(f, 'a', ['https://github.com/Org/repo/pull/7', 'https://github.com/org/repo/pull/7']);
+  await f.sm.pollPrStatus();
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary?.count, 1);
+});
+
+test('a title-only change to the summary is stored but not broadcast', async () => {
+  const f = fixture();
+  await f.sm.pollPrStatus();
+  const before = summaryEvents(f.emitted).length;
+  f.setAnswer({ ...PR, title: 'Renamed' });
+  await f.sm.pollPrStatus();
+  assert.equal(summaryEvents(f.emitted).length, before);
+  assert.equal(f.sm.getSessionInfo('a')?.prSummary?.prs[0].title, 'Renamed');
 });
 
 test('a session whose PRs are all closed has no summary', async () => {
