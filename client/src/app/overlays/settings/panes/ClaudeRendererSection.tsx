@@ -1,4 +1,4 @@
-import type { ClaudeRenderer, SessionViewMode } from '@argus/shared';
+import { DEFAULT_CONFIG, type ClaudeRenderer, type SessionViewMode } from '@argus/shared';
 import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 
@@ -26,7 +26,7 @@ const VIEW_OPTIONS: readonly { value: SessionViewMode; label: string; title: str
  */
 export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'config' | 'onSave'>) {
   const value: ClaudeRenderer = config.claudeRenderer ?? 'fullscreen';
-  const view: SessionViewMode = config.defaultSessionView === 'chat' ? 'chat' : 'terminal';
+  const view: SessionViewMode = config.defaultSessionView ?? DEFAULT_CONFIG.defaultSessionView!;
   return (
     <Section title="Claude display">
       <SettingRow label="Renderer" hint={`${HINT[value]} Applies to new and restarted sessions.`}>
@@ -40,7 +40,7 @@ export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'confi
       </SettingRow>
       <SettingRow
         label="Default view"
-        hint="Where a Claude shell opens until you switch it. A shell you already switched keeps its own view. Other agents always use the terminal."
+        hint="Where a Claude shell opens until you pick a view for it with its Terminal/Chat toggle. Other agents always use the terminal."
       >
         <Segmented
           label="Default view for Claude shells"

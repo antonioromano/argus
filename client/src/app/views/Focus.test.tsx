@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionInfo, MosaicOrientation } from '@argus/shared';
+import type { SessionInfo, MosaicOrientation, SessionViewMode } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { Focus } from './Focus.js';
 import type { SidePanel } from '../types.js';
@@ -59,7 +59,7 @@ function session(over: Partial<SessionInfo> = {}): SessionInfo {
 function renderFocus(
   active: SessionInfo,
   onRestart: () => void = noop,
-  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean; inspectorColumn?: boolean; inspectorShown?: boolean } = {},
+  opts: { sidePanel?: SidePanel; orientation?: MosaicOrientation; activityEnabled?: boolean; inspectorColumn?: boolean; inspectorShown?: boolean; defaultSessionView?: SessionViewMode | null } = {},
 ) {
   act(() => {
     root.render(
@@ -72,6 +72,7 @@ function renderFocus(
         orientation={opts.orientation}
         inspectorColumn={opts.inspectorColumn}
         inspectorShown={opts.inspectorShown}
+        defaultSessionView={opts.defaultSessionView}
         onSelect={noop}
         onReorder={noop}
         onBack={noop}
@@ -267,6 +268,34 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
     window.localStorage.setItem('argus.sessionViewMode', JSON.stringify({ s1: 'chat' }));
     renderFocus(session({ status: 'running' }));
     expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
+  it('opens a Claude session with no choice in chat when that is the default', () => {
+    renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
+  it('keeps an explicit terminal choice over a chat default', () => {
+    window.localStorage.setItem('argus.sessionViewMode', JSON.stringify({ s1: 'terminal' }));
+    renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+  });
+
+  it('covers the shell until the default is known, then shows it', () => {
+    renderFocus(session({ status: 'running' }), noop, { defaultSessionView: null });
+    expect(container.querySelector('[data-testid="view-pending"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+    renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+    expect(container.querySelector('[data-testid="view-pending"]')).toBeNull();
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+  });
+
+  it('keeps Codex and Gemini on the terminal with a chat default', () => {
+    for (const agentType of ['codex', 'gemini']) {
+      renderFocus(session({ agentType }), noop, { defaultSessionView: 'chat' });
+      expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+      expect(container.querySelector('[data-testid="view-pending"]')).toBeNull();
+    }
   });
 
   it('offers no chat for Codex or Gemini sessions, even with a stored choice', () => {

@@ -107,7 +107,7 @@ export const PANES: readonly PaneDef[] = [
     group: 'Workspace',
     icon: Cpu,
     keys: ['defaultAgent', 'customAgents', 'agentFlags', 'claudeRenderer', 'defaultSessionView'],
-    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback', 'chat', 'chat view', 'default view', 'terminal'],
+    keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback', 'chat', 'chat view', 'default view', 'terminal view'],
   },
   {
     id: 'groups',

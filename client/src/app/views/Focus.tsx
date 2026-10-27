@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
+import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
@@ -92,8 +92,9 @@ interface FocusProps {
   onReorder: (newOrderedIds: string[]) => void;
   /** App-wide fallback when a session has no stored engine preference. */
   defaultTerminalEngine?: TerminalEngine;
-  /** App-wide fallback view for Claude shells with no per-session choice. */
-  defaultSessionView?: SessionViewMode;
+  /** App-wide fallback view for Claude shells with no per-session choice;
+   *  null while the config is still loading. */
+  defaultSessionView?: SessionViewMode | null;
   /** True when a session is owned by a different window (multi-window). */
   isForeign?: (id: string) => boolean;
   /** Label of the window that owns a foreign session, for the OTHERS strip badge. */
@@ -141,7 +142,7 @@ export function Focus({
   onSelect,
   onReorder,
   defaultTerminalEngine,
-  defaultSessionView = 'terminal',
+  defaultSessionView = DEFAULT_CONFIG.defaultSessionView,
   isForeign,
   foreignLabel,
   onBack,
@@ -196,8 +197,11 @@ export function Focus({
   // Chat view (B1): Claude sessions only, chosen per session; sessions with no
   // choice follow the app-wide defaultSessionView.
   const chatCapable = supportsChatView(active.agentType);
-  const [viewMode, setViewMode] = useChatViewMode(active.id, defaultSessionView);
+  const [viewMode, setViewMode] = useChatViewMode(active.id, defaultSessionView ?? null);
   const chatMode = chatCapable && viewMode === 'chat';
+  // Config not loaded yet and no stored choice: cover the shell rather than
+  // flash the terminal and swap to Chat once the default arrives.
+  const viewPending = chatCapable && viewMode === null;
 
   useEffect(() => {
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
@@ -367,7 +371,7 @@ export function Focus({
               <div role="group" aria-label="Session view" className="argus-view-toggle">
                 <Button
                   title="Show the terminal"
-                  variant={!chatMode ? 'solid' : 'ghost'}
+                  variant={viewMode === 'terminal' ? 'solid' : 'ghost'}
                   size="sm"
                   icon={SquareTerminal}
                   onClick={() => setViewMode('terminal')}
@@ -453,6 +457,9 @@ export function Focus({
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
               {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
+              {viewPending && (
+                <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
+              )}
               {/* The terminal stays mounted under the chat, so switching back is instant. */}
               {chatMode && !maximized && (
                 <ChatView
@@ -465,7 +472,7 @@ export function Focus({
               )}
             </div>
 
-            {!maximized && !chatMode && <ReplyBar session={active} onSend={sendInput} />}
+            {!maximized && !chatMode && !viewPending && <ReplyBar session={active} onSend={sendInput} />}
 
             {maximized && (
               <>

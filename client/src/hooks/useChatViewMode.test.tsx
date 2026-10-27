@@ -31,6 +31,12 @@ describe('session view mode storage', () => {
     expect(readViewMode('old', 'terminal')).toBe('chat');
   });
 
+  it('treats an array in storage as empty and still remembers new choices', () => {
+    window.localStorage.setItem('argus.sessionViewMode', '[]');
+    writeViewMode('s1', 'terminal');
+    expect(readViewMode('s1', 'chat')).toBe('terminal');
+  });
+
   it('ignores unknown stored values', () => {
     window.localStorage.setItem('argus.sessionViewMode', '{"s1":"split"}');
     expect(readViewMode('s1', 'chat')).toBe('chat');
@@ -46,12 +52,12 @@ describe('session view mode storage', () => {
 
 describe('useChatViewMode', () => {
   let container: HTMLDivElement; let root: Root;
-  let result: [SessionViewMode, (mode: SessionViewMode) => void];
-  function Probe({ id, fallback }: { id: string; fallback?: SessionViewMode }) {
+  let result: [SessionViewMode | null, (mode: SessionViewMode) => void];
+  function Probe({ id, fallback }: { id: string; fallback: SessionViewMode | null }) {
     result = useChatViewMode(id, fallback);
     return null;
   }
-  const render = (id: string, fallback?: SessionViewMode) => act(() => { root.render(<Probe id={id} fallback={fallback} />); });
+  const render = (id: string, fallback: SessionViewMode | null) => act(() => { root.render(<Probe id={id} fallback={fallback} />); });
 
   beforeEach(() => {
     window.localStorage.clear();
@@ -69,6 +75,16 @@ describe('useChatViewMode', () => {
     act(() => result[1]('terminal'));
     expect(result[0]).toBe('terminal');
     render('s1', 'chat');
+    expect(result[0]).toBe('terminal');
+  });
+
+  it('is pending while the default is unknown, unless the session has a choice', () => {
+    render('s1', null);
+    expect(result[0]).toBeNull();
+    render('s1', 'chat');
+    expect(result[0]).toBe('chat');
+    writeViewMode('s2', 'terminal');
+    render('s2', null);
     expect(result[0]).toBe('terminal');
   });
 

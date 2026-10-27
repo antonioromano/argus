@@ -11,7 +11,8 @@ function readAll(): Record<string, SessionViewMode> {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, SessionViewMode>) : {};
+    // An array would pass the object check, but JSON.stringify drops named keys on it.
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, SessionViewMode>) : {};
   } catch {
     return {};
   }
@@ -46,11 +47,14 @@ export function writeViewMode(sessionId: string, mode: SessionViewMode): void {
  * Per-session Terminal/Chat choice (B1), remembered in this browser. A session
  * with no stored choice follows `fallback` (the defaultSessionView setting), and
  * keeps following it live, so a config that loads late or changes still applies.
+ * A null fallback means the config is still loading: the mode is then null too
+ * (unless the session has a stored choice), so the caller can wait instead of
+ * showing a view it may switch away from a moment later.
  */
 export function useChatViewMode(
   sessionId: string,
-  fallback: SessionViewMode = 'terminal',
-): [SessionViewMode, (mode: SessionViewMode) => void] {
+  fallback: SessionViewMode | null,
+): [SessionViewMode | null, (mode: SessionViewMode) => void] {
   const [state, setState] = useState(() => ({ sessionId, stored: readStoredViewMode(sessionId) }));
   // Adjust during render when the session changes.
   const current = state.sessionId === sessionId ? state : { sessionId, stored: readStoredViewMode(sessionId) };
