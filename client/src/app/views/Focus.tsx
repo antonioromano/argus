@@ -471,7 +471,8 @@ export function Focus({
               {active.status === 'exited' && !useNativeTerminal && (
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
-              {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
+              {/* The Chat paints over a hidden terminal, unless its see-through terminal sheet is open. */}
+              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={active.status} />}
               {viewPending && (
                 <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
               )}

@@ -190,14 +190,24 @@ export const INTERACTIVE_COMMANDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The name of the slash command `text` starts with, as the server echoes one
+ * (ChatTail.echoCommandOf): `/name`, then a space or the end. A message can
+ * start with an attachment's path: `/var/…` is no command.
+ */
+export function slashCommandName(text: string): string | null {
+  return /^\/([^\s/]+)(?:\s|$)/.exec(text.trim())?.[1] ?? null;
+}
+
+/**
  * The command name when `text` is one of INTERACTIVE_COMMANDS sent bare, else
  * null. With arguments these commands mostly run without a picker
  * (`/mcp enable x`, `/add-dir ~/src`), so they stay in the Chat.
  */
 export function interactiveCommandOf(text: string): string | null {
-  const m = /^\/([\w:.-]+)$/.exec(text.trim());
-  const name = m?.[1].toLowerCase();
-  return name && INTERACTIVE_COMMANDS.has(name) ? name : null;
+  const name = slashCommandName(text);
+  if (!name || text.trim().length !== name.length + 1) return null;
+  const id = name.toLowerCase();
+  return INTERACTIVE_COMMANDS.has(id) ? id : null;
 }
 
 /** Suggestions shown at most. */

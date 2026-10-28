@@ -548,17 +548,33 @@ describe('ChatView', () => {
       expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
     });
 
-    it('Esc closes it off a picker but goes to the picker while one is up', () => {
+    it('stays open while the flow works (running) and through Esc, which may only go back a level', () => {
+      vi.useFakeTimers();
       const { socket, fire } = fakeSocket();
       const { onTerminalSheet } = mount(session(), socket);
       fire('session:chat', update({}));
-      type('/hooks');
+      type('/agents');
       mount(session({ status: 'waiting' }), socket, onTerminalSheet);
       act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      mount(session({ status: 'running' }), socket, onTerminalSheet);
+      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 5); });
       expect(sheet()).not.toBeNull();
       mount(session({ status: 'idle' }), socket, onTerminalSheet);
-      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS); });
       expect(sheet()).toBeNull();
+    });
+
+    it('sent during a turn, opens once the turn ends and Claude Code runs it', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session({ status: 'running' }), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp' }]);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      expect(sheet()?.textContent).toContain('/mcp');
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
     });
 
     it('the bar closes it, or hands over to the terminal view', () => {

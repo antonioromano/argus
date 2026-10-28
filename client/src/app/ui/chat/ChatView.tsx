@@ -7,7 +7,7 @@ import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
-import { interactiveCommandOf } from '../../../utils/chat.js';
+import { interactiveCommandOf, slashCommandName } from '../../../utils/chat.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
 import { ChatPromptCard } from './ChatPromptCard.js';
@@ -41,10 +41,8 @@ let pendingSeq = 0;
 let lastChat: HTMLElement | null = null;
 /** Height of the terminal sheet's bar; the host insets the terminal by it so the bar never covers it. */
 export const TERMINAL_SHEET_BAR_PX = 36;
-/** How long the session must stay off `waiting` before the sheet takes it as the picker closing. */
+/** How long the session must stay `idle` after its picker before the sheet takes it as closed. */
 export const SHEET_CLOSE_GRACE_MS = 400;
-/** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
-const SLASH_COMMAND_RE = /^\/[^\s/]+(?:\s|$)/;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -85,6 +83,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
   // An interactive command (`/mcp`, `/config`, …) runs in the terminal, shown through a sheet.
   const [sheet, setSheet] = useState<string | null>(null);
+  /** Sent during a turn: Claude Code runs it once the turn ends, and the sheet opens then. */
+  const [queuedSheet, setQueuedSheet] = useState<string | null>(null);
   /** The picker was seen on screen (status `waiting`) since the sheet opened. */
   const sheetSawWaiting = useRef(false);
   const [pending, setPending] = useState<Pending[]>([]);
@@ -146,6 +146,13 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
 
   const status = session.status;
   useEffect(() => {
+    if (!queuedSheet || status === 'running') return;
+    setQueuedSheet(null);
+    if (status === 'exited') return;
+    sheetSawWaiting.current = false;
+    setSheet(queuedSheet);
+  }, [queuedSheet, status]);
+  useEffect(() => {
     if (!sheet) return;
     if (status === 'exited') {
       setSheet(null);
@@ -155,8 +162,10 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       sheetSawWaiting.current = true;
       return;
     }
-    // Back from the picker to the prompt: close once that holds (a repaint can blip off `waiting`).
-    if (!sheetSawWaiting.current) return;
+    // Back from the picker at the idle prompt: close once that holds (a repaint can blip off
+    // `waiting`). `running` is no way out: a flow can work (/agents → Generate) and show more.
+    // There is no Esc shortcut: in a nested picker Esc only goes back a level.
+    if (status !== 'idle' || !sheetSawWaiting.current) return;
     const t = setTimeout(() => setSheet(null), SHEET_CLOSE_GRACE_MS);
     return () => clearTimeout(t);
   }, [sheet, status]);
@@ -167,18 +176,6 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     if (!sheetOpen) return;
     onSheetRef.current?.(true);
     return () => onSheetRef.current?.(false);
-  }, [sheetOpen]);
-  const statusRef = useRef(status);
-  statusRef.current = status;
-  useEffect(() => {
-    if (!sheetOpen) return;
-    // Esc still reaches the terminal; off a picker (or one never read as `waiting`) it also
-    // closes the sheet. A native terminal takes its keys outside the DOM: the bar's button closes.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.metaKey && !e.isComposing && statusRef.current !== 'waiting') setSheet(null);
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
   }, [sheetOpen]);
 
   // A prompt drops out once the transcript holds that many user messages.
@@ -215,7 +212,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
    * (A message can start with an attachment's path: `/var/…` is no command.)
    */
   const echo = (text: string, preview: ChatBlock[]) => {
-    if (preview.length === 0 || SLASH_COMMAND_RE.test(text.trim()) || session.status === 'waiting') return;
+    if (preview.length === 0 || slashCommandName(text) !== null || session.status === 'waiting') return;
     setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
     setFollowing(true);
   };
@@ -295,7 +292,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           <span className="argus-chat-sheet-title">
             <code>/{sheet}</code> runs in the terminal
           </span>
-          <span className="argus-chat-sheet-hint">Closes when you leave it · Esc</span>
+          <span className="argus-chat-sheet-hint">Close it when you are done</span>
           <Button variant="ghost" size="sm" onClick={() => { setSheet(null); onShowTerminal(); }}>
             Open terminal
           </Button>
@@ -367,7 +364,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           else {
             // Typed into a waiting prompt it is an answer, not a command.
             const interactive = session.status === 'waiting' ? null : interactiveCommandOf(text);
-            if (interactive) {
+            if (interactive && running) setQueuedSheet(interactive);
+            else if (interactive) {
               sheetSawWaiting.current = false;
               setSheet(interactive);
             }

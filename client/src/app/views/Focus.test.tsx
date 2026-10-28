@@ -276,6 +276,19 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
     expect(region().style.paddingTop).toBe('0px');
   });
 
+  it('a modal over the see-through terminal sheet still gets the placeholder (F6)', () => {
+    renderFocus(session({ status: 'idle' }));
+    act(() => toggle('Chat')!.click());
+    let handle: ReturnType<typeof suppress> | undefined;
+    act(() => { handle = suppress('all'); });
+    // The opaque Chat covers the hidden terminal itself.
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
+    act(() => (container.querySelector('[data-testid="sheet-open"]') as HTMLButtonElement).click());
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).not.toBeNull();
+    act(() => handle!.release());
+    resetOverlayRegistryForTests();
+  });
+
   it('keeps chat after leaving and re-entering Focus', () => {
     renderFocus(session({ status: 'running' }));
     act(() => toggle('Chat')!.click());

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { BUILTIN_COMMANDS, EMPTY_CHAT, INTERACTIVE_COMMANDS, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, interactiveCommandOf, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
+import { BUILTIN_COMMANDS, EMPTY_CHAT, INTERACTIVE_COMMANDS, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, interactiveCommandOf, slashCommandName, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
 
 const msg = (id: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, blocks: [{ kind: 'text', text: id }] });
 
@@ -140,6 +140,13 @@ describe('interactiveCommandOf (F6)', () => {
     expect(interactiveCommandOf('/compact')).toBeNull();
     expect(interactiveCommandOf('mcp')).toBeNull();
     expect(interactiveCommandOf('/var/folders/x/mcp')).toBeNull();
+  });
+
+  it('shares the command parse with the echo: `/name`, then a space or the end', () => {
+    expect(slashCommandName('/mcp enable x')).toBe('mcp');
+    expect(slashCommandName(' /plugin:skill')).toBe('plugin:skill');
+    expect(slashCommandName('/var/folders/x.png look')).toBeNull();
+    expect(slashCommandName('hi /mcp')).toBeNull();
   });
 
   it('keeps /resume and /model on their Chat-native handling', () => {
