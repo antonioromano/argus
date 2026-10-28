@@ -563,6 +563,17 @@ describe('ChatComposer — prompt suggestion (F9)', () => {
     expect(box().placeholder).toBe('run the tests');
   });
 
+  it('shows the same text again when a later turn suggests it', () => {
+    const onSubmit = render({ suggestion: 'commit it' });
+    tab();
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('commit it', expect.any(Array));
+    // Sending clears it on the server; the next turn ends with the same suggestion.
+    render({ suggestion: undefined, status: 'running', onStop: vi.fn() });
+    render({ suggestion: 'commit it' });
+    expect(box().placeholder).toBe('commit it');
+  });
+
   it('is not offered mid-turn or at a menu', () => {
     render({ suggestion: 'commit it', status: 'running', onStop: vi.fn() });
     expect(box().placeholder).toBe('Message Claude…');

@@ -173,6 +173,9 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
   // F9: shown in place of the placeholder until Tab takes it or anything is typed.
   const [dismissed, setDismissed] = useState<string | null>(null);
+  // Forgotten once the suggestion leaves the screen, so the same text suggested
+  // after a later turn shows again.
+  if (dismissed !== null && !suggestion) setDismissed(null);
   const ghost =
     suggestion && suggestion !== dismissed && text === '' && attachments.length === 0 && atPrompt && status !== 'running'
       ? suggestion

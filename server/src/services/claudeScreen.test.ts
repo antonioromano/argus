@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   chatInputBytes,
+  clearPromptInput,
   inputStillPending,
   permissionModeFromFooter,
   promptInputText,
@@ -57,7 +58,7 @@ async function screen(name: string, edit: (ansi: string) => string = (s) => s): 
   const ansi = readFileSync(new URL(`./__fixtures__/claude-screen/${name}.ansi`, import.meta.url), 'utf8');
   const mirror = new TerminalMirror(120, 30);
   await mirror.feed(edit(ansi));
-  const rows = readScreenRows(mirror.term, 12);
+  const rows = readScreenRows(mirror.term, 18, 29); // the bottom 12 rows, like the detector's footer
   mirror.dispose();
   return rows;
 }
@@ -83,4 +84,11 @@ test('a suggestion continues on faint rows under the prompt; typed text before f
   assert.equal(promptSuggestion([row('❯ run the whole', 2), row('  test suite', 0), row('────', 99)]), 'run the whole test suite');
   assert.equal(promptSuggestion([row('❯ /com', 99).concat(row('mit', 0))]), undefined, 'autocomplete tail after typed text');
   assert.equal(promptSuggestion([row('❯ commit it', 2), row('──', 99), row('❯ 1. Yes', 99)]), undefined, 'the lowest prompt row decides');
+});
+
+test('clearPromptInput empties only the input box', () => {
+  const rows = ['❯ earlier prompt', '──', '❯ run the tests', '──', '  ⏵⏵ auto mode on'];
+  assert.deepEqual(clearPromptInput(rows), ['❯ earlier prompt', '──', '❯ ', '──', '  ⏵⏵ auto mode on']);
+  assert.equal(inputStillPending(clearPromptInput(rows), 'run the tests'), false);
+  assert.deepEqual(clearPromptInput(['no prompt']), ['no prompt']);
 });

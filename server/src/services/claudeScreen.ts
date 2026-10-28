@@ -63,17 +63,14 @@ export interface ScreenCell {
 export type ScreenRow = ScreenCell[];
 
 /**
- * The bottom `depth` rows of the screen with their faint attribute, anchored
- * on the last non-blank row (like the detector's text rows). Wide characters
- * take one cell.
+ * Viewport rows `start`..`end` with their faint attribute (the detector picks
+ * the window). Blank rows are kept; wide characters take one cell.
  */
-export function readScreenRows(term: XTerminal, depth: number): ScreenRow[] {
+export function readScreenRows(term: XTerminal, start: number, end: number): ScreenRow[] {
   const buf = term.buffer.active;
-  let end = term.rows - 1;
-  while (end > 0 && !buf.getLine(buf.viewportY + end)?.translateToString(true).trim()) end--;
   const cell = buf.getNullCell();
   const out: ScreenRow[] = [];
-  for (let y = Math.max(0, end + 1 - depth); y <= end; y++) {
+  for (let y = start; y <= end; y++) {
     const line = buf.getLine(buf.viewportY + y);
     if (!line) continue;
     const row: ScreenRow = [];
@@ -83,6 +80,21 @@ export function readScreenRows(term: XTerminal, depth: number): ScreenRow[] {
       row.push({ ch: cell.getChars() || ' ', dim: cell.isDim() !== 0 });
     }
     out.push(row);
+  }
+  return out;
+}
+
+/**
+ * `rows` with the input box emptied: for a box that only holds a suggestion,
+ * which is no typed text (inputStillPending would take it for some).
+ */
+export function clearPromptInput(rows: readonly string[]): string[] {
+  const out = rows.slice();
+  for (let i = out.length - 1; i >= 0; i--) {
+    const m = /^(\s*❯)/.exec(out[i]);
+    if (!m) continue;
+    out[i] = `${m[1]} `;
+    break;
   }
   return out;
 }

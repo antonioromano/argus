@@ -398,7 +398,7 @@ export class StateDetector {
   /** Fired on every settle while stably waiting (the menu may have repainted). */
   private onWaitingRepaint: (() => void) | null = null;
   /** Fired after every settle with the bottom rows (Claude footer → permission mode). */
-  private onSettled: ((rows: string[]) => void) | null = null;
+  private onSettled: ((rows: string[], cells: () => ScreenRow[]) => void) | null = null;
   /** Last prompt text surfaced to the owner (via transition or onPromptUpdate). */
   private lastReportedPrompt: string | undefined;
   private promptPatterns: RegExp[];
@@ -468,7 +468,8 @@ export class StateDetector {
     this.onPromptUpdate = cb;
   }
 
-  setOnSettled(cb: (rows: string[]) => void): void {
+  /** `cells` reads the same rows with their faint attribute, on demand (it costs a pass over them). */
+  setOnSettled(cb: (rows: string[], cells: () => ScreenRow[]) => void): void {
     this.onSettled = cb;
   }
 
@@ -591,7 +592,10 @@ export class StateDetector {
     } else {
       this.scheduleStatus('idle');
     }
-    this.onSettled?.(this.visibleRows(FOOTER_ROWS));
+    if (this.onSettled) {
+      const [start, end] = this.contentWindow(FOOTER_ROWS);
+      this.onSettled(this.textRows(start, end), () => readScreenRows(this.term, start, end));
+    }
 
     if (process.env['DEBUG_STATE']) {
       const d = this.getDiagnostics();
@@ -602,26 +606,36 @@ export class StateDetector {
     }
   }
 
-  /** The rows handed to onSettled, with their faint attribute (Claude's prompt suggestion). */
+  /** The footer rows onSettled hands out, now, with their faint attribute (Claude's prompt suggestion). */
   footerCells(): ScreenRow[] {
-    return readScreenRows(this.term, FOOTER_ROWS);
+    return readScreenRows(this.term, ...this.contentWindow(FOOTER_ROWS));
   }
 
   /** Collect the last `depth` content rows as text. */
   private visibleRows(depth: number = SCAN_ROWS): string[] {
+    return this.textRows(...this.contentWindow(depth));
+  }
+
+  /**
+   * Viewport rows of the last `depth` content rows. Anchored to the last
+   * non-empty row, not the viewport bottom — after a clear+home redraw (e.g.
+   * Claude's plan-approval UI) the prompt block sits at the TOP of the screen
+   * and a bottom-anchored window would scan only blank rows.
+   */
+  private contentWindow(depth: number): [number, number] {
     const buf = this.term.buffer.active;
-    const rows = this.term.rows;
-    // Anchor the window to the last non-empty row, not the viewport bottom —
-    // after a clear+home redraw (e.g. Claude's plan-approval UI) the prompt
-    // block sits at the TOP of the screen and a bottom-anchored window would
-    // scan only blank rows.
-    let end = rows - 1;
+    let end = this.term.rows - 1;
     while (end > 0) {
       const line = buf.getLine(buf.viewportY + end)?.translateToString(true);
       if (line && line.trim()) break;
       end--;
     }
-    const start = Math.max(0, end + 1 - depth);
+    return [Math.max(0, end + 1 - depth), end];
+  }
+
+  /** Viewport rows `start`..`end` as text; blank rows are skipped. */
+  private textRows(start: number, end: number): string[] {
+    const buf = this.term.buffer.active;
     const lines: string[] = [];
     for (let y = start; y <= end; y++) {
       const line = buf.getLine(buf.viewportY + y)?.translateToString(true);

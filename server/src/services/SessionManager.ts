@@ -59,7 +59,16 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { chatRoom } from '../socket/rooms.js';
-import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, chatInputBytes, inputStillPending, permissionModeFromFooter, promptSuggestion } from './claudeScreen.js';
+import {
+  CYCLE_MODE_KEY,
+  SETTABLE_PERMISSION_MODES,
+  chatInputBytes,
+  clearPromptInput,
+  inputStillPending,
+  permissionModeFromFooter,
+  promptSuggestion,
+  type ScreenRow,
+} from './claudeScreen.js';
 import { BROADCAST_ENTER_DELAY_MS } from '../socket/broadcast.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
@@ -1256,7 +1265,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows, stateDetector));
+    stateDetector.setOnSettled((rows, cells) => this.applyFooter(id, rows, cells));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -1384,6 +1393,7 @@ export class SessionManager {
       // A replaced pty's exit must not be reported as the session exiting.
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
@@ -1506,6 +1516,7 @@ export class SessionManager {
 
     // Reset state
     session.rawTail?.clear();
+    this.setSuggestion(id, session, undefined);
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -1540,7 +1551,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows, stateDetector));
+    stateDetector.setOnSettled((rows, cells) => this.applyFooter(id, rows, cells));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
@@ -1599,6 +1610,7 @@ export class SessionManager {
     ptyProcess.onExit(({ exitCode }) => {
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
@@ -1950,6 +1962,8 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return undefined;
     session.chatViewers = (session.chatViewers ?? 0) + 1;
+    // Settles read the suggestion only while a Chat view is open: read it now for the snapshot.
+    if (session.status !== 'exited') this.setSuggestion(id, session, promptSuggestion(session.stateDetector.footerCells()));
     const tracker = this.usageTracker(session);
     await tracker.openChat((update) => {
       if (this.sessions.get(id) !== session) return;
@@ -1971,7 +1985,7 @@ export class SessionManager {
   }
 
   /** A settled Claude screen: track the permission mode its footer shows, and the prompt suggestion. */
-  private applyFooter(id: string, rows: string[], detector: StateDetector): void {
+  private applyFooter(id: string, rows: string[], cells: () => ScreenRow[]): void {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return;
     const mode = permissionModeFromFooter(rows);
@@ -1979,12 +1993,17 @@ export class SessionManager {
       session.permissionMode = mode;
       if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
     }
-    // Read from the cells: a suggestion differs from typed input only by being faint.
-    this.setSuggestion(id, session, promptSuggestion(detector.footerCells()));
-    session.settledRows = rows;
+    // Read from the cells: a suggestion differs from typed input only by being
+    // faint. Only Chat views use it, so it is read only while one is open.
+    const suggestion = session.chatViewers ? promptSuggestion(cells()) : undefined;
+    this.setSuggestion(id, session, suggestion);
+    // A box holding only the suggestion is empty: the chat submit checks must
+    // not take it for text still waiting there (and press Enter on it).
+    const inputRows = suggestion ? clearPromptInput(rows) : rows;
+    session.settledRows = inputRows;
     const waiters = session.settleWaiters;
     session.settleWaiters = undefined;
-    waiters?.forEach((w) => w(rows));
+    waiters?.forEach((w) => w(inputRows));
   }
 
   /** Bottom rows of the session's next settled screen, or undefined after `timeoutMs`. */
@@ -2080,7 +2099,11 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || !session.chatViewers) return;
     session.chatViewers -= 1;
-    if (session.chatViewers === 0) session.usage?.closeChat();
+    if (session.chatViewers === 0) {
+      session.usage?.closeChat();
+      // Not read without a viewer: the next one reads it afresh.
+      session.promptSuggestion = undefined;
+    }
   }
 
   private usageTracker(session: ManagedSession): SessionUsageTracker {
