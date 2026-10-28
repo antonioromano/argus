@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useReducer, useState } from 'react';
 import type { ChatToolBlock } from '@argus/shared';
 import type { LucideIcon } from 'lucide-react';
 import { Ban, Bot, ChevronRight, CircleX, FilePen, FileText, Globe, ListTodo, LoaderCircle, Plug, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react';
@@ -73,7 +73,9 @@ function EditDiff({ oldText, newText }: { oldText: string; newText: string }) {
 
 function StepDetail({ step }: { step: ChatToolBlock }) {
   const d = step.detail;
-  if (!d) return <div className="argus-chat-tool-empty">No details recorded.</div>;
+  // A Read's detail is just its path until the result's text arrives.
+  const shown = d && (d.command ?? d.newText ?? d.input ?? d.output) !== undefined;
+  if (!d || !shown) return <div className="argus-chat-tool-empty">No details recorded.</div>;
   const lang = d.path ? langForPath(d.path) : null;
   return (
     <div className="argus-chat-tool-detail">
@@ -93,22 +95,31 @@ function StepDetail({ step }: { step: ChatToolBlock }) {
   );
 }
 
-/** Local open/closed state, mirrored into the view's `store`. */
-function useOpen(key: string, store?: ToolOpenState): [boolean, () => void] {
-  const [open, setOpen] = useState(() => store?.has(key) ?? false);
+/**
+ * Open/closed state read from `store` (keys shared across the view, so the
+ * id must be known; an id-less call keeps its state to itself). Opening also
+ * opens `also`: a lone step opens its group, so the step stays in view when
+ * the next call turns the row into a summary.
+ */
+function useOpen(id: string, kind: 'step' | 'group', store: ToolOpenState, also?: string): [boolean, () => void] {
+  const [local] = useState<ToolOpenState>(() => new Set());
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const s = id ? store : local;
+  const key = `${kind}:${id}`;
+  const open = s.has(key);
   const toggle = () => {
-    const next = !open;
-    if (store) {
-      if (next) store.add(key);
-      else store.delete(key);
+    if (open) s.delete(key);
+    else {
+      s.add(key);
+      if (also && id) s.add(also);
     }
-    setOpen(next);
+    rerender();
   };
   return [open, toggle];
 }
 
-function Step({ step, store }: { step: ChatToolBlock; store?: ToolOpenState }) {
-  const [open, toggle] = useOpen(`step:${step.id}`, store);
+function Step({ step, store, group }: { step: ChatToolBlock; store: ToolOpenState; group?: string }) {
+  const [open, toggle] = useOpen(step.id, 'step', store, group);
   const prefix = stepPrefix(step);
   return (
     <div className={`argus-chat-tool-step${open ? ' is-open' : ''}`} data-testid="chat-tool-step" data-status={step.status}>
@@ -130,12 +141,15 @@ interface ChatToolGroupProps {
   store?: ToolOpenState;
 }
 
-function GroupInner({ steps, store }: ChatToolGroupProps) {
-  const [open, toggle] = useOpen(`group:${steps[0]?.id}`, store);
+function GroupInner({ steps, store: given }: ChatToolGroupProps) {
+  const [own] = useState<ToolOpenState>(() => new Set());
+  const store = given ?? own;
+  const first = steps[0]?.id ?? '';
+  const [open, toggle] = useOpen(first, 'group', store);
   if (steps.length === 1) {
     return (
       <div className="argus-chat-tools">
-        <Step step={steps[0]} store={store} />
+        <Step step={steps[0]} store={store} group={`group:${first}`} />
       </div>
     );
   }

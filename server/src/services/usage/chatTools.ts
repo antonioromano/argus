@@ -182,7 +182,7 @@ export interface ToolResult {
  * rule denied it, a hook blocked it, or the turn was interrupted first.
  */
 const BLOCKED_RE =
-  /^(?:The user doesn't want to (?:proceed|take this action)|Permission to use \S+.*\bdenied|Claude requested permissions to use|\S+ operation blocked by hook|Hook \S+ (?:blocked|denied))/i;
+  /^(?:\[Request interrupted by user|The user doesn't want to (?:proceed|take this action)|Permission to use \S+.*\bdenied|Claude requested permissions to use|\S+ operation blocked by hook|Hook \S+ (?:blocked|denied))/i;
 
 /** Text of a tool_result's content (a string, or text parts; images skipped). */
 function resultText(content: unknown): string {
@@ -194,6 +194,8 @@ function resultText(content: unknown): string {
     .join('\n');
 }
 
+/** Claude Code wraps a tool's own error message in this tag. */
+const TOOL_ERROR_RE = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/;
 // eslint-disable-next-line no-control-regex -- stripping terminal escapes is the point
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]/g;
 
@@ -207,7 +209,7 @@ export function toolResultsOf(content: unknown, toolUseResult?: unknown): ToolRe
   const rejected = typeof toolUseResult === 'string' && /rejected/i.test(toolUseResult);
   for (const b of content) {
     if (!b || typeof b !== 'object' || b.type !== 'tool_result' || typeof b.tool_use_id !== 'string') continue;
-    const text = resultText(b.content).replace(ANSI_RE, '').replace(/^<tool_use_error>([\s\S]*)<\/tool_use_error>$/, '$1').trim();
+    const text = resultText(b.content).replace(ANSI_RE, '').trim().replace(TOOL_ERROR_RE, '$1').trim();
     const status: ToolResult['status'] = b.is_error === true ? (rejected || BLOCKED_RE.test(text) ? 'blocked' : 'error') : 'ok';
     const r: ToolResult = { id: b.tool_use_id.slice(0, MAX_ID), status };
     if (text) r.output = clipTo(text, MAX_TOOL_OUTPUT);

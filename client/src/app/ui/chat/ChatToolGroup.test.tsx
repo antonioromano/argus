@@ -63,6 +63,28 @@ describe('ChatToolGroup', () => {
     expect(container.querySelector('[data-testid="chat-tool-step"]')?.textContent).toBe('List files');
   });
 
+  it('a lone step left open stays open when the next call turns the row into a group', () => {
+    const store = new Set<string>();
+    act(() => root.render(<ChatToolGroup steps={[bash]} store={store} />));
+    click(container.querySelector('[data-testid="chat-tool-step"] button'));
+    act(() => root.render(<ChatToolGroup steps={[bash, edit]} store={store} />));
+    const steps = container.querySelectorAll('[data-testid="chat-tool-step"]');
+    expect(steps).toHaveLength(2);
+    expect(steps[0].classList.contains('is-open')).toBe(true);
+  });
+
+  it('shows "No details recorded" for a detail with nothing to render, and keeps id-less steps apart', () => {
+    const read = (id: string): ChatToolBlock => ({ kind: 'tool', id, name: 'Read', label: 'a.ts', status: 'pending', detail: { path: '/a.ts' } });
+    const store = new Set<string>();
+    act(() => root.render(<ChatToolGroup steps={[read(''), read('')]} store={store} />));
+    click(container.querySelector('.argus-chat-tool-summary'));
+    const steps = container.querySelectorAll('[data-testid="chat-tool-step"]');
+    click(steps[0].querySelector('button'));
+    expect(steps[0].textContent).toContain('No details recorded.');
+    expect(steps[1].classList.contains('is-open')).toBe(false);
+    expect(store.size).toBe(0);
+  });
+
   it('keeps what was open in the store across a remount (the virtualizer unmounts offscreen rows)', () => {
     const store = new Set<string>();
     act(() => root.render(<ChatToolGroup steps={[bash, edit]} store={store} />));

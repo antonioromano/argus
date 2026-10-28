@@ -73,6 +73,12 @@ test('results: ok, error, blocked (rejected / denied), clipped output, text part
   assert.equal(parts.output, 'one\ntwo');
   assert.equal(toolResultsOf([{ type: 'tool_result', tool_use_id: 'z', is_error: true, content: 'nope' }], 'User rejected tool use')[0].status, 'blocked');
   assert.deepEqual(toolResultsOf('a string'), []);
+  const [stopped, wrapped] = toolResultsOf([
+    { type: 'tool_result', tool_use_id: 's', is_error: true, content: '[Request interrupted by user for tool use]' },
+    { type: 'tool_result', tool_use_id: 'w', is_error: true, content: '  <tool_use_error>Edit operation blocked by hook</tool_use_error>\n' },
+  ]);
+  assert.equal(stopped.status, 'blocked');
+  assert.deepEqual(wrapped, { id: 'w', status: 'blocked', output: 'Edit operation blocked by hook' });
 });
 
 test('withResult copies the block and keeps its details', () => {

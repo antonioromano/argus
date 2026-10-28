@@ -9,26 +9,28 @@ const text = (id: string, role: ChatMessage['role'] = 'assistant'): ChatMessage 
 describe('chatRows', () => {
   it('folds consecutive tool-only assistant messages into one row keyed by the first', () => {
     const rows = chatRows([text('u', 'user'), tools('a1', step('Bash')), tools('a2', step('Read'), step('Grep')), text('a3'), tools('a4', step('Bash'))]);
-    expect(rows.map((r) => [r.kind, r.id])).toEqual([
-      ['message', 'u'],
-      ['tools', 'a1'],
-      ['message', 'a3'],
-      ['tools', 'a4'],
-    ]);
-    const run = rows[1];
-    expect(run.kind === 'tools' && run.tools.map((t) => t.name)).toEqual(['Bash', 'Read', 'Grep']);
+    expect(rows.map((r) => r.id)).toEqual(['u', 'a1', 'a3', 'a4']);
+    expect(rows[1].blocks.map((b) => b.kind === 'tool' && b.name)).toEqual(['Bash', 'Read', 'Grep']);
   });
 
   it('keeps mixed messages whole and never folds user or system rows', () => {
     const mixed: ChatMessage = { id: 'm', role: 'assistant', blocks: [{ kind: 'text', text: 'hi' }, step('Bash')] };
     const odd: ChatMessage = { id: 's', role: 'system', blocks: [step('Bash')] };
-    expect(chatRows([mixed, odd, tools('a', step('Bash'))]).map((r) => r.kind)).toEqual(['message', 'message', 'tools']);
+    expect(chatRows([mixed, odd, tools('a', step('Bash')), tools('b', step('Read'))]).map((r) => [r.id, r.blocks.length])).toEqual([
+      ['m', 2],
+      ['s', 1],
+      ['a', 2],
+    ]);
   });
 
   it('does not mutate the messages it reads', () => {
     const first = tools('a1', step('Bash'));
-    chatRows([first, tools('a2', step('Read'))]);
+    const second = tools('a2', step('Read'));
+    chatRows([first, second, tools('a3', step('Grep'))]);
     expect(first.blocks).toHaveLength(1);
+    expect(second.blocks).toHaveLength(1);
+    // A message with no run to join is passed through as is.
+    expect(chatRows([first])[0]).toBe(first);
   });
 });
 
@@ -37,6 +39,11 @@ describe('toolSummary', () => {
     const s = [step('Bash'), step('Read'), step('Bash'), step('Bash', 'blocked'), step('Read'), step('Bash'), step('Bash')];
     expect(toolSummary(s)).toBe('Ran 5 commands, read 2 files (1 blocked)');
     expect(toolSummary([step('Edit'), step('Write', 'error'), step('Grep', 'pending')])).toBe('Edited 1 file, wrote 1 file, ran 1 search (1 failed, 1 running)');
+  });
+
+  it('counts synonymous tools under one phrase', () => {
+    expect(toolSummary([step('Grep'), step('Glob'), step('Glob')])).toBe('Ran 3 searches');
+    expect(toolSummary([step('Edit'), step('MultiEdit'), step('Agent'), step('Task')])).toBe('Edited 2 files, ran 2 agents');
   });
 
   it('names MCP and unknown tools generically', () => {

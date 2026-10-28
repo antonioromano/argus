@@ -96,8 +96,8 @@ function Block({ block, user }: { block: ChatBlock; user: boolean }) {
         </div>
       );
     case 'tool':
-      // Runs of tool blocks are grouped by ChatMessageItem; a lone one lands here.
-      return <ChatToolGroup steps={[block]} />;
+      // Never reached: partsOf sends every tool block to ChatToolGroup.
+      return null;
     case 'image':
       return <ChatImage path={block.path} />;
     case 'command':

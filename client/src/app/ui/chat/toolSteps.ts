@@ -5,32 +5,33 @@ import type { ChatMessage, ChatToolBlock } from '@argus/shared';
  * a summary line ("Ran 5 commands, read 2 files (1 blocked)").
  */
 
-/** One virtual row of the Chat view: a message, or a run of tool-only assistant messages. */
-export type ChatRow =
-  | { kind: 'message'; id: string; message: ChatMessage }
-  /** `id` is the first message's, so the row keeps its key while the run grows. */
-  | { kind: 'tools'; id: string; tools: ChatToolBlock[] };
-
 function toolOnly(m: ChatMessage): boolean {
   return m.role === 'assistant' && m.blocks.length > 0 && m.blocks.every((b) => b.kind === 'tool');
 }
 
 /**
- * Rows of a message list. Claude Code records each tool call as its own
+ * The Chat view's rows. Claude Code records each tool call as its own
  * assistant entry (and the results as user entries the server folds in), so
- * consecutive tool-only messages are one run of steps.
+ * consecutive tool-only messages merge into one message: the first one's id
+ * (the row keeps its key while the run grows) with all their tool blocks,
+ * which ChatMessageItem then shows as one group.
  */
-export function chatRows(messages: readonly ChatMessage[]): ChatRow[] {
-  const rows: ChatRow[] = [];
+export function chatRows(messages: readonly ChatMessage[]): ChatMessage[] {
+  const rows: ChatMessage[] = [];
+  // Rows this call merged into (copies), so a message passed in is never mutated.
+  const merged = new Set<ChatMessage>();
   for (const m of messages) {
-    if (!toolOnly(m)) {
-      rows.push({ kind: 'message', id: m.id, message: m });
+    const last = rows[rows.length - 1];
+    if (!toolOnly(m) || !last || !toolOnly(last)) {
+      rows.push(m);
       continue;
     }
-    const last = rows[rows.length - 1];
-    const tools = m.blocks as ChatToolBlock[];
-    if (last?.kind === 'tools') last.tools.push(...tools);
-    else rows.push({ kind: 'tools', id: m.id, tools: [...tools] });
+    if (!merged.has(last)) {
+      const copy = { ...last, blocks: [...last.blocks] };
+      rows[rows.length - 1] = copy;
+      merged.add(copy);
+      copy.blocks.push(...m.blocks);
+    } else last.blocks.push(...m.blocks);
   }
   return rows;
 }
@@ -76,12 +77,16 @@ export function stepPrefix(step: ChatToolBlock): string | undefined {
 
 /** "Ran 5 commands, read 2 files (1 blocked)". */
 export function toolSummary(steps: readonly ChatToolBlock[]): string {
-  const counts = new Map<Kind, number>();
+  // Keyed by phrase, so synonyms (Grep + Glob, Edit + MultiEdit, Agent + Task) count together.
+  const counts = new Map<string, { k: Kind; n: number }>();
   for (const s of steps) {
     const k = kindOf(s.name);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
+    const key = `${k.verb}|${k.one}`;
+    const c = counts.get(key);
+    if (c) c.n++;
+    else counts.set(key, { k, n: 1 });
   }
-  const parts = [...counts].map(([k, n]) => `${k.verb} ${n} ${n === 1 ? k.one : k.many}`);
+  const parts = [...counts.values()].map(({ k, n }) => `${k.verb} ${n} ${n === 1 ? k.one : k.many}`);
   const text = parts.join(', ');
   const tally = (status: ChatToolBlock['status']) => steps.filter((s) => s.status === status).length;
   const notes = [

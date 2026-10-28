@@ -11,7 +11,7 @@ import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
 import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
-import { ChatToolGroup, type ToolOpenState } from './ChatToolGroup.js';
+import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -182,7 +182,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   useLayoutEffect(() => {
     if (!following || rows.length === 0) return;
     virtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
-  }, [rows.length, following, virtualizer]);
+    // `messages`, not a count: a call can join the last row, or a result grow it, with no new row.
+  }, [messages, rows.length, following, virtualizer]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -210,10 +211,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       <div ref={scrollRef} className="argus-scroll argus-chat-scroll" onScroll={onScroll} data-testid="chat-scroll">
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
           {virtualizer.getVirtualItems().map((item) => {
-            const row = rows[item.index];
+            const m = rows[item.index];
             const prev = rows[item.index - 1];
-            const role = row.kind === 'tools' ? 'assistant' : row.message.role;
-            const prevRole = !prev ? undefined : prev.kind === 'tools' ? 'assistant' : prev.message.role;
             return (
               <div
                 key={item.key}
@@ -221,16 +220,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               >
-                {row.kind === 'tools' ? (
-                  <div className="argus-chat-msg is-assistant" data-role="assistant">
-                    {prevRole !== 'assistant' && <div className="argus-chat-role eyebrow">Claude</div>}
-                    <div className="argus-chat-body">
-                      <ChatToolGroup steps={row.tools} store={toolStore} />
-                    </div>
-                  </div>
-                ) : (
-                  <ChatMessageItem message={row.message} showRole={prevRole !== role} pending={pendingIds.has(row.id)} toolStore={toolStore} />
-                )}
+                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} pending={pendingIds.has(m.id)} toolStore={toolStore} />
               </div>
             );
           })}
