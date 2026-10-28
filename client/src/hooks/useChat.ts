@@ -24,14 +24,20 @@ export function useChat(socket: TypedSocket, sessionId: string, enabled: boolean
       if (id !== sessionId) return;
       setState((prev) => (prev.sessionId === sessionId ? { sessionId, chat: { ...prev.chat, permissionMode } } : prev));
     };
+    const onSuggestion = ({ sessionId: id, suggestion }: { sessionId: string; suggestion: string | null }) => {
+      if (id !== sessionId) return;
+      setState((prev) => (prev.sessionId === sessionId ? { sessionId, chat: { ...prev.chat, suggestion: suggestion ?? undefined } } : prev));
+    };
     const subscribe = () => socket.emit('session:chat:subscribe', sessionId);
     socket.on('session:chat', onChat);
     socket.on('session:chatMode', onMode);
+    socket.on('session:chatSuggestion', onSuggestion);
     socket.on('connect', subscribe);
     if (socket.connected) subscribe();
     return () => {
       socket.off('session:chat', onChat);
       socket.off('session:chatMode', onMode);
+      socket.off('session:chatSuggestion', onSuggestion);
       socket.off('connect', subscribe);
       socket.emit('session:chat:unsubscribe', sessionId);
     };

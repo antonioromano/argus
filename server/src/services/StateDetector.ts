@@ -1,6 +1,7 @@
 import type { SessionStatus } from '@argus/shared';
 import type { Terminal as XTerminal } from '@xterm/headless';
 import { TerminalMirror } from './TerminalMirror.js';
+import { readScreenRows, type ScreenRow } from './claudeScreen.js';
 import { SHELL_AGENT_ID } from '../constants/agents.js';
 
 // Standalone StateDetectors (unit tests) create their own mirror at the old
@@ -599,6 +600,11 @@ export class StateDetector {
           d.visibleRows.join('\n'),
       );
     }
+  }
+
+  /** The rows handed to onSettled, with their faint attribute (Claude's prompt suggestion). */
+  footerCells(): ScreenRow[] {
+    return readScreenRows(this.term, FOOTER_ROWS);
   }
 
   /** Collect the last `depth` content rows as text. */

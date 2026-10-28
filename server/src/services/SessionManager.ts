@@ -59,7 +59,7 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { chatRoom } from '../socket/rooms.js';
-import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, chatInputBytes, inputStillPending, permissionModeFromFooter } from './claudeScreen.js';
+import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, chatInputBytes, inputStillPending, permissionModeFromFooter, promptSuggestion } from './claudeScreen.js';
 import { BROADCAST_ENTER_DELAY_MS } from '../socket/broadcast.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
@@ -218,6 +218,8 @@ interface ManagedSession {
   chatViewers?: number;
   /** Claude only: permission mode read from the footer on screen (B1). */
   permissionMode?: string;
+  /** Claude only: the next prompt Claude Code suggests in its empty input box (F9). */
+  promptSuggestion?: string;
   /** Called with the bottom rows of the next settled screen (mode switch, chat submit). */
   settleWaiters?: Set<(rows: string[]) => void>;
   /** Bottom rows of the last settled screen. */
@@ -1254,7 +1256,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
+    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows, stateDetector));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -1538,7 +1540,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
+    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows, stateDetector));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
@@ -1957,11 +1959,19 @@ export class SessionManager {
     });
     const snap = tracker.chatSnapshot();
     if (session.permissionMode) snap.permissionMode = session.permissionMode;
+    if (session.promptSuggestion) snap.suggestion = session.promptSuggestion;
     return snap;
   }
 
-  /** A settled Claude screen: track the permission mode its footer shows. */
-  private applyFooter(id: string, rows: string[]): void {
+  /** Track Claude's prompt suggestion; Chat views hear of each change. */
+  private setSuggestion(id: string, session: ManagedSession, suggestion: string | undefined): void {
+    if (suggestion === session.promptSuggestion) return;
+    session.promptSuggestion = suggestion;
+    if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatSuggestion', { sessionId: id, suggestion: suggestion ?? null });
+  }
+
+  /** A settled Claude screen: track the permission mode its footer shows, and the prompt suggestion. */
+  private applyFooter(id: string, rows: string[], detector: StateDetector): void {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return;
     const mode = permissionModeFromFooter(rows);
@@ -1969,6 +1979,8 @@ export class SessionManager {
       session.permissionMode = mode;
       if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
     }
+    // Read from the cells: a suggestion differs from typed input only by being faint.
+    this.setSuggestion(id, session, promptSuggestion(detector.footerCells()));
     session.settledRows = rows;
     const waiters = session.settleWaiters;
     session.settleWaiters = undefined;
@@ -2034,6 +2046,8 @@ export class SessionManager {
       if (this.sessions.get(id) !== session) return false;
     }
     session.lastChatInput = text;
+    // Whatever was suggested is gone once something is sent; the next settle confirms it.
+    this.setSuggestion(id, session, undefined);
     // Before the write, so a command recorded at once still finds its echo. Not
     // at a menu: there the text answers the menu, it does not run a command.
     if (session.status !== 'waiting') session.usage?.echoChatInput(text);

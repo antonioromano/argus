@@ -309,6 +309,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         model={session.usage?.model}
         modelSet={chat.modelSet}
         commands={chat.commands}
+        suggestion={chat.suggestion}
         onUploadImage={(file) => api.uploadChatImage(session.id, file)}
         onShowTerminal={onShowTerminal}
         autoFocus={autoFocus}

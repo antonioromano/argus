@@ -15,6 +15,8 @@ export interface ChatState {
   modelSet?: string;
   /** Skills and custom commands from the transcript (the composer adds the built-ins). */
   commands?: ChatCommand[];
+  /** The next prompt Claude Code suggests (ghost text in its empty input box). */
+  suggestion?: string;
 }
 
 export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages: [] };
@@ -27,7 +29,7 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
  */
 export function applyChatUpdate(
   prev: ChatState,
-  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed' | 'commands'>,
+  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed' | 'commands' | 'suggestion'>,
 ): ChatState {
   if (update.reset) {
     return {
@@ -37,6 +39,7 @@ export function applyChatUpdate(
       permissionMode: update.permissionMode,
       modelSet: update.modelSet,
       commands: update.commands,
+      suggestion: update.suggestion,
     };
   }
   // Appends carry the mode and model only when they changed.
@@ -73,7 +76,8 @@ export function applyChatUpdate(
     return prev;
   }
   const messages = fresh.length ? next.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : next;
-  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands };
+  // The suggestion comes on a reset, then by session:chatSuggestion.
+  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion };
 }
 
 const MODE_LABELS: Record<string, string> = {
