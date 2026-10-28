@@ -759,10 +759,41 @@ export interface SessionUsage {
  * the Claude Code transcript, which is not a public API: anything the parser
  * does not recognise becomes `unknown` instead of breaking the view.
  */
+/** How a tool call ended; `pending` until its result is recorded. */
+export type ChatToolStatus = 'ok' | 'error' | 'blocked' | 'pending';
+
+/** What an expanded tool step shows; every text is clipped by the server. */
+export interface ChatToolDetail {
+  /** Bash: the command (highlighted as shell). */
+  command?: string;
+  /** Edit / Write: the file, and the replaced and replacement text (Write: `newText` only). */
+  path?: string;
+  oldText?: string;
+  newText?: string;
+  /** Any other tool: its input as pretty JSON. */
+  input?: string;
+  /** The tool result's text. */
+  output?: string;
+}
+
+/**
+ * One tool call of an assistant turn. `label` is a human line ("List files",
+ * "src/a.ts", "Figma · Get screenshot"); unknown tools fall back to `name`.
+ */
+export interface ChatToolBlock {
+  kind: 'tool';
+  /** Claude's `tool_use` id, which the later `tool_result` names. */
+  id: string;
+  name: string;
+  label: string;
+  detail?: ChatToolDetail;
+  status: ChatToolStatus;
+}
+
 export type ChatBlock =
   | { kind: 'text'; text: string }
-  /** A tool call; only the tool name is shown in phase 1. */
-  | { kind: 'tool'; name: string }
+  /** A tool call, joined with its result once the transcript records it (F7). */
+  | ChatToolBlock
   /** An attached image; `path` when the prompt names a file a session can read (for a thumbnail). */
   | { kind: 'image'; path?: string }
   /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
