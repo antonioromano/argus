@@ -54,4 +54,29 @@ describe('chatDrafts', () => {
     expect(getChatDraft('s1').text).toBe('still here');
     setItem.mockRestore();
   });
+
+  it("leaves other windows' drafts in storage alone", () => {
+    getChatDraft('mine'); // this window loaded an empty store
+    // Another window (same localStorage) saves its own session's draft.
+    localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify({ theirs: { text: 'from B', attachments: [] } }));
+    updateChatDraft('mine', () => ({ text: 'from A', attachments: [] }));
+    const stored = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY)!);
+    expect(stored.theirs.text).toBe('from B');
+    expect(stored.mine.text).toBe('from A');
+    // Pruning sees what other windows stored too.
+    pruneChatDrafts(new Set(['mine']));
+    expect(JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY)!)).toEqual({ mine: { text: 'from A', attachments: [] } });
+  });
+
+  it('takes in what another window wrote, keeping its own pending uploads', () => {
+    updateChatDraft('s1', () => ({ text: 'old', attachments: [] }));
+    updateChatDraft('s2', () => ({ text: 'mine', attachments: [{ key: 'u', name: 'Pasted image', preview: 'blob:u' }] }));
+    localStorage.setItem(
+      CHAT_DRAFTS_KEY,
+      JSON.stringify({ s1: { text: 'newer from B', attachments: [] }, s2: { text: 'mine', attachments: [] } }),
+    );
+    window.dispatchEvent(new StorageEvent('storage', { key: CHAT_DRAFTS_KEY }));
+    expect(getChatDraft('s1').text).toBe('newer from B');
+    expect(getChatDraft('s2').attachments).toHaveLength(1);
+  });
 });

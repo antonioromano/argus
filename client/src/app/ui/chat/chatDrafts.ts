@@ -39,39 +39,81 @@ export const newAttachmentKey = () => `att-${++nextKey}`;
 const isEmpty = (d: ChatDraft) => d.text === '' && d.attachments.length === 0;
 export const revokePreviews = (list: DraftAttachment[]) => list.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
 
-function load(): void {
-  if (loaded) return;
-  loaded = true;
-  let raw: unknown;
+/** A draft as stored: text and saved paths (thumbnails and pending uploads don't outlive the window). */
+interface StoredDraft {
+  text: string;
+  attachments: { path: string; name: string }[];
+}
+
+function toStored(d: ChatDraft | undefined): StoredDraft | undefined {
+  if (!d) return undefined;
+  const attachments = d.attachments.flatMap((a) => (a.path && !a.failed ? [{ path: a.path, name: a.name }] : []));
+  return d.text || attachments.length > 0 ? { text: d.text, attachments } : undefined;
+}
+
+function fromStored(raw: unknown): ChatDraft | undefined {
+  const d = raw as Partial<{ text: unknown; attachments: unknown }> | null;
+  const text = typeof d?.text === 'string' ? d.text : '';
+  const attachments = (Array.isArray(d?.attachments) ? d.attachments : [])
+    .filter((a): a is { path: string; name: string } => typeof a?.path === 'string' && typeof a?.name === 'string')
+    .map((a) => ({ key: newAttachmentKey(), path: a.path, name: a.name }));
+  const draft = { text, attachments };
+  return isEmpty(draft) ? undefined : draft;
+}
+
+function readStored(): Record<string, unknown> {
   try {
-    raw = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) ?? 'null');
+    const raw: unknown = JSON.parse(localStorage.getItem(CHAT_DRAFTS_KEY) ?? 'null');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   } catch {
-    return;
-  }
-  if (!raw || typeof raw !== 'object') return;
-  for (const [id, d] of Object.entries(raw as Record<string, Partial<{ text: unknown; attachments: unknown }>>)) {
-    const text = typeof d?.text === 'string' ? d.text : '';
-    const attachments = (Array.isArray(d?.attachments) ? d.attachments : [])
-      .filter((a): a is { path: string; name: string } => typeof a?.path === 'string' && typeof a?.name === 'string')
-      .map((a) => ({ key: newAttachmentKey(), path: a.path, name: a.name }));
-    const draft = { text, attachments };
-    if (!isEmpty(draft)) drafts.set(id, draft);
+    return {};
   }
 }
 
+const sameStored = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+function load(): void {
+  if (loaded) return;
+  loaded = true;
+  for (const [id, raw] of Object.entries(readStored())) {
+    const draft = fromStored(raw);
+    if (draft) drafts.set(id, draft);
+  }
+  // Every window shares the key: take in what another window wrote.
+  if (typeof window !== 'undefined') window.addEventListener('storage', onStorage);
+}
+
+/** Another window changed the stored drafts; adopt the sessions whose stored draft differs from ours. */
+function onStorage(e: StorageEvent): void {
+  if (e.key !== CHAT_DRAFTS_KEY && e.key !== null) return;
+  const stored = readStored();
+  let changed = false;
+  for (const id of new Set([...drafts.keys(), ...Object.keys(stored)])) {
+    const mine = drafts.get(id);
+    if (sameStored(toStored(mine), stored[id])) continue;
+    if (mine) revokePreviews(mine.attachments);
+    const theirs = fromStored(stored[id]);
+    if (theirs) drafts.set(id, theirs);
+    else drafts.delete(id);
+    changed = true;
+  }
+  if (changed) notify();
+}
+
 /**
- * Write the drafts to localStorage. Thumbnails (blob: URLs) and uploads that
- * have no path yet don't outlive the window, so only saved paths are kept.
+ * Write the given sessions' drafts to localStorage. Read-modify-write: other
+ * windows' drafts in the same key are left as they are.
  */
-function persist(): void {
-  const out: Record<string, { text: string; attachments: { path: string; name: string }[] }> = {};
-  for (const [id, d] of drafts) {
-    const attachments = d.attachments.flatMap((a) => (a.path && !a.failed ? [{ path: a.path, name: a.name }] : []));
-    if (d.text || attachments.length > 0) out[id] = { text: d.text, attachments };
+function persist(ids: Iterable<string>): void {
+  const stored = readStored();
+  for (const id of ids) {
+    const d = toStored(drafts.get(id));
+    if (d) stored[id] = d;
+    else delete stored[id];
   }
   try {
-    if (Object.keys(out).length === 0) localStorage.removeItem(CHAT_DRAFTS_KEY);
-    else localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify(out));
+    if (Object.keys(stored).length === 0) localStorage.removeItem(CHAT_DRAFTS_KEY);
+    else localStorage.setItem(CHAT_DRAFTS_KEY, JSON.stringify(stored));
   } catch {
     // Storage full or unavailable: the in-memory draft still survives view switches.
   }
@@ -91,29 +133,30 @@ export function updateChatDraft(sessionId: string, fn: (d: ChatDraft) => ChatDra
   if (next === cur) return;
   if (isEmpty(next)) drafts.delete(sessionId);
   else drafts.set(sessionId, next);
-  persist();
+  persist([sessionId]);
   notify();
 }
 
 /** Drop the drafts of sessions that no longer exist. */
 export function pruneChatDrafts(liveSessionIds: ReadonlySet<string>): void {
   load();
-  let changed = false;
-  for (const [id, d] of drafts) {
-    if (liveSessionIds.has(id)) continue;
-    revokePreviews(d.attachments);
+  const gone = [...drafts.keys()].filter((id) => !liveSessionIds.has(id));
+  for (const id of gone) {
+    revokePreviews(drafts.get(id)!.attachments);
     drafts.delete(id);
-    changed = true;
   }
-  if (!changed) return;
-  persist();
-  notify();
+  // Also what other windows stored for sessions that are gone.
+  const stale = Object.keys(readStored()).filter((id) => !liveSessionIds.has(id));
+  if (gone.length === 0 && stale.length === 0) return;
+  persist([...gone, ...stale]);
+  if (gone.length > 0) notify();
 }
 
 /** Forget everything in memory and re-read localStorage on next use (tests). */
 export function resetChatDraftsForTest(): void {
   drafts.clear();
   loaded = false;
+  if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage);
 }
 
 function subscribe(l: () => void): () => void {

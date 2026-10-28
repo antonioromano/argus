@@ -37,11 +37,14 @@ export function useSessions(socket: TypedSocket) {
   // Evict per-session caches for sessions that are gone (deleted, errored, or
   // missing from a post-reconnect refetch). Gated on `loaded` so the empty
   // pre-fetch list never reads as "everything was deleted".
+  // Drafts are user text, not a cache: only a list the server actually sent
+  // may drop them (`loaded` is also set when the first GET failed).
+  const fetchedRef = useRef(false);
   useEffect(() => {
     if (!loaded) return;
     const live = new Set(sessions.map((s) => s.id));
     pruneFileTreeCache(live);
-    pruneChatDrafts(live);
+    if (fetchedRef.current) pruneChatDrafts(live);
   }, [sessions, loaded]);
 
   // Load sessions on mount and after reconnect
@@ -56,6 +59,7 @@ export function useSessions(socket: TypedSocket) {
         // A newer GET already landed; this response is older than it.
         if (seq < appliedSeq) return;
         appliedSeq = seq;
+        fetchedRef.current = true;
         setSessions(() => deltas.reduce((acc, fn) => fn(acc), snapshot));
       }).finally(() => {
         pendingDeltasRef.current.delete(deltas);
