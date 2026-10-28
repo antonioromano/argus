@@ -8,9 +8,11 @@ import { toolBlockOf, toolResultsOf, withResult, type ToolResult } from './chatT
  * The transcript format is not a public API, so the parser is deliberately
  * tolerant: a malformed line, an unknown entry type or an unexpected shape is
  * skipped (or rendered as an `unknown` block), never thrown. Only main-thread
- * user, assistant and local-command entries become messages; tool results are
- * folded into the tool call they answer (F7); attachments, subagent (sidechain)
- * turns and harness-injected meta prompts are dropped.
+ * user, assistant and local-command entries become messages, plus the
+ * prompts the user queued that Claude read mid-turn (queuedPromptMessage);
+ * tool results are folded into the tool call they answer (F7); other
+ * attachments, subagent (sidechain) turns and harness-injected meta prompts
+ * are dropped.
  */
 
 /** Messages kept per transcript; older ones fall off the front. */
@@ -198,7 +200,8 @@ export interface ChatLine {
 export function parseChatLine(text: string): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
   const listing = text.includes('"skill_listing"');
-  if (!listing && !text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
+  const queued = text.includes('"queued_command"');
+  if (!listing && !queued && !text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
   let entry: any;
   try {
     entry = JSON.parse(text);
@@ -210,6 +213,10 @@ export function parseChatLine(text: string): ChatLine | undefined {
     const a = entry.attachment;
     if (entry.isSidechain || a?.type !== 'skill_listing' || typeof a.content !== 'string') return undefined;
     return { skills: parseSkillListing(a.content), skillsReplace: a.isInitial !== false };
+  }
+  if (queued && entry.type === 'attachment') {
+    const message = queuedPromptMessage(entry);
+    return message ? { message } : undefined;
   }
   const type = entry.type;
   if (type !== 'user' && type !== 'assistant' && type !== 'system') return undefined;
@@ -256,6 +263,24 @@ function toMessage(entry: any, type: 'user' | 'assistant'): ChatMessage | undefi
   const blocks = blocksOf(type, msg.content, typeof entry.cwd === 'string' ? entry.cwd : undefined);
   if (blocks.length === 0) return undefined;
   return withMeta(entry, roleOf(type, blocks), blocks);
+}
+
+/**
+ * A prompt typed while Claude was running is queued (a `queue-operation`
+ * enqueue entry). Claude Code delivers it either as a normal user entry when
+ * the turn ends, or, when it reads it mid-turn (alongside a tool result), only
+ * as a `queued_command` attachment: no user entry follows. Background-task
+ * notifications and messages from other sessions use the same attachment;
+ * only the user's own prompts become messages.
+ */
+function queuedPromptMessage(entry: any): ChatMessage | undefined {
+  const a = entry.attachment;
+  if (entry.isSidechain || entry.isMeta || a?.type !== 'queued_command' || a.commandMode !== 'prompt') return undefined;
+  if (a.origin?.kind !== undefined && a.origin.kind !== 'human') return undefined;
+  if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
+  const blocks = blocksOf('user', a.prompt);
+  if (blocks.length === 0) return undefined;
+  return withMeta(entry, roleOf('user', blocks), blocks);
 }
 
 /**

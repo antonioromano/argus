@@ -13,6 +13,7 @@ import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
 import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
+import { keyOf, lastUserId, openPending, type Pending } from './pendingEchoes.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -20,21 +21,12 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 const STICK_THRESHOLD = 48;
 /** A stop that hasn't ended the turn by then gives the Stop button back. */
 const STOP_RETRY_MS = 8000;
-
-/**
- * A prompt sent from the composer, shown until the transcript records it.
- * `at` is the user message it will become (their count when it lands).
- */
-interface Pending {
-  id: string;
-  blocks: ChatBlock[];
-  at: number;
-  /** Stop was pressed while it was still unrecorded. */
-  stopped?: boolean;
-}
+/** Claude idle that long with a prompt still unrecorded: it dropped the prompt (or its queue). */
+const DISCARD_MS = 5000;
 /** Matches the notice ChatTail makes of Claude Code's "[Request interrupted by user]". */
 const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
+const DISCARDED_NOTICE: ChatBlock = { kind: 'notice', text: 'Claude finished without reading it — it is not in the conversation.' };
 let pendingSeq = 0;
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
@@ -76,7 +68,6 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const [pending, setPending] = useState<Pending[]>([]);
   /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
   const [stoppedId, setStoppedId] = useState<string | null>(null);
-  const userCount = useMemo(() => chat.messages.filter((m) => m.role === 'user').length, [chat.messages]);
   const [stopAsked, setStopAsked] = useState(false);
   const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const running = session.status === 'running';
@@ -86,9 +77,9 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     if (stopping) return;
     socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
     setStopAsked(true);
-    setPending((cur) => cur.map((p) => ({ ...p, stopped: true })));
-    const lastUser = chat.messages.findLast((m) => m.role === 'user');
-    setStoppedId(pending.some((p) => p.at > userCount) ? null : (lastUser?.id ?? null));
+    const lastUser = lastUserId(chat.messages);
+    setPending((cur) => cur.map((p) => (p.stopped ? p : { ...p, stopped: true, markedAfter: lastUser })));
+    setStoppedId(shown.length > 0 ? null : lastUser);
     clearTimeout(stopTimer.current);
     stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
   };
@@ -130,12 +121,26 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     if (!running) setStopAsked(false);
   }, [running]);
 
-  // A prompt drops out once the transcript holds that many user messages.
-  const shown = useMemo(() => pending.filter((p) => p.at > userCount), [pending, userCount]);
+  // A prompt drops out once the transcript records it.
+  const shown = useMemo(() => openPending(pending, chat.messages), [pending, chat.messages]);
   useEffect(() => {
     // Prune what the transcript has caught up with.
-    if (shown.length !== pending.length) setPending(shown);
-  }, [shown, pending.length]);
+    if (shown !== pending) setPending(shown);
+  }, [shown, pending]);
+  const latestMessages = useRef(chat.messages);
+  latestMessages.current = chat.messages;
+  const idle = session.status === 'idle' || session.status === 'exited';
+  const unread = shown.some((p) => !p.stopped && !p.discarded);
+  useEffect(() => {
+    // Claude stayed idle with prompts unread: the queue was dropped (Esc in
+    // the terminal, an interrupt). Marked, not removed: a late record still replaces them.
+    if (!idle || !unread) return;
+    const t = setTimeout(() => {
+      const lastUser = lastUserId(latestMessages.current);
+      setPending((cur) => cur.map((p) => (p.stopped || p.discarded ? p : { ...p, discarded: true, markedAfter: lastUser })));
+    }, DISCARD_MS);
+    return () => clearTimeout(t);
+  }, [idle, unread]);
   const recorded = useMemo(() => {
     const i = stoppedId && !stopping ? chat.messages.findIndex((m) => m.id === stoppedId) : -1;
     if (i < 0) return chat.messages;
@@ -151,11 +156,17 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       shown.length === 0
         ? recorded
         : recorded.concat(
-            shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
+            shown.map((p) => ({
+              id: p.id,
+              role: 'user',
+              blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.discarded ? [...p.blocks, DISCARDED_NOTICE] : p.blocks,
+            })),
           ),
     [recorded, shown, stopping],
   );
   const pendingIds = new Set(shown.map((p) => p.id));
+  // Still waiting in Claude Code's queue (not stopped, not dropped).
+  const queuedIds = new Set(shown.filter((p) => p.queued && !p.stopped && !p.discarded).map((p) => p.id));
   // Runs of tool calls fold into one row (F7).
   const rows = useMemo(() => chatRows(messages), [messages]);
   const [toolStore] = useState<ToolOpenState>(() => new Set());
@@ -165,7 +176,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
    */
   const echo = (text: string, preview: ChatBlock[]) => {
     if (preview.length === 0 || SLASH_COMMAND_RE.test(text.trim()) || session.status === 'waiting') return;
-    setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
+    const p: Pending = { id: `pending-${++pendingSeq}`, blocks: preview, key: keyOf(text, preview), queued: running, after: lastUserId(chat.messages) };
+    setPending((cur) => [...cur, p]);
     setFollowing(true);
   };
 
@@ -220,7 +232,13 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               >
-                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} pending={pendingIds.has(m.id)} toolStore={toolStore} />
+                <ChatMessageItem
+                  message={m}
+                  showRole={!prev || prev.role !== m.role}
+                  pending={pendingIds.has(m.id)}
+                  queued={queuedIds.has(m.id)}
+                  toolStore={toolStore}
+                />
               </div>
             );
           })}

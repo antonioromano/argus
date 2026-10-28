@@ -2149,6 +2149,8 @@ body {
 .argus-chat-msg.is-echo .argus-chat-body { border-style: dashed; }
 /* Sent, not in the transcript yet (F3): shown at once, settles when Claude records it. */
 .argus-chat-msg.is-pending .argus-chat-body { opacity: 0.7; }
+/* Sent while Claude was running (F8): held in Claude Code's queue until it reads it. */
+.argus-chat-queued { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: var(--t-xs); color: var(--fg-3); cursor: default; }
 .argus-chat-msg.is-system { padding-top: var(--s-1); padding-bottom: var(--s-1); }
 .argus-chat-output { width: 100%; min-width: 0; font-size: var(--t-xs); color: var(--fg-2); }
 .argus-chat-output > summary {
