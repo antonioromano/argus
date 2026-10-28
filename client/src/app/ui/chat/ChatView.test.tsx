@@ -577,6 +577,20 @@ describe('ChatView', () => {
       expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
     });
 
+    it('sent during a turn, ignores a permission prompt mid-turn and opens only at its end', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session({ status: 'running' }), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      mount(session({ status: 'running' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      expect(sheet()?.textContent).toContain('/mcp');
+    });
+
     it('the bar closes it, or hands over to the terminal view', () => {
       const { socket, fire } = fakeSocket();
       const { onShowTerminal } = mount(session(), socket);

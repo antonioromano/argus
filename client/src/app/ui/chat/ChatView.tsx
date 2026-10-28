@@ -146,9 +146,14 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
 
   const status = session.status;
   useEffect(() => {
-    if (!queuedSheet || status === 'running') return;
+    if (!queuedSheet) return;
+    if (status === 'exited') {
+      setQueuedSheet(null);
+      return;
+    }
+    // Only the turn's end runs it: a permission prompt mid-turn (`waiting`) is no picker of ours.
+    if (status !== 'idle') return;
     setQueuedSheet(null);
-    if (status === 'exited') return;
     sheetSawWaiting.current = false;
     setSheet(queuedSheet);
   }, [queuedSheet, status]);
