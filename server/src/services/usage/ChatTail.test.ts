@@ -419,3 +419,15 @@ test('paste wrappers are unwrapped; `[Image #N]` stays without an image block', 
   assert.equal(cleanUserText('see [Image #3]', true), 'see');
   assert.equal(cleanUserText('"/private/var/x y/argus-chat-images/a-b.jpg" what is this?'), 'what is this?');
 });
+
+test('a stopped turn is a "Stopped" notice; task notifications are hidden (F3)', () => {
+  assert.deepEqual(parseChatEntry(user('u1', [{ type: 'text', text: '[Request interrupted by user]' }])), {
+    id: 'u1',
+    role: 'system',
+    blocks: [{ kind: 'notice', text: 'Stopped' }],
+    ts: Date.parse('2026-10-23T16:00:00.000Z'),
+  });
+  assert.deepEqual(parseChatEntry(user('u2', '[Request interrupted by user for tool use]'))?.blocks, [{ kind: 'notice', text: 'Stopped' }]);
+  assert.equal(parseChatEntry(user('u3', [{ type: 'text', text: '[Request interrupted by user for tool use]' }]))?.role, 'system');
+  assert.equal(parseChatEntry(user('u4', '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>')), undefined);
+});

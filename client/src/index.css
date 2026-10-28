@@ -2145,6 +2145,8 @@ body {
 .argus-chat-msg.is-command .argus-chat-body { background: var(--bg-1); }
 /* An echo the transcript never recorded: same chip, dashed edge. */
 .argus-chat-msg.is-echo .argus-chat-body { border-style: dashed; }
+/* Sent, not in the transcript yet (F3): shown at once, settles when Claude records it. */
+.argus-chat-msg.is-pending .argus-chat-body { opacity: 0.7; }
 .argus-chat-msg.is-system { padding-top: var(--s-1); padding-bottom: var(--s-1); }
 .argus-chat-output { width: 100%; min-width: 0; font-size: var(--t-xs); color: var(--fg-2); }
 .argus-chat-output > summary {
@@ -2178,6 +2180,7 @@ body {
   overflow-wrap: anywhere;
 }
 .argus-chat-notice { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-3); }
+.argus-chat-notice.is-stopped { color: var(--fg-1); }
 .argus-chat-jump {
   all: unset;
   position: absolute;
@@ -2368,6 +2371,39 @@ body {
 .argus-cmp-line.is-fence { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
+.argus-chat-hint.is-stopping { color: var(--fg-1); }
+/* Stop (F3): a filled rounded square that breathes while the turn runs. */
+.argus-chat-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--fg-0);
+  cursor: pointer;
+}
+.argus-chat-stop:hover:not(:disabled) { background: var(--bg-3); }
+.argus-chat-stop:disabled { cursor: default; }
+.argus-chat-stop-glyph {
+  width: calc(10px * var(--ui-scale));
+  height: calc(10px * var(--ui-scale));
+  border-radius: calc(2.5px * var(--ui-scale));
+  background: currentColor;
+  animation: argus-chat-stop-pulse 1.6s var(--ease-std) infinite;
+}
+.argus-chat-stop.is-stopping .argus-chat-stop-glyph { animation: none; opacity: 0.4; }
+@keyframes argus-chat-stop-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .argus-chat-stop-glyph { animation: none; }
+}
 .argus-chat-composer-meta {
   display: flex;
   align-items: center;

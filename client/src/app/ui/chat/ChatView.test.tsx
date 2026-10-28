@@ -273,4 +273,158 @@ describe('ChatView', () => {
     fire('session:chatMode', { sessionId: 's1', permissionMode: 'plan' });
     expect(container.querySelector('.argus-chat-composer-meta')?.textContent).toContain('Plan');
   });
+
+  describe('Stop (F3)', () => {
+    const esc = (meta: boolean) => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', metaKey: meta, bubbles: true, cancelable: true });
+      act(() => { container.querySelector('textarea')!.dispatchEvent(event); });
+      return event;
+    };
+    const interrupts = (emitted: Array<[string, unknown]>) =>
+      emitted.filter(([ev, p]) => ev === 'session:input' && (p as { data: string }).data === '\x1b').length;
+
+    it('the Stop button writes Esc to the pty while running', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => (container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement).click());
+      expect(emitted).toContainEqual(['session:input', { sessionId: 's1', data: '\x1b' }]);
+    });
+
+    it('⌘Esc stops a running turn and never reaches the window Escape handler', () => {
+      const { socket, emitted } = fakeSocket();
+      const onWindowKey = vi.fn();
+      window.addEventListener('keydown', onWindowKey);
+      try {
+        render(session({ status: 'running' }), socket);
+        expect(esc(true).defaultPrevented).toBe(true);
+        expect(interrupts(emitted)).toBe(1);
+        expect(onWindowKey).not.toHaveBeenCalled();
+        // Plain Esc keeps its behaviour: it bubbles on and types nothing.
+        esc(false);
+        expect(onWindowKey).toHaveBeenCalledTimes(1);
+        expect(interrupts(emitted)).toBe(1);
+      } finally {
+        window.removeEventListener('keydown', onWindowKey);
+      }
+    });
+
+    it('⌘Esc still stops once a clicked Stop has dropped focus to the body', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => { container.querySelector('[data-testid="chat-view"]')!.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+      (document.activeElement as HTMLElement | null)?.blur();
+      const event = new KeyboardEvent('keydown', { key: 'Escape', metaKey: true, bubbles: true, cancelable: true });
+      act(() => { document.body.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+      expect(interrupts(emitted)).toBe(1);
+    });
+
+    it('⌘Esc sends nothing when no turn is running', () => {
+      const { socket, emitted } = fakeSocket();
+      render(session({ status: 'idle' }), socket);
+      esc(true);
+      expect(interrupts(emitted)).toBe(0);
+    });
+  });
+
+  describe('sent prompts and Stop feedback (F3)', () => {
+    const typeAndSend = (text: string) => {
+      const box = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    };
+    const userBodies = () => Array.from(container.querySelectorAll('.argus-chat-msg.is-user')).map((m) => m.textContent);
+    const stopButton = () => container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement;
+    const history = [{ id: 'u0', role: 'user' as const, blocks: [{ kind: 'text' as const, text: 'before' }] }];
+
+    it('shows a sent prompt at once, then the transcript copy replaces it', () => {
+      const { socket, fire } = fakeSocket();
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('hello there');
+      expect(userBodies()).toEqual(['Youbefore', 'hello there']);
+      expect(container.querySelectorAll('.argus-chat-msg.is-pending')).toHaveLength(1);
+
+      fire('session:chat', update({ messages: [...history, { id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'hello there' }] }] }));
+      expect(userBodies()).toEqual(['Youbefore', 'hello there']);
+      expect(container.querySelector('.argus-chat-msg.is-pending')).toBeNull();
+    });
+
+    it('a prompt with an attachment shows at once too (its text starts with the path)', () => {
+      const { socket, fire } = fakeSocket();
+      (window as Window & { electronFiles?: unknown }).electronFiles = { getPath: () => '/var/folders/x/shot.png' };
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+      URL.createObjectURL = vi.fn(() => 'blob:preview');
+      Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], 'shot.png', { type: 'image/png' })] });
+      act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+      typeAndSend('look at this');
+      const pending = container.querySelector('.argus-chat-msg.is-pending');
+      expect(pending?.textContent).toContain('look at this');
+      expect(pending?.querySelector('.argus-chat-chip')?.textContent).toContain('image');
+      delete (window as Window & { electronFiles?: unknown }).electronFiles;
+    });
+
+    it('a slash command is not echoed by the client', () => {
+      const { socket, fire } = fakeSocket();
+      render(session(), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('/cost');
+      expect(container.querySelector('.argus-chat-msg.is-pending')).toBeNull();
+    });
+
+    it('Stop says "Stopping…" until the turn ends, and a prompt stopped unrecorded stays visible', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      typeAndSend('do the thing');
+      act(() => stopButton().click());
+      expect(stopButton().disabled).toBe(true);
+      expect(container.querySelector('.argus-chat-hint')?.textContent).toBe('Stopping…');
+      // A second click while stopping types nothing more.
+      act(() => stopButton().click());
+      expect(emitted.filter(([ev]) => ev === 'session:input')).toHaveLength(1);
+
+      render(session({ status: 'idle' }), socket);
+      expect(container.querySelector('.argus-chat-hint')?.textContent).not.toBe('Stopping…');
+      const last = container.querySelectorAll('.argus-chat-msg.is-user');
+      expect(last[last.length - 1].textContent).toContain('do the thing');
+      expect(last[last.length - 1].textContent).toContain('Stopped before Claude recorded it');
+    });
+
+    it('a recorded prompt stopped before any reply is marked "Stopped"', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      act(() => stopButton().click());
+      expect(container.textContent).not.toContain('Stopped');
+      render(session({ status: 'idle' }), socket);
+      const mine = container.querySelectorAll('.argus-chat-msg.is-user');
+      expect(mine[mine.length - 1].querySelector('.argus-chat-notice')?.textContent).toContain('Stopped');
+    });
+
+    it('no client mark once Claude replied: the turn had ended, or Claude Code marks it itself', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history }));
+      act(() => stopButton().click());
+      fire('session:chat', update({ messages: [...history, { id: 'a1', role: 'assistant', blocks: [{ kind: 'text', text: 'done' }] }] }));
+      render(session({ status: 'idle' }), socket);
+      expect(container.querySelector('.argus-chat-msg.is-user .argus-chat-notice')).toBeNull();
+    });
+
+    it('gives the Stop button back when the turn keeps running', () => {
+      vi.useFakeTimers();
+      const { socket } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      act(() => stopButton().click());
+      expect(stopButton().disabled).toBe(true);
+      act(() => { vi.advanceTimersByTime(8000); });
+      expect(stopButton().disabled).toBe(false);
+    });
+  });
 });

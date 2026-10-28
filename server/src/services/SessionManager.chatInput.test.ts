@@ -55,6 +55,39 @@ test('submit: multi-line text is pasted; empty or exited is refused', async () =
   assert.equal(await f.sm.submitChatInput('s', 'hi', f.write), false);
 });
 
+test('submit: a stopped prompt left in the input box is cleared before typing (F3)', async () => {
+  const f = fixture();
+  const first = f.sm.submitChatInput('s', 'wait 5 seconds', f.write);
+  f.settle(['❯ ']);
+  await first;
+  // Stop: Claude Code put the prompt back into its input box.
+  f.settle(['──', '❯ wait 5 seconds', '──']);
+  f.writes.length = 0;
+  const p = f.sm.submitChatInput('s', 'next one', f.write);
+  assert.deepEqual(f.writes, [['\x03', undefined]]);
+  f.settle(['──', '❯ ', '──']);
+  await f.tick();
+  assert.deepEqual(f.writes.slice(1), [['next one', 60], ['\r', undefined]]);
+  f.settle(['❯ ']);
+  assert.equal(await p, true);
+});
+
+test('submit: text the chat did not send, or a running turn, is never cleared', async () => {
+  const f = fixture();
+  f.settle(['──', '❯ typed in the terminal', '──']);
+  const a = f.sm.submitChatInput('s', 'hello', f.write);
+  assert.equal(f.writes[0][0], 'hello');
+  f.settle(['❯ ']);
+  await a;
+  f.settle(['──', '❯ hello', '──']);
+  (f.sm as any).sessions.get('s').status = 'running';
+  f.writes.length = 0;
+  const b = f.sm.submitChatInput('s', 'queued', f.write);
+  assert.equal(f.writes[0][0], 'queued');
+  f.settle(['❯ ']);
+  await b;
+});
+
 test('mode: footer changes are pushed to chat viewers; Shift+Tab until the target shows', async () => {
   const f = fixture();
   f.settle(['  ⏵⏵ auto mode on (shift+tab to cycle)']);

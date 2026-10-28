@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
-import type { ChatCommand, SessionStatus } from '@argus/shared';
-import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
+import type { ChatBlock, ChatCommand, SessionStatus } from '@argus/shared';
+import { ContextMenu, Icon, IconButton, Tooltip, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
   PICKABLE_MODELS,
   PICKABLE_MODES,
@@ -17,8 +17,16 @@ import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './c
 
 interface ChatComposerProps {
   status: SessionStatus;
-  /** Type `text` into Claude's prompt and submit it (the server presses Enter). */
-  onSubmit: (text: string) => void;
+  /**
+   * Type `text` into Claude's prompt and submit it (the server presses Enter).
+   * `preview` is the message as the composer showed it (typed text, then one
+   * block per attachment), for the Chat view to show until the transcript has it.
+   */
+  onSubmit: (text: string, preview: ChatBlock[]) => void;
+  /** Interrupt the running turn; while `running` the send button becomes Stop. */
+  onStop?: () => void;
+  /** A stop was asked for and the turn hasn't ended yet. */
+  stopping?: boolean;
   /** Claude Code's permission mode (footer on screen, else the transcript). */
   permissionMode?: string;
   /** Ask the server to switch the permission mode; resolves false when it couldn't. */
@@ -52,6 +60,9 @@ type ElectronFiles = { getPath: (name: string) => string | undefined };
 let nextKey = 0;
 const newKey = () => `att-${++nextKey}`;
 const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
+/** The Stop button's name and tooltip; ⌘Esc is wired by ChatView. */
+export const STOP_LABEL = 'Stop (⌘Esc)';
+
 const isImageFile = (f: File) => /^image\/(png|jpeg|gif|webp)$/.test(f.type);
 
 /**
@@ -115,7 +126,7 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -197,7 +208,10 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
     // An ended list leaves an empty last line; it is not part of the message.
     // Paths go on their own line: on the text's first line a leading `- ` or `#`
     // would no longer start the line, and the sent message would lose it.
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join('\n'));
+    const typed = text.replace(/(\n[ \t]*)+$/, '');
+    const preview: ChatBlock[] = typed.trim() ? [{ kind: 'text', text: typed }] : [];
+    for (const a of ready) preview.push(a.preview ? { kind: 'image' } : { kind: 'text', text: `\`${a.name}\`` });
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), typed].filter((s) => s.trim()).join('\n'), preview);
     setContinues(false);
     revoke(attachments);
     setAttachments([]);
@@ -269,7 +283,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
       label: m.label,
       shortcut: currentLabel === m.label ? '✓' : undefined,
       onClick: () => {
-        onSubmit(`/model ${m.id}`);
+        onSubmit(`/model ${m.id}`, []);
         setPicked({ id: m.id, set: modelSet, model });
       },
     })),
@@ -279,7 +293,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
       label: 'More models… (terminal)',
       onClick: () => {
         onShowTerminal?.();
-        onSubmit('/model');
+        onSubmit('/model', []);
       },
     },
   ];
@@ -442,10 +456,24 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             </>
           )}
           <div style={{ flex: 1 }} />
-          <span className="argus-chat-hint">
-            {continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
+          <span className={`argus-chat-hint${stopping ? ' is-stopping' : ''}`} aria-live="polite">
+            {stopping ? 'Stopping…' : continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
           </span>
-          <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          {status === 'running' && onStop ? (
+            <Tooltip content={STOP_LABEL}>
+              <button
+                type="button"
+                className={`argus-chat-stop${stopping ? ' is-stopping' : ''}`}
+                aria-label={STOP_LABEL}
+                onClick={onStop}
+                disabled={stopping}
+              >
+                <span className="argus-chat-stop-glyph" aria-hidden />
+              </button>
+            </Tooltip>
+          ) : (
+            <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          )}
         </div>
       </div>
       <div className="argus-chat-composer-meta">

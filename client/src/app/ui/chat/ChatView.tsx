@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
+import type { ChatBlock, ChatMessage, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
@@ -16,6 +16,28 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 /** Distance from the bottom (px) that still counts as "following" new messages. */
 const STICK_THRESHOLD = 48;
+/** A stop that hasn't ended the turn by then gives the Stop button back. */
+const STOP_RETRY_MS = 8000;
+
+/**
+ * A prompt sent from the composer, shown until the transcript records it.
+ * `at` is the user message it will become (their count when it lands).
+ */
+interface Pending {
+  id: string;
+  blocks: ChatBlock[];
+  at: number;
+  /** Stop was pressed while it was still unrecorded. */
+  stopped?: boolean;
+}
+/** Matches the notice ChatTail makes of Claude Code's "[Request interrupted by user]". */
+const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
+const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
+let pendingSeq = 0;
+/** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
+let lastChat: HTMLElement | null = null;
+/** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
+const SLASH_COMMAND_RE = /^\/[^\s/]+(?:\s|$)/;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -49,7 +71,98 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   // `/resume` alone opens the Chat's own picker instead of Claude Code's terminal one.
   const [resumeOpen, setResumeOpen] = useState(false);
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
-  const messages = chat.messages;
+  const [pending, setPending] = useState<Pending[]>([]);
+  /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
+  const [stoppedId, setStoppedId] = useState<string | null>(null);
+  const userCount = useMemo(() => chat.messages.filter((m) => m.role === 'user').length, [chat.messages]);
+  const [stopAsked, setStopAsked] = useState(false);
+  const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const running = session.status === 'running';
+  const stopping = stopAsked && running;
+  // Esc in the pty is how Claude Code interrupts a turn.
+  const stop = () => {
+    if (stopping) return;
+    socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
+    setStopAsked(true);
+    setPending((cur) => cur.map((p) => ({ ...p, stopped: true })));
+    const lastUser = chat.messages.findLast((m) => m.role === 'user');
+    setStoppedId(pending.some((p) => p.at > userCount) ? null : (lastUser?.id ?? null));
+    clearTimeout(stopTimer.current);
+    stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
+  };
+  useEffect(() => () => clearTimeout(stopTimer.current), []);
+  const onStopKey = useRef<() => void>(undefined);
+  onStopKey.current = () => {
+    if (running) stop();
+  };
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const mark = () => { lastChat = root; };
+    // ⌘Esc stops the turn while this view has focus, or while nothing does
+    // (a clicked Stop button disables itself and drops focus to the body).
+    // Window capture, so the window's Escape handler, which ignores modifiers
+    // and would also leave focus mode, never sees it; plain Esc is untouched.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !e.metaKey || e.isComposing) return;
+      const at = document.activeElement;
+      const idle = !at || at === document.body;
+      const inside = root.contains(e.target as Node | null) || root.contains(at);
+      if (!inside && !(idle && lastChat === root)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onStopKey.current?.();
+    };
+    root.addEventListener('pointerdown', mark);
+    root.addEventListener('focusin', mark);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      root.removeEventListener('pointerdown', mark);
+      root.removeEventListener('focusin', mark);
+      window.removeEventListener('keydown', onKey, true);
+      if (lastChat === root) lastChat = null;
+    };
+  }, []);
+  useEffect(() => {
+    // The turn ended: the next Stop starts fresh.
+    if (!running) setStopAsked(false);
+  }, [running]);
+
+  // A prompt drops out once the transcript holds that many user messages.
+  const shown = useMemo(() => pending.filter((p) => p.at > userCount), [pending, userCount]);
+  useEffect(() => {
+    // Prune what the transcript has caught up with.
+    if (shown.length !== pending.length) setPending(shown);
+  }, [shown, pending.length]);
+  const recorded = useMemo(() => {
+    const i = stoppedId && !stopping ? chat.messages.findIndex((m) => m.id === stoppedId) : -1;
+    if (i < 0) return chat.messages;
+    // Stopped mid-reply, Claude Code records its own "Stopped"; a reply with no
+    // marker means the turn had already ended and Stop had nothing to stop.
+    if (chat.messages.slice(i + 1).some((m) => m.role === 'assistant' || m.role === 'system')) return chat.messages;
+    const out = chat.messages.slice();
+    out[i] = { ...out[i], blocks: [...out[i].blocks, STOPPED_MARK] };
+    return out;
+  }, [chat.messages, stoppedId, stopping]);
+  const messages = useMemo<ChatMessage[]>(
+    () =>
+      shown.length === 0
+        ? recorded
+        : recorded.concat(
+            shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
+          ),
+    [recorded, shown, stopping],
+  );
+  const pendingIds = new Set(shown.map((p) => p.id));
+  /**
+   * Show a plain prompt at once; a slash command gets its echo from the server.
+   * (A message can start with an attachment's path: `/var/…` is no command.)
+   */
+  const echo = (text: string, preview: ChatBlock[]) => {
+    if (preview.length === 0 || SLASH_COMMAND_RE.test(text.trim()) || session.status === 'waiting') return;
+    setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
+    setFollowing(true);
+  };
 
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
   const virtualizer = useVirtualizer({
@@ -101,7 +214,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               >
-                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} />
+                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} pending={pendingIds.has(m.id)} />
               </div>
             );
           })}
@@ -111,7 +224,11 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   }
 
   return (
-    <div ref={rootRef} className="argus-chat" data-testid="chat-view">
+    <div
+      ref={rootRef}
+      className="argus-chat"
+      data-testid="chat-view"
+    >
       <SuppressNativeUnder target={rootRef} />
       <div className="argus-chat-main">
         {body}
@@ -165,9 +282,14 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       {aboveComposer}
       <ChatComposer
         status={session.status}
-        onSubmit={(text) => {
+        onStop={stop}
+        stopping={stopping}
+        onSubmit={(text, preview) => {
           if (text.trim() === '/resume') setResumeOpen(true);
-          else send(text);
+          else {
+            echo(text, preview);
+            send(text);
+          }
         }}
         permissionMode={chat.permissionMode}
         onSetMode={(mode) =>
