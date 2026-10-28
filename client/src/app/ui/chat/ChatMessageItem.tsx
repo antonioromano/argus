@@ -1,13 +1,14 @@
 import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatBlock, ChatMessage } from '@argus/shared';
-import { Image as ImageIcon, Wrench, HelpCircle, ChevronRight, Info, CircleStop } from 'lucide-react';
+import type { ChatBlock, ChatMessage, ChatToolBlock } from '@argus/shared';
+import { Image as ImageIcon, HelpCircle, ChevronRight, Info, CircleStop } from 'lucide-react';
 import { Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
 import { api } from '../../../services/api.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
 import { userMarkdown } from './userMarkdown.js';
+import { ChatToolGroup, type ToolOpenState } from './ChatToolGroup.js';
 
 const markdownComponents: Components = {
   // Links open in the system browser, never inside the sandboxed renderer.
@@ -95,11 +96,8 @@ function Block({ block, user }: { block: ChatBlock; user: boolean }) {
         </div>
       );
     case 'tool':
-      return (
-        <span className="argus-chat-chip" title="Tool call">
-          <Icon icon={Wrench} size={12} aria-hidden /> {block.name}
-        </span>
-      );
+      // Runs of tool blocks are grouped by ChatMessageItem; a lone one lands here.
+      return <ChatToolGroup steps={[block]} />;
     case 'image':
       return <ChatImage path={block.path} />;
     case 'command':
@@ -145,9 +143,25 @@ interface ChatMessageItemProps {
   showRole: boolean;
   /** Sent from the composer, not in the transcript yet. */
   pending?: boolean;
+  /** Open tool groups and steps (see ToolOpenState). */
+  toolStore?: ToolOpenState;
 }
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending }: ChatMessageItemProps) {
+type Part = { block: ChatBlock } | { tools: ChatToolBlock[] };
+
+/** Blocks with each run of tool calls folded into one group. */
+function partsOf(blocks: ChatBlock[]): Part[] {
+  const out: Part[] = [];
+  for (const block of blocks) {
+    const last = out[out.length - 1];
+    if (block.kind !== 'tool') out.push({ block });
+    else if (last && 'tools' in last) last.tools.push(block);
+    else out.push({ tools: [block] });
+  }
+  return out;
+}
+
+export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending, toolStore }: ChatMessageItemProps) {
   const user = message.role === 'user';
   const system = message.role === 'system';
   const command = user && message.blocks[0]?.kind === 'command';
@@ -163,9 +177,9 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
     >
       {showRole && !system && <div className="argus-chat-role eyebrow">{user ? 'You' : 'Claude'}</div>}
       <div className="argus-chat-body">
-        {message.blocks.map((b, i) => (
-          <Block key={i} block={b} user={user} />
-        ))}
+        {partsOf(message.blocks).map((p, i) =>
+          'tools' in p ? <ChatToolGroup key={i} steps={p.tools} store={toolStore} /> : <Block key={i} block={p.block} user={user} />,
+        )}
       </div>
     </div>
   );

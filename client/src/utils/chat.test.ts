@@ -17,6 +17,20 @@ describe('applyChatUpdate', () => {
     expect(applyChatUpdate(s1, { reset: false, available: true, messages: [msg('b')] })).toBe(s1);
   });
 
+  it('an append replaces a message it already has when its content changed (a joined tool result)', () => {
+    const call = (status: 'pending' | 'ok'): ChatMessage => ({
+      id: 'a1',
+      role: 'assistant',
+      blocks: [{ kind: 'tool', id: 't1', name: 'Bash', label: 'ls', status }],
+    });
+    const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [msg('u'), call('pending')] });
+    const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [call('ok'), msg('b')] });
+    expect(s1.messages.map((m) => m.id)).toEqual(['u', 'a1', 'b']);
+    expect(s1.messages[1].blocks[0]).toMatchObject({ status: 'ok' });
+    expect(s1.messages[0]).toBe(s0.messages[0]);
+    expect(s0.messages[1].blocks[0]).toMatchObject({ status: 'pending' });
+  });
+
   it('an unavailable reset clears the list', () => {
     const s = applyChatUpdate({ loaded: true, available: true, messages: [msg('a')] }, { reset: true, available: false, messages: [] });
     expect(s).toEqual({ loaded: true, available: false, messages: [] });

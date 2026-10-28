@@ -1,5 +1,6 @@
 import type { ChatBlock, ChatCommand, ChatMessage } from '@argus/shared';
 import { JsonlTailer, nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.js';
+import { toolBlockOf, toolResultsOf, withResult, type ToolResult } from './chatTools.js';
 
 /**
  * Chat view (B1): turns Claude Code transcript entries into chat messages.
@@ -7,9 +8,9 @@ import { JsonlTailer, nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.
  * The transcript format is not a public API, so the parser is deliberately
  * tolerant: a malformed line, an unknown entry type or an unexpected shape is
  * skipped (or rendered as an `unknown` block), never thrown. Only main-thread
- * user, assistant and local-command entries become messages; tool results,
- * attachments, subagent (sidechain) turns and harness-injected meta prompts
- * are dropped.
+ * user, assistant and local-command entries become messages; tool results are
+ * folded into the tool call they answer (F7); attachments, subagent (sidechain)
+ * turns and harness-injected meta prompts are dropped.
  */
 
 /** Messages kept per transcript; older ones fall off the front. */
@@ -113,7 +114,7 @@ function parseTs(v: unknown): number | undefined {
   return Number.isFinite(t) ? t : undefined;
 }
 
-function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
+function blocksOf(role: 'user' | 'assistant', content: unknown, cwd?: string): ChatBlock[] {
   if (typeof content === 'string') {
     if (role === 'user') return userStringBlocks(content);
     return content ? [{ kind: 'text', text: clip(content) }] : [];
@@ -135,14 +136,14 @@ function blocksOf(role: 'user' | 'assistant', content: unknown): ChatBlock[] {
         break;
       }
       case 'tool_use':
-        out.push({ kind: 'tool', name: typeof b.name === 'string' ? b.name.slice(0, MAX_NAME) : 'tool' });
+        out.push(toolBlockOf(b, cwd));
         break;
       case 'image': {
         const path = paths.shift();
         out.push(path ? { kind: 'image', path } : { kind: 'image' });
         break;
       }
-      // Not shown in phase 1: tool output is noise in a chat, thinking is often redacted.
+      // A result is joined to its call (ChatLine.toolResults); thinking is often redacted.
       case 'tool_result':
       case 'thinking':
       case 'redacted_thinking':
@@ -186,6 +187,8 @@ export interface ChatLine {
   /** Skills from a skill listing; `skillsReplace` when it is a full (initial) listing. */
   skills?: ChatCommand[];
   skillsReplace?: boolean;
+  /** Results of earlier tool calls, to fold into the steps they answer. */
+  toolResults?: ToolResult[];
 }
 
 /**
@@ -219,9 +222,11 @@ export function parseChatLine(text: string): ChatLine | undefined {
   const content = type === 'system' ? entry.content : entry.message?.content;
   const modelSet = type !== 'assistant' && typeof content === 'string' ? MODEL_SET_RE.exec(content)?.[1]?.trim() : undefined;
   const message = type === 'system' ? systemMessage(entry) : toMessage(entry, type);
-  if (!message && !permissionMode && !modelSet) return undefined;
+  const toolResults = type === 'user' && !entry.isSidechain ? toolResultsOf(content, entry.toolUseResult) : [];
+  if (!message && !permissionMode && !modelSet && toolResults.length === 0) return undefined;
   const out: ChatLine = { message, permissionMode };
   if (modelSet) out.modelSet = modelSet;
+  if (toolResults.length) out.toolResults = toolResults;
   return out;
 }
 
@@ -248,7 +253,7 @@ function toMessage(entry: any, type: 'user' | 'assistant'): ChatMessage | undefi
   if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
   const msg = entry.message;
   if (!msg || typeof msg !== 'object') return undefined;
-  const blocks = blocksOf(type, msg.content);
+  const blocks = blocksOf(type, msg.content, typeof entry.cwd === 'string' ? entry.cwd : undefined);
   if (blocks.length === 0) return undefined;
   return withMeta(entry, roleOf(type, blocks), blocks);
 }
@@ -287,6 +292,14 @@ export interface ChatDelta {
   /** Ids of echoes sent earlier that the transcript has now recorded (appends only). */
   removed?: string[];
 }
+
+function lastIndexOfId(list: ChatMessage[], id: string): number {
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].id === id) return i;
+  return -1;
+}
+
+/** Tool calls awaiting their result per transcript; the oldest stay `pending`. */
+const MAX_OPEN_TOOLS = 500;
 
 /** Pending echoes kept per transcript; the oldest are forgotten (and stay shown). */
 const MAX_ECHOES = 50;
@@ -353,6 +366,8 @@ export class ChatTail extends JsonlTailer {
   private echoSeq = 0;
   /** Echo ids to drop on the client, collected for the next drain. */
   private removedIds: string[] = [];
+  /** tool_use id → id of the message holding that call, until its result arrives. */
+  private openTools = new Map<string, string>();
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
     super(path, fs);
@@ -375,9 +390,11 @@ export class ChatTail extends JsonlTailer {
       this.commands = keep.concat(parsed.skills).slice(0, MAX_CHAT_COMMANDS);
       this.modeChanged = true;
     }
+    const joined = parsed.toolResults ? this.joinResults(parsed.toolResults) : false;
     const m = parsed.message;
-    if (!m) return this.modeChanged;
+    if (!m) return this.modeChanged || joined;
     if (m.blocks[0]?.kind === 'command') this.settleEcho(m.blocks[0].name, m.ts ?? Date.now());
+    for (const b of m.blocks) if (b.kind === 'tool' && b.id) this.openTool(b.id, m.id);
     this.messages.push(m);
     if (this.messages.length > MAX_CHAT_MESSAGES) this.messages.splice(0, this.messages.length - MAX_CHAT_MESSAGES);
     if (!this.wasReset) {
@@ -385,6 +402,37 @@ export class ChatTail extends JsonlTailer {
       if (this.fresh.length > MAX_CHAT_MESSAGES) this.fresh.splice(0, this.fresh.length - MAX_CHAT_MESSAGES);
     }
     return true;
+  }
+
+  private openTool(toolId: string, messageId: string): void {
+    this.openTools.set(toolId, messageId);
+    if (this.openTools.size > MAX_OPEN_TOOLS) this.openTools.delete(this.openTools.keys().next().value!);
+  }
+
+  /**
+   * Fold tool results into the calls they answer. The message is replaced by
+   * a copy (same id) and queued again, so a client that already has it swaps
+   * it in place. Returns whether any call was found.
+   */
+  private joinResults(results: ToolResult[]): boolean {
+    let any = false;
+    for (const r of results) {
+      const messageId = this.openTools.get(r.id);
+      if (messageId === undefined) continue;
+      this.openTools.delete(r.id);
+      const at = lastIndexOfId(this.messages, messageId);
+      if (at < 0) continue;
+      const old = this.messages[at];
+      const blocks = old.blocks.map((b) => (b.kind === 'tool' && b.id === r.id ? withResult(b, r) : b));
+      const next: ChatMessage = { ...old, blocks };
+      this.messages[at] = next;
+      any = true;
+      if (this.wasReset) continue;
+      const inFresh = lastIndexOfId(this.fresh, messageId);
+      if (inFresh >= 0) this.fresh[inFresh] = next;
+      else this.fresh.push(next);
+    }
+    return any;
   }
 
   /**
@@ -424,6 +472,7 @@ export class ChatTail extends JsonlTailer {
     this.fresh = [];
     this.echoes = [];
     this.removedIds = [];
+    this.openTools.clear();
     this.permissionMode = undefined;
     this.modelSet = undefined;
     this.commands = undefined;
@@ -431,7 +480,7 @@ export class ChatTail extends JsonlTailer {
     return had;
   }
 
-  /** Messages added since the last drain, or the full list after a reset. */
+  /** Messages added (or, for joined tool results, changed) since the last drain, or the full list after a reset. */
   drain(): ChatDelta {
     const delta: ChatDelta = this.wasReset
       ? { reset: true, messages: [...this.messages] }
