@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { DEFAULT_CONFIG, type PlanUsage, type SessionUsage } from '@argus/shared';
-import { UsageChip } from './UsageChip.js';
+import { UsageChip, type UsageOmit } from './UsageChip.js';
 import { usageMeterView, type UsageMeterView } from '../../utils/usageFormat.js';
 
 declare global {
@@ -32,14 +32,24 @@ const base: SessionUsage = {
 const plan = (usedPct: number): PlanUsage => ({ observedAt: NOW, primary: { usedPct, resetsAt: NOW + (2 * 60 + 19) * 60_000, windowMinutes: 300 } });
 const defaults = usageMeterView(DEFAULT_CONFIG)!;
 
-function render(props: { agentType?: string; usage?: SessionUsage; plan?: PlanUsage; view?: UsageMeterView }) {
+function render(props: { agentType?: string; usage?: SessionUsage; plan?: PlanUsage; view?: UsageMeterView; omit?: UsageOmit[] }) {
   act(() => root.render(
-    <UsageChip agentType={props.agentType ?? 'claude'} usage={props.usage} plan={props.plan} view={props.view ?? defaults} now={NOW} />,
+    <UsageChip agentType={props.agentType ?? 'claude'} usage={props.usage} plan={props.plan} view={props.view ?? defaults} now={NOW} omit={props.omit} />,
   ));
   return container.querySelector('[data-testid="usage-chip"]');
 }
 
 describe('UsageChip', () => {
+  it('omit drops parts but keeps their warning on the chip border', () => {
+    const chip = render({ usage: base, plan: plan(97), omit: ['plan'] })!;
+    expect(chip.textContent).toBe('ctx 47%');
+    expect(chip.getAttribute('data-level')).toBe('high');
+  });
+
+  it('omit reset keeps the plan figure without its ↻ age', () => {
+    expect(render({ usage: base, plan: plan(20), omit: ['reset'] })!.textContent).toBe('ctx 47%·plan 20%');
+  });
+
   it('default parts: context bar + % and plan usage with its reset', () => {
     const chip = render({ usage: base, plan: plan(20) })!;
     expect(chip.textContent).toBe('ctx 47%·plan 20%·↻ 2h19m');
