@@ -16,7 +16,7 @@ declare global {
 // no interest in. Stubbing it isolates the things under test: the "Native"
 // marker in Focus's own header and the exited-session card over the terminal.
 vi.mock('../ui/TerminalShell.js', () => ({
-  TerminalShell: () => null,
+  TerminalShell: ({ requestFocusToken }: { requestFocusToken?: number }) => <i data-testid="terminal-shell" data-focus-token={requestFocusToken} />,
 }));
 // The companion shell spawns a real xterm; only its placement matters here.
 vi.mock('../../hooks/useCompanionTerminal.js', () => ({
@@ -34,7 +34,13 @@ vi.mock('../panels/PrDiffView.js', () => ({
 
 // The chat view subscribes over the socket; here only whether Focus mounts it matters.
 vi.mock('../ui/chat/ChatView.js', () => ({
-  ChatView: () => <section data-testid="chat-view" />,
+  TERMINAL_SHEET_BAR_PX: 36,
+  ChatView: ({ onTerminalSheet }: { onTerminalSheet?: (open: boolean) => void }) => (
+    <section data-testid="chat-view">
+      <button type="button" data-testid="sheet-open" onClick={() => onTerminalSheet?.(true)} />
+      <button type="button" data-testid="sheet-close" onClick={() => onTerminalSheet?.(false)} />
+    </section>
+  ),
 }));
 
 let container: HTMLDivElement;
@@ -254,6 +260,20 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
     expect(window.localStorage.getItem('argus.sessionViewMode')).toContain('"s1":"chat"');
     act(() => toggle('Terminal')!.click());
     expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
+  });
+
+  it("insets the terminal below the Chat's terminal sheet and gives it the keyboard (F6)", () => {
+    renderFocus(session({ status: 'idle' }));
+    act(() => toggle('Chat')!.click());
+    const shell = () => container.querySelector('[data-testid="terminal-shell"]') as HTMLElement;
+    const region = () => shell().parentElement!;
+    expect(region().style.paddingTop).toBe('0px');
+    const token = Number(shell().dataset.focusToken);
+    act(() => (container.querySelector('[data-testid="sheet-open"]') as HTMLButtonElement).click());
+    expect(region().style.paddingTop).toBe('36px');
+    expect(Number(shell().dataset.focusToken)).toBe(token + 1);
+    act(() => (container.querySelector('[data-testid="sheet-close"]') as HTMLButtonElement).click());
+    expect(region().style.paddingTop).toBe('0px');
   });
 
   it('keeps chat after leaving and re-entering Focus', () => {
