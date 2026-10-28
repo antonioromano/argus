@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { ChatView } from './ChatView.js';
+import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
 import { ANSWER_TIMEOUT_MS } from './ChatPromptCard.js';
 
@@ -67,6 +68,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  // Drafts outlive the composer; one test's must not leak into the next.
+  pruneChatDrafts(new Set());
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
   vi.useRealTimers();
   if (realOffset.width) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', realOffset.width);

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionInfo } from '@argus/shared';
 import { useSessions } from './useSessions.js';
+import { getChatDraft, resetChatDraftsForTest, updateChatDraft } from '../app/ui/chat/chatDrafts.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -140,5 +141,54 @@ describe('useSessions reconnect snapshot vs socket deltas', () => {
     await act(async () => { newer.resolve([sess('new')]); await flush(); });
     await act(async () => { older.resolve([sess('old')]); await flush(); });
     expect(hook.sessions.map((s) => s.id)).toEqual(['new']);
+  });
+});
+
+describe('useSessions — chat drafts (F11)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const socket = createFakeSocket();
+
+  function Probe() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fake socket
+    useSessions(socket as any);
+    return null;
+  }
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    localStorage.clear();
+    resetChatDraftsForTest();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => { root = createRoot(container); });
+    vi.mocked(api.getSessions).mockReset();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it('keeps every draft when the first fetch fails, and drops gone sessions once one succeeds', async () => {
+    updateChatDraft('a', () => ({ text: 'keep', attachments: [] }));
+    updateChatDraft('gone', () => ({ text: 'drop', attachments: [] }));
+    vi.mocked(api.getSessions).mockRejectedValueOnce(new Error('server down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => {
+      root.render(<Probe />);
+      await flush();
+    });
+    expect(getChatDraft('a').text).toBe('keep');
+    expect(getChatDraft('gone').text).toBe('drop');
+
+    vi.mocked(api.getSessions).mockResolvedValueOnce([sess('a')]);
+    await act(async () => {
+      socket.emit('connect');
+      await flush();
+    });
+    expect(getChatDraft('a').text).toBe('keep');
+    expect(getChatDraft('gone').text).toBe('');
   });
 });

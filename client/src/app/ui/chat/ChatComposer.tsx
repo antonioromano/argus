@@ -14,8 +14,11 @@ import {
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
 import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { newAttachmentKey as newKey, revokePreviews as revoke, useChatDraft, type DraftAttachment as Attachment } from './chatDrafts.js';
 
 interface ChatComposerProps {
+  /** Keys the unsent draft, which outlives this component (F11). */
+  sessionId: string;
   status: SessionStatus;
   /**
    * Type `text` into Claude's prompt and submit it (the server presses Enter).
@@ -44,21 +47,8 @@ interface ChatComposerProps {
   autoFocus?: boolean;
 }
 
-interface Attachment {
-  key: string;
-  /** Absolute path sent to Claude; undefined while a pasted image uploads. */
-  path?: string;
-  name: string;
-  /** blob: URL of an image, for the thumbnail. */
-  preview?: string;
-  /** The upload failed: shown as an error, never sent. */
-  failed?: boolean;
-}
-
 type ElectronFiles = { getPath: (name: string) => string | undefined };
 
-let nextKey = 0;
-const newKey = () => `att-${++nextKey}`;
 const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
 /** The Stop button's name and tooltip; ⌘Esc is wired by ChatView. */
 export const STOP_LABEL = 'Stop (⌘Esc)';
@@ -82,7 +72,6 @@ function sortFiles(files: FileList | File[] | null): { withPath: Attachment[]; t
   return { withPath, toUpload };
 }
 
-const revoke = (list: Attachment[]) => list.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
 const canPickFiles = () => typeof window !== 'undefined' && 'electronFiles' in window;
 
 type Menu = { kind: 'mode' | 'model'; x: number; y: number };
@@ -126,9 +115,14 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
+  // The draft lives in a store keyed by session, so unmounting (Terminal view,
+  // another session, focus ↔ mosaic) keeps it; only sending clears it.
+  const [draft, updateDraft] = useChatDraft(sessionId);
+  const { text, attachments } = draft;
+  const setText = (t: string) => updateDraft((d) => (d.text === t ? d : { ...d, text: t }));
+  // Through the store, so an upload that finishes after unmount still lands.
+  const setAttachments = (fn: (cur: Attachment[]) => Attachment[]) => updateDraft((d) => ({ ...d, attachments: fn(d.attachments) }));
   const [dragOver, setDragOver] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
@@ -143,11 +137,6 @@ export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMod
   // Enter adds an item / line here instead of sending (drives the hint).
   const [continues, setContinues] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Latest attachments for the unmount cleanup (their blob URLs).
-  const attachmentsRef = useRef(attachments);
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
   const exited = status === 'exited';
   // Shift+Tab and slash commands only make sense at Claude's prompt.
   const atPrompt = !exited && status !== 'waiting';
@@ -155,8 +144,6 @@ export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMod
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
-
-  useEffect(() => () => revoke(attachmentsRef.current), []);
 
   // A typed ``` opens a code block with its closing fence. Native beforeinput:
   // it carries the typed text and can be cancelled before the textarea changes.
@@ -214,8 +201,7 @@ export function ChatComposer({ status, onSubmit, onStop, stopping, permissionMod
     onSubmit([formatPathsForPty(ready.map((a) => a.path)), typed].filter((s) => s.trim()).join('\n'), preview);
     setContinues(false);
     revoke(attachments);
-    setAttachments([]);
-    setText('');
+    updateDraft(() => ({ text: '', attachments: [] }));
   };
 
   const attach = (list: Attachment[]) => {

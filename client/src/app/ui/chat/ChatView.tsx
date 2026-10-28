@@ -289,6 +289,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       )}
       {aboveComposer}
       <ChatComposer
+        sessionId={session.id}
         status={session.status}
         onStop={stop}
         stopping={stopping}
