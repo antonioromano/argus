@@ -382,3 +382,40 @@ test('ChatTail reports the skill listing on a reset and when it changes', async 
   assert.equal(parseChatLine(listing('- x: y').replace('"isSidechain":false', '"isSidechain":true')), undefined);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+test('a composer prompt with an image renders as typed: no paste wrapper, image marker or temp path (F2)', () => {
+  // Real-shaped entry: Claude Code wraps the pasted text, leaves `[Image #N]`
+  // and the temp path inline, and records the image as its own block.
+  const tmp = '/var/folders/xh/qkxmvh7503l8l87ntff5p6fm0000gn/T/argus-chat-images/93bb08bb-19e9-4b37-a511-c4fd55ea5049.png';
+  const entry = user('u1', [
+    { type: 'text', text: `[Image #14]\n\n<pasted_content id="910a">\n${tmp} - first point\n- second point\n</pasted_content id="910a">\n` },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+  ]);
+  assert.deepEqual(parseChatEntry(entry)?.blocks, [
+    { kind: 'text', text: '- first point\n- second point' },
+    // Argus's temp dir is outside every session folder: no readable path.
+    { kind: 'image' },
+  ]);
+});
+
+test('the new composer layout (paths on their own line) parses the same', () => {
+  const tmp = '/tmp/argus-chat-images/6a6548dd-87e5-4254-ac2f-09c3e5130b06.png';
+  const entry = user('u1', [
+    { type: 'text', text: `[Image #1] [Image #2]\n<pasted_content id="1">\n${tmp} /repo/shot.png\n- item\n</pasted_content id="1">` },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '' } },
+  ]);
+  assert.deepEqual(parseChatEntry(entry)?.blocks, [
+    // A user's own file stays in the text; only Argus's temp paths are noise.
+    { kind: 'text', text: '/repo/shot.png\n- item' },
+    { kind: 'image' },
+    { kind: 'image', path: '/repo/shot.png' },
+  ]);
+});
+
+test('paste wrappers are unwrapped; `[Image #N]` stays without an image block', () => {
+  assert.equal(cleanUserText('<pasted_content id="ab">\nhello\n</pasted_content id="ab">'), 'hello');
+  assert.equal(cleanUserText('see [Image #3]'), 'see [Image #3]');
+  assert.equal(cleanUserText('see [Image #3]', true), 'see');
+  assert.equal(cleanUserText('"/private/var/x y/argus-chat-images/a-b.jpg" what is this?'), 'what is this?');
+});

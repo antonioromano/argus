@@ -250,6 +250,28 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
   return { value: r.value, selStart: r.positions[0], selEnd: r.positions[1] };
 }
 
+/**
+ * Typing the third backtick of a fence at the end of an otherwise empty line
+ * (`data` replacing the selection) opens a code block: the closing fence is
+ * added below and the caret goes on the empty line between. Undefined when the
+ * typing is anything else, or the fence would close a block or already has a
+ * closing fence further down.
+ */
+export function fenceEdit(value: string, selStart: number, selEnd: number, data: string): Edit | undefined {
+  if (data !== '`') return undefined;
+  const next = value.slice(0, selStart) + data + value.slice(selEnd);
+  const caret = selStart + data.length;
+  const { start, end } = lineBounds(next, caret);
+  const line = next.slice(start, end);
+  const m = /^( *)```$/.exec(line);
+  if (!m || caret !== end || !inCodeFence(next, caret)) return undefined;
+  if (next.slice(end + 1).split('\n').some((l) => closesFence(l, '`'))) return undefined;
+  const indent = m[1];
+  const v = next.slice(0, caret) + '\n' + indent + '\n' + indent + '```' + next.slice(caret);
+  const at = caret + 1 + indent.length;
+  return { value: v, selStart: at, selEnd: at };
+}
+
 /** True when Enter at the caret edits (a list item or code fence) instead of sending. */
 export function enterContinues(value: string, pos: number): boolean {
   if (inCodeFence(value, pos)) return true;
@@ -267,7 +289,10 @@ export interface Span {
   mark?: boolean;
   bold?: boolean;
   italic?: boolean;
+  /** Inline code, its backticks included (`open` / `close` on those). */
   code?: boolean;
+  open?: boolean;
+  close?: boolean;
   /** A bullet or number at the head of a list item. */
   bullet?: boolean;
   number?: boolean;
@@ -289,7 +314,7 @@ export function inlineSpans(text: string, style: Pick<Span, 'bold' | 'italic'> =
     const at = m.index!;
     if (at > last) out.push({ text: text.slice(last, at), ...style });
     if (m[1]) {
-      out.push({ text: m[1], mark: true }, { text: m[2], code: true }, { text: m[1], mark: true });
+      out.push({ text: m[1], mark: true, code: true, open: true }, { text: m[2], code: true }, { text: m[1], mark: true, code: true, close: true });
     } else {
       const [marker, inner, next] = m[3]
         ? [m[3], m[4], { ...style, bold: true }]

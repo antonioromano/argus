@@ -13,7 +13,7 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './composerMarkdown.js';
 
 interface ChatComposerProps {
   status: SessionStatus;
@@ -111,7 +111,7 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * was submitted). Enter sends, Shift+Enter adds a line; in a list or code
  * block Enter continues it and Cmd+Enter sends (D2: the Markdown is styled
  * live by a layer under the textarea, the text sent stays plain Markdown).
- * Attached files are sent as their paths
+ * Attached files are sent as their paths, on a line
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
@@ -147,6 +147,22 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
 
   useEffect(() => () => revoke(attachmentsRef.current), []);
 
+  // A typed ``` opens a code block with its closing fence. Native beforeinput:
+  // it carries the typed text and can be cancelled before the textarea changes.
+  useEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== 'insertText' || e.isComposing || !e.data) return;
+      const edit = fenceEdit(box.value, box.selectionStart, box.selectionEnd, e.data);
+      if (!edit) return;
+      e.preventDefault();
+      applyEdit(box, edit);
+    };
+    box.addEventListener('beforeinput', onBeforeInput);
+    return () => box.removeEventListener('beforeinput', onBeforeInput);
+  }, []);
+
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
   const canSend = !exited && !uploading && (text.trim().length > 0 || ready.length > 0);
@@ -179,7 +195,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const send = () => {
     if (!canSend) return;
     // An ended list leaves an empty last line; it is not part of the message.
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
+    // Paths go on their own line: on the text's first line a leading `- ` or `#`
+    // would no longer start the line, and the sent message would lose it.
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join('\n'));
     setContinues(false);
     revoke(attachments);
     setAttachments([]);

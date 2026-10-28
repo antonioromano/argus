@@ -27,6 +27,8 @@ function spanClass(s: Span): string | undefined {
   if (s.bold) c.push('is-bold');
   if (s.italic) c.push('is-italic');
   if (s.code) c.push('is-code');
+  if (s.open) c.push('is-open');
+  if (s.close) c.push('is-close');
   if (s.bullet) c.push('is-bullet');
   if (s.number) c.push('is-number');
   return c.length ? c.join(' ') : undefined;
@@ -69,8 +71,20 @@ export const ComposerHighlight = memo(
       <div className="argus-cmp-layer" aria-hidden>
         <div ref={ref} className="argus-cmp-content" data-testid="composer-highlight">
           {lines.map((l, i) => {
-            if (l.kind === 'code') return <CodeLines key={i} lines={l.lines} lang={l.lang} />;
-            if (l.kind === 'fence') return <div key={i} className="argus-cmp-line is-fence">{l.text || EMPTY}</div>;
+            if (l.kind === 'code') return null;
+            if (l.kind === 'fence') {
+              // An opening fence: one box for it, its code and its closing fence (when typed).
+              const code = lines[i + 1];
+              if (code?.kind !== 'code') return null;
+              const close = lines[i + 2];
+              return (
+                <div key={i} className="argus-cmp-codebox" data-testid="composer-codebox">
+                  <div className="argus-cmp-line is-fence">{l.text || EMPTY}</div>
+                  <CodeLines lines={code.lines} lang={code.lang} />
+                  {close?.kind === 'fence' && <div className="argus-cmp-line is-fence">{close.text || EMPTY}</div>}
+                </div>
+              );
+            }
             const cls = `argus-cmp-line${l.heading ? ' is-heading' : ''}${l.quote ? ' is-quote' : ''}`;
             return (
               <div key={i} className={cls}>

@@ -763,7 +763,8 @@ export type ChatBlock =
   | { kind: 'text'; text: string }
   /** A tool call; only the tool name is shown in phase 1. */
   | { kind: 'tool'; name: string }
-  | { kind: 'image' }
+  /** An attached image; `path` when the prompt names a file a session can read (for a thumbnail). */
+  | { kind: 'image'; path?: string }
   /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
   | { kind: 'command'; name: string; args?: string }
   /** What a local command (or `!` bash command) printed; shown collapsed. */

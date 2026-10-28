@@ -2083,6 +2083,8 @@ body {
 .argus-chat-code-lang { padding: 2px 10px; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
 .md-preview .argus-chat-code pre { margin: 0; border: none; border-radius: 0; background: transparent; padding: 10px 12px; }
 .argus-chat-code code { font-family: var(--font-mono); font-size: 0.88em; color: var(--fg-0); white-space: pre; }
+/* Inline code: a color of its own (the user bubble is --bg-2, the generic pill's color). */
+.argus-chat-md :not(pre) > code { color: var(--syn-fn); background: var(--bg-3); }
 
 /* Shared syntax highlighting (src/syntax). Spans in code blocks; diff rows use
    the CSS Custom Highlight API so their text stays one node. Colors are the
@@ -2124,6 +2126,15 @@ body {
   background: var(--bg-1);
 }
 .argus-chat-chip-muted { color: var(--fg-3); border-style: dashed; }
+.argus-chat-image {
+  display: block;
+  max-width: calc(160px * var(--ui-scale));
+  max-height: calc(120px * var(--ui-scale));
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  object-fit: contain;
+}
 .argus-chat-command {
   font-family: var(--font-mono);
   font-size: var(--t-sm);
@@ -2336,17 +2347,23 @@ body {
 .argus-cmp-content .is-bold { text-shadow: 0.45px 0 0 currentColor; }
 /* Plex ships no italic face here, so this is a synthetic slant of the same glyphs. */
 .argus-cmp-content .is-italic { font-style: italic; }
-.argus-cmp-content span.is-code { background: var(--bg-inset); border-radius: 3px; box-shadow: 0 0 0 1px var(--bg-inset); }
+.argus-cmp-content span.is-code { background: var(--bg-3); color: var(--syn-fn); box-shadow: 0 0 0 1px var(--bg-3); }
+/* One pill across the backticks and the code: only its ends are rounded. */
+.argus-cmp-content span.is-code.is-open { border-radius: 4px 0 0 4px; }
+.argus-cmp-content span.is-code.is-close { border-radius: 0 4px 4px 0; }
 .argus-cmp-content .is-number { color: var(--accent); }
 .argus-cmp-content .is-bullet { position: relative; color: transparent; }
 .argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
 .argus-cmp-line.is-quote { color: var(--fg-2); }
-.argus-cmp-line.is-code,
-.argus-cmp-line.is-fence {
-  /* A full-width band; the matching padding keeps the text where it was. */
-  margin: 0 calc(-1 * var(--s-3));
-  padding: 0 var(--s-3);
+/* A fenced block is one box, like the Chat's code blocks. The matching
+   padding keeps the text where it was; an inset shadow draws the edge without
+   taking height, so the rows still line up with the textarea's. */
+.argus-cmp-codebox {
+  margin: 0 calc(-1 * var(--s-2));
+  padding: 0 var(--s-2);
+  border-radius: var(--r-2);
   background: var(--bg-inset);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .argus-cmp-line.is-fence { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }

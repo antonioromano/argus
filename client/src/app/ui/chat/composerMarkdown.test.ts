@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { composerLines, enterContinues, enterEdit, inCodeFence, indentEdit, inlineSpans, renumber, type Edit, type Line } from './composerMarkdown.js';
+import { composerLines, enterContinues, enterEdit, fenceEdit, inCodeFence, indentEdit, inlineSpans, renumber, type Edit, type Line } from './composerMarkdown.js';
 
 /** `|` marks the caret (or `|…|` a selection) in a test string. */
 function at(src: string): [string, number, number] {
@@ -138,7 +138,11 @@ describe('highlight lines', () => {
       { text: ' c' },
     ]);
     expect(inlineSpans('_i_')).toEqual([{ text: '_', mark: true }, { text: 'i', italic: true }, { text: '_', mark: true }]);
-    expect(inlineSpans('`x*y*`')).toEqual([{ text: '`', mark: true }, { text: 'x*y*', code: true }, { text: '`', mark: true }]);
+    expect(inlineSpans('`x*y*`')).toEqual([
+      { text: '`', mark: true, code: true, open: true },
+      { text: 'x*y*', code: true },
+      { text: '`', mark: true, code: true, close: true },
+    ]);
     expect(inlineSpans('**a _b_**')[2]).toEqual({ text: '_', mark: true, bold: true });
   });
 
@@ -172,3 +176,19 @@ describe('highlight lines', () => {
     expect(n.kind === 'text' && n.spans[0]).toEqual({ text: '12.', number: true });
   });
 });
+
+describe('fenceEdit', () => {
+  it('the third backtick on an empty line opens a block with its closing fence', () => {
+    expect(fenceEdit('intro\n``', 8, 8, '`')).toEqual({ value: 'intro\n```\n\n```', selStart: 10, selEnd: 10 });
+    expect(fenceEdit('  ``', 4, 4, '`')).toEqual({ value: '  ```\n  \n  ```', selStart: 8, selEnd: 8 });
+  });
+
+  it('leaves every other backtick alone', () => {
+    expect(fenceEdit('a ``', 4, 4, '`')).toBeUndefined(); // not alone on its line
+    expect(fenceEdit('``x', 2, 2, '`')).toBeUndefined(); // caret not at the end
+    expect(fenceEdit('```\ncode\n``', 11, 11, '`')).toBeUndefined(); // closes the open block
+    expect(fenceEdit('``\ncode\n```', 2, 2, '`')).toBeUndefined(); // already closed below
+    expect(fenceEdit('``', 2, 2, 'x')).toBeUndefined();
+  });
+});
+
