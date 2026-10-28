@@ -52,7 +52,7 @@ import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
 import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
-import { CURRENT_INTRO_ID, introToShow } from './intro/intro.js';
+import { introConfigPatch, introToShow } from './intro/intro.js';
 import { IntroSheet, type IntroResult } from './intro/IntroSheet.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../constants/tileActions.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
@@ -446,16 +446,7 @@ function DesktopInner() {
   }, [pendingIntro, app]);
   const handleIntroDone = useCallback((result: IntroResult) => {
     const version = updateStatus?.currentVersion ?? '';
-    void updateConfig({
-      introSeen: CURRENT_INTRO_ID,
-      // Welcome replaces the older quick-action prompt for new users.
-      ...(config?.quickActionPromptedAt ? {} : { quickActionPromptedAt: version }),
-      ...(result.defaults
-        ? { defaultRunMode: result.defaults.runMode, defaultTerminalEngine: result.defaults.terminalEngine }
-        : {}),
-      // What's new: the beta features ticked "Turn on", in the same single save.
-      ...result.betaFlags,
-    });
+    void updateConfig(introConfigPatch(result, config?.quickActionPromptedAt, version));
     if (result.openCreate) app.openOverlay({ kind: 'create' });
     else app.closeOverlay();
   }, [app, config?.quickActionPromptedAt, updateConfig, updateStatus?.currentVersion]);
@@ -1197,6 +1188,7 @@ function DesktopInner() {
               onSelect={setActiveSessionGuarded}
               onReorder={reorderSession}
               defaultTerminalEngine={config?.defaultTerminalEngine}
+              defaultSessionView={config ? config.defaultSessionView : null}
               isForeign={windowsApi.isForeign}
               foreignLabel={foreignLabel}
               onBack={app.exitFocus}
@@ -1452,6 +1444,10 @@ function DesktopInner() {
           flow={app.overlay.flow}
           version={updateStatus.currentVersion}
           config={config}
+          keys={{
+            inspector: formatCombo(shortcuts.resolved['toggle-inspector']),
+            findInFiles: formatCombo(shortcuts.resolved['find-in-files']),
+          }}
           onDone={handleIntroDone}
         />
       )}

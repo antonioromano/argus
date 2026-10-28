@@ -56,6 +56,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
   claudeRenderer: 'fullscreen',
+  defaultSessionView: 'terminal',
   betaActivityTimeline: false,
   betaWorktreeLifecycle: false,
   betaSessionTemplates: false,

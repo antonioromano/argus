@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import type { SessionInfo, TerminalEngine, TileRunningIndicator, MosaicOrientation } from '@argus/shared';
+import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, History } from 'lucide-react';
@@ -9,18 +9,20 @@ import { UsageChip } from '../ui/UsageChip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
+import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ChatView } from '../ui/chat/ChatView.js';
-import { useChatViewMode } from '../../hooks/useChatViewMode.js';
+import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } from '../../components/primitives/index.js';
+import { StatusPill, StatusDot, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
@@ -95,6 +97,9 @@ interface FocusProps {
   onReorder: (newOrderedIds: string[]) => void;
   /** App-wide fallback when a session has no stored engine preference. */
   defaultTerminalEngine?: TerminalEngine;
+  /** App-wide fallback view for Claude shells with no per-session choice;
+   *  null while the config is still loading. */
+  defaultSessionView?: SessionViewMode | null;
   /** True when a session is owned by a different window (multi-window). */
   isForeign?: (id: string) => boolean;
   /** Label of the window that owns a foreign session, for the OTHERS strip badge. */
@@ -144,6 +149,7 @@ export function Focus({
   onSelect,
   onReorder,
   defaultTerminalEngine,
+  defaultSessionView = DEFAULT_CONFIG.defaultSessionView,
   isForeign,
   foreignLabel,
   onBack,
@@ -176,6 +182,18 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
+  // Header info sheds by priority as the pane narrows; the actions never do.
+  const infoRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLSpanElement>(null);
+  const renaming = sessionMenu.isRenaming(active.id, 'focus');
+  // The header never shows the branch; with the inspector up, no git, PR or usage either.
+  const headerInfo = shedInfo(active, {
+    usageMeter: inspectorShown ? null : usageMeter, branch: false, gitAndPr: !inspectorShown,
+  });
+  const shed = useHeaderShed(infoRef, nameRef, [
+    shellLabel(active), active.hasGitChanges, inspectorShown, renaming, shedKey(headerInfo),
+  ].join('|'));
+  const showPills = shed < SHED.pills;
   // Side panels dock below the conversation in the stacked layout, and beside
   // it otherwise — unless the inspector column already holds the right side.
   const stacked = orientation === 'vertical' || inspectorColumn;
@@ -196,10 +214,14 @@ export function Focus({
     socket.emit('session:input', { sessionId: active.id, data });
   };
 
-  // Chat view (B1): Claude sessions only, terminal by default, chosen per session.
+  // Chat view (B1): Claude sessions only, chosen per session; sessions with no
+  // choice follow the app-wide defaultSessionView.
   const chatCapable = supportsChatView(active.agentType);
-  const [viewMode, setViewMode] = useChatViewMode(active.id);
+  const [viewMode, setViewMode] = useChatViewMode(active.id, defaultSessionView ?? null);
   const chatMode = chatCapable && viewMode === 'chat';
+  // Config not loaded yet and no stored choice: cover the shell rather than
+  // flash the terminal and swap to Chat once the default arrives.
+  const viewPending = chatCapable && viewMode === null;
 
   useEffect(() => {
     window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY, String(sidePanelWidth));
@@ -304,121 +326,127 @@ export function Focus({
               flexShrink: 0,
             }}
           >
-            <AgentGlyph agent={active.agentType} size={16} />
-            <StatusPill status={active.status} />
-            {sessionMenu.isRenaming(active.id, 'focus') ? (
-              <SessionRenameInput
-                initial={shellLabel(active)}
-                onCommit={(v) => sessionMenu.commitRename(active.id, v)}
-                onCancel={sessionMenu.cancelRename}
-                style={{ flex: '0 1 260px', fontSize: 'var(--t-sm)' }}
-              />
-            ) : (
-            <Tooltip content="Click to copy path · right-click for actions">
-              <span
-                role="button"
-                tabIndex={0}
-                aria-label={copied ? 'Path copied' : `Copy path ${active.folderPath}`}
-                onContextMenu={(e) => sessionMenu.openMenu(active, e, 'focus')}
-                onClick={() => {
-                  void navigator.clipboard.writeText(active.folderPath);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1200);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
+            {/* Info region: leftover width, clipped, shed by priority (headerShed),
+                so it can never push the actions after it out of view. */}
+            <div ref={infoRef} className="argus-tile-info" data-testid="focus-info" data-shed={shed} style={{ gap: 'var(--s-3)' }}>
+              <AgentGlyph agent={active.agentType} size={16} />
+              {shed < SHED.status ? <StatusPill status={active.status} /> : <StatusDot status={active.status} size={7} />}
+              {renaming ? (
+                <SessionRenameInput
+                  initial={shellLabel(active)}
+                  onCommit={(v) => sessionMenu.commitRename(active.id, v)}
+                  onCancel={sessionMenu.cancelRename}
+                  style={{ flex: '0 1 260px', fontSize: 'var(--t-sm)' }}
+                />
+              ) : (
+              <Tooltip content={<ShedTooltip hint="Click to copy path · right-click for actions" rows={shedRows(headerInfo, shed)} />}>
+                <span
+                  ref={nameRef}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={copied ? 'Path copied' : `Copy path ${active.folderPath}`}
+                  onContextMenu={(e) => sessionMenu.openMenu(active, e, 'focus')}
+                  onClick={() => {
                     void navigator.clipboard.writeText(active.folderPath);
                     setCopied(true);
                     setTimeout(() => setCopied(false), 1200);
-                  }
-                }}
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-sm)',
-                  fontWeight: 500,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  cursor: 'pointer',
-                  color: copied ? 'var(--accent)' : 'var(--fg-0)',
-                  minWidth: 0,
-                }}
-              >
-                {copied ? 'Copied path' : shellLabel(active)}
-              </span>
-            </Tooltip>
-            )}
-            {active.runMode === 'direct' && (
-              <Tooltip content="Native terminal — stops when Argus quits">
-                <span className="argus-tile-branch">Native</span>
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void navigator.clipboard.writeText(active.folderPath);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1200);
+                    }
+                  }}
+                  style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 'var(--t-sm)',
+                    fontWeight: 500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    color: copied ? 'var(--accent)' : 'var(--fg-0)',
+                    minWidth: 0,
+                  }}
+                >
+                  {copied ? 'Copied path' : shellLabel(active)}
+                </span>
               </Tooltip>
-            )}
-            {/* Git, PR and usage live in the Session Inspector; they come back
-                here only while it is hidden, so the information never vanishes. */}
-            {!inspectorShown && (active.shellGit !== undefined ? (
-              active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
-            ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
-            <StaleChip staleDays={active.worktreeStaleDays} />
-            {!inspectorShown && active.pr && <PrChip pr={active.pr} />}
-            {!inspectorShown && usageMeter && (
-              <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
-            )}
-            <div style={{ flex: 1 }} />
-            {chatCapable && (
-              <div role="group" aria-label="Session view" className="argus-view-toggle">
-                <Button
-                  title="Show the terminal"
-                  variant={!chatMode ? 'solid' : 'ghost'}
+              )}
+              {showPills && active.runMode === 'direct' && (
+                <Tooltip content="Native terminal — stops when Argus quits">
+                  <span className="argus-tile-branch">Native</span>
+                </Tooltip>
+              )}
+              {/* Git, PR and usage live in the Session Inspector; they come back
+                  here only while it is hidden, so the information never vanishes. */}
+              {!inspectorShown && (active.shellGit !== undefined ? (
+                showPills && active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
+              ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
+              {showPills && <StaleChip staleDays={active.worktreeStaleDays} />}
+              {showPills && !inspectorShown && active.pr && <PrChip pr={active.pr} />}
+              {!inspectorShown && usageMeter && shed < SHED.ctx && (
+                <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} omit={usageOmit(shed)} />
+              )}
+            </div>
+            <div data-testid="focus-actions" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', flex: 'none' }}>
+              {chatCapable && (
+                <div role="group" aria-label="Session view" className="argus-view-toggle">
+                  <Button
+                    title="Show the terminal"
+                    variant={viewMode === 'terminal' ? 'solid' : 'ghost'}
+                    size="sm"
+                    icon={SquareTerminal}
+                    onClick={() => setViewMode('terminal')}
+                  >
+                    Terminal
+                  </Button>
+                  <Button
+                    title="Show the conversation as chat (read from Claude's transcript)"
+                    variant={chatMode ? 'solid' : 'ghost'}
+                    size="sm"
+                    icon={MessagesSquare}
+                    onClick={() => setViewMode('chat')}
+                  >
+                    Chat
+                  </Button>
+                </div>
+              )}
+              {/* Tool windows: icon-only toggles, named by their tooltip. */}
+              <IconButton icon={GitCompare} label="Diff" size="sm" active={sidePanel?.kind === 'diff'} pressed={sidePanel?.kind === 'diff'} onClick={onToggleDiff} />
+              <IconButton icon={FolderOpen} label="Files" size="sm" active={sidePanel?.kind === 'explorer'} pressed={sidePanel?.kind === 'explorer'} onClick={onToggleExplorer} />
+              {onToggleGit && (
+                <IconButton icon={History} label="Git history" size="sm" active={sidePanel?.kind === 'git'} pressed={sidePanel?.kind === 'git'} onClick={onToggleGit} />
+              )}
+              {activityEnabled && onToggleActivity && (
+                <IconButton
+                  icon={Activity}
+                  label="Activity"
                   size="sm"
-                  icon={SquareTerminal}
-                  onClick={() => setViewMode('terminal')}
-                >
-                  Terminal
-                </Button>
-                <Button
-                  title="Show the conversation as chat (read from Claude's transcript)"
-                  variant={chatMode ? 'solid' : 'ghost'}
-                  size="sm"
-                  icon={MessagesSquare}
-                  onClick={() => setViewMode('chat')}
-                >
-                  Chat
-                </Button>
-              </div>
-            )}
-            {/* Tool windows: icon-only toggles, named by their tooltip. */}
-            <IconButton icon={GitCompare} label="Diff" size="sm" active={sidePanel?.kind === 'diff'} pressed={sidePanel?.kind === 'diff'} onClick={onToggleDiff} />
-            <IconButton icon={FolderOpen} label="Files" size="sm" active={sidePanel?.kind === 'explorer'} pressed={sidePanel?.kind === 'explorer'} onClick={onToggleExplorer} />
-            {onToggleGit && (
-              <IconButton icon={History} label="Git history" size="sm" active={sidePanel?.kind === 'git'} pressed={sidePanel?.kind === 'git'} onClick={onToggleGit} />
-            )}
-            {activityEnabled && onToggleActivity && (
+                  active={!maximized && panelForActive?.kind === 'activity'}
+                  pressed={!maximized && panelForActive?.kind === 'activity'}
+                  onClick={onToggleActivity}
+                />
+              )}
               <IconButton
-                icon={Activity}
-                label="Activity"
+                icon={Terminal}
+                label="Shell"
                 size="sm"
-                active={!maximized && panelForActive?.kind === 'activity'}
-                pressed={!maximized && panelForActive?.kind === 'activity'}
-                onClick={onToggleActivity}
+                active={!maximized && sidePanel?.kind === 'terminal'}
+                pressed={!maximized && sidePanel?.kind === 'terminal'}
+                onClick={onShellClick}
               />
-            )}
-            <IconButton
-              icon={Terminal}
-              label="Shell"
-              size="sm"
-              active={!maximized && sidePanel?.kind === 'terminal'}
-              pressed={!maximized && sidePanel?.kind === 'terminal'}
-              onClick={onShellClick}
-            />
-            <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
-            <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
-            <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
-            {showDiagnostics && (
-              <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm" onClick={onDumpDiagnostics} />
-            )}
-            <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
-            <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+              <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
+              <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
+              <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
+              {showDiagnostics && (
+                <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm" onClick={onDumpDiagnostics} />
+              )}
+              <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
+              <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+            </div>
             {runningIndicator === 'hairline' && active.status === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}
@@ -458,6 +486,9 @@ export function Focus({
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
               {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
+              {viewPending && (
+                <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
+              )}
               {/* The terminal stays mounted under the chat, so switching back is instant. */}
               {chatMode && !maximized && (
                 <ChatView
@@ -470,7 +501,7 @@ export function Focus({
               )}
             </div>
 
-            {!maximized && !chatMode && <ReplyBar session={active} onSend={sendInput} />}
+            {!maximized && !chatMode && !viewPending && <ReplyBar session={active} onSend={sendInput} />}
 
             {maximized && (
               <>

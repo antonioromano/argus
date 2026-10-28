@@ -15,6 +15,7 @@ import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
@@ -94,7 +95,8 @@ const UPDATE_CASK = 'argus';
  *
  *   Phase 2 (after we quit): a detached helper waits for this process to exit,
  *   installs from the warm cache (`brew upgrade --cask argus`, fast/offline),
- *   and relaunches Argus ONLY on success. brew can't replace the running
+ *   and relaunches Argus in every outcome; a failed install leaves a marker
+ *   that the next launch re-checks and surfaces. brew can't replace the running
  *   Argus.app, which is why the install is deferred to after quit.
  */
 function applyBrewUpdate(
@@ -125,21 +127,7 @@ function applyBrewUpdate(
       // run `brew trust` explicitly (the Homebrew 4.x untrusted-tap gate) and
       // check `brew outdated` before downloading so an up-to-date install is
       // reported honestly instead of a no-op masquerading as success.
-      const phase1 = [
-        `if [ -f "${lockFile}" ]; then echo "@@FAIL Another update is already running."; exit 0; fi`,
-        `echo "@@PHASE trust"`,
-        `brew trust ${UPDATE_TAP} 2>&1`,
-        `echo "@@PHASE update"`,
-        `brew update 2>&1`,
-        `echo "@@PHASE check"`,
-        `OUTDATED=$(brew outdated --cask ${UPDATE_CASK} 2>&1)`,
-        `if [ -z "$OUTDATED" ]; then echo "@@UPTODATE"; exit 0; fi`,
-        `echo "@@PHASE download"`,
-        `brew fetch --cask ${UPDATE_CASK} 2>&1`,
-        `FETCH_EXIT=$?`,
-        `if [ "$FETCH_EXIT" != "0" ]; then echo "@@FAIL_EXIT $FETCH_EXIT"; exit 0; fi`,
-        `echo "@@OK"`,
-      ].join('\n');
+      const phase1 = buildPhase1Script({ cask: UPDATE_CASK, tap: UPDATE_TAP, lockFile });
 
       log(`[argus-update] ${new Date().toISOString()} phase1 start`);
       const proc = spawn(loginShell, ['-l', '-c', phase1], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -227,29 +215,13 @@ function applyBrewUpdate(
 /**
  * Phase 2 helper: spawned detached just before we quit. Waits for this process
  * to exit, installs the already-downloaded cask from cache, and relaunches Argus
- * only on success. A lock file prevents the relaunched app from re-triggering
- * the loop; a `.failed` marker lets the next launch surface a failed install.
+ * in every outcome (the next launch surfaces a failure). A lock file prevents
+ * the relaunched app from re-triggering the loop; a `.failed` marker lets the
+ * next launch surface a failed install.
  */
 function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
-  const script = [
-    `if [ -f "${lockFile}" ]; then echo "[argus-update] phase2 already running, exiting" >> "${logFile}"; exit 0; fi`,
-    `echo $$ > "${lockFile}"`,
-    `rm -f "${failMarker}"`,
-    `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
-    `echo "[argus-update] $(date) phase2 install" >> "${logFile}"`,
-    `brew upgrade --cask ${UPDATE_CASK} >> "${logFile}" 2>&1`,
-    `BREW_EXIT=$?`,
-    `rm -f "${lockFile}"`,
-    `if [ $BREW_EXIT -eq 0 ]; then`,
-    `  echo "[argus-update] $(date) install ok, relaunching" >> "${logFile}"`,
-    `  open -a Argus`,
-    `else`,
-    `  echo "[argus-update] $(date) install failed (exit $BREW_EXIT)" >> "${logFile}"`,
-    `  echo "$BREW_EXIT" > "${failMarker}"`,
-    `  open -a Argus`,
-    `fi`,
-  ].join('\n');
+  const script = buildPhase2Script({ cask: UPDATE_CASK, parentPid: process.pid, logFile, lockFile, failMarker });
 
   const child = spawn(loginShell, ['-l', '-c', script], { detached: true, stdio: 'ignore' });
   child.unref();
@@ -1493,21 +1465,36 @@ async function main() {
   surfaceFailedInstall();
 }
 
-/** Show + clear the Phase-2 install-failure marker written by startPhase2. */
+/**
+ * Show + clear the Phase-2 install-failure marker written by startPhase2.
+ * The marker is re-checked against cask state first: older versions' phase 2
+ * trusted brew's exit code and could leave a marker although the cask upgraded.
+ */
 function surfaceFailedInstall(): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
   if (!existsSync(failMarker)) return;
   let exitCode = '';
   try { exitCode = readFileSync(failMarker, 'utf8').trim(); } catch { /* ignore */ }
   const logFile = join(app.getPath('userData'), 'update.log');
-  void dialog.showMessageBox({
-    type: 'warning',
-    title: 'Argus — Update did not install',
-    message: 'The latest version was downloaded but Homebrew could not install it.',
-    detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
-    buttons: ['OK'],
+  const shell = process.env.SHELL || '/bin/zsh';
+  // execFile has no default timeout: a held brew lock or a blocking rc file would
+  // park the login shell and swallow a real failure. A timeout sets `err`, so a
+  // hang falls through to the dialog (fails closed).
+  execFile(shell, ['-l', '-c', buildCaskCurrentCheck(UPDATE_CASK)], { timeout: 15000, killSignal: 'SIGKILL' }, (err) => {
+    if (!err) {
+      try { appendFileSync(logFile, `[argus-update] ${new Date().toISOString()} failure marker ignored: argus is current\n`); } catch { /* best-effort */ }
+      try { unlinkSync(failMarker); } catch { /* best-effort */ }
+      return;
+    }
+    void dialog.showMessageBox({
+      type: 'warning',
+      title: 'Argus — Update did not install',
+      message: 'The latest version was downloaded but Homebrew could not install it.',
+      detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
+      buttons: ['OK'],
+    });
+    try { unlinkSync(failMarker); } catch { /* best-effort */ }
   });
-  try { unlinkSync(failMarker); } catch { /* best-effort */ }
 }
 
 // Single-instance lock: a second launch of the SAME profile focuses the existing

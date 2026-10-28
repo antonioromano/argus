@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, SessionPr } from '@argus/shared';
 import { MinimizedChip } from './MinimizedChip.js';
+import { chipPrSummary, describeChipPrs } from './chipFormat.js';
 import { SessionMenuContext, type SessionMenuApi } from './sessionMenuContext.js';
 
 declare global {
@@ -32,13 +33,13 @@ function menu(renaming: boolean): SessionMenuApi {
   };
 }
 
-function render(renaming: boolean) {
+function render(renaming: boolean, s: SessionInfo = session) {
   const onClick = vi.fn();
   act(() => {
     root.render(
       <SessionMenuContext.Provider value={menu(renaming)}>
         <MinimizedChip
-          session={session}
+          session={s}
           onClick={onClick}
           onDragStart={() => {}}
           onDragOver={() => {}}
@@ -98,5 +99,86 @@ describe('MinimizedChip', () => {
     render(true);
     const chip = container.querySelector('.argus-chip') as HTMLElement;
     expect(chip.draggable).toBe(false);
+  });
+});
+
+const PR: SessionPr = {
+  number: 42, state: 'open', url: 'https://github.com/o/r/pull/42', ci: 'success', branch: 'feat/x',
+  mergeable: 'mergeable', review: 'none', title: 'Add pills',
+};
+
+describe('MinimizedChip marks (F5)', () => {
+  it('marks uncommitted changes with ± and a tooltip label, after the PR glyph', () => {
+    render(false, { ...session, hasGitChanges: true, pr: PR });
+    const dirty = container.querySelector('.argus-chip-dirty');
+    expect(dirty?.textContent).toBe('±');
+    expect(dirty?.getAttribute('aria-label')).toBe('Uncommitted changes');
+    const pr = container.querySelector('.argus-chip-pr')!;
+    expect(pr.compareDocumentPosition(dirty!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('shows no ± on a clean tree and no PR glyph without a PR', () => {
+    render(false);
+    expect(container.querySelector('.argus-chip-dirty')).toBeNull();
+    expect(container.querySelector('.argus-chip-pr')).toBeNull();
+  });
+
+  it('shows the one header PR, toned, with no count', () => {
+    render(false, { ...session, pr: PR });
+    const pr = container.querySelector('.argus-chip-pr')!;
+    expect(pr.getAttribute('data-tone')).toBe('ready');
+    expect(pr.querySelector('.argus-chip-pr-count')).toBeNull();
+    expect(pr.getAttribute('aria-label')).toBe('Pull request: o/r#42 · Open, ready to merge — Add pills');
+  });
+
+  it('several PRs: the count and the server-picked tone, every PR in the tooltip', () => {
+    render(false, {
+      ...session,
+      pr: PR,
+      prSummary: {
+        count: 2,
+        tone: 'blocked',
+        prs: [
+          { url: PR.url, number: 42, state: 'open', tone: 'ready' },
+          { url: 'https://github.com/o/r/pull/7', number: 7, state: 'open', tone: 'blocked' },
+        ],
+      },
+    });
+    const pr = container.querySelector('.argus-chip-pr')!;
+    expect(pr.getAttribute('data-tone')).toBe('blocked');
+    expect(pr.querySelector('.argus-chip-pr-count')?.textContent).toBe('2');
+    expect(pr.getAttribute('aria-label')).toContain('o/r#42');
+    expect(pr.getAttribute('aria-label')).toContain('o/r#7 · Open, needs attention');
+  });
+
+  it('a closed header PR is not shown', () => {
+    expect(chipPrSummary({ ...session, pr: { ...PR, state: 'closed' } })).toBeNull();
+    render(false, { ...session, pr: { ...PR, state: 'closed' } });
+    expect(container.querySelector('.argus-chip-pr')).toBeNull();
+  });
+
+  it('describes merged and draft PRs by state only', () => {
+    expect(describeChipPrs({
+      count: 2,
+      tone: 'draft',
+      prs: [
+        { url: 'https://github.com/o/r/pull/1', number: 1, state: 'merged', tone: 'merged' },
+        { url: 'https://github.com/o/r/pull/2', number: 2, state: 'draft', tone: 'draft' },
+      ],
+    })).toEqual(['o/r#1 · Merged', 'o/r#2 · Draft']);
+  });
+
+  it('sweeps the bottom edge while running, without making the dot pulse', () => {
+    render(false, { ...session, status: 'running' });
+    const chip = container.querySelector('.argus-chip')!;
+    expect(chip.classList.contains('argus-chip--running')).toBe(true);
+    expect(chip.querySelector('.argus-tile-prog.argus-chip-prog > i')).not.toBeNull();
+  });
+
+  it('has no sweep when not running', () => {
+    render(false, { ...session, status: 'waiting' });
+    const chip = container.querySelector('.argus-chip')!;
+    expect(chip.classList.contains('argus-chip--running')).toBe(false);
+    expect(chip.querySelector('.argus-tile-prog')).toBeNull();
   });
 });

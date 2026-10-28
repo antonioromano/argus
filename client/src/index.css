@@ -886,6 +886,21 @@ body {
    any missed mouseleave — drag handle re-parenting, minimize's pointer-events:
    none, reflow spring, window blur — stranded the header showing actions and no
    name. Nothing here transforms, so that failure mode cannot recur. */
+/* Everything but the actions. Takes the leftover width (basis 0, so its width
+   never depends on what it holds) and clips: an overlong header can cut info,
+   never an action. useHeaderShed drops pieces by priority until it fits, which
+   reads scrollWidth — hence a scroll container (hidden), not clip. The padding,
+   undone by the margin, keeps a focused chip's 1px ring from being cut. */
+.argus-tile-info {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  overflow: hidden;
+  padding-block: 2px;
+  margin-block: -2px;
+}
 .argus-tile-name {
   flex: 1;
   min-width: 0;
@@ -1660,7 +1675,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
-  flex-shrink: 0;
+  /* Never shrinks, never wraps: the info region gives way instead (F12). */
+  flex: none;
   opacity: 0.5;
   transition: opacity var(--dur-fast) var(--ease-std);
 }
@@ -1723,7 +1739,12 @@ body {
 }
 .argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
 .argus-chip-window-badge { font-size: 10px; opacity: 0.6; margin-left: 4px; }
-.argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
+/* `±` = uncommitted changes, after the PR glyph. */
+.argus-chip-dirty { font-family: var(--font-mono); font-size: 11px; line-height: 1; color: var(--dirty); }
+.argus-chip-pr { display: inline-flex; align-items: center; gap: 2px; }
+.argus-chip-pr-count { font-family: var(--font-mono); font-size: 10px; line-height: 1; }
+/* The tile's running crawl (.argus-tile-prog), kept clear of the rounded corners. */
+.argus-chip-prog { left: var(--r-2); right: var(--r-2); }
 
 /* Dims every tile that is not the selected one — the ONLY signal that says
    which tile is selected, since the selected one carries no mark of its own.

@@ -225,6 +225,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     inspectorCollapsed: ['git'],
     autoApprovalEnabled: true,
     claudeRenderer: 'classic',
+    defaultSessionView: 'chat',
     betaActivityTimeline: true,
     betaWorktreeLifecycle: true,
     betaSessionTemplates: true,
@@ -270,6 +271,14 @@ test('PUT /api/config rejects an unknown claudeRenderer and keeps the current va
   await put({ claudeRenderer: 'inherit' });
   const { body } = await put({ claudeRenderer: 'gpu' });
   assert.equal((body as Record<string, unknown>).claudeRenderer, 'inherit');
+});
+
+test('PUT /api/config rejects an unknown defaultSessionView and keeps the current value', async () => {
+  await put({ defaultSessionView: 'chat' });
+  const { body } = await put({ defaultSessionView: 'split' });
+  assert.equal((body as Record<string, unknown>).defaultSessionView, 'chat');
+  await put({ defaultSessionView: 'terminal' });
+  assert.equal((await get()).defaultSessionView, 'terminal');
 });
 
 test('custom agent promptFlag: unsafe rejected, safe accepted', async () => {

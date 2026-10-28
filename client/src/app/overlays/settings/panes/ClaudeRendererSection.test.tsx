@@ -40,4 +40,17 @@ describe('ClaudeRendererSection', () => {
     render({ ...DEFAULT_CONFIG, claudeRenderer: 'classic' });
     expect(container.textContent).toMatch(/duplicat/i);
   });
+
+  it('shows the terminal as the default view and saves Chat when picked', () => {
+    render({ ...DEFAULT_CONFIG, defaultSessionView: undefined });
+    expect(radio('Terminal').getAttribute('aria-checked')).toBe('true');
+    act(() => { radio('Chat').click(); });
+    expect(onSave).toHaveBeenCalledWith({ defaultSessionView: 'chat' });
+  });
+
+  it('reflects a chat default from config', () => {
+    render({ ...DEFAULT_CONFIG, defaultSessionView: 'chat' });
+    expect(radio('Chat').getAttribute('aria-checked')).toBe('true');
+    expect(radio('Terminal').getAttribute('aria-checked')).toBe('false');
+  });
 });
