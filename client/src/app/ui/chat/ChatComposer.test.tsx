@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionStatus } from '@argus/shared';
 import { ChatComposer } from './ChatComposer.js';
+import { pruneChatDrafts } from './chatDrafts.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -12,6 +13,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 interface Props {
+  sessionId?: string;
   status?: SessionStatus;
   permissionMode?: string;
   model?: string;
@@ -26,6 +28,7 @@ function render(props: Props = {}) {
   act(() =>
     root.render(
       <ChatComposer
+        sessionId={props.sessionId ?? 's1'}
         status={props.status ?? 'idle'}
         onSubmit={onSubmit}
         permissionMode={props.permissionMode}
@@ -62,6 +65,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  pruneChatDrafts(new Set());
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
   delete (window as Window & { electronFiles?: unknown }).electronFiles;
 });
@@ -261,7 +265,7 @@ describe('ChatComposer — slash autocomplete', () => {
 
   function renderWith(commands = [{ name: 'pr-review', description: 'Review a PR' }]) {
     const onSubmit = vi.fn();
-    act(() => root.render(<ChatComposer status="idle" onSubmit={onSubmit} commands={commands} />));
+    act(() => root.render(<ChatComposer sessionId="s1" status="idle" onSubmit={onSubmit} commands={commands} />));
     return onSubmit;
   }
 
@@ -301,7 +305,7 @@ describe('ChatComposer — slash autocomplete', () => {
   });
 
   it('stays closed while Claude waits at a menu', () => {
-    act(() => root.render(<ChatComposer status="waiting" onSubmit={vi.fn()} />));
+    act(() => root.render(<ChatComposer sessionId="s1" status="waiting" onSubmit={vi.fn()} />));
     type('/mo');
     expect(items()).toEqual([]);
   });
@@ -444,5 +448,74 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(container.querySelector('.argus-cmp-line.is-code')?.textContent).toBe('const x = 1;');
     key('Enter', { metaKey: true });
     expect(onSubmit).toHaveBeenCalledWith(src, expect.any(Array));
+  });
+});
+
+describe('ChatComposer — draft (F11)', () => {
+  const box = () => container.querySelector('textarea')!;
+  function typeText(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box(), value);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  function remount() {
+    act(() => root.unmount());
+    act(() => { root = createRoot(container); });
+  }
+
+  it('restores the typed text and attachments after the composer unmounts', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    typeText('half a thought');
+
+    // Chat → Terminal: the composer goes away; back to Chat: it comes back.
+    remount();
+    render();
+    expect(box().value).toBe('half a thought');
+    expect(container.querySelector('.argus-chat-attachment img')?.getAttribute('src')).toBe('blob:preview');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('keeps one draft per session', () => {
+    render({ sessionId: 'a' });
+    typeText('for a');
+    remount();
+    render({ sessionId: 'b' });
+    expect(box().value).toBe('');
+    typeText('for b');
+    remount();
+    render({ sessionId: 'a' });
+    expect(box().value).toBe('for a');
+  });
+
+  it('clears the draft on send', () => {
+    const onSubmit = render();
+    typeText('ship it');
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('ship it', expect.any(Array));
+    remount();
+    render();
+    expect(box().value).toBe('');
+  });
+
+  it('lands an upload that finishes after the composer unmounted', async () => {
+    let finish!: (path: string) => void;
+    const onUploadImage = () => new Promise<string>((r) => { finish = r; });
+    render({ onUploadImage });
+    const image = new File(['x'], 'shot.png', { type: 'image/png' });
+    act(() => {
+      const e = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'clipboardData', { value: { files: [image] } });
+      box().dispatchEvent(e);
+    });
+    remount();
+    await act(async () => finish('/tmp/argus/pasted.png'));
+    const onSubmit = render({ onUploadImage });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus/pasted.png', [{ kind: 'image' }]);
   });
 });

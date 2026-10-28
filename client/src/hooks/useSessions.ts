@@ -5,6 +5,7 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/index.js';
 import { pruneFileTreeCache } from './useFileTree.js';
+import { pruneChatDrafts } from '../app/ui/chat/chatDrafts.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
@@ -38,7 +39,9 @@ export function useSessions(socket: TypedSocket) {
   // pre-fetch list never reads as "everything was deleted".
   useEffect(() => {
     if (!loaded) return;
-    pruneFileTreeCache(new Set(sessions.map((s) => s.id)));
+    const live = new Set(sessions.map((s) => s.id));
+    pruneFileTreeCache(live);
+    pruneChatDrafts(live);
   }, [sessions, loaded]);
 
   // Load sessions on mount and after reconnect
