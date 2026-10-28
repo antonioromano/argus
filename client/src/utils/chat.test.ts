@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
+import { BUILTIN_COMMANDS, EMPTY_CHAT, INTERACTIVE_COMMANDS, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, interactiveCommandOf, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
 
 const msg = (id: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, blocks: [{ kind: 'text', text: id }] });
 
@@ -124,5 +124,36 @@ describe('slash autocomplete', () => {
     const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [], commands: custom });
     const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('a')] });
     expect(s1.commands).toBe(custom);
+  });
+});
+
+describe('interactiveCommandOf (F6)', () => {
+  it('names a bare picker command, whatever the case and surrounding space', () => {
+    expect(interactiveCommandOf('/mcp')).toBe('mcp');
+    expect(interactiveCommandOf('  /Config \n')).toBe('config');
+    expect(interactiveCommandOf('/plugins')).toBe('plugins');
+  });
+
+  it('leaves commands with arguments, plain text and other commands in the Chat', () => {
+    expect(interactiveCommandOf('/mcp enable github')).toBeNull();
+    expect(interactiveCommandOf('/add-dir ~/src')).toBeNull();
+    expect(interactiveCommandOf('/compact')).toBeNull();
+    expect(interactiveCommandOf('mcp')).toBeNull();
+    expect(interactiveCommandOf('/var/folders/x/mcp')).toBeNull();
+  });
+
+  it('keeps /resume and /model on their Chat-native handling', () => {
+    expect(interactiveCommandOf('/resume')).toBeNull();
+    expect(interactiveCommandOf('/model')).toBeNull();
+    expect(INTERACTIVE_COMMANDS.has('resume')).toBe(false);
+    expect(INTERACTIVE_COMMANDS.has('model')).toBe(false);
+  });
+
+  it('lists the picker built-ins the autocomplete offers', () => {
+    const builtins = new Set(BUILTIN_COMMANDS.map((c) => c.name));
+    for (const name of ['agents', 'config', 'hooks', 'mcp', 'permissions', 'plugin']) {
+      expect(builtins.has(name)).toBe(true);
+      expect(INTERACTIVE_COMMANDS.has(name)).toBe(true);
+    }
   });
 });

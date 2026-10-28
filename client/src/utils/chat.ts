@@ -157,6 +157,49 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
   { name: 'usage', description: 'Show plan usage' },
 ];
 
+/**
+ * Built-in commands that, sent bare, open a full-screen picker or dialog in
+ * Claude Code's terminal UI, which the Chat can't render: the Chat view shows
+ * them in a sheet over the live terminal (F6). Aliases Claude Code accepts are
+ * listed too. `/resume` and `/model` are left out: the Chat handles those itself.
+ */
+export const INTERACTIVE_COMMANDS: ReadonlySet<string> = new Set([
+  'add-dir',
+  'agents',
+  'allowed-tools', // alias of permissions
+  'config',
+  'doctor',
+  'effort',
+  'export',
+  'help',
+  'hooks',
+  'ide',
+  'login',
+  'mcp',
+  'memory',
+  'output-style',
+  'permissions',
+  'plugin',
+  'plugins', // alias of plugin
+  'privacy-settings',
+  'rewind',
+  'settings', // alias of config
+  'status',
+  'theme',
+  'usage',
+]);
+
+/**
+ * The command name when `text` is one of INTERACTIVE_COMMANDS sent bare, else
+ * null. With arguments these commands mostly run without a picker
+ * (`/mcp enable x`, `/add-dir ~/src`), so they stay in the Chat.
+ */
+export function interactiveCommandOf(text: string): string | null {
+  const m = /^\/([\w:.-]+)$/.exec(text.trim());
+  const name = m?.[1].toLowerCase();
+  return name && INTERACTIVE_COMMANDS.has(name) ? name : null;
+}
+
 /** Suggestions shown at most. */
 export const MAX_SLASH_SUGGESTIONS = 50;
 
