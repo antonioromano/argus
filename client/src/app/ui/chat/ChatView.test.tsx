@@ -103,7 +103,7 @@ describe('ChatView', () => {
         role: 'assistant',
         blocks: [
           { kind: 'text', text: '## Plan\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```' },
-          { kind: 'tool', name: 'Bash' },
+          { kind: 'tool', id: 't1', name: 'Bash', label: 'List files', status: 'ok' },
           { kind: 'unknown', type: 'hologram' },
         ],
       },
@@ -116,8 +116,38 @@ describe('ChatView', () => {
     expect(container.querySelector('table')).not.toBeNull();
     expect(container.querySelector('.argus-chat-code-lang')?.textContent).toBe('ts');
     expect(container.querySelector('.argus-chat-code code')?.textContent).toBe('const x = 1;');
-    expect(container.textContent).toContain('Bash');
+    expect(container.textContent).toContain('List files');
     expect(container.textContent).toContain('hologram');
+  });
+
+  it('folds consecutive tool-only messages into one group that a joined result updates in place', () => {
+    const { socket, fire } = fakeSocket();
+    render(session(), socket);
+    const call = (id: string, name: string, label: string, status: 'ok' | 'pending' | 'blocked'): ChatMessage => ({
+      id: `a-${id}`,
+      role: 'assistant',
+      blocks: [{ kind: 'tool', id, name, label, status }],
+    });
+    fire(
+      'session:chat',
+      update({
+        messages: [
+          { id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'go' }] },
+          call('t1', 'Bash', 'List files', 'ok'),
+          call('t2', 'Read', 'a.ts', 'blocked'),
+          call('t3', 'Bash', 'Run tests', 'pending'),
+        ],
+      }),
+    );
+    const groups = container.querySelectorAll('[data-testid="chat-tool-group"]');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].textContent).toContain('Ran 2 commands, read 1 file (1 blocked, 1 running)');
+    // One row for the run, under a single "Claude" label.
+    expect(Array.from(container.querySelectorAll('.argus-chat-msg')).map((el) => el.getAttribute('data-role'))).toEqual(['user', 'assistant']);
+
+    fire('session:chat', update({ reset: false, messages: [call('t3', 'Bash', 'Run tests', 'ok')] }));
+    expect(container.querySelector('[data-testid="chat-tool-group"]')?.textContent).toContain('Ran 2 commands, read 1 file (1 blocked)');
+    expect(container.querySelectorAll('[data-testid="chat-tool-group"]')).toHaveLength(1);
   });
 
   it('renders slash commands, collapsed command output, notices and echoes', () => {

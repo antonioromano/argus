@@ -21,8 +21,9 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
 
 /**
  * Fold one server update into the chat state. A reset replaces the list; an
- * append adds messages not seen yet (a snapshot and an append can overlap
- * when a second viewer subscribes mid-read, so ids are deduped).
+ * append adds messages not seen yet and replaces the ones it has (a snapshot
+ * and an append can overlap when a second viewer subscribes mid-read, and a
+ * joined tool result re-sends its call's message, so ids are deduped).
  */
 export function applyChatUpdate(
   prev: ChatState,
@@ -46,11 +47,23 @@ export function applyChatUpdate(
   const removed = update.removed?.length ? new Set(update.removed) : undefined;
   const filtered = removed ? prev.messages.filter((m) => !removed.has(m.id)) : prev.messages;
   const kept = filtered.length === prev.messages.length ? prev.messages : filtered;
-  const seen = new Set(kept.map((m) => m.id));
-  const fresh = update.messages.filter((m) => !seen.has(m.id));
+  // A message already shown comes again when a tool result joined one of its
+  // calls (F7): it replaces the old copy in place.
+  const index = new Map(kept.map((m, i) => [m.id, i]));
+  let next = kept;
+  const fresh: ChatMessage[] = [];
+  for (const m of update.messages) {
+    const i = index.get(m.id);
+    if (i === undefined) fresh.push(m);
+    // Rare (overlap or join), so a deep compare is cheap enough; equal copies keep the old object.
+    else if (next[i] !== m && JSON.stringify(next[i]) !== JSON.stringify(m)) {
+      if (next === prev.messages) next = next.slice();
+      next[i] = m;
+    }
+  }
   if (
     fresh.length === 0 &&
-    kept === prev.messages &&
+    next === prev.messages &&
     prev.loaded &&
     prev.available === update.available &&
     prev.permissionMode === permissionMode &&
@@ -59,7 +72,7 @@ export function applyChatUpdate(
   ) {
     return prev;
   }
-  const messages = fresh.length ? kept.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : kept;
+  const messages = fresh.length ? next.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : next;
   return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands };
 }
 

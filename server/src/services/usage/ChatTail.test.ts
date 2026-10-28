@@ -26,12 +26,15 @@ test('parses user and assistant text with timestamps', () => {
   ]);
 });
 
-test('tool calls become name-only blocks; thinking and tool results are dropped', () => {
-  assert.deepEqual(parseChatEntry(assistant('a1', [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }]))?.blocks, [
-    { kind: 'tool', name: 'Bash' },
+test('tool calls become pending steps; thinking and tool results make no message', () => {
+  assert.deepEqual(parseChatEntry(assistant('a1', [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }]))?.blocks, [
+    { kind: 'tool', id: 't1', name: 'Bash', label: 'ls', status: 'pending', detail: { command: 'ls' } },
   ]);
   assert.equal(parseChatEntry(assistant('a2', [{ type: 'thinking', thinking: '' }])), undefined);
-  assert.equal(parseChatEntry(user('u1', [{ type: 'tool_result', content: 'out' }])), undefined);
+  assert.equal(parseChatEntry(user('u1', [{ type: 'tool_result', tool_use_id: 't1', content: 'out' }])), undefined);
+  assert.deepEqual(parseChatLine(user('u1', [{ type: 'tool_result', tool_use_id: 't1', content: 'out' }]))?.toolResults, [
+    { id: 't1', status: 'ok', output: 'out' },
+  ]);
 });
 
 test('unknown block types are kept as unknown, never thrown', () => {
@@ -430,4 +433,71 @@ test('a stopped turn is a "Stopped" notice; task notifications are hidden (F3)',
   assert.deepEqual(parseChatEntry(user('u2', '[Request interrupted by user for tool use]'))?.blocks, [{ kind: 'notice', text: 'Stopped' }]);
   assert.equal(parseChatEntry(user('u3', [{ type: 'text', text: '[Request interrupted by user for tool use]' }]))?.role, 'system');
   assert.equal(parseChatEntry(user('u4', '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>')), undefined);
+});
+
+const toolUse = (uuid: string, id: string, name: string, input: unknown, extra: Record<string, unknown> = {}) =>
+  assistant(uuid, [{ type: 'tool_use', id, name, input }], extra);
+const toolResult = (uuid: string, id: string, content: unknown, extra: Record<string, unknown> = {}) =>
+  user(uuid, [{ type: 'tool_result', tool_use_id: id, content, ...extra }]);
+
+test('ChatTail: a tool result in a later entry is joined to its call (in a reset)', async () => {
+  const f = tmpFile();
+  writeFileSync(
+    f,
+    [
+      toolUse('a1', 't1', 'Bash', { command: 'ls', description: 'List files' }),
+      toolUse('a2', 't2', 'Read', { file_path: '/repo/x.ts' }, { cwd: '/repo' }),
+      toolResult('r1', 't1', 'a.ts\nb.ts'),
+      toolResult('r2', 't2', "The user doesn't want to proceed with this tool use.", { is_error: true }),
+    ].join('\n') + '\n',
+  );
+  const t = new ChatTail(f);
+  await t.poll();
+  const d = t.drain();
+  assert.equal(d.reset, true);
+  assert.deepEqual(d.messages.map((m) => m.id), ['a1', 'a2']);
+  assert.deepEqual(d.messages[0].blocks, [
+    { kind: 'tool', id: 't1', name: 'Bash', label: 'List files', status: 'ok', detail: { command: 'ls', output: 'a.ts\nb.ts' } },
+  ]);
+  assert.deepEqual(d.messages[1].blocks[0], {
+    kind: 'tool',
+    id: 't2',
+    name: 'Read',
+    label: 'x.ts',
+    status: 'blocked',
+    detail: { path: '/repo/x.ts', output: "The user doesn't want to proceed with this tool use." },
+  });
+});
+
+test('ChatTail: a result arriving after the call was sent re-sends that message (same id)', async () => {
+  const f = tmpFile();
+  writeFileSync(f, user('u1', 'go') + '\n' + toolUse('a1', 't1', 'Bash', { command: 'false' }) + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  const first = t.drain();
+  const sent = first.messages[1];
+  assert.equal(sent.blocks[0].kind === 'tool' && sent.blocks[0].status, 'pending');
+
+  appendFileSync(f, toolResult('r1', 't1', 'Exit code 1', { is_error: true }) + '\n' + toolUse('a2', 't2', 'Grep', { pattern: 'x' }) + '\n');
+  await t.poll();
+  const d = t.drain();
+  assert.equal(d.reset, false);
+  assert.deepEqual(d.messages.map((m) => m.id), ['a1', 'a2']);
+  assert.equal(d.messages[0].blocks[0].kind === 'tool' && d.messages[0].blocks[0].status, 'error');
+  // What was sent before is never mutated.
+  assert.equal(sent.blocks[0].kind === 'tool' && sent.blocks[0].status, 'pending');
+  assert.equal(t.messages[1].blocks[0].kind === 'tool' && t.messages[1].blocks[0].status, 'error');
+
+  // A call and its result in the same read are sent once, already joined.
+  appendFileSync(f, toolResult('r2', 't2', 'hit') + '\n');
+  await t.poll();
+  const d2 = t.drain();
+  assert.deepEqual(d2.messages.map((m) => m.id), ['a2']);
+  assert.equal(d2.messages[0].blocks[0].kind === 'tool' && d2.messages[0].blocks[0].status, 'ok');
+
+  // A result for an unknown (or already joined) call changes nothing.
+  appendFileSync(f, toolResult('r3', 't2', 'again') + '\n' + toolResult('r4', 'nope', 'x') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().messages, []);
+  rmSync(path.dirname(f), { recursive: true, force: true });
 });
