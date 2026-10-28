@@ -41,8 +41,6 @@ let pendingSeq = 0;
 let lastChat: HTMLElement | null = null;
 /** Height of the terminal sheet's bar; the host insets the terminal by it so the bar never covers it. */
 export const TERMINAL_SHEET_BAR_PX = 36;
-/** How long the session must stay `idle` after its picker before the sheet takes it as closed. */
-export const SHEET_CLOSE_GRACE_MS = 400;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -85,8 +83,16 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const [sheet, setSheet] = useState<string | null>(null);
   /** Sent during a turn: Claude Code runs it once the turn ends, and the sheet opens then. */
   const [queuedSheet, setQueuedSheet] = useState<string | null>(null);
-  /** The picker was seen on screen (status `waiting`) since the sheet opened. */
-  const sheetSawWaiting = useRef(false);
+  /**
+   * Which settled screens tell how the command went: those after `from` (chat.screen.seq).
+   * A queued command closes the sheet only after its picker was seen (`left`): the turn's
+   * own last screen can still show the empty box before Claude Code runs it.
+   */
+  const sheetTrack = useRef({ from: 0, needsLeave: false, left: false });
+  const openSheet = (name: string, queued: boolean) => {
+    sheetTrack.current = { from: chat.screen?.seq ?? 0, needsLeave: queued, left: false };
+    setSheet(name);
+  };
   const [pending, setPending] = useState<Pending[]>([]);
   /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
   const [stoppedId, setStoppedId] = useState<string | null>(null);
@@ -154,26 +160,26 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     // Only the turn's end runs it: a permission prompt mid-turn (`waiting`) is no picker of ours.
     if (status !== 'idle') return;
     setQueuedSheet(null);
-    sheetSawWaiting.current = false;
-    setSheet(queuedSheet);
+    openSheet(queuedSheet, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openSheet reads the screen seq now
   }, [queuedSheet, status]);
+  const screen = chat.screen;
   useEffect(() => {
     if (!sheet) return;
     if (status === 'exited') {
       setSheet(null);
       return;
     }
-    if (status === 'waiting') {
-      sheetSawWaiting.current = true;
-      return;
-    }
-    // Back from the picker at the idle prompt: close once that holds (a repaint can blip off
-    // `waiting`). `running` is no way out: a flow can work (/agents → Generate) and show more.
-    // There is no Esc shortcut: in a nested picker Esc only goes back a level.
-    if (status !== 'idle' || !sheetSawWaiting.current) return;
-    const t = setTimeout(() => setSheet(null), SHEET_CLOSE_GRACE_MS);
-    return () => clearTimeout(t);
-  }, [sheet, status]);
+    // Read from the screen, not the status: many pickers (/config, /hooks) never read as
+    // `waiting`. The first settle after the command that shows Claude's empty input box again
+    // closes it: the picker was left (Esc, a pick), or the command opened none. A picker, a
+    // nested view, a flow at work or the command still typed in the box keep it open. There is
+    // no Esc shortcut: in a nested picker Esc only goes back a level.
+    const track = sheetTrack.current;
+    if (!screen || screen.seq <= track.from) return;
+    if (!screen.atPrompt) track.left = true;
+    else if (!track.needsLeave || track.left) setSheet(null);
+  }, [sheet, status, screen]);
   const onSheetRef = useRef(onTerminalSheet);
   onSheetRef.current = onTerminalSheet;
   const sheetOpen = sheet !== null;
@@ -370,10 +376,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
             // Typed into a waiting prompt it is an answer, not a command.
             const interactive = session.status === 'waiting' ? null : interactiveCommandOf(text);
             if (interactive && running) setQueuedSheet(interactive);
-            else if (interactive) {
-              sheetSawWaiting.current = false;
-              setSheet(interactive);
-            }
+            else if (interactive) openSheet(interactive, false);
             echo(text, preview);
             send(text);
           }

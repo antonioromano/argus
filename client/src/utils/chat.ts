@@ -17,6 +17,12 @@ export interface ChatState {
   commands?: ChatCommand[];
   /** The next prompt Claude Code suggests (ghost text in its empty input box). */
   suggestion?: string;
+  /**
+   * The last settled screen (F6): whether it showed Claude's empty input box, or a picker,
+   * dialog or typed text instead. `seq` grows with every settle, so an unchanged value still
+   * tells that one happened.
+   */
+  screen?: { atPrompt: boolean; seq: number };
 }
 
 export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages: [] };
@@ -40,6 +46,8 @@ export function applyChatUpdate(
       modelSet: update.modelSet,
       commands: update.commands,
       suggestion: update.suggestion,
+      // The screen comes by session:chatAtPrompt only; a transcript reset leaves it be.
+      screen: prev.screen,
     };
   }
   // Appends carry the mode and model only when they changed.
@@ -77,7 +85,7 @@ export function applyChatUpdate(
   }
   const messages = fresh.length ? next.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : next;
   // The suggestion comes on a reset, then by session:chatSuggestion.
-  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion };
+  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion, screen: prev.screen };
 }
 
 const MODE_LABELS: Record<string, string> = {

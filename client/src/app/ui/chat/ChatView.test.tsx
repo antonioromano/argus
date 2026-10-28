@@ -6,7 +6,7 @@ import type { Socket } from 'socket.io-client';
 import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
 import { ANSWER_TIMEOUT_MS } from './ChatPromptCard.js';
-import { ChatView, SHEET_CLOSE_GRACE_MS } from './ChatView.js';
+import { ChatView } from './ChatView.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -526,41 +526,49 @@ describe('ChatView', () => {
       expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
     });
 
-    it('closes once the picker is gone: waiting, then back at the prompt', () => {
-      vi.useFakeTimers();
+    const settle = (fire: (ev: string, p: unknown) => void, atPrompt: boolean) => fire('session:chatAtPrompt', { sessionId: 's1', atPrompt });
+
+    it('closes on the first settle that shows the empty input box again, even off `waiting` (/config, /hooks)', () => {
       const { socket, fire } = fakeSocket();
       const { onTerminalSheet } = mount(session(), socket);
       fire('session:chat', update({}));
+      // A settle from before the command tells nothing about it.
+      settle(fire, true);
       type('/config');
-      // Idle before the picker paints: still open.
-      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 2); });
       expect(sheet()).not.toBeNull();
-      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
-      // A blip off `waiting` inside the grace keeps it open.
-      mount(session({ status: 'idle' }), socket, onTerminalSheet);
-      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
-      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 2); });
+      // The command still typed in the box, then the picker, then a nested view: all off the prompt.
+      settle(fire, false);
+      settle(fire, false);
+      // Esc in the nested view only goes back a level: the window key changes nothing.
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
       expect(sheet()).not.toBeNull();
-      mount(session({ status: 'idle' }), socket, onTerminalSheet);
-      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS); });
+      settle(fire, true);
       expect(sheet()).toBeNull();
       expect(view().hasAttribute('data-sheet')).toBe(false);
       expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
     });
 
-    it('stays open while the flow works (running) and through Esc, which may only go back a level', () => {
-      vi.useFakeTimers();
+    it('closes when the command opened no picker (it printed and the box is back)', () => {
+      const { socket, fire } = fakeSocket();
+      mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/agents');
+      settle(fire, true);
+      expect(sheet()).toBeNull();
+    });
+
+    it('ignores the other sessions\' screens and stays open through a flow at work', () => {
       const { socket, fire } = fakeSocket();
       const { onTerminalSheet } = mount(session(), socket);
       fire('session:chat', update({}));
-      type('/agents');
-      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
-      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      type('/mcp');
+      fire('session:chatAtPrompt', { sessionId: 'other', atPrompt: true });
+      settle(fire, false);
       mount(session({ status: 'running' }), socket, onTerminalSheet);
-      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 5); });
-      expect(sheet()).not.toBeNull();
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
       mount(session({ status: 'idle' }), socket, onTerminalSheet);
-      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS); });
+      expect(sheet()).not.toBeNull();
+      settle(fire, true);
       expect(sheet()).toBeNull();
     });
 
@@ -575,6 +583,12 @@ describe('ChatView', () => {
       mount(session({ status: 'idle' }), socket, onTerminalSheet);
       expect(sheet()?.textContent).toContain('/mcp');
       expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+      // The turn's last screen can still show the empty box: only after the picker does it count.
+      settle(fire, true);
+      expect(sheet()).not.toBeNull();
+      settle(fire, false);
+      settle(fire, true);
+      expect(sheet()).toBeNull();
     });
 
     it('sent during a turn, ignores a permission prompt mid-turn and opens only at its end', () => {
