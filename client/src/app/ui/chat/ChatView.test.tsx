@@ -3,10 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
-import { ChatView } from './ChatView.js';
 import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
 import { ANSWER_TIMEOUT_MS } from './ChatPromptCard.js';
+import { ChatView, SHEET_CLOSE_GRACE_MS } from './ChatView.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -494,6 +494,110 @@ describe('ChatView', () => {
       expect(stopButton().disabled).toBe(true);
       act(() => { vi.advanceTimersByTime(8000); });
       expect(stopButton().disabled).toBe(false);
+    });
+  });
+
+  describe('terminal sheet for interactive commands (F6)', () => {
+    const type = (text: string) => {
+      const box = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    };
+    const sheet = () => container.querySelector('[data-testid="chat-terminal-sheet"]');
+    const view = () => container.querySelector('[data-testid="chat-view"]')!;
+    function mount(s: SessionInfo, socket: Socket<any, any>, onTerminalSheet = vi.fn(), onShowTerminal = vi.fn()) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      act(() => {
+        root.render(<ChatView session={s} socket={socket} onShowTerminal={onShowTerminal} onTerminalSheet={onTerminalSheet} />);
+      });
+      return { onTerminalSheet, onShowTerminal };
+    }
+
+    it('sends the command and opens the sheet over the terminal', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp' }]);
+      expect(sheet()?.textContent).toContain('/mcp');
+      expect(view().hasAttribute('data-sheet')).toBe(true);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+    });
+
+    it('closes once the picker is gone: waiting, then back at the prompt', () => {
+      vi.useFakeTimers();
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/config');
+      // Idle before the picker paints: still open.
+      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 2); });
+      expect(sheet()).not.toBeNull();
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      // A blip off `waiting` inside the grace keeps it open.
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS * 2); });
+      expect(sheet()).not.toBeNull();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      act(() => { vi.advanceTimersByTime(SHEET_CLOSE_GRACE_MS); });
+      expect(sheet()).toBeNull();
+      expect(view().hasAttribute('data-sheet')).toBe(false);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
+    });
+
+    it('Esc closes it off a picker but goes to the picker while one is up', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/hooks');
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      expect(sheet()).not.toBeNull();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      expect(sheet()).toBeNull();
+    });
+
+    it('the bar closes it, or hands over to the terminal view', () => {
+      const { socket, fire } = fakeSocket();
+      const { onShowTerminal } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/agents');
+      const button = (label: string) => Array.from(sheet()!.querySelectorAll('button')).find((b) => b.textContent?.includes(label))!;
+      act(() => button('Close').click());
+      expect(sheet()).toBeNull();
+      type('/agents');
+      act(() => button('Open terminal').click());
+      expect(sheet()).toBeNull();
+      expect(onShowTerminal).toHaveBeenCalled();
+    });
+
+    it('closes when the session exits, and on unmount tells the host', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/permissions');
+      mount(session({ status: 'exited' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
+    });
+
+    it('opens for no other text: arguments, plain prompts, /resume', async () => {
+      const list = vi.spyOn(api, 'listConversations').mockResolvedValue([]);
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/mcp enable github');
+      type('what is mcp');
+      type('/resume');
+      await act(async () => {});
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp enable github' }]);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      list.mockRestore();
     });
   });
 });
