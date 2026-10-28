@@ -21,6 +21,8 @@ interface Props {
   onUploadImage?: (file: File) => Promise<string>;
   onSetMode?: (mode: string) => Promise<boolean>;
   onStop?: () => void;
+  suggestion?: string;
+  commands?: { name: string; description?: string }[];
 }
 
 function render(props: Props = {}) {
@@ -37,6 +39,8 @@ function render(props: Props = {}) {
         onUploadImage={props.onUploadImage}
         onSetMode={props.onSetMode}
         onStop={props.onStop}
+        suggestion={props.suggestion}
+        commands={props.commands}
       />,
     ),
   );
@@ -517,5 +521,70 @@ describe('ChatComposer — draft (F11)', () => {
     const onSubmit = render({ onUploadImage });
     act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
     expect(onSubmit).toHaveBeenCalledWith('/tmp/argus/pasted.png', [{ kind: 'image' }]);
+  });
+});
+
+describe('ChatComposer — prompt suggestion (F9)', () => {
+  const box = () => container.querySelector('textarea')!;
+  function typeText(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box(), value);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const tab = () => {
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(e); });
+    return e;
+  };
+
+  it('shows the suggestion as ghost text; Tab puts it in the composer without sending', () => {
+    const onSubmit = render({ suggestion: 'commit it' });
+    expect(box().placeholder).toBe('commit it');
+    expect(container.querySelector('.argus-chat-hint')?.textContent).toBe('Tab to use the suggestion');
+    const e = tab();
+    expect(e.defaultPrevented).toBe(true);
+    expect(box().value).toBe('commit it');
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Taken: clearing the text brings the placeholder back, not the suggestion.
+    typeText('');
+    expect(box().placeholder).toBe('Message Claude…');
+  });
+
+  it('any typing dismisses it, and Tab then does what it does without one', () => {
+    render({ suggestion: 'commit it' });
+    typeText('x');
+    typeText('');
+    expect(box().placeholder).toBe('Message Claude…');
+    expect(tab().defaultPrevented).toBe(false);
+    expect(box().value).toBe('');
+    // A new suggestion shows again.
+    render({ suggestion: 'run the tests' });
+    expect(box().placeholder).toBe('run the tests');
+  });
+
+  it('shows the same text again when a later turn suggests it', () => {
+    const onSubmit = render({ suggestion: 'commit it' });
+    tab();
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('commit it', expect.any(Array));
+    // Sending clears it on the server; the next turn ends with the same suggestion.
+    render({ suggestion: undefined, status: 'running', onStop: vi.fn() });
+    render({ suggestion: 'commit it' });
+    expect(box().placeholder).toBe('commit it');
+  });
+
+  it('is not offered mid-turn or at a menu', () => {
+    render({ suggestion: 'commit it', status: 'running', onStop: vi.fn() });
+    expect(box().placeholder).toBe('Message Claude…');
+    render({ suggestion: 'commit it', status: 'waiting' });
+    expect(box().placeholder).toBe('Message Claude…');
+  });
+
+  it('slash autocomplete keeps Tab while its menu is open', () => {
+    render({ suggestion: 'commit it', commands: [] });
+    typeText('/res');
+    tab();
+    expect(box().value).toBe('/resume ');
   });
 });

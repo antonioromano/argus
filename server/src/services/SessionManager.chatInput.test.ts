@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import { SessionManager } from './SessionManager.js';
+import type { ScreenRow } from './claudeScreen.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -15,12 +16,23 @@ function fixture() {
   (sm as any).io = { to: () => ({ emit: (event: string, payload: any) => emitted.push({ event, payload }) }), emit: () => {} };
   (sm as any).sessions.set('s', {
     id: 's', name: 's', folderPath: os.tmpdir(), agentType: 'claude', flags: [], status: 'idle', createdAt: new Date().toISOString(), chatViewers: 1,
+    // The screen with its faint attribute, as the last settle left it (prompt suggestion, F9).
+    stateDetector: { footerCells: () => screen },
   });
+  let screen: ScreenRow[] = [];
+  let cellReads = 0;
   const writes: Array<[string, number | undefined]> = [];
   const write = (data: string, pause?: number) => writes.push([data, pause]);
-  const settle = (rows: string[]) => (sm as any).applyFooter('s', rows);
+  // `cells`: the same screen with its faint attribute (prompt suggestion, F9).
+  const settle = (rows: string[], cells: ScreenRow[] = []) => {
+    screen = cells;
+    (sm as any).applyFooter('s', rows, () => {
+      cellReads++;
+      return cells;
+    });
+  };
   const tick = () => new Promise((r) => setImmediate(r));
-  return { sm, emitted, writes, write, settle, tick };
+  return { sm, emitted, writes, write, settle, tick, cellReads: () => cellReads };
 }
 
 test('submit: text, then Enter after a pause; done once the input box is empty', async () => {
@@ -109,4 +121,45 @@ test('mode: refused for unknown modes and while waiting', async () => {
   (f.sm as any).sessions.get('s').status = 'waiting';
   assert.equal(await f.sm.setPermissionMode('s', 'plan', f.write), false);
   assert.equal(f.writes.length, 0);
+});
+
+test('prompt suggestion: sent to Chat views when it appears, changes and goes away (F9)', async () => {
+  const f = fixture();
+  const row = (text: string, dimFrom: number): ScreenRow => [...text].map((ch, i) => ({ ch, dim: i >= dimFrom }));
+  f.settle(['❯ commit it'], [row('❯ commit it', 2)]);
+  f.settle(['❯ commit it'], [row('❯ commit it', 2)]);
+  const sent = () => f.emitted.filter((e) => e.event === 'session:chatSuggestion').map((e) => e.payload.suggestion);
+  assert.deepEqual(sent(), ['commit it'], 'once per change');
+  assert.equal((await f.sm.openChat('s'))?.suggestion, 'commit it', 'a new viewer gets it in the snapshot');
+  f.settle(['❯ commit'], [row('❯ commit', 99)]);
+  assert.deepEqual(sent(), ['commit it', null], 'typed input is no suggestion');
+  f.settle(['❯ run the tests'], [row('❯ run the tests', 2)]);
+  const p = f.sm.submitChatInput('s', 'something else', f.write);
+  assert.deepEqual(sent(), ['commit it', null, 'run the tests', null], 'sending clears it');
+  f.settle(['❯ '], [row('❯ ', 2)]);
+  await p;
+});
+
+const faint = (text: string, dimFrom: number): ScreenRow => [...text].map((ch, i) => ({ ch, dim: i >= dimFrom }));
+
+test('prompt suggestion: a suggestion that starts like the sent text is no pending input (F9)', async () => {
+  const f = fixture();
+  const p = f.sm.submitChatInput('s', 'run the tests', f.write);
+  // The turn ended fast and Claude suggests a follow-up that starts the same way.
+  f.settle(['❯ run the tests', '──', '❯ run the tests again', '──'], [faint('❯ run the tests again', 2)]);
+  assert.equal(await p, true);
+  assert.equal(f.writes.length, 2, 'no Enter on the suggestion');
+  // Nor is it cleared with Ctrl+C before the next message.
+  const q = f.sm.submitChatInput('s', 'next', f.write);
+  assert.equal(f.writes[2][0], 'next');
+  f.settle(['❯ '], [faint('❯ ', 2)]);
+  await q;
+});
+
+test('prompt suggestion: only read while a Chat view is open; a new viewer reads it at once (F9)', async () => {
+  const f = fixture();
+  f.sm.closeChat('s');
+  f.settle(['❯ commit it'], [faint('❯ commit it', 2)]);
+  assert.equal(f.cellReads(), 0);
+  assert.equal((await f.sm.openChat('s'))?.suggestion, 'commit it');
 });

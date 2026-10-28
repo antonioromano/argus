@@ -44,6 +44,8 @@ interface ChatComposerProps {
   onShowTerminal?: () => void;
   /** Skills and custom commands for the `/` autocomplete (built-ins are always offered). */
   commands?: ChatCommand[];
+  /** Claude Code's suggested next prompt: ghost text while the composer is empty, Tab takes it. */
+  suggestion?: string;
   autoFocus?: boolean;
 }
 
@@ -115,7 +117,7 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
+export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, suggestion, autoFocus }: ChatComposerProps) {
   // The draft lives in a store keyed by session, so unmounting (Terminal view,
   // another session, focus ↔ mosaic) keeps it; only sending clears it.
   const [draft, updateDraft] = useChatDraft(sessionId);
@@ -169,6 +171,15 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   // Not at a menu: there a slash command would only be typed into the menu.
   const slashOpen = suggestions.length > 0 && atPrompt;
   const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
+  // F9: shown in place of the placeholder until Tab takes it or anything is typed.
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  // Forgotten once the suggestion leaves the screen, so the same text suggested
+  // after a later turn shows again.
+  if (dismissed !== null && !suggestion) setDismissed(null);
+  const ghost =
+    suggestion && suggestion !== dismissed && text === '' && attachments.length === 0 && atPrompt && status !== 'running'
+      ? suggestion
+      : undefined;
   const complete = (c: ChatCommand) => {
     setText(`/${c.name} `);
     setSlashIndex(0);
@@ -357,7 +368,7 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           // The height follows the text (CSS field-sizing), capped at ~45% of the view.
           rows={1}
           disabled={exited}
-          placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
+          placeholder={exited ? 'Session has exited — restart it to continue.' : (ghost ?? 'Message Claude…')}
           aria-label="Message"
           role="combobox"
           aria-expanded={slashOpen}
@@ -366,6 +377,7 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
           spellCheck
           onChange={(e) => {
+            if (ghost) setDismissed(ghost);
             setText(e.target.value);
             setSlashIndex(0);
             trackCaret();
@@ -402,6 +414,13 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
                 complete(active);
                 return;
               }
+            }
+            // Tab takes the suggestion for editing; nothing reaches Claude until it is sent.
+            if (ghost && e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              setDismissed(ghost);
+              setText(ghost);
+              return;
             }
             const box = e.currentTarget;
             if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
@@ -444,7 +463,13 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           )}
           <div style={{ flex: 1 }} />
           <span className={`argus-chat-hint${stopping ? ' is-stopping' : ''}`} aria-live="polite">
-            {stopping ? 'Stopping…' : continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
+            {stopping
+              ? 'Stopping…'
+              : ghost
+                ? 'Tab to use the suggestion'
+                : continues
+                  ? 'Enter for a new line · ⌘Enter to send'
+                  : 'Enter to send · Shift+Enter for a new line'}
           </span>
           {status === 'running' && onStop ? (
             <Tooltip content={STOP_LABEL}>

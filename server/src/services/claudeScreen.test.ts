@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chatInputBytes, inputStillPending, permissionModeFromFooter, promptInputText } from './claudeScreen.js';
+import { readFileSync } from 'node:fs';
+import {
+  chatInputBytes,
+  clearPromptInput,
+  inputStillPending,
+  permissionModeFromFooter,
+  promptInputText,
+  promptSuggestion,
+  readScreenRows,
+  type ScreenRow,
+} from './claudeScreen.js';
+import { TerminalMirror } from './TerminalMirror.js';
 
 test('reads every mode Claude Code paints in its footer', () => {
   // Captured from Claude Code 2.1.309, cycling with Shift+Tab.
@@ -39,4 +50,45 @@ test('finds the input box below echoed prompts', () => {
 test('chatInputBytes types one line as is and pastes multi-line text', () => {
   assert.equal(chatInputBytes('hello'), 'hello');
   assert.equal(chatInputBytes('a\r\nb\rc'), '\x1b[200~a\nb\nc\x1b[201~');
+});
+
+// Prompt suggestion (F9): screens captured from Claude Code 2.1.312 (120×30),
+// serialized from a headless xterm, replayed here into one.
+async function screen(name: string, edit: (ansi: string) => string = (s) => s): Promise<ScreenRow[]> {
+  const ansi = readFileSync(new URL(`./__fixtures__/claude-screen/${name}.ansi`, import.meta.url), 'utf8');
+  const mirror = new TerminalMirror(120, 30);
+  await mirror.feed(edit(ansi));
+  const rows = readScreenRows(mirror.term, 18, 29); // the bottom 12 rows, like the detector's footer
+  mirror.dispose();
+  return rows;
+}
+
+test('reads the faint suggestion in the empty input box', async () => {
+  assert.equal(promptSuggestion(await screen('suggestion')), 'commit it');
+});
+
+test('the same text in plain grey is no suggestion', async () => {
+  const rows = await screen('suggestion', (s) => s.replace('\x1b[2mcommit it', '\x1b[38;2;153;153;153mcommit it'));
+  assert.equal(promptSuggestion(rows), undefined);
+});
+
+test('typed input, an empty box mid-turn and the first-run placeholder are no suggestion', async () => {
+  assert.equal(promptSuggestion(await screen('typed')), undefined);
+  assert.equal(promptSuggestion(await screen('running')), undefined);
+  assert.equal(promptSuggestion(await screen('placeholder')), undefined, 'Try "…" placeholder');
+  assert.equal(promptSuggestion([]), undefined);
+});
+
+test('a suggestion continues on faint rows under the prompt; typed text before faint text is input', () => {
+  const row = (text: string, dimFrom: number): ScreenRow => [...text].map((ch, i) => ({ ch, dim: i >= dimFrom }));
+  assert.equal(promptSuggestion([row('❯ run the whole', 2), row('  test suite', 0), row('────', 99)]), 'run the whole test suite');
+  assert.equal(promptSuggestion([row('❯ /com', 99).concat(row('mit', 0))]), undefined, 'autocomplete tail after typed text');
+  assert.equal(promptSuggestion([row('❯ commit it', 2), row('──', 99), row('❯ 1. Yes', 99)]), undefined, 'the lowest prompt row decides');
+});
+
+test('clearPromptInput empties only the input box', () => {
+  const rows = ['❯ earlier prompt', '──', '❯ run the tests', '──', '  ⏵⏵ auto mode on'];
+  assert.deepEqual(clearPromptInput(rows), ['❯ earlier prompt', '──', '❯ ', '──', '  ⏵⏵ auto mode on']);
+  assert.equal(inputStillPending(clearPromptInput(rows), 'run the tests'), false);
+  assert.deepEqual(clearPromptInput(['no prompt']), ['no prompt']);
 });

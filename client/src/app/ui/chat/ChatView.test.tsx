@@ -329,6 +329,20 @@ describe('ChatView', () => {
     expect(container.querySelector('.argus-chat-composer-meta')?.textContent).toContain('Plan');
   });
 
+  it("shows Claude Code's prompt suggestion from the snapshot, then live (F9)", () => {
+    const { socket, fire } = fakeSocket();
+    render(session(), socket);
+    const box = () => container.querySelector('textarea')!;
+    fire('session:chat', update({ suggestion: 'commit it' }));
+    expect(box().placeholder).toBe('commit it');
+    fire('session:chat', update({ reset: false, messages: [] }));
+    expect(box().placeholder).toBe('commit it');
+    fire('session:chatSuggestion', { sessionId: 's1', suggestion: 'run the tests' });
+    expect(box().placeholder).toBe('run the tests');
+    fire('session:chatSuggestion', { sessionId: 's1', suggestion: null });
+    expect(box().placeholder).toBe('Message Claude…');
+  });
+
   describe('Stop (F3)', () => {
     const esc = (meta: boolean) => {
       const event = new KeyboardEvent('keydown', { key: 'Escape', metaKey: meta, bubbles: true, cancelable: true });

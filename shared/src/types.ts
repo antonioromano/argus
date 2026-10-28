@@ -890,6 +890,11 @@ export interface ChatUpdate {
    * commands are the client's own list). Same delivery as `permissionMode`.
    */
   commands?: ChatCommand[];
+  /**
+   * The next prompt Claude Code suggests as faint text in its empty input box
+   * (Tab accepts it there). Sent on a reset; changes come as `session:chatSuggestion`.
+   */
+  suggestion?: string;
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */
@@ -1149,6 +1154,8 @@ export interface ServerToClientEvents {
   'session:chat': (payload: ChatUpdate) => void;
   /** The permission mode Claude Code shows on screen changed (Chat view subscribers only). */
   'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
+  /** Claude Code's prompt suggestion appeared, changed or went away (null; Chat view subscribers only). */
+  'session:chatSuggestion': (payload: { sessionId: string; suggestion: string | null }) => void;
   /** An agent account's plan usage changed (shared by every shell of that agent). */
   'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

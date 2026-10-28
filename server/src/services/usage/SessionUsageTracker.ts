@@ -47,6 +47,8 @@ export interface ChatSnapshot {
   permissionMode?: string;
   modelSet?: string;
   commands?: ChatCommand[];
+  /** Claude Code's prompt suggestion on screen (filled in by the SessionManager). */
+  suggestion?: string;
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
