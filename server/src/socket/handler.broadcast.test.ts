@@ -19,7 +19,12 @@ function harness() {
   const manager = {
     getSession: (id: string) => sessions.get(id),
     writeToSession: (id: string, data: string) => { writes.push([id, data]); },
-    checkPromptAnswer: (id: string, key: string) => (id === 'b' && key === '1' ? null : 'The prompt changed — open the shell to answer'),
+    answerPrompt: (id: string, key: string, text: unknown, write: (data: string, pauseAfter?: number) => void) => {
+      if (id !== 'b' || key !== '1') return 'The prompt changed — open the shell to answer';
+      if (typeof text === 'string') write(key, 60), write(text, 60), write('\r');
+      else write(key);
+      return null;
+    },
   } as unknown as SessionManager;
   let connection: ((socket: Socket) => void) | undefined;
   const io = {
@@ -64,6 +69,13 @@ test('session:broadcast tolerates a missing ack', () => {
   assert.doesNotThrow(() => fireNoAck({ sessionIds: ['a'], text: 'ok' }));
   assert.doesNotThrow(() => fireNoAck({ sessionIds: ['ghost'], text: 'ok' }));
   assert.deepEqual(writes, [['a', 'ok']]);
+});
+
+test('session:answer queues the free-text answer the manager plans, in order', async () => {
+  const { answer, writes } = harness();
+  assert.deepEqual(await answer({ sessionId: 'b', key: '1', text: 'purple' }), { ok: true });
+  await new Promise((r) => setTimeout(r, 200)); // the queue's pauses between keys
+  assert.deepEqual(writes, [['b', '1'], ['b', 'purple'], ['b', '\r']]);
 });
 
 test('session:answer writes the digit only when the manager confirms the menu has it', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { SessionInfo } from '@argus/shared';
-import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
+import { formatWaiting, inboxOptions, optionForKey, waitingItems } from './inboxItems.js';
 
 const s = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
   id, name: id, folderPath: `/r/${id}`, status: 'waiting', createdAt: '', agentType: 'claude', flags: [], ...over,
@@ -24,5 +24,14 @@ describe('waitingInbox helpers', () => {
     expect(optionForKey(withMenu, '2')).toBe('2');
     expect(optionForKey(withMenu, '3')).toBeUndefined();
     expect(optionForKey(s('b'), '1')).toBeUndefined();
+  });
+
+  it('leaves free-text options and multiSelect questions to Chat or the terminal', () => {
+    const ask = s('a', { promptOptions: [{ key: '1', label: 'Red' }, { key: '2', label: 'Type something.', freeText: true }, { key: '3', label: 'Chat about this' }] });
+    expect(inboxOptions(ask).map((o) => o.key)).toEqual(['1', '3']);
+    expect(optionForKey(ask, '2')).toBeUndefined();
+    const multi = s('b', { promptOptions: [{ key: '1', label: 'Apple', checked: true }, { key: '2', label: 'Pear', checked: false }] });
+    expect(inboxOptions(multi)).toEqual([]);
+    expect(optionForKey(multi, '1')).toBeUndefined();
   });
 });

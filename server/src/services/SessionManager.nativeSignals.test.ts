@@ -62,6 +62,86 @@ test('arbiter: fresh native suppresses a covered heuristic transition (Claude, f
   assert.equal(emitted.length, 0, 'no status emitted for a suppressed transition');
 });
 
+test('arbiter: a readable menu after a fresh native running applies at once (PreToolUse → permission prompt)', () => {
+  // Real timing (Claude Code 2.1.311): PreToolUse(AskUserQuestion) marks the
+  // session running, the menu paints, and the waiting Notification lands ~6s
+  // later. Until then Chat showed no prompt card.
+  const { sm, emitted } = mgr();
+  let options: Array<{ key: string; label: string }> | undefined;
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Tea or coffee?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  options = [{ key: '1', label: 'Tea' }, { key: '2', label: 'Coffee' }];
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'waiting');
+  const p = emitted.at(-1)!.p;
+  assert.deepEqual(p.promptOptions, options);
+  assert.equal(p.promptQuestion, 'Tea or coffee?');
+
+  // The Notification's generic text becomes lastPrompt; the card keeps the screen's question.
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude needs your permission', coverage: FULL });
+  assert.equal(emitted.at(-1)!.p.lastPrompt, 'Claude needs your permission');
+  assert.equal(emitted.at(-1)!.p.promptQuestion, 'Tea or coffee?');
+});
+
+test('arbiter: a menu already on screen at the native running is a leftover, not its prompt', () => {
+  const { sm } = mgr();
+  const options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running');
+});
+
+test('arbiter: a menu long after the native running does not override it', () => {
+  const { sm } = mgr();
+  let options: Array<{ key: string; label: string }> | undefined;
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  s.nativeLastSeenAt = Date.now() - 20_000; // still fresh (30s), past the 15s prompt window
+  options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running');
+});
+
+test('arbiter: without a readable menu a fresh native running still suppresses heuristic waiting', () => {
+  const { sm } = mgr();
+  const s = inject(sm, { agentType: 'claude', status: 'running', hasUserInputSinceIdle: false });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running');
+});
+
+test('arbiter: a suppressed waiting still refreshes a menu painted after the native waiting', () => {
+  const { sm, emitted } = mgr();
+  let options: Array<{ key: string; label: string }> | undefined;
+  inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Proceed?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity, getMenuOptions: () => options },
+  });
+  sm.applyNativeSignal('s', { state: 'waiting', promptText: 'Claude needs your permission', coverage: FULL });
+  assert.equal(emitted.at(-1)!.p.promptOptions, undefined, 'hook fired before the menu painted');
+  options = [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }];
+  detect(sm, 'waiting'); // covered by the fresh native waiting → dropped, but the menu is re-read
+  assert.deepEqual(emitted.at(-1)!.p.promptOptions, options);
+});
+
 test('arbiter: Codex idle-only coverage does NOT suppress heuristic waiting/running', () => {
   const { sm } = mgr();
   const s = inject(sm, { agentType: 'codex', status: 'running', hasUserInputSinceIdle: false });

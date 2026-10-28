@@ -19,6 +19,7 @@ import type {
   SessionUsage,
   PlanUsageMap,
   PromptOption,
+  PromptTab,
   SessionStatusPayload,
   SessionPr,
   SessionPrEntry,
@@ -150,6 +151,8 @@ interface ManagedSession {
    *  heuristic transitions for covered states. */
   nativeLastSeenAt?: number;
   nativeState?: AgentSignalState;
+  /** A menu was already on screen when the last native 'running' arrived (a leftover, not its prompt). */
+  menuAtNativeRunning?: boolean;
   nativeCoverage?: Set<AgentSignalState>;
   /** Last few raw native signals — diagnostics dump only, never control flow. */
   nativeRing?: AgentSignal[];
@@ -207,6 +210,8 @@ interface ManagedSession {
   /** Set by emitStatus while the session is waiting (see SessionInfo). */
   waitingSince?: number;
   promptOptions?: PromptOption[];
+  promptQuestion?: string;
+  promptTabs?: PromptTab[];
   /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
   usage?: SessionUsageTracker;
   /** Claude only: open Chat views (B1); the chat feed runs while this is > 0. */
@@ -238,6 +243,14 @@ const MAX_CHAT_INPUT = 100_000;
 
 /** A pty write through the socket input queue; `pauseAfter` holds later writes back (ms). */
 export type ChatWrite = (data: string, pauseAfter?: number) => void;
+
+/** Pause between the keystrokes of one menu answer, so Claude's TUI reads each on its own. */
+const ANSWER_KEY_PAUSE_MS = 60;
+/** Longest free-text menu answer typed for the user (one line). */
+const MAX_FREE_TEXT_ANSWER = 2_000;
+const ARROW_DOWN = '\x1b[B';
+const ARROW_UP = '\x1b[A';
+const ARROW_LEFT = '\x1b[D';
 
 /** Codex rollout logs are polled (matched, then tailed) this often. */
 const CODEX_POLL_MS = 2_000;
@@ -280,6 +293,8 @@ const RAW_TAIL_BYTES = 16 * 1024;
 // event; once stale (old CLI, user stripped the hook config), the heuristic
 // detector silently takes back over (plan 2026-07-22-001, R4).
 const NATIVE_FRESHNESS_MS = 30_000;
+/** How long after a native 'running' a newly painted menu is taken as that tool's prompt. */
+const MENU_AFTER_RUNNING_MS = 15_000;
 /** Hold 'done' promotion until the screen stops painting for this long. */
 const DONE_GRACE_MS = 2_000;
 /** Output younger than this at grace-fire means the session is still working. */
@@ -1619,9 +1634,24 @@ export class SessionManager {
     // Exception: Esc interrupted the turn. Claude Code fires no Stop hook for an
     // interrupt, so the native 'running' would hold the status for good.
     const interrupted = detected === 'idle' && this.interruptPending(session);
-    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle && !interrupted) {
+    // Exception: the hooks last said running (PreToolUse fires right before the
+    // tool's permission prompt / AskUserQuestion / plan approval) and the screen
+    // now shows a menu it can read. Claude's waiting Notification follows only
+    // seconds later, so dropping this left Chat with no prompt card meanwhile.
+    // Only a menu painted since that signal, and soon after it: one already on
+    // screen then is a leftover, not the tool's prompt.
+    const menuAfterNativeRunning =
+      detected === 'waiting' && session.nativeState === 'running' && session.menuAtNativeRunning === false &&
+      Date.now() - (session.nativeLastSeenAt ?? 0) < MENU_AFTER_RUNNING_MS &&
+      !!session.stateDetector.getMenuOptions?.();
+    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle && !interrupted && !menuAfterNativeRunning) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
-      if (coverage.has(detected as AgentSignalState)) return;
+      if (coverage.has(detected as AgentSignalState)) {
+        // Already waiting: the drop must not freeze a menu painted after the
+        // native waiting arrived (no later repaint would refresh it).
+        if (detected === 'waiting') this.refreshPromptOptions(id);
+        return;
+      }
     }
 
     let status = detected;
@@ -1673,28 +1703,81 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
   }
 
-  /** A repaint while waiting: re-announce the status if the menu options changed. */
+  /** A repaint while waiting: re-announce the status if the menu (options or question) changed. */
   private refreshPromptOptions(id: string): void {
     const session = this.sessions.get(id);
     if (!session || session.status !== 'waiting') return;
     const fresh = session.stateDetector.getMenuOptions?.();
-    if (JSON.stringify(fresh) === JSON.stringify(session.promptOptions)) return;
+    const question = fresh ? session.stateDetector.getLastPromptText() : undefined;
+    const tabs = fresh ? session.stateDetector.getMenu?.()?.tabs : undefined;
+    if (
+      JSON.stringify(fresh) === JSON.stringify(session.promptOptions) &&
+      question === session.promptQuestion &&
+      JSON.stringify(tabs) === JSON.stringify(session.promptTabs)
+    ) return;
     this.emitStatus({ sessionId: id, status: 'waiting', lastPrompt: session.lastPrompt });
   }
 
   /**
-   * Guard for answering a waiting menu with one digit (waiting inbox): the
-   * session must still be waiting and the menu on screen *right now* must have
-   * that option. Re-read here, never trusted from the client, so a digit is
-   * never typed into whatever replaced the menu. Returns an error, or null.
+   * Answer a waiting menu (waiting inbox, Chat prompt card). The session must
+   * still be waiting and the menu on screen *right now* must have that choice:
+   * re-read here, never trusted from the client, so keys are never typed into
+   * whatever replaced the menu. `key` is an option's key, 'next' (Tab: the
+   * next question / the review step, for a multiSelect question or several
+   * questions) or 'prev' (← to the previous question); `text`
+   * answers a free-text option ("Type something.") — its digit opens the
+   * field, then the text and Enter follow. An unnumbered menu (trust prompt) is
+   * answered with arrow keys from its cursor, then Enter; one with previews
+   * with the digit (which only moves the cursor there), then Enter. Returns an error, or
+   * null once the keys are queued through `write`.
    */
-  checkPromptAnswer(id: string, key: unknown): string | null {
+  answerPrompt(id: string, key: unknown, text: unknown, write: ChatWrite): string | null {
     const session = this.sessions.get(id);
     if (!session) return 'Session not found';
-    if (typeof key !== 'string' || !/^[1-9]$/.test(key)) return 'Invalid choice';
+    if (typeof key !== 'string' || !/^([1-9]|next|prev)$/.test(key)) return 'Invalid choice';
+    if (text !== undefined && typeof text !== 'string') return 'Invalid answer';
     if (session.status !== 'waiting') return 'That shell is no longer waiting';
-    const options = session.stateDetector.getMenuOptions?.();
-    if (!options?.some((o) => o.key === key)) return 'The prompt changed — open the shell to answer';
+    const menu = session.stateDetector.getMenu?.();
+    const changed = 'The prompt changed — open the shell to answer';
+    if (!menu) return changed;
+    if (key === 'next') {
+      if (!menu.tabs && !menu.options.some((o) => o.checked !== undefined)) return changed;
+      write('\t');
+      return null;
+    }
+    if (key === 'prev') {
+      if (!menu.tabs) return changed;
+      write(ARROW_LEFT);
+      return null;
+    }
+    const index = menu.options.findIndex((o) => o.key === key);
+    const option = menu.options[index];
+    if (!option) return changed;
+    // A free-text option's digit alone would leave Claude on an empty field.
+    if (option.freeText && option.checked === undefined && text === undefined) return 'Type the answer in Chat or the terminal';
+    if (text !== undefined) {
+      // A multiSelect "Type something" only toggles: its field needs the cursor on it.
+      if (!option.freeText || option.checked !== undefined || menu.cursor !== undefined) return changed;
+      const line = text.replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
+      if (!line) return 'Type an answer first';
+      if (line.length > MAX_FREE_TEXT_ANSWER) return 'That answer is too long';
+      write(key, ANSWER_KEY_PAUSE_MS);
+      write(line, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    if (menu.cursor !== undefined) {
+      const delta = index - menu.cursor;
+      for (let i = 0; i < Math.abs(delta); i++) write(delta > 0 ? ARROW_DOWN : ARROW_UP, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    if (menu.confirm) {
+      write(key, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    write(key);
     return null;
   }
 
@@ -1769,6 +1852,7 @@ export class SessionManager {
 
     session.nativeLastSeenAt = Date.now();
     session.nativeState = signal.state;
+    session.menuAtNativeRunning = signal.state === 'running' ? !!session.stateDetector.getMenuOptions?.() : undefined;
     if (signal.coverage && signal.coverage.length > 0) {
       session.nativeCoverage = new Set(signal.coverage);
     }
@@ -2255,11 +2339,19 @@ export class SessionManager {
       if (base.status === 'waiting') {
         session.waitingSince ??= Date.now();
         session.promptOptions = session.stateDetector.getMenuOptions?.();
+        // The menu's own question, read off the screen: lastPrompt may be the
+        // hook's generic "Claude needs your permission" instead.
+        session.promptQuestion = session.promptOptions ? session.stateDetector.getLastPromptText() : undefined;
+        session.promptTabs = session.promptOptions ? session.stateDetector.getMenu?.()?.tabs : undefined;
         payload.waitingSince = session.waitingSince;
         if (session.promptOptions) payload.promptOptions = session.promptOptions;
+        if (session.promptQuestion) payload.promptQuestion = session.promptQuestion;
+        if (session.promptTabs) payload.promptTabs = session.promptTabs;
       } else {
         session.waitingSince = undefined;
         session.promptOptions = undefined;
+        session.promptQuestion = undefined;
+        session.promptTabs = undefined;
       }
     }
     this.io?.emit('session:status', payload);
@@ -2911,6 +3003,8 @@ export class SessionManager {
       claudeSessionId: session.claudeSessionId,
       waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
       promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
+      promptQuestion: session.status === 'waiting' ? session.promptQuestion : undefined,
+      promptTabs: session.status === 'waiting' ? session.promptTabs : undefined,
     };
   }
 

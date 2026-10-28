@@ -117,43 +117,117 @@ const PROMPT_FOOTER_NOISE: RegExp[] = [
 
 /**
  * Candidate lines that are clearly NOT the agent's question — echoes of the
- * user's own message in the transcript ("> …") and bare filesystem paths
- * (e.g. a screenshot dragged into the prompt leaves its /var/folders/… path
- * on screen). Matched after box-drawing strip + trim.
+ * user's own message in the transcript ("> …" / "❯ …", which also covers a
+ * menu's cursor row) and bare filesystem paths (e.g. a screenshot dragged into
+ * the prompt leaves its /var/folders/… path on screen). Matched after
+ * box-drawing strip + trim.
  */
-const USER_ECHO = /^>\s/;
+const USER_ECHO = /^[>❯]\s/;
 const BARE_FILE_PATH = /^[~/]\S*\/.*\.[A-Za-z0-9]{1,6}$/;
 // Menu option rows ("❯ 1. Yes", "  2. No") — never the question itself.
 const MENU_OPTION = /^❯?\s*\d+\.\s/;
 
+/** A question followed by a parenthetical aside on the same row; cut at its "?". */
+const QUESTION_THEN_ASIDE = /\?\s+\(/;
+
 /** Lines that look like the agent asking something — preferred as notification body. */
 const QUESTION_SHAPED: RegExp[] = [
   /\?$/,
+  QUESTION_THEN_ASIDE,          // a wrapped question: "…one you trust? (Like your own code, a"
   /\bdo you want\b/i,
   /^(should|would|which|what|how|where|when|who|can|could|may|shall)\b/i,
 ];
 
 const BOX_DRAWING_CHARS = /[│┃|╭╮╰╯─━┌┐└┘├┤┬┴┼·•▌▎▏]/g;
 
-/** One numbered choice of an on-screen selection menu ("❯ 1. Yes"). */
+/** One choice of an on-screen selection menu ("❯ 1. Yes"). */
 export interface MenuOption {
   key: string;
   label: string;
+  /** multiSelect question: the option's checkbox ("[✔] Apple"); its digit toggles it. */
+  checked?: boolean;
+  /** The free-text choice ("Type something.", "Tell Claude what to change"): picking it opens an inline text field. */
+  freeText?: boolean;
+  /** The answer already picked for this question ("2. Badges ✔"), shown when going back to it. */
+  chosen?: boolean;
+}
+
+/** One question of a multi-question AskUserQuestion ("←  ☒ Header style  ☐ Font  ✔ Submit  →"). */
+export interface QuestionTab {
+  label: string;
+  answered: boolean;
+}
+
+/** A menu on screen, as the guarded answer path needs it. */
+export interface ScreenMenu {
+  options: MenuOption[];
+  /**
+   * Set for an unnumbered menu (the trust-folder prompt): digits do nothing
+   * there, so a choice is made with arrow keys from this 0-based cursor row,
+   * then Enter. Absent for a numbered menu, answered with the digit.
+   */
+  cursor?: number;
+  /**
+   * The options carry a preview pane (AskUserQuestion with previews): there a
+   * digit only moves the cursor, and Enter picks.
+   */
+  confirm?: boolean;
+  /** Several questions: their tabs, moved between with Tab / ← → (the review step is not one). */
+  tabs?: QuestionTab[];
 }
 
 const MENU_OPTION_ROW = /^([❯›>]\s*)?(\d)\.\s+(.+)$/;
+/** A dialog's side borders: stripped from menu rows, which keep inner "·" etc. in their labels. */
+const ROW_EDGES = /^[\s│┃|▌▎▏]+|[\s│┃|▌▎▏]+$/g;
 const MAX_MENU_LABEL = 80;
+/** A multiSelect option's checkbox: "[ ] Apple" / "[✔] Apple". */
+const CHECKBOX_LABEL = /^\[([ ✔✓xX×])\]\s+(.+)$/;
+/** The option whose pick turns into a text field (AskUserQuestion, plan approval). */
+const FREE_TEXT_LABEL = /^(type something\.?|tell claude what to change)$/i;
+
+/** The preview pane drawn to the right of an option ("1. Minimal      ┌────┐", "2. Badges      │ name │"). */
+const PREVIEW_PANE = /\s{2,}[│┃┌└├╭╰].*$/;
+/** The tick after the option already picked for a question ("2. Badges ✔"). */
+const CHOSEN_MARK = /\s+✔$/;
+
+function menuOption(key: string, raw: string): MenuOption {
+  const cap = (l: string) => (l.length > MAX_MENU_LABEL ? `${l.slice(0, MAX_MENU_LABEL - 1)}…` : l);
+  let text = raw.replace(PREVIEW_PANE, '');
+  const chosen = CHOSEN_MARK.test(text);
+  text = text.replace(CHOSEN_MARK, '');
+  const box = CHECKBOX_LABEL.exec(text);
+  const label = box ? box[2]!.trim() : text;
+  const opt: MenuOption = { key, label: cap(label) };
+  if (box) opt.checked = box[1] !== ' ';
+  if (FREE_TEXT_LABEL.test(label)) opt.freeText = true;
+  if (chosen) opt.chosen = true;
+  return opt;
+}
+
+const TAB_ROW = /^←\s+(.+?)\s+→$/;
+const TAB_ITEM = /([☐☒])\s+(.+?)(?=\s+[☐☒✔]|$)/g;
+
+/** The question tabs above a menu, when there are several questions. */
+function parseQuestionTabs(rows: readonly string[]): QuestionTab[] | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const m = TAB_ROW.exec(rows[i]!.replace(ROW_EDGES, ''));
+    if (!m) continue;
+    const tabs = [...m[1]!.matchAll(TAB_ITEM)].map((t) => ({ label: t[2]!.trim(), answered: t[1] === '☒' }));
+    return tabs.length > 1 ? tabs : undefined;
+  }
+  return undefined;
+}
 
 /**
- * The options of the selection menu at the bottom of the screen, or undefined
- * when the screen does not *reliably* show one. Strict on purpose — the result
- * lets a single keypress answer the agent:
+ * The options of the numbered selection menu at the bottom of the screen, or
+ * undefined when the screen does not *reliably* show one. Strict on purpose —
+ * the result lets a single keypress answer the agent:
  *  - options are numbered 1..n in order, 2 ≤ n ≤ 9 (rows between them, such as
  *    option descriptions, are allowed);
  *  - one of them carries the selection cursor (❯ / ›), which is what tells a
  *    live menu apart from a numbered list in the agent's prose;
  *  - the last such run on screen wins (the live menu sits at the bottom).
- * Rows are matched after box-drawing chars are stripped and trimmed.
+ * Rows are matched after their side borders are stripped and trimmed.
  */
 export function parseMenuOptions(rows: readonly string[]): MenuOption[] | undefined {
   let run: MenuOption[] | null = null;
@@ -163,12 +237,10 @@ export function parseMenuOptions(rows: readonly string[]): MenuOption[] | undefi
     if (run && run.length >= 2 && runHasCursor) best = run;
   };
   for (const raw of rows) {
-    const cleaned = raw.replace(BOX_DRAWING_CHARS, ' ').trim();
-    const m = MENU_OPTION_ROW.exec(cleaned);
+    const m = MENU_OPTION_ROW.exec(raw.replace(ROW_EDGES, ''));
     if (!m) continue;
     const n = Number(m[2]);
-    const label = m[3]!.trim();
-    const opt = { key: String(n), label: label.length > MAX_MENU_LABEL ? `${label.slice(0, MAX_MENU_LABEL - 1)}…` : label };
+    const opt = menuOption(String(n), m[3]!.trim());
     if (n === 1) {
       close();
       run = [opt];
@@ -184,6 +256,61 @@ export function parseMenuOptions(rows: readonly string[]): MenuOption[] | undefi
   }
   close();
   return best;
+}
+
+const NAV_CURSOR_ROW = /^(\s*)❯ (\S.*)$/;
+/** The trust prompt's footer. Pickers (/resume, /agents…) say "Enter to select" and stay terminal-only. */
+const NAV_FOOTER = /^\s*enter to confirm\b/i;
+
+/**
+ * An unnumbered menu (the trust-folder prompt: "❯ No, exit" over "  Yes, I
+ * trust this folder"), or undefined. Strict like parseMenuOptions: the last ❯
+ * row above an "Enter to confirm/select" footer is the cursor; the menu is it
+ * plus the adjacent rows that start exactly at its label column; only blank
+ * rows may sit between the menu and the footer; none is numbered; 2 ≤ n ≤ 9.
+ * Read from the raw rows: the alignment is the signal.
+ */
+export function parseNavMenu(rows: readonly string[]): ScreenMenu | undefined {
+  const block = navMenuBlock(rows);
+  if (!block) return undefined;
+  return { options: block.labels.map((l, i) => menuOption(String(i + 1), l)), cursor: block.cursor };
+}
+
+/** parseNavMenu's rows, with their uncapped labels. */
+function navMenuBlock(rows: readonly string[]): { labels: string[]; cursor: number } | undefined {
+  let footer = rows.length - 1;
+  while (footer >= 0 && !NAV_FOOTER.test(rows[footer] ?? '')) footer--;
+  let c = footer - 1;
+  while (c >= 0 && !NAV_CURSOR_ROW.test(rows[c]!)) c--;
+  if (c < 0) return undefined;
+  const col = NAV_CURSOR_ROW.exec(rows[c]!)![1]!.length + 2;
+  const aligned = (row: string | undefined) =>
+    row !== undefined && row.length > col && row.slice(0, col).trim() === '' && row[col] !== ' ';
+  let start = c;
+  while (aligned(rows[start - 1])) start--;
+  let end = c;
+  while (end + 1 < footer && aligned(rows[end + 1])) end++;
+  for (let i = end + 1; i < footer; i++) if (rows[i]!.trim()) return undefined;
+  // The question above it asks something (a bare picker has only a title).
+  if (!rows.slice(0, start).some((r) => r.includes('?'))) return undefined;
+  const labels = rows.slice(start, end + 1).map((r) => r.slice(col).trim());
+  if (labels.length < 2 || labels.length > 9 || labels.some((l) => MENU_OPTION_ROW.test(l))) return undefined;
+  return { labels, cursor: c - start };
+}
+
+/** The menu on screen: a numbered one wins, else an unnumbered one (see parseNavMenu). */
+export function parseScreenMenu(rows: readonly string[]): ScreenMenu | undefined {
+  const options = parseMenuOptions(rows);
+  if (!options) return parseNavMenu(rows);
+  const menu: ScreenMenu = { options };
+  const withPreview = rows.some((r) => {
+    const m = MENU_OPTION_ROW.exec(r.replace(ROW_EDGES, ''));
+    return !!m && PREVIEW_PANE.test(m[3]!);
+  });
+  if (withPreview) menu.confirm = true;
+  const tabs = parseQuestionTabs(rows);
+  if (tabs) menu.tabs = tabs;
+  return menu;
 }
 const MAX_PROMPT_LEN = 140;
 
@@ -647,6 +774,8 @@ export class StateDetector {
     }
     if (promptIdx === -1) return undefined;
 
+    // An unnumbered menu's rows (trust prompt) are choices, never the question.
+    const navLabels = new Set(navMenuBlock(rows)?.labels.map((l) => l.replace(BOX_DRAWING_CHARS, ' ').trim()));
     // Walk upward, collect non-noise, non-empty lines (stripped).
     const candidates: string[] = [];
     for (let i = promptIdx - 1; i >= 0; i--) {
@@ -656,7 +785,7 @@ export class StateDetector {
       // Skip echoes of the user's own message, bare file paths (e.g. a
       // dragged-in screenshot's /var/folders/… path) and menu option rows
       // ("❯ 1. Yes" / "  2. No") — never the agent's question.
-      if (USER_ECHO.test(cleaned) || BARE_FILE_PATH.test(cleaned) || MENU_OPTION.test(cleaned)) continue;
+      if (USER_ECHO.test(cleaned) || BARE_FILE_PATH.test(cleaned) || MENU_OPTION.test(cleaned) || navLabels.has(cleaned)) continue;
       // Skip lines that are themselves prompt patterns (alt input boxes, etc.)
       // — unless they read like the question itself (e.g. "Would you like to
       // proceed?" is both a prompt pattern and the notification body we want).
@@ -669,16 +798,22 @@ export class StateDetector {
 
     // Prefer the nearest question-shaped line; otherwise the closest
     // meaningful line above the input box wins.
-    const picked =
-      candidates.find((c) => QUESTION_SHAPED.some((p) => p.test(c))) ?? candidates[0];
+    const shaped = candidates.find((c) => QUESTION_SHAPED.some((p) => p.test(c)));
+    // A question that runs on into an aside ("…you trust? (Like your…") is cut at it.
+    const picked = shaped?.replace(/^(.*?\?)\s+\(.*$/, '$1') ?? candidates[0];
     if (!picked) return undefined;
     return picked.length > MAX_PROMPT_LEN ? `${picked.slice(0, MAX_PROMPT_LEN - 1)}…` : picked;
   }
 
-  /** The numbered options of the menu on screen, when it reliably shows one (see parseMenuOptions). */
-  getMenuOptions(): MenuOption[] | undefined {
+  /** The menu on screen, when it reliably shows one (see parseScreenMenu). */
+  getMenu(): ScreenMenu | undefined {
     if (this.destroyed) return undefined;
-    return parseMenuOptions(this.visibleRows(EXTRACT_SCAN_ROWS));
+    return parseScreenMenu(this.visibleRows(EXTRACT_SCAN_ROWS));
+  }
+
+  /** The options of the menu on screen, when it reliably shows one. */
+  getMenuOptions(): MenuOption[] | undefined {
+    return this.getMenu()?.options;
   }
 
   /**
