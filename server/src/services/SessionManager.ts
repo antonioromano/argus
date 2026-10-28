@@ -41,6 +41,7 @@ import { TerminalMirror } from './TerminalMirror.js';
 import { RawTail } from './RawTail.js';
 import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
+import { writeMcpConfig } from './mcp/injection.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
@@ -81,6 +82,7 @@ import {
   type RolloutCandidate,
 } from './usage/codexRollout.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
+import { frameToRows } from './search/scrollbackSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
@@ -89,6 +91,8 @@ export interface CreateSessionOpts {
   initialPrompt?: string;
   /** The saved launcher this session was started from (metadata). */
   launcherId?: string;
+  /** F10: the orchestrating session that asked for this one over MCP. */
+  spawnedBy?: string;
   /** Skip the per-create sessions.json write. restoreSessions sets it and
    *  persists once at the end, instead of rewriting the file per session. */
   skipPersist?: boolean;
@@ -142,6 +146,8 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
+  /** Orchestrator (MCP start_session caller); it may write to this session. */
+  spawnedBy?: string;
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -523,6 +529,8 @@ export class SessionManager {
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
   private signalSecret?: string;
   private signalBinPath?: string;
+  /** F10: hand the Argus MCP server to new Claude sessions (AppConfig.mcpServerEnabled). */
+  private mcpServerEnabled = false;
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
@@ -1105,6 +1113,28 @@ export class SessionManager {
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
+  /** F10: whether sessions spawned from now on get the Argus MCP server. */
+  setMcpServerEnabled(enabled: boolean): void {
+    this.mcpServerEnabled = enabled;
+  }
+
+  /**
+   * `--mcp-config` flags pointing a Claude session at the Argus MCP server,
+   * with a token bound to this session id (so the server knows who asks).
+   * Empty when the setting is off, signals are unconfigured, or the agent is
+   * not Claude. Spawn-only, like signal injection: never stored in flags.
+   */
+  private mcpInjection(sessionId: string, agentType: string): string[] {
+    if (!this.mcpServerEnabled || !this.signalSecret || agentType !== 'claude') return [];
+    const port = process.env.ARGUS_PORT || process.env.PORT || '5401';
+    try {
+      return writeMcpConfig(this.dataDir, port, this.signalSecret, sessionId);
+    } catch (e) {
+      console.warn('[mcp] failed to write session MCP config:', e);
+      return [];
+    }
+  }
+
   setPreventSleepWhileRunning(enabled: boolean): void {
     this.preventSleepWhileRunning = enabled;
     this.refreshSleepPrevention();
@@ -1339,7 +1369,8 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
+    const mcpFlags = (attachExisting || restoreExited) ? [] : this.mcpInjection(id, resolvedAgentType);
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags), ...mcpFlags];
     const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -1404,6 +1435,7 @@ export class SessionManager {
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       launcherId: opts.launcherId,
+      spawnedBy: opts.spawnedBy,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1482,6 +1514,7 @@ export class SessionManager {
     // Remove the generated native-signal settings file (best-effort).
     try {
       rmSync(path.join(this.dataDir, 'signals', `${id}.json`), { force: true });
+      rmSync(path.join(this.dataDir, 'mcp', `${id}.json`), { force: true });
     } catch {
       /* ignore */
     }
@@ -1608,7 +1641,7 @@ export class SessionManager {
     session.nativeState = undefined;
     // Spawn-only: the resume flags are never written back to session.flags, so
     // the next plain Restart is still a fresh start.
-    const spawnFlags = inj?.flags ?? userFlags;
+    const spawnFlags = [...(inj?.flags ?? userFlags), ...this.mcpInjection(id, session.agentType)];
     const spawnEnv = this.agentSpawnEnv(session.agentType, command, config, inj);
     await backend.ready?.();
     const ptyProcess = backend.spawn({
@@ -2102,17 +2135,39 @@ export class SessionManager {
       sessionId: session.id,
       sessionName: session.name,
       agentType: session.agentType,
-      scrollback: () => {
-        if (session.exitedFrame) return { kind: 'frozen' as const, frame: session.exitedFrame.full };
-        const mirror = session.mirror;
-        if (!mirror || mirror.disposed) return null;
-        const frame = mirror.frozenFrame();
-        if (frame !== null) return { kind: 'frozen' as const, frame };
-        const rows = mirror.searchableRows();
-        return rows ? { kind: 'live' as const, rows } : null;
-      },
+      scrollback: () => this.scrollbackOf(session),
       transcripts: () => session.usage?.transcriptPaths() ?? [],
     }));
+  }
+
+  /**
+   * F10 read_session: the last `lines` logical lines (soft wraps joined) of a
+   * session's screen as plain text, trailing blank rows dropped. Never wakes a
+   * hibernated mirror: a sleeping or exited session is read from its stored frame.
+   */
+  tailLines(id: string, lines: number): string[] {
+    const session = this.sessions.get(id);
+    const sb = session ? this.scrollbackOf(session) : null;
+    if (!sb) return [];
+    const rows = sb.kind === 'live' ? sb.rows : frameToRows(sb.frame);
+    const logical: string[] = [];
+    for (const r of rows) {
+      if (r.wrapped && logical.length > 0) logical[logical.length - 1] += r.text;
+      else logical.push(r.text);
+    }
+    while (logical.length > 0 && !logical[logical.length - 1]!.trim()) logical.pop();
+    return logical.slice(-lines).map((l) => l.trimEnd());
+  }
+
+  /** A session's screen without waking its mirror: the stored frame when asleep or exited. */
+  private scrollbackOf(session: ManagedSession): ReturnType<SearchTarget['scrollback']> {
+    if (session.exitedFrame) return { kind: 'frozen', frame: session.exitedFrame.full };
+    const mirror = session.mirror;
+    if (!mirror || mirror.disposed) return null;
+    const frame = mirror.frozenFrame();
+    if (frame !== null) return { kind: 'frozen', frame };
+    const rows = mirror.searchableRows();
+    return rows ? { kind: 'live', rows } : null;
   }
 
   /** Validated transcripts of a session, the current one last (F12 handoff). */
@@ -2854,7 +2909,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2874,7 +2929,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2932,6 +2987,7 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      spawnedBy: session.spawnedBy,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
@@ -3080,6 +3136,7 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        spawnedBy: s.spawnedBy,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
         codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,

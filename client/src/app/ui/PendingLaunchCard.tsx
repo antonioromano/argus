@@ -9,7 +9,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 interface Props {
   view: PendingLaunchView;
   index: number;
-  onApprove: (id: string, saveAs?: SaveAsLauncher) => Promise<LaunchActionResult>;
+  onApprove: (id: string, saveAs?: SaveAsLauncher, trust?: boolean) => Promise<LaunchActionResult>;
   onDiscard: (id: string) => Promise<void> | void;
 }
 
@@ -18,6 +18,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
   const [saveId, setSaveId] = useState(slug(view.name ?? view.label));
   const [saveLabel, setSaveLabel] = useState(view.name ?? view.label);
   const [update, setUpdate] = useState(false);
+  const [trust, setTrust] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // Start arms START_DELAY_MS after the card appears, and re-arms whenever the
@@ -50,7 +51,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
       : view.source === 'new' && save && view.canSaveAsLauncher ? { id: saveId, label: saveLabel } : undefined;
     setActionError(null);
     try {
-      const res = await onApprove(view.id, saveAs);
+      const res = view.source === 'mcp' && trust ? await onApprove(view.id, saveAs, true) : await onApprove(view.id, saveAs);
       if (!res.ok) setActionError(res.error ?? 'Launch failed');
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -83,6 +84,11 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
     >
       <div style={{ padding: 'var(--s-3) var(--s-4)', overflowY: 'auto' }}>
         <div style={{ fontWeight: 600 }}>{view.agent} · {view.label}{view.source === 'run' && view.launcherId ? ` (launcher ${view.launcherId})` : ''}</div>
+        {view.source === 'mcp' && (
+          <div data-testid="launch-requested-by" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>
+            Requested by session <strong>{view.requestedBy ?? 'unknown'}</strong> (Argus MCP)
+          </div>
+        )}
         <div className="mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', wordBreak: 'break-all' }}>{view.folder}</div>
         <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
           {[view.engine && `engine ${view.engine}`, view.mode && `mode ${view.mode}`, view.name && `name ${view.name}`].filter(Boolean).join(' · ')}
@@ -170,6 +176,12 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               </div>
             )}
           </div>
+        )}
+        {view.source === 'mcp' && !expired && (
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--t-xs)' }}>
+            <input data-testid="launch-trust-toggle" type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />
+            Allow {view.requestedBy ?? 'this session'} to start sessions without asking (until Argus restarts)
+          </label>
         )}
         {canUpdate && !expired && (
           <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--t-xs)' }}>

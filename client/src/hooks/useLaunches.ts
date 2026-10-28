@@ -15,9 +15,9 @@ export function useLaunches() {
   }, [bridge, refresh]);
 
   const approve = useCallback(
-    async (id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult> => {
+    async (id: string, saveAs?: SaveAsLauncher, trust?: boolean): Promise<LaunchActionResult> => {
       if (!bridge) return { ok: false, error: 'Unavailable' };
-      try { return await bridge.approve(id, saveAs); }
+      try { return await bridge.approve(id, saveAs, trust); }
       catch (err) { return { ok: false, error: err instanceof Error ? err.message : String(err) }; }
     },
     [bridge],
