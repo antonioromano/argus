@@ -501,3 +501,28 @@ test('ChatTail: a result arriving after the call was sent re-sends that message 
   assert.deepEqual(t.drain().messages, []);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+const queuedCommand = (uuid: string, attachment: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ type: 'attachment', uuid, timestamp: '2026-10-23T16:00:00.000Z', attachment: { type: 'queued_command', ...attachment }, ...extra });
+
+test('a prompt Claude read mid-turn (queued_command attachment) is a user message', () => {
+  const m = parseChatEntry(queuedCommand('q1', { prompt: 'PS. also check the tests', commandMode: 'prompt', origin: { kind: 'human' } }));
+  assert.deepEqual(m, { id: 'q1', role: 'user', blocks: [{ kind: 'text', text: 'PS. also check the tests' }], ts: Date.parse('2026-10-23T16:00:00.000Z') });
+  // Older Claude Code versions record no origin.
+  assert.equal(parseChatEntry(queuedCommand('q2', { prompt: 'and this', commandMode: 'prompt' }))?.role, 'user');
+  // A prompt with an image is a block list, as in a user entry.
+  assert.deepEqual(
+    parseChatEntry(queuedCommand('q3', { prompt: [{ type: 'image', source: {} }, { type: 'text', text: 'see [Image #1]' }], commandMode: 'prompt', origin: { kind: 'human' } }))?.blocks,
+    [{ kind: 'image' }, { kind: 'text', text: 'see' }],
+  );
+});
+
+test('queued task notifications, peer messages and sidechain prompts are not chat messages', () => {
+  assert.equal(parseChatEntry(queuedCommand('t1', { prompt: '<task-notification>\n<status>completed</status>\n</task-notification>', commandMode: 'task-notification' })), undefined);
+  assert.equal(parseChatEntry(queuedCommand('p1', { prompt: 'from another session', commandMode: 'prompt', origin: { kind: 'peer' } })), undefined);
+  assert.equal(parseChatEntry(queuedCommand('s1', { prompt: 'sub', commandMode: 'prompt' }, { isSidechain: true })), undefined);
+  // Only harness wrappers: nothing the user typed.
+  assert.equal(parseChatEntry(queuedCommand('r1', { prompt: '<system-reminder>x</system-reminder>', commandMode: 'prompt' })), undefined);
+  // The queue bookkeeping itself is never a message.
+  assert.equal(parseChatEntry(JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: 'hi', sessionId: 's' })), undefined);
+});
