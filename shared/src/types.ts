@@ -1156,6 +1156,11 @@ export interface ServerToClientEvents {
   'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
   /** Claude Code's prompt suggestion appeared, changed or went away (null; Chat view subscribers only). */
   'session:chatSuggestion': (payload: { sessionId: string; suggestion: string | null }) => void;
+  /**
+   * A settled Claude screen shows its empty input box (true) or not: a picker, dialog or typed
+   * text is there instead (F6). Sent on every settle, to Chat view subscribers only.
+   */
+  'session:chatAtPrompt': (payload: { sessionId: string; atPrompt: boolean }) => void;
   /** An agent account's plan usage changed (shared by every shell of that agent). */
   'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

@@ -66,6 +66,7 @@ import {
   clearPromptInput,
   inputStillPending,
   permissionModeFromFooter,
+  promptBoxEmpty,
   promptSuggestion,
   type ScreenRow,
 } from './claudeScreen.js';
@@ -2001,6 +2002,11 @@ export class SessionManager {
     // not take it for text still waiting there (and press Enter on it).
     const inputRows = suggestion ? clearPromptInput(rows) : rows;
     session.settledRows = inputRows;
+    // Every settle, not only changes: a Chat's terminal sheet (F6) closes on the first one that
+    // shows the empty box again, also after a command that opened no picker at all.
+    if (session.chatViewers) {
+      this.io?.to(chatRoom(id)).emit('session:chatAtPrompt', { sessionId: id, atPrompt: promptBoxEmpty(inputRows) });
+    }
     const waiters = session.settleWaiters;
     session.settleWaiters = undefined;
     waiters?.forEach((w) => w(inputRows));
