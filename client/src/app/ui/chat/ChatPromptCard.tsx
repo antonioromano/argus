@@ -35,6 +35,8 @@ export const ANSWER_TIMEOUT_MS = 8000;
  */
 /** Option labels are prose: the sans face, not the outline buttons' mono. */
 const LABEL_STYLE = { fontFamily: 'var(--font-sans)', letterSpacing: 0 } as const;
+/** One option per row, label at the left edge. */
+const ROW_STYLE = { ...LABEL_STYLE, justifyContent: 'flex-start' } as const;
 
 export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onShowTerminal }: ChatPromptCardProps) {
   const [error, setError] = useState<string | null>(null);
@@ -62,26 +64,33 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
     if (typing && text.trim()) answer(typing, text.trim());
   };
 
+  const keyed = (o: PromptOption) => (
+    <>
+      <span className="argus-chat-prompt-key">{o.key}</span>
+      <span className="argus-chat-prompt-label">{o.label}</span>
+    </>
+  );
+
   const renderOption = (o: PromptOption, i: number) => {
     if (multi && o.freeText) {
       // Its field needs the cursor on it, which a digit does not move: terminal only.
       return (
-        <Button key={o.key} variant="ghost" size="sm" icon={Terminal} onClick={onShowTerminal}>
-          {o.label} — in the terminal
+        <Button key={o.key} variant="ghost" size="sm" full icon={Terminal} style={ROW_STYLE} onClick={onShowTerminal}>
+          <span className="argus-chat-prompt-label">{o.label} — in the terminal</span>
         </Button>
       );
     }
     if (o.checked !== undefined) {
       return (
-        <Button key={o.key} variant={o.checked ? 'primary' : 'outline'} size="sm" icon={o.checked ? SquareCheck : Square} style={LABEL_STYLE} disabled={busy} onClick={() => answer(o.key)}>
-          {o.label}
+        <Button key={o.key} variant={o.checked ? 'primary' : 'outline'} size="sm" full icon={o.checked ? SquareCheck : Square} style={ROW_STYLE} disabled={busy} onClick={() => answer(o.key)}>
+          <span className="argus-chat-prompt-label">{o.label}</span>
         </Button>
       );
     }
     if (o.freeText) {
       return (
-        <Button key={o.key} variant={typing === o.key ? 'primary' : 'outline'} size="sm" style={LABEL_STYLE} disabled={busy} onClick={() => setTyping(typing === o.key ? null : o.key)}>
-          {o.key} · {o.label}
+        <Button key={o.key} variant={typing === o.key ? 'primary' : 'outline'} size="sm" full style={ROW_STYLE} disabled={busy} onClick={() => setTyping(typing === o.key ? null : o.key)}>
+          {keyed(o)}
         </Button>
       );
     }
@@ -90,12 +99,13 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
         key={o.key}
         variant={(chosen ? o.chosen : i === 0 && !multi) ? 'primary' : 'outline'}
         size="sm"
-        icon={o.chosen ? Check : undefined}
-        style={LABEL_STYLE}
+        full
+        iconRight={o.chosen ? Check : undefined}
+        style={ROW_STYLE}
         disabled={busy}
         onClick={() => answer(o.key)}
       >
-        {o.key} · {o.label}
+        {keyed(o)}
       </Button>
     );
   };
@@ -110,34 +120,39 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
       </div>
       {options && tabs && (
         <div className="argus-chat-prompt-tabs" data-testid="chat-prompt-tabs">
-          <Button variant="ghost" size="sm" icon={ArrowLeft} disabled={busy} onClick={() => answer('prev')}>Previous</Button>
-          {tabs.map((t) => (
-            <span key={t.label} className="argus-chat-prompt-tab" data-answered={t.answered || undefined}>
-              {t.answered ? <Icon icon={Check} size={12} aria-label="answered" /> : null}
-              {t.label}
-            </span>
-          ))}
-          <Button variant="ghost" size="sm" iconRight={ArrowRight} disabled={busy} onClick={() => answer('next')}>Next</Button>
+          <Button variant="ghost" size="sm" icon={ArrowLeft} style={LABEL_STYLE} disabled={busy} onClick={() => answer('prev')}>Previous</Button>
+          <div className="argus-chat-prompt-tablist">
+            {tabs.map((t) => (
+              <span key={t.label} className="argus-chat-prompt-tab" data-answered={t.answered || undefined}>
+                {t.answered ? <Icon icon={Check} size={12} aria-label="answered" /> : null}
+                {t.label}
+              </span>
+            ))}
+          </div>
+          <Button variant="ghost" size="sm" iconRight={ArrowRight} style={LABEL_STYLE} disabled={busy} onClick={() => answer('next')}>Next</Button>
         </div>
       )}
-      <div className="argus-chat-prompt-actions">
-        {options ? (
-          <>
-            {options.map(renderOption)}
-            {multi && !tabs && (
-              <Button variant="solid" size="sm" iconRight={ArrowRight} disabled={busy} onClick={() => answer('next')}>
-                Continue
-              </Button>
-            )}
-          </>
-        ) : (
-          <>
-            <Button variant="primary" size="sm" icon={Terminal} onClick={onShowTerminal}>Open terminal</Button>
-            <Button variant="ghost" size="sm" onClick={onCancel}>Cancel (Esc)</Button>
-          </>
-        )}
-        {error && <span className="argus-chat-prompt-error">{error}</span>}
-      </div>
+      {options ? (
+        <>
+          <div className="argus-chat-prompt-options">{options.map(renderOption)}</div>
+          {((multi && !tabs) || error) && (
+            <div className="argus-chat-prompt-actions">
+              {multi && !tabs && (
+                <Button variant="solid" size="sm" iconRight={ArrowRight} style={LABEL_STYLE} disabled={busy} onClick={() => answer('next')}>
+                  Continue
+                </Button>
+              )}
+              {error && <span className="argus-chat-prompt-error">{error}</span>}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="argus-chat-prompt-actions">
+          <Button variant="primary" size="sm" icon={Terminal} onClick={onShowTerminal}>Open terminal</Button>
+          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel (Esc)</Button>
+          {error && <span className="argus-chat-prompt-error">{error}</span>}
+        </div>
+      )}
       {typing && (
         <div className="argus-chat-prompt-free" data-testid="chat-prompt-free">
           <TextInput

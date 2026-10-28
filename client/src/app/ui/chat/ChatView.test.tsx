@@ -149,7 +149,7 @@ describe('ChatView', () => {
     const card = container.querySelector('[data-testid="chat-prompt"]')!;
     expect(card.textContent).toContain('Do you want to run git push?');
     const buttons = Array.from(card.querySelectorAll('button')).map((b) => b.textContent);
-    expect(buttons).toEqual(['1 · Yes', '2 · No']);
+    expect(buttons).toEqual(['1Yes', '2No']);
     act(() => (card.querySelector('button') as HTMLButtonElement).click());
     expect(emitted.find(([ev]) => ev === 'session:answer')?.[1]).toEqual({ sessionId: 's1', key: '1' });
     expect(container.textContent).not.toContain('y · accept');

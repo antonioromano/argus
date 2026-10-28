@@ -48,7 +48,7 @@ describe('ChatPromptCard', () => {
   it('a permission prompt: one button per option, answered with its key', async () => {
     const { onAnswer } = render('Do you want to proceed?', [{ key: '1', label: 'Yes' }, { key: '2', label: 'No' }]);
     expect(container.textContent).toContain('Do you want to proceed?');
-    expect(buttons().map((b) => b.textContent)).toEqual(['1 · Yes', '2 · No']);
+    expect(buttons().map((b) => b.textContent)).toEqual(['1Yes', '2No']);
     await act(async () => button('No').click());
     expect(onAnswer).toHaveBeenCalledWith('2', undefined);
   });
@@ -91,7 +91,7 @@ describe('ChatPromptCard', () => {
       { key: '4', label: 'Chat about this' },
     ]);
     expect(buttons().map((b) => b.textContent)).toEqual([
-      'Apple', 'Pear', 'Type something — in the terminal', '4 · Chat about this', 'Continue',
+      'Apple', 'Pear', 'Type something — in the terminal', '4Chat about this', 'Continue',
     ]);
     await act(async () => button('Pear').click());
     expect(onAnswer).toHaveBeenLastCalledWith('2', undefined);

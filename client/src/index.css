@@ -2295,9 +2295,17 @@ body {
 .argus-chat-prompt-head { display: flex; align-items: flex-start; gap: var(--s-2); color: var(--accent); }
 .argus-chat-prompt-text { color: var(--fg-0); font-size: var(--t-sm); overflow-wrap: anywhere; }
 .argus-chat-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
-.argus-chat-prompt-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
-.argus-chat-prompt-tab { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-xs); color: var(--fg-2); }
-.argus-chat-prompt-tab[data-answered] { color: var(--fg-0); }
+.argus-chat-prompt-options { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
+.argus-chat-prompt-key { min-width: 1.2em; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.argus-chat-prompt-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.argus-chat-prompt-tabs { display: flex; align-items: center; gap: var(--s-2); max-width: 560px; }
+.argus-chat-prompt-tablist { display: flex; flex-wrap: wrap; flex: 1; min-width: 0; justify-content: center; gap: 4px; }
+.argus-chat-prompt-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px var(--s-2); border: 1px solid var(--line-2); border-radius: 999px;
+  font-size: var(--t-xs); color: var(--fg-2);
+}
+.argus-chat-prompt-tab[data-answered] { color: var(--fg-0); border-color: var(--accent-edge); }
 .argus-chat-prompt-error { font-size: var(--t-xs); color: var(--danger); }
 .argus-chat-prompt-free { display: flex; align-items: center; gap: var(--s-2); }
 .argus-chat-prompt-free > .text-input-wrap { flex: 1; min-width: 0; }
