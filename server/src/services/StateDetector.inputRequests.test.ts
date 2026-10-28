@@ -146,6 +146,44 @@ const SCREENS = {
     '❯ 1. Submit answers',
     '  2. Cancel',
   ],
+  // AskUserQuestion with a preview per option and two questions: the preview
+  // pane shares the option rows, and a digit only moves the cursor.
+  askPreview: [
+    RULE,
+    '←  ☐ Header style  ☐ Font  ✔ Submit  →',
+    '',
+    'Which README header style?',
+    '',
+    '❯ 1. Minimal                      ┌─────────────────────────────────────────────────┐',
+    '  2. Badges                       │ project-name                                    │',
+    '  3. Centered logo                │                                                 │',
+    '                                  │ A short one-line tagline.                       │',
+    '                                  │                                                 │',
+    '                                  │ ---                                             │',
+    '                                  └─────────────────────────────────────────────────┘',
+    '',
+    '                                  Notes: press n to add notes',
+    '',
+    RULE,
+    '  Chat about this',
+    '',
+    'Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel',
+  ],
+  // Back on the first question once answered: its pick carries a tick.
+  askPreviewBack: [
+    RULE,
+    '←  ☒ Header style  ☐ Font  ✔ Submit  →',
+    '',
+    'Which README header style?',
+    '',
+    '  1. Minimal                      ┌─────────────────────────────────────────────────┐',
+    '❯ 2. Badges ✔                     │ project-name                                    │',
+    '  3. Centered logo                │                                                 │',
+    '                                  │ [build (badge)] [license (badge)] [npm (badge)] │',
+    '                                  └─────────────────────────────────────────────────┘',
+    '',
+    'Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel',
+  ],
   planApproval: [
     '  ' + '─'.repeat(106),
     '   Claude has written up a plan and is ready to execute. Would you like to proceed?',
@@ -246,6 +284,31 @@ test('AskUserQuestion review step (no footer on screen)', async () => {
   assert.equal(r.status, 'waiting');
   assert.deepEqual(r.menu?.options.map((o) => o.label), ['Submit answers', 'Cancel']);
   assert.equal(r.question, 'Ready to submit your answers?');
+});
+
+test('AskUserQuestion with previews: labels without the pane, Enter to pick, the question tabs', async () => {
+  const r = await read(SCREENS.askPreview);
+  assert.equal(r.status, 'waiting');
+  assert.deepEqual(r.menu, {
+    options: [{ key: '1', label: 'Minimal' }, { key: '2', label: 'Badges' }, { key: '3', label: 'Centered logo' }],
+    confirm: true,
+    tabs: [{ label: 'Header style', answered: false }, { label: 'Font', answered: false }],
+  });
+  assert.equal(r.question, 'Which README header style?');
+});
+
+test('AskUserQuestion with previews, back on an answered question: its pick is marked', async () => {
+  const r = await read(SCREENS.askPreviewBack);
+  assert.deepEqual(r.menu?.options[1], { key: '2', label: 'Badges', chosen: true });
+  assert.deepEqual(r.menu?.tabs?.map((t) => t.answered), [true, false]);
+});
+
+test('multiSelect tabs are read too; a single question has none', async () => {
+  assert.deepEqual((await read(SCREENS.askMultiSelectTab)).menu?.tabs, [
+    { label: 'Fruits', answered: true },
+    { label: 'Size', answered: false },
+  ]);
+  assert.equal((await read(SCREENS.askSingle)).menu?.tabs, undefined);
 });
 
 test('ExitPlanMode approval: "Tell Claude what to change" is free text', async () => {

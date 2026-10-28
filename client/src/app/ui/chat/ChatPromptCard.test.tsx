@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { PromptOption } from '@argus/shared';
+import type { PromptOption, PromptTab } from '@argus/shared';
 import { ChatPromptCard } from './ChatPromptCard.js';
 
 declare global {
@@ -24,12 +24,12 @@ afterEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
 });
 
-function render(prompt: string | undefined, options: PromptOption[] | undefined) {
+function render(prompt: string | undefined, options: PromptOption[] | undefined, tabs?: PromptTab[]) {
   const onAnswer = vi.fn<(key: string, text?: string) => Promise<string | null>>(async () => null);
   const onShowTerminal = vi.fn();
   const onCancel = vi.fn();
   act(() => {
-    root.render(<ChatPromptCard prompt={prompt} options={options} onAnswer={onAnswer} onCancel={onCancel} onShowTerminal={onShowTerminal} />);
+    root.render(<ChatPromptCard prompt={prompt} options={options} tabs={tabs} onAnswer={onAnswer} onCancel={onCancel} onShowTerminal={onShowTerminal} />);
   });
   return { onAnswer, onShowTerminal, onCancel };
 }
@@ -99,6 +99,32 @@ describe('ChatPromptCard', () => {
     expect(onAnswer).toHaveBeenLastCalledWith('next', undefined);
     act(() => button('in the terminal').click());
     expect(onShowTerminal).toHaveBeenCalled();
+  });
+
+  it('several questions: tabs with their state, Previous / Next between them, the pick marked', async () => {
+    const { onAnswer } = render('Which README header style?', [
+      { key: '1', label: 'Minimal' },
+      { key: '2', label: 'Badges', chosen: true },
+    ], [{ label: 'Header style', answered: true }, { label: 'Font', answered: false }]);
+    const tabs = container.querySelector('[data-testid="chat-prompt-tabs"]')!;
+    expect(tabs.textContent).toContain('Header style');
+    expect(tabs.querySelectorAll('[data-answered]')).toHaveLength(1);
+    // The pick, not the first option, is the highlighted one.
+    expect(button('Badges').style.fontWeight).toBe('600');
+    expect(button('Minimal').style.fontWeight).toBe('500');
+    await act(async () => button('Next').click());
+    expect(onAnswer).toHaveBeenLastCalledWith('next', undefined);
+    await act(async () => button('Previous').click());
+    expect(onAnswer).toHaveBeenLastCalledWith('prev', undefined);
+    await act(async () => button('Minimal').click());
+    expect(onAnswer).toHaveBeenLastCalledWith('1', undefined);
+  });
+
+  it('a multiSelect question among several: Next replaces Continue', () => {
+    render('Which fruits do you like?', [{ key: '1', label: 'Apple', checked: true }, { key: '2', label: 'Pear', checked: false }],
+      [{ label: 'Fruits', answered: true }, { label: 'Size', answered: false }]);
+    expect(buttons().some((b) => b.textContent === 'Continue')).toBe(false);
+    expect(button('Next')).toBeTruthy();
   });
 
   it('no readable options: the question still shows, with the terminal fallback', () => {

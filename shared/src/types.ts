@@ -379,6 +379,8 @@ export interface SessionInfo {
   promptOptions?: PromptOption[];
   /** With promptOptions: the menu's question as shown on screen (lastPrompt may be a hook's generic text). */
   promptQuestion?: string;
+  /** With promptOptions: the question tabs of a multi-question AskUserQuestion. */
+  promptTabs?: PromptTab[];
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
   /** Beta F8: days since the worktree branch's last commit, set only once it
@@ -734,6 +736,14 @@ export interface PromptOption {
   checked?: boolean;
   /** Free-text choice ("Type something."): answered with `key` plus the typed `text`. */
   freeText?: boolean;
+  /** The answer already picked for this question (seen when going back to it). */
+  chosen?: boolean;
+}
+
+/** One question of a multi-question AskUserQuestion; `session:answer` 'prev' / 'next' move between them. */
+export interface PromptTab {
+  label: string;
+  answered: boolean;
 }
 
 /**
@@ -1015,7 +1025,8 @@ export interface ClientToServerEvents {
   'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
   /**
    * Answer a waiting menu; refused unless that option is on screen now. `key` is
-   * an option's key, or 'next' to leave a multiSelect question (Tab); `text` is
+   * an option's key, 'next' (Tab) to leave a multiSelect question or go to the
+   * next of several questions, or 'prev' (←) to go back one; `text` is
    * required by a `freeText` option and typed for the user. The server picks the
    * keystrokes: the digit, or arrow keys + Enter for an unnumbered menu.
    */
@@ -1072,6 +1083,7 @@ export interface SessionStatusPayload {
   waitingSince?: number;
   promptOptions?: PromptOption[];
   promptQuestion?: string;
+  promptTabs?: PromptTab[];
 }
 
 export interface ServerToClientEvents {

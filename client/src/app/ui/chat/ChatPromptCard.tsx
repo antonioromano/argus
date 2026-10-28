@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { PromptOption } from '@argus/shared';
-import { ArrowRight, MessageCircleQuestion, Send, Square, SquareCheck, Terminal } from 'lucide-react';
+import type { PromptOption, PromptTab } from '@argus/shared';
+import { ArrowLeft, ArrowRight, Check, MessageCircleQuestion, Send, Square, SquareCheck, Terminal } from 'lucide-react';
 import { Button, Icon, TextInput } from '../../../components/primitives/index.js';
 
 interface ChatPromptCardProps {
@@ -8,9 +8,12 @@ interface ChatPromptCardProps {
   prompt?: string;
   /** The menu's options, when the screen reliably shows them. */
   options?: PromptOption[];
+  /** Several questions at once (AskUserQuestion): their tabs, with Previous / Next between them. */
+  tabs?: PromptTab[];
   /**
-   * Pick an option (`text` for a free-text one), or 'next' to leave a
-   * multiSelect question: resolves with an error when the menu is gone or changed.
+   * Pick an option (`text` for a free-text one), 'next' to leave a multiSelect
+   * question or go to the next question, 'prev' to go back one: resolves with
+   * an error when the menu is gone or changed.
    */
   onAnswer: (key: string, text?: string) => Promise<string | null>;
   /** Press Esc in the session (closes a picker / dismisses a dialog). */
@@ -30,7 +33,10 @@ export const ANSWER_TIMEOUT_MS = 8000;
  * for the user. Anything else (the /resume picker, /help…) can only be
  * handled in the terminal, so the card says so — with the question when known.
  */
-export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerminal }: ChatPromptCardProps) {
+/** Option labels are prose: the sans face, not the outline buttons' mono. */
+const LABEL_STYLE = { fontFamily: 'var(--font-sans)', letterSpacing: 0 } as const;
+
+export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onShowTerminal }: ChatPromptCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** The free-text option whose field is open. */
@@ -51,6 +57,7 @@ export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerm
       });
   };
   const multi = !!options?.some((o) => o.checked !== undefined);
+  const chosen = options?.some((o) => o.chosen);
   const submitText = () => {
     if (typing && text.trim()) answer(typing, text.trim());
   };
@@ -66,20 +73,28 @@ export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerm
     }
     if (o.checked !== undefined) {
       return (
-        <Button key={o.key} variant={o.checked ? 'primary' : 'outline'} size="sm" icon={o.checked ? SquareCheck : Square} disabled={busy} onClick={() => answer(o.key)}>
+        <Button key={o.key} variant={o.checked ? 'primary' : 'outline'} size="sm" icon={o.checked ? SquareCheck : Square} style={LABEL_STYLE} disabled={busy} onClick={() => answer(o.key)}>
           {o.label}
         </Button>
       );
     }
     if (o.freeText) {
       return (
-        <Button key={o.key} variant={typing === o.key ? 'primary' : 'outline'} size="sm" disabled={busy} onClick={() => setTyping(typing === o.key ? null : o.key)}>
+        <Button key={o.key} variant={typing === o.key ? 'primary' : 'outline'} size="sm" style={LABEL_STYLE} disabled={busy} onClick={() => setTyping(typing === o.key ? null : o.key)}>
           {o.key} · {o.label}
         </Button>
       );
     }
     return (
-      <Button key={o.key} variant={i === 0 && !multi ? 'primary' : 'outline'} size="sm" disabled={busy} onClick={() => answer(o.key)}>
+      <Button
+        key={o.key}
+        variant={(chosen ? o.chosen : i === 0 && !multi) ? 'primary' : 'outline'}
+        size="sm"
+        icon={o.chosen ? Check : undefined}
+        style={LABEL_STYLE}
+        disabled={busy}
+        onClick={() => answer(o.key)}
+      >
         {o.key} · {o.label}
       </Button>
     );
@@ -93,11 +108,23 @@ export function ChatPromptCard({ prompt, options, onAnswer, onCancel, onShowTerm
           {prompt || (options ? 'Claude is waiting for your choice' : 'Claude Code is showing a menu in the terminal')}
         </span>
       </div>
+      {options && tabs && (
+        <div className="argus-chat-prompt-tabs" data-testid="chat-prompt-tabs">
+          <Button variant="ghost" size="sm" icon={ArrowLeft} disabled={busy} onClick={() => answer('prev')}>Previous</Button>
+          {tabs.map((t) => (
+            <span key={t.label} className="argus-chat-prompt-tab" data-answered={t.answered || undefined}>
+              {t.answered ? <Icon icon={Check} size={12} aria-label="answered" /> : null}
+              {t.label}
+            </span>
+          ))}
+          <Button variant="ghost" size="sm" iconRight={ArrowRight} disabled={busy} onClick={() => answer('next')}>Next</Button>
+        </div>
+      )}
       <div className="argus-chat-prompt-actions">
         {options ? (
           <>
             {options.map(renderOption)}
-            {multi && (
+            {multi && !tabs && (
               <Button variant="solid" size="sm" iconRight={ArrowRight} disabled={busy} onClick={() => answer('next')}>
                 Continue
               </Button>

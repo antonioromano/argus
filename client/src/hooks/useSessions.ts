@@ -70,11 +70,11 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions, promptQuestion }: SessionStatusPayload) => {
+    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions, promptQuestion, promptTabs }: SessionStatusPayload) => {
       applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId
-          // waitingSince/promptOptions/promptQuestion are only sent while waiting; their absence clears them.
-          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions, promptQuestion }
+          // waitingSince/promptOptions/promptQuestion/promptTabs are only sent while waiting; their absence clears them.
+          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions, promptQuestion, promptTabs }
           : s)),
       );
     };

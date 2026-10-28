@@ -148,6 +148,14 @@ export interface MenuOption {
   checked?: boolean;
   /** The free-text choice ("Type something.", "Tell Claude what to change"): picking it opens an inline text field. */
   freeText?: boolean;
+  /** The answer already picked for this question ("2. Badges ✔"), shown when going back to it. */
+  chosen?: boolean;
+}
+
+/** One question of a multi-question AskUserQuestion ("←  ☒ Header style  ☐ Font  ✔ Submit  →"). */
+export interface QuestionTab {
+  label: string;
+  answered: boolean;
 }
 
 /** A menu on screen, as the guarded answer path needs it. */
@@ -159,6 +167,13 @@ export interface ScreenMenu {
    * then Enter. Absent for a numbered menu, answered with the digit.
    */
   cursor?: number;
+  /**
+   * The options carry a preview pane (AskUserQuestion with previews): there a
+   * digit only moves the cursor, and Enter picks.
+   */
+  confirm?: boolean;
+  /** Several questions: their tabs, moved between with Tab / ← → (the review step is not one). */
+  tabs?: QuestionTab[];
 }
 
 const MENU_OPTION_ROW = /^([❯›>]\s*)?(\d)\.\s+(.+)$/;
@@ -170,14 +185,37 @@ const CHECKBOX_LABEL = /^\[([ ✔✓xX×])\]\s+(.+)$/;
 /** The option whose pick turns into a text field (AskUserQuestion, plan approval). */
 const FREE_TEXT_LABEL = /^(type something\.?|tell claude what to change)$/i;
 
+/** The preview pane drawn to the right of an option ("1. Minimal      ┌────┐", "2. Badges      │ name │"). */
+const PREVIEW_PANE = /\s{2,}[│┃┌└├╭╰].*$/;
+/** The tick after the option already picked for a question ("2. Badges ✔"). */
+const CHOSEN_MARK = /\s+✔$/;
+
 function menuOption(key: string, raw: string): MenuOption {
   const cap = (l: string) => (l.length > MAX_MENU_LABEL ? `${l.slice(0, MAX_MENU_LABEL - 1)}…` : l);
-  const box = CHECKBOX_LABEL.exec(raw);
-  const label = box ? box[2]!.trim() : raw;
+  let text = raw.replace(PREVIEW_PANE, '');
+  const chosen = CHOSEN_MARK.test(text);
+  text = text.replace(CHOSEN_MARK, '');
+  const box = CHECKBOX_LABEL.exec(text);
+  const label = box ? box[2]!.trim() : text;
   const opt: MenuOption = { key, label: cap(label) };
   if (box) opt.checked = box[1] !== ' ';
   if (FREE_TEXT_LABEL.test(label)) opt.freeText = true;
+  if (chosen) opt.chosen = true;
   return opt;
+}
+
+const TAB_ROW = /^←\s+(.+?)\s+→$/;
+const TAB_ITEM = /([☐☒])\s+(.+?)(?=\s+[☐☒✔]|$)/g;
+
+/** The question tabs above a menu, when there are several questions. */
+function parseQuestionTabs(rows: readonly string[]): QuestionTab[] | undefined {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const m = TAB_ROW.exec(rows[i]!.replace(ROW_EDGES, ''));
+    if (!m) continue;
+    const tabs = [...m[1]!.matchAll(TAB_ITEM)].map((t) => ({ label: t[2]!.trim(), answered: t[1] === '☒' }));
+    return tabs.length > 1 ? tabs : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -263,7 +301,16 @@ function navMenuBlock(rows: readonly string[]): { labels: string[]; cursor: numb
 /** The menu on screen: a numbered one wins, else an unnumbered one (see parseNavMenu). */
 export function parseScreenMenu(rows: readonly string[]): ScreenMenu | undefined {
   const options = parseMenuOptions(rows);
-  return options ? { options } : parseNavMenu(rows);
+  if (!options) return parseNavMenu(rows);
+  const menu: ScreenMenu = { options };
+  const withPreview = rows.some((r) => {
+    const m = MENU_OPTION_ROW.exec(r.replace(ROW_EDGES, ''));
+    return !!m && PREVIEW_PANE.test(m[3]!);
+  });
+  if (withPreview) menu.confirm = true;
+  const tabs = parseQuestionTabs(rows);
+  if (tabs) menu.tabs = tabs;
+  return menu;
 }
 const MAX_PROMPT_LEN = 140;
 

@@ -223,6 +223,30 @@ test('answerPrompt: multiSelect toggles with the digit and Continue sends Tab; i
   rmSync(dataDir, { recursive: true, force: true });
 });
 
+test('answerPrompt: with previews the digit only moves the cursor, so Enter follows; tabs move with Tab and ←', () => {
+  const { sm, dataDir } = mgr();
+  let menu: any = {
+    options: [{ key: '1', label: 'Minimal' }, { key: '2', label: 'Badges' }],
+    confirm: true,
+    tabs: [{ label: 'Header style', answered: false }, { label: 'Font', answered: false }],
+  };
+  inject(sm, { status: 'waiting', stateDetector: { getMenu: () => menu } });
+  const writes: Array<[string, number | undefined]> = [];
+  const answer = (key: string) => sm.answerPrompt('s', key, undefined, (d, p) => writes.push([d, p]));
+  assert.equal(answer('2'), null);
+  assert.deepEqual(writes.map(([d]) => d), ['2', '\r']);
+  assert.ok(writes[0]![1]! > 0, 'the cursor moves before Enter');
+  writes.length = 0;
+  assert.equal(answer('next'), null);
+  assert.equal(answer('prev'), null);
+  assert.deepEqual(writes.map(([d]) => d), ['\t', '\x1b[D']);
+  // One question, no checkboxes: nowhere to move.
+  menu = { options: menu.options };
+  assert.match(answer('prev')!, /prompt changed/);
+  assert.match(answer('next')!, /prompt changed/);
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
 test('answerPrompt: an unnumbered menu (trust prompt) is answered with arrows from the cursor, then Enter', () => {
   const { sm, dataDir } = mgr();
   let menu = { options: [{ key: '1', label: 'No, exit' }, { key: '2', label: 'Yes, I trust this folder' }], cursor: 0 };

@@ -265,10 +265,11 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       {session.status === 'waiting' && (
         <div className="argus-chat-prompt-wrap">
           <ChatPromptCard
-            // A new menu (other options) starts with no stale error.
-            key={JSON.stringify(session.promptOptions ?? null)}
+            // A new menu (other options, another question) starts with no stale error.
+            key={JSON.stringify([session.promptOptions ?? null, session.promptQuestion ?? null])}
             prompt={session.promptQuestion ?? session.lastPrompt}
             options={session.promptOptions}
+            tabs={session.promptTabs}
             onAnswer={(key, text) =>
               new Promise<string | null>((resolve) => {
                 const payload = text === undefined ? { sessionId: session.id, key } : { sessionId: session.id, key, text };
