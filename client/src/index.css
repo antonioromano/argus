@@ -2063,6 +2063,8 @@ body {
   color: var(--fg-1);
   font-family: var(--font-sans);
   font-size: var(--t-sm);
+  /* Sized by its tile, never by its content: the composer caps itself at a share of this height (cqh). */
+  container-type: size;
 }
 .argus-chat-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .argus-chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
@@ -2298,7 +2300,9 @@ body {
 .argus-chat-composer-box.is-drag-over { border-color: var(--accent-edge); }
 .argus-chat-composer textarea {
   resize: none;
-  max-height: calc(240px * var(--ui-scale));
+  /* Grows with its text, wrapped lines included, up to ~45% of the Chat view, then scrolls. */
+  field-sizing: content;
+  max-height: 45cqh;
   background: transparent;
   border: none;
   outline: none;
