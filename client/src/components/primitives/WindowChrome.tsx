@@ -39,7 +39,7 @@ export function WindowChrome({
         background: 'var(--bg-0)',
         color: 'var(--fg-0)',
         fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--t-base)',
+        fontSize: 'var(--t-body)',
       }}
     >
       <div

@@ -49,7 +49,7 @@ export function Segmented<T extends string>({
               all: 'unset',
               cursor: disabled ? 'not-allowed' : 'pointer',
               opacity: disabled ? 0.5 : 1,
-              padding: compact ? '6px var(--s-2)' : '6px var(--s-3)',
+              padding: compact ? 'var(--s-1-5) var(--s-2)' : 'var(--s-1-5) var(--s-3)',
               minWidth: compact ? 0 : 64,
               textAlign: 'center',
               boxSizing: 'border-box',

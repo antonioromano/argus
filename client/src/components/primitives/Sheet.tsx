@@ -96,7 +96,7 @@ export function Sheet({
           }}>
             <div>
               {eyebrow && (
-                <div className="eyebrow" style={{ color: 'var(--accent)', marginBottom: 6 }}>
+                <div className="eyebrow" style={{ color: 'var(--accent)', marginBottom: 'var(--s-1-5)' }}>
                   {eyebrow}
                 </div>
               )}
@@ -111,7 +111,7 @@ export function Sheet({
                 </div>
               )}
               {subtitle && (
-                <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginTop: 'var(--s-1)' }}>
                   {subtitle}
                 </div>
               )}

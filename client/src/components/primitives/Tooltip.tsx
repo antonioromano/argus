@@ -183,7 +183,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         color: 'var(--fg-0)',
         border: '1px solid var(--line-3)',
         borderRadius: 'var(--r-2)',
-        padding: '4px 8px',
+        padding: 'var(--s-1) var(--s-2)',
         fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-tiny)',
         fontWeight: 500,

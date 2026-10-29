@@ -118,7 +118,7 @@ export function AlertSheet({
       >
         <p
           style={{
-            margin: '0 0 6px',
+            margin: '0 0 var(--s-1-5)',
             fontSize: 'var(--t-md)',
             fontWeight: 600,
             fontFamily: 'var(--font-sans)',

@@ -38,7 +38,7 @@ const PALETTE: Record<ButtonVariant, { bg: string; fg: string; border: string }>
 const SIZES: Record<'sm' | 'md' | 'lg', { padding: string; height: string; font: string }> = {
   sm: { padding: '0 var(--s-2)', height: 'var(--ctl-h-sm)', font: 'var(--t-xs)' },
   md: { padding: '0 var(--s-3)', height: scaledPx(30), font: 'var(--t-sm)' },
-  lg: { padding: '0 var(--s-4)', height: scaledPx(36), font: 'var(--t-base)' },
+  lg: { padding: '0 var(--s-4)', height: scaledPx(36), font: 'var(--t-body)' },
 };
 
 export function Button({
@@ -75,7 +75,7 @@ export function Button({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 'var(--s-1-5)',
         padding: s.padding,
         height: s.height,
         background: p.bg,

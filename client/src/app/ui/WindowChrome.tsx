@@ -33,7 +33,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
         background: 'var(--bg-0)',
         color: 'var(--fg-0)',
         fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--t-base)',
+        fontSize: 'var(--t-body)',
       }}
     >
       <div

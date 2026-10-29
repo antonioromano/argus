@@ -58,7 +58,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
         <GroupLabel>Appearance</GroupLabel>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--s-3) var(--s-4) var(--s-4)' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Theme</div>
+            <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Theme</div>
             <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Match your phone or pin one</div>
           </div>
           <div style={{ display: 'inline-flex', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', overflow: 'hidden' }}>
@@ -98,7 +98,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
               >
                 <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell needs you</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a shell needs you</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → waiting transition while this tab is in the background.</span>
                 </span>
                 <Switch on={notify} />
@@ -111,7 +111,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
               >
                 <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → done transition while this tab is in the background.</span>
                 </span>
                 <Switch on={notifyDone} />
@@ -160,7 +160,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   {selected && <Icon icon={Check} size={12} strokeWidth={3} />}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', fontWeight: 600, color: 'var(--fg-0)' }}>{opt.title}</div>
+                  <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', fontWeight: 600, color: 'var(--fg-0)' }}>{opt.title}</div>
                   <div style={{ marginTop: 2, fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', lineHeight: 1.45 }}>{opt.desc}</div>
                 </div>
               </button>
@@ -175,7 +175,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
               <Icon icon={Wifi} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>
+                <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>
                   {publicUrl ? 'Tunnel connected' : 'Tunnel not active'}
                 </div>
                 <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>

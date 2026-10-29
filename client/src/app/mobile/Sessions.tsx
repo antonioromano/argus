@@ -105,7 +105,7 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
       >
         <AgentGlyph agent={meta.agentType} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-base)', fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-body)', fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {meta.name || folder}
           </div>
           <div className="eyebrow" style={{ marginTop: 'var(--s-px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -173,7 +173,7 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
               alignItems: 'center',
               gap: 'var(--s-1-5)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-base)',
+              fontSize: 'var(--t-body)',
               fontWeight: 500,
               color: 'var(--fg-0)',
               whiteSpace: 'nowrap',
@@ -417,7 +417,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 border: 'none',
                 borderRadius: 'var(--r-2)',
                 padding: '10px var(--s-4)',
-                fontSize: 'var(--t-base)',
+                fontSize: 'var(--t-body)',
                 fontFamily: 'var(--font-sans)',
                 fontWeight: 600,
                 cursor: 'pointer',

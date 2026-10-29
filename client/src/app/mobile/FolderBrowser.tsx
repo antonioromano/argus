@@ -116,7 +116,7 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
             }}
           >
             <Icon icon={Folder} size={18} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-            <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-base)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-body)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {entry.name}
             </span>
             {entry.hasChildren && <Icon icon={ChevronRight} size={16} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />}

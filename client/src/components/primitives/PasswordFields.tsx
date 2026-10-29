@@ -30,7 +30,7 @@ function RevealButton({ shown, onToggle }: { shown: boolean; onToggle: () => voi
         background: 'none',
         border: 'none',
         cursor: 'pointer',
-        padding: 2,
+        padding: 'var(--s-0-5)',
         color: 'var(--fg-3)',
         display: 'flex',
       }}
@@ -47,8 +47,8 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        marginTop: 6,
+        gap: 'var(--s-1-5)',
+        marginTop: 'var(--s-1-5)',
         fontSize: 'var(--t-tiny)',
         color: met ? 'var(--ok)' : 'var(--fg-3)',
         transition: 'color var(--dur-fast)',
@@ -86,7 +86,7 @@ export function PasswordFields({
             placeholder="Set password"
             mono
             valid={pwValid}
-            style={{ paddingRight: 36 }}
+            style={{ paddingRight: 'calc(var(--s-7) + var(--s-1))' }}
           />
           <RevealButton shown={shown} onToggle={() => setShown((v) => !v)} />
         </div>
@@ -101,7 +101,7 @@ export function PasswordFields({
             placeholder="Re-enter password"
             mono
             valid={confirmValid}
-            style={{ paddingRight: 36 }}
+            style={{ paddingRight: 'calc(var(--s-7) + var(--s-1))' }}
             onKeyDown={(e) => { if (e.key === 'Enter') onSubmit?.(); }}
           />
           <RevealButton shown={shown} onToggle={() => setShown((v) => !v)} />

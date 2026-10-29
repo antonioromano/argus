@@ -92,20 +92,20 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
         border: '1px solid var(--line-3)',
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-pop)',
-        padding: 4,
+        padding: 'var(--s-1)',
         animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
       }}
     >
       {items.map((entry, i) => {
         if (isSeparator(entry)) {
-          return <div key={`sep-${i}`} style={{ height: 1, background: 'var(--line-2)', margin: '4px 6px' }} />;
+          return <div key={`sep-${i}`} style={{ height: 1, background: 'var(--line-2)', margin: 'var(--s-1) var(--s-1-5)' }} />;
         }
         if (isHeader(entry)) {
           return (
             <div
               key={`hdr-${i}`}
               className="eyebrow"
-              style={{ padding: '6px 9px 3px', color: 'var(--fg-4)' }}
+              style={{ padding: 'var(--s-1-5) var(--s-2) var(--s-1)', color: 'var(--fg-4)' }}
             >
               {entry.header}
             </div>
@@ -129,9 +129,9 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
               boxSizing: 'border-box',
               display: 'flex',
               alignItems: 'center',
-              gap: 9,
+              gap: 'var(--s-2)',
               width: '100%',
-              padding: '6px 9px',
+              padding: 'var(--s-1-5) var(--s-2)',
               borderRadius: 'var(--r-2)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-tiny)',
