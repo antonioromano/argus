@@ -7,6 +7,7 @@ import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { ClaudeConversationsResponse, CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateFlags } from '../utils/flags.js';
+import { sendError } from '../errors/ArgusError.js';
 
 // Enforce single-membership: a session id may appear in at most one group (first wins).
 function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
@@ -151,8 +152,9 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
 
       res.status(201).json(session);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create session';
-      res.status(400).json({ error: message });
+      // Classified failures (unknown agent, missing folder, argusd down, git
+      // missing for a worktree) carry their code; the rest stay a plain 400.
+      sendError(res, err ?? new Error('Failed to create session'), { status: 400 });
     }
   }));
 

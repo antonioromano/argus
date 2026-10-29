@@ -6,6 +6,7 @@ import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
+  ArgusErrorCode,
   ClaudeConversation,
   SessionInfo,
   SessionStatus,
@@ -80,6 +81,7 @@ import {
 } from './usage/codexRollout.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
+import { ArgusError } from '../errors/ArgusError.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -422,12 +424,12 @@ const samePrUrl = (a: string, b: string | undefined): boolean => !!b && a.toLowe
 /** sessionPrDiff's answer: the diff, or the HTTP status and message to reply with. */
 export type PrDiffOutcome =
   | { ok: true; diff: SessionPrDiffResponse }
-  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string; code?: ArgusErrorCode };
 
 /** setSessionPrReady's answer (C3): the PR read again, or the HTTP status and message. */
 export type PrReadyOutcome =
   | { ok: true; pr: SessionPr | null }
-  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string; code?: ArgusErrorCode };
 
 /** gh failure kind → HTTP status. */
 const GH_ERROR_STATUS = { unavailable: 503, timeout: 504, failed: 502 } as const;
@@ -980,7 +982,7 @@ export class SessionManager {
       return { ok: true, diff: await found.service.prDiff(found.url, found.folder) };
     } catch (err) {
       if (!(err instanceof PrDiffError)) throw err;
-      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message, ...(err.code ? { code: err.code } : {}) };
     }
   }
 
@@ -998,7 +1000,7 @@ export class SessionManager {
       await found.service.setReady(found.url, found.folder, ready);
     } catch (err) {
       if (!(err instanceof PrWriteError)) throw err;
-      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message, ...(err.code ? { code: err.code } : {}) };
     }
     const pr = await found.service.forUrl(found.url, found.folder);
     this.sweepPrsAfterWrite();
@@ -1206,7 +1208,7 @@ export class SessionManager {
     // `command = agentDef?.command ?? resolvedAgentType` turns an arbitrary string
     // into a raw shell word (PtyManager interpolates it into `sh -l -c`).
     if (!this.agentRegistry.isRegistered(resolvedAgentType, config.customAgents)) {
-      throw new Error(`Unknown agent type: "${resolvedAgentType}"`);
+      throw new ArgusError('AGENT_UNKNOWN', 400, `Unknown agent type: "${resolvedAgentType}"`, undefined, { agent: resolvedAgentType });
     }
 
     // Resolve the CLI command for this agent

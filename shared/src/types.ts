@@ -347,6 +347,42 @@ export interface AgentDetectionResponse {
   agents: AgentStatus[];
 }
 
+// ── Typed error contract ────────────────────────────────────────────────────
+
+/**
+ * Class of a failure the user can act on. The server attaches it to error
+ * bodies (`ApiErrorBody.code`); the client maps it to a title, a cause and
+ * next actions (client/src/errors/errorCopy.ts). TYPE-ONLY on purpose: the
+ * server and electron/ may only `import type` from here, and a literal union
+ * has no runtime value, so nothing crosses the app.asar boundary. If the
+ * server ever needs a runtime list of codes, put it in server/src/constants/
+ * and register it in scripts/check-dep-sync.mjs check 3.
+ */
+export type ArgusErrorCode =
+  | 'SERVER_UNREACHABLE'        // client-originated (fetch rejected)
+  | 'AUTH_REQUIRED'
+  | 'SESSION_NOT_FOUND'
+  | 'FOLDER_NOT_FOUND' | 'PERMISSION_DENIED'
+  | 'GIT_NOT_INSTALLED' | 'NOT_A_GIT_REPO' | 'GIT_FAILED'
+  | 'GH_NOT_INSTALLED' | 'GH_NOT_AUTHENTICATED' | 'GH_TIMEOUT'
+  | 'AGENT_NOT_INSTALLED' | 'AGENT_UNKNOWN'
+  | 'RIPGREP_UNAVAILABLE'
+  | 'NGROK_NOT_INSTALLED' | 'NGROK_AUTH_FAILED' | 'NGROK_TIMEOUT'
+  | 'DAEMON_UNAVAILABLE'
+  | 'TIMEOUT' | 'INTERNAL';
+
+/** Shape of every error response body. Only `error` is guaranteed: routes
+ *  that are not migrated yet send `{ error }` alone. */
+export interface ApiErrorBody {
+  /** Human message (kept for back-compat and as the fallback). */
+  error: string;
+  code?: ArgusErrorCode;
+  /** Raw tool output (stderr, errno) for the "Details" disclosure. Never shown as the headline. */
+  detail?: string;
+  /** Code-specific parameters the copy needs (e.g. { tool: 'gh' }, { agent: 'claude', installUrl }). */
+  params?: Record<string, string>;
+}
+
 export interface SessionInfo {
   id: string;
   name: string;
@@ -1150,6 +1186,8 @@ export interface NgrokStatus {
   tunnelStatus: NgrokTunnelStatus;
   publicUrl: string | null;
   error: string | null;
+  /** Class of `error` (not installed / auth failed / timed out), when known. */
+  errorCode?: ArgusErrorCode;
   platform: string;
   authRequired: boolean;
 }
@@ -1192,6 +1230,10 @@ export interface GitDiffResponse {
    *  (e.g. a staged deletion of a huge JSON). Listed as header-only entries. */
   oversized?: string[];
   error?: string;
+  /** Class of `error`, when it is one the user can act on. */
+  code?: ArgusErrorCode;
+  /** Raw git output behind `error`. */
+  detail?: string;
 }
 
 export interface DiffFileRequest {

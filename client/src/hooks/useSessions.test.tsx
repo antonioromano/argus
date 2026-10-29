@@ -190,6 +190,12 @@ describe('useSessions load errors and agent exits', () => {
     expect(hook.sessions).toEqual([]);
   });
 
+  it('a server-unreachable ApiError reads as the server not responding', async () => {
+    vi.mocked(api.getSessions).mockRejectedValueOnce(Object.assign(new Error('Argus server unreachable'), { status: 0, code: 'SERVER_UNREACHABLE' }));
+    await mount();
+    expect(hook.loadError).toMatch(/isn’t responding/);
+  });
+
   it('a successful fetch has no load error', async () => {
     vi.mocked(api.getSessions).mockResolvedValueOnce([sess('a')]);
     await mount();

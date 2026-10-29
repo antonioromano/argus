@@ -1,8 +1,9 @@
 import { execFile } from 'child_process';
 import { access } from 'fs/promises';
 import { constants as fsConstants } from 'fs';
-import type { PrChecks, PrCiStatus, PrFailedCheck, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
+import type { ArgusErrorCode, PrChecks, PrCiStatus, PrFailedCheck, PrMergeable, PrReviewDecision, PrState, SessionPr, SessionPrDiffResponse } from '@argus/shared';
 import { parsePrCreateUrl } from './worktreeLifecycle.js';
+import { ghUnavailableCode } from '../errors/ArgusError.js';
 
 /**
  * PR / CI state of a session's branch, read with the GitHub CLI
@@ -213,24 +214,29 @@ export function parsePrView(stdout: string): SessionPr | null {
 /** `gh` cannot be used at all (missing binary or not logged in), as opposed
  *  to "this branch has no PR" or a one-off network failure. */
 export function isGhUnavailable(err: unknown): boolean {
-  const e = (err ?? {}) as { code?: unknown; stderr?: unknown };
-  if (e.code === 'ENOENT' || e.code === 'EACCES') return true;
-  // gh exits 4 when authentication is required.
-  if (e.code === 4) return true;
-  const stderr = typeof e.stderr === 'string' ? e.stderr : '';
-  return /gh auth login|not logged in|authentication required/i.test(stderr);
+  return ghUnavailableCode(err) !== null;
 }
 
-/** Why a PR diff couldn't be read: gh missing / logged out, too slow, or it failed. */
+type GhUnavailableCode = 'GH_NOT_INSTALLED' | 'GH_NOT_AUTHENTICATED';
+
+const GH_UNAVAILABLE_MESSAGE: Record<GhUnavailableCode, string> = {
+  GH_NOT_INSTALLED: 'GitHub CLI (gh) is not installed',
+  GH_NOT_AUTHENTICATED: 'GitHub CLI (gh) is not logged in',
+};
+
+type GhErrorKind = 'unavailable' | 'timeout' | 'failed';
+
+/** Why a PR diff couldn't be read: gh missing / logged out, too slow, or it
+ *  failed. `code` tells "install gh" apart from "run gh auth login". */
 export class PrDiffError extends Error {
-  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+  constructor(readonly kind: GhErrorKind, message: string, readonly code?: ArgusErrorCode) {
     super(message);
   }
 }
 
-/** C3: why `gh pr ready` failed — same kinds as PrDiffError. */
+/** C3: why `gh pr ready` failed — same kinds (and codes) as PrDiffError. */
 export class PrWriteError extends Error {
-  constructor(readonly kind: 'unavailable' | 'timeout' | 'failed', message: string) {
+  constructor(readonly kind: GhErrorKind, message: string, readonly code?: ArgusErrorCode) {
     super(message);
   }
 }
@@ -326,6 +332,8 @@ export class PrStatusService {
   private writtenAt = new Map<string, number>();
   /** Epoch ms until which `gh` is considered unusable (missing / logged out). */
   private unavailableUntil = 0;
+  /** Why gh was found unusable, for errors raised during the back-off. */
+  private unavailableCode: GhUnavailableCode = 'GH_NOT_INSTALLED';
   private warned = false;
 
   constructor(deps: PrStatusDeps) {
@@ -391,7 +399,7 @@ export class PrStatusService {
       await this.runGh(['auth', 'status'], cwd);
       return true;
     } catch (err) {
-      if (isGhUnavailable(err)) this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+      if (isGhUnavailable(err)) this.markUnavailable(err);
       return false;
     }
   }
@@ -430,7 +438,7 @@ export class PrStatusService {
   }
 
   private async readPrDiff(url: string, cwd: string): Promise<SessionPrDiffResponse> {
-    if (this.now() < this.unavailableUntil) throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    if (this.now() < this.unavailableUntil) throw this.unavailable(PrDiffError);
     try {
       const diff = await this.runGh(['pr', 'diff', url, '--color', 'never'], cwd, {
         timeoutMs: PR_DIFF_TIMEOUT_MS, maxBuffer: PR_DIFF_MAX_BYTES,
@@ -439,10 +447,10 @@ export class PrStatusService {
     } catch (err) {
       if (isMaxBuffer(err)) return { url, diff: '', truncated: { ...(await this.prFileNames(url, cwd)), limitBytes: PR_DIFF_MAX_BYTES } };
       if (isGhUnavailable(err)) {
-        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
-        throw new PrDiffError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+        this.markUnavailable(err);
+        throw this.unavailable(PrDiffError);
       }
-      if (isTimeout(err)) throw new PrDiffError('timeout', `gh pr diff took longer than ${PR_DIFF_TIMEOUT_MS / 1000}s`);
+      if (isTimeout(err)) throw new PrDiffError('timeout', `gh pr diff took longer than ${PR_DIFF_TIMEOUT_MS / 1000}s`, 'GH_TIMEOUT');
       throw new PrDiffError('failed', ghMessage(err));
     }
   }
@@ -478,19 +486,29 @@ export class PrStatusService {
    * PrWriteError.
    */
   async setReady(url: string, cwd: string, ready: boolean): Promise<void> {
-    if (this.now() < this.unavailableUntil) throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+    if (this.now() < this.unavailableUntil) throw this.unavailable(PrWriteError);
     try {
       await this.runGh(['pr', 'ready', ...(ready ? [] : ['--undo']), url], cwd, { timeoutMs: PR_WRITE_TIMEOUT_MS });
     } catch (err) {
       if (isGhUnavailable(err)) {
-        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
-        throw new PrWriteError('unavailable', 'GitHub CLI (gh) is missing or not logged in');
+        this.markUnavailable(err);
+        throw this.unavailable(PrWriteError);
       }
-      if (isTimeout(err)) throw new PrWriteError('timeout', `gh pr ready took longer than ${PR_WRITE_TIMEOUT_MS / 1000}s`);
+      if (isTimeout(err)) throw new PrWriteError('timeout', `gh pr ready took longer than ${PR_WRITE_TIMEOUT_MS / 1000}s`, 'GH_TIMEOUT');
       throw new PrWriteError('failed', ghMessage(err));
     } finally {
       this.invalidatePr(url);
     }
+  }
+
+  /** Back off gh for GH_UNAVAILABLE_RECHECK_MS, remembering why. */
+  private markUnavailable(err: unknown): void {
+    this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+    this.unavailableCode = ghUnavailableCode(err) ?? 'GH_NOT_INSTALLED';
+  }
+
+  private unavailable<E extends PrDiffError | PrWriteError>(Kind: new (kind: GhErrorKind, message: string, code?: ArgusErrorCode) => E): E {
+    return new Kind('unavailable', GH_UNAVAILABLE_MESSAGE[this.unavailableCode], this.unavailableCode);
   }
 
   /** Drop every cached reading of one PR: by its URL, and the branch lookup that answered it. */
@@ -518,7 +536,7 @@ export class PrStatusService {
       value = parsePrView(await this.runGh(args, cwd));
     } catch (err) {
       if (isGhUnavailable(err)) {
-        this.unavailableUntil = this.now() + GH_UNAVAILABLE_RECHECK_MS;
+        this.markUnavailable(err);
         if (!this.warned) {
           this.warned = true;
           console.info('[pr-status] gh CLI missing or not logged in; PR chips are off until it is available');

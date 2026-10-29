@@ -204,3 +204,42 @@ describe('tunnel-safe mobile-first calls', () => {
     });
   });
 });
+
+// Typed error contract (plan 2026-10-29-003, Unit 3).
+describe('typed API errors', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('ApiError carries code, detail and params from the error body', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(503, {
+      error: 'GitHub CLI (gh) is not logged in', code: 'GH_NOT_AUTHENTICATED', detail: 'run gh auth login', params: { tool: 'gh' },
+    }))));
+    await expect(api.getSessions()).rejects.toMatchObject({
+      name: 'ApiError', status: 503, message: 'GitHub CLI (gh) is not logged in',
+      code: 'GH_NOT_AUTHENTICATED', detail: 'run gh auth login', params: { tool: 'gh' },
+    });
+  });
+
+  it('an uncoded error body still yields a plain ApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(500, { error: 'boom' }))));
+    const err = await api.getSessions().catch((e: unknown) => e) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.message).toBe('boom');
+    expect(err.code).toBeUndefined();
+  });
+
+  it('a rejected fetch becomes ApiError(0) SERVER_UNREACHABLE', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
+    await expect(api.getSessions()).rejects.toMatchObject({ name: 'ApiError', status: 0, code: 'SERVER_UNREACHABLE' });
+  });
+
+  it('an aborted fetch stays an AbortError (callers ignore it)', async () => {
+    const abort = new DOMException('The operation was aborted.', 'AbortError');
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(abort)));
+    await expect(api.getSessions()).rejects.toBe(abort);
+  });
+
+  it('a session-expiry 401 throws ApiError(401) AUTH_REQUIRED', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(jsonResponse(401, { error: 'nope' }))));
+    await expect(api.getSessions()).rejects.toMatchObject({ name: 'ApiError', status: 401, code: 'AUTH_REQUIRED', message: 'Authentication required' });
+  });
+});

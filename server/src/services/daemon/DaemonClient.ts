@@ -2,6 +2,7 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
 import { StringDecoder } from 'string_decoder';
+import { ArgusError } from '../../errors/ArgusError.js';
 
 const KIND_CONTROL = 0x43; // 'C'
 const KIND_DATA = 0x44; // 'D'
@@ -126,7 +127,7 @@ export class DaemonClient extends EventEmitter {
         await this.tryConnect();
         return;
       } catch {
-        if (Date.now() > deadline) throw new Error('argusd did not come up in time');
+        if (Date.now() > deadline) throw new ArgusError('DAEMON_UNAVAILABLE', 503, 'argusd did not come up in time');
       }
     }
   }

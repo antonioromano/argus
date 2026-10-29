@@ -32,6 +32,8 @@ before(async () => {
     },
     sessionPrDiff: async (id: string, url: string) => {
       diffAsked.push([id, url]);
+      if (id === 'nogh') return { ok: false as const, status: 503 as const, error: 'GitHub CLI (gh) is not installed', code: 'GH_NOT_INSTALLED' as const };
+      if (id === 'noauth') return { ok: false as const, status: 503 as const, error: 'GitHub CLI (gh) is not logged in', code: 'GH_NOT_AUTHENTICATED' as const };
       return id === 's1' && url === DIFF.url
         ? { ok: true as const, diff: DIFF }
         : { ok: false as const, status: 404 as const, error: 'Not a pull request of this session' };
@@ -111,4 +113,14 @@ test('POST /sessions/:id/prs/ready relays the manager refusal and gh errors', as
   const ghFailed = await postReady('s1', { url: DIFF.url, ready: false });
   assert.equal(ghFailed.status, 502);
   assert.deepEqual(await ghFailed.json(), { error: 'GraphQL: not allowed' });
+});
+
+test('GET pr-diff passes the gh error code through: not installed vs not logged in', async () => {
+  const q = `?url=${encodeURIComponent(DIFF.url)}`;
+  const missing = await fetch(`${base}/api/sessions/nogh/pr-diff${q}`);
+  assert.equal(missing.status, 503);
+  assert.deepEqual(await missing.json(), { error: 'GitHub CLI (gh) is not installed', code: 'GH_NOT_INSTALLED' });
+  const loggedOut = await fetch(`${base}/api/sessions/noauth/pr-diff${q}`);
+  assert.equal(loggedOut.status, 503);
+  assert.deepEqual(await loggedOut.json(), { error: 'GitHub CLI (gh) is not logged in', code: 'GH_NOT_AUTHENTICATED' });
 });

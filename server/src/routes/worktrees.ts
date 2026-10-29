@@ -9,6 +9,7 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { GitService } from '../services/GitService.js';
 import type { PrStatusService } from '../services/PrStatusService.js';
 import { isSafeRef } from './git.js';
+import { sendError } from '../errors/ArgusError.js';
 import {
   commitMessageError,
   compareUrl,
@@ -308,8 +309,7 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
       const result = await gitService.getBranches(gitRoot);
       res.json(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      sendError(res, err, { tool: 'git' });
     }
   });
 
@@ -376,8 +376,7 @@ export function createWorktreeRoutes(manager: SessionManager, gitService: GitSer
       await gitService.init(resolved);
       res.status(200).json({ success: true });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      sendError(res, err, { tool: 'git' });
     }
   });
 

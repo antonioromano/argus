@@ -2,6 +2,8 @@ import { Router } from 'express';
 import type { NgrokService } from '../services/NgrokService.js';
 import type { AuthService } from '../services/AuthService.js';
 import { validatePasswordStrength } from '../services/passwordStrength.js';
+import type { ApiErrorBody } from '@argus/shared';
+import { sendError } from '../errors/ArgusError.js';
 
 export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthService): Router {
   const router = Router();
@@ -20,7 +22,7 @@ export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthS
 
   router.post('/start', async (req, res) => {
     if (!ngrokService.installed) {
-      res.status(400).json({ error: 'ngrok is not installed' });
+      res.status(400).json({ error: 'ngrok is not installed', code: 'NGROK_NOT_INSTALLED' } satisfies ApiErrorBody);
       return;
     }
 
@@ -50,8 +52,7 @@ export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthS
     } catch (err) {
       // No tunnel came up: don't leave a password the user never had before.
       if (!hadPassword && !ngrokService.getStatus().publicUrl) authService.clearAuth();
-      const message = err instanceof Error ? err.message : 'Failed to start ngrok';
-      res.status(500).json({ error: message });
+      sendError(res, err ?? new Error('Failed to start ngrok'), { tool: 'ngrok' });
     }
   });
 
@@ -60,8 +61,7 @@ export function createNgrokRoutes(ngrokService: NgrokService, authService: AuthS
       await ngrokService.stop();
       res.status(204).send();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to stop ngrok';
-      res.status(500).json({ error: message });
+      sendError(res, err ?? new Error('Failed to stop ngrok'), { tool: 'ngrok' });
     }
   });
 

@@ -436,6 +436,34 @@ describe('PrStatusService.prDiff (B4)', () => {
   });
 });
 
+describe('PrStatusService.prDiff error codes (plan 003)', () => {
+  const url = 'https://github.com/o/r/pull/7';
+  const svc = (err: unknown) => new PrStatusService({ runGh: async () => { throw err; }, headInfo: async () => null, defaultBranch: async () => 'main' });
+
+  test('gh missing → GH_NOT_INSTALLED, logged out → GH_NOT_AUTHENTICATED, slow → GH_TIMEOUT', async () => {
+    const codeOf = async (err: unknown) => {
+      try { await svc(err).prDiff(url, '/repo'); } catch (e) { return (e as PrDiffError).code; }
+      return 'resolved';
+    };
+    assert.equal(await codeOf(Object.assign(new Error('x'), { code: 'ENOENT' })), 'GH_NOT_INSTALLED');
+    assert.equal(await codeOf(Object.assign(new Error('x'), { code: 4 })), 'GH_NOT_AUTHENTICATED');
+    assert.equal(await codeOf(Object.assign(new Error('x'), { killed: true, signal: 'SIGTERM' })), 'GH_TIMEOUT');
+    assert.equal(await codeOf(Object.assign(new Error('x'), { code: 1, stderr: 'could not find pull request' })), undefined);
+  });
+
+  test('the back-off keeps the reason it backed off for', async () => {
+    const service = svc(Object.assign(new Error('x'), { code: 4 }));
+    await assert.rejects(service.prDiff(url, '/repo'));
+    await assert.rejects(service.prDiff(url, '/repo'), (e: unknown) => e instanceof PrDiffError && e.code === 'GH_NOT_AUTHENTICATED');
+    await assert.rejects(service.setReady(url, '/repo', true), (e: unknown) => e instanceof PrWriteError && e.code === 'GH_NOT_AUTHENTICATED');
+  });
+
+  test('the messages tell missing and logged out apart', async () => {
+    await assert.rejects(svc({ code: 'ENOENT' }).prDiff(url, '/r'), /not installed/);
+    await assert.rejects(svc({ code: 4 }).prDiff(url, '/r'), /not logged in/);
+  });
+});
+
 // ── C3: gh pr ready ─────────────────────────────────────────────────────────
 
 describe('PrStatusService.setReady (C3)', () => {

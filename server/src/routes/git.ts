@@ -3,10 +3,26 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { GitService } from '../services/GitService.js';
 import type { ChangelistStore } from '../persistence/ChangelistStore.js';
 import type { CommitSelectionStore } from '../persistence/CommitSelectionStore.js';
-import type { PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
+import type { ApiErrorBody, ArgusErrorCode, GitDiffResponse, PatchSelectionRequest, CommitRequest, GitCheckoutRequest, GitCreateBranchRequest, DiffFileRequest, GitPullAndBranchRequest, ChangelistStateResponse, CommitSelectionState } from '@argus/shared';
 import { resolveRelativeWithinBase } from '../utils/pathScope.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { workRootOf } from '../utils/workRoot.js';
+import { sendError } from '../errors/ArgusError.js';
+
+/** HTTP status of a failed diff, by its code. "Not a git repository" stays a
+ *  400 (what clients already expect); unclassified failures stay a 500. */
+const DIFF_ERROR_STATUS: Partial<Record<ArgusErrorCode, number>> = {
+  NOT_A_GIT_REPO: 400,
+  GIT_NOT_INSTALLED: 503,
+  FOLDER_NOT_FOUND: 404,
+  PERMISSION_DENIED: 403,
+  TIMEOUT: 504,
+};
+
+function diffErrorStatus(diff: GitDiffResponse): number {
+  if (diff.code) return DIFF_ERROR_STATUS[diff.code] ?? 500;
+  return diff.error === 'Not a git repository' ? 400 : 500;
+}
 
 /** Ref names reach git as bare argv words: a leading `-` would be parsed as an
  *  option (`--upload-pack=…`, `-f`), `..` as a range. Exported for tests. */
@@ -26,13 +42,8 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const diff = await gitService.getDiff(workRootOf(session));
 
-    if (diff.error === 'Not a git repository') {
-      res.status(400).json(diff);
-      return;
-    }
-
     if (diff.error) {
-      res.status(500).json(diff);
+      res.status(diffErrorStatus(diff)).json(diff);
       return;
     }
 
@@ -128,7 +139,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
 
     const result = await gitService.stageFile(workRootOf(session), filePath);
     if (!result.success) {
-      res.status(500).json({ error: result.error });
+      res.status(500).json({ error: result.error ?? 'git add failed', code: 'GIT_FAILED' } satisfies ApiErrorBody);
       return;
     }
     res.json({ ok: true });
@@ -509,7 +520,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       const defaultBranch = await gitService.getDefaultBranch(parentRepoPath);
       res.json({ parentRepoPath, defaultBranch });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      sendError(res, err, { tool: 'git' });
     }
   }));
 
@@ -528,7 +539,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       res.setHeader('Cache-Control', 'no-cache');
       res.json(result);
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      sendError(res, err, { tool: 'git' });
     }
   }));
 
@@ -551,7 +562,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
         parentRepoPath,
       });
     } catch (err) {
-      res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+      sendError(res, err, { tool: 'git' }, { success: false });
     }
   }));
 

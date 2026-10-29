@@ -90,3 +90,21 @@ test('stop() during connect settles the pending start() exactly once', { timeout
     fake.cleanup();
   }
 });
+
+// Typed error codes (plan 2026-10-29-003, Unit 2).
+test('an auth failure rejects with NGROK_AUTH_FAILED and status carries errorCode', { timeout: 3000 }, async () => {
+  const fake = makeFakeNgrok('echo "ERR_NGROK_4018 authtoken invalid" >&2\nexit 1');
+  const svc = makeService(fake.path);
+  try {
+    await assert.rejects(svc.start(5401), (e: unknown) => (e as { code?: string }).code === 'NGROK_AUTH_FAILED');
+    assert.equal(svc.getStatus().errorCode, 'NGROK_AUTH_FAILED');
+  } finally {
+    fake.cleanup();
+  }
+});
+
+test('start() without ngrok rejects with NGROK_NOT_INSTALLED', async () => {
+  const svc = new NgrokService();
+  (svc as unknown as { ngrokPath: string | null }).ngrokPath = null;
+  await assert.rejects(svc.start(5401), (e: unknown) => (e as { code?: string }).code === 'NGROK_NOT_INSTALLED');
+});

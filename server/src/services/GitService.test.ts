@@ -189,3 +189,21 @@ test('undoDiscard only restores a discard made in the same work root', async () 
     rmSync(repoB, { recursive: true, force: true });
   }
 });
+
+// Typed error codes (plan 2026-10-29-003, Unit 2): getDiff says *why* it failed.
+test('getDiff: a folder outside any repo answers NOT_A_GIT_REPO', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'argus-nogit-'));
+  try {
+    const d = await new GitService().getDiff(dir);
+    assert.equal(d.error, 'Not a git repository');
+    assert.equal(d.code, 'NOT_A_GIT_REPO');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('getDiff: a folder that no longer exists is FOLDER_NOT_FOUND, never "git not installed"', async () => {
+  const d = await new GitService().getDiff(path.join(tmpdir(), `argus-gone-${Date.now()}`));
+  assert.equal(d.code, 'FOLDER_NOT_FOUND');
+  assert.ok(d.error);
+});

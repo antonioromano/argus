@@ -12,7 +12,8 @@ type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
 /** What the user sees when the initial session list can't be fetched. The raw
  *  error ("Failed to fetch") says nothing about the cause, so it isn't shown. */
 export function describeLoadError(err: unknown): string {
-  if (err instanceof TypeError) {
+  // authFetch turns a rejected fetch into ApiError code SERVER_UNREACHABLE (plan 003).
+  if (err instanceof TypeError || (err as { code?: unknown } | null)?.code === 'SERVER_UNREACHABLE') {
     return 'The Argus server isn’t responding. It may still be starting, or it stopped. Argus retries when the connection comes back.';
   }
   const detail = err instanceof Error && err.message ? ` (${err.message})` : '';

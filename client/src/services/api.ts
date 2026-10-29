@@ -6,6 +6,8 @@ import type { SessionPrDiffResponse } from '@argus/shared';
 import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/shared';
 // Chat /resume picker (D1) — its own line too, for the same reason.
 import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
+// Typed error contract (plan 003) — its own line too, for the same reason.
+import type { ApiErrorBody, ArgusErrorCode } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -24,27 +26,43 @@ export function setToken(token: string | null): void {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** Typed class of the failure, when the server (or transport) knows it. */
+  readonly code?: ArgusErrorCode;
+  /** Raw tool output for a "Details" disclosure; never the headline. */
+  readonly detail?: string;
+  /** Code-specific values the error copy needs (tool, agent, installUrl…). */
+  readonly params?: Record<string, string>;
+  constructor(status: number, message: string, extra?: Pick<ApiErrorBody, 'code' | 'detail' | 'params'>) {
     super(message);
     this.status = status;
     this.name = 'ApiError';
+    if (extra?.code) this.code = extra.code;
+    if (extra?.detail) this.detail = extra.detail;
+    if (extra?.params) this.params = extra.params;
   }
 }
 
-async function parseError(res: Response): Promise<string> {
+/** The error body of a failed response; `error` falls back to the status text. */
+async function parseError(res: Response): Promise<ApiErrorBody> {
+  const fallback = res.statusText || `HTTP ${res.status}`;
   try {
-    const body = await res.json() as { error?: string };
-    return body.error || res.statusText || `HTTP ${res.status}`;
+    const body = await res.json() as Partial<ApiErrorBody> | null;
+    return {
+      error: (typeof body?.error === 'string' && body.error) || fallback,
+      ...(typeof body?.code === 'string' ? { code: body.code } : {}),
+      ...(typeof body?.detail === 'string' ? { detail: body.detail } : {}),
+      ...(body?.params && typeof body.params === 'object' ? { params: body.params } : {}),
+    };
   } catch {
-    return res.statusText || `HTTP ${res.status}`;
+    return { error: fallback };
   }
 }
 
 /** A rejected template save/launch; `specErrors` index into the specs sent (beta F10). */
 export class TemplateApiError extends ApiError {
   readonly specErrors: NonNullable<TemplateErrorResponse['specErrors']>;
-  constructor(status: number, message: string, specErrors: TemplateErrorResponse['specErrors']) {
-    super(status, message);
+  constructor(status: number, message: string, specErrors: TemplateErrorResponse['specErrors'], body?: Partial<ApiErrorBody> | null) {
+    super(status, message, body ? { code: body.code, detail: body.detail, params: body.params } : undefined);
     this.specErrors = specErrors ?? [];
     this.name = 'TemplateApiError';
   }
@@ -54,7 +72,7 @@ async function requireTemplateOk(res: Response): Promise<Response> {
   if (res.ok) return res;
   let body: TemplateErrorResponse | null = null;
   try { body = await res.json() as TemplateErrorResponse; } catch { /* not JSON */ }
-  throw new TemplateApiError(res.status, body?.error || res.statusText || `HTTP ${res.status}`, body?.specErrors);
+  throw new TemplateApiError(res.status, body?.error || res.statusText || `HTTP ${res.status}`, body?.specErrors, body as Partial<ApiErrorBody> | null);
 }
 
 /** Find in Files options; include/exclude are comma-separated glob lists. */
@@ -67,7 +85,10 @@ export interface FindInFilesQuery {
 }
 
 async function requireOk(res: Response): Promise<Response> {
-  if (!res.ok) throw new ApiError(res.status, await parseError(res));
+  if (!res.ok) {
+    const { error, ...extra } = await parseError(res);
+    throw new ApiError(res.status, error, extra);
+  }
   return res;
 }
 
@@ -91,11 +112,23 @@ export async function authFetch(
   // works). Harmless when not tunnelling. Without it, folder browsing over a
   // tunnel fails because the response can't be parsed as JSON.
   headers.set('ngrok-skip-browser-warning', 'true');
-  const res = await fetch(url, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (err) {
+    // An abort is the caller's own doing: keep it recognisable.
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    // fetch rejects only when no response came back at all: the server is down
+    // or unreachable. Say so instead of the browser's "Failed to fetch".
+    throw new ApiError(0, 'Argus server unreachable', {
+      code: 'SERVER_UNREACHABLE',
+      ...(err instanceof Error && err.message ? { detail: err.message } : {}),
+    });
+  }
   if (res.status === 401 && opts?.intercept401 !== false) {
     setToken(null);
     window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-    throw new Error('Authentication required');
+    throw new ApiError(401, 'Authentication required', { code: 'AUTH_REQUIRED' });
   }
   return res;
 }
