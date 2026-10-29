@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import type {
   AppConfig,
+  AppEnvironment,
   ClientToServerEvents,
   ServerToClientEvents,
   SessionInfo,
@@ -15,6 +16,8 @@ import type {
   WindowRegistryState,
 } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
+import { agentLabel, buildAppDiagnostics, redactConfig, type AppDiagnostics, type ServerFacts } from './services/AppDiagnostics.js';
+import { findDuplicateDaemons } from './services/ptyBackend/index.js';
 import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
 import { isBetaEnabled } from './utils/betaFlags.js';
@@ -197,6 +200,61 @@ export function getActiveSessionSummaries(): { name: string; status: string; ter
     .filter((s) => s.status !== 'exited')
     .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine, runMode: s.runMode ?? 'persistent' }));
 }
+
+// Help → Copy Diagnostics / Report an Issue (plan 002). In-process only, read
+// by electron/src/main.ts: there is deliberately no REST route, since the API
+// is reachable over ngrok. Counts and booleans, never names or paths.
+export function collectServerFacts(): ServerFacts {
+  const backend = sessionManager.activeBackend();
+  const sessions = sessionManager.getAllSessions();
+  const tally = (key: (s: SessionInfo) => string) => {
+    const out: Record<string, number> = {};
+    for (const s of sessions) out[key(s)] = (out[key(s)] ?? 0) + 1;
+    return out;
+  };
+  const ngrok = ngrokService.getStatus();
+  const cfg = currentConfig ?? ({} as Partial<AppConfig>);
+  return {
+    backend: {
+      configured: cfg.ptyBackend ?? 'auto',
+      active: backend.kind,
+      socket: backend.socketPath ? path.basename(backend.socketPath) : null,
+      daemonConnected: backend.connected,
+      duplicateDaemons: backend.socketPath ? findDuplicateDaemons(dataDir, backend.socketPath).length : 0,
+    },
+    sessions: {
+      total: sessions.length,
+      byStatus: tally((s) => s.status),
+      byAgent: tally((s) => agentLabel(s.agentType)),
+      byRunMode: tally((s) => s.runMode ?? 'persistent'),
+      byEngine: tally((s) => s.terminalEngine ?? 'default'),
+    },
+    windows: windowRegistry.getState().windows.length,
+    remote: {
+      exposed: authService.exposed,
+      authEnabled: authService.enabled,
+      ngrokInstalled: ngrok.installed,
+      ngrokTunnel: ngrok.tunnelStatus,
+    },
+    betaFlags: Object.entries(cfg).filter(([k, v]) => k.startsWith('beta') && v === true).map(([k]) => k),
+    uptimeSec: Math.round(process.uptime()),
+    config: redactConfig(cfg),
+  };
+}
+
+export function hostBuildDiagnostics(
+  environment: AppEnvironment,
+  logs: { recent: string[]; update: string[] },
+): AppDiagnostics {
+  return buildAppDiagnostics({
+    environment,
+    server: collectServerFacts(),
+    logs,
+    home: os.homedir(),
+    generatedAt: new Date().toISOString(),
+  });
+}
+
 const agentRegistry = new AgentRegistry();
 
 // One OS-level sleep blocker for the whole process, arbitrated by reason so a

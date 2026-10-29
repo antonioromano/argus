@@ -24,7 +24,7 @@
     "dev": "npm run electron:dev",
     "dev:web": "PORT=5401 DATA_DIR=data-dev ARGUS_TMUX_SOCKET=argus-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
-    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:electron": "tsc -p electron/tsconfig.json && node scripts/write-build-info.mjs",
     "build:native": "node scripts/build-native.mjs",
     "build:icon": "node scripts/build-icon.mjs",
     "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",

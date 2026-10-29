@@ -21,9 +21,10 @@ export type ShortcutActionId =
   | 'toggle-theme'
   | 'terminal-search'
   | 'clear-terminal'
-  | 'terminal-newline';
+  | 'terminal-newline'
+  | 'show-shortcuts';
 
-export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Explorer' | 'Terminal';
+export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Explorer' | 'Terminal' | 'Help';
 
 /** Where an action is live. Global actions go through the app-wide keydown
  *  handler; an `explorer` action only while a file explorer is open, where it
@@ -73,12 +74,17 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },
   { id: 'terminal-newline', label: 'Insert newline (multi-line prompt)', category: 'Terminal', defaultCombo: 'shift+enter', fixed: true },
+  // Has an app-menu twin (Help → Keyboard Shortcuts), gated while an editor has
+  // focus: ⌘/ is Monaco's Toggle Line Comment. Open-only on both paths, so a
+  // press that reaches both never cancels itself. Matched on the character
+  // typed (see comboMatches), so ⌘⇧7 on an Italian or German layout fires it.
+  { id: 'show-shortcuts', label: 'Keyboard shortcuts', category: 'Help', defaultCombo: 'mod+/' },
 ];
 
 export const SHORTCUTS_BY_ID: Record<ShortcutActionId, ShortcutAction> = Object.fromEntries(
   SHORTCUTS.map((s) => [s.id, s]),
 ) as Record<ShortcutActionId, ShortcutAction>;
 
-export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Explorer', 'Terminal'];
+export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Explorer', 'Terminal', 'Help'];
 
 export const scopeOf = (a: ShortcutAction): ShortcutScope => a.scope ?? 'global';

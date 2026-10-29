@@ -14,6 +14,10 @@ const SMALL = new Set(['a', 'an', 'and', 'the', 'for', 'in', 'on', 'of', 'to', '
 const NEEDS_INPUT = [
   'menu:open-settings', 'menu:new-session', 'menu:review-launch',
   'menu:toggle-palette', 'menu:session-search', 'menu:terminal-search', 'menu:whats-new',
+  // Opens a prefilled GitHub issue form for the user to complete.
+  'menu:report-issue',
+  // Open a save / open dialog.
+  'menu:export-settings', 'menu:import-settings',
 ];
 
 const placed = new Set<string>(MENU_LAYOUT.flatMap((m) => m.items.flatMap((i) => (typeof i === 'string' ? [i] : []))));

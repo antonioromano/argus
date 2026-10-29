@@ -557,10 +557,12 @@ export class SessionManager {
     this.wireBackend();
   }
 
-  /** The persistent backend in use: its kind, and the argusd socket when it is the daemon. */
-  activeBackend(): { kind: PtyBackend['kind']; socketPath: string | null } {
+  /** The persistent backend in use: its kind, and the argusd socket (and whether it is up) when it is the daemon. */
+  activeBackend(): { kind: PtyBackend['kind']; socketPath: string | null; connected: boolean | null } {
     const b = this.backend;
-    return { kind: b.kind, socketPath: b instanceof DaemonBackend ? b.socketPath : null };
+    return b instanceof DaemonBackend
+      ? { kind: b.kind, socketPath: b.socketPath, connected: b.isConnected() }
+      : { kind: b.kind, socketPath: null, connected: null };
   }
 
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */

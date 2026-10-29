@@ -27,6 +27,9 @@ export const COLLIDING_MENU_CHANNELS = [
   // Cmd+Shift+L: editor.action.selectHighlights (Select All Occurrences). The
   // Toggle Theme accelerator would otherwise steal it inside an editor.
   'menu:toggle-theme',
+  // Cmd+/: editor.action.commentLine (Toggle Line Comment). Help → Keyboard
+  // Shortcuts would otherwise steal it inside an editor.
+  'menu:show-shortcuts',
 ] as const;
 
 export type CollidingMenuChannel = typeof COLLIDING_MENU_CHANNELS[number];

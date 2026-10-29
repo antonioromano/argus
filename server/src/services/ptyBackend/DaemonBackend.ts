@@ -36,6 +36,11 @@ export class DaemonBackend implements PtyBackend {
     this.client.on('resync', (sessionId: string) => this.reattach(sessionId));
   }
 
+  /** Whether the argusd socket is up right now (Help → Copy Diagnostics). */
+  isConnected(): boolean {
+    return this.client.isConnected();
+  }
+
   private reattach(sessionId: string): void {
     if (!this.ptys.has(sessionId)) return; // stopped meanwhile: nothing to repaint
     this.client.attach(sessionId, () => this.resyncCb?.(sessionId));

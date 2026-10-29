@@ -35,7 +35,8 @@ export type MenuShortcutId =
   | 'open-shell'
   | 'terminal-search'
   | 'clear-terminal'
-  | 'toggle-theme';
+  | 'toggle-theme'
+  | 'show-shortcuts';
 
 export const MENU_SHORTCUT_DEFAULTS: Record<MenuShortcutId, string> = {
   'new-session': 'mod+n',
@@ -50,6 +51,7 @@ export const MENU_SHORTCUT_DEFAULTS: Record<MenuShortcutId, string> = {
   'terminal-search': 'mod+f',
   'clear-terminal': 'mod+l',
   'toggle-theme': 'mod+shift+l',
+  'show-shortcuts': 'mod+/',
 };
 
 const MENU_SHORTCUT_IDS = Object.keys(MENU_SHORTCUT_DEFAULTS) as MenuShortcutId[];

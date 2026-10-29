@@ -64,15 +64,28 @@ export function eventToCombo(e: KeyboardEvent): string {
   });
 }
 
-/** True only when the event matches the combo on key AND every modifier exactly. */
+/** A punctuation key: matched on the character it produces, whatever it took to type it. */
+function isPunctuation(key: string): boolean {
+  return key.length === 1 && !/[a-z0-9]/.test(key);
+}
+
+/**
+ * True when the event matches the combo on key AND every modifier exactly —
+ * except Shift on a punctuation key. Where `/` sits on Shift+7 (Italian,
+ * German), ⌘⇧7 produces key "/" with shiftKey set; a `mod+/` binding should
+ * fire there, so a Shift the combo doesn't name is ignored when the produced
+ * character already matches. Letters and digits keep the strict check
+ * (⌘L and ⌘⇧L are different actions).
+ */
 export function comboMatches(e: KeyboardEvent, combo: string): boolean {
   const p = parseCombo(combo);
   if (!p) return false;
+  const key = normalizeKey(e.key);
   return (
-    normalizeKey(e.key) === p.key &&
+    key === p.key &&
     isPrimaryModifier(e) === p.mod &&
     e.altKey === p.alt &&
-    e.shiftKey === p.shift
+    (e.shiftKey === p.shift || (!p.shift && isPunctuation(key)))
   );
 }
 
