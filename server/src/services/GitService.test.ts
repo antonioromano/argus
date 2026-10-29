@@ -160,3 +160,32 @@ test('GitService.summary: reads a real repo, null outside one', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The undo buffer is keyed by an unguessable id, but the route is scoped to a
+// session: an undo id from one session's discard must not re-apply the patch
+// when redeemed through another session (different work root).
+test('undoDiscard only restores a discard made in the same work root', async () => {
+  const repoA = makeTempRepo();
+  const repoB = makeTempRepo();
+  try {
+    const git = new GitService();
+    writeFileSync(path.join(repoA, 'file.txt'), 'hello\nworld\n');
+    const discard = await git.discardPatch(repoA, {
+      filePath: 'file.txt',
+      source: 'unstaged',
+      chunks: [{ chunkIndex: 0, selectedChangeIndices: [0] }],
+    } as Parameters<GitService['discardPatch']>[1]);
+    assert.equal(discard.success, true, discard.error);
+    assert.ok(discard.undoId);
+
+    const foreign = await git.undoDiscard(discard.undoId!, repoB);
+    assert.equal(foreign.success, false);
+
+    const own = await git.undoDiscard(discard.undoId!, repoA);
+    assert.equal(own.success, true, own.error);
+    assert.equal(execFileSync('git', ['diff', '--name-only'], { cwd: repoA, encoding: 'utf8' }).trim(), 'file.txt');
+  } finally {
+    rmSync(repoA, { recursive: true, force: true });
+    rmSync(repoB, { recursive: true, force: true });
+  }
+});

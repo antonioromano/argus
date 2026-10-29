@@ -822,9 +822,12 @@ export class GitService {
     }
   }
 
-  async undoDiscard(undoId: string): Promise<PatchOperationResponse> {
+  /** Re-applies a discarded patch. `folderPath` is the caller's work root: an
+   *  undo id only redeems in the work root its discard came from, so one
+   *  session can't replay another session's patch. */
+  async undoDiscard(undoId: string, folderPath: string): Promise<PatchOperationResponse> {
     const entry = this.undoBuffer.get(undoId);
-    if (!entry) {
+    if (!entry || entry.folderPath !== folderPath) {
       return { success: false, error: 'Undo window expired or not found' };
     }
 

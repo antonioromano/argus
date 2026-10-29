@@ -191,7 +191,7 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
       return;
     }
 
-    const result = await gitService.undoDiscard(req.params.undoId);
+    const result = await gitService.undoDiscard(req.params.undoId, workRootOf(session));
     res.status(result.success ? 200 : 404).json(result);
   }));
 
