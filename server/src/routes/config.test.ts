@@ -411,3 +411,27 @@ test('inspector: width is clamped, side is left or right, visibility is a strict
   }
   assert.deepEqual((await get()).inspectorCollapsed, ['usage', 'git']);
 });
+
+// Malformed agent payloads used to reach .trim() on a non-string and crash the
+// handler with a 500; they are client errors and must come back as 400s.
+test('malformed agentFlags / customAgents are rejected with 400, not 500', async () => {
+  const before = await get();
+  const cases: unknown[] = [
+    { agentFlags: 'nope' },
+    { agentFlags: { claude: 'not-a-list' } },
+    { agentFlags: { claude: [{ value: 42 }] } },
+    { agentFlags: { claude: [null] } },
+    { customAgents: 'nope' },
+    { customAgents: [null] },
+    { customAgents: [{ id: 'x', name: 7, command: 'x' }] },
+    { customAgents: [{ id: 'x', name: 'X', command: 7 }] },
+    { customAgents: [{ id: 'x', name: 'X', command: 'x', promptFlag: 5 }] },
+  ];
+  for (const body of cases) {
+    const res = await put(body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}, got ${res.status}`);
+  }
+  const after = await get();
+  assert.deepEqual(after.customAgents, before.customAgents);
+  assert.deepEqual(after.agentFlags, before.agentFlags);
+});

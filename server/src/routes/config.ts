@@ -29,9 +29,14 @@ function isInspectorSectionList(v: unknown): v is string[] {
     && v.every((id) => typeof id === 'string' && INSPECTOR_SECTION_ID.test(id));
 }
 
-function validateAgentFlags(agentFlags: Record<string, AgentFlag[]>): string | null {
-  for (const [, flags] of Object.entries(agentFlags)) {
-    for (const flag of flags) {
+function validateAgentFlags(agentFlags: unknown): string | null {
+  if (typeof agentFlags !== 'object' || agentFlags === null || Array.isArray(agentFlags)) {
+    return 'agentFlags must be an object of agent ids to flag lists.';
+  }
+  for (const flags of Object.values(agentFlags as Record<string, unknown>)) {
+    if (!Array.isArray(flags)) return 'Each agent\'s flags must be a list.';
+    for (const flag of flags as Partial<AgentFlag>[]) {
+      if (typeof flag?.value !== 'string') return 'Each flag needs a string value.';
       if (!FLAG_PATTERN.test(flag.value.trim())) {
         return `Invalid flag value: "${flag.value}". Flags must start with - or -- and contain only safe characters.`;
       }
@@ -40,15 +45,17 @@ function validateAgentFlags(agentFlags: Record<string, AgentFlag[]>): string | n
   return null;
 }
 
-function validateCustomAgents(customAgents: AgentDefinition[]): string | null {
-  for (const a of customAgents) {
+function validateCustomAgents(customAgents: unknown): string | null {
+  if (!Array.isArray(customAgents)) return 'customAgents must be a list.';
+  for (const a of customAgents as Partial<AgentDefinition>[]) {
+    if (typeof a !== 'object' || a === null) return 'Each custom agent must be an object.';
     if (!a.id || typeof a.id !== 'string') return 'Each custom agent needs an id.';
-    if (!a.name?.trim()) return 'Each custom agent needs a name.';
-    if (!a.command?.trim()) return `Agent "${a.name}" needs a command.`;
+    if (typeof a.name !== 'string' || !a.name.trim()) return 'Each custom agent needs a name.';
+    if (typeof a.command !== 'string' || !a.command.trim()) return `Agent "${a.name}" needs a command.`;
     if (!COMMAND_PATTERN.test(a.command.trim())) {
       return `Invalid command "${a.command}". Commands may contain only letters, numbers, and _ @ . / - characters.`;
     }
-    if (a.promptFlag !== undefined && !/^--?[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(a.promptFlag)) {
+    if (a.promptFlag !== undefined && (typeof a.promptFlag !== 'string' || !/^--?[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(a.promptFlag))) {
       return `Invalid prompt flag "${a.promptFlag}" for agent "${a.name}".`;
     }
   }
@@ -89,7 +96,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       return;
     }
 
-    if (agentFlags) {
+    if (agentFlags !== undefined) {
       const validationError = validateAgentFlags(agentFlags);
       if (validationError) {
         res.status(400).json({ error: validationError });
@@ -97,7 +104,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       }
     }
 
-    if (customAgents) {
+    if (customAgents !== undefined) {
       const agentError = validateCustomAgents(customAgents);
       if (agentError) {
         res.status(400).json({ error: agentError });
