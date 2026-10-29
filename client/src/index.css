@@ -2187,6 +2187,36 @@ body {
   justify-content: center;
   margin-top: var(--s-1);
 }
+.argus-landing-promo {
+  margin: var(--s-2) 0 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1-5);
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.argus-landing-promo-try {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+.argus-landing-promo-try:hover { text-decoration: underline; }
+.argus-landing-promo-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-landing-promo-try:focus-visible,
+.argus-landing-promo-x:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 @keyframes argus-landing-breathe {
   /* opacity-only — scaling this 620px blurred radial-gradient re-rasterizes the
      blur every frame (very costly on the CPU; GPU compositing is off). */
@@ -2788,3 +2818,155 @@ body {
   border: 1px solid var(--line-2);
   border-radius: var(--r-2);
 }
+
+/* ── Tip card (plan 006): one-time hint, bottom-left so it never stacks with
+   the bottom-right toasts. Opacity/transform only on enter. ──────────────── */
+.argus-tipcard {
+  position: fixed;
+  left: var(--s-4);
+  bottom: var(--s-4);
+  z-index: var(--z-toast);
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--s-4));
+  box-sizing: border-box;
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  background: var(--material-menu);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg-1);
+  font-size: var(--t-small);
+  opacity: 0;
+  transform: translateY(var(--s-1));
+  transition: opacity var(--dur-base) var(--ease-std), transform var(--dur-base) var(--ease-std);
+}
+.argus-tipcard[data-shown] { opacity: 1; transform: none; }
+.argus-tipcard-head { display: flex; align-items: center; gap: var(--s-2); }
+.argus-tipcard-title { flex: 1; min-width: 0; color: var(--fg-0); font-size: var(--t-body); font-weight: 600; }
+.argus-tipcard-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.argus-tipcard-body { line-height: 1.45; color: var(--fg-1); }
+.argus-tipcard-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  color: var(--fg-0);
+}
+.argus-tipcard-actions { display: flex; align-items: center; gap: var(--s-2); }
+.argus-tipcard-off {
+  all: unset;
+  margin-left: auto;
+  color: var(--fg-3);
+  font-size: var(--t-caption);
+  cursor: pointer;
+}
+.argus-tipcard-off:hover { color: var(--fg-1); text-decoration: underline; }
+.argus-tipcard-x:focus-visible,
+.argus-tipcard-off:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+.argus-tipcard-foot { color: var(--fg-2); font-size: var(--t-caption); display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) {
+  .argus-tipcard { transition: none; transform: none; }
+}
+
+/* ── Command palette rows (plan 001). Hover and selection change the
+   background only, never the row's size. ─────────────────────────────── */
+.argus-cmd-eyebrow { padding: var(--s-2) var(--s-4); color: var(--fg-3); }
+.argus-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px var(--s-4);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.argus-cmd-row[aria-selected='true'] { background: var(--bg-3); border-left-color: var(--accent); }
+.argus-cmd-check { width: 10px; flex-shrink: 0; color: var(--accent); font-size: var(--t-micro); text-align: center; }
+.argus-cmd-icon { flex-shrink: 0; color: var(--fg-3); }
+.argus-cmd-title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--fg-0);
+}
+.argus-cmd-row[aria-selected='true'] .argus-cmd-icon,
+.argus-cmd-row[aria-selected='true'] .argus-cmd-title { color: var(--accent); }
+.argus-cmd-row[data-destructive] .argus-cmd-icon,
+.argus-cmd-row[data-destructive] .argus-cmd-title { color: var(--danger); }
+.argus-cmd-fill { flex: 1; }
+.argus-cmd-hint {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-3);
+}
+
+/* ── Getting-started checklist (plan 006): sidebar card between Pilot and
+   System. A tick changes glyph and colour only; the row never reflows. ───── */
+.argus-checklist {
+  margin: var(--s-3) var(--s-2) 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+}
+.argus-checklist-head { display: flex; align-items: center; gap: var(--s-1); }
+.argus-checklist-toggle {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.argus-checklist-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-checklist-list { list-style: none; margin: var(--s-1-5) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+.argus-checklist-row { display: flex; align-items: center; gap: var(--s-1-5); font-size: var(--t-caption); color: var(--fg-1); }
+.argus-checklist-row[data-done] { color: var(--fg-3); }
+.argus-checklist-row .argus-checklist-glyph { flex-shrink: 0; color: var(--fg-4); }
+.argus-checklist-row[data-done] .argus-checklist-glyph { color: var(--ok); }
+.argus-checklist-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-checklist-act {
+  all: unset;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: var(--t-caption);
+  cursor: pointer;
+}
+.argus-checklist-act:hover { text-decoration: underline; }
+.argus-checklist-done-msg { margin: var(--s-1-5) 0 0; font-size: var(--t-caption); color: var(--ok); }
+.argus-checklist-toggle:focus-visible,
+.argus-checklist-x:focus-visible,
+.argus-checklist-act:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }

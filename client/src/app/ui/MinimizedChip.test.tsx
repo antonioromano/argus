@@ -25,6 +25,7 @@ const session: SessionInfo = {
 function menu(renaming: boolean): SessionMenuApi {
   return {
     openMenu: () => {},
+    openMenuAt: () => {},
     beginRename: () => {},
     isRenaming: () => renaming,
     commitRename: () => {},

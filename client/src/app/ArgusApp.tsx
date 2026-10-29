@@ -23,9 +23,9 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, InspectorSide, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, PanelLeft, PanelRight } from 'lucide-react';
+import { WifiOff, Loader2, Plus } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
-import { focusPendingLaunch } from './ui/launchFocus.js';
+import { focusPendingLaunch, hasPendingLaunch } from './ui/launchFocus.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 import { registerErrorActionHost } from '../errors/errorActions.js';
 
@@ -46,7 +46,7 @@ import { Focus } from './views/Focus.js';
 import { Overlay } from './overlays/Overlay.js';
 import { CreateSheet } from './overlays/CreateSheet.js';
 import { CloneSheet } from './overlays/CloneSheet.js';
-import { CommandPalette } from './overlays/CommandPalette.js';
+import { RegistryPalette } from './overlays/RegistryPalette.js';
 import { WaitingInbox } from './overlays/WaitingInbox.js';
 import { SessionSearch } from './overlays/SessionSearch.js';
 import { requestTerminalReveal } from '../hooks/terminalReveal.js';
@@ -54,12 +54,23 @@ import { BroadcastSheet } from './overlays/BroadcastSheet.js';
 import { formatCombo } from '../keyboard/combo.js';
 import { activeScopes, scopedHandler, createMenuEchoGuard, createDedupeGate } from '../keyboard/scopes.js';
 import { useMenuCommandHandlers } from '../commands/useMenuCommandHandlers.js';
-import type { PaletteCommand } from './overlays/paletteCommands.js';
+import { invokeMenu } from '../commands/menuBridge.js';
+import type { CommandContext } from '../commands/sources/index.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
 import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
-import { introConfigPatch, introToShow } from './intro/intro.js';
+import { introConfigPatch, introDiscoveryPatch, introToShow } from './intro/intro.js';
 import { IntroSheet, type IntroResult } from './intro/IntroSheet.js';
+import { ShortcutsSheet } from './overlays/ShortcutsSheet.js';
+import { AboutSheet } from './overlays/AboutSheet.js';
+import { runHelpAction } from './helpActions.js';
+import { useDiscovery } from './discovery/useDiscovery.js';
+import { DiscoveryHost } from './discovery/DiscoveryHost.js';
+import { emitDiscovery } from './discovery/discoveryEvents.js';
+import type { TipAction } from './discovery/tips.js';
+import { GettingStarted } from './discovery/GettingStarted.js';
+import type { ChecklistId } from './discovery/checklist.js';
+import { HIDE_ALL_PROMOS, promosFor, runBetaPromo, templatesPromoVisible, type BetaPromo } from './discovery/betaPromos.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../constants/tileActions.js';
 import { SettingsOverlay } from './overlays/SettingsOverlay.js';
 import { MergePreviewSheet } from './overlays/MergePreviewSheet.js';
@@ -208,7 +219,7 @@ function DesktopRoot() {
 const NO_SECTIONS: readonly string[] = [];
 
 function DesktopInner() {
-  const { theme, isDark, toggle: toggleTheme } = useTheme();
+  const { theme, isDark, mode: themeMode, setMode: setThemeMode, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
   const { sessions, loaded: sessionsLoaded, loadError: sessionsLoadError, retry: retrySessionsLoad, createSession, adoptSession, deleteSession, renameSession } = useSessions(socket);
@@ -445,15 +456,32 @@ function DesktopInner() {
   // focus; openOverlay is idempotent so a redundant double-fire is harmless.
   const openCreate = useCallback(() => app.openOverlay({ kind: 'create' }), [app]);
   const openWhatsNew = useCallback(() => app.openOverlay({ kind: 'intro', flow: 'whatsNew' }), [app]);
-  const openInbox = useCallback(() => app.openOverlay({ kind: 'inbox' }), [app]);
-  const openBroadcast = useCallback((sessionIds: string[]) => app.openOverlay({ kind: 'broadcast', sessionIds }), [app]);
+  // Help surfaces (plan 002). Open-only: ⌘/ can reach both the menu
+  // accelerator and the keydown handler, and opening twice is harmless.
+  const openShortcuts = useCallback(() => app.openOverlay({ kind: 'shortcuts' }), [app]);
+  const openAbout = useCallback(() => app.openOverlay({ kind: 'about' }), [app]);
+  const copyDiagnostics = useCallback(() => { void runHelpAction('copy-diagnostics'); }, []);
+  const reportIssue = useCallback(() => { void runHelpAction('report-issue'); }, []);
+  // Each opener also tells the discovery layer the feature was found, so no tip
+  // ever teaches it (see discovery/tips.ts).
+  const openInbox = useCallback(() => {
+    emitDiscovery({ type: 'used', marker: 'inbox' });
+    app.openOverlay({ kind: 'inbox' });
+  }, [app]);
+  const openBroadcast = useCallback((sessionIds: string[]) => {
+    emitDiscovery({ type: 'used', marker: 'broadcast' });
+    app.openOverlay({ kind: 'broadcast', sessionIds });
+  }, [app]);
   // Ack-based so the sheet can show the server's refusal (unknown shell, rate
   // limit) inline; the timeout covers a dropped socket, which never acks.
   const sendBroadcast = useCallback((req: BroadcastRequest) => new Promise<BroadcastResult>((resolve) => {
     const timer = setTimeout(() => resolve({ ok: false, error: 'No answer from Argus — check the connection and try again' }), 5000);
     socket.emit('session:broadcast', req, (res) => { clearTimeout(timer); resolve(res); });
   }), [socket]);
-  const openSearch = useCallback(() => app.openOverlay({ kind: 'search' }), [app]);
+  const openSearch = useCallback(() => {
+    emitDiscovery({ type: 'used', marker: 'session-search' });
+    app.openOverlay({ kind: 'search' });
+  }, [app]);
 
   // One-time What's new / Welcome (see intro/intro.ts). Opened once per launch,
   // and only when nothing else is on screen; the ref keeps a slow config write
@@ -465,12 +493,32 @@ function DesktopInner() {
     introAutoShownRef.current = true;
     app.openOverlay({ kind: 'intro', flow: pendingIntro });
   }, [pendingIntro, app]);
+  // Contextual discovery (tips, notification ask). Main window only: config is
+  // not pushed across windows, so a second writer would race on stale state.
+  const isMainWindow = windowsApi.myWindowId === MAIN_WINDOW_ID;
+  const disc = useDiscovery({ config, updateConfig, isMainWindow });
+  const handleTipAction = useCallback((action: TipAction) => {
+    if (action === 'inbox') openInbox();
+    else if (action === 'broadcast') openBroadcast([]);
+    else if (action === 'search') openSearch();
+    else app.openOverlay({ kind: 'settings', initialTab: 'isolation' });
+  }, [app, openInbox, openBroadcast, openSearch]);
+  const handleChecklistAction = useCallback((id: ChecklistId) => {
+    if (id === 'two-sessions') openCreate();
+    else if (id === 'inbox') openInbox();
+    else app.openOverlay({ kind: 'settings', initialTab: id === 'remote' ? 'remote' : 'notifications' });
+  }, [app, openCreate, openInbox]);
   const handleIntroDone = useCallback((result: IntroResult) => {
     const version = updateStatus?.currentVersion ?? '';
-    void updateConfig(introConfigPatch(result, config?.quickActionPromptedAt, version));
+    const flow = app.overlay?.kind === 'intro' ? app.overlay.flow : null;
+    // The checklist write waits for the intro's own save: two PUTs in flight
+    // can each load the old file and the later save drops the other's keys.
+    void updateConfig(introConfigPatch(result, config?.quickActionPromptedAt, version))
+      .then(() => flow && disc.patch((d) => introDiscoveryPatch(flow, d, Date.now()) ?? d))
+      .catch(console.error);
     if (result.openCreate) app.openOverlay({ kind: 'create' });
     else app.closeOverlay();
-  }, [app, config?.quickActionPromptedAt, updateConfig, updateStatus?.currentVersion]);
+  }, [app, config?.quickActionPromptedAt, updateConfig, updateStatus?.currentVersion, disc]);
   // The five actions below act on "the focused shell" — same target as the
   // window-keydown switch cases further down (open-diff/open-files/open-shell/
   // terminal-search) and useTerminal's own clear-terminal keydown case. Each is
@@ -509,7 +557,8 @@ function DesktopInner() {
   // Every renderer-run app-menu item, dispatched from one `menu:command`
   // subscription (ids: electron/src/menuModel.ts). The handler map is typed
   // against the menu model, so an item without a handler fails type-check.
-  useMenuCommandHandlers({
+  // The palette runs menu rows through the same map (runMenuCommand).
+  const runMenuCommand = useMenuCommandHandlers({
     openSettings: () => app.openOverlay({ kind: 'settings' }),
     togglePalette,
     toggleTheme,
@@ -524,6 +573,13 @@ function DesktopInner() {
     terminalSearch: openTerminalSearch,
     clearTerminal: clearFocusedTerminalScrollback,
     whatsNew: openWhatsNew,
+    about: openAbout,
+    showShortcuts: openShortcuts,
+    reportIssue,
+    copyDiagnostics,
+    // A fresh action object each time, so Settings runs it even when already open.
+    exportSettings: () => app.openOverlay({ kind: 'settings', action: { kind: 'export' } }),
+    importSettings: () => app.openOverlay({ kind: 'settings', action: { kind: 'import' } }),
     paletteGate,
     themeGate,
     scopedEcho: menuEcho,
@@ -589,7 +645,7 @@ function DesktopInner() {
   const ownsSession = useCallback((id: string) => windowsOwnerOf(id) === thisWindowId, [windowsOwnerOf, thisWindowId]);
   useNotifications({
     sessions,
-    enabled: config?.notificationsEnabled ?? true,
+    enabled: config?.notificationsEnabled ?? false,
     notifyOnWaiting: config?.notifyOnWaiting ?? true,
     notifyOnDone: config?.notifyOnDone ?? false,
     notifyOnPrChecks: config?.notifyOnPrChecks ?? true,
@@ -722,13 +778,20 @@ function DesktopInner() {
           e.preventDefault();
           toggleInspector();
           break;
+        case 'show-shortcuts':
+          // Inside an editor ⌘/ is Monaco's Toggle Line Comment. Anywhere else,
+          // the chat composer included, it opens the sheet.
+          if (target?.closest('.monaco-editor')) return;
+          e.preventDefault();
+          openShortcuts();
+          break;
         default:
           break;
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector, togglePalette, paletteGate, toggleTheme, themeGate]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector, togglePalette, paletteGate, toggleTheme, themeGate, openShortcuts]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId
@@ -958,71 +1021,23 @@ function DesktopInner() {
     </>
   );
 
-  // Command palette actions. Built per render — the palette is only mounted
-  // while open, so this costs nothing the rest of the time.
-  const paletteCommands: PaletteCommand[] = [
-    {
-      id: 'waiting-inbox',
-      label: counts.waiting > 0 ? `Waiting inbox (${counts.waiting})` : 'Waiting inbox',
-      hint: formatCombo(shortcuts.resolved['waiting-inbox']),
-      keywords: 'waiting prompt approve answer pending needs input',
-      icon: Inbox,
-      run: openInbox,
-    },
-    {
-      id: 'session-search',
-      label: 'Search all sessions…',
-      hint: formatCombo(shortcuts.resolved['session-search']),
-      keywords: 'find grep scrollback transcript history output everywhere',
-      icon: Search,
-      run: openSearch,
-    },
-    {
-      id: 'toggle-inspector',
-      label: inspectorShown ? 'Hide Session Inspector' : 'Show Session Inspector',
-      hint: formatCombo(shortcuts.resolved['toggle-inspector']),
-      keywords: 'inspector side panel show hide usage context git branch github pull request pr',
-      icon: inspectorSide === 'left' ? PanelLeft : PanelRight,
-      run: toggleInspector,
-    },
-    {
-      id: 'inspector-side',
-      label: inspectorSide === 'left' ? 'Move Session Inspector to the right' : 'Move Session Inspector to the left',
-      hint: 'side panel',
-      keywords: 'inspector side panel left right usage context git branch github pull request pr',
-      icon: inspectorSide === 'left' ? PanelRight : PanelLeft,
-      run: switchInspectorSide,
-    },
-    {
-      id: 'broadcast',
-      label: 'Broadcast input…',
-      hint: 'type into several shells',
-      keywords: 'send all many multiple type same text compact',
-      icon: Send,
-      run: () => openBroadcast([]),
-    },
-    // Beta F10: templates live in Settings → Launchers; listed only while the flag is on.
-    ...(templatesEnabled ? [{
-      id: 'launch-template',
-      label: 'Launch template…',
-      hint: 'several shells into a new group',
-      keywords: 'template multi session spawn group worktree start',
-      icon: LayoutTemplate,
-      run: () => app.openOverlay({ kind: 'settings', initialTab: 'launchers' }),
-    }] : []),
-    ...orderedSessions.filter(canResume).map((s) => ({
-      id: `resume-${s.id}`,
-      label: `Resume conversation: ${s.name}`,
-      hint: s.folderPath.split('/').slice(-2).join('/'),
-      keywords: 'resume claude continue restart',
-      icon: History,
-      run: () => { app.closeOverlay(); resumeSession(s); },
-    })),
-  ];
-
   // One shell action menu for the whole app: every surface that shows a shell
   // name (tile header, focus header, sidebar row, minimized chip) opens this on
   // right-click, and Rename flips that surface into an inline editor.
+  // "Try … (beta)": one click switches the flag on and runs the feature on this
+  // session — no detour through Settings (discovery/betaPromos.ts).
+  const tryBetaPromo = (promo: BetaPromo, s: SessionInfo) => {
+    void runBetaPromo(promo, s, {
+      enable: (flag) => updateConfig({ [flag]: true }),
+      openHandoff: setHandoffSession,
+      openChain: setChainSession,
+      openFinish: setFinishSession,
+      openActivity: (target) => { app.openSession(target.id); app.openSidePanel({ kind: 'activity', sessionId: target.id }); },
+      toast: (message) => pushToast(message, 'ok', { durationMs: 5000 }),
+    }).catch(console.error);
+  };
+  const liveCount = sessions.filter((s) => s.status !== 'exited').length;
+
   const sessionMenuActions = {
     onOpen: openSessionGuarded,
     onKill: requestKill,
@@ -1055,6 +1070,52 @@ function DesktopInner() {
     onMoveToWindow: (s: SessionInfo, windowId: string) => { void windowsApi.moveToWindow(s.id, windowId).catch(console.error); },
     onMergeAllHere: () => { void windowsApi.mergeAllHere().catch(console.error); },
     canMergeAllHere: windowsApi.windows.length > 1,
+    // Promos only in the main window: dismissals write discovery state there.
+    betaPromos: isMainWindow
+      ? (s: SessionInfo) => promosFor(s, { config, liveCount, discovery: disc.discovery })
+        .map((p) => ({ id: `try-${p.flag}`, label: p.label, hint: p.hint, icon: p.icon, onTry: (target: SessionInfo) => tryBetaPromo(p, target) }))
+      : undefined,
+    onHideBetaPromos: () => { void disc.patch((d) => ({ ...d, betaPromosHidden: [HIDE_ALL_PROMOS] })); },
+  };
+
+  // What the command palette's sources read (commands/sources). Built per
+  // render, but the registry only runs while the palette is open.
+  const focusedSession = activeTerminalId ? sessions.find((s) => s.id === activeTerminalId) ?? null : null;
+  const commandContext: Omit<CommandContext, 'menu' | 'beginRename'> = {
+    closePalette: app.closeOverlay,
+    config,
+    updateConfig: (patch) => { updateConfig(patch).catch(console.error); },
+    shortcuts: shortcuts.resolved,
+    openSettings: (pane, focusSetting) => app.openOverlay({ kind: 'settings', initialTab: pane, focusSetting }),
+    toast: (message, tone = 'ok') => pushToast(message, tone),
+    runMenuCommand,
+    invokeMenu,
+    hasPendingLaunch: hasPendingLaunch(),
+    waitingCount: counts.waiting,
+    isDark,
+    inspectorShown,
+    toggleInspector,
+    scopedHandler,
+    inspectorSide,
+    switchInspectorSide,
+    openBroadcast: () => openBroadcast([]),
+    templatesEnabled,
+    themeMode,
+    setThemeMode,
+    groups: groups.groups,
+    activeGroupId,
+    setActiveGroup: (id) => { setActiveGroupId(id); if (id) app.exitFocus(); },
+    keepAwake: keepAwake.status,
+    armKeepAwake: (ms) => { void keepAwake.arm(ms); },
+    disarmKeepAwake: () => { void keepAwake.disarm(); },
+    tunnelStatus: ngrok.status?.tunnelStatus ?? null,
+    stopTunnel: () => { void ngrok.stopTunnel(); },
+    updateVersion: updateStatus?.hasUpdate ? updateStatus.latestVersion : null,
+    openUpdate: () => app.openOverlay({ kind: 'update' }),
+    focusedSession,
+    sessionMenuActions,
+    resumable: orderedSessions.filter(canResume),
+    resume: resumeSession,
   };
 
   return (
@@ -1105,6 +1166,16 @@ function DesktopInner() {
           version={updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
           inspector={inspectorVisible && inspectorSide === 'left' ? renderInspector('sidebar') : undefined}
+          checklist={(
+            <GettingStarted
+              disc={disc}
+              isMainWindow={isMainWindow}
+              liveCount={liveCount}
+              notificationsEnabled={config?.notificationsEnabled ?? false}
+              tunnelStatus={ngrok.status?.tunnelStatus}
+              onAction={handleChecklistAction}
+            />
+          )}
           onCollapsedChange={setSidebarCollapsed}
           expandRequest={sidebarExpandRequest}
           sessionTree={
@@ -1165,13 +1236,8 @@ function DesktopInner() {
               onKill={requestKill}
               onRestart={setPendingRestart}
               onResume={resumeSession}
-              onDumpDiagnostics={(s) => void handleDumpDiagnostics(s)}
-              showDiagnostics={config?.debugToolsEnabled ?? false}
               onMarkDone={(s) => socket.emit('session:mark-done', s.id)}
               onMerge={handleMerge}
-              onFinish={worktreeLifecycle ? setFinishSession : undefined}
-              onHandoff={handoffEnabled ? setHandoffSession : undefined}
-              onChain={chainsEnabled ? setChainSession : undefined}
               chainCounts={chainsEnabled ? chainCounts : undefined}
               onClone={(s) => app.openOverlay({ kind: 'clone', folderPath: s.folderPath, agentType: s.agentType, terminalEngine: s.terminalEngine, runMode: s.runMode })}
               mergingSessionId={mergeFlow?.phase === 'merging' ? mergeFlow.session.id : null}
@@ -1194,6 +1260,16 @@ function DesktopInner() {
               customAgents={config?.customAgents}
               loadError={sessionsLoadError}
               onRetryLoad={retrySessionsLoad}
+              landingPromo={isMainWindow && templatesPromoVisible(config, disc.discovery) ? {
+                onTry: () => {
+                  void updateConfig({ betaSessionTemplates: true })
+                    .then(() => app.openOverlay({ kind: 'settings', initialTab: 'launchers' }))
+                    .catch(console.error);
+                },
+                onDismiss: () => {
+                  void disc.patch((d) => ({ ...d, betaPromosHidden: [...d.betaPromosHidden, 'betaSessionTemplates'] }));
+                },
+              } : undefined}
             />
           )}
 
@@ -1279,7 +1355,9 @@ function DesktopInner() {
       )}
       {app.overlay?.kind === 'palette' && (
         <Overlay onClose={app.closeOverlay} align="top" label="Find & Jump">
-          <CommandPalette
+          <RegistryPalette
+            ctx={commandContext}
+            renameSurface={app.view === 'focus' ? 'focus' : 'tile'}
             sessions={sessions}
             initialScopeSessionId={app.view === 'focus' ? app.activeSessionId : null}
             onClose={app.closeOverlay}
@@ -1292,7 +1370,6 @@ function DesktopInner() {
               app.closeOverlay();
               guardForeign(sessionId, () => app.openMaximized({ kind: 'diff', sessionId }));
             }}
-            commands={paletteCommands}
           />
         </Overlay>
       )}
@@ -1364,6 +1441,7 @@ function DesktopInner() {
             onNgrokStop={ngrok.stopTunnel}
             initialTab={app.overlay.initialTab}
             focusSetting={app.overlay.focusSetting}
+            action={app.overlay.action}
           />
         </Overlay>
       )}
@@ -1461,6 +1539,25 @@ function DesktopInner() {
         />
       )}
 
+      {app.overlay?.kind === 'shortcuts' && (
+        <ShortcutsSheet
+          resolved={shortcuts.resolved}
+          conflicts={shortcuts.conflicts}
+          overrides={config?.keyboardShortcuts}
+          onClose={app.closeOverlay}
+          onCustomize={(pane) => app.openOverlay({ kind: 'settings', initialTab: pane })}
+        />
+      )}
+      {app.overlay?.kind === 'about' && (
+        <AboutSheet
+          version={updateStatus?.currentVersion}
+          onClose={app.closeOverlay}
+          onWhatsNew={openWhatsNew}
+          onCopyDiagnostics={copyDiagnostics}
+          onCheckForUpdates={() => app.openOverlay({ kind: 'update' })}
+        />
+      )}
+
       {/* One-time quick-action picker. Held back until config and the running
           version are both known, so it can never stamp itself away on boot. */}
       {app.overlay?.kind === 'intro' && updateStatus && (
@@ -1501,6 +1598,19 @@ function DesktopInner() {
           setPendingKillGroup(null);
         }}
         onCancel={() => setPendingKillGroup(null)}
+      />
+
+      <DiscoveryHost
+        disc={disc}
+        config={config}
+        updateConfig={updateConfig}
+        sessions={sessions}
+        ownsSession={ownsSession}
+        overlayOpen={!!app.overlay}
+        introPending={!!pendingIntro}
+        isMainWindow={isMainWindow}
+        shortcuts={shortcuts.resolved}
+        onTipAction={handleTipAction}
       />
     </WindowChrome>
     </SessionMenuProvider>

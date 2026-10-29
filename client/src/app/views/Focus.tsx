@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation, type AgentDefinition } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
+import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -321,7 +321,7 @@ export function Focus({
                 style={{ flex: '0 1 260px', fontSize: 'var(--t-sm)' }}
               />
             ) : (
-            <Tooltip content="Click to copy path · right-click for actions">
+            <Tooltip content="Click to copy path">
               <span
                 role="button"
                 tabIndex={0}
@@ -423,6 +423,12 @@ export function Focus({
             )}
             <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
             <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+            <IconButton
+              icon={MoreHorizontal}
+              label="Session actions"
+              size="sm"
+              onClick={(e) => sessionMenu.openMenuAt(active, e.currentTarget, 'focus')}
+            />
             {runningIndicator === 'hairline' && active.status === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}

@@ -21,7 +21,8 @@ type ActionKey = Exclude<keyof MenuCommandDeps, 'paletteGate' | 'themeGate' | 's
 const ACTIONS: ActionKey[] = [
   'openSettings', 'togglePalette', 'toggleTheme', 'newSession', 'closeSession', 'reviewLaunch',
   'waitingInbox', 'sessionSearch', 'openDiff', 'openFiles', 'openShell', 'terminalSearch',
-  'clearTerminal', 'whatsNew',
+  'clearTerminal', 'whatsNew', 'about', 'showShortcuts', 'reportIssue', 'copyDiagnostics',
+  'exportSettings', 'importSettings',
 ];
 
 type Spy = ReturnType<typeof vi.fn<() => void>>;

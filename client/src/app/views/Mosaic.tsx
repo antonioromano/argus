@@ -18,15 +18,13 @@ import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusDot, EmptyState, ErrorState, IconButton, Tooltip, ContextMenu, Icon } from '../../components/primitives/index.js';
-import type { ContextMenuEntry } from '../../components/primitives/index.js';
+import { StatusDot, EmptyState, ErrorState, IconButton, Tooltip, Icon } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
-import { Landing } from './Landing.js';
+import { Landing, type LandingPromo } from './Landing.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
-import { buildSessionMenuItems } from '../ui/sessionMenu.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
 import { mosaicLayout } from '../../utils/mosaicLayout.js';
@@ -86,17 +84,8 @@ interface MosaicProps {
   onRestart: (session: SessionInfo) => void;
   /** Reopen the last Claude conversation (offered only when canResume). */
   onResume?: (session: SessionInfo) => void;
-  onDumpDiagnostics: (session: SessionInfo) => void;
-  /** Show the per-tile diagnostics button (gated by the developer-tools setting). */
-  showDiagnostics: boolean;
   onMarkDone?: (session: SessionInfo) => void;
   onMerge?: (session: SessionInfo) => void;
-  /** Beta F8 "Finish…"; absent while the flag is off. */
-  onFinish?: (session: SessionInfo) => void;
-  /** Beta F12 "Hand off…"; absent while the flag is off. */
-  onHandoff?: (session: SessionInfo) => void;
-  /** Beta F13 "Chain to…"; absent while the flag is off. */
-  onChain?: (session: SessionInfo) => void;
   /** Beta F13: chains per source session id (tile ⛓ chip); absent while the flag is off. */
   chainCounts?: Record<string, number>;
   onClone?: (session: SessionInfo) => void;
@@ -132,6 +121,8 @@ interface MosaicProps {
   /** Set when the session list could not be loaded at all: shown instead of the landing. */
   loadError?: string | null;
   onRetryLoad?: () => void;
+  /** The empty landing's beta suggestion (main window, flag off, not dismissed). */
+  landingPromo?: LandingPromo;
 }
 
 const MAX_TILES = 12;
@@ -139,7 +130,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onChain, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onMarkDone, onMerge, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad, landingPromo }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -254,9 +245,9 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // Stable per-tile callbacks. Parent-supplied callbacks may change identity on
   // every parent render; mirror them through a ref so the wrappers below stay
   // referentially stable and the memoized tile only re-renders on real changes.
-  const propCbRef = useRef({ onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onChain, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
+  const propCbRef = useRef({ onKill, onRestart, onResume, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch });
   useEffect(() => {
-    propCbRef.current = { onKill, onRestart, onResume, onDumpDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onChain, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
+    propCbRef.current = { onKill, onRestart, onResume, onMarkDone, onMerge, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff, onOpenSession, onRequestSearch, onCloseSearch };
   });
 
   const handleXtermFocus = useCallback((id: string) => { setFocusedId(id); setRestoreFocusId(null); }, []);
@@ -272,12 +263,8 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileKill = useCallback((s: SessionInfo) => propCbRef.current.onKill(s), []);
   const handleTileRestart = useCallback((s: SessionInfo) => propCbRef.current.onRestart(s), []);
   const handleTileResume = useCallback((s: SessionInfo) => propCbRef.current.onResume?.(s), []);
-  const handleTileDumpDiagnostics = useCallback((s: SessionInfo) => propCbRef.current.onDumpDiagnostics(s), []);
   const handleTileMarkDone = useCallback((s: SessionInfo) => propCbRef.current.onMarkDone?.(s), []);
   const handleTileMerge = useCallback((s: SessionInfo) => propCbRef.current.onMerge?.(s), []);
-  const handleTileFinish = useCallback((s: SessionInfo) => propCbRef.current.onFinish?.(s), []);
-  const handleTileHandoff = useCallback((s: SessionInfo) => propCbRef.current.onHandoff?.(s), []);
-  const handleTileChain = useCallback((s: SessionInfo) => propCbRef.current.onChain?.(s), []);
   const handleTileClone = useCallback((s: SessionInfo) => propCbRef.current.onClone?.(s), []);
   const handleTileFocusDiff = useCallback((id: string) => propCbRef.current.onFocusDiff?.(id), []);
   const handleTileFocusExplorer = useCallback((id: string) => propCbRef.current.onFocusExplorer?.(id), []);
@@ -403,7 +390,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   if (sessions.length === 0) {
     return (
       <div className="grid-bg argus-mosaic-empty">
-        <Landing mode="empty" minimizedCount={0} onCreate={onCreate} onRestoreAll={() => {}} />
+        <Landing mode="empty" minimizedCount={0} onCreate={onCreate} onRestoreAll={() => {}} promo={landingPromo} />
       </div>
     );
   }
@@ -517,15 +504,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onKill={handleTileKill}
                   onRestart={handleTileRestart}
                   onResume={onResume && canResume(s) ? handleTileResume : undefined}
-                  onDumpDiagnostics={handleTileDumpDiagnostics}
-                  showDiagnostics={showDiagnostics}
                   onMarkDone={onMarkDone ? handleTileMarkDone : undefined}
                   canMarkDone={!!onMarkDone && s.status === 'idle'}
                   onMerge={onMerge ? handleTileMerge : undefined}
                   canMerge={!!onMerge && !!s.worktreePath && mergingSessionId !== s.id}
-                  onFinish={onFinish && s.worktreePath && s.worktreeBranch ? handleTileFinish : undefined}
-                  onHandoff={onHandoff ? handleTileHandoff : undefined}
-                  onChain={onChain ? handleTileChain : undefined}
                   chainCount={chainCounts?.[s.id]}
                   onClone={onClone ? handleTileClone : undefined}
                   agentDef={resolveAgentDef(s.agentType, customAgents)}
@@ -608,20 +590,12 @@ type MosaicTileSharedProps = {
   onRestart: (session: SessionInfo) => void;
   /** Reopen the last Claude conversation (offered only when canResume). */
   onResume?: (session: SessionInfo) => void;
-  onDumpDiagnostics: (session: SessionInfo) => void;
-  showDiagnostics: boolean;
   /** Mark-as-done handler; gated by `canMarkDone` for whether the button shows. */
   onMarkDone?: (session: SessionInfo) => void;
   canMarkDone?: boolean;
   /** Merge handler; gated by `canMerge` for whether the button shows. */
   onMerge?: (session: SessionInfo) => void;
   canMerge?: boolean;
-  /** Beta F8 "Finish…"; set only for worktree shells while the flag is on. */
-  onFinish?: (session: SessionInfo) => void;
-  /** Beta F12 "Hand off…"; set only while the flag is on. */
-  onHandoff?: (session: SessionInfo) => void;
-  /** Beta F13 "Chain to…"; set only while the flag is on. */
-  onChain?: (session: SessionInfo) => void;
   /** Beta F13: chains from this shell; undefined while the flag is off. */
   chainCount?: number;
   onClone?: (session: SessionInfo) => void;
@@ -761,15 +735,10 @@ function MosaicTileInner({
   onKill,
   onRestart,
   onResume,
-  onDumpDiagnostics,
-  showDiagnostics,
   onMarkDone,
   canMarkDone,
   onMerge,
   canMerge,
-  onFinish,
-  onHandoff,
-  onChain,
   chainCount,
   onClone,
   agentDef,
@@ -790,7 +759,6 @@ function MosaicTileInner({
   dragHandleAttributes?: ReturnType<typeof useSortable>['attributes'];
 }) {
   const [copied, setCopied] = useState(false);
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const sessionMenu = useSessionMenu();
   const modalOpen = useFullScreenSuppressed();
   // A partial surface (popover, launch card) hides this tile's native overlay
@@ -832,40 +800,10 @@ function MosaicTileInner({
   };
   const copyPath = (e: React.MouseEvent) => { e.stopPropagation(); doCopy(); };
 
-  // ⋯ overflow menu. Opened by click (never hover), anchored under the button.
-  // Click-driven state cannot be stranded: ContextMenu closes on Escape, outside
-  // mousedown, window blur, and resize.
-  const openMenu = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenuAt({ x: r.right - 200, y: r.bottom + 4 });
-  };
-  const closeMenu = useCallback(() => setMenuAt(null), []);
-
   // Menu and tooltip labels come from the live binding, so a rebind in settings
   // cannot leave the ⋯ menu advertising a key that no longer does anything.
   const comboLabel = (id: ShortcutActionId): string | undefined =>
     shortcuts ? formatCombo(shortcuts[id]) : undefined;
-
-  // Same list the right-click menu builds, so Rename and every other action stay
-  // in lockstep between the ⋯ button and the header's context menu.
-  const menuItems: ContextMenuEntry[] = buildSessionMenuItems(
-    session,
-    {
-      onRename: () => sessionMenu.beginRename(session.id, 'tile'),
-      onOpen, onKill, onRestart, onToggleMinimize,
-      onResume, canResume: () => !!onResume,
-      onDumpDiagnostics, showDiagnostics,
-      onMarkDone, canMarkDone: () => !!canMarkDone,
-      onMerge, canMerge: () => !!canMerge,
-      onFinish, canFinish: () => !!onFinish,
-      onHandoff,
-      onChain,
-      onClone,
-      onFocusDiff, onFocusExplorer, onFocusTerminal, onOpenDiff,
-    },
-    shortcuts,
-  );
 
   // The one configurable pinned action. 'none' collapses the slot; the action
   // itself never disappears — it is always in the ⋯ menu above.
@@ -924,7 +862,7 @@ function MosaicTileInner({
             style={{ flex: '0 1 220px', fontSize: 'var(--t-sm)' }}
           />
         ) : (
-          <Tooltip content="Click to copy path · right-click for actions">
+          <Tooltip content="Click to copy path">
             <span
               role="button"
               tabIndex={0}
@@ -1011,9 +949,11 @@ function MosaicTileInner({
           <span className="argus-tile-winsep" aria-hidden />
           <IconButton
             icon={MoreHorizontal}
-            label="More actions"
+            label="Session actions"
             size="sm"
-            onClick={openMenu}
+            // The app's one session menu, anchored under this button — the
+            // same list as right-clicking the name.
+            onClick={(e) => { e.stopPropagation(); sessionMenu.openMenuAt(session, e.currentTarget, 'tile'); }}
           />
         </div>
 
@@ -1021,8 +961,6 @@ function MosaicTileInner({
           <span className="argus-tile-prog" aria-hidden><i /></span>
         )}
       </div>
-
-      {menuAt && <ContextMenu x={menuAt.x} y={menuAt.y} items={menuItems} onClose={closeMenu} />}
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
         <ErrorBoundary key={session.id} label={session.name}>

@@ -302,6 +302,12 @@ const BASE: readonly SettingDescriptor[] = [
     keywords: ['sound', 'audio', 'notify'],
     keys: ['notificationSound'], kind: 'toggle', palette: 'toggle',
   },
+  {
+    id: 'showTips', pane: 'notifications', section: 'In-app tips',
+    label: 'Show tips', hint: 'A short hint the first time a feature would help — at most one an hour',
+    keywords: ['tips', 'hints', 'onboarding', 'getting started', 'checklist', 'discovery'],
+    keys: ['showTips'], kind: 'toggle', palette: 'toggle',
+  },
 
   // ── Runtime ───────────────────────────────────────────────────────────────
   {

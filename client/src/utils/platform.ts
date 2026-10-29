@@ -1,4 +1,5 @@
-import type { Launcher, LaunchActionResult, MenuCommandWire, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
+import type { AppInfo, HelpActionResult, Launcher, LaunchActionResult, MenuCommandWire, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
+import type { LauncherImportItem, LauncherImportResult } from '../settings-backup/applyImport.js';
 
 /** True when the renderer is running on macOS (Electron always is, but kept explicit). */
 export const isMac =
@@ -36,6 +37,8 @@ export interface ElectronNotificationsBridge {
   show(payload: { id: string; title: string; subtitle?: string; body: string; sound?: boolean; attributeToApp?: boolean }): void;
   close(id: string): void;
   onClick(cb: (id: string) => void): () => void;
+  /** Open a macOS System Settings pane (fixed URL in main). Absent on older preloads. */
+  openSystemSettings?(pane: 'notifications'): void;
 }
 
 export interface ElectronLaunchBridge {
@@ -50,13 +53,43 @@ export interface ElectronLaunchBridge {
     list(): Promise<Launcher[]>;
     rename(id: string, label: string): Promise<LaunchActionResult>;
     remove(id: string): Promise<LaunchActionResult>;
+    /** Settings import: each request is re-validated on this Mac before it is saved. */
+    import?(items: LauncherImportItem[]): Promise<{ ok: true; results: LauncherImportResult[] } | { ok: false; error: string }>;
   };
+}
+
+/** A dialog-backed file write or read. `canceled` when the user dismissed the dialog. */
+export type SettingsFileResult =
+  | { ok: true; path?: string; text?: string }
+  | { ok: false; canceled?: true; error?: string };
+
+/** Settings export / import (plan 007). Main owns every path; only text crosses. */
+export interface ElectronSettingsBridge {
+  /** Save dialog (default `argus-settings-YYYY-MM-DD.json`), then write `text`. */
+  saveFile(text: string): Promise<SettingsFileResult>;
+  /** Open dialog for a .json of at most 1 MB; resolves with its text. */
+  openFile(): Promise<SettingsFileResult>;
+  /** Writes `text` to userData/settings-backups (newest 10 kept). */
+  backup(text: string): Promise<SettingsFileResult>;
+  /** Shows the last exported file or backup in Finder. */
+  reveal(which: 'export' | 'backup'): Promise<boolean>;
+}
+
+/** Help surfaces (plan 002). Main writes the diagnostics to the clipboard;
+ *  only the outcome comes back. */
+export interface ElectronHelpBridge {
+  appInfo(): Promise<AppInfo | null>;
+  copyDiagnostics(): Promise<HelpActionResult>;
+  /** Copies the diagnostics, then opens a prefilled GitHub issue. */
+  reportIssue(): Promise<HelpActionResult>;
 }
 
 declare global {
   interface Window {
     electronApp?: ElectronAppBridge;
+    electronHelp?: ElectronHelpBridge;
     electronNotifications?: ElectronNotificationsBridge;
     electronLaunch?: ElectronLaunchBridge;
+    electronSettings?: ElectronSettingsBridge;
   }
 }

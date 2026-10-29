@@ -9,7 +9,10 @@ export type SessionSurface = 'tile' | 'tree' | 'focus' | 'chip';
 export interface SessionMenuApi {
   /** Right-click handler: opens the shell action menu at the pointer. */
   openMenu: (session: SessionInfo, e: React.MouseEvent, surface: SessionSurface) => void;
-  /** Flip a session's name into edit mode on one surface (used by the tile's own ⋯ menu). */
+  /** ⋯ button handler: opens the same menu anchored under `anchor`. A second
+   *  click on the same button closes it. */
+  openMenuAt: (session: SessionInfo, anchor: HTMLElement, surface: SessionSurface) => void;
+  /** Flip a session's name into edit mode on one surface. */
   beginRename: (id: string, surface: SessionSurface) => void;
   /** True while this session's name is being edited on *this* surface. */
   isRenaming: (id: string, surface: SessionSurface) => boolean;
@@ -21,6 +24,7 @@ export interface SessionMenuApi {
  *  tree) degrades to "no menu, no rename" instead of throwing. */
 const noop: SessionMenuApi = {
   openMenu: () => {},
+  openMenuAt: () => {},
   beginRename: () => {},
   isRenaming: () => false,
   commitRename: () => {},

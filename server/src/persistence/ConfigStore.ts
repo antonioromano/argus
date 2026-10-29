@@ -63,6 +63,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   betaSessionTemplates: false,
   betaHandoff: false,
   betaSessionChains: false,
+  showTips: true,
+  discovery: { tipsSeen: [], tipLastShownAt: 0, notifAskedAt: 0, used: [], checklistStartedAt: 0, checklistDone: [], checklistDismissed: false, betaPromosHidden: [] },
 };
 
 export class ConfigStore {

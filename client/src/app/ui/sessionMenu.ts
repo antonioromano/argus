@@ -1,4 +1,4 @@
-import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2 } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2, EyeOff, type LucideIcon } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -48,6 +48,18 @@ export interface SessionMenuActions {
   onMergeAllHere?: () => void;
   /** True when >1 window exists — gates the merge entry. */
   canMergeAllHere?: boolean;
+  /** "Try … (beta)" entries that fit this session (discovery/betaPromos). Absent
+   *  on surfaces that don't promote betas (mobile, tests). */
+  betaPromos?: (session: SessionInfo) => SessionMenuPromo[];
+  onHideBetaPromos?: () => void;
+}
+
+export interface SessionMenuPromo {
+  id: string;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+  onTry: (session: SessionInfo) => void;
 }
 
 /**
@@ -99,8 +111,21 @@ export function buildSessionMenuItems(
     ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume conversation', icon: History, onClick: () => a.onResume!(session) }] : []),
     { id: 'restart', label: 'Restart shell', icon: RotateCcw, onClick: () => a.onRestart(session) },
     ...(a.showDiagnostics && a.onDumpDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => a.onDumpDiagnostics!(session) }] : []),
+    ...promoEntries(session, a),
     { separator: true },
     { header: 'Danger' },
     { id: 'close', label: 'Close shell', icon: CircleX, shortcut: comboLabel('close-shell'), danger: true, onClick: () => a.onKill(session) },
+  ];
+}
+
+/** The "Try (beta)" block: one entry per promo, then a way to hide them all. */
+function promoEntries(session: SessionInfo, a: SessionMenuActions): ContextMenuEntry[] {
+  const promos = a.betaPromos?.(session) ?? [];
+  if (promos.length === 0) return [];
+  return [
+    { separator: true },
+    { header: 'Try (beta)' },
+    ...promos.map((p) => ({ id: p.id, label: p.label, hint: p.hint, icon: p.icon, onClick: () => p.onTry(session) })),
+    ...(a.onHideBetaPromos ? [{ id: 'hide-beta-promos', label: 'Hide beta suggestions', icon: EyeOff, onClick: a.onHideBetaPromos }] : []),
   ];
 }

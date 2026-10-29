@@ -1,4 +1,4 @@
-import { Plus, Play, RotateCcw } from 'lucide-react';
+import { Plus, Play, RotateCcw, X } from 'lucide-react';
 import { Button, Icon } from '../../components/primitives/index.js';
 
 interface LandingProps {
@@ -8,6 +8,13 @@ interface LandingProps {
   minimizedCount: number;
   onCreate: () => void;
   onRestoreAll: () => void;
+  /** One quiet "Try session templates (beta)" line under the CTA (empty mode only). */
+  promo?: LandingPromo;
+}
+
+export interface LandingPromo {
+  onTry: () => void;
+  onDismiss: () => void;
 }
 
 /**
@@ -15,7 +22,7 @@ interface LandingProps {
  * either no shells at all, or all shells minimized (chips still pinned above). A breathing
  * amber glow + pulsing ring echo the "waiting" status; one primary action gets you moving.
  */
-export function Landing({ mode, minimizedCount, onCreate, onRestoreAll }: LandingProps) {
+export function Landing({ mode, minimizedCount, onCreate, onRestoreAll, promo }: LandingProps) {
   const minimized = mode === 'all-minimized';
   const title = minimized ? 'Nothing on the grid' : 'Ready when you are';
   const hint = minimized
@@ -50,6 +57,17 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll }: Landin
             </Button>
           )}
         </div>
+        {!minimized && promo && (
+          <p className="argus-landing-promo">
+            <span>New: start a saved set of sessions together.</span>
+            <button type="button" className="argus-landing-promo-try" onClick={promo.onTry}>
+              Try session templates (beta)
+            </button>
+            <button type="button" aria-label="Hide this suggestion" className="argus-landing-promo-x hover-bg-3" onClick={promo.onDismiss}>
+              <Icon icon={X} size={11} strokeWidth={1.8} />
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

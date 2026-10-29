@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
-import { ChevronRight, Plus, Trash2, CircleX, Check, X, Eye, EyeOff, Star, RotateCcw } from 'lucide-react';
+import { ChevronRight, Plus, Trash2, CircleX, Check, X, Eye, EyeOff, Star, RotateCcw, MoreHorizontal } from 'lucide-react';
 import { StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
@@ -648,6 +648,29 @@ function Leaf({
             </button>
           </Tooltip>
         </span>
+        {/* Session actions — always in its own fixed slot and always faintly
+            visible, so the menu is findable without right-click and hover only
+            changes opacity, never the row's layout. */}
+        <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
+          <Tooltip content="Session actions">
+          <button
+            type="button"
+            aria-label="Session actions"
+            onClick={(e) => { e.stopPropagation(); sessionMenu.openMenuAt(session, e.currentTarget, 'tree'); }}
+            // The row opens the session on Enter/Space; this button's own keys
+            // must open the menu instead.
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+            style={{
+              all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 'var(--s-0-5)', borderRadius: 'var(--r-1)',
+              opacity: hover ? 0.9 : 0.35,
+              transition: 'opacity 120ms var(--ease-std)',
+              color: 'var(--fg-2)',
+            }}
+          >
+            <Icon icon={MoreHorizontal} size={11} strokeWidth={1.8} />
+          </button>
+          </Tooltip>
+        </span>
       </div>
     </Tooltip>
   );
@@ -687,6 +710,8 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
           <Icon icon={RotateCcw} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
+        {/* Matches Leaf's session-actions slot so ghost and live rows align. */}
+        <span aria-hidden style={{ width: 18, flexShrink: 0 }} />
       </div>
     </Tooltip>
   );

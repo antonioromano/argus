@@ -20,6 +20,7 @@ import { api } from '../../services/api.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../ui/terminalKind.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
+import { emitDiscovery } from '../discovery/discoveryEvents.js';
 
 interface CreateSheetProps {
   config: AppConfig | null;
@@ -318,6 +319,8 @@ export function CreateSheet({
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
+      emitDiscovery({ type: 'create', gitRepo: isGitRepo === true, worktree: !!branch, folderPath: folderPath.trim() });
+      if (branch) emitDiscovery({ type: 'used', marker: 'worktree' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');
     } finally {

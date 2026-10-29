@@ -1,7 +1,8 @@
-import { Bell } from 'lucide-react';
+import { Bell, ExternalLink, RotateCcw } from 'lucide-react';
 import { Section, SettingRow, Toggle, Button } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
+import { normalizeDiscovery, resetTips } from '../../../discovery/discoveryState.js';
 
 /**
  * Rebuilt on Section/SettingRow. This pane used to hand-roll its own card,
@@ -79,12 +80,38 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
       <Section title="Permissions">
         <SettingRow hint="Delivery is granted in macOS System Settings → Notifications.">
           {bridgeAvailable ? (
-            <Button variant="outline" icon={Bell} onClick={sendTest}>Send test notification</Button>
+            <span style={{ display: 'inline-flex', gap: 'var(--s-2)', flexWrap: 'wrap' }}>
+              <Button variant="outline" icon={Bell} onClick={sendTest}>Send test notification</Button>
+              {window.electronNotifications?.openSystemSettings && (
+                <Button
+                  variant="ghost"
+                  icon={ExternalLink}
+                  onClick={() => window.electronNotifications?.openSystemSettings?.('notifications')}
+                >
+                  Open System Settings
+                </Button>
+              )}
+            </span>
           ) : (
             <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
               This surface can't show desktop notifications.
             </span>
           )}
+        </SettingRow>
+      </Section>
+
+      <Section title="In-app tips">
+        <SettingField id="showTips">
+          <Toggle checked={config.showTips ?? true} onChange={(v) => { void onSave({ showTips: v }); }} />
+        </SettingField>
+        <SettingRow hint="Each tip shows once. This lets every tip show one more time.">
+          <Button
+            variant="outline"
+            icon={RotateCcw}
+            onClick={() => { void onSave({ discovery: resetTips(normalizeDiscovery(config.discovery)) }); }}
+          >
+            Show tips again
+          </Button>
         </SettingRow>
       </Section>
     </>

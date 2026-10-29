@@ -188,6 +188,32 @@ export interface AppConfig {
   betaSessionTemplates?: boolean; // F10
   betaHandoff?: boolean; // F12
   betaSessionChains?: boolean; // F13
+  // In-app tips: a one-time hint the first time a feature would help (default: true).
+  showTips?: boolean;
+  /** Tips, notification ask, beta promos and the getting-started checklist.
+   *  Bookkeeping, not a preference: no pane owns it and Reset all leaves it. */
+  discovery?: DiscoveryState;
+}
+
+/** What the contextual-discovery layer has already shown or seen the user do.
+ *  Always written whole: a partial object from an older build is normalized
+ *  client-side (`normalizeDiscovery`), since the server merge is shallow. */
+export interface DiscoveryState {
+  /** Tip ids already shown — shown is spent, acted on or not. */
+  tipsSeen: string[];
+  /** Epoch ms of the last tip (or notification ask); 0 = never. */
+  tipLastShownAt: number;
+  /** Epoch ms the notification ask was shown; 0 = never asked. */
+  notifAskedAt: number;
+  /** Features the user has reached on their own (e.g. 'inbox', 'broadcast'). */
+  used: string[];
+  /** Epoch ms the first-run checklist started; 0 = not a first-run user. */
+  checklistStartedAt: number;
+  /** Checklist item ids ticked (sticky). */
+  checklistDone: string[];
+  checklistDismissed: boolean;
+  /** Beta flags whose "Try (beta)" suggestion was dismissed; '*' hides them all. */
+  betaPromosHidden: string[];
 }
 
 /** A usage chip part: context %, plan usage (+ reset), session tokens, model. */
@@ -280,6 +306,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   betaSessionTemplates: false,
   betaHandoff: false,
   betaSessionChains: false,
+  showTips: true,
+  discovery: { tipsSeen: [], tipLastShownAt: 0, notifAskedAt: 0, used: [], checklistStartedAt: 0, checklistDone: [], checklistDismissed: false, betaPromosHidden: [] },
 };
 
 export interface AgentStatus {
@@ -1772,4 +1800,38 @@ export interface MenuCommandWire {
   /** False when the model excludes it from the command palette. */
   palette: boolean;
   keywords?: string;
+  /** The renderer shortcut action it mirrors, when it has one (keyboard registry id). */
+  shortcut?: string;
 }
+
+// Help surfaces (plan 002): About, Copy Diagnostics, Report an Issue. Main
+// assembles these; there is deliberately no REST route (the API is reachable
+// over ngrok), so they only travel over the trusted `help:*` IPC.
+
+/** The build stamp scripts/write-build-info.mjs writes next to electron/dist. */
+export interface BuildStamp {
+  sha: string;
+  builtAt: string | null;
+  dirty: boolean;
+}
+
+/** What the running app is: version, build, runtimes. No paths, no user data. */
+export interface AppEnvironment {
+  appVersion: string;
+  /** null in a dev run with no stamp. */
+  build: BuildStamp | null;
+  packaged: boolean;
+  macos: string;
+  arch: string;
+  electron: string;
+  chrome: string;
+  node: string;
+}
+
+/** `help:app-info`: the environment plus the links the About sheet offers. */
+export interface AppInfo extends AppEnvironment {
+  links: { repo: string; license: string; releases: string; docs: string };
+}
+
+/** Outcome of a Help action; never carries the diagnostics text itself. */
+export type HelpActionResult = { ok: true } | { ok: false; error: string };

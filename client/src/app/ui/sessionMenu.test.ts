@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { CircleX } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { buildSessionMenuItems, type SessionMenuActions } from './sessionMenu.js';
 
@@ -127,5 +128,28 @@ describe('buildSessionMenuItems', () => {
     (item as { onClick: () => void }).onClick();
     expect(onChain).toHaveBeenCalledWith(session);
     expect(ids(buildSessionMenuItems({ ...session, status: 'exited' }, actions({ onChain })))).not.toContain('chain');
+  });
+});
+
+describe('buildSessionMenuItems — Try (beta)', () => {
+  const promo = (id: string) => ({ id: `try-${id}`, label: id, hint: 'Beta', icon: CircleX, onTry: vi.fn() });
+
+  it('adds no block when there are no promos or no provider', () => {
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('hide-beta-promos');
+    const entries = buildSessionMenuItems(session, actions({ betaPromos: () => [], onHideBetaPromos: vi.fn() }));
+    expect(entries.some((e) => 'header' in e && e.header === 'Try (beta)')).toBe(false);
+  });
+
+  it('lists the promos before Danger, then "Hide beta suggestions"', () => {
+    const p = promo('handoff');
+    const onHide = vi.fn();
+    const entries = buildSessionMenuItems(session, actions({ betaPromos: () => [p], onHideBetaPromos: onHide }));
+    const list = ids(entries);
+    expect(list.indexOf('try-handoff')).toBeLessThan(list.indexOf('close'));
+    expect(list.indexOf('hide-beta-promos')).toBe(list.indexOf('try-handoff') + 1);
+    const item = entries.find((e) => 'id' in e && e.id === 'try-handoff') as { hint?: string; onClick: () => void };
+    expect(item.hint).toBe('Beta');
+    item.onClick();
+    expect(p.onTry).toHaveBeenCalledWith(session);
   });
 });

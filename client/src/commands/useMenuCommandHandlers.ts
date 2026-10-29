@@ -25,6 +25,14 @@ export interface MenuCommandDeps {
   terminalSearch(): void;
   clearTerminal(): void;
   whatsNew(): void;
+  // Help surfaces (plan 002). Open-only (⌘/ reaches both the menu and keydown).
+  about(): void;
+  showShortcuts(): void;
+  reportIssue(): void;
+  copyDiagnostics(): void;
+  /** Settings → Export… / Import… (plan 007): open Settings and run it. */
+  exportSettings(): void;
+  importSettings(): void;
   /** Shared with the keydown `command-palette` case: one ⌘K press toggles once. */
   paletteGate: DedupeGate;
   /** Shared with the keydown `toggle-theme` case: one ⌘⇧L press toggles once. */
@@ -55,6 +63,12 @@ export function menuCommandHandlers(d: MenuCommandDeps): MenuCommandHandlers {
     'menu:terminal-search': () => d.terminalSearch(),
     'menu:clear-terminal': () => d.clearTerminal(),
     'menu:whats-new': () => d.whatsNew(),
+    'menu:about': () => d.about(),
+    'menu:show-shortcuts': () => d.showShortcuts(),
+    'menu:report-issue': () => d.reportIssue(),
+    'menu:copy-diagnostics': () => d.copyDiagnostics(),
+    'menu:export-settings': () => d.exportSettings(),
+    'menu:import-settings': () => d.importSettings(),
   };
 }
 

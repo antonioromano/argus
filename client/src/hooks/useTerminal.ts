@@ -20,6 +20,7 @@ import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
 import '@xterm/xterm/css/xterm.css';
 import { TERMINAL_THEMES } from '../tokens/paint.js';
 import type { TerminalTheme } from '../tokens/paint.js';
+import { emitDiscovery } from '../app/discovery/discoveryEvents.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -344,7 +345,19 @@ export function useTerminal(
       const b = terminal.buffer.active;
       container.classList.toggle('argus-scrolled-up', b.viewportY < b.baseY);
     };
-    const scrollDisposable = terminal.onScroll(syncCursorVisibility);
+    // Discovery: the first time someone digs three screens back, they are
+    // probably looking for something (session-search tip). Once per terminal.
+    let deepScrollSent = false;
+    const onScrolled = () => {
+      syncCursorVisibility();
+      if (deepScrollSent) return;
+      const b = terminal.buffer.active;
+      if (b.baseY - b.viewportY >= 3 * terminal.rows) {
+        deepScrollSent = true;
+        emitDiscovery({ type: 'deep-scroll', sessionId });
+      }
+    };
+    const scrollDisposable = terminal.onScroll(onScrolled);
 
     // Delay fit to allow container to settle, then report dimensions to server
     // and only THEN join. Order matters: joining triggers the server's replay

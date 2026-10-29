@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionGroup } from '@argus/shared';
+import type { SessionGroup, SessionInfo } from '@argus/shared';
 import { SessionTree } from './SessionTree.js';
+import { SessionMenuContext, type SessionMenuApi } from './sessionMenuContext.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -91,5 +92,61 @@ describe('SessionTree group header', () => {
     click(chevron);
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     expect(onToggleCollapsed).toHaveBeenCalledWith('g1');
+  });
+});
+
+describe('SessionTree row — session actions ⋯', () => {
+  const s1 = { id: 's1', name: 'alpha', folderPath: '/tmp/alpha', status: 'idle', agentType: 'claude' } as unknown as SessionInfo;
+
+  function renderRow() {
+    const openMenuAt = vi.fn();
+    const onOpenSession = vi.fn();
+    const api: SessionMenuApi = {
+      openMenu: vi.fn(), openMenuAt, beginRename: vi.fn(), isRenaming: () => false, commitRename: vi.fn(), cancelRename: vi.fn(),
+    };
+    act(() => {
+      root.render(
+        <SessionMenuContext.Provider value={api}>
+          <SessionTree
+            grouped={{ favorites: null, groups: [], others: [s1], othersColor: null }}
+            activeGroupId={null}
+            isDark
+            onAssign={vi.fn()} onReorderOthers={vi.fn()} onToggleCollapsed={vi.fn()} onFilterGroup={vi.fn()}
+            onCreateGroup={vi.fn()} onRenameGroup={vi.fn()} onSetColor={vi.fn()} onSetOthersColor={vi.fn()}
+            onDeleteGroup={vi.fn()} onKillGroup={vi.fn()} onKillOthers={vi.fn()}
+            onOpenSession={onOpenSession} onToggleFavorite={vi.fn()} onSpawnFromFavorite={vi.fn()}
+            isFavorite={() => false} onToggleFavoritesCollapsed={vi.fn()}
+          />
+        </SessionMenuContext.Provider>,
+      );
+    });
+    const row = container.querySelector('[aria-label="Open alpha"]') as HTMLElement;
+    const more = row.querySelector('[aria-label="Session actions"]') as HTMLElement;
+    return { openMenuAt, onOpenSession, row, more };
+  }
+
+  it('is in the DOM, in its own fixed slot, whether or not the row is hovered', () => {
+    const { row, more } = renderRow();
+    expect(more).toBeTruthy();
+    const slotWidth = () => (more.closest('span') as HTMLElement).style.width;
+    expect(slotWidth()).toBe('18px');
+    const childCount = row.children.length;
+    act(() => { row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(row.children.length).toBe(childCount);
+    expect(row.querySelector('[aria-label="Session actions"]')).toBe(more);
+    expect(slotWidth()).toBe('18px');
+  });
+
+  it('opens the shared menu for the tree surface without opening the session', () => {
+    const { more, openMenuAt, onOpenSession } = renderRow();
+    click(more);
+    expect(openMenuAt).toHaveBeenCalledWith(s1, more, 'tree');
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('Enter on the focused ⋯ does not open the session', () => {
+    const { more, onOpenSession } = renderRow();
+    act(() => { more.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(onOpenSession).not.toHaveBeenCalled();
   });
 });

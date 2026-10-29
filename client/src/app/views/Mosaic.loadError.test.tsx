@@ -30,8 +30,7 @@ function renderEmpty(extra: { loadError?: string | null; onRetryLoad?: () => voi
     sessions: [], onReorder: noop, filter: '', socket, theme: 'dark',
     toggleMinimize: noop, restoreFromFilter: noop, restoreAll: noop, isMinimized: () => false,
     isForeign: () => false, foreignLabel: () => '', onFocusForeign: noop, onOpenSession: noop,
-    onTearOff: noop, onCreate: noop, onKill: noop, onRestart: noop, onDumpDiagnostics: noop,
-    showDiagnostics: false, ...extra,
+    onTearOff: noop, onCreate: noop, onKill: noop, onRestart: noop, ...extra,
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal props for the empty path
   act(() => root.render(<Mosaic {...(props as any)} />));

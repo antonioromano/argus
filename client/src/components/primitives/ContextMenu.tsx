@@ -9,6 +9,8 @@ export interface ContextMenuItem {
   label: string;
   icon?: LucideIcon;
   shortcut?: string;
+  /** A muted second line under the label (e.g. a beta caveat). */
+  hint?: string;
   danger?: boolean;
   disabled?: boolean;
   onClick: () => void;
@@ -141,7 +143,16 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
             }}
           >
             {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />}
-            <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{entry.label}</span>
+            {entry.hint ? (
+              <span style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ whiteSpace: 'nowrap' }}>{entry.label}</span>
+                <span className="argus-ctx-hint" style={{ fontSize: 'var(--t-eyebrow)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                  {entry.hint}
+                </span>
+              </span>
+            ) : (
+              <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{entry.label}</span>
+            )}
             {entry.shortcut && (
               <span style={{ marginLeft: 'auto', color: 'var(--fg-3)' }}>{entry.shortcut}</span>
             )}

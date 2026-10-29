@@ -2,15 +2,18 @@ import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notifica
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises';
 import { createRequire } from 'module';
-import type { UpdateProgress } from '@argus/shared';
+import type { HelpActionResult, UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
 import { createLaunchGate, type LaunchGate } from './launchGate.js';
-import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, menuInvokeTarget, type IpcSenderLike } from './ipcGuards.js';
+import { systemSettingsUrl } from './systemSettings.js';
+import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, menuInvokeTarget, isSettingsPayload, sanitizeLauncherImport, SETTINGS_PAYLOAD_MAX_BYTES, type IpcSenderLike } from './ipcGuards.js';
+import { backupFileName, backupsToPrune, defaultExportName } from './settingsFiles.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
@@ -32,6 +35,15 @@ import {
   getAllAppWindows, getKeyOverlayOwners,
 } from './window.js';
 import { initAppearanceHost, type AppearanceHost } from './appearanceHost.js';
+import { appEnvironment, appInfo, readBuildStamp, type AppFacts } from './appInfo.js';
+import { DOCS_URL, REPO_URL, buildIssueUrl } from './helpLinks.js';
+import { createLogRing, installConsoleCapture, readTail } from './logRing.js';
+
+// The warn/error tail behind Help → Copy Diagnostics. Installed before the
+// server is imported so its warnings land here too (it logs to a stdout a
+// Finder-launched app discards). In memory only; see logRing.ts.
+const logRing = createLogRing();
+installConsoleCapture(logRing);
 
 // Render on the CPU, not the GPU. On a cold GPU (first open of a session, or
 // after the shader cache is evicted) Chromium's GPU path intermittently fails
@@ -720,7 +732,8 @@ const MAIN_HANDLERS: Record<MainCommandId, () => void> = {
   'menu:zoom-in': () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5),
   'menu:zoom-out': () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5),
   'menu:merge-windows': () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
-  'menu:github': () => { void shell.openExternal('https://github.com/antonioromano/argus'); },
+  'menu:documentation': () => openExternalAllowlisted(DOCS_URL),
+  'menu:github': () => openExternalAllowlisted(REPO_URL),
 };
 
 function menuItemFor(entry: MenuLayoutItem): MenuItemConstructorOptions {
@@ -1096,6 +1109,13 @@ async function main() {
   terminalNotifierPath = resolveTerminalNotifier();
 
   ipcMain.on('notif:show', (e, payload: NotifPayload) => { if (trusted(e) && isPlainObject(payload)) postNotification(payload); });
+  // A pane key, never a URL: only the fixed x-apple.systempreferences URLs in
+  // systemSettings.ts can open, so openExternalAllowlisted stays http(s)/mailto.
+  ipcMain.on('system:openSettings', (e, pane: unknown) => {
+    if (!trusted(e)) return;
+    const url = systemSettingsUrl(pane);
+    if (url) void shell.openExternal(url);
+  });
 
   ipcMain.on('notif:close', (event, id: unknown) => {
     if (!trusted(event) || typeof id !== 'string') return;
@@ -1112,16 +1132,6 @@ async function main() {
       notif.close();
       activeNotifs.delete(id);
     }
-  });
-
-  // Native About panel
-  const version = readAppVersion();
-  app.setAboutPanelOptions({
-    applicationName: 'Argus',
-    applicationVersion: version,
-    version,
-    copyright: `© ${new Date().getFullYear()} Antonio Romano`,
-    credits: 'Multi-session dashboard for Claude Code',
   });
 
   // Application menu — gives Cmd+N/W/,/K/Shift+L the native menu-bar treatment.
@@ -1155,6 +1165,40 @@ async function main() {
     const id = menuInvokeTarget(e, raw, appOrigin());
     if (id) MAIN_HANDLERS[id]();
   });
+
+  // Help surfaces (plan 002): About, Copy Diagnostics, Report an Issue. Main
+  // assembles the diagnostics from its own runtime facts, the in-process
+  // server's counts and the log tails; there is no REST route (the API is
+  // reachable over ngrok). The text goes to the clipboard, never back over
+  // IPC: the renderer only learns whether it worked.
+  const appFacts = (): AppFacts => ({
+    appVersion: readAppVersion(),
+    packaged: app.isPackaged,
+    macos: process.getSystemVersion(),
+    arch: process.arch,
+    versions: process.versions,
+    build: readBuildStamp(join(__dirname, 'build-info.json')),
+  });
+  const buildDiagnostics = (): { markdown: string; summary: string } =>
+    server.hostBuildDiagnostics(appEnvironment(appFacts()), {
+      recent: logRing.tail(80),
+      update: readTail(join(app.getPath('userData'), 'update.log'), 40),
+    });
+  ipcMain.handle('help:app-info', (e) => (trusted(e) ? appInfo(appFacts()) : null));
+  const helpAction = (e: IpcSenderLike, openIssue: boolean): HelpActionResult => {
+    if (!trusted(e)) return { ok: false, error: 'Refused' };
+    try {
+      const { markdown, summary } = buildDiagnostics();
+      clipboard.writeText(markdown);
+      if (openIssue) openExternalAllowlisted(buildIssueUrl(summary, readAppVersion()));
+      return { ok: true };
+    } catch (err) {
+      console.error('[help] diagnostics failed:', err);
+      return { ok: false, error: 'Argus could not collect its diagnostics' };
+    }
+  };
+  ipcMain.handle('help:copy-diagnostics', (e) => helpAction(e, false));
+  ipcMain.handle('help:report-issue', (e) => helpAction(e, true));
 
   ipcMain.on('editor-focus:changed', (e, focused: unknown) => {
     if (!trusted(e)) return;
@@ -1306,6 +1350,74 @@ async function main() {
     if (!launchSender(e, true)) return refused;
     if (typeof id !== 'string') return { ok: false, error: 'Bad input' };
     return launchService.remove(id);
+  });
+
+  // Settings export / import (plan 007). Same gate as the launcher writes:
+  // our main frame, in a focused Argus window. No path ever comes from the
+  // renderer — main picks it through a dialog or the fixed backup folder, and
+  // remembers the last one so "Show in Finder" needs no path either.
+  const settingsSender = (e: Electron.IpcMainInvokeEvent) => (trusted(e) ? launchSender(e, true) : null);
+  const lastSettingsFile: { export?: string; backup?: string } = {};
+  const jsonFilter = [{ name: 'Argus settings', extensions: ['json'] }];
+  ipcMain.handle('settings:save-file', async (e, text: unknown) => {
+    const w = settingsSender(e);
+    if (!w) return refused;
+    if (!isSettingsPayload(text)) return { ok: false, error: 'Bad input' };
+    const opts = { title: 'Export Settings', defaultPath: join(app.getPath('documents'), defaultExportName(new Date())), filters: jsonFilter };
+    const win = getAppWindow(w);
+    const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    await writeFile(res.filePath, text, 'utf8');
+    lastSettingsFile.export = res.filePath;
+    return { ok: true, path: res.filePath };
+  });
+  ipcMain.handle('settings:open-file', async (e) => {
+    const w = settingsSender(e);
+    if (!w) return refused;
+    const opts = { title: 'Import Settings', properties: ['openFile' as const], filters: jsonFilter };
+    const win = getAppWindow(w);
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    const file = res.canceled ? undefined : res.filePaths[0];
+    if (!file) return { ok: false, canceled: true };
+    // Size before read: a huge or special file is refused without loading it.
+    const info = await stat(file);
+    if (!info.isFile() || info.size > SETTINGS_PAYLOAD_MAX_BYTES) {
+      return { ok: false, error: 'That file is larger than 1 MB, so it is not an Argus settings file.' };
+    }
+    return { ok: true, text: await readFile(file, 'utf8') };
+  });
+  ipcMain.handle('settings:backup', async (e, text: unknown) => {
+    if (!settingsSender(e)) return refused;
+    if (!isSettingsPayload(text)) return { ok: false, error: 'Bad input' };
+    const dir = join(app.getPath('userData'), 'settings-backups');
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, backupFileName(new Date()));
+    await writeFile(file, text, 'utf8');
+    for (const old of backupsToPrune(await readdir(dir))) await unlink(join(dir, old)).catch(() => {});
+    lastSettingsFile.backup = file;
+    return { ok: true, path: file };
+  });
+  ipcMain.handle('settings:reveal', (e, which: unknown) => {
+    if (!settingsSender(e)) return false;
+    const file = which === 'export' || which === 'backup' ? lastSettingsFile[which] : undefined;
+    if (!file) return false;
+    shell.showItemInFolder(file);
+    return true;
+  });
+  // Each launcher is re-validated on this Mac (agent installed, folder present,
+  // flags safe) and saved through the same path as "Save as launcher".
+  ipcMain.handle('launcher:import', async (e, raw: unknown) => {
+    if (!settingsSender(e)) return refused;
+    const items = sanitizeLauncherImport(raw);
+    if (!items) return { ok: false, error: 'Bad input' };
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const item of items) {
+      const v = await launchService.validate(item.request);
+      if (!v.ok) { results.push({ id: item.id, ok: false, error: v.error }); continue; }
+      const saved = await launchService.add({ id: item.id, label: item.label, validated: v.value, overwrite: item.overwrite });
+      results.push(saved.ok ? { id: item.id, ok: true } : { id: item.id, ok: false, error: saved.error });
+    }
+    return { ok: true, results };
   });
 
   // Dev only: the unbundled Electron binary would show the Electron atom. A

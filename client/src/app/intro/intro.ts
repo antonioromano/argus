@@ -1,4 +1,4 @@
-import type { AppConfig } from '@argus/shared';
+import type { AppConfig, DiscoveryState } from '@argus/shared';
 import type { IntroResult } from './IntroSheet.js';
 
 /**
@@ -49,4 +49,15 @@ export function introConfigPatch(
     // What's new: "Open Claude shells in Chat by default".
     ...(result.defaultSessionView ? { defaultSessionView: result.defaultSessionView } : {}),
   };
+}
+
+/**
+ * The Welcome intro also starts the getting-started checklist — only for a
+ * brand-new user, so What's new (an upgrade) never offers it. Applied through
+ * the discovery writer, not the intro patch, so it can't race tip bookkeeping.
+ * Null = nothing to change.
+ */
+export function introDiscoveryPatch(flow: IntroFlow, d: DiscoveryState, now: number): DiscoveryState | null {
+  if (flow !== 'welcome' || d.checklistStartedAt > 0) return null;
+  return { ...d, checklistStartedAt: now };
 }

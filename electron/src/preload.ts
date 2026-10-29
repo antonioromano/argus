@@ -112,6 +112,23 @@ contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
 
+// Settings export / import (plan 007). The renderer hands over text only; main
+// owns every path (save/open dialogs, the userData backup folder).
+contextBridge.exposeInMainWorld('electronSettings', {
+  saveFile: (text: string) => ipcRenderer.invoke('settings:save-file', text),
+  openFile: () => ipcRenderer.invoke('settings:open-file'),
+  backup: (text: string) => ipcRenderer.invoke('settings:backup', text),
+  reveal: (which: 'export' | 'backup') => ipcRenderer.invoke('settings:reveal', which),
+});
+
+// Help surfaces (plan 002). The diagnostics text never crosses this bridge:
+// main writes it to the clipboard and answers { ok } only.
+contextBridge.exposeInMainWorld('electronHelp', {
+  appInfo: () => ipcRenderer.invoke('help:app-info'),
+  copyDiagnostics: () => ipcRenderer.invoke('help:copy-diagnostics'),
+  reportIssue: () => ipcRenderer.invoke('help:report-issue'),
+});
+
 // Native terminal overlay bridge. A
 // new flat namespace, matching the existing electronFiles / electronDialog /
 // electronApp convention — there is no `window.argus` object in this codebase.
@@ -204,6 +221,10 @@ contextBridge.exposeInMainWorld('electronNotifications', {
   close: (id: string): void => {
     ipcRenderer.send('notif:close', id);
   },
+  /** Open a macOS System Settings pane by key; main maps it to a fixed URL. */
+  openSystemSettings: (pane: 'notifications'): void => {
+    ipcRenderer.send('system:openSettings', pane);
+  },
   onClick: (cb: (id: string) => void): (() => void) => {
     const listener = (_e: unknown, id: string) => cb(id);
     ipcRenderer.on('notif:click', listener);
@@ -233,5 +254,7 @@ contextBridge.exposeInMainWorld('electronLaunch', {
     list: () => ipcRenderer.invoke('launcher:list'),
     rename: (id: string, label: string) => ipcRenderer.invoke('launcher:rename', { id, label }),
     remove: (id: string) => ipcRenderer.invoke('launcher:delete', id),
+    // Settings import (plan 007): main re-validates each request on this Mac.
+    import: (items: unknown[]) => ipcRenderer.invoke('launcher:import', items),
   },
 });

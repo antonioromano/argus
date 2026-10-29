@@ -5,6 +5,7 @@ import type { SessionInfo, MosaicOrientation, SessionViewMode } from '@argus/sha
 import type { Socket } from 'socket.io-client';
 import { Focus } from './Focus.js';
 import type { SidePanel } from '../types.js';
+import { SessionMenuContext, type SessionMenuApi } from '../ui/sessionMenuContext.js';
 import { suppress, registerOverlay, resetOverlayRegistryForTests } from '../../hooks/nativeOverlayRegistry.js';
 
 declare global {
@@ -323,5 +324,31 @@ describe('Focus — PR diff tool window (B4)', () => {
     renderFocus(session(), noop, { sidePanel: { kind: 'prdiff', sessionId: 'other', pr, maximized: true } });
     await settle();
     expect(container.querySelector('[data-testid="pr-diff-view"]')).toBeNull();
+  });
+});
+
+describe('Focus header — session actions ⋯', () => {
+  it('opens the shared session menu anchored to the button, for the focus surface', () => {
+    const openMenuAt = vi.fn();
+    const api: SessionMenuApi = {
+      openMenu: noop, openMenuAt, beginRename: noop, isRenaming: () => false, commitRename: noop, cancelRename: noop,
+    };
+    const active = session();
+    act(() => {
+      root.render(
+        <SessionMenuContext.Provider value={api}>
+          <Focus
+            sessions={[active]} active={active} socket={socket} theme="dark" sidePanel={null}
+            onSelect={noop} onReorder={noop} onBack={noop} onToggleDiff={noop} onToggleExplorer={noop}
+            onToggleTerminal={noop} onExpandDiff={noop} onOpenFileInEditor={noop} onRestore={noop}
+            onClone={noop} onKill={noop} onRestart={noop} onDumpDiagnostics={noop} showDiagnostics={false}
+          />
+        </SessionMenuContext.Provider>,
+      );
+    });
+    const btn = container.querySelector('[aria-label="Session actions"]') as HTMLElement;
+    expect(btn).toBeTruthy();
+    act(() => btn.click());
+    expect(openMenuAt).toHaveBeenCalledWith(active, btn, 'focus');
   });
 });

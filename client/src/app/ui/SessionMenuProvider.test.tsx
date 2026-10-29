@@ -22,16 +22,21 @@ const session = {
  *  right-click opens the shared menu, and it flips to an input while renaming. */
 function Surface({ surface }: { surface: SessionSurface }) {
   const menu = useSessionMenu();
-  return menu.isRenaming(session.id, surface) ? (
-    <SessionRenameInput
-      initial="alpha"
-      onCommit={(v) => menu.commitRename(session.id, v)}
-      onCancel={menu.cancelRename}
-    />
-  ) : (
-    <span data-surface={surface} onContextMenu={(e) => menu.openMenu(session, e, surface)}>
-      alpha
-    </span>
+  return (
+    <>
+      {menu.isRenaming(session.id, surface) ? (
+        <SessionRenameInput
+          initial="alpha"
+          onCommit={(v) => menu.commitRename(session.id, v)}
+          onCancel={menu.cancelRename}
+        />
+      ) : (
+        <span data-surface={surface} onContextMenu={(e) => menu.openMenu(session, e, surface)}>
+          alpha
+        </span>
+      )}
+      <button data-more={surface} onClick={(e) => menu.openMenuAt(session, e.currentTarget, surface)}>⋯</button>
+    </>
   );
 }
 
@@ -124,6 +129,54 @@ describe('SessionMenuProvider rename', () => {
     expect(onRename).toHaveBeenCalledTimes(1);
     expect(onRename).toHaveBeenCalledWith('s1', 'renamed');
     expect(container.querySelector('input')).toBeNull();
+  });
+});
+
+function clickMore(surface: SessionSurface) {
+  const btn = container.querySelector(`[data-more="${surface}"]`)!;
+  act(() => {
+    // ContextMenu closes on an outside mousedown; the anchor must not count as outside.
+    btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+}
+
+const menus = () => document.querySelectorAll('[role="menu"]');
+
+describe('SessionMenuProvider ⋯ anchor', () => {
+  it('opens the menu right-aligned under the button', () => {
+    mount();
+    const btn = container.querySelector('[data-more="tile"]') as HTMLElement;
+    btn.getBoundingClientRect = () => ({ left: 280, right: 300, top: 40, bottom: 60, width: 20, height: 20, x: 280, y: 40, toJSON: () => ({}) });
+    clickMore('tile');
+    expect(menus().length).toBe(1);
+    const menu = menus()[0] as HTMLElement;
+    expect(menu.style.top).toBe('64px');
+  });
+
+  it('a second click on the same button closes it', () => {
+    mount();
+    clickMore('tile');
+    expect(menus().length).toBe(1);
+    clickMore('tile');
+    expect(menus().length).toBe(0);
+  });
+
+  it('opening from another surface replaces the menu (still one instance)', () => {
+    mount();
+    clickMore('tile');
+    clickMore('tree');
+    expect(menus().length).toBe(1);
+    openMenuOn('tile');
+    expect(menus().length).toBe(1);
+  });
+
+  it('rename from a ⋯-opened menu edits on that surface only', () => {
+    mount();
+    clickMore('tree');
+    clickMenuItem('Rename shell');
+    expect(container.querySelectorAll('input').length).toBe(1);
+    expect(container.querySelector('[data-testid="tree"] input')).toBeTruthy();
   });
 });
 

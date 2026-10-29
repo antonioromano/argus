@@ -34,7 +34,13 @@ export interface MenuCommandDef {
 
 const DEFS = [
   // App
+  // The custom About sheet (not the native panel, which can hold no links or
+  // buttons): version, build, runtimes, licence, Copy Diagnostics.
+  { id: 'menu:about', label: 'About Argus', section: 'App', runIn: 'renderer', keywords: 'version build license' },
   { id: 'menu:open-settings', label: 'Settings…', section: 'App', runIn: 'renderer', shortcut: 'open-settings', keywords: 'preferences' },
+  // Plan 007: a JSON backup of preferences, agents, templates and launchers.
+  { id: 'menu:export-settings', label: 'Export Settings…', section: 'App', runIn: 'renderer', keywords: 'backup save preferences file' },
+  { id: 'menu:import-settings', label: 'Import Settings…', section: 'App', runIn: 'renderer', keywords: 'restore load preferences file backup' },
   { id: 'menu:quit-stop-all', label: 'Quit & Stop All Sessions', section: 'App', runIn: 'main', accelerator: 'CmdOrCtrl+Shift+Q' },
 
   // File
@@ -44,7 +50,7 @@ const DEFS = [
   { id: 'menu:review-launch', label: 'Review Pending Launch…', section: 'File', runIn: 'renderer', accelerator: 'Alt+CmdOrCtrl+L' },
 
   // View
-  { id: 'menu:toggle-palette', label: 'Find & Jump…', section: 'View', runIn: 'renderer', shortcut: 'command-palette' },
+  { id: 'menu:toggle-palette', label: 'Find & Jump…', section: 'View', runIn: 'renderer', shortcut: 'command-palette', paletteExclude: 'is the palette' },
   { id: 'menu:waiting-inbox', label: 'Waiting Inbox', section: 'View', runIn: 'renderer', shortcut: 'waiting-inbox' },
   { id: 'menu:session-search', label: 'Search All Sessions…', section: 'View', runIn: 'renderer', shortcut: 'session-search' },
   // Label follows the current appearance (menuCommandLabel): it names what
@@ -81,7 +87,13 @@ const DEFS = [
   { id: 'menu:merge-windows', label: 'Merge All Windows', section: 'Window', runIn: 'main' },
 
   // Help
+  { id: 'menu:show-shortcuts', label: 'Keyboard Shortcuts', section: 'Help', runIn: 'renderer', shortcut: 'show-shortcuts', keywords: 'cheatsheet keys keybindings hotkeys help' },
+  { id: 'menu:documentation', label: 'Argus Documentation', section: 'Help', runIn: 'main', keywords: 'docs help manual readme' },
   { id: 'menu:whats-new', label: 'What’s New…', section: 'Help', runIn: 'renderer', keywords: 'changelog release notes' },
+  // Renderer-run so a toast confirms the clipboard write: one path for the
+  // menu, the palette and the About sheet.
+  { id: 'menu:report-issue', label: 'Report an Issue…', section: 'Help', runIn: 'renderer', keywords: 'bug feedback github issue' },
+  { id: 'menu:copy-diagnostics', label: 'Copy Diagnostics', section: 'Help', runIn: 'renderer', keywords: 'debug support version environment' },
   { id: 'menu:github', label: 'Argus on GitHub', section: 'Help', runIn: 'main' },
 ] as const satisfies readonly MenuCommandDef[];
 
@@ -109,7 +121,7 @@ export function isMainCommandId(v: unknown): v is MainCommandId {
 
 /** Built-in Electron menu roles used in the layout (a subset of Electron's union). */
 export type MenuRole =
-  | 'about' | 'services' | 'hide' | 'hideOthers' | 'unhide' | 'quit'
+  | 'services' | 'hide' | 'hideOthers' | 'unhide' | 'quit'
   | 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'pasteAndMatchStyle' | 'delete' | 'selectAll'
   | 'togglefullscreen' | 'minimize' | 'zoom' | 'front';
 
@@ -131,8 +143,8 @@ export const MENU_LAYOUT: readonly MenuLayoutMenu[] = [
   {
     section: 'App', label: 'Argus', macOnly: true,
     items: [
-      { role: 'about' }, SEP,
-      'menu:open-settings', SEP,
+      'menu:about', SEP,
+      'menu:open-settings', 'menu:export-settings', 'menu:import-settings', SEP,
       { role: 'services' }, SEP,
       { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, SEP,
       { role: 'quit' }, // keep-alive: detaches, sessions keep running in the background
@@ -168,7 +180,12 @@ export const MENU_LAYOUT: readonly MenuLayoutMenu[] = [
   },
   {
     section: 'Help', label: 'Help', role: 'help',
-    items: ['menu:whats-new', SEP, 'menu:github'],
+    items: [
+      'menu:show-shortcuts', SEP,
+      'menu:documentation', 'menu:whats-new', SEP,
+      'menu:report-issue', 'menu:copy-diagnostics', SEP,
+      'menu:github',
+    ],
   },
 ];
 
@@ -212,6 +229,7 @@ export function toWire(def: MenuCommandDef, accelerator: string | null): MenuCom
     palette: !def.paletteExclude,
   };
   if (def.keywords) wire.keywords = def.keywords;
+  if (def.shortcut) wire.shortcut = def.shortcut;
   return wire;
 }
 

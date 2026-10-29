@@ -44,6 +44,8 @@ interface SidebarProps {
   sessionTree?: ReactNode;
   /** Session Inspector (stacked layout): fills the space between Pilot and System. Hidden while collapsed. */
   inspector?: ReactNode;
+  /** Getting-started checklist card: top of the slot between Pilot and System. Hidden while collapsed. */
+  checklist?: ReactNode;
   /** Reports the collapsed state, so the app knows whether `inspector` is actually on screen. */
   onCollapsedChange?: (collapsed: boolean) => void;
   /** Bump to expand a collapsed sidebar (e.g. to reveal the inspector it holds). */
@@ -59,7 +61,7 @@ interface Item {
   highlight?: boolean;
 }
 
-export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, onCollapsedChange, expandRequest }: SidebarProps) {
+export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, checklist, onCollapsedChange, expandRequest }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(readSidebarCollapsed);
   const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
   const { sidebarW } = useDensity();
@@ -297,6 +299,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         </Fragment>
       ))}
 
+      {checklist && !collapsed && checklist}
       {inspector && !collapsed
         ? <div className="argus-sidebar-inspector">{inspector}</div>
         : <div style={{ flex: 1 }} />}
