@@ -3,6 +3,7 @@ import { useLaunches } from '../../hooks/useLaunches.js';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 import { pushToast } from '../../components/primitives/index.js';
 import { PendingLaunchCard } from './PendingLaunchCard.js';
+import { registerLaunchStack } from './launchFocus.js';
 
 /** Distance from the window top: clears the WindowChrome toolbar. */
 const STACK_TOP = 64;
@@ -30,9 +31,8 @@ export function LaunchCardStack() {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => window.electronLaunch?.onToast((t) => pushToast(t.message, t.tone)), []);
-  useEffect(() => window.electronApp?.onMenu('menu:review-launch', () => {
-    ref.current?.querySelector<HTMLElement>('[data-testid="launch-prompt"], [data-testid="launch-card"] button')?.focus();
-  }), []);
+  // File → Review Pending Launch focuses this stack (one per window).
+  useEffect(() => registerLaunchStack(ref.current));
 
   if (pending.length === 0) return null;
   const visible = expanded ? pending : pending.slice(0, MAX_VISIBLE);

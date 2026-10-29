@@ -12,7 +12,8 @@
  * before the keystroke ever reaches the web contents, so while an editor is
  * focused these four must be DISABLED — that lets the key fall through to
  * Monaco instead of the menu. menu:open-shell (Cmd+T) has no Monaco default
- * binding and is never gated.
+ * binding and is never gated. menu:toggle-theme (Cmd+Shift+L) collides with
+ * Monaco's Select All Occurrences and is gated the same way.
  *
  * Verified against the bundled monaco-editor@0.55.1 source
  * (node_modules/monaco-editor/esm/vs/editor/contrib/{multicursor,find,lineSelection}/browser/*.js) —
@@ -23,6 +24,9 @@ export const COLLIDING_MENU_CHANNELS = [
   'menu:open-files',
   'menu:terminal-search',
   'menu:clear-terminal',
+  // Cmd+Shift+L: editor.action.selectHighlights (Select All Occurrences). The
+  // Toggle Theme accelerator would otherwise steal it inside an editor.
+  'menu:toggle-theme',
 ] as const;
 
 export type CollidingMenuChannel = typeof COLLIDING_MENU_CHANNELS[number];

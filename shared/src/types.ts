@@ -1683,3 +1683,26 @@ export interface AddAutoApprovalRuleRequest {
   bashPrefix?: string;
   pathGlob?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Native app menu, as the renderer learns it over IPC (`menu:describe`).
+// The values live in electron/src/menuModel.ts; only these types are shared
+// (electron may `import type` from here, never a value).
+
+/** Top-level menu a command sits under. `App` is the macOS application menu. */
+export type MenuSection = 'App' | 'File' | 'View' | 'Window' | 'Help';
+
+/** Where a menu command runs: sent to the renderer, or handled in main. */
+export type MenuCommandRunIn = 'renderer' | 'main';
+
+export interface MenuCommandWire {
+  id: string;
+  label: string;
+  section: MenuSection;
+  /** Electron accelerator string as currently installed (follows rebinds), or null. */
+  accelerator: string | null;
+  runIn: MenuCommandRunIn;
+  /** False when the model excludes it from the command palette. */
+  palette: boolean;
+  keywords?: string;
+}

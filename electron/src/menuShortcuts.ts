@@ -15,8 +15,12 @@
  *
  * The ids and defaults deliberately mirror client/src/keyboard/registry.ts.
  * They are duplicated rather than imported because main and the renderer are
- * separate builds; the tests below pin the defaults so a drift shows up as a
- * failure rather than a silently stale menu.
+ * separate builds; client/src/commands/useMenuCommandHandlers.test.tsx pins
+ * each default against the registry, so a drift fails a test rather than
+ * leaving a silently stale menu.
+ *
+ * Keep this module pure (no `electron` import): the client imports it from its
+ * tests, and menuModel.test.ts fails if it ever imports electron.
  */
 
 export type MenuShortcutId =
@@ -30,7 +34,8 @@ export type MenuShortcutId =
   | 'open-files'
   | 'open-shell'
   | 'terminal-search'
-  | 'clear-terminal';
+  | 'clear-terminal'
+  | 'toggle-theme';
 
 export const MENU_SHORTCUT_DEFAULTS: Record<MenuShortcutId, string> = {
   'new-session': 'mod+n',
@@ -44,6 +49,7 @@ export const MENU_SHORTCUT_DEFAULTS: Record<MenuShortcutId, string> = {
   'open-shell': 'mod+t',
   'terminal-search': 'mod+f',
   'clear-terminal': 'mod+l',
+  'toggle-theme': 'mod+shift+l',
 };
 
 const MENU_SHORTCUT_IDS = Object.keys(MENU_SHORTCUT_DEFAULTS) as MenuShortcutId[];

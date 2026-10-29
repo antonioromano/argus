@@ -18,6 +18,7 @@ export type ShortcutActionId =
   | 'open-files'
   | 'open-shell'
   | 'toggle-inspector'
+  | 'toggle-theme'
   | 'terminal-search'
   | 'clear-terminal'
   | 'terminal-newline';
@@ -61,6 +62,11 @@ export const SHORTCUTS: readonly ShortcutAction[] = [
   // one keystroke would cancel itself out. Inside a Monaco editor ⌘I stays
   // Monaco's own (trigger suggest).
   { id: 'toggle-inspector', label: 'Show or hide the Session Inspector', category: 'Navigation', defaultCombo: 'mod+i' },
+  // Has an app-menu twin (View → Toggle Theme). The keydown handler and the
+  // menu accelerator can both fire for one press, so both go through one
+  // dedupe gate (see useMenuCommandHandlers). Monaco binds ⌘⇧L (Select All
+  // Occurrences): the menu item is gated while an editor has focus.
+  { id: 'toggle-theme', label: 'Toggle light and dark theme', category: 'Navigation', defaultCombo: 'mod+shift+l' },
   // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): while
   // the explorer scope is active its action wins (see keyboard/scopes).
   { id: 'find-in-files', label: 'Find in files', category: 'Explorer', defaultCombo: 'mod+shift+f', scope: 'explorer', note: 'While the file explorer is open' },

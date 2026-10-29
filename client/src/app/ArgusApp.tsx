@@ -22,6 +22,7 @@ import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, PanelLeft, PanelRight } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
+import { focusPendingLaunch } from './ui/launchFocus.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
@@ -47,7 +48,8 @@ import { SessionSearch } from './overlays/SessionSearch.js';
 import { requestTerminalReveal } from '../hooks/terminalReveal.js';
 import { BroadcastSheet } from './overlays/BroadcastSheet.js';
 import { formatCombo } from '../keyboard/combo.js';
-import { activeScopes, scopedHandler, createMenuEchoGuard } from '../keyboard/scopes.js';
+import { activeScopes, scopedHandler, createMenuEchoGuard, createDedupeGate } from '../keyboard/scopes.js';
+import { useMenuCommandHandlers } from '../commands/useMenuCommandHandlers.js';
 import type { PaletteCommand } from './overlays/paletteCommands.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
 import { QuickActionSheet } from './overlays/QuickActionSheet.js';
@@ -338,6 +340,10 @@ function DesktopInner() {
   }, [shortcuts.resolved]);
   // Drops the app-menu echo of a keystroke a scoped shortcut already handled.
   const [menuEcho] = useState(createMenuEchoGuard);
+  // Toggles with both a keydown case and an app-menu twin: one keystroke can
+  // reach both paths, so each toggle runs through one gate (first one wins).
+  const [paletteGate] = useState(() => createDedupeGate());
+  const [themeGate] = useState(() => createDedupeGate());
 
   // F16: tell the user once per launch when stale daemons still run agents.
   useEffect(() => { checkOrphansOnStartup(); }, []);
@@ -410,8 +416,6 @@ function DesktopInner() {
     const s = sessions.find((x) => x.id === activeTerminalId);
     if (s) requestKill(s);
   }, [activeTerminalId, sessions, requestKill]);
-  const closeActiveShellRef = useRef(closeActiveShell);
-  useEffect(() => { closeActiveShellRef.current = closeActiveShell; }, [closeActiveShell]);
   // Cmd+N → open the create-session overlay. Owned by the Electron menu accelerator
   // so it survives terminal focus (xterm swallows the keydown before it reaches the
   // window listener). The window-keydown fallback below still handles non-terminal
@@ -427,12 +431,6 @@ function DesktopInner() {
     socket.emit('session:broadcast', req, (res) => { clearTimeout(timer); resolve(res); });
   }), [socket]);
   const openSearch = useCallback(() => app.openOverlay({ kind: 'search' }), [app]);
-  const openSearchRef = useRef(openSearch);
-  useEffect(() => { openSearchRef.current = openSearch; }, [openSearch]);
-  const openInboxRef = useRef(openInbox);
-  useEffect(() => { openInboxRef.current = openInbox; }, [openInbox]);
-  const openWhatsNewRef = useRef(openWhatsNew);
-  useEffect(() => { openWhatsNewRef.current = openWhatsNew; }, [openWhatsNew]);
 
   // One-time What's new / Welcome (see intro/intro.ts). Opened once per launch,
   // and only when nothing else is on screen; the ref keeps a slow config write
@@ -450,8 +448,6 @@ function DesktopInner() {
     if (result.openCreate) app.openOverlay({ kind: 'create' });
     else app.closeOverlay();
   }, [app, config?.quickActionPromptedAt, updateConfig, updateStatus?.currentVersion]);
-  const openCreateRef = useRef(openCreate);
-  useEffect(() => { openCreateRef.current = openCreate; }, [openCreate]);
   // The five actions below act on "the focused shell" — same target as the
   // window-keydown switch cases further down (open-diff/open-files/open-shell/
   // terminal-search) and useTerminal's own clear-terminal keydown case. Each is
@@ -483,37 +479,32 @@ function DesktopInner() {
     if (!activeTerminalId) return;
     guardForeign(activeTerminalId, () => clearScrollback(socket, activeTerminalId));
   }, [activeTerminalId, guardForeign, socket]);
-  const openDiffForFocusedRef = useRef(openDiffForFocused);
-  useEffect(() => { openDiffForFocusedRef.current = openDiffForFocused; }, [openDiffForFocused]);
-  const openFilesForFocusedRef = useRef(openFilesForFocused);
-  useEffect(() => { openFilesForFocusedRef.current = openFilesForFocused; }, [openFilesForFocused]);
-  const openShellForFocusedRef = useRef(openShellForFocused);
-  useEffect(() => { openShellForFocusedRef.current = openShellForFocused; }, [openShellForFocused]);
-  const clearFocusedTerminalScrollbackRef = useRef(clearFocusedTerminalScrollback);
-  useEffect(() => { clearFocusedTerminalScrollbackRef.current = clearFocusedTerminalScrollback; }, [clearFocusedTerminalScrollback]);
-  const openTerminalSearchRef = useRef(openTerminalSearch);
-  useEffect(() => { openTerminalSearchRef.current = openTerminalSearch; }, [openTerminalSearch]);
-  useEffect(() => {
-    const bridge = window.electronApp;
-    if (!bridge) return;
-    const offClose = bridge.onMenu('menu:close-session', () => closeActiveShellRef.current());
-    const offNew = bridge.onMenu('menu:new-session', () => openCreateRef.current());
-    const offDiff = bridge.onMenu('menu:open-diff', () => openDiffForFocusedRef.current());
-    const offFiles = bridge.onMenu('menu:open-files', () => openFilesForFocusedRef.current());
-    const offShell = bridge.onMenu('menu:open-shell', () => openShellForFocusedRef.current());
-    const offSearch = bridge.onMenu('menu:terminal-search', () => openTerminalSearchRef.current());
-    const offClear = bridge.onMenu('menu:clear-terminal', () => clearFocusedTerminalScrollbackRef.current());
-    const offIntro = bridge.onMenu('menu:whats-new', () => openWhatsNewRef.current());
-    // Open-only (never a toggle): the menu accelerator and the keydown path can
-    // both fire for one keystroke, and two toggles would cancel out.
-    const offInbox = bridge.onMenu('menu:waiting-inbox', () => openInboxRef.current());
-    // A scoped shortcut (⌘⇧F → Find in Files in the explorer) may share a menu
-    // item's accelerator; the menu's echo of that keystroke is dropped.
-    const offSessionSearch = bridge.onMenu('menu:session-search', () => {
-      if (!menuEcho.isEcho()) openSearchRef.current();
-    });
-    return () => { offClose(); offNew(); offDiff(); offFiles(); offShell(); offSearch(); offClear(); offIntro(); offInbox(); offSessionSearch(); };
-  }, [menuEcho]);
+  const togglePalette = useCallback(() => {
+    if (app.overlay?.kind === 'palette') app.closeOverlay();
+    else app.openOverlay({ kind: 'palette' });
+  }, [app]);
+  // Every renderer-run app-menu item, dispatched from one `menu:command`
+  // subscription (ids: electron/src/menuModel.ts). The handler map is typed
+  // against the menu model, so an item without a handler fails type-check.
+  useMenuCommandHandlers({
+    openSettings: () => app.openOverlay({ kind: 'settings' }),
+    togglePalette,
+    toggleTheme,
+    newSession: openCreate,
+    closeSession: closeActiveShell,
+    reviewLaunch: focusPendingLaunch,
+    waitingInbox: openInbox,
+    sessionSearch: openSearch,
+    openDiff: openDiffForFocused,
+    openFiles: openFilesForFocused,
+    openShell: openShellForFocused,
+    terminalSearch: openTerminalSearch,
+    clearTerminal: clearFocusedTerminalScrollback,
+    whatsNew: openWhatsNew,
+    paletteGate,
+    themeGate,
+    scopedEcho: menuEcho,
+  });
 
   const orderedSessions = useMemo(() => getOrderedSessions(sessions), [sessions, getOrderedSessions]);
 
@@ -659,8 +650,13 @@ function DesktopInner() {
           break;
         case 'command-palette':
           e.preventDefault();
-          if (app.overlay?.kind === 'palette') app.closeOverlay();
-          else app.openOverlay({ kind: 'palette' });
+          paletteGate.run(togglePalette);
+          break;
+        case 'toggle-theme':
+          // Inside an editor ⌘⇧L is Monaco's Select All Occurrences.
+          if (isTyping) return;
+          e.preventDefault();
+          themeGate.run(toggleTheme);
           break;
         case 'waiting-inbox':
           e.preventDefault();
@@ -709,7 +705,7 @@ function DesktopInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector]);
+  }, [app, shortcuts, openTerminalSearch, activeTerminalId, openDiffForFocused, openFilesForFocused, openShellForFocused, openInbox, openSearch, menuEcho, toggleInspector, togglePalette, paletteGate, toggleTheme, themeGate]);
 
   const activeSession: SessionInfo | null =
     app.view === 'focus' && app.activeSessionId

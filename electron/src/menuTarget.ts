@@ -1,5 +1,5 @@
 /**
- * Which window a menu command (reload, zoom, the sendMenuEvent family) acts on.
+ * Which window a menu command (reload, zoom, every sendMenuCommand id) acts on.
  *
  * `BrowserWindow.getFocusedWindow()` is null while a native terminal tile has
  * keyboard focus: the tile is a borderless child NSWindow (OverlayController's

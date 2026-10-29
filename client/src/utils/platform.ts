@@ -1,4 +1,4 @@
-import type { Launcher, LaunchActionResult, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
+import type { Launcher, LaunchActionResult, MenuCommandWire, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
 
 /** True when the renderer is running on macOS (Electron always is, but kept explicit). */
 export const isMac =
@@ -9,25 +9,15 @@ export function isPrimaryModifier(e: KeyboardEvent): boolean {
   return isMac ? e.metaKey : e.ctrlKey;
 }
 
-export type MenuChannel =
-  | 'menu:new-session'
-  | 'menu:close-session'
-  | 'menu:open-settings'
-  | 'menu:toggle-palette'
-  | 'menu:waiting-inbox'
-  | 'menu:session-search'
-  | 'menu:toggle-theme'
-  | 'menu:open-diff'
-  | 'menu:open-files'
-  | 'menu:open-shell'
-  | 'menu:terminal-search'
-  | 'menu:clear-terminal'
-  | 'menu:whats-new'
-  | 'menu:review-launch';
-
 export interface ElectronAppBridge {
   setBadge(count: number): void;
-  onMenu(channel: MenuChannel, cb: () => void): () => void;
+  /** Renderer-run app-menu commands, one id per click (see client/src/commands/menuBridge.ts).
+   *  The ids are declared in electron/src/menuModel.ts. */
+  onMenuCommand(cb: (id: string) => void): () => void;
+  /** Every app-menu command with its live accelerator. */
+  describeMenu(): Promise<MenuCommandWire[]>;
+  /** Run a main-owned app-menu command (New Window, Reload, Zoom…); main ignores any other id. */
+  invokeMenu(id: string): void;
   /** Relaunch the app (quit + start fresh) — used to apply a startup-only setting. */
   relaunch(): void;
   /** Report whether a Monaco editor currently has focus, so main can disable the

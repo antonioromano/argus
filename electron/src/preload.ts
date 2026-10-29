@@ -42,33 +42,31 @@ contextBridge.exposeInMainWorld('electronDialog', {
     ipcRenderer.invoke('dialog:showMessageBox', opts),
 });
 
-// App-level IPC bridge: menu events main → renderer; Dock badge renderer → main.
-const MENU_CHANNELS = [
-  'menu:new-session',
-  'menu:close-session',
-  'menu:open-settings',
-  'menu:toggle-palette',
-  'menu:waiting-inbox',
-  'menu:session-search',
-  'menu:toggle-theme',
-  'menu:open-diff',
-  'menu:open-files',
-  'menu:open-shell',
-  'menu:terminal-search',
-  'menu:clear-terminal',
-  'menu:whats-new',
-  'menu:review-launch',
-] as const;
-type MenuChannel = typeof MENU_CHANNELS[number];
+// App-level IPC bridge: menu commands main → renderer; Dock badge renderer → main.
+//
+// Every renderer-run menu item arrives as ONE `menu:command` message carrying
+// its id; the list of ids lives only in electron/src/menuModel.ts. This
+// sandboxed preload cannot import that module, so it checks the id's shape
+// only (the same pattern as isMenuCommandId in ipcGuards.ts) and the renderer
+// dispatches through its own typed handler map.
+const MENU_ID = /^menu:[a-z]+(-[a-z]+)*$/;
 
 contextBridge.exposeInMainWorld('electronApp', {
   setBadge: (count: number) => {
     ipcRenderer.send('dock:setBadge', count);
   },
-  onMenu: (channel: MenuChannel, cb: () => void): (() => void) => {
-    const listener = () => cb();
-    ipcRenderer.on(channel, listener);
-    return () => ipcRenderer.off(channel, listener);
+  onMenuCommand: (cb: (id: string) => void): (() => void) => {
+    const listener = (_e: unknown, id: unknown) => {
+      if (typeof id === 'string' && id.length <= 64 && MENU_ID.test(id)) cb(id);
+    };
+    ipcRenderer.on('menu:command', listener);
+    return () => ipcRenderer.off('menu:command', listener);
+  },
+  // The menu's commands with their live accelerators (menuModel.ts).
+  describeMenu: () => ipcRenderer.invoke('menu:describe'),
+  // Run a main-owned menu command; main drops anything off its allowlist.
+  invokeMenu: (id: string) => {
+    ipcRenderer.send('menu:invoke', id);
   },
   relaunch: () => {
     ipcRenderer.send('app:relaunch');

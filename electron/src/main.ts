@@ -10,11 +10,15 @@ import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
 import { createLaunchGate, type LaunchGate } from './launchGate.js';
-import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, type IpcSenderLike } from './ipcGuards.js';
+import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, menuInvokeTarget, type IpcSenderLike } from './ipcGuards.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
-import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { setMenuShortcuts } from './menuShortcuts.js';
+import {
+  MENU_LAYOUT, describeMenuCommands, isMainCommandId, menuCommand, menuCommandAccelerator,
+  type MainCommandId, type MenuLayoutItem,
+} from './menuModel.js';
 import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
@@ -647,9 +651,10 @@ function handleLaunchUrl(url: string): void {
   void launchGate.handle(parsed).catch((e) => console.error('[launch] handle failed:', e));
 }
 
-function sendMenuEvent(channel: string): void {
+/** Deliver a renderer-run menu command to the focused window as one `menu:command` message. */
+function sendMenuCommand(id: string): void {
   const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
-  if (win && !win.isDestroyed()) win.webContents.send(channel);
+  if (win && !win.isDestroyed()) win.webContents.send('menu:command', id);
 }
 
 // Per-window belief about whether a Monaco editor currently has focus in that
@@ -667,8 +672,8 @@ setKeyOverlayOwners(() => [...nativeKeySessions].map((id) => {
   return win && !win.isDestroyed() ? win : null;
 }));
 
-// Re-derive and apply enabled/disabled for the four Monaco-colliding menu
-// items from whichever window is resolved the same way sendMenuEvent resolves
+// Re-derive and apply enabled/disabled for the Monaco-colliding menu
+// items from whichever window is resolved the same way sendMenuCommand resolves
 // its target — that's the only window whose keystrokes can trigger the
 // accelerator-vs-Monaco-keybinding race in the first place. Re-run on every
 // OS window-focus change too, not just on a new editor-focus report: switching
@@ -687,211 +692,54 @@ function applyMenuAcceleratorGating(): void {
   }
 }
 
+/**
+ * What each main-run menu command does. The Record type makes a new
+ * `runIn: 'main'` entry in menuModel.ts a compile error until it has a handler
+ * here. The same map serves a menu click and a renderer `menu:invoke`, and
+ * each handler resolves its target window through getFocusedWindowId(), just
+ * as a click does.
+ */
+const MAIN_HANDLERS: Record<MainCommandId, () => void> = {
+  'menu:quit-stop-all': () => {
+    setStopAllOnQuit(true);
+    app.quit();
+  },
+  'menu:new-window': () => { void hostCreateWindowFn?.().catch(console.error); },
+  'menu:reload': () => getAppWindow(getFocusedWindowId())?.webContents.reload(),
+  'menu:force-reload': () => getAppWindow(getFocusedWindowId())?.webContents.reloadIgnoringCache(),
+  'menu:actual-size': () => setZoomLevelForFocused(0),
+  'menu:zoom-in': () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5),
+  'menu:zoom-out': () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5),
+  'menu:merge-windows': () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
+  'menu:github': () => { void shell.openExternal('https://github.com/antonioromano/argus'); },
+};
+
+function menuItemFor(entry: MenuLayoutItem): MenuItemConstructorOptions {
+  if (entry === 'separator') return { type: 'separator' };
+  if (typeof entry === 'object') return { role: entry.role };
+  const def = menuCommand(entry);
+  const accelerator = menuCommandAccelerator(def);
+  // `id` on every item: applyMenuAcceleratorGating looks the colliding ones up.
+  return {
+    id: def.id,
+    label: def.label,
+    ...(accelerator ? { accelerator } : {}),
+    click: () => {
+      if (isMainCommandId(def.id)) MAIN_HANDLERS[def.id]();
+      else sendMenuCommand(def.id);
+    },
+  };
+}
+
+/** The application menu, mapped from MENU_LAYOUT (see menuModel.ts). */
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
-
-  const appMenu: MenuItemConstructorOptions = {
-    label: 'Argus',
-    submenu: [
-      { role: 'about' },
-      { type: 'separator' },
-      {
-        label: 'Settings…',
-        accelerator: menuAccelerator('open-settings'),
-        click: () => sendMenuEvent('menu:open-settings'),
-      },
-      { type: 'separator' },
-      { role: 'services' },
-      { type: 'separator' },
-      { role: 'hide' },
-      { role: 'hideOthers' },
-      { role: 'unhide' },
-      { type: 'separator' },
-      { role: 'quit' }, // keep-alive: detaches, sessions keep running in the background
-      {
-        label: 'Quit & Stop All Sessions',
-        accelerator: 'CmdOrCtrl+Shift+Q',
-        click: () => {
-          setStopAllOnQuit(true);
-          app.quit();
-        },
-      },
-    ],
-  };
-
-  const fileMenu: MenuItemConstructorOptions = {
-    label: 'File',
-    submenu: [
-      {
-        label: 'New Window',
-        accelerator: 'CmdOrCtrl+Shift+N',
-        click: () => { void hostCreateWindowFn?.().catch(console.error); },
-      },
-      { type: 'separator' },
-      {
-        label: 'New Session',
-        accelerator: menuAccelerator('new-session'),
-        click: () => sendMenuEvent('menu:new-session'),
-      },
-      {
-        label: 'Close Session',
-        accelerator: menuAccelerator('close-shell'),
-        click: () => sendMenuEvent('menu:close-session'),
-      },
-      {
-        label: 'Review Pending Launch',
-        accelerator: 'Alt+CmdOrCtrl+L',
-        click: () => sendMenuEvent('menu:review-launch'),
-      },
-    ],
-  };
-
-  const editMenu: MenuItemConstructorOptions = {
-    label: 'Edit',
-    submenu: [
-      { role: 'undo' },
-      { role: 'redo' },
-      { type: 'separator' },
-      { role: 'cut' },
-      { role: 'copy' },
-      { role: 'paste' },
-      { role: 'pasteAndMatchStyle' },
-      { role: 'delete' },
-      { role: 'selectAll' },
-    ],
-  };
-
-  const viewMenu: MenuItemConstructorOptions = {
-    label: 'View',
-    submenu: [
-      {
-        label: 'Toggle Find & Jump',
-        accelerator: menuAccelerator('command-palette'),
-        click: () => sendMenuEvent('menu:toggle-palette'),
-      },
-      {
-        label: 'Waiting Inbox',
-        accelerator: menuAccelerator('waiting-inbox'),
-        click: () => sendMenuEvent('menu:waiting-inbox'),
-      },
-      {
-        label: 'Search All Sessions',
-        accelerator: menuAccelerator('session-search'),
-        click: () => sendMenuEvent('menu:session-search'),
-      },
-      { type: 'separator' },
-      {
-        label: 'Toggle Theme',
-        accelerator: 'CmdOrCtrl+Shift+L',
-        click: () => sendMenuEvent('menu:toggle-theme'),
-      },
-      { type: 'separator' },
-      // These five were renderer-only keydown handlers. A native terminal
-      // overlay is a child NSWindow that takes key focus, so the renderer never
-      // sees their keydown — as app-menu accelerators they fire regardless of
-      // which view has focus.
-      //
-      // Their accelerators come from menuShortcuts.ts, which the renderer keeps
-      // in sync with the resolved bindings in AppConfig.keyboardShortcuts — so
-      // rebinding one in Settings moves it here too, and keeps working inside a
-      // native tile. A binding the menu cannot express (no Cmd/Ctrl/Alt) falls
-      // back to its default; the renderer keydown path still honours it, which
-      // means it works in web tiles only.
-      //
-      // `id` is set on the four that collide with Monaco's own default
-      // keybindings (see menuAcceleratorGating.ts) so applyMenuAcceleratorGating
-      // can look them up and toggle `.enabled` while an editor has focus.
-      // menu:open-shell (Cmd+T) has no Monaco collision and needs no id.
-      {
-        id: 'menu:open-diff',
-        label: 'Diff for Focused Shell',
-        accelerator: menuAccelerator('open-diff'),
-        click: () => sendMenuEvent('menu:open-diff'),
-      },
-      {
-        id: 'menu:open-files',
-        label: 'Files for Focused Shell',
-        accelerator: menuAccelerator('open-files'),
-        click: () => sendMenuEvent('menu:open-files'),
-      },
-      {
-        label: 'Terminal for Focused Shell',
-        accelerator: menuAccelerator('open-shell'),
-        click: () => sendMenuEvent('menu:open-shell'),
-      },
-      {
-        id: 'menu:terminal-search',
-        label: 'Search in Terminal',
-        accelerator: menuAccelerator('terminal-search'),
-        click: () => sendMenuEvent('menu:terminal-search'),
-      },
-      {
-        id: 'menu:clear-terminal',
-        label: 'Clear Scrollback',
-        accelerator: menuAccelerator('clear-terminal'),
-        click: () => sendMenuEvent('menu:clear-terminal'),
-      },
-      { type: 'separator' },
-      // Not the built-in roles: those reload BrowserWindow.getFocusedWindow(),
-      // which is null while a native tile (a child NSWindow) is key, so Cmd+R
-      // did nothing there. getFocusedWindowId() also resolves the overlay's
-      // owner — see menuTarget.ts.
-      {
-        label: 'Reload',
-        accelerator: 'CmdOrCtrl+R',
-        click: () => getAppWindow(getFocusedWindowId())?.webContents.reload(),
-      },
-      {
-        label: 'Force Reload',
-        accelerator: 'Shift+CmdOrCtrl+R',
-        click: () => getAppWindow(getFocusedWindowId())?.webContents.reloadIgnoringCache(),
-      },
-      { type: 'separator' },
-      // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
-      // Custom click handlers (not built-in roles) so every change routes through
-      // setZoomLevel and keeps the tracked level in sync — survives reload.
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelForFocused(0) },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5) },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5) },
-      { type: 'separator' },
-      { role: 'togglefullscreen' },
-    ],
-  };
-
-  const windowMenu: MenuItemConstructorOptions = {
-    label: 'Window',
-    submenu: [
-      { role: 'minimize' },
-      { role: 'zoom' },
-      { type: 'separator' },
-      {
-        label: 'Merge All Windows',
-        click: () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
-      },
-      { type: 'separator' },
-      { role: 'front' },
-    ],
-  };
-
-  const helpMenu: MenuItemConstructorOptions = {
-    role: 'help',
-    submenu: [
-      {
-        label: 'What’s New…',
-        click: () => sendMenuEvent('menu:whats-new'),
-      },
-      { type: 'separator' },
-      {
-        label: 'Argus on GitHub',
-        click: () => shell.openExternal('https://github.com/antonioromano/argus'),
-      },
-    ],
-  };
-
-  const template: MenuItemConstructorOptions[] = isMac
-    ? [appMenu, fileMenu, editMenu, viewMenu, windowMenu, helpMenu]
-    : [fileMenu, editMenu, viewMenu, windowMenu, helpMenu];
-
+  const template: MenuItemConstructorOptions[] = MENU_LAYOUT
+    .filter((m) => isMac || !m.macOnly)
+    .map((m) => ({
+      ...(m.role ? { role: m.role } : { label: m.label }),
+      submenu: m.items.map(menuItemFor),
+    }));
   return Menu.buildFromTemplate(template);
 }
 
@@ -1253,9 +1101,9 @@ async function main() {
   // Application menu — gives Cmd+N/W/,/K/Shift+L the native menu-bar treatment.
   Menu.setApplicationMenu(buildAppMenu());
 
-  // Renderer reports Monaco editor focus enter/leave so the four colliding
+  // Renderer reports Monaco editor focus enter/leave so the Monaco-colliding
   // accelerators (menuAcceleratorGating.ts) can be disabled exactly while an
-  // editor would otherwise lose its own Cmd+D/E/F/L to the menu. The
+  // editor would otherwise lose its own Cmd+D/E/F/L/Shift+L to the menu. The
   // reporting window is resolved from e.sender, not trusted from the payload —
   // a renderer must not be able to name an arbitrary window. Also re-applied
   // on every OS window-focus change, since which window's belief is
@@ -1269,6 +1117,17 @@ async function main() {
     if (!shortcuts || !setMenuShortcuts(shortcuts)) return;
     Menu.setApplicationMenu(buildAppMenu());
     applyMenuAcceleratorGating();
+  });
+
+  // Renderer -> main: the menu commands with their live accelerators, so the
+  // renderer never keeps its own copy of the menu (see menuModel.ts).
+  ipcMain.handle('menu:describe', (e) => (trusted(e) ? describeMenuCommands() : []));
+  // Renderer -> main: run a main-owned menu command (New Window, Reload, Zoom,
+  // Merge All Windows, Quit & Stop All, Argus on GitHub). Trusted sender and
+  // the static main-run allowlist only; the id is the whole payload.
+  ipcMain.on('menu:invoke', (e, raw: unknown) => {
+    const id = menuInvokeTarget(e, raw, appOrigin());
+    if (id) MAIN_HANDLERS[id]();
   });
 
   ipcMain.on('editor-focus:changed', (e, focused: unknown) => {

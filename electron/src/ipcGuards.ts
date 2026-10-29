@@ -9,6 +9,8 @@
  * import) so they are unit-tested directly; main.ts wires them in.
  */
 
+import { isMainCommandId, type MainCommandId } from './menuModel.js';
+
 /** The subset of an IpcMainEvent / IpcMainInvokeEvent the sender check reads. */
 export interface IpcSenderLike {
   senderFrame?: { url: string } | null;
@@ -101,4 +103,18 @@ export function sanitizeShortcuts(v: unknown): Record<string, string> | null {
     out[k] = val;
   }
   return out;
+}
+
+/** Shape of an app-menu command id (menuModel.ts). The preload repeats this regex. */
+export const isMenuCommandId = (v: unknown): v is string =>
+  typeof v === 'string' && v.length <= 64 && /^menu:[a-z]+(-[a-z]+)*$/.test(v);
+
+/**
+ * `menu:invoke` gate: the main-run command a renderer may trigger, or null.
+ * Only a trusted sender, and only an id on the static main-run allowlist —
+ * a renderer-run id never loops back through main.
+ */
+export function menuInvokeTarget(e: IpcSenderLike, raw: unknown, origin: string): MainCommandId | null {
+  if (!isTrustedSender(e, origin) || !isMenuCommandId(raw)) return null;
+  return isMainCommandId(raw) ? raw : null;
 }
