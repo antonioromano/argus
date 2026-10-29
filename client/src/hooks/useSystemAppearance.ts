@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
-import type { AppearanceSnapshot, WindowMaterial } from '@argus/shared';
+import type { AppearanceSnapshot } from '@argus/shared';
 import type { Theme } from '../context/theme-context.js';
 import { pickFocusAccent } from '../utils/focusAccent.js';
 
@@ -29,8 +29,6 @@ const ACCENT_VAR = '--sys-accent-color';
 const INSET_VAR = '--titlebar-inset';
 
 export interface SystemAppearanceOptions {
-  /** The user's Window setting; it can only make the window solid. */
-  windowMaterial?: WindowMaterial;
   /** Toolbar height (px) for the density; main centres the traffic lights on it. */
   titlebarH?: number;
 }
@@ -44,7 +42,7 @@ export interface SystemAppearanceOptions {
  */
 export function useSystemAppearance(
   theme: Theme,
-  { windowMaterial = 'translucent', titlebarH = 44 }: SystemAppearanceOptions = {},
+  { titlebarH = 44 }: SystemAppearanceOptions = {},
 ): void {
   const [snap, setSnap] = useState<AppearanceSnapshot | null>(() => {
     const s = appearanceBridge()?.snapshot();
@@ -61,14 +59,14 @@ export function useSystemAppearance(
   useLayoutEffect(() => {
     if (!snap) return;
     const root = document.documentElement;
-    root.dataset.material = windowMaterial === 'solid' ? 'solid' : snap.material;
+    root.dataset.material = snap.material;
     root.dataset.contrast = snap.contrast;
     root.dataset.windowActive = String(snap.active);
     const accent = pickFocusAccent(snap.accent, theme);
     if (accent) root.style.setProperty(ACCENT_VAR, accent);
     else root.style.removeProperty(ACCENT_VAR);
     root.style.setProperty(INSET_VAR, `${snap.titlebarInset}px`);
-  }, [snap, theme, windowMaterial]);
+  }, [snap, theme]);
 
   useEffect(() => {
     appearanceBridge()?.setTitlebarHeight?.(titlebarH);

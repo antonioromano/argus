@@ -72,7 +72,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, density, windowMaterial, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, defaultSessionView, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, density, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, defaultSessionView, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -141,9 +141,6 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       density: (density === 'compact' || density === 'default' || density === 'comfortable')
         ? density
         : current.density,
-      windowMaterial: (windowMaterial === 'translucent' || windowMaterial === 'solid')
-        ? windowMaterial
-        : current.windowMaterial,
       debugToolsEnabled: debugToolsEnabled !== undefined ? !!debugToolsEnabled : current.debugToolsEnabled,
       ptyBackend: (ptyBackend === 'auto' || ptyBackend === 'tmux') ? ptyBackend : current.ptyBackend,
       tileQuickAction: isTileQuickAction(tileQuickAction) ? tileQuickAction : current.tileQuickAction,

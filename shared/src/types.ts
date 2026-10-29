@@ -128,7 +128,6 @@ export interface AppConfig {
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   mosaicOrientation?: MosaicOrientation; // side by side ('horizontal') or stacked ('vertical') mosaic tiles (default: horizontal)
   density?: Density; // row heights, header padding and toolbar height (default: 'default')
-  windowMaterial?: WindowMaterial; // 'solid' turns window translucency off (default: 'translucent')
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
@@ -254,7 +253,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   mosaicWaitingStyle: 'breathing',
   mosaicOrientation: 'horizontal',
   density: 'default',
-  windowMaterial: 'translucent',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',

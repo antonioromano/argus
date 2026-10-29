@@ -92,12 +92,6 @@ describe('useSystemAppearance', () => {
     expect(root().style.getPropertyValue('--sys-accent-color')).toBe('');
   });
 
-  it('forces solid when the user picked the Solid window setting', () => {
-    fakeBridge(snap());
-    renderHook(() => useSystemAppearance('dark', { windowMaterial: 'solid' }));
-    expect(root().dataset.material).toBe('solid');
-  });
-
   it('ignores a malformed push', () => {
     const b = fakeBridge(snap());
     renderHook(() => useSystemAppearance('dark'));

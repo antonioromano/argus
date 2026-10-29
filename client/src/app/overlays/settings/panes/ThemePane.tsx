@@ -11,7 +11,6 @@ import {
   THEME_OPTIONS,
   UI_FONT_PRESETS,
   WAITING_OPTIONS,
-  WINDOW_MATERIAL_OPTIONS,
   fontPreset,
 } from '../options.js';
 import type { PaneProps } from '../types.js';
@@ -32,14 +31,6 @@ export function ThemePane({ config, onSave }: PaneProps) {
       <Section title="Theme">
         <SettingField id="device:themeMode">
           <Segmented label="Theme" value={mode} options={THEME_OPTIONS} onChange={setMode} />
-        </SettingField>
-        <SettingField id="windowMaterial">
-          <Segmented
-            label="Window material"
-            value={config.windowMaterial ?? 'translucent'}
-            options={WINDOW_MATERIAL_OPTIONS}
-            onChange={(windowMaterial) => { void onSave({ windowMaterial }); }}
-          />
         </SettingField>
       </Section>
 

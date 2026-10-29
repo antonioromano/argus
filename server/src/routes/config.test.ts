@@ -119,13 +119,6 @@ test('PUT density persists the three densities and ignores anything else', async
   assert.equal((await put({ density: 'comfortable' })).body.density, 'comfortable');
 });
 
-test('PUT windowMaterial persists solid / translucent and ignores anything else', async () => {
-  assert.equal((await get()).windowMaterial, 'translucent');
-  assert.equal((await put({ windowMaterial: 'solid' })).body.windowMaterial, 'solid');
-  assert.equal((await put({ windowMaterial: 'glass' })).body.windowMaterial, 'solid');
-  assert.equal((await put({ windowMaterial: 'translucent' })).body.windowMaterial, 'translucent');
-});
-
 test('PUT tileQuickAction persists a valid action (allowlist regression)', async () => {
   const { status, body } = await put({ tileQuickAction: 'files' });
   assert.equal(status, 200);
@@ -219,7 +212,6 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     mosaicWaitingStyle: 'flag',
     mosaicOrientation: 'vertical',
     density: 'compact',
-    windowMaterial: 'solid',
     debugToolsEnabled: true,
     ptyBackend: 'tmux',
     tileQuickAction: 'files',

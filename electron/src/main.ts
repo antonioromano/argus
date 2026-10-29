@@ -33,14 +33,18 @@ import {
 } from './window.js';
 import { initAppearanceHost, type AppearanceHost } from './appearanceHost.js';
 
-// Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
-// session, or after the shader cache is evicted) Chromium's GPU glyph
-// rasterization intermittently fails for special glyphs — box-drawing renders
-// as "__" and the Claude icon as a black block — and only a reload clears it.
-// This is renderer-agnostic (hit DOM/Canvas/WebGL alike) and reproduces only in
-// the packaged app's cold-GPU state (never in the warm `npm run dev` session).
-// Disabling hardware acceleration removes the GPU raster path entirely, so the
-// failure mode can't occur. Must be called before app 'ready'.
+// Render on the CPU, not the GPU. On a cold GPU (first open of a session, or
+// after the shader cache is evicted) Chromium's GPU path intermittently fails
+// for special glyphs — box-drawing renders as "__" and the Claude icon as a
+// black block — and only a reload clears it. Disabling hardware acceleration
+// removes the GPU path entirely, so the failure mode can't occur.
+//
+// Trade-off: with no GPU compositing the window can't be transparent, so the
+// native vibrancy never shows and the window material is always solid (see
+// appearanceHost.ts). Keeping GPU compositing with GPU rasterization off was
+// tried on 2026-10-29 and the garble came back on the first cold launch —
+// docs/solutions/macos/vibrancy-needs-gpu-compositing-2026-10-29.md.
+// Must be called before app 'ready'.
 app.disableHardwareAcceleration();
 
 // Keep Chromium's OSCrypt off the OS credential store. OSCrypt otherwise creates an

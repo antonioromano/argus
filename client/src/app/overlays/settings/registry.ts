@@ -80,7 +80,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
       // was Toolbar
       'clock', 'time', 'seconds', 'toolbar',
       // plan 008
-      'density', 'compact', 'comfortable', 'spacing', 'rows', 'dense', 'translucency', 'transparency', 'vibrancy', 'solid', 'blur', 'material', 'window',
+      'density', 'compact', 'comfortable', 'spacing', 'rows', 'dense',
     ],
   },
   {

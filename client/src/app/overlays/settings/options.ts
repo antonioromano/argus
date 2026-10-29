@@ -11,7 +11,6 @@ import type {
   MosaicWaitingStyle,
   SessionViewMode,
   TileRunningIndicator,
-  WindowMaterial,
 } from '@argus/shared';
 import type { ThemeMode } from '../../../context/theme-context.js';
 
@@ -55,11 +54,6 @@ export const DENSITY_OPTIONS: readonly { value: Density; label: string }[] = [
   { value: 'compact', label: 'Compact' },
   { value: 'default', label: 'Default' },
   { value: 'comfortable', label: 'Comfortable' },
-];
-
-export const WINDOW_MATERIAL_OPTIONS: readonly { value: WindowMaterial; label: string }[] = [
-  { value: 'translucent', label: 'Translucent' },
-  { value: 'solid', label: 'Solid' },
 ];
 
 export const WAITING_OPTIONS: readonly { value: MosaicWaitingStyle; label: string }[] = [

@@ -217,10 +217,8 @@ function DesktopInner() {
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
   // macOS appearance → <html> (material, contrast, active window, accent);
-  // the Window setting can only force solid, and the density's toolbar height
-  // re-centres the traffic lights.
+  // the density's toolbar height re-centres the traffic lights.
   useSystemAppearance(theme, {
-    windowMaterial: config?.windowMaterial,
     titlebarH: DENSITY_METRICS[isDensity(config?.density) ? config.density : DEFAULT_DENSITY].titlebarH,
   });
   // Usage meter: one stable object for every shell header (tiles are memoized).

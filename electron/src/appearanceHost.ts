@@ -57,8 +57,9 @@ export function initAppearanceHost(deps: AppearanceHostDeps): AppearanceHost {
       highContrast: nativeTheme.shouldUseHighContrastColors,
       fullscreen: win.isFullScreen(),
       windowActive: isWindowActive(appActive, BrowserWindow.getFocusedWindow(), win, deps.keyOverlayOwners()),
-      // The user's Solid setting is applied in the renderer; main can only force solid.
-      materialSetting: 'translucent',
+      // Always solid: hardware acceleration is off (main.ts), and without GPU
+      // compositing the window can't show the vibrancy behind it.
+      materialSetting: 'solid',
       titlebarInset: trafficLights(DEFAULT_TITLEBAR_H).inset,
     });
 
