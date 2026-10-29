@@ -106,9 +106,10 @@ export function AlertSheet({
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        className="material-float"
         style={{
           width: 320,
-          background: 'var(--bg-2)',
+          background: 'var(--material-sheet)',
           border: '1px solid var(--line-2)',
           borderRadius: 'var(--r-4)',
           boxShadow: 'var(--shadow-sheet)',

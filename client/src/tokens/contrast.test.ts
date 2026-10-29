@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { PAINT_SURFACES, PAINT_SYNTAX, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS } from './paint.js';
+import { PAINT_ACCENT_SURFACES, PAINT_SURFACES, PAINT_SYNTAX, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS } from './paint.js';
 import { GROUP_COLORS } from '../constants/groupColors.js';
+import { parseColor, over, contrastRatio, type Rgba } from './contrast.js';
 
 // WCAG 2.1 AA guard for the color tokens. Every pair below is one the UI
 // actually paints; if a token edit drops a pair under its threshold this fails
@@ -12,7 +13,6 @@ const TEXT = 4.5; // 1.4.3 — body text, including secondary/muted --fg-3
 const UI = 3; //     1.4.11 — control edges, status dots, glyph markers
 
 type Theme = 'dark' | 'light';
-type Rgba = [number, number, number, number];
 
 const css = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8');
 
@@ -27,38 +27,8 @@ function themeBlock(theme: Theme): Record<string, string> {
 }
 const TOKENS: Record<Theme, Record<string, string>> = { dark: themeBlock('dark'), light: themeBlock('light') };
 
-function parse(color: string): Rgba {
-  const c = color.trim();
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c);
-  if (hex) {
-    const h = hex[1].length === 3 ? [...hex[1]].map((x) => x + x).join('') : hex[1];
-    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 1];
-  }
-  const rgb = /^rgba?\(([^)]+)\)$/.exec(c);
-  if (rgb) {
-    const [r, g, b, a = 1] = rgb[1].split(',').map(Number);
-    return [r, g, b, a];
-  }
-  throw new Error(`unparseable color ${color}`);
-}
-
-function over(fg: Rgba, bg: Rgba): Rgba {
-  const a = fg[3];
-  return [fg[0] * a + bg[0] * (1 - a), fg[1] * a + bg[1] * (1 - a), fg[2] * a + bg[2] * (1 - a), 1];
-}
-
-function luminance([r, g, b]: Rgba): number {
-  const lin = (v: number) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-function contrast(fg: Rgba, bg: Rgba): number {
-  const [hi, lo] = [luminance(fg), luminance(bg)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
+const parse = parseColor;
+const contrast = contrastRatio;
 
 /** Resolve a token (or a literal) for a theme. */
 function color(theme: Theme, ref: string): Rgba {
@@ -151,6 +121,13 @@ describe('paint tokens (xterm / Monaco) mirror tokens.css', () => {
       expect(PAINT_SURFACES[theme].inset.toLowerCase()).toBe(TOKENS[theme]['--bg-inset'].toLowerCase());
     });
 
+    it(`${theme}: accent-clamp surfaces equal --bg-1 / --bg-2 / --accent`, () => {
+      const p = PAINT_ACCENT_SURFACES[theme];
+      expect(p.panel.toLowerCase()).toBe(TOKENS[theme]['--bg-1'].toLowerCase());
+      expect(p.card.toLowerCase()).toBe(TOKENS[theme]['--bg-2'].toLowerCase());
+      expect(p.brand.toLowerCase()).toBe(TOKENS[theme]['--accent'].toLowerCase());
+    });
+
     it(`${theme}: terminal palette is readable on its background`, () => {
       const t = TERMINAL_THEMES[theme];
       const bg = parse(t.background);
@@ -197,5 +174,73 @@ describe('input placeholders', () => {
       const c = /(?:^|[\s;])color:\s*([^;]+);/.exec(body);
       if (c) expect(c[1].trim(), selector.trim()).toBe('var(--fg-3)');
     }
+  });
+});
+
+// Plan 008 — window materials. A translucent tint is only as readable as what
+// shows through it. Chrome (sidebar, toolbar) sits on the native vibrancy
+// material, so it is composited over a stand-in for that material in the same
+// appearance (main keeps the material's appearance in step with the Argus
+// theme through nativeTheme.themeSource). Pure #000 / #fff would fail every
+// usable alpha and is not what macOS draws. Floating surfaces (menus,
+// popovers, sheets) float over opaque app content, so every surface is a
+// backdrop for them.
+const NATIVE_MATERIAL: Record<Theme, string> = { dark: '#2b2b30', light: '#e6e6ea' };
+const CHROME_MATERIALS = ['--material-sidebar', '--material-toolbar'];
+const FLOATING_MATERIALS = ['--material-sheet', '--material-popover', '--material-menu'];
+
+function blockBody(selector: RegExp, source = css): string {
+  const m = selector.exec(source);
+  if (!m) throw new Error(`no block ${selector}`);
+  return source.slice(m.index + m[0].length, source.indexOf('}', m.index));
+}
+
+describe('window materials (plan 008)', () => {
+  for (const theme of ['dark', 'light'] as const) {
+    it(`${theme}: text stays AA on every material over its backdrop`, () => {
+      const cases: [string, string][] = [
+        ...CHROME_MATERIALS.map((m): [string, string] => [m, NATIVE_MATERIAL[theme]]),
+        ...FLOATING_MATERIALS.flatMap((m) => SURFACES.map((s): [string, string] => [m, s])),
+      ];
+      const failing: string[] = [];
+      for (const [material, backdrop] of cases) {
+        const tint = color(theme, material);
+        expect(tint[3], `${material} is a tint, not opaque`).toBeLessThan(1);
+        const bg = over(tint, color(theme, backdrop));
+        for (const [fg, min] of [['--fg-0', TEXT], ['--fg-1', TEXT], ['--fg-2', TEXT], ['--fg-3', TEXT], ['--fg-4', UI]] as const) {
+          const r = contrast(color(theme, fg), bg);
+          if (r < min) failing.push(`${fg} on ${material} over ${backdrop} = ${r.toFixed(2)} < ${min}`);
+        }
+      }
+      expect(failing).toEqual([]);
+    });
+  }
+
+  it('every material resolves to its opaque surface unless the window is translucent', () => {
+    const solid = blockBody(/:root:not\(\[data-material="translucent"\]\)\s*\{/);
+    const vars = Object.fromEntries([...solid.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, k, v]) => [k, v.trim()]));
+    expect(vars).toEqual({
+      '--material-window': 'var(--bg-0)',
+      '--material-sidebar': 'var(--bg-1)',
+      '--material-toolbar': 'var(--bg-1)',
+      '--material-sheet': 'var(--bg-2)',
+      '--material-popover': 'var(--bg-2)',
+      '--material-menu': 'var(--bg-2)',
+    });
+  });
+
+  it('Increase Contrast raises every hairline in both themes', () => {
+    const more: Record<Theme, string> = {
+      dark: blockBody(/:root\[data-contrast="more"\]\s*\{/),
+      light: blockBody(/\[data-theme="light"\]\[data-contrast="more"\]\s*\{/),
+    };
+    for (const theme of ['dark', 'light'] as const) {
+      for (const line of ['--line-1', '--line-2', '--line-3']) {
+        const raised = new RegExp(`${line}:\\s*([^;]+);`).exec(more[theme])?.[1];
+        expect(raised, `${theme} ${line}`).toBeDefined();
+        expect(parse(raised!)[3], `${theme} ${line}`).toBeGreaterThan(color(theme, line)[3]);
+      }
+    }
+    expect(more.dark).toContain('--fg-3: var(--fg-2)');
   });
 });

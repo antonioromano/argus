@@ -98,6 +98,15 @@
   --shadow-2: 0 4px 12px rgba(0,0,0,.45), 0 0 0 1px var(--line-2);
   --shadow-pop: 0 18px 40px rgba(0,0,0,.55), 0 0 0 1px var(--line-3);
   --shadow-sheet: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px var(--line-3);
+
+  /* Materials (plan 008) — tints laid over the native window vibrancy.
+     Chrome = --bg-1 at 0.60; floating surfaces = --bg-2 at 0.82. Only used
+     while <html data-material="translucent">; see MATERIALS below. */
+  --material-sidebar: rgba(19, 20, 24, 0.60);
+  --material-toolbar: rgba(19, 20, 24, 0.60);
+  --material-sheet:   rgba(25, 27, 32, 0.82);
+  --material-popover: rgba(25, 27, 32, 0.82);
+  --material-menu:    rgba(25, 27, 32, 0.82);
 }
 
 /* ===== LIGHT ===== */
@@ -179,6 +188,74 @@
   --shadow-2: 0 6px 16px rgba(20,15,8,.08), 0 0 0 1px var(--line-2);
   --shadow-pop: 0 18px 40px rgba(20,15,8,.18), 0 0 0 1px var(--line-3);
   --shadow-sheet: 0 30px 80px rgba(20,15,8,.22), 0 0 0 1px var(--line-3);
+
+  --material-sidebar: rgba(235, 231, 221, 0.60);
+  --material-toolbar: rgba(235, 231, 221, 0.60);
+  --material-sheet:   rgba(255, 255, 255, 0.82);
+  --material-popover: rgba(255, 255, 255, 0.82);
+  --material-menu:    rgba(255, 255, 255, 0.82);
+}
+
+/* ===== MATERIALS (plan 008) =====
+   <html data-material> is set only inside Electron, by useSystemAppearance:
+   'translucent' lets the NSVisualEffectView behind the window show through the
+   chrome (sidebar, toolbar, chip strip) and gives floating surfaces (menus,
+   popovers, sheets) a tint plus a small blur. Anything else (Reduce
+   Transparency, Increase Contrast, fullscreen, the Solid setting, /mobile, the
+   browser, tests) resolves every material to its opaque surface, so the app
+   looks exactly as it did before vibrancy. Content (tiles, terminals, Monaco,
+   diffs, chat) never uses a material. */
+:root:not([data-material="translucent"]) {
+  --material-window:  var(--bg-0);
+  --material-sidebar: var(--bg-1);
+  --material-toolbar: var(--bg-1);
+  --material-sheet:   var(--bg-2);
+  --material-popover: var(--bg-2);
+  --material-menu:    var(--bg-2);
+}
+:root[data-material="translucent"] {
+  --material-window: transparent;
+}
+/* The floating-surface blur. CPU-rastered (hardware acceleration is off), so
+   it is kept to bounded panels; the full-window sheet scrim has none. */
+:root[data-material="translucent"] .material-float {
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+}
+
+/* ===== INCREASE CONTRAST (plan 008) =====
+   Hairlines step up one notch and muted text uses the secondary tone. Driven
+   by main (data-contrast) with the media query as belt and braces. */
+:root[data-contrast="more"] {
+  --line-1: rgba(255, 255, 255, 0.10);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --line-3: rgba(255, 255, 255, 0.24);
+  --fg-3: var(--fg-2);
+}
+[data-theme="light"][data-contrast="more"] {
+  --line-1: rgba(20, 15, 8, 0.13);
+  --line-2: rgba(20, 15, 8, 0.22);
+  --line-3: rgba(20, 15, 8, 0.32);
+}
+@media (prefers-contrast: more) {
+  :root {
+    --line-1: rgba(255, 255, 255, 0.10);
+    --line-2: rgba(255, 255, 255, 0.16);
+    --line-3: rgba(255, 255, 255, 0.24);
+    --fg-3: var(--fg-2);
+  }
+  [data-theme="light"] {
+    --line-1: rgba(20, 15, 8, 0.13);
+    --line-2: rgba(20, 15, 8, 0.22);
+    --line-3: rgba(20, 15, 8, 0.32);
+  }
+}
+
+/* ===== INACTIVE WINDOW (plan 008) =====
+   App in the background or another Argus window key: the accent goes grey and
+   chrome text recedes. Colour only, never size (hover-no-reflow rule). */
+:root[data-window-active="false"] {
+  --sys-accent: var(--fg-4);
 }
 
 /* ===== SCALE — shared ===== */
@@ -287,6 +364,15 @@
      Scales with the sm control height, so it is 33px at the default font. */
   --h-panel-header: calc(var(--ctl-h-sm) + 2 * var(--s-1) + 1px);
 
+  /* Hairline — chrome separators. 0.5px on Retina (below). */
+  --hairline: 1px;
+
+  /* System accent (plan 008) — macOS accent colour for focus rings, text
+     selection and native form controls only. useSystemAppearance sets
+     --sys-accent-color when it clears 3:1 on the panels; otherwise the brand
+     accent. --accent itself stays amber: it doubles as --status-waiting. */
+  --sys-accent: var(--sys-accent-color, var(--accent));
+
   /* Radius — micro, not pillowy */
   --r-0: 0;
   --r-1: 2px;        /* kbd, inline chips, scrollbar */
@@ -329,6 +415,9 @@
   --z-overlay: 2000;   /* alert dialogs / password gate — above everything but toasts */
   --z-toast: 3000;
 }
+@media (min-resolution: 2dppx) {
+  :root { --hairline: 0.5px; }
+}
 
 
 /* ===== GLOBAL ===== */
@@ -339,7 +428,7 @@ body {
   font-size: var(--t-base);
   line-height: var(--lh-body);
   color: var(--fg-0);
-  background: var(--bg-0);
+  background: var(--material-window);
   font-feature-settings: "ss01", "ss02", "cv01", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -470,8 +559,13 @@ body.argus-bg-idle *::after {
 
 /* H3 — Global focus-visible ring (only keyboard focus, not mouse) */
 *:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--sys-accent);
   outline-offset: 2px;
   border-radius: inherit;
 }
 *:focus:not(:focus-visible) { outline: none; }
+
+/* System accent on selection and native controls (plan 008, accent option 1:
+   selected rows stay neutral; amber stays the status colour). */
+::selection { background: color-mix(in srgb, var(--sys-accent) 35%, transparent); }
+input, select, progress { accent-color: var(--sys-accent); }

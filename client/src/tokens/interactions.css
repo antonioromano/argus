@@ -97,27 +97,17 @@
   color: var(--danger) !important;
 }
 
-/* === GLASS === */
+/* === SCRIM ===
+   The dim behind sheets and alerts. No backdrop blur: with hardware
+   acceleration off it was a full-window CPU blur on every sheet open, barely
+   visible behind a 72% scrim. The sheet panel itself carries the material
+   (and .material-float's small blur, tokens.css). */
 .glass-overlay {
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   background: var(--bg-overlay);
 }
 
-.glass-panel {
-  background: var(--bg-1);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
-  box-shadow: var(--shadow-pop);
-}
-
-@supports not (backdrop-filter: blur(1px)) {
-  .glass-panel {
-    background: var(--bg-1);
-  }
-}
-
 /* === CONTEXT MENU ITEMS === */
+.argus-ctx-sep { height: var(--hairline); background: var(--line-2); margin: var(--s-1) var(--s-1-5); }
 .argus-ctx-item { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .argus-ctx-item:not(:disabled):hover { background: var(--bg-3); color: var(--accent); }
 .argus-ctx-item[data-danger]:not(:disabled):hover { background: var(--danger-bg); color: var(--danger); }

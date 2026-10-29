@@ -112,12 +112,33 @@ describe('motion', () => {
   });
 });
 
-describe('room left for plan 008', () => {
-  // 008 (macOS polish) owns these; defining them here would pre-empt its choices.
-  it.each(['--hairline', '--sys-accent'])('does not define %s', (name) => {
-    expect(decl(name)).toBeUndefined();
+describe('plan 008 tokens', () => {
+  it('hairline is 1px, 0.5px on Retina', () => {
+    expect(decl('--hairline')).toBe('1px');
+    expect(CSS).toMatch(/@media \(min-resolution: 2dppx\)\s*\{\s*:root\s*\{\s*--hairline:\s*0\.5px;/);
   });
-  it('does not define --material-* tokens', () => {
-    expect(CSS).not.toMatch(/--material-[\w-]+\s*:/);
+
+  it('system accent falls back to the brand accent', () => {
+    expect(CSS).toContain('--sys-accent: var(--sys-accent-color, var(--accent));');
+  });
+
+  it('focus ring, selection and native controls use the system accent', () => {
+    expect(CSS).toMatch(/\*:focus-visible\s*\{\s*outline:\s*2px solid var\(--sys-accent\);/);
+    expect(CSS).toMatch(/::selection\s*\{[^}]*var\(--sys-accent\)/);
+    expect(CSS).toMatch(/accent-color:\s*var\(--sys-accent\)/);
+  });
+
+  it('the inactive window greys the system accent, not the brand accent', () => {
+    const m = /:root\[data-window-active="false"\]\s*\{([^}]*)\}/.exec(CSS);
+    expect(m?.[1]).toContain('--sys-accent: var(--fg-4)');
+    expect(m?.[1]).not.toContain('--accent:');
+  });
+
+  it('body paints the window material, which is opaque unless translucent', () => {
+    expect(CSS).toMatch(/body\s*\{[^}]*background:\s*var\(--material-window\);/);
+    const solid = /:root:not\(\[data-material="translucent"\]\)\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? '';
+    expect(decl('--material-window', solid)).toBe('var(--bg-0)');
+    const translucent = /:root\[data-material="translucent"\]\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? '';
+    expect(decl('--material-window', translucent)).toBe('transparent');
   });
 });

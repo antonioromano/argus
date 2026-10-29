@@ -261,7 +261,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--bg-0);
+  /* background: tokens.css (--material-window: opaque unless translucent) */
 }
 
 #root {
@@ -715,8 +715,8 @@ body {
   flex-shrink: 0;
   /* Anchors the drag handle on the right edge (see Sidebar.tsx). */
   position: relative;
-  background: var(--bg-1);
-  border-right: 1px solid var(--line-2);
+  background: var(--material-sidebar);
+  border-right: var(--hairline) solid var(--line-2);
   display: flex;
   flex-direction: column;
   padding: var(--s-3) var(--s-2);
@@ -876,8 +876,8 @@ body {
   align-items: center;
   gap: var(--s-3);
   padding: 0 var(--s-3) 0 80px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--line-2);
+  background: var(--material-toolbar);
+  border-bottom: var(--hairline) solid var(--line-2);
 }
 .argus-titlebar-title {
   font-size: var(--t-tiny);
@@ -890,6 +890,53 @@ body {
   flex-shrink: 0;
 }
 .argus-titlebar-title-sub { color: var(--fg-3); }
+/* Inactive window (plan 008): the title recedes, like AppKit's toolbar. */
+:root[data-window-active="false"] .argus-titlebar-title { color: var(--fg-3); }
+
+/* === WINDOW SHELL (plan 008) ===
+   The shell paints the window material: transparent while translucent, so the
+   native vibrancy shows behind the sidebar and toolbar tints. The content
+   column (.argus-content: mosaic, focus, workbench panels) is always opaque.
+   It is the guaranteed opaque ancestor of every native terminal hole: a
+   native tile is a child NSWindow hidden by alpha 0, and whatever its hole's
+   ancestors paint shows in that frame (docs/solutions/macos/
+   native-terminal-overlay-child-windows-2026-09-02.md). */
+.argus-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--material-window);
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+.argus-shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.argus-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-0);
+}
+
+/* "OTHERS" chip strip above the focused shell. */
+.argus-chip-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-4);
+  background: var(--material-toolbar);
+  border-bottom: var(--hairline) solid var(--line-2);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
 .argus-titlebar-slot {
   display: inline-flex;
   align-items: center;
@@ -1566,7 +1613,7 @@ body {
   flex-direction: column;
   gap: var(--s-2);
   padding: var(--s-3);
-  background: var(--bg-2);
+  background: var(--material-popover);
   border: 1px solid var(--line-3);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-pop);

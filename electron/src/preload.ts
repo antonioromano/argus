@@ -87,6 +87,23 @@ contextBridge.exposeInMainWorld('electronApp', {
   },
 });
 
+// macOS appearance (plan 008): material, contrast, active window, system
+// accent. `snapshot` is synchronous so the first paint already carries the
+// right attributes; main validates the sender and the theme value.
+contextBridge.exposeInMainWorld('electronAppearance', {
+  snapshot: (): unknown => {
+    try { return ipcRenderer.sendSync('appearance:snapshot') ?? undefined; } catch { return undefined; }
+  },
+  onChange: (cb: (snapshot: unknown) => void): (() => void) => {
+    const listener = (_e: unknown, snapshot: unknown) => cb(snapshot);
+    ipcRenderer.on('appearance:changed', listener);
+    return () => ipcRenderer.off('appearance:changed', listener);
+  },
+  setTheme: (mode: 'dark' | 'light' | 'system') => {
+    ipcRenderer.send('appearance:set-theme', mode);
+  },
+});
+
 contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });

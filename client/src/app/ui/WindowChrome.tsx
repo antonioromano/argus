@@ -16,7 +16,10 @@ interface WindowChromeProps {
 }
 
 /**
- * Argus OS root window. 44px draggable title bar + main content area.
+ * Argus OS root window. 44px draggable title bar + main content area. The
+ * shell paints the window material (transparent while translucent, so macOS
+ * vibrancy shows through the toolbar and sidebar tints); the opaque content
+ * column is the caller's `.argus-content`.
  * Electron traffic-light region is owned by macOS automatically (via no-frame
  * window settings); this chrome supplies title/subtitle and right-side toolbar
  * slot for app-level controls.
@@ -24,18 +27,7 @@ interface WindowChromeProps {
 export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameWindow, leading, toolbar, children }: WindowChromeProps) {
   const [renaming, setRenaming] = useState(false);
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--bg-0)',
-        color: 'var(--fg-0)',
-        fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--t-body)',
-      }}
-    >
+    <div className="argus-shell">
       <div
         className="argus-titlebar"
         // @ts-expect-error Electron WebkitAppRegion
@@ -111,7 +103,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
           </div>
         )}
       </div>
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <div className="argus-shell-body">
         {children}
       </div>
     </div>

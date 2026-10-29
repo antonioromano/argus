@@ -322,6 +322,15 @@ export function setKeyOverlayOwners(fn: () => Iterable<BrowserWindow | null | un
   keyOverlayOwners = fn;
 }
 
+export function getKeyOverlayOwners(): Iterable<BrowserWindow | null | undefined> {
+  return keyOverlayOwners();
+}
+
+/** Every live Argus window (for pushing per-window state such as appearance). */
+export function getAllAppWindows(): BrowserWindow[] {
+  return [...windows.values()].filter((w) => !w.isDestroyed());
+}
+
 export function getFocusedWindowId(): string {
   const focused = resolveMenuTarget(BrowserWindow.getFocusedWindow(), keyOverlayOwners());
   if (focused) {

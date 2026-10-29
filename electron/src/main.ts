@@ -28,7 +28,9 @@ import {
   setMainCloseHandler, hideMainWindow, adoptAsMain,
   setZoomLevelForFocused, getZoomLevelForFocused,
   setAppQuitting, setStopAllOnQuit, getStopAllOnQuit, windowIdOf,
+  getAllAppWindows, getKeyOverlayOwners,
 } from './window.js';
+import { initAppearanceHost, type AppearanceHost } from './appearanceHost.js';
 
 // Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
 // session, or after the shader cache is evicted) Chromium's GPU glyph
@@ -666,6 +668,8 @@ const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
 // must not keep the colliding accelerators disabled: Monaco reports no blur
 // when a child NSWindow takes key status, so that belief would stay true.
 const nativeKeySessions = new Set<string>();
+// Set in main(); a key-overlay change re-derives each window's active state.
+let appearanceHost: AppearanceHost | null = null;
 setKeyOverlayOwners(() => [...nativeKeySessions].map((id) => {
   const winId = sessionToWindowId.get(id);
   const win = winId === undefined ? null : BrowserWindow.fromId(winId);
@@ -834,6 +838,7 @@ async function main() {
       if (focused) nativeKeySessions.add(id);
       else nativeKeySessions.delete(id);
       applyMenuAcceleratorGating();
+      appearanceHost?.refresh();
       sendToNativeTermWindow(id, 'native-term:focus', { sessionId: id, focused });
     },
   });
@@ -858,6 +863,16 @@ async function main() {
   // frame of our own 127.0.0.1 page (ipcMain otherwise accepts any frame of any
   // webContents) and that the payload has the expected shape.
   const trusted = (e: IpcSenderLike) => isTrustedSender(e, appOrigin());
+
+  // macOS appearance → renderer (accent, Reduce Transparency, Increase
+  // Contrast, active window, fullscreen), and the renderer's theme → the
+  // window material. Before any window exists: the preload reads the first
+  // snapshot synchronously.
+  appearanceHost = initAppearanceHost({
+    trusted,
+    windows: getAllAppWindows,
+    keyOverlayOwners: getKeyOverlayOwners,
+  });
   /** Common native-term guard: trusted sender + object payload with a valid sessionId. */
   const ntArgs = (e: IpcSenderLike, arg: unknown): Record<string, unknown> & { sessionId: string } | null =>
     trusted(e) && isPlainObject(arg) && isSessionId(arg.sessionId) ? (arg as Record<string, unknown> & { sessionId: string }) : null;

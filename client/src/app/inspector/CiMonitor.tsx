@@ -89,7 +89,7 @@ export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefO
       ref={ref}
       role="dialog"
       aria-label="CI monitoring"
-      className="argus-ci-popover"
+      className="argus-ci-popover material-float"
       style={{ width: scaledPx(280) }}
     >
       <SuppressWhileMounted target={() => ref.current?.getBoundingClientRect() ?? null} />

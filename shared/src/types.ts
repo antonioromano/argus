@@ -83,6 +83,24 @@ export type TileRunningIndicator = 'hairline' | 'off';
 /** Session Inspector placement: the left sidebar or a right-hand column. */
 export type InspectorSide = 'left' | 'right';
 
+/** Window background: native vibrancy behind the chrome, or opaque (plan 008). */
+export type WindowMaterial = 'translucent' | 'solid';
+
+/**
+ * What Electron main tells a window about the macOS appearance (plan 008).
+ * The renderer writes it to <html> as data-material / data-contrast /
+ * data-window-active and --sys-accent-color.
+ */
+export interface AppearanceSnapshot {
+  /** System accent as '#rrggbb', or null when the OS gives none. */
+  accent: string | null;
+  /** 'solid' under Reduce Transparency, Increase Contrast or fullscreen. */
+  material: WindowMaterial;
+  contrast: 'more' | 'normal';
+  /** App frontmost and this window focused (or hosting the key native terminal). */
+  active: boolean;
+}
+
 export interface AppConfig {
   defaultAgent: AgentType;
   customAgents: AgentDefinition[];

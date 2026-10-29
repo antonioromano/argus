@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/theme-context.js';
+import { useSystemAppearance } from '../hooks/useSystemAppearance.js';
 import { FontSettingsProvider } from '../context/FontSettingsContext.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
@@ -213,6 +214,8 @@ function DesktopInner() {
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
+  // macOS appearance → <html> (material, contrast, active window, accent).
+  useSystemAppearance(theme);
   // Usage meter: one stable object for every shell header (tiles are memoized).
   const meterView = useMemo(() => usageMeterView(config), [config]);
   const planUsage = usePlanUsage(socket, meterView !== null);
@@ -1075,7 +1078,8 @@ function DesktopInner() {
             justifyContent: 'center',
             gap: 8,
             padding: '6px 16px',
-            background: 'var(--warn-bg)',
+            // Opaque base: the shell behind it is transparent while translucent.
+            background: 'linear-gradient(var(--warn-bg), var(--warn-bg)) var(--bg-1)',
             borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
             color: 'var(--warn)',
             fontSize: 'var(--t-tiny)',
@@ -1129,7 +1133,9 @@ function DesktopInner() {
           }
         />
 
-        <main id="main" style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* .argus-content is opaque in every material state: it is the
+            guaranteed opaque ancestor of the native terminal holes. */}
+        <main id="main" className="argus-content">
           {app.view === 'dashboard' && (
             <Mosaic
               sessions={mosaicSessions}

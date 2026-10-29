@@ -81,6 +81,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
     <div
       ref={ref}
       role="menu"
+      className="material-float"
       onContextMenu={(e) => e.preventDefault()}
       style={{
         position: 'fixed',
@@ -88,7 +89,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
         top: pos.y,
         zIndex: 'var(--z-pop)' as unknown as number,
         minWidth: MENU_W,
-        background: 'var(--bg-2)',
+        background: 'var(--material-menu)',
         border: '1px solid var(--line-3)',
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-pop)',
@@ -98,7 +99,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
     >
       {items.map((entry, i) => {
         if (isSeparator(entry)) {
-          return <div key={`sep-${i}`} style={{ height: 1, background: 'var(--line-2)', margin: 'var(--s-1) var(--s-1-5)' }} />;
+          return <div key={`sep-${i}`} role="separator" className="argus-ctx-sep" />;
         }
         if (isHeader(entry)) {
           return (

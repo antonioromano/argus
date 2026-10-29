@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ThemeContext, type Theme, type ThemeMode } from './theme-context.js';
+import { appearanceBridge } from '../hooks/useSystemAppearance.js';
 
 
 // --- Helpers ---
@@ -52,6 +53,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.body.style.fontFamily =
       'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)';
   }, [theme]);
+
+  // Electron: keep the window's vibrancy material in the same appearance as
+  // the DOM (nativeTheme.themeSource), so a dark Argus on a light-mode Mac
+  // gets a dark sidebar material. System mode hands the choice back to macOS.
+  useEffect(() => {
+    appearanceBridge()?.setTheme(mode === 'system' ? 'system' : theme);
+  }, [mode, theme]);
 
   const setMode = useCallback((m: ThemeMode) => {
     // Instant, and suppressed while it happens. Argus used to crossfade the

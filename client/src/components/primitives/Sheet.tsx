@@ -67,6 +67,7 @@ export function Sheet({
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
+        className="material-float"
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
@@ -79,7 +80,7 @@ export function Sheet({
           maxHeight: '92%',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--bg-2)',
+          background: 'var(--material-sheet)',
           border: '1px solid var(--line-2)',
           boxShadow: 'var(--shadow-sheet)',
           borderRadius: 'var(--r-4)',
@@ -132,7 +133,7 @@ export function Sheet({
             gap: 'var(--s-2)',
             padding: 'var(--s-4) var(--s-6)',
             borderTop: '1px solid var(--line-1)',
-            background: 'var(--bg-1)',
+            background: 'var(--material-toolbar)',
           }}>
             {footer}
           </div>
