@@ -102,6 +102,10 @@ contextBridge.exposeInMainWorld('electronAppearance', {
   setTheme: (mode: 'dark' | 'light' | 'system') => {
     ipcRenderer.send('appearance:set-theme', mode);
   },
+  // The toolbar height (density); main re-centres the traffic lights on it.
+  setTitlebarHeight: (px: number) => {
+    ipcRenderer.send('appearance:titlebar-height', px);
+  },
 });
 
 contextBridge.exposeInMainWorld('electronShell', {

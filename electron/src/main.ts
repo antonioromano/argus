@@ -17,6 +17,7 @@ import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from '.
 import { setMenuShortcuts } from './menuShortcuts.js';
 import {
   MENU_LAYOUT, describeMenuCommands, isMainCommandId, menuCommand, menuCommandAccelerator,
+  menuCommandLabel, setMenuAppearance,
   type MainCommandId, type MenuLayoutItem,
 } from './menuModel.js';
 import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
@@ -726,7 +727,7 @@ function menuItemFor(entry: MenuLayoutItem): MenuItemConstructorOptions {
   // `id` on every item: applyMenuAcceleratorGating looks the colliding ones up.
   return {
     id: def.id,
-    label: def.label,
+    label: menuCommandLabel(def),
     ...(accelerator ? { accelerator } : {}),
     click: () => {
       if (isMainCommandId(def.id)) MAIN_HANDLERS[def.id]();
@@ -872,6 +873,12 @@ async function main() {
     trusted,
     windows: getAllAppWindows,
     keyOverlayOwners: getKeyOverlayOwners,
+    // View → Use Light/Dark Appearance names the switch it would make.
+    onThemeChanged: (dark) => {
+      if (!setMenuAppearance(dark) || !Menu.getApplicationMenu()) return;
+      Menu.setApplicationMenu(buildAppMenu());
+      applyMenuAcceleratorGating();
+    },
   });
   /** Common native-term guard: trusted sender + object payload with a valid sessionId. */
   const ntArgs = (e: IpcSenderLike, arg: unknown): Record<string, unknown> & { sessionId: string } | null =>

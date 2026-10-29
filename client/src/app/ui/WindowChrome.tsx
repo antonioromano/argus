@@ -16,7 +16,7 @@ interface WindowChromeProps {
 }
 
 /**
- * Argus OS root window. 44px draggable title bar + main content area. The
+ * Argus OS root window. Draggable title bar (--h-titlebar) + main content area. The
  * shell paints the window material (transparent while translucent, so macOS
  * vibrancy shows through the toolbar and sidebar tints); the opaque content
  * column is the caller's `.argus-content`.

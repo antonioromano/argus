@@ -5,12 +5,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MENU_COMMANDS, MENU_LAYOUT, MAIN_COMMAND_IDS, RENDERER_COMMAND_IDS,
-  isMainCommandId, menuCommandAccelerator, describeMenuCommands, toWire,
+  isMainCommandId, menuCommandAccelerator, describeMenuCommands, toWire, setMenuAppearance,
 } from './menuModel.js';
 import { MENU_SHORTCUT_DEFAULTS, setMenuShortcuts } from './menuShortcuts.js';
 import { COLLIDING_MENU_CHANNELS } from './menuAcceleratorGating.js';
 
-test.afterEach(() => { setMenuShortcuts({}); });
+test.afterEach(() => { setMenuShortcuts({}); setMenuAppearance(true); });
 
 const layoutIds = (): string[] =>
   MENU_LAYOUT.flatMap((m) => m.items.flatMap((i) => (typeof i === 'string' && i !== 'separator' ? [i as string] : [])));
@@ -80,7 +80,7 @@ test('the three items that used to be dead are renderer commands', () => {
   }
 });
 
-test('Toggle Theme follows the toggle-theme binding (⌘⇧L by default)', () => {
+test('the appearance item follows the toggle-theme binding (⌘⇧L by default)', () => {
   const def = MENU_COMMANDS.find((c) => c.id === 'menu:toggle-theme')!;
   assert.equal(def.shortcut, 'toggle-theme');
   assert.equal(menuCommandAccelerator(def), 'CmdOrCtrl+Shift+L');
@@ -106,8 +106,8 @@ test('describeMenuCommands returns one wire descriptor per command with live acc
   assert.equal(wire.length, MENU_COMMANDS.length);
   const theme = wire.find((w) => w.id === 'menu:toggle-theme')!;
   assert.deepEqual(theme, {
-    id: 'menu:toggle-theme', label: 'Toggle Theme', section: 'View',
-    accelerator: 'CmdOrCtrl+Alt+T', runIn: 'renderer', palette: true,
+    id: 'menu:toggle-theme', label: 'Use Light Appearance', section: 'View',
+    accelerator: 'CmdOrCtrl+Alt+T', runIn: 'renderer', palette: true, keywords: 'theme dark light toggle',
   });
 });
 

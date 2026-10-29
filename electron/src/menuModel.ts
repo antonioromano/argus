@@ -39,15 +39,17 @@ const DEFS = [
 
   // File
   { id: 'menu:new-window', label: 'New Window', section: 'File', runIn: 'main', accelerator: 'CmdOrCtrl+Shift+N' },
-  { id: 'menu:new-session', label: 'New Session', section: 'File', runIn: 'renderer', shortcut: 'new-session' },
+  { id: 'menu:new-session', label: 'New Session…', section: 'File', runIn: 'renderer', shortcut: 'new-session' },
   { id: 'menu:close-session', label: 'Close Session', section: 'File', runIn: 'renderer', shortcut: 'close-shell' },
-  { id: 'menu:review-launch', label: 'Review Pending Launch', section: 'File', runIn: 'renderer', accelerator: 'Alt+CmdOrCtrl+L' },
+  { id: 'menu:review-launch', label: 'Review Pending Launch…', section: 'File', runIn: 'renderer', accelerator: 'Alt+CmdOrCtrl+L' },
 
   // View
-  { id: 'menu:toggle-palette', label: 'Toggle Find & Jump', section: 'View', runIn: 'renderer', shortcut: 'command-palette' },
+  { id: 'menu:toggle-palette', label: 'Find & Jump…', section: 'View', runIn: 'renderer', shortcut: 'command-palette' },
   { id: 'menu:waiting-inbox', label: 'Waiting Inbox', section: 'View', runIn: 'renderer', shortcut: 'waiting-inbox' },
-  { id: 'menu:session-search', label: 'Search All Sessions', section: 'View', runIn: 'renderer', shortcut: 'session-search' },
-  { id: 'menu:toggle-theme', label: 'Toggle Theme', section: 'View', runIn: 'renderer', shortcut: 'toggle-theme' },
+  { id: 'menu:session-search', label: 'Search All Sessions…', section: 'View', runIn: 'renderer', shortcut: 'session-search' },
+  // Label follows the current appearance (menuCommandLabel): it names what
+  // the item does, not "Toggle Theme".
+  { id: 'menu:toggle-theme', label: 'Use Light Appearance', section: 'View', runIn: 'renderer', shortcut: 'toggle-theme', keywords: 'theme dark light toggle' },
   // These five were renderer-only keydown handlers. A native terminal overlay
   // is a child NSWindow that takes key focus, so the renderer never sees their
   // keydown; as app-menu accelerators they fire regardless of which view has
@@ -60,7 +62,7 @@ const DEFS = [
   { id: 'menu:open-diff', label: 'Diff for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-diff' },
   { id: 'menu:open-files', label: 'Files for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-files' },
   { id: 'menu:open-shell', label: 'Terminal for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-shell' },
-  { id: 'menu:terminal-search', label: 'Search in Terminal', section: 'View', runIn: 'renderer', shortcut: 'terminal-search' },
+  { id: 'menu:terminal-search', label: 'Search in Terminal…', section: 'View', runIn: 'renderer', shortcut: 'terminal-search' },
   { id: 'menu:clear-terminal', label: 'Clear Scrollback', section: 'View', runIn: 'renderer', shortcut: 'clear-terminal' },
   // Not the built-in reload roles: those reload BrowserWindow.getFocusedWindow(),
   // which is null while a native tile (a child NSWindow) is key, so Cmd+R did
@@ -176,6 +178,24 @@ export function menuCommand(id: MenuCommandId): MenuCommandDef {
   return BY_ID.get(id)!;
 }
 
+// Whether Argus currently shows its dark appearance; set by main from the
+// renderer's theme (appearanceHost) so View → Use Light/Dark Appearance names
+// the switch it will make.
+let darkAppearance = true;
+
+/** Record the current appearance. True when the toggle-theme label changed. */
+export function setMenuAppearance(dark: boolean): boolean {
+  if (dark === darkAppearance) return false;
+  darkAppearance = dark;
+  return true;
+}
+
+/** The label to show right now (only the theme item is dynamic). */
+export function menuCommandLabel(def: MenuCommandDef): string {
+  if (def.id === 'menu:toggle-theme') return darkAppearance ? 'Use Light Appearance' : 'Use Dark Appearance';
+  return def.label;
+}
+
 /** The accelerator to install right now: the live binding, the fixed one, or none. */
 export function menuCommandAccelerator(def: MenuCommandDef): string | null {
   if (def.shortcut) return menuAccelerator(def.shortcut);
@@ -185,7 +205,7 @@ export function menuCommandAccelerator(def: MenuCommandDef): string | null {
 export function toWire(def: MenuCommandDef, accelerator: string | null): MenuCommandWire {
   const wire: MenuCommandWire = {
     id: def.id,
-    label: def.label,
+    label: menuCommandLabel(def),
     section: def.section,
     accelerator,
     runIn: def.runIn,

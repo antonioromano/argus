@@ -870,12 +870,15 @@ body {
 
 /* === TITLEBAR === */
 .argus-titlebar {
-  height: 44px;
+  /* Height follows the density; the left inset clears the traffic lights and
+     is pushed by main from the same function that places them
+     (electron/src/titlebarMetrics.ts). */
+  height: var(--h-titlebar, 44px);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: 0 var(--s-3) 0 80px;
+  padding: 0 var(--s-3) 0 var(--titlebar-inset, 82px);
   background: var(--material-toolbar);
   border-bottom: var(--hairline) solid var(--line-2);
 }

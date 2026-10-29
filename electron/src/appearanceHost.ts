@@ -13,6 +13,7 @@
 import { app, ipcMain, nativeTheme, systemPreferences, BrowserWindow } from 'electron';
 import type { AppearanceSnapshot } from '@argus/shared';
 import { composeAppearance, isWindowActive, normalizeAccent } from './systemAppearance.js';
+import { clampTitlebarHeight, trafficLights, DEFAULT_TITLEBAR_H } from './titlebarMetrics.js';
 import type { IpcSenderLike } from './ipcGuards.js';
 
 export type ThemeSourceMode = 'dark' | 'light' | 'system';
@@ -58,6 +59,7 @@ export function initAppearanceHost(deps: AppearanceHostDeps): AppearanceHost {
       windowActive: isWindowActive(appActive, BrowserWindow.getFocusedWindow(), win, deps.keyOverlayOwners()),
       // The user's Solid setting is applied in the renderer; main can only force solid.
       materialSetting: 'translucent',
+      titlebarInset: trafficLights(DEFAULT_TITLEBAR_H).inset,
     });
 
   const pushAll = (): void => {
@@ -91,7 +93,20 @@ export function initAppearanceHost(deps: AppearanceHostDeps): AppearanceHost {
     deps.onThemeChanged?.(nativeTheme.shouldUseDarkColors);
   });
 
-  nativeTheme.on('updated', refresh);
+  // Density changes the toolbar height; the traffic lights follow it so they
+  // stay centred on the row.
+  ipcMain.on('appearance:titlebar-height', (e, raw: unknown) => {
+    const h = clampTitlebarHeight(raw);
+    const win = deps.trusted(e) && h !== null ? BrowserWindow.fromWebContents(e.sender) : null;
+    if (!win || process.platform !== 'darwin') return;
+    const { x, y } = trafficLights(h!);
+    win.setWindowButtonPosition({ x, y });
+  });
+
+  nativeTheme.on('updated', () => {
+    refresh();
+    deps.onThemeChanged?.(nativeTheme.shouldUseDarkColors);
+  });
   app.on('did-become-active', () => { appActive = true; refresh(); });
   app.on('did-resign-active', () => { appActive = false; refresh(); });
   app.on('browser-window-focus', refresh);

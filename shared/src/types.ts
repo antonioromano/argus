@@ -99,6 +99,8 @@ export interface AppearanceSnapshot {
   contrast: 'more' | 'normal';
   /** App frontmost and this window focused (or hosting the key native terminal). */
   active: boolean;
+  /** Toolbar left inset (px) that clears the traffic lights (titlebarMetrics.ts). */
+  titlebarInset: number;
 }
 
 export interface AppConfig {

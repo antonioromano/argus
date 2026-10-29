@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolveMenuTarget } from './menuTarget.js';
+import { trafficLights, DEFAULT_TITLEBAR_H } from './titlebarMetrics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAIN_WINDOW_ID = 'main'; // mirror of @argus/shared MAIN_WINDOW_ID (electron avoids the runtime dep)
@@ -155,6 +156,9 @@ export function createAppWindow(windowId: string): BrowserWindow {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
+    // Centred on the default toolbar row; the renderer moves them when the
+    // density changes the toolbar height (appearance:titlebar-height).
+    trafficLightPosition: { x: trafficLights(DEFAULT_TITLEBAR_H).x, y: trafficLights(DEFAULT_TITLEBAR_H).y },
     vibrancy: 'sidebar',
     visualEffectState: 'followWindow',
     backgroundColor: '#00000000',

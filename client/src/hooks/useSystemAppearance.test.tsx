@@ -6,12 +6,15 @@ import { useSystemAppearance } from './useSystemAppearance.js';
 
 type W = Window & { electronAppearance?: unknown };
 
+const heights: number[] = [];
+
 function fakeBridge(initial: AppearanceSnapshot | undefined) {
   let listener: ((s: unknown) => void) | null = null;
   const bridge = {
     snapshot: () => initial,
     onChange: (cb: (s: unknown) => void) => { listener = cb; return () => { listener = null; }; },
     setTheme: () => {},
+    setTitlebarHeight: (px: number) => { heights.push(px); },
   };
   (window as W).electronAppearance = bridge;
   return { push: (s: AppearanceSnapshot) => listener?.(s), subscribed: () => listener !== null };
@@ -19,7 +22,7 @@ function fakeBridge(initial: AppearanceSnapshot | undefined) {
 
 const root = () => document.documentElement;
 const snap = (over: Partial<AppearanceSnapshot> = {}): AppearanceSnapshot =>
-  ({ accent: '#0a84ff', material: 'translucent', contrast: 'normal', active: true, ...over });
+  ({ accent: '#0a84ff', material: 'translucent', contrast: 'normal', active: true, titlebarInset: 82, ...over });
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -61,6 +64,15 @@ describe('useSystemAppearance', () => {
     expect(root().dataset.contrast).toBe('normal');
     expect(root().dataset.windowActive).toBe('true');
     expect(root().style.getPropertyValue('--sys-accent-color')).toBe('#0a84ff');
+    expect(root().style.getPropertyValue('--titlebar-inset')).toBe('82px');
+  });
+
+  it('reports the toolbar height so main can centre the traffic lights', () => {
+    fakeBridge(snap());
+    heights.length = 0;
+    const { rerender } = renderHook(({ h }) => useSystemAppearance('dark', { titlebarH: h }), { initialProps: { h: 44 } });
+    rerender({ h: 38 });
+    expect(heights).toEqual([44, 38]);
   });
 
   it('follows appearance:changed pushes', () => {
@@ -82,7 +94,7 @@ describe('useSystemAppearance', () => {
 
   it('forces solid when the user picked the Solid window setting', () => {
     fakeBridge(snap());
-    renderHook(() => useSystemAppearance('dark', 'solid'));
+    renderHook(() => useSystemAppearance('dark', { windowMaterial: 'solid' }));
     expect(root().dataset.material).toBe('solid');
   });
 
@@ -101,6 +113,7 @@ describe('useSystemAppearance', () => {
     expect(root().dataset.contrast).toBeUndefined();
     expect(root().dataset.windowActive).toBeUndefined();
     expect(root().style.getPropertyValue('--sys-accent-color')).toBe('');
+    expect(root().style.getPropertyValue('--titlebar-inset')).toBe('');
   });
 
   it('sets nothing without the Electron bridge (/mobile, browser), so materials stay solid', () => {

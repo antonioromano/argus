@@ -23,6 +23,7 @@ export interface AppearanceInput {
   fullscreen: boolean;
   windowActive: boolean;
   materialSetting: WindowMaterial;
+  titlebarInset: number;
 }
 
 /**
@@ -37,6 +38,7 @@ export function composeAppearance(input: AppearanceInput): AppearanceSnapshot {
     material: solid ? 'solid' : 'translucent',
     contrast: input.highContrast ? 'more' : 'normal',
     active: input.windowActive,
+    titlebarInset: input.titlebarInset,
   };
 }
 

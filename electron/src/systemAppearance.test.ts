@@ -19,11 +19,11 @@ test('normalizeAccent rejects malformed input', () => {
 
 const clear: AppearanceInput = {
   accent: '#0a84ff', reduceTransparency: false, highContrast: false,
-  fullscreen: false, windowActive: true, materialSetting: 'translucent',
+  fullscreen: false, windowActive: true, materialSetting: 'translucent', titlebarInset: 82,
 };
 
 test('composeAppearance: all clear is translucent, normal contrast, active', () => {
-  assert.deepEqual(composeAppearance(clear), { accent: '#0a84ff', material: 'translucent', contrast: 'normal', active: true });
+  assert.deepEqual(composeAppearance(clear), { accent: '#0a84ff', material: 'translucent', contrast: 'normal', active: true, titlebarInset: 82 });
 });
 
 test('composeAppearance: each fallback forces a solid window', () => {
