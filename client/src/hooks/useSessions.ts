@@ -20,7 +20,7 @@ export function describeLoadError(err: unknown): string {
   return `The Argus server couldn’t return your sessions${detail}.`;
 }
 
-/** Previous run's exit info, carried across a snapshot that lacks it (the server doesn't persist exitCode yet). */
+/** Previous run's exit info, carried across a snapshot that lacks it (e.g. from a server older than the exit-code persistence). */
 function keepExitInfo(snapshot: SessionInfo[], prev: SessionInfo[]): SessionInfo[] {
   const exited = new Map(prev.filter((s) => s.status === 'exited' && s.exitCode !== undefined).map((s) => [s.id, s]));
   if (exited.size === 0) return snapshot;

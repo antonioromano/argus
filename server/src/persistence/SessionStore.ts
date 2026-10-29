@@ -26,6 +26,8 @@ export interface PersistedSession {
   /** Identity: palette key and emoji; absent in files written before 0.31. */
   color?: string;
   emoji?: string;
+  /** The last run's exit code and how soon after spawn it came; exited sessions only. */
+  lastExit?: { exitCode: number; exitedAfterMs?: number };
 }
 
 export class SessionStore {

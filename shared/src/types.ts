@@ -475,10 +475,10 @@ export interface SessionInfo {
   /** Beta F8: days since the worktree branch's last commit, set only once it
    *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
   worktreeStaleDays?: number;
-  /** Exit code of the agent's last run, from `session:exit`; cleared when it runs again.
-   *  Set by the renderer today (the server does not persist it yet). */
+  /** Exit code of the agent's last run while the session is exited; cleared when it
+   *  runs again. Persisted, so it survives a reload or app restart. */
   exitCode?: number;
-  /** Renderer-only: ms from the agent's latest spawn to its exit. Tells a missing
+  /** ms from the agent's latest spawn to its exit. Tells a missing
    *  command (exit 127 right after spawn) apart from the agent itself exiting 127. */
   exitedAfterMs?: number;
   /** Identity: a `SESSION_COLOR_KEYS` key drawn as a leading edge bar. */

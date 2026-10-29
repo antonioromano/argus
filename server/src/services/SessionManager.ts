@@ -104,6 +104,8 @@ export interface CreateSessionOpts {
   /** Restore only: the persisted identity (colour key, emoji). */
   color?: string;
   emoji?: string;
+  /** Restore only: the last run's exit (see ManagedSession.lastExit). */
+  lastExit?: { exitCode: number; exitedAfterMs?: number };
   /** Reopen after a close: spawn `claude --resume <id>` on a FRESH create. The
    *  resume argv is spawn-only (never stored in `flags`), like restartSession's. */
   resumeClaudeSessionId?: string;
@@ -231,6 +233,11 @@ interface ManagedSession {
   settleWaiters?: Set<(rows: string[]) => void>;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
+  /** When the current pty was spawned (ms); measures exitedAfterMs. */
+  spawnedAt?: number;
+  /** The last run's exit, persisted so a restored exited session keeps it
+   *  (the "couldn't find <cmd>" card needs code 127 + how soon it exited). */
+  lastExit?: { exitCode: number; exitedAfterMs?: number };
 }
 
 /** How long one Shift+Tab may take to show a new mode in the footer (output settle is 500ms). */
@@ -1368,6 +1375,8 @@ export class SessionManager {
       launcherId: opts.launcherId,
       color: opts.color,
       emoji: opts.emoji,
+      spawnedAt: Date.now(),
+      lastExit: restoreExited ? opts.lastExit : undefined,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1396,6 +1405,7 @@ export class SessionManager {
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.flushOutput(id);
+      this.recordExit(session, exitCode);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
       this.nudgeUsage(session, true);
@@ -1615,6 +1625,8 @@ export class SessionManager {
     session.pty = ptyProcess;
     session.stateDetector = stateDetector;
     session.mirror = mirror;
+    session.spawnedAt = Date.now();
+    session.lastExit = undefined;
     if (wasTiered) this.fileWatcher.watch(id, workRootOf(session));
 
     ptyProcess.onData((data) => {
@@ -1629,6 +1641,7 @@ export class SessionManager {
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
       this.flushOutput(id);
+      this.recordExit(session, exitCode);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
       this.nudgeUsage(session, true);
@@ -2834,7 +2847,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji, lastExit: p.lastExit });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2854,7 +2867,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji, lastExit: p.lastExit });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2913,6 +2926,8 @@ export class SessionManager {
       launcherId: session.launcherId,
       color: session.color,
       emoji: session.emoji,
+      exitCode: session.status === 'exited' ? session.lastExit?.exitCode : undefined,
+      exitedAfterMs: session.status === 'exited' ? session.lastExit?.exitedAfterMs : undefined,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
@@ -3047,6 +3062,15 @@ export class SessionManager {
   // Queued so concurrent create/destroy calls can't race two store.save()
   // writes and let a stale snapshot win. Each queued job reads `this.sessions`
   // only once it's its turn, so it always persists the latest state.
+  /** Keeps the exit for SessionInfo and the next restore; persisted best-effort. */
+  private recordExit(session: ManagedSession, exitCode: number): void {
+    session.lastExit = {
+      exitCode,
+      exitedAfterMs: session.spawnedAt !== undefined ? Date.now() - session.spawnedAt : undefined,
+    };
+    this.persistSessions().catch(console.error);
+  }
+
   private persistSessions(): Promise<void> {
     const run = this.persistQueue.then(async () => {
       const data: PersistedSession[] = Array.from(this.sessions.values()).map((s) => ({
@@ -3063,6 +3087,7 @@ export class SessionManager {
         launcherId: s.launcherId,
         color: s.color,
         emoji: s.emoji,
+        lastExit: s.lastExit,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
         codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,
