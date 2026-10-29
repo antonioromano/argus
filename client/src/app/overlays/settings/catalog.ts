@@ -1,0 +1,414 @@
+/**
+ * The settings catalog — one descriptor per control, declared once.
+ *
+ * Every row a pane renders goes through `SettingField`, which looks its label
+ * and hint up here, so the strings exist in exactly one place. The filter box
+ * (control-level search), the registry's per-pane `keys` (modified dot, footer
+ * count, Reset all) and the command palette (plan 001) all read this list, so
+ * none of them can drift from what is on screen. `catalog.sync.test.tsx` fails
+ * when a rendered row has no descriptor or a descriptor has no row.
+ *
+ * Copy edits (plan 005) happen here, not in the panes.
+ */
+import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
+import type { PaneId } from './registry.js';
+import { SHORTCUTS } from '../../../keyboard/registry.js';
+import { BETA_FEATURES } from '../../../utils/betaFlags.js';
+import { KIND_LABEL, kindOf } from '../../ui/terminalKind.js';
+import {
+  BACKEND_OPTIONS,
+  CODE_FONT_PRESETS,
+  INDICATOR_OPTIONS,
+  INSPECTOR_SIDE_OPTIONS,
+  LAYOUT_OPTIONS,
+  RENDERER_HINT,
+  RENDERER_OPTIONS,
+  THEME_OPTIONS,
+  UI_FONT_PRESETS,
+  VIEW_OPTIONS,
+  WAITING_OPTIONS,
+} from './options.js';
+
+type ConfigKey = keyof AppConfig;
+
+export interface SettingDescriptor {
+  /** Stable. The config key when there is one ('showClock'), else a namespaced
+   *  id ('shortcut:new-session', 'beta:betaHandoff', 'device:themeMode'). */
+  id: string;
+  pane: PaneId;
+  /** Title of the Section the row renders under. */
+  section: string;
+  /** Rendered verbatim by SettingField. */
+  label: string;
+  hint?: string | ((c: AppConfig) => string);
+  keywords?: readonly string[];
+  /** Config keys the control writes; [] for device-local settings. */
+  keys: ConfigKey[];
+  kind: 'toggle' | 'choice' | 'number' | 'text' | 'list' | 'custom';
+  /** Value labels for a 'choice' (search, Modified view, palette). */
+  options?: readonly { value: string; label: string }[];
+  /** False hides the row (e.g. seconds while the clock is off). */
+  visibleWhen?: (c: AppConfig) => boolean;
+  /** Setting to jump to instead while this one is hidden — its parent toggle. */
+  revealVia?: string;
+  /** Current-value label, when the kind's default rendering is not enough. */
+  format?: (c: AppConfig) => string;
+  /** Whether this setting differs from its default, when "any key differs" is
+   *  too coarse (one shortcut inside the shared keyboardShortcuts map). */
+  modified?: (c: AppConfig) => boolean;
+  /**
+   * Plan 001's palette contract. 'toggle': flip in place, only for a plain
+   * reversible boolean with no confirm. 'open' (default): list it and open
+   * Settings at it via focusSetting. 'none': keep it out of the palette.
+   */
+  palette?: 'toggle' | 'open' | 'none';
+  /** 'device' = stored in this browser (localStorage), not in AppConfig — never
+   *  counted as modified, never reset. Default 'config'. */
+  source?: 'config' | 'device';
+}
+
+const ON_OFF = (v: unknown) => (v ? 'On' : 'Off');
+
+const BASE: readonly SettingDescriptor[] = [
+  // ── Theme & layout ────────────────────────────────────────────────────────
+  {
+    id: 'device:themeMode', pane: 'theme', section: 'Theme',
+    label: 'Appearance', hint: 'Match the system or pick a fixed appearance',
+    keywords: ['theme', 'dark', 'light', 'system', 'dark mode', 'light mode'],
+    keys: [], kind: 'choice', options: THEME_OPTIONS, source: 'device',
+  },
+  {
+    id: 'codeFontSize', pane: 'theme', section: 'Font sizes',
+    label: 'Code', hint: 'Shell terminals, file viewer, and diffs · default Medium',
+    keywords: ['font', 'font size', 'code font', 'terminal font', 'text size', 'zoom', 'bigger', 'smaller', 'typography'],
+    keys: ['codeFontSize'], kind: 'choice', options: CODE_FONT_PRESETS,
+  },
+  {
+    id: 'uiFontSize', pane: 'theme', section: 'Font sizes',
+    label: 'Interface', hint: 'Menus, panels, labels, and the rest of the app · default Medium',
+    keywords: ['font', 'font size', 'interface font', 'text size', 'zoom', 'bigger', 'smaller', 'typography'],
+    keys: ['uiFontSize'], kind: 'choice', options: UI_FONT_PRESETS,
+  },
+  {
+    id: 'mosaicOrientation', pane: 'theme', section: 'Shell layout',
+    label: 'Arrangement', hint: 'Arrange mosaic shells side by side or stacked one under another',
+    keywords: ['mosaic', 'layout', 'stacked', 'vertical', 'horizontal', 'side by side'],
+    keys: ['mosaicOrientation'], kind: 'choice', options: LAYOUT_OPTIONS,
+  },
+  {
+    id: 'mosaicWaitingStyle', pane: 'theme', section: 'Waiting attention',
+    label: 'Style', hint: 'How a shell waiting for input stands out in the mosaic',
+    keywords: ['waiting', 'attention', 'halo', 'breathing', 'pulse', 'flag'],
+    keys: ['mosaicWaitingStyle'], kind: 'choice', options: WAITING_OPTIONS,
+  },
+  {
+    id: 'showClock', pane: 'theme', section: 'Toolbar clock',
+    label: 'Show clock in toolbar', hint: 'Displays current time (HH:MM) before the remote access icon',
+    keywords: ['clock', 'time', 'toolbar'],
+    keys: ['showClock'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'clockShowSeconds', pane: 'theme', section: 'Toolbar clock',
+    label: 'Show seconds', hint: 'Extends the clock to HH:MM:SS',
+    keywords: ['clock', 'time', 'seconds'],
+    keys: ['clockShowSeconds'], kind: 'toggle', palette: 'toggle',
+    visibleWhen: (c) => c.showClock ?? false, revealVia: 'showClock',
+  },
+
+  // ── Shell header ──────────────────────────────────────────────────────────
+  {
+    id: 'tileQuickAction', pane: 'shell-header', section: 'Header content',
+    label: 'Quick action',
+    hint: 'One action pinned beside the window controls in every shell header. Everything else stays in the ⋯ menu.',
+    keywords: ['quick action', 'tile', 'header', 'pinned'],
+    keys: ['tileQuickAction'], kind: 'custom',
+  },
+  {
+    id: 'tileRunningIndicator', pane: 'shell-header', section: 'Header content',
+    label: 'Running indicator', hint: '2px progress hairline under the header while an agent is working',
+    keywords: ['hairline', 'progress', 'running'],
+    keys: ['tileRunningIndicator'], kind: 'choice', options: INDICATOR_OPTIONS,
+  },
+  {
+    id: 'showUsageMeter', pane: 'shell-header', section: 'Header content',
+    label: 'Usage meter', hint: 'Context and plan usage on Claude and Codex shells. Gemini doesn’t report usage',
+    keywords: ['usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'show', 'hide'],
+    keys: ['showUsageMeter'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'usageMeterParts', pane: 'shell-header', section: 'Header content',
+    label: 'Show', hint: 'Drag to reorder · click to hide. Plan usage is per account, the same in every shell',
+    keywords: ['usage meter parts', 'tokens', 'model', 'context', 'reorder'],
+    keys: ['usageMeterParts'], kind: 'list',
+  },
+  {
+    id: 'usageWarnContext', pane: 'shell-header', section: 'Header content',
+    label: 'Context warning', hint: 'Chip turns amber, then red, as a shell’s context fills',
+    keywords: ['threshold', 'amber', 'red', 'warning', 'context'],
+    keys: ['usageWarnContext'], kind: 'custom',
+    format: (c) => { const t = c.usageWarnContext ?? DEFAULT_CONFIG.usageWarnContext!; return `${t.amber}% / ${t.red}%`; },
+  },
+  {
+    id: 'usageWarnPlan', pane: 'shell-header', section: 'Header content',
+    label: 'Plan usage warning', hint: 'Amber, then red, as you near your plan’s limit',
+    keywords: ['threshold', 'amber', 'red', 'warning', 'limit', 'rate limit'],
+    keys: ['usageWarnPlan'], kind: 'custom',
+    format: (c) => { const t = c.usageWarnPlan ?? DEFAULT_CONFIG.usageWarnPlan!; return `${t.amber}% / ${t.red}%`; },
+  },
+  {
+    id: 'showPrStatus', pane: 'shell-header', section: 'Header content',
+    label: 'Pull request status',
+    hint: 'PR number, state and CI checks for shells on a branch with a GitHub PR. Needs the gh CLI, logged in',
+    keywords: ['pr', 'pull request', 'ci', 'checks', 'github', 'gh'],
+    keys: ['showPrStatus'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'inspectorVisible', pane: 'shell-header', section: 'Session Inspector',
+    label: 'Show inspector', hint: 'Hidden, the shell header shows usage, git and pull request as chips again. ⌘I toggles it',
+    keywords: ['inspector', 'session inspector', 'side panel', 'hide'],
+    keys: ['inspectorVisible'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'inspectorSide', pane: 'shell-header', section: 'Session Inspector',
+    label: 'Position',
+    hint: 'Usage, git and pull request of the open shell (or the selected tile). Left: in the sidebar, between Shells and System. Right: a column beside the shells. While the sidebar holding it is collapsed, the header shows them as chips',
+    keywords: ['inspector', 'session inspector', 'side panel', 'left', 'right', 'side'],
+    keys: ['inspectorSide'], kind: 'choice', options: INSPECTOR_SIDE_OPTIONS,
+  },
+
+  // ── Agents ────────────────────────────────────────────────────────────────
+  {
+    id: 'defaultAgent', pane: 'agents', section: 'Default for new sessions',
+    label: 'Default agent', keywords: ['default agent', 'new session', 'claude', 'gemini', 'codex'],
+    keys: ['defaultAgent'], kind: 'text',
+  },
+  {
+    id: 'claudeRenderer', pane: 'agents', section: 'Claude display',
+    label: 'Renderer',
+    hint: (c) => `${RENDERER_HINT[c.claudeRenderer ?? 'fullscreen']} Applies to new and restarted sessions.`,
+    keywords: ['renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback'],
+    keys: ['claudeRenderer'], kind: 'choice', options: RENDERER_OPTIONS,
+  },
+  {
+    id: 'defaultSessionView', pane: 'agents', section: 'Claude display',
+    label: 'Default view',
+    hint: 'Where a Claude shell opens until you pick a view for it with its Terminal/Chat toggle. Other agents always use the terminal.',
+    keywords: ['chat', 'chat view', 'default view', 'terminal view'],
+    keys: ['defaultSessionView'], kind: 'choice', options: VIEW_OPTIONS,
+  },
+  {
+    id: 'customAgents', pane: 'agents', section: 'Installed agents',
+    label: 'Installed agents', hint: 'Custom agents and the flags each agent starts with',
+    keywords: ['custom agent', 'add agent', 'flags', 'cli', 'command'],
+    keys: ['customAgents', 'agentFlags'], kind: 'list',
+    format: (c) => `${c.customAgents.length} custom`,
+  },
+
+  // ── Launchers ─────────────────────────────────────────────────────────────
+  {
+    id: 'launchFolderRoots', pane: 'launchers', section: 'Launch links',
+    label: 'Folder roots',
+    hint: 'One per line. Links to folders outside these get a warning on the approval card (never blocked).',
+    keywords: ['roots', 'deep link', 'argus://', 'folder'],
+    keys: ['launchFolderRoots'], kind: 'list',
+    format: (c) => (c.launchFolderRoots ?? []).join(', '),
+  },
+
+  // ── General ───────────────────────────────────────────────────────────────
+  {
+    id: 'confirmCloseShell', pane: 'general', section: 'Ask before',
+    label: 'Closing a shell', hint: 'Show a confirmation when closing a shell with ⌘W or the close button',
+    keywords: ['confirm', 'close', 'cmd+w', 'dialog'],
+    keys: ['confirmCloseShell'], kind: 'toggle',
+  },
+  {
+    id: 'exitSessionsOnQuit', pane: 'general', section: 'On Quit',
+    label: 'Exit all sessions on Quit',
+    hint: 'When off, ⌘Q keeps sessions running in the background. When on, ⌘Q terminates every session.',
+    keywords: ['quit', 'cmd+q', 'exit', 'terminate', 'background'],
+    keys: ['exitSessionsOnQuit'], kind: 'toggle',
+  },
+  {
+    id: 'confirmQuitDirectSessions', pane: 'general', section: 'On Quit',
+    label: 'Confirm quitting with Native sessions',
+    hint: 'Native sessions stop when Argus quits. Ask before quitting stops ones that are still running.',
+    keywords: ['confirm', 'quit', 'native', 'direct'],
+    keys: ['confirmQuitDirectSessions'], kind: 'toggle',
+    visibleWhen: (c) => !(c.exitSessionsOnQuit ?? false), revealVia: 'exitSessionsOnQuit',
+  },
+  {
+    id: 'confirmExitOnQuit', pane: 'general', section: 'On Quit',
+    label: 'Confirm before exiting',
+    hint: 'Show a confirmation dialog listing running sessions before ⌘Q terminates them',
+    keywords: ['confirm', 'quit', 'exit', 'dialog'],
+    keys: ['confirmExitOnQuit'], kind: 'toggle',
+    visibleWhen: (c) => c.exitSessionsOnQuit ?? false, revealVia: 'exitSessionsOnQuit',
+  },
+  {
+    id: 'preventSleepWhileRunning', pane: 'general', section: 'Sleep',
+    label: 'Keep Mac awake while running', hint: 'Prevents macOS from sleeping while at least one shell is running',
+    keywords: ['power', 'sleep', 'awake', 'caffeinate', 'idle', 'battery'],
+    keys: ['preventSleepWhileRunning'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'othersFolderName', pane: 'general', section: 'Naming',
+    label: '"Others" folder name', hint: 'Display name for the ungrouped shells bucket',
+    keywords: ['group', 'folder', 'others', 'ungrouped', 'bucket', 'name'],
+    keys: ['othersFolderName'], kind: 'text',
+  },
+
+  // ── Auto-approval ─────────────────────────────────────────────────────────
+  {
+    id: 'autoApprovalEnabled', pane: 'auto-approval', section: 'Auto-approval',
+    label: 'Auto-approve matching tool calls',
+    hint: 'Claude sessions only. A rule can only allow; anything it does not match still asks, and your own Claude deny and ask rules still apply.',
+    keywords: ['auto approve', 'permission', 'rules', 'allow'],
+    keys: ['autoApprovalEnabled'], kind: 'toggle',
+  },
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  {
+    id: 'notificationsEnabled', pane: 'notifications', section: 'Delivery',
+    label: 'Native desktop notifications', hint: 'Fire only while Argus is in the background',
+    keywords: ['notification', 'notify', 'desktop', 'banner', 'alert'],
+    keys: ['notificationsEnabled'], kind: 'toggle',
+  },
+  {
+    id: 'notifyOnWaiting', pane: 'notifications', section: 'When to notify',
+    label: 'A shell needs your input', keywords: ['waiting', 'input', 'notify'],
+    keys: ['notifyOnWaiting'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'notifyOnDone', pane: 'notifications', section: 'When to notify',
+    label: 'A shell finishes a run', keywords: ['done', 'finished', 'notify'],
+    keys: ['notifyOnDone'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'notifyOnPrChecks', pane: 'notifications', section: 'When to notify',
+    label: "A pull request's checks finish", hint: 'Passed or failed, for the PR shown in a shell\'s header',
+    keywords: ['ci', 'checks', 'pull request', 'pr', 'notify'],
+    keys: ['notifyOnPrChecks'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'notificationSound', pane: 'notifications', section: 'When to notify',
+    label: 'Play a sound', hint: 'Plays the default system sound with each notification',
+    keywords: ['sound', 'audio', 'notify'],
+    keys: ['notificationSound'], kind: 'toggle', palette: 'toggle',
+  },
+
+  // ── Runtime ───────────────────────────────────────────────────────────────
+  {
+    id: 'ptyBackend', pane: 'runtime', section: 'Process backend',
+    label: 'Backend', hint: 'argusd survives app quit without tmux. tmux is the legacy path.',
+    keywords: ['backend', 'argusd', 'daemon', 'tmux', 'pty'],
+    keys: ['ptyBackend'], kind: 'choice', options: BACKEND_OPTIONS,
+  },
+  {
+    id: 'defaultTerminal', pane: 'runtime', section: 'Default terminal',
+    label: 'Default terminal',
+    hint: 'Applies to new sessions only — existing ones keep the terminal they were created with.',
+    keywords: ['terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent', 'universal', 'advanced'],
+    keys: ['defaultRunMode', 'defaultTerminalEngine'], kind: 'custom',
+    format: (c) => KIND_LABEL[kindOf(c.defaultRunMode, c.defaultTerminalEngine)],
+  },
+  {
+    id: 'debugToolsEnabled', pane: 'runtime', section: 'Diagnostics',
+    label: 'Enable developer tools',
+    hint: 'Adds a per-session diagnostics dump button (writes session state + output to ~/.argus/diagnostics for debugging)',
+    keywords: ['developer', 'debug', 'diagnostics', 'dump', 'devtools'],
+    keys: ['debugToolsEnabled'], kind: 'toggle', palette: 'toggle',
+  },
+];
+
+/** One row per shortcut, generated so the keyboard registry stays the source of its copy. */
+const SHORTCUT_SETTINGS: readonly SettingDescriptor[] = SHORTCUTS.map((s) => ({
+  id: `shortcut:${s.id}`,
+  pane: 'keyboard' as const,
+  section: s.category,
+  label: s.label,
+  hint: s.note,
+  keywords: ['shortcut', 'keyboard', 'binding', 'hotkey'],
+  keys: ['keyboardShortcuts'],
+  kind: 'custom' as const,
+  modified: (c: AppConfig) => !s.fixed && c.keyboardShortcuts?.[s.id] !== undefined,
+  format: (c: AppConfig) => c.keyboardShortcuts?.[s.id] ?? s.defaultCombo,
+}));
+
+/** One row per beta flag, generated from BETA_FEATURES for the same reason. */
+const BETA_SETTINGS: readonly SettingDescriptor[] = BETA_FEATURES.map((f) => ({
+  id: `beta:${f.flag}`,
+  pane: 'beta' as const,
+  section: 'Beta features',
+  label: f.label,
+  hint: f.description,
+  keywords: ['beta', 'experimental', 'labs'],
+  keys: [f.flag],
+  kind: 'toggle' as const,
+  palette: 'toggle' as const,
+}));
+
+export const SETTINGS: readonly SettingDescriptor[] = [...BASE, ...SHORTCUT_SETTINGS, ...BETA_SETTINGS];
+
+export const SETTINGS_BY_ID: Readonly<Record<string, SettingDescriptor>> = Object.fromEntries(
+  SETTINGS.map((s) => [s.id, s]),
+);
+
+/** Deep-equal enough for config values: scalars, arrays of objects, and maps. */
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  if (typeof a === 'object' && typeof b === 'object') {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+}
+
+/** Config keys of a pane, in catalog order — what the registry's `keys` are. */
+export function paneConfigKeys(pane: PaneId): ConfigKey[] {
+  const out: ConfigKey[] = [];
+  for (const s of SETTINGS) {
+    if (s.pane !== pane || s.source === 'device') continue;
+    for (const k of s.keys) if (!out.includes(k)) out.push(k);
+  }
+  return out;
+}
+
+export function isSettingVisible(s: SettingDescriptor, config: AppConfig): boolean {
+  return s.visibleWhen ? s.visibleWhen(config) : true;
+}
+
+export function settingHint(s: SettingDescriptor, config: AppConfig = DEFAULT_CONFIG): string | undefined {
+  return typeof s.hint === 'function' ? s.hint(config) : s.hint;
+}
+
+/** Live value of a key, the shipped default when the config does not carry it. */
+function valueOf(config: AppConfig, key: ConfigKey): unknown {
+  return config[key] ?? DEFAULT_CONFIG[key];
+}
+
+/** Human label for a setting's current value (Modified view, palette hints). */
+export function settingValueLabel(s: SettingDescriptor, config: AppConfig): string {
+  if (s.format) return s.format(config);
+  if (s.keys.length === 0) return '';
+  const v = valueOf(config, s.keys[0]);
+  switch (s.kind) {
+    case 'toggle':
+      return ON_OFF(v);
+    case 'choice':
+      return s.options?.find((o) => o.value === String(v))?.label ?? String(v);
+    case 'number':
+    case 'text':
+      return String(v ?? '');
+    default:
+      return sameValue(config[s.keys[0]], DEFAULT_CONFIG[s.keys[0]]) ? 'Default' : 'Custom';
+  }
+}
+
+/** Whether the setting differs from its default. A key absent from config counts
+ *  as default (the server merges DEFAULT_CONFIG underneath); device settings
+ *  are never "modified" because they are not part of the config. */
+export function isSettingModified(s: SettingDescriptor, config: AppConfig): boolean {
+  if (s.source === 'device') return false;
+  if (s.modified) return s.modified(config);
+  return s.keys.some((k) => config[k] !== undefined && !sameValue(config[k], DEFAULT_CONFIG[k]));
+}

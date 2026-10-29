@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
 import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
+import { SettingField } from '../SettingField.js';
 import { isBetaEnabled } from '../../../../utils/betaFlags.js';
 import { TemplatesSection } from './TemplatesSection.js';
 
@@ -110,7 +111,7 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
       {/* Beta F10: not rendered (and nothing fetched) while the flag is off. */}
       {isBetaEnabled(config, 'betaSessionTemplates') && <TemplatesSection config={config} />}
       <Section title="Launch links">
-        <SettingRow label="Folder roots" hint="One per line. Links to folders outside these get a warning on the approval card (never blocked).">
+        <SettingField id="launchFolderRoots">
           <textarea
             data-testid="launch-roots"
             className="mono"
@@ -120,7 +121,7 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
             onFocus={() => { rootsFocused.current = true; }}
             onBlur={() => void saveRoots()}
           />
-        </SettingRow>
+        </SettingField>
         <SettingRow label="Link format" hint="Every argus://new link opens an approval card.">
           <Button size="sm" variant="ghost" onClick={() => copy(EXAMPLE())}>Copy example link</Button>
         </SettingRow>

@@ -1,35 +1,33 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
 import { Sheet, Button, AlertSheet } from '../../components/primitives/index.js';
 import { SettingsNav } from './settings/SettingsNav.js';
 import {
-  PANES,
   PANES_BY_ID,
   modifiedKeys,
   modifiedPanes,
-  paneMatches,
   resetPatch,
   resolvePaneId,
   RESETTABLE_KEYS,
   type PaneId,
 } from './settings/registry.js';
+import { jumpTarget, searchSettings, visiblePanes } from './settings/search.js';
+import { SettingTargetContext } from './settings/settingTarget.js';
 import { ThemePane } from './settings/panes/ThemePane.js';
-import { TypographyPane } from './settings/panes/TypographyPane.js';
 import { ShellHeaderPane } from './settings/panes/ShellHeaderPane.js';
-import { ToolbarPane } from './settings/panes/ToolbarPane.js';
 import { AgentsPane } from './settings/panes/AgentsPane.js';
-import { GroupsPane } from './settings/panes/GroupsPane.js';
 import { IsolationPane } from './settings/panes/IsolationPane.js';
 import { LaunchersPane } from './settings/panes/LaunchersPane.js';
+import { GeneralPane } from './settings/panes/GeneralPane.js';
 import { AutoApprovalPane } from './settings/panes/AutoApprovalPane.js';
-import { ConfirmationsPane } from './settings/panes/ConfirmationsPane.js';
 import { NotificationsPane } from './settings/panes/NotificationsPane.js';
 import { KeyboardPane } from './settings/panes/KeyboardPane.js';
 import { RuntimePane } from './settings/panes/RuntimePane.js';
-import { PowerPane } from './settings/panes/PowerPane.js';
 import { RemotePane } from './settings/panes/RemotePane.js';
-import { DeveloperPane } from './settings/panes/DeveloperPane.js';
 import { BetaPane } from './settings/panes/BetaPane.js';
+
+/** How long a jumped-to row keeps its highlight (matches the CSS keyframe). */
+const FLASH_MS = 1600;
 
 interface SettingsOverlayProps {
   config: AppConfig;
@@ -45,6 +43,9 @@ interface SettingsOverlayProps {
   onNgrokStop: () => void;
   /** Pane to open on mount. Accepts the pre-0.24 tab ids too (see resolvePaneId). */
   initialTab?: string;
+  /** Catalog id of a setting to open at: its pane opens and its row is scrolled
+   *  to and flashed. Wins over `initialTab`; an unknown id falls back to it. */
+  focusSetting?: string;
 }
 
 /**
@@ -65,23 +66,58 @@ export function SettingsOverlay({
   onNgrokStart,
   onNgrokStop,
   initialTab,
+  focusSetting,
 }: SettingsOverlayProps) {
-  const [pane, setPane] = useState<PaneId>(() => resolvePaneId(initialTab));
+  // Resolved once, on mount: where a deep link lands (the parent toggle while
+  // the setting itself is hidden).
+  const [initialTarget] = useState(() => (focusSetting ? jumpTarget(focusSetting, config) : undefined));
+  const [pane, setPane] = useState<PaneId>(() => initialTarget?.pane ?? resolvePaneId(initialTab));
   const [query, setQuery] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  /** Row being flashed after a jump; `seq` re-triggers the scroll for a repeat jump. */
+  const [target, setTarget] = useState<{ id: string; seq: number } | null>(
+    () => (initialTarget ? { id: initialTarget.id, seq: 0 } : null),
+  );
+  const mainRef = useRef<HTMLElement>(null);
 
   const modified = useMemo(() => modifiedPanes(config), [config]);
   const changedCount = useMemo(() => modifiedKeys(config).size, [config]);
+  const hits = useMemo(() => searchSettings(query, config), [query, config]);
   const def = PANES_BY_ID[pane];
 
-  // Typing in the filter jumps to the first match when the open pane is filtered
-  // out — otherwise the list narrows to results the content pane contradicts.
+  /** Open the pane holding setting `id`, scroll its row into view and flash it.
+   *  A hidden setting lands on the toggle that reveals it. */
+  const goTo = useCallback((id: string) => {
+    const dest = jumpTarget(id, config);
+    if (!dest) return;
+    setPane(dest.pane);
+    setTarget((prev) => ({ id: dest.id, seq: (prev?.seq ?? 0) + 1 }));
+  }, [config]);
+
+  // After the pane holding the target has committed, scroll on the next frame
+  // (the row may only exist from this render), then drop the flash.
+  useEffect(() => {
+    if (!target) return;
+    const frame = requestAnimationFrame(() => {
+      // Catalog ids are [\w:-] only, so the quoted attribute selector is safe.
+      const el = mainRef.current?.querySelector(`[data-setting-id="${target.id}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    const done = setTimeout(() => setTarget(null), FLASH_MS);
+    return () => { cancelAnimationFrame(frame); clearTimeout(done); };
+  }, [target]);
+
+  // Typing in the filter jumps to the top hit's pane when the open pane is
+  // filtered out — otherwise the list narrows to results the content pane
+  // contradicts.
   const handleQuery = (next: string) => {
     setQuery(next);
     if (!next.trim()) return;
-    const matches = PANES.filter((p) => paneMatches(p, next));
-    if (matches.length > 0 && !matches.some((p) => p.id === pane)) setPane(matches[0].id);
+    const nextHits = searchSettings(next, config);
+    const matches = visiblePanes(next, nextHits);
+    if (matches.length === 0 || matches.some((p) => p.id === pane)) return;
+    setPane(nextHits[0]?.setting.pane ?? matches[0].id);
   };
 
   const doReset = async () => {
@@ -95,6 +131,32 @@ export function SettingsOverlay({
   };
 
   const paneProps = { config, onSave };
+
+  const renderPane = () => {
+    switch (pane) {
+      case 'theme': return <ThemePane {...paneProps} />;
+      case 'shell-header': return <ShellHeaderPane {...paneProps} />;
+      case 'agents': return <AgentsPane {...paneProps} onSaveFlag={onSaveFlag} onDeleteFlag={onDeleteFlag} />;
+      case 'isolation': return <IsolationPane sessions={sessions} />;
+      case 'launchers': return <LaunchersPane {...paneProps} />;
+      case 'general': return <GeneralPane {...paneProps} />;
+      case 'auto-approval': return <AutoApprovalPane {...paneProps} />;
+      case 'notifications': return <NotificationsPane {...paneProps} />;
+      case 'keyboard': return <KeyboardPane {...paneProps} />;
+      case 'runtime': return <RuntimePane {...paneProps} />;
+      case 'remote':
+        return (
+          <RemotePane
+            ngrokStatus={ngrokStatus}
+            ngrokLoading={ngrokLoading}
+            ngrokError={ngrokError}
+            onNgrokStart={onNgrokStart}
+            onNgrokStop={onNgrokStop}
+          />
+        );
+      case 'beta': return <BetaPane {...paneProps} />;
+    }
+  };
 
   return (
     <>
@@ -123,9 +185,12 @@ export function SettingsOverlay({
             modified={modified}
             query={query}
             onQuery={handleQuery}
+            hits={hits}
+            onGoTo={goTo}
           />
 
           <main
+            ref={mainRef}
             className="argus-scroll"
             style={{ flex: 1, overflow: 'auto', padding: 'var(--s-6) var(--s-7)' }}
           >
@@ -142,33 +207,9 @@ export function SettingsOverlay({
                 {def.label}
               </h2>
 
-              {pane === 'theme' && <ThemePane {...paneProps} />}
-              {pane === 'typography' && <TypographyPane {...paneProps} />}
-              {pane === 'shell-header' && <ShellHeaderPane {...paneProps} />}
-              {pane === 'toolbar' && <ToolbarPane {...paneProps} />}
-              {pane === 'agents' && (
-                <AgentsPane {...paneProps} onSaveFlag={onSaveFlag} onDeleteFlag={onDeleteFlag} />
-              )}
-              {pane === 'groups' && <GroupsPane {...paneProps} />}
-              {pane === 'isolation' && <IsolationPane sessions={sessions} />}
-              {pane === 'launchers' && <LaunchersPane {...paneProps} />}
-              {pane === 'confirmations' && <ConfirmationsPane {...paneProps} />}
-              {pane === 'auto-approval' && <AutoApprovalPane {...paneProps} />}
-              {pane === 'notifications' && <NotificationsPane {...paneProps} />}
-              {pane === 'keyboard' && <KeyboardPane {...paneProps} />}
-              {pane === 'runtime' && <RuntimePane {...paneProps} />}
-              {pane === 'power' && <PowerPane {...paneProps} />}
-              {pane === 'remote' && (
-                <RemotePane
-                  ngrokStatus={ngrokStatus}
-                  ngrokLoading={ngrokLoading}
-                  ngrokError={ngrokError}
-                  onNgrokStart={onNgrokStart}
-                  onNgrokStop={onNgrokStop}
-                />
-              )}
-              {pane === 'developer' && <DeveloperPane {...paneProps} />}
-              {pane === 'beta' && <BetaPane {...paneProps} />}
+              <SettingTargetContext.Provider value={target?.id ?? null}>
+                {renderPane()}
+              </SettingTargetContext.Provider>
             </div>
           </main>
         </div>

@@ -6,9 +6,10 @@ import {
   type AutoApprovalRule,
   type AutoApprovalTool,
 } from '@argus/shared';
-import { Button, Section, SettingRow, Segmented, TextInput, Toggle, pushToast } from '../../../../components/primitives/index.js';
+import { Button, Section, Segmented, TextInput, Toggle, pushToast } from '../../../../components/primitives/index.js';
 import { api } from '../../../../services/api.js';
 import type { PaneProps } from '../types.js';
+import { SettingField } from '../SettingField.js';
 
 const TOOLS = Object.keys(AUTO_APPROVAL_TOOLS) as AutoApprovalTool[];
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -98,10 +99,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
   return (
     <>
       <Section title="Auto-approval">
-        <SettingRow
-          label="Auto-approve matching tool calls"
-          hint="Claude sessions only. A rule can only allow; anything it does not match still asks, and your own Claude deny and ask rules still apply."
-        >
+        <SettingField id="autoApprovalEnabled">
           <Toggle
             checked={enabled}
             onChange={(v) => {
@@ -109,7 +107,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
               else { setConfirmEnable(false); void onSave({ autoApprovalEnabled: false }); }
             }}
           />
-        </SettingRow>
+        </SettingField>
         {confirmEnable && !enabled && (
           <div className="settings-card-pad" role="alertdialog" aria-label="Confirm auto-approval"
             style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>

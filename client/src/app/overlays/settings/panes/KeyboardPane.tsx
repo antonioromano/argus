@@ -1,19 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Section, SettingRow, Icon } from '../../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
 import type { PaneProps } from '../types.js';
+import { SettingTargetContext } from '../settingTarget.js';
 
 /** Shortcuts only. "Confirm before closing a shell" used to head this pane — a
  *  behaviour pref that happened to mention ⌘W; it now lives with the other two
- *  confirmations in Behavior → Confirmations. */
+ *  confirmations in Behavior → General. */
 export function KeyboardPane({ config, onSave }: PaneProps) {
   const overrides = useMemo(() => config.keyboardShortcuts ?? {}, [config.keyboardShortcuts]);
   const resolved = resolveShortcuts(overrides);
   const conflicts = findConflicts(resolved);
   const [recording, setRecording] = useState<ShortcutActionId | null>(null);
+  const target = useContext(SettingTargetContext);
 
   // While recording, the next real keystroke becomes the binding. Capture phase so
   // we intercept before the global shortcut handler acts on (and consumes) the combo.
@@ -74,7 +76,15 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
               const conflict = conflicts.has(a.id);
               const overridden = !a.fixed && a.id in overrides;
               return (
-                <SettingRow key={a.id} label={a.label} hint={a.note}>
+                // Label and hint stay in the keyboard registry (the catalog
+                // generates `shortcut:<id>` from it), so they are read from `a`.
+                <SettingRow
+                  key={a.id}
+                  label={a.label}
+                  hint={a.note}
+                  anchorId={`shortcut:${a.id}`}
+                  className={target === `shortcut:${a.id}` ? 'is-target' : undefined}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
                     {conflict && (
                       <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>

@@ -1521,7 +1521,7 @@ app.on('before-quit', (e) => {
       message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
       detail:
         `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
-        + 'Turn off "Exit sessions on quit" in Settings → Confirmations to keep them running instead.',
+        + 'Turn off "Exit sessions on quit" in Settings → General to keep them running instead.',
       buttons: ['Cancel', 'Exit all sessions'],
       defaultId: 1,
       cancelId: 0,

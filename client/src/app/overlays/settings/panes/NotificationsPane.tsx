@@ -1,6 +1,7 @@
 import { Bell } from 'lucide-react';
 import { Section, SettingRow, Toggle, Button } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
+import { SettingField } from '../SettingField.js';
 
 /**
  * Rebuilt on Section/SettingRow. This pane used to hand-roll its own card,
@@ -30,12 +31,9 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
   return (
     <>
       <Section title="Delivery">
-        <SettingRow
-          label="Native desktop notifications"
-          hint="Fire only while Argus is in the background"
-        >
+        <SettingField id="notificationsEnabled">
           <Toggle checked={enabled} onChange={(v) => { void onSave({ notificationsEnabled: v }); }} />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       {/* Always rendered, dimmed when the master switch is off: the triggers stay
@@ -49,30 +47,30 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
         }}
       >
         <Section title="When to notify">
-          <SettingRow label="A shell needs your input">
+          <SettingField id="notifyOnWaiting">
             <Toggle
               checked={config.notifyOnWaiting ?? true}
               onChange={(v) => { void onSave({ notifyOnWaiting: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="A shell finishes a run">
+          </SettingField>
+          <SettingField id="notifyOnDone">
             <Toggle
               checked={config.notifyOnDone ?? false}
               onChange={(v) => { void onSave({ notifyOnDone: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="A pull request's checks finish" hint="Passed or failed, for the PR shown in a shell's header">
+          </SettingField>
+          <SettingField id="notifyOnPrChecks">
             <Toggle
               checked={config.notifyOnPrChecks ?? true}
               onChange={(v) => { void onSave({ notifyOnPrChecks: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="Play a sound" hint="Plays the default system sound with each notification">
+          </SettingField>
+          <SettingField id="notificationSound">
             <Toggle
               checked={config.notificationSound ?? false}
               onChange={(v) => { void onSave({ notificationSound: v }); }}
             />
-          </SettingRow>
+          </SettingField>
         </Section>
       </div>
 

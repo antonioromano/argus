@@ -12,6 +12,90 @@
   -webkit-user-drag: element !important;
 }
 
+/* === DS LAYOUT === Row / Stack / Text / Spacer / Kbd / Chip (primitives/Layout.tsx).
+   Static values only — the components add no inline style of their own, so an
+   inline `style` from the caller always wins. No :hover rules here: hover must
+   never change a row's size (it may only change its background, elsewhere). */
+.ds-row   { display: flex; flex-direction: row; min-width: 0; }
+.ds-stack { display: flex; flex-direction: column; min-width: 0; }
+span.ds-row, span.ds-stack, label.ds-row, label.ds-stack { display: inline-flex; }
+.ds-wrap  { flex-wrap: wrap; }
+.ds-grow  { flex: 1; min-width: 0; }
+.ds-align-center   { align-items: center; }
+.ds-align-start    { align-items: flex-start; }
+.ds-align-end      { align-items: flex-end; }
+.ds-align-baseline { align-items: baseline; }
+.ds-align-stretch  { align-items: stretch; }
+.ds-justify-start   { justify-content: flex-start; }
+.ds-justify-center  { justify-content: center; }
+.ds-justify-between { justify-content: space-between; }
+.ds-justify-end     { justify-content: flex-end; }
+.ds-gap-px { gap: var(--s-px); }
+.ds-gap-0-5 { gap: var(--s-0-5); }
+.ds-gap-1 { gap: var(--s-1); }
+.ds-gap-1-5 { gap: var(--s-1-5); }
+.ds-gap-2 { gap: var(--s-2); }
+.ds-gap-3 { gap: var(--s-3); }
+.ds-gap-4 { gap: var(--s-4); }
+.ds-gap-5 { gap: var(--s-5); }
+.ds-gap-6 { gap: var(--s-6); }
+.ds-gap-7 { gap: var(--s-7); }
+.ds-spacer { flex: 1; min-width: 0; }
+
+.ds-text { margin: 0; }
+.ds-t-eyebrow { font-size: var(--t-eyebrow); }
+.ds-t-caption { font-size: var(--t-caption); }
+.ds-t-small   { font-size: var(--t-small); }
+.ds-t-body    { font-size: var(--t-body); }
+.ds-t-title   { font-size: var(--t-title); }
+.ds-t-display { font-size: var(--t-display); }
+.ds-tone-default { color: var(--fg-1); }
+.ds-tone-muted   { color: var(--fg-2); }
+.ds-tone-faint   { color: var(--fg-3); }
+.ds-tone-accent  { color: var(--accent); }
+.ds-tone-danger  { color: var(--danger); }
+.ds-tone-warn    { color: var(--warn); }
+.ds-mono  { font-family: var(--font-mono); }
+.ds-w-500 { font-weight: var(--fw-medium); }
+.ds-w-600 { font-weight: var(--fw-semibold); }
+/* Ellipsis needs a block box: a flex item already is one; a bare span is made one. */
+.ds-truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+span.ds-truncate { display: inline-block; max-width: 100%; vertical-align: bottom; }
+
+.ds-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(18px * var(--ui-scale, 1));
+  height: calc(18px * var(--ui-scale, 1));
+  padding: 0 var(--s-1-5);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  color: var(--fg-1);
+  box-shadow: 0 1px 0 var(--line-2);
+}
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  padding: var(--s-1) var(--s-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  line-height: 1;
+  cursor: default;
+}
+.ds-chip--active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-edge); }
+.ds-chip--clickable { cursor: pointer; }
+.ds-chip-dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+.ds-chip-remove { display: inline-flex; cursor: pointer; opacity: 0.6; }
+
 /* ===== Settings — grouped-card topics (Section / SettingRow primitives) =====
    A quiet title sits above a single rounded card; rows inside are split only by
    the faintest hairline. Replaces the old per-topic eyebrow-header + border. */
@@ -105,6 +189,42 @@
   background: var(--accent);
   flex-shrink: 0;
 }
+/* A matching control listed under its pane while the filter has a query.
+   Indented under the pane label; hover and the keyboard cursor change
+   background only, like the pane rows. */
+.settings-nav-hit {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--s-1) var(--s-2) var(--s-1) calc(var(--s-2) + 21px);
+  border-radius: var(--r-2);
+  font-size: var(--t-xs);
+  color: var(--fg-2);
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.settings-nav-hit:hover { background: var(--bg-3); }
+.settings-nav-hit.is-active { background: var(--bg-3); color: var(--fg-0); }
+.settings-nav-hit-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-hit-note { font-size: var(--t-micro); color: var(--fg-3); }
+
+/* The row a search hit or deep link jumped to (SettingField `is-target`): an
+   accent wash that fades out. Background only — the row keeps its size, padding
+   and borders, so nothing reflows while it flashes. */
+@keyframes setting-target-flash {
+  0%, 35% { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
+  100% { background-color: transparent; }
+}
+[data-setting-id].is-target { animation: setting-target-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-setting-id].is-target {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
 
 /* Whole-line highlight for a Monaco row jumped to (search result or cross-file
    go-to-definition): an accent flash that fades back out. The decoration is
@@ -128,7 +248,7 @@
   background: var(--accent);
   color: var(--fg-on-accent);
   border-radius: 0 0 var(--r-2) var(--r-2);
-  font-size: var(--t-base);
+  font-size: var(--t-body);
   font-weight: 600;
   text-decoration: none;
   transition: top 0.1s;
@@ -377,7 +497,7 @@ body {
     background: var(--accent);
     color: var(--fg-on-accent);
     font-weight: 600;
-    font-size: var(--t-base);
+    font-size: var(--t-body);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
@@ -2541,3 +2661,80 @@ body {
 .argus-rodiff-delnum { color: var(--danger); }
 .argus-rodiff-main { flex: 1; min-width: 0; overflow: auto; background: var(--bg-0); }
 .argus-rodiff-empty { padding: var(--s-6); color: var(--fg-3); font-family: var(--font-mono); font-size: var(--t-sm); }
+
+/* ── Surface states (plan 2026-10-29-003): skeleton rows, stale notice, error actions ── */
+.argus-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+}
+.argus-skeleton-rows[data-variant='inline'] { flex-direction: row; flex-wrap: wrap; padding: var(--s-1) 0; }
+.argus-skeleton-rows[data-variant='diff'] { gap: var(--s-1); font-family: var(--font-mono); }
+.argus-skeleton-row { display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-4); }
+.argus-skeleton-bar {
+  display: inline-block;
+  height: var(--s-2);
+  width: 72%;
+  border-radius: var(--r-1);
+  background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
+  background-size: 200% 100%;
+  animation: argus-shimmer 1.4s linear infinite;
+}
+/* Deterministic widths: a fixed cycle, never random, so tests and screenshots are stable. */
+.argus-skeleton-row:nth-child(4n + 2) .argus-skeleton-bar:last-child { width: 54%; }
+.argus-skeleton-row:nth-child(4n + 3) .argus-skeleton-bar:last-child { width: 86%; }
+.argus-skeleton-row:nth-child(4n + 4) .argus-skeleton-bar:last-child { width: 40%; }
+/* Tree: nested rows step in. */
+.argus-skeleton-rows[data-variant='tree'] .argus-skeleton-row:nth-child(3n + 2) { padding-left: var(--s-4); }
+.argus-skeleton-rows[data-variant='tree'] .argus-skeleton-row:nth-child(3n + 3) { padding-left: var(--s-7); }
+/* Diff: a line-number gutter, then the code line. */
+.argus-skeleton-bar.argus-skeleton-gutter { width: var(--s-6); flex: none; }
+.argus-skeleton-rows[data-variant='inline'] .argus-skeleton-bar { width: var(--s-10); }
+@media (prefers-reduced-motion: reduce) {
+  .argus-skeleton-bar { animation: none; }
+}
+
+/* Stale: one fixed-height line above data whose last refresh failed. */
+.argus-stale-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  height: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  max-height: var(--ctl-h-md);
+  padding: 0 var(--s-3);
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--warn);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--t-small);
+}
+.argus-stale-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-1); }
+.argus-stale-notice-retry {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: inherit;
+}
+.argus-stale-notice-retry:hover { text-decoration: underline; }
+.argus-stale-notice-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+
+/* Error: cause sentence, action row, collapsed raw detail. */
+.argus-error-cause { max-width: 360px; color: var(--fg-1); font-size: var(--t-small); }
+.argus-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-2); }
+.argus-error-details { max-width: 360px; width: 100%; text-align: left; color: var(--fg-2); font-size: var(--t-xs); }
+.argus-error-details > summary { cursor: pointer; color: var(--fg-2); text-align: center; }
+.argus-error-details > pre {
+  margin: var(--s-2) 0 0;
+  padding: var(--s-2) var(--s-3);
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  background: var(--bg-inset);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+}

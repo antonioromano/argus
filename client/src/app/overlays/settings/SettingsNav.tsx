@@ -1,6 +1,11 @@
+import { useState } from 'react';
 import { Search } from 'lucide-react';
-import { GROUP_ORDER, PANES, paneMatches, type PaneDef, type PaneId } from './registry.js';
+import { GROUP_ORDER, type PaneDef, type PaneId } from './registry.js';
+import { visiblePanes, type SettingHit } from './search.js';
 import { Icon } from '../../../components/primitives/index.js';
+
+/** Hits listed under one pane; the rest are a refinement of the query away. */
+const MAX_HITS_PER_PANE = 4;
 
 interface SettingsNavProps {
   active: PaneId;
@@ -9,32 +14,56 @@ interface SettingsNavProps {
   modified: Set<PaneId>;
   query: string;
   onQuery: (next: string) => void;
+  /** Controls matching the query, best first (see searchSettings). */
+  hits: SettingHit[];
+  /** Open a setting: its pane, scrolled to and flashed. */
+  onGoTo: (settingId: string) => void;
 }
 
+type Entry = { kind: 'pane'; pane: PaneId } | { kind: 'hit'; pane: PaneId; id: string };
+
 /**
- * The sidebar: a filter box over fourteen single-topic panes in four groups.
+ * The sidebar: a filter box over twelve single-topic panes in four groups.
  *
- * The filter matters more here than it would in a six-tab sheet — with this many
- * panes, "which one holds X" is the question, and the keyword lists in the
- * registry answer it without the user learning our taxonomy first.
+ * With a query, each matching pane also lists the matching controls under it,
+ * so "which row holds X" is answered here, not by scanning the pane. Arrow keys
+ * walk panes and hits; Enter opens the selected hit, or the best one.
  */
-export function SettingsNav({ active, onSelect, modified, query, onQuery }: SettingsNavProps) {
-  const visible = PANES.filter((p) => paneMatches(p, query));
+export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, onGoTo }: SettingsNavProps) {
+  const visible = visiblePanes(query, hits);
+  const [cursorHit, setCursorHit] = useState<string | null>(null);
 
-  // Arrow keys walk the visible panes, wrapping — the filtered-out ones are
-  // skipped rather than silently selected.
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    if (visible.length === 0) return;
-    e.preventDefault();
-    const idx = visible.findIndex((p) => p.id === active);
-    const next = e.key === 'ArrowDown'
-      ? (idx + 1) % visible.length
-      : (idx - 1 + visible.length) % visible.length;
-    onSelect(visible[next].id);
-  };
-
+  const hitsFor = (pane: PaneId) => hits.filter((h) => h.setting.pane === pane).slice(0, MAX_HITS_PER_PANE);
   const byGroup = (group: PaneDef['group']) => visible.filter((p) => p.group === group);
+
+  // Render order, which is also the order the arrow keys walk.
+  const entries: Entry[] = GROUP_ORDER.flatMap((g) => byGroup(g)).flatMap((p) => [
+    { kind: 'pane' as const, pane: p.id },
+    ...hitsFor(p.id).map((h) => ({ kind: 'hit' as const, pane: p.id, id: h.setting.id })),
+  ]);
+  // A cursor left on a hit the new query no longer lists falls back to the pane.
+  const cursor = entries.some((e) => e.kind === 'hit' && e.id === cursorHit) ? cursorHit : null;
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const id = cursor ?? hits[0]?.setting.id;
+      if (!id) return;
+      e.preventDefault();
+      onGoTo(id);
+      return;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (entries.length === 0) return;
+    e.preventDefault();
+    const idx = entries.findIndex((en) => (cursor
+      ? en.kind === 'hit' && en.id === cursor
+      : en.kind === 'pane' && en.pane === active));
+    const next = entries[e.key === 'ArrowDown'
+      ? (idx + 1) % entries.length
+      : (idx - 1 + entries.length) % entries.length];
+    onSelect(next.pane);
+    setCursorHit(next.kind === 'hit' ? next.id : null);
+  };
 
   return (
     <aside
@@ -81,24 +110,40 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
                 const Glyph = p.icon;
                 const on = p.id === active;
                 return (
-                  <button
-                    key={p.id}
-                    role="tab"
-                    aria-selected={on}
-                    tabIndex={on ? 0 : -1}
-                    onClick={() => onSelect(p.id)}
-                    className={`settings-nav-item${on ? ' is-active' : ''}`}
-                  >
-                    <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
-                    {modified.has(p.id) && (
-                      <span
-                        className="settings-nav-dot"
-                        title="Holds a value that differs from the default"
-                        aria-label="modified"
-                      />
-                    )}
-                  </button>
+                  <div key={p.id}>
+                    <button
+                      role="tab"
+                      aria-selected={on}
+                      tabIndex={on ? 0 : -1}
+                      onClick={() => { setCursorHit(null); onSelect(p.id); }}
+                      className={`settings-nav-item${on ? ' is-active' : ''}`}
+                    >
+                      <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
+                      {modified.has(p.id) && (
+                        <span
+                          className="settings-nav-dot"
+                          title="Holds a value that differs from the default"
+                          aria-label="modified"
+                        />
+                      )}
+                    </button>
+                    {hitsFor(p.id).map((h) => (
+                      <button
+                        key={h.setting.id}
+                        type="button"
+                        tabIndex={-1}
+                        className={`settings-nav-hit${cursor === h.setting.id ? ' is-active' : ''}`}
+                        onClick={() => { setCursorHit(h.setting.id); onGoTo(h.setting.id); }}
+                        title={h.hidden && h.revealVia ? `Turn on ${h.revealVia.label} first` : `${h.setting.section} › ${h.setting.label}`}
+                      >
+                        <span className="settings-nav-hit-label">{h.setting.label}</span>
+                        {h.hidden && h.revealVia && (
+                          <span className="settings-nav-hit-note">Turn on {h.revealVia.label} first</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 );
               })}
             </div>

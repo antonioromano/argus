@@ -7,7 +7,8 @@
  *
  * `keys` is what makes the sidebar's modified dot and the footer count work: it
  * lists the AppConfig keys a pane edits, so the shell can diff live config
- * against DEFAULT_CONFIG without each pane reporting its own state upward.
+ * against DEFAULT_CONFIG without each pane reporting its own state upward. It is
+ * derived from the per-setting catalog (catalog.ts), never hand-listed.
  * `keywords` feeds the filter box with the words a user would actually type
  * (control labels, old tab names, domain terms) rather than only the pane title.
  */
@@ -18,37 +19,28 @@ import {
   Keyboard,
   Wifi,
   GitBranch,
-  Type,
   PanelTop,
-  Clock,
-  Folders,
-  ShieldAlert,
   Server,
-  BatteryCharging,
-  Wrench,
   Rocket,
   ShieldCheck,
   FlaskConical,
+  Settings2,
 } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
+import { paneConfigKeys, sameValue } from './catalog.js';
 
 export type PaneId =
   | 'theme'
-  | 'typography'
   | 'shell-header'
-  | 'toolbar'
   | 'agents'
-  | 'groups'
   | 'isolation'
   | 'launchers'
-  | 'confirmations'
+  | 'general'
   | 'auto-approval'
   | 'notifications'
   | 'keyboard'
   | 'runtime'
-  | 'power'
   | 'remote'
-  | 'developer'
   | 'beta';
 
 export type PaneGroup = 'Appearance' | 'Workspace' | 'Behavior' | 'System';
@@ -68,61 +60,46 @@ export interface PaneDef {
   keywords: string[];
 }
 
-export const PANES: readonly PaneDef[] = [
+/*
+ * Twelve panes. 0.24 had seventeen, five of them holding one or two keys
+ * (Typography, Toolbar, Groups, Power, Developer) plus Confirmations. Those were
+ * folded into the pane whose subject they share; their keyword lists came with
+ * them, so every word that used to find a setting still does (see the legacy
+ * fixture in registry.test.ts), and their old ids are aliases below.
+ */
+const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
   {
     id: 'theme',
-    label: 'Theme & motion',
+    label: 'Theme & layout',
     group: 'Appearance',
     icon: SlidersHorizontal,
-    keys: ['mosaicOrientation', 'mosaicWaitingStyle'],
-    keywords: ['theme', 'dark', 'light', 'system', 'appearance', 'waiting', 'attention', 'halo', 'breathing', 'pulse', 'flag', 'mosaic', 'layout', 'stacked', 'vertical', 'horizontal', 'side by side'],
-  },
-  {
-    id: 'typography',
-    label: 'Typography',
-    group: 'Appearance',
-    icon: Type,
-    keys: ['codeFontSize', 'uiFontSize'],
-    keywords: ['font', 'font size', 'text size', 'code font', 'interface font', 'terminal font', 'zoom', 'bigger', 'smaller'],
+    keywords: [
+      'theme', 'dark', 'light', 'system', 'appearance', 'waiting', 'attention', 'halo', 'breathing', 'pulse', 'flag', 'mosaic', 'layout', 'stacked', 'vertical', 'horizontal', 'side by side',
+      // was Typography
+      'typography', 'font', 'font size', 'text size', 'code font', 'interface font', 'terminal font', 'zoom', 'bigger', 'smaller',
+      // was Toolbar
+      'clock', 'time', 'seconds', 'toolbar',
+    ],
   },
   {
     id: 'shell-header',
     label: 'Shell header',
     group: 'Appearance',
     icon: PanelTop,
-    keys: ['tileQuickAction', 'tileRunningIndicator', 'showUsageMeter', 'usageMeterParts', 'usageWarnContext', 'usageWarnPlan', 'showPrStatus', 'inspectorSide', 'inspectorVisible'],
     keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'limit', 'reset', 'model', 'warning', 'threshold', 'codex', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh', 'inspector', 'session inspector', 'side panel', 'left', 'right', 'position', 'show', 'hide', 'git', 'branch'],
-  },
-  {
-    id: 'toolbar',
-    label: 'Toolbar',
-    group: 'Appearance',
-    icon: Clock,
-    keys: ['showClock', 'clockShowSeconds'],
-    keywords: ['clock', 'time', 'seconds', 'toolbar'],
   },
   {
     id: 'agents',
     label: 'Agents',
     group: 'Workspace',
     icon: Cpu,
-    keys: ['defaultAgent', 'customAgents', 'agentFlags', 'claudeRenderer', 'defaultSessionView'],
     keywords: ['agent', 'claude', 'gemini', 'codex', 'custom agent', 'flags', 'cli', 'default agent', 'command', 'renderer', 'fullscreen', 'classic', 'tui', 'duplicate', 'scrollback', 'chat', 'chat view', 'default view', 'terminal view'],
-  },
-  {
-    id: 'groups',
-    label: 'Groups',
-    group: 'Workspace',
-    icon: Folders,
-    keys: ['othersFolderName'],
-    keywords: ['group', 'folder', 'others', 'ungrouped', 'bucket', 'name'],
   },
   {
     id: 'isolation',
     label: 'Isolation',
     group: 'Workspace',
     icon: GitBranch,
-    keys: [],
     keywords: ['worktree', 'isolation', 'branch', 'sandbox', 'git', 'parallel'],
   },
   {
@@ -130,23 +107,28 @@ export const PANES: readonly PaneDef[] = [
     label: 'Launchers',
     group: 'Workspace',
     icon: Rocket,
-    keys: ['launchFolderRoots'],
     keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots', 'template', 'templates', 'multi-session', 'spawn'],
   },
   {
-    id: 'confirmations',
-    label: 'Confirmations',
+    id: 'general',
+    label: 'General',
     group: 'Behavior',
-    icon: ShieldAlert,
-    keys: ['confirmCloseShell', 'exitSessionsOnQuit', 'confirmExitOnQuit', 'confirmQuitDirectSessions'],
-    keywords: ['confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning', 'direct'],
+    icon: Settings2,
+    keywords: [
+      'general', 'behavior',
+      // was Confirmations
+      'confirmations', 'confirm', 'ask', 'quit', 'cmd+q', 'close', 'cmd+w', 'exit', 'terminate', 'dialog', 'warning', 'direct',
+      // was Power
+      'power', 'sleep', 'awake', 'caffeinate', 'idle', 'battery',
+      // was Groups
+      'groups', 'group', 'folder', 'others', 'ungrouped', 'bucket', 'name', 'naming',
+    ],
   },
   {
     id: 'auto-approval',
     label: 'Auto-approval',
     group: 'Behavior',
     icon: ShieldCheck,
-    keys: ['autoApprovalEnabled'],
     keywords: ['auto-approval', 'auto approve', 'approve', 'allow', 'permission', 'permissions', 'rules', 'hook', 'pretooluse', 'bash', 'prompt', 'audit'],
   },
   {
@@ -154,7 +136,6 @@ export const PANES: readonly PaneDef[] = [
     label: 'Notifications',
     group: 'Behavior',
     icon: Bell,
-    keys: ['notificationsEnabled', 'notifyOnWaiting', 'notifyOnDone', 'notifyOnPrChecks', 'notificationSound'],
     keywords: ['notification', 'notify', 'alert', 'sound', 'banner', 'desktop', 'waiting', 'done', 'badge', 'ci', 'checks', 'pull request'],
   },
   {
@@ -162,7 +143,6 @@ export const PANES: readonly PaneDef[] = [
     label: 'Keyboard',
     group: 'Behavior',
     icon: Keyboard,
-    keys: ['keyboardShortcuts'],
     keywords: ['keyboard', 'shortcut', 'binding', 'hotkey', 'combo', 'accelerator', 'rebind'],
   },
   {
@@ -170,57 +150,49 @@ export const PANES: readonly PaneDef[] = [
     label: 'Runtime',
     group: 'System',
     icon: Server,
-    keys: ['ptyBackend', 'defaultTerminalEngine', 'defaultRunMode'],
-    keywords: ['runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent', 'default terminal', 'universal', 'advanced', 'orphan', 'duplicate', 'janitor', 'kill', 'leak', 'memory', 'maintenance'],
-  },
-  {
-    id: 'power',
-    label: 'Power',
-    group: 'System',
-    icon: BatteryCharging,
-    keys: ['preventSleepWhileRunning'],
-    keywords: ['power', 'sleep', 'awake', 'caffeinate', 'idle', 'battery'],
+    keywords: [
+      'runtime', 'backend', 'argusd', 'daemon', 'tmux', 'pty', 'terminal engine', 'native', 'xterm', 'web', 'run mode', 'direct', 'persistent', 'default terminal', 'universal', 'advanced', 'orphan', 'duplicate', 'janitor', 'kill', 'leak', 'memory', 'maintenance',
+      // was Developer
+      'developer', 'debug', 'diagnostics', 'dump', 'devtools',
+    ],
   },
   {
     id: 'remote',
     label: 'Remote access',
     group: 'System',
     icon: Wifi,
-    keys: [],
     keywords: ['remote', 'ngrok', 'tunnel', 'mobile', 'phone', 'companion', 'qr', 'public url', 'password'],
-  },
-  {
-    id: 'developer',
-    label: 'Developer',
-    group: 'System',
-    icon: Wrench,
-    keys: ['debugToolsEnabled'],
-    keywords: ['developer', 'debug', 'diagnostics', 'dump', 'devtools'],
   },
   {
     id: 'beta',
     label: 'Beta features',
     group: 'System',
     icon: FlaskConical,
-    keys: ['betaWorktreeLifecycle', 'betaActivityTimeline', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'],
     keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'chain to', 'loop'],
   },
 ];
+
+/** `keys` come from the catalog, so the pane a setting renders on and the pane
+ *  credited with it (modified dot, footer count, Reset all) are the same fact. */
+export const PANES: readonly PaneDef[] = PANE_DEFS.map((p) => ({ ...p, keys: paneConfigKeys(p.id) }));
 
 export const PANES_BY_ID: Record<PaneId, PaneDef> = Object.fromEntries(
   PANES.map((p) => [p.id, p]),
 ) as Record<PaneId, PaneDef>;
 
-/** Tab ids from before the re-cut. Deep links (`initialTab`) and any persisted
- *  value still resolve, so an old "open settings on Remote" call keeps working. */
+/** Ids that no longer name a pane: tabs from before the 0.24 re-cut, and the
+ *  panes merged away since. Deep links (`initialTab`) and any persisted value
+ *  still resolve, so an old "open settings on Typography" call keeps working.
+ *  The pre-0.24 `general` tab is now the real General pane, so it needs none. */
 const LEGACY_TAB_ALIASES: Record<string, PaneId> = {
-  general: 'theme',
-  agents: 'agents',
   notif: 'notifications',
-  notifications: 'notifications',
-  keyboard: 'keyboard',
-  remote: 'remote',
   worktrees: 'isolation',
+  typography: 'theme',
+  toolbar: 'theme',
+  confirmations: 'general',
+  power: 'general',
+  groups: 'general',
+  developer: 'runtime',
 };
 
 export function resolvePaneId(raw: string | undefined): PaneId {
@@ -236,16 +208,6 @@ export function paneMatches(pane: PaneDef, query: string): boolean {
   if (pane.label.toLowerCase().includes(q)) return true;
   if (pane.group.toLowerCase().includes(q)) return true;
   return pane.keywords.some((k) => k.includes(q));
-}
-
-/** Deep-equal enough for config values: scalars, arrays of objects, and maps. */
-function sameValue(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a === undefined || b === undefined) return false;
-  if (typeof a === 'object' && typeof b === 'object') {
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-  return false;
 }
 
 /** Config keys whose value differs from the shipped default. A key absent from

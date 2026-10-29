@@ -1,23 +1,8 @@
 import { DEFAULT_CONFIG, type ClaudeRenderer, type SessionViewMode } from '@argus/shared';
-import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
+import { Section, Segmented } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
-
-const OPTIONS: readonly { value: ClaudeRenderer; label: string; title: string }[] = [
-  { value: 'fullscreen', label: 'Fullscreen', title: 'Claude redraws its own history on resize — no duplicated messages' },
-  { value: 'classic', label: 'Classic', title: 'Terminal scrollback — resizing can leave duplicated messages' },
-  { value: 'inherit', label: 'My setting', title: 'Use the tui value from your own Claude settings' },
-];
-
-const HINT: Record<ClaudeRenderer, string> = {
-  fullscreen: 'Claude keeps its own scrollback and re-lays it out when a tile resizes. Scroll, select and search inside Claude.',
-  classic: 'Native terminal scrollback. Each width change makes Claude reprint its transcript, which can leave duplicated messages behind.',
-  inherit: 'Argus adds nothing — the tui value in your ~/.claude/settings.json decides.',
-};
-
-const VIEW_OPTIONS: readonly { value: SessionViewMode; label: string; title: string }[] = [
-  { value: 'terminal', label: 'Terminal', title: 'Open Claude shells in the terminal' },
-  { value: 'chat', label: 'Chat', title: 'Open Claude shells in the Chat view' },
-];
+import { SettingField } from '../SettingField.js';
+import { RENDERER_OPTIONS, VIEW_OPTIONS } from '../options.js';
 
 /**
  * How Claude sessions draw their UI. Lives in Agents because it is a Claude
@@ -29,19 +14,16 @@ export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'confi
   const view: SessionViewMode = config.defaultSessionView ?? DEFAULT_CONFIG.defaultSessionView!;
   return (
     <Section title="Claude display">
-      <SettingRow label="Renderer" hint={`${HINT[value]} Applies to new and restarted sessions.`}>
+      <SettingField id="claudeRenderer" config={config}>
         <Segmented
           label="Claude renderer"
           value={value}
-          options={OPTIONS}
+          options={RENDERER_OPTIONS}
           compact
           onChange={(next) => { void onSave({ claudeRenderer: next }); }}
         />
-      </SettingRow>
-      <SettingRow
-        label="Default view"
-        hint="Where a Claude shell opens until you pick a view for it with its Terminal/Chat toggle. Other agents always use the terminal."
-      >
+      </SettingField>
+      <SettingField id="defaultSessionView">
         <Segmented
           label="Default view for Claude shells"
           value={view}
@@ -49,7 +31,7 @@ export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'confi
           compact
           onChange={(next) => { void onSave({ defaultSessionView: next }); }}
         />
-      </SettingRow>
+      </SettingField>
     </Section>
   );
 }

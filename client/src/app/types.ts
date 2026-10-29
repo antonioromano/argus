@@ -11,7 +11,7 @@ export type Overlay =
   | { kind: 'search' }
   | { kind: 'broadcast'; sessionIds: string[] }
   | { kind: 'update' }
-  | { kind: 'settings'; initialTab?: string }
+  | { kind: 'settings'; initialTab?: string; focusSetting?: string }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | { kind: 'intro'; flow: IntroFlow }
   | null;

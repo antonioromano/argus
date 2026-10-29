@@ -1,23 +1,19 @@
 import { AlertTriangle } from 'lucide-react';
-import { Section, SettingRow, Segmented, Icon } from '../../../../components/primitives/index.js';
+import { Section, Segmented, Icon, Toggle } from '../../../../components/primitives/index.js';
 import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
 import type { PaneProps } from '../types.js';
 import { OrphanAgentsSection } from './OrphanAgentsSection.js';
-
-type Backend = 'auto' | 'tmux';
-
-const BACKEND_OPTIONS: readonly { value: Backend; label: string; title: string }[] = [
-  { value: 'auto', label: 'argusd', title: 'The Argus daemon — sessions survive app quit without tmux' },
-  { value: 'tmux', label: 'tmux', title: 'The legacy backend — sessions live in a tmux server' },
-];
+import { SettingAnchor, SettingField } from '../SettingField.js';
+import { BACKEND_OPTIONS, type Backend } from '../options.js';
+import { SETTINGS_BY_ID, settingHint } from '../catalog.js';
 
 /**
- * Where the process layer is chosen. Both settings here used to sit in
- * General → "Sessions", which described neither: they pick how a pty is hosted
- * and how a tile is drawn. Both are read at launch, so the deferral applies to
- * the whole pane — hence one banner at the top instead of a note buried in a row.
+ * Where the process layer is chosen, plus what sits under the hood with it:
+ * orphan-agent maintenance and the developer diagnostics (once its own pane).
+ * Backend and default terminal are read at launch; the banner names those two
+ * so it does not read as covering the sections below them.
  */
 export function RuntimePane({ config, onSave }: PaneProps) {
   const backend: Backend = config.ptyBackend ?? 'auto';
@@ -56,41 +52,46 @@ export function RuntimePane({ config, onSave }: PaneProps) {
       >
         <Icon icon={AlertTriangle} size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
         <span>
-          Runtime changes apply to shells hosted after the next app launch. Running shells keep the
-          backend and engine they were created with.
+          Backend and default terminal changes apply to shells hosted after the next app launch.
+          Running shells keep the backend and engine they were created with.
         </span>
       </div>
 
       <Section title="Process backend">
-        <SettingRow
-          label="Backend"
-          hint="argusd survives app quit without tmux. tmux is the legacy path."
-        >
+        <SettingField id="ptyBackend">
           <Segmented
             label="Process backend"
             value={backend}
             options={BACKEND_OPTIONS}
             onChange={(v) => { void changeBackend(v); }}
           />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       <Section title="Default terminal">
-        <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
-          <TerminalChoice
-            value={kindOf(config.defaultRunMode, config.defaultTerminalEngine)}
-            onChange={(k) => {
-              const next = settingsFor(k);
-              onSave({ defaultRunMode: next.runMode, defaultTerminalEngine: next.terminalEngine });
-            }}
-          />
-          <p style={{ margin: 0, fontSize: 'var(--t-xs)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
-            Applies to new sessions only — existing ones keep the terminal they were created with.
-          </p>
-        </div>
+        <SettingAnchor id="defaultTerminal">
+          <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+            <TerminalChoice
+              value={kindOf(config.defaultRunMode, config.defaultTerminalEngine)}
+              onChange={(k) => {
+                const next = settingsFor(k);
+                onSave({ defaultRunMode: next.runMode, defaultTerminalEngine: next.terminalEngine });
+              }}
+            />
+            <p style={{ margin: 0, fontSize: 'var(--t-xs)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
+              {settingHint(SETTINGS_BY_ID.defaultTerminal)}
+            </p>
+          </div>
+        </SettingAnchor>
       </Section>
 
       <OrphanAgentsSection />
+
+      <Section title="Diagnostics">
+        <SettingField id="debugToolsEnabled">
+          <Toggle checked={config.debugToolsEnabled ?? false} onChange={(v) => onSave({ debugToolsEnabled: v })} />
+        </SettingField>
+      </Section>
     </>
   );
 }

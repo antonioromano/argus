@@ -24,6 +24,7 @@ import { WifiOff, Loader2, Plus, History, Inbox, Send, Search, LayoutTemplate, P
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { focusPendingLaunch } from './ui/launchFocus.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
+import { registerErrorActionHost } from '../errors/errorActions.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
@@ -401,6 +402,20 @@ function DesktopInner() {
       pushToast('Failed to write diagnostics', 'warn');
     }
   }, []);
+
+  // Error action host (plan 003): error surfaces anywhere dispatch "Open
+  // Settings → X" / "Restart session" without prop-drilling. report-issue stays
+  // unregistered (hidden) until plan 002 adds its handler.
+  const errorHostSessionsRef = useRef(sessions);
+  errorHostSessionsRef.current = sessions;
+  const openAppOverlay = app.openOverlay;
+  useEffect(() => registerErrorActionHost({
+    'open-settings': (a) => openAppOverlay({ kind: 'settings', initialTab: a.pane }),
+    'restart-session': (a) => {
+      const s = errorHostSessionsRef.current.find((x) => x.id === a.sessionId);
+      if (s) setPendingRestart(s);
+    },
+  }), [openAppOverlay]);
 
   // Resume an exited Claude session's last conversation. No confirm: the agent
   // is already gone, so nothing running is interrupted.
@@ -1336,6 +1351,7 @@ function DesktopInner() {
             onNgrokStart={ngrok.startTunnel}
             onNgrokStop={ngrok.stopTunnel}
             initialTab={app.overlay.initialTab}
+            focusSetting={app.overlay.focusSetting}
           />
         </Overlay>
       )}

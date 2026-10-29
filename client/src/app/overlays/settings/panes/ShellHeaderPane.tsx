@@ -1,5 +1,5 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
-import type { InspectorSide, PlanUsage, SessionUsage, TileRunningIndicator, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
+import type { PlanUsage, SessionUsage, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
 import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
@@ -8,16 +8,8 @@ import { DEFAULT_TILE_QUICK_ACTION } from '../../../../constants/tileActions.js'
 import { PART_LABELS, STEP, movePart, stepThreshold } from './usageMeterSettings.js';
 import { usageMeterView, normalizeParts, DEFAULT_USAGE_PARTS, DEFAULT_WARN_CONTEXT, DEFAULT_WARN_PLAN } from '../../../../utils/usageFormat.js';
 import type { PaneProps } from '../types.js';
-
-const INSPECTOR_SIDE_OPTIONS: readonly { value: InspectorSide; label: string }[] = [
-  { value: 'left', label: 'Left' },
-  { value: 'right', label: 'Right' },
-];
-
-const INDICATOR_OPTIONS: readonly { value: TileRunningIndicator; label: string }[] = [
-  { value: 'hairline', label: 'Hairline' },
-  { value: 'off', label: 'Off' },
-];
+import { SettingField } from '../SettingField.js';
+import { INDICATOR_OPTIONS, INSPECTOR_SIDE_OPTIONS } from '../options.js';
 
 /**
  * The chip's parts as pills: drag to reorder, click to show or hide.
@@ -154,70 +146,52 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
   return (
     <>
       <Section title="Header content">
-        <SettingRow
-          label="Quick action"
-          hint="One action pinned beside the window controls in every shell header. Everything else stays in the ⋯ menu."
-        >
+        <SettingField id="tileQuickAction">
           <QuickActionPicker
             value={action}
             onChange={(tileQuickAction) => onSave({ tileQuickAction })}
             defaultAction={DEFAULT_TILE_QUICK_ACTION}
           />
-        </SettingRow>
-        <SettingRow
-          label="Running indicator"
-          hint="2px progress hairline under the header while an agent is working"
-        >
+        </SettingField>
+        <SettingField id="tileRunningIndicator">
           <Segmented
             label="Running indicator"
             value={indicator}
             options={INDICATOR_OPTIONS}
             onChange={(tileRunningIndicator) => { void onSave({ tileRunningIndicator }); }}
           />
-        </SettingRow>
-        <SettingRow
-          label="Usage meter"
-          hint="Context and plan usage on Claude and Codex shells. Gemini doesn’t report usage"
-        >
+        </SettingField>
+        <SettingField id="showUsageMeter">
           <Toggle checked={meterOn} onChange={(v) => onSave({ showUsageMeter: v })} />
-        </SettingRow>
+        </SettingField>
         <div className="argus-usage-nest" data-off={!meterOn} aria-disabled={!meterOn}>
-          <SettingRow label="Show" hint="Drag to reorder · click to hide. Plan usage is per account, the same in every shell">
+          <SettingField id="usageMeterParts">
             <UsagePartPills parts={parts} onChange={(usageMeterParts) => onSave({ usageMeterParts })} />
-          </SettingRow>
-          <SettingRow label="Context warning" hint="Chip turns amber, then red, as a shell’s context fills">
+          </SettingField>
+          <SettingField id="usageWarnContext">
             <ThresholdSteppers name="Context" value={warnContext} onChange={(usageWarnContext) => onSave({ usageWarnContext })} />
-          </SettingRow>
-          <SettingRow label="Plan usage warning" hint="Amber, then red, as you near your plan’s limit">
+          </SettingField>
+          <SettingField id="usageWarnPlan">
             <ThresholdSteppers name="Plan usage" value={warnPlan} onChange={(usageWarnPlan) => onSave({ usageWarnPlan })} />
-          </SettingRow>
+          </SettingField>
         </div>
-        <SettingRow
-          label="Pull request status"
-          hint="PR number, state and CI checks for shells on a branch with a GitHub PR. Needs the gh CLI, logged in"
-        >
+        <SettingField id="showPrStatus">
           <Toggle checked={config.showPrStatus !== false} onChange={(v) => onSave({ showPrStatus: v })} />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       <Section title="Session Inspector">
-        <SettingRow
-          label="Show inspector"
-          hint="Hidden, the shell header shows usage, git and pull request as chips again. ⌘I toggles it"
-        >
+        <SettingField id="inspectorVisible">
           <Toggle checked={config.inspectorVisible !== false} onChange={(v) => onSave({ inspectorVisible: v })} />
-        </SettingRow>
-        <SettingRow
-          label="Position"
-          hint="Usage, git and pull request of the open shell (or the selected tile). Left: in the sidebar, between Shells and System. Right: a column beside the shells. While the sidebar holding it is collapsed, the header shows them as chips"
-        >
+        </SettingField>
+        <SettingField id="inspectorSide">
           <Segmented
             label="Inspector position"
             value={config.inspectorSide === 'right' ? 'right' : 'left'}
             options={INSPECTOR_SIDE_OPTIONS}
             onChange={(inspectorSide) => { void onSave({ inspectorSide }); }}
           />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       {/* The preview sits in its own group below the controls: the quick action,

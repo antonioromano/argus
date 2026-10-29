@@ -46,12 +46,22 @@ interface SettingRowProps {
   hint?: string;
   /** Align the control to the right with no meta column (e.g. a trailing action button). */
   trailing?: boolean;
+  /** Stable id of the setting this row renders: becomes the DOM `id`
+   *  (`setting-<anchorId>`) and `data-setting-id`, so search can scroll to it. */
+  anchorId?: string;
+  /** Extra classes on the row (e.g. `is-target` while a jump flashes it). */
+  className?: string;
   children: ReactNode;
 }
 
-export function SettingRow({ label, hint, trailing, children }: SettingRowProps) {
+export function SettingRow({ label, hint, trailing, anchorId, className, children }: SettingRowProps) {
   return (
-    <div className="setting-row" style={trailing ? { justifyContent: 'flex-end' } : undefined}>
+    <div
+      className={className ? `setting-row ${className}` : 'setting-row'}
+      id={anchorId ? `setting-${anchorId}` : undefined}
+      data-setting-id={anchorId}
+      style={trailing ? { justifyContent: 'flex-end' } : undefined}
+    >
       {!trailing && (label || hint) && (
         <div className="setting-row-meta">
           {label && <div className="setting-row-label">{label}</div>}
