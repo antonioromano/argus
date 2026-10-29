@@ -107,7 +107,7 @@ interface ErrorStateProps {
 const ERROR_FALLBACK_TITLE = 'Something went wrong';
 
 /** The error's actions as buttons; ones nothing can run are not rendered. */
-function ErrorActions({ actions, onRetry }: { actions: ErrorAction[]; onRetry?: () => void }) {
+export function ErrorActions({ actions, onRetry }: { actions: ErrorAction[]; onRetry?: () => void }) {
   useErrorActionHostVersion();
   const runnable = availableActions(actions, { onRetry });
   if (runnable.length === 0) return null;
@@ -195,6 +195,37 @@ export function ErrorState({ title, detail, error, described, fallbackTitle, onR
         <details className="argus-error-details">
           <summary>Details</summary>
           <pre>{hidden}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+interface InlineErrorStateProps {
+  /** Any thrown value, described through the error table. */
+  error: unknown;
+  /** Headline used only when `error` has no typed code. */
+  fallbackTitle?: string;
+  onRetry?: () => void;
+}
+
+/**
+ * The error state for a section inside a larger surface (a settings pane, an
+ * inspector block): headline, cause, actions and collapsed Details, aligned
+ * with the section's text instead of centred in the pane.
+ */
+export function InlineErrorState({ error, fallbackTitle, onRetry }: InlineErrorStateProps) {
+  useErrorActionHostVersion();
+  const d = describeError(error, { fallbackTitle });
+  return (
+    <div className="argus-inline-surface-error" role="alert">
+      <div className="argus-inline-surface-error-title">{d.title}</div>
+      <div className="argus-error-cause">{d.cause}</div>
+      <ErrorActions actions={d.actions} onRetry={onRetry} />
+      {d.detail && d.detail !== d.title && (
+        <details className="argus-error-details">
+          <summary>Details</summary>
+          <pre>{d.detail}</pre>
         </details>
       )}
     </div>

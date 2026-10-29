@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentFlag, AppConfig, RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
+import { SHELL_AGENT_ID, type AgentFlag, type AppConfig, type RunMode, type SessionInfo, type TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
@@ -20,6 +20,7 @@ import { api } from '../../services/api.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../ui/terminalKind.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
+import { AgentPreflightNotice } from './AgentPreflightNotice.js';
 import { emitDiscovery } from '../discovery/discoveryEvents.js';
 
 interface CreateSheetProps {
@@ -86,6 +87,12 @@ export function CreateSheet({
   const [creating, setCreating] = useState(false);
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The thrown spawn failure, described (agent unknown, folder missing, daemon
+  // down…) instead of its raw message.
+  const [spawnFailure, setSpawnFailure] = useState<unknown>(null);
+  // Which agents' commands the server can find (`which`), read once per open.
+  // null until it answers, and on failure: no answer means no warning.
+  const [agentStatus, setAgentStatus] = useState<Map<string, { installed: boolean; installUrl?: string }> | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // Worktree state
@@ -118,6 +125,19 @@ export function CreateSheet({
   };
 
   const agents = config ? [...BUILTIN_AGENTS, ...config.customAgents] : BUILTIN_AGENTS;
+  const selectedAgent = agents.find((a) => a.id === agentId);
+  const selectedStatus = agentStatus?.get(agentId);
+
+  useEffect(() => {
+    let alive = true;
+    api.detectAgents().then(
+      (res) => {
+        if (alive) setAgentStatus(new Map(res.agents.map((s) => [s.agent.id, { installed: s.installed, installUrl: s.agent.installUrl }])));
+      },
+      () => { /* no answer → no warning; spawning still reports a missing command */ },
+    );
+    return () => { alive = false; };
+  }, []);
   const agentFlags = config?.agentFlags ?? {};
   const currentFlags = agentFlags[agentId] ?? [];
 
@@ -317,6 +337,7 @@ export function CreateSheet({
 
     setCreating(true);
     setError(null);
+    setSpawnFailure(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
       const created = await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
@@ -324,7 +345,7 @@ export function CreateSheet({
       emitDiscovery({ type: 'create', gitRepo: isGitRepo === true, worktree: !!branch, folderPath: created?.folderPath ?? folderPath.trim() });
       if (branch) emitDiscovery({ type: 'used', marker: 'worktree' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to spawn');
+      setSpawnFailure(err ?? new Error('Failed to spawn'));
     } finally {
       setCreating(false);
     }
@@ -775,7 +796,11 @@ export function CreateSheet({
           </div>
         </div>
 
+        {selectedAgent && selectedStatus?.installed === false && selectedAgent.id !== SHELL_AGENT_ID && (
+          <AgentPreflightNotice agent={selectedAgent} installUrl={selectedStatus.installUrl} />
+        )}
         {error && <ErrorState title="Cannot spawn" detail={error} />}
+        {!error && spawnFailure != null && <ErrorState error={spawnFailure} fallbackTitle="Couldn’t start the session" />}
       </form>
     </Sheet>
     <AlertSheet

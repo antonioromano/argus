@@ -13,6 +13,7 @@
  */
 import type { AgentDefinition, AppConfig, LaunchRequest, SaveTemplateRequest } from '@argus/shared';
 import type { ImportCurrent, ImportItem, ImportPlan } from './diffImport.js';
+import { describeError } from '../errors/describeError.js';
 
 export interface LauncherImportItem {
   id: string;
@@ -45,7 +46,13 @@ export interface ApplyResult {
   launchers: { applied: number; failed: { id: string; error: string }[] };
 }
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+/** A failure's words for the summary: a typed error's mapped title (never
+ *  "Argus server unreachable" / "spawn … ENOENT"), else the server's reason
+ *  (config validation messages are written for the user). */
+const errorText = (err: unknown) => {
+  const d = describeError(err);
+  return d.code ? d.title : (d.detail ?? d.title);
+};
 
 /** What the config PUT carries for the selected items. Agents and flags are
  *  merged into the current lists, so an import never deletes one. */

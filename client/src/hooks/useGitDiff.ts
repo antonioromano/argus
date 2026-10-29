@@ -17,6 +17,9 @@ interface UseGitDiffResult {
   diff: GitDiffResponse | null;
   isLoading: boolean;
   error: string | null;
+  /** The failure behind `error`, with its typed code / raw detail when the
+   *  server sent them (feed it to ErrorState / describeError). */
+  failure: unknown;
   /** Refetch now. Called while a fetch is in flight, it queues ONE trailing
    *  refetch (so a stage/unstage isn't masked by a stale poll result) and the
    *  returned promise settles after that trailing fetch. */
@@ -30,6 +33,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
   const [diff, setDiff] = useState<GitDiffResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<unknown>(null);
   const prevDiffRef = useRef<string>('');
   // The fetch currently on the wire, and the single trailing refetch queued
   // behind it by refresh() calls that arrived meanwhile.
@@ -60,12 +64,14 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
 
       if (result.error) {
         setError(result.error);
+        setFailure({ message: result.error, code: result.code, detail: result.detail });
         setDiff(result);
         // The rendered diff is now the error payload: the next good response must
         // replace it even if it equals the last good one.
         prevDiffRef.current = '';
       } else {
         setError(null);
+        setFailure(null);
 
         // For files with expanded context, re-fetch with the right -U value
         const levels = contextLevelsRef.current;
@@ -130,6 +136,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch diff');
+      setFailure(err ?? new Error('Failed to fetch diff'));
       prevDiffRef.current = '';
     } finally {
       if (isInitial) {
@@ -226,7 +233,7 @@ export function useGitDiff({ sessionId, isOpen, sessionStatus }: UseGitDiffOptio
     });
   }, [sessionId]);
 
-  return { diff, isLoading, error, refresh: fetchDiff, contextLevels, expandFileContext, expandingFiles };
+  return { diff, isLoading, error, failure, refresh: fetchDiff, contextLevels, expandFileContext, expandingFiles };
 }
 
 /** Change-detection key over the WHOLE response — untracked files, their diff

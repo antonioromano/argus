@@ -4,9 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { FindInFilesResponse } from '@argus/shared';
 
 const findInFiles = vi.fn();
-vi.mock('../../services/api.js', () => ({
+vi.mock('../../services/api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api.js')>()),
   api: { findInFiles: (...args: unknown[]) => findInFiles(...args) },
-  ApiError: class ApiError extends Error { status: number; constructor(status: number, message: string) { super(message); this.status = status; } },
 }));
 
 import { FindInFilesPanel } from './FindInFilesPanel.js';
@@ -164,5 +164,17 @@ describe('FindInFilesPanel', () => {
     typeInto(searchBox(), 'fo(o');
     await settle();
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('unclosed group');
+  });
+
+  it('a missing ripgrep reads as a broken install with a reinstall fix, not a search error', async () => {
+    const { ApiError } = await import('../../services/api.js');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn() }, configurable: true });
+    findInFiles.mockRejectedValueOnce(new ApiError(503, 'ripgrep is not available', { code: 'RIPGREP_UNAVAILABLE' }));
+    act(() => root.render(<Harness onOpenMatch={() => {}} onClose={() => {}} />));
+    typeInto(searchBox(), 'needle');
+    await settle();
+    const alert = document.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('Search tool missing from this build');
+    expect(alert.textContent).toContain('brew reinstall --cask argus');
   });
 });

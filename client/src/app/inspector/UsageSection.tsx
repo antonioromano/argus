@@ -15,7 +15,7 @@ import {
   type UsageLevel,
 } from '../../utils/usageFormat.js';
 import type { InspectorSectionProps } from './types.js';
-import { InspectorEmpty, InspectorRow } from './InspectorRow.js';
+import { InspectorEmpty, InspectorRow, InspectorSettingsLink } from './InspectorRow.js';
 
 const TICK_MS = 30_000;
 
@@ -173,7 +173,7 @@ export function UsageBody({ session, ctx }: InspectorSectionProps) {
   const now = useNow(!!plan);
 
   if (!agent) return <InspectorEmpty>This agent doesn’t report usage.</InspectorEmpty>;
-  if (!meter) return <InspectorEmpty>The usage meter is off (Settings → Shell header).</InspectorEmpty>;
+  if (!meter) return <InspectorEmpty action={<InspectorSettingsLink pane="shell-header" />}>The usage meter is off.</InspectorEmpty>;
 
   const usage = session.usage;
   const windows = liveWindows(plan, now);

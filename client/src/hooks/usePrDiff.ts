@@ -6,6 +6,8 @@ export interface PrDiffState {
   /** undefined until the first answer; a refresh keeps showing the last one. */
   diff: SessionPrDiffResponse | undefined;
   error: string | null;
+  /** The thrown value behind `error` (typed code: gh missing vs signed out). */
+  failure: unknown;
   refresh: () => void;
 }
 
@@ -16,7 +18,7 @@ export interface PrDiffState {
 export function usePrDiff(sessionId: string, url: string): PrDiffState {
   const key = `${sessionId}\0${url}`;
   const [tick, setTick] = useState(0);
-  const [state, setState] = useState<{ key: string; diff?: SessionPrDiffResponse; error: string | null }>({ key: '', error: null });
+  const [state, setState] = useState<{ key: string; diff?: SessionPrDiffResponse; error: string | null; failure?: unknown }>({ key: '', error: null });
 
   useEffect(() => {
     let alive = true;
@@ -24,13 +26,13 @@ export function usePrDiff(sessionId: string, url: string): PrDiffState {
       .then((diff) => { if (alive) setState({ key, diff, error: null }); })
       // A failed refresh keeps the last diff underneath the error.
       .catch((err: unknown) => {
-        if (alive) setState((s) => ({ key, diff: s.key === key ? s.diff : undefined, error: err instanceof Error ? err.message : String(err) }));
+        if (alive) setState((s) => ({ key, diff: s.key === key ? s.diff : undefined, error: err instanceof Error ? err.message : String(err), failure: err }));
       });
     return () => { alive = false; };
   }, [sessionId, url, key, tick]);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   // Same PR: keep showing the last reading (scroll and collapse state survive) while a refresh runs.
-  if (state.key !== key) return { diff: undefined, error: null, refresh };
-  return { diff: state.diff, error: state.error, refresh };
+  if (state.key !== key) return { diff: undefined, error: null, failure: null, refresh };
+  return { diff: state.diff, error: state.error, failure: state.failure ?? null, refresh };
 }

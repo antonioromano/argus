@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { ActivityEvent, ActivityEventType, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import type { LucideIcon } from 'lucide-react';
 import { Activity, Archive, Bell, Bot, CircleStop, MessageSquare, Wrench } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { ACTIVITY_CLIENT_CAP, relativeTime } from './activityFormat.js';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, SkeletonRows, SurfaceStates, deriveSurfaceState } from '../../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -34,20 +34,26 @@ function merge(prev: ActivityEvent[], next: ActivityEvent[]): ActivityEvent[] {
  * The session's activity: fetched on open, appended live from the session's
  * room. A native-engine viewer never joins the room, so the list is also
  * refetched when the session's status changes (an agent turn starting or ending).
+ * `loaded` stays false until the first fetch answers, so an in-flight first
+ * load never reads as "no activity".
  */
-function useSessionActivity(session: SessionInfo, socket: TypedSocket): { events: ActivityEvent[]; error: boolean } {
-  const [state, setState] = useState<{ sessionId: string; events: ActivityEvent[]; error: boolean }>({ sessionId: session.id, events: [], error: false });
-  if (state.sessionId !== session.id) setState({ sessionId: session.id, events: [], error: false });
+interface ActivityState { sessionId: string; events: ActivityEvent[]; loaded: boolean; error: unknown }
+
+function useSessionActivity(session: SessionInfo, socket: TypedSocket): { events: ActivityEvent[]; loaded: boolean; error: unknown; retry: () => void } {
+  const fresh = (sessionId: string): ActivityState => ({ sessionId, events: [], loaded: false, error: null });
+  const [state, setState] = useState<ActivityState>(() => fresh(session.id));
+  const [attempt, setAttempt] = useState(0);
+  if (state.sessionId !== session.id) setState(fresh(session.id));
 
   useEffect(() => {
     const ctl = new AbortController();
     api.getSessionActivity(session.id, ctl.signal)
-      .then((r) => setState((s) => (s.sessionId === session.id ? { ...s, events: merge(s.events, r.events), error: false } : s)))
-      .catch(() => {
-        if (!ctl.signal.aborted) setState((s) => (s.sessionId === session.id ? { ...s, error: true } : s));
+      .then((r) => setState((s) => (s.sessionId === session.id ? { ...s, events: merge(s.events, r.events), loaded: true, error: null } : s)))
+      .catch((err: unknown) => {
+        if (!ctl.signal.aborted) setState((s) => (s.sessionId === session.id ? { ...s, error: err ?? new Error('Activity request failed') } : s));
       });
     return () => ctl.abort();
-  }, [session.id, session.status]);
+  }, [session.id, session.status, attempt]);
 
   useEffect(() => {
     const onEvent = (p: { sessionId: string; event: ActivityEvent }) => {
@@ -60,7 +66,9 @@ function useSessionActivity(session: SessionInfo, socket: TypedSocket): { events
     };
   }, [socket, session.id]);
 
-  return { events: state.sessionId === session.id ? state.events : [], error: state.error };
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const current = state.sessionId === session.id ? state : fresh(session.id);
+  return { events: current.events, loaded: current.loaded, error: current.error, retry };
 }
 
 interface ActivityPanelProps {
@@ -76,7 +84,7 @@ interface ActivityPanelProps {
 
 /** Beta F6: newest-first feed of what the agent did. Rendered only while the flag is on. */
 export function ActivityPanel({ session, socket, placement = 'side', size = 320, onOpenFile }: ActivityPanelProps) {
-  const { events, error } = useSessionActivity(session, socket);
+  const { events, loaded, error, retry } = useSessionActivity(session, socket);
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [now, setNow] = useState(() => Date.now());
 
@@ -137,60 +145,62 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
         </select>
       </div>
       <div role="list" aria-label="Agent activity" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {shown.length === 0 && (
-          <div style={{ padding: 'var(--s-4)', color: 'var(--fg-3)', fontSize: 'var(--t-sm)' }}>
-            {error
-              ? 'Could not load activity.'
-              : events.length === 0
-                ? 'No activity yet. Entries appear for shells started (or restarted) while the timeline is on.'
-                : 'Nothing of this type yet.'}
-          </div>
-        )}
-        {shown.map((e) => {
-          const meta = TYPE_META[e.type];
-          const Glyph = meta.icon;
-          const open = e.filePath && onOpenFile ? () => onOpenFile(e.filePath!) : undefined;
-          const title = e.tool ?? meta.label.replace(/s$/, '');
-          return (
-            <div
-              key={e.id}
-              role="listitem"
-              className="argus-activity-row"
-              data-type={e.type}
-              data-clickable={open ? 'true' : undefined}
-              tabIndex={open ? 0 : undefined}
-              title={open ? `Open ${e.filePath}` : undefined}
-              onClick={open}
-              onKeyDown={open ? (ev) => { if (ev.key === 'Enter') open(); } : undefined}
-            >
-              <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 2 }} aria-label={meta.label} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', fontWeight: 500 }}>{title}</div>
-                {e.summary && (
-                  <div
-                    style={{
-                      fontFamily: e.type === 'tool' ? 'var(--font-mono)' : undefined,
-                      fontSize: 'var(--t-tiny)',
-                      color: open ? 'var(--accent)' : 'var(--fg-2)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {e.summary}
-                  </div>
-                )}
-              </div>
-              <time
-                dateTime={new Date(e.at).toISOString()}
-                title={new Date(e.at).toLocaleString()}
-                style={{ flexShrink: 0, minWidth: 28, textAlign: 'right', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}
+        <SurfaceStates
+          state={deriveSurfaceState({ data: loaded || events.length > 0 ? events : undefined, error, loading: !loaded && !error })}
+          skeleton={<SkeletonRows variant="list" count={6} />}
+          empty={<div className="argus-panel-note">No activity yet. Entries appear for sessions started (or restarted) while the timeline is on.</div>}
+          error={error}
+          errorTitle="Couldn’t load activity"
+          staleSubject="the entries already loaded"
+          onRetry={retry}
+        >
+          {shown.length === 0 && <div className="argus-panel-note">Nothing of this type yet.</div>}
+          {shown.map((e) => {
+            const meta = TYPE_META[e.type];
+            const Glyph = meta.icon;
+            const open = e.filePath && onOpenFile ? () => onOpenFile(e.filePath!) : undefined;
+            const title = e.tool ?? meta.label.replace(/s$/, '');
+            return (
+              <div
+                key={e.id}
+                role="listitem"
+                className="argus-activity-row"
+                data-type={e.type}
+                data-clickable={open ? 'true' : undefined}
+                tabIndex={open ? 0 : undefined}
+                title={open ? `Open ${e.filePath}` : undefined}
+                onClick={open}
+                onKeyDown={open ? (ev) => { if (ev.key === 'Enter') open(); } : undefined}
               >
-                {relativeTime(e.at, now)}
-              </time>
-            </div>
-          );
-        })}
+                <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 2 }} aria-label={meta.label} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', fontWeight: 500 }}>{title}</div>
+                  {e.summary && (
+                    <div
+                      style={{
+                        fontFamily: e.type === 'tool' ? 'var(--font-mono)' : undefined,
+                        fontSize: 'var(--t-tiny)',
+                        color: open ? 'var(--accent)' : 'var(--fg-2)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {e.summary}
+                    </div>
+                  )}
+                </div>
+                <time
+                  dateTime={new Date(e.at).toISOString()}
+                  title={new Date(e.at).toLocaleString()}
+                  style={{ flexShrink: 0, minWidth: 28, textAlign: 'right', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {relativeTime(e.at, now)}
+                </time>
+              </div>
+            );
+          })}
+        </SurfaceStates>
       </div>
     </aside>
   );

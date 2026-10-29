@@ -24,7 +24,7 @@ afterEach(() => {
 
 const socket = { on: () => {}, off: () => {}, emit: () => {} };
 
-function renderEmpty(extra: { loadError?: string | null; onRetryLoad?: () => void }) {
+function renderEmpty(extra: { loadError?: string | null; onRetryLoad?: () => void; sessions?: unknown[]; filter?: string; onClearFilter?: () => void }) {
   const noop = () => {};
   const props = {
     sessions: [], onReorder: noop, filter: '', socket, theme: 'dark',
@@ -51,5 +51,17 @@ describe('Mosaic with no sessions', () => {
     const retry = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Retry')!;
     act(() => retry.click());
     expect(onRetryLoad).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Mosaic with a filter that matches nothing', () => {
+  it('offers Clear filter as its one action', () => {
+    const onClearFilter = vi.fn();
+    const shell = { id: 's1', name: 'api', folderPath: '/repo', status: 'idle', createdAt: new Date().toISOString(), agentType: 'claude', flags: [] };
+    renderEmpty({ sessions: [shell], filter: 'zzz', onClearFilter });
+    expect(container.textContent).toContain('Nothing matches "zzz"');
+    const clear = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Clear filter')!;
+    act(() => clear.click());
+    expect(onClearFilter).toHaveBeenCalledTimes(1);
   });
 });

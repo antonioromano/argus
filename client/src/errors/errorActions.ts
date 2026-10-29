@@ -15,7 +15,7 @@ export type ErrorAction =
   | { kind: 'copy-command'; command: string }
   | { kind: 'open-url'; url: string; label?: string }
   | { kind: 'restart-session'; sessionId: string }
-  /** Hidden until plan 002 registers a handler. */
+  /** ArgusApp runs it through Help → Report an Issue. */
   | { kind: 'report-issue' };
 
 export type ErrorActionKind = ErrorAction['kind'];

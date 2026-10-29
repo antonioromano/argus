@@ -12,8 +12,9 @@ import {
   Search,
   TextSearch,
 } from 'lucide-react';
-import { Button, IconButton, Chip, LoadingState, Icon } from '../../components/primitives/index.js';
+import { Button, IconButton, Chip, ErrorState, Icon, SkeletonRows, StaleNotice } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
 import { useEditorGroups } from '../../hooks/useEditorGroups.js';
 import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
@@ -358,6 +359,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   );
 
   const tree = useFileTree(workRoot(session), session.id);
+  const showTreeSkeleton = useDelayedFlag(tree.isLoading && tree.visibleNodes.length === 0);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
 
   const dirtyMap = dirtyByPath(tabStates);
@@ -441,17 +443,22 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             position: 'relative',
           }}
         >
-          {tree.isLoading && tree.visibleNodes.length === 0 ? (
-            <LoadingState label="Loading tree" />
+          {tree.rootError && !tree.rootLoaded ? (
+            <ErrorState error={tree.rootError} fallbackTitle="Couldn’t list this folder" onRetry={tree.refresh} />
+          ) : tree.isLoading && tree.visibleNodes.length === 0 ? (
+            showTreeSkeleton && <SkeletonRows variant="tree" count={10} />
           ) : (
-            <ExplorerFileTree
-              tree={tree}
-              sessionId={session.id}
-              gitStatuses={gitStatuses}
-              selectedPath={focusedPath}
-              onOpenFile={(path) => onPreviewFile(path)}
-              onActivateFile={(path) => onPickFile(path)}
-            />
+            <>
+              {!!tree.rootError && <StaleNotice error={tree.rootError} subject="the last listing" onRetry={tree.refresh} />}
+              <ExplorerFileTree
+                tree={tree}
+                sessionId={session.id}
+                gitStatuses={gitStatuses}
+                selectedPath={focusedPath}
+                onOpenFile={(path) => onPreviewFile(path)}
+                onActivateFile={(path) => onPickFile(path)}
+              />
+            </>
           )}
           {searchOpen && (
             <FileSearchPanel

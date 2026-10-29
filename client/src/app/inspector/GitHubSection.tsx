@@ -13,7 +13,8 @@ import {
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
-import { InspectorEmpty } from './InspectorRow.js';
+import { InspectorEmpty, InspectorError, InspectorSettingsLink } from './InspectorRow.js';
+import { toastError } from '../../errors/toastError.js';
 import { CiStatus } from './CiMonitor.js';
 
 /**
@@ -67,7 +68,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
       await api.setSessionPrReady(sessionId, url, ready);
       pushToast(ready ? `${ref} is ready for review` : `${ref} is a draft again`, 'ok');
     } catch (err) {
-      pushToast(`Couldn’t ${ready ? 'mark' : 'convert'} ${ref}${ready ? ' ready' : ' to draft'}: ${err instanceof Error ? err.message : String(err)}`, 'danger');
+      toastError(err, `Couldn’t ${ready ? 'mark' : 'convert'} ${ref}${ready ? ' ready' : ' to draft'}`);
     } finally {
       setBusy(false);
       onChanged?.();
@@ -77,7 +78,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   const copyLink = () => {
     navigator.clipboard.writeText(url).then(
       () => pushToast('Link copied', 'ok'),
-      (err: unknown) => pushToast(err instanceof Error ? err.message : String(err), 'danger'),
+      (err: unknown) => toastError(err, 'Couldn’t copy the link'),
     );
   };
   const menuItems: ContextMenuEntry[] = [
@@ -197,17 +198,23 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
  */
 export function GitHubBody({ session, ctx }: InspectorSectionProps) {
   const refreshKey = session.pr ? `${session.pr.url}|${session.pr.state}|${session.pr.ci}` : '';
-  const { prs, enabled, error, reload } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
-  if (!ctx.prStatusEnabled || !enabled) return <InspectorEmpty>Pull request status is off (Settings → Shell header).</InspectorEmpty>;
+  const { prs, enabled, error, failure, reload } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
+  if (!ctx.prStatusEnabled || !enabled) {
+    return <InspectorEmpty action={<InspectorSettingsLink pane="shell-header" />}>Pull request status is off.</InspectorEmpty>;
+  }
 
   const list = prs ?? chipEntries(session);
   if (list.length === 0) {
-    if (prs === undefined) return <InspectorEmpty>{error ? `Couldn’t read pull requests: ${error}` : 'Looking for pull requests…'}</InspectorEmpty>;
+    if (prs === undefined) {
+      return error
+        ? <InspectorError error={failure ?? error} fallbackTitle="Couldn’t read pull requests" onRetry={reload} />
+        : <InspectorEmpty>Looking for pull requests…</InspectorEmpty>;
+    }
     return <InspectorEmpty>No pull request for this session.</InspectorEmpty>;
   }
   return (
     <>
-      {error && prs && <InspectorEmpty>Couldn’t refresh pull requests ({error}); showing the last reading.</InspectorEmpty>}
+      {error && prs && <InspectorError error={failure ?? error} fallbackTitle="Couldn’t refresh pull requests" onRetry={reload} stale />}
       <ul className="argus-inspector-prs" aria-label="Pull requests">
         {list.map((entry) => <PrRow key={entry.url} entry={entry} sessionId={session.id} ctx={ctx} onChanged={reload} />)}
       </ul>

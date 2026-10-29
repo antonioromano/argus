@@ -6,7 +6,8 @@ import { useLastSessionPrs } from '../../hooks/useSessionPrs.js';
 import { workRoot } from '../../utils/workRoot.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { PR_STATE_ICON, PR_STATE_LABEL, PR_TONE_COLOR, prRef, prTone } from '../../utils/prFormat.js';
-import { ErrorState, Icon, IconButton, LoadingState } from '../../components/primitives/index.js';
+import { ErrorState, Icon, IconButton, SkeletonRows, StaleNotice } from '../../components/primitives/index.js';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag.js';
 import { ReadOnlyDiff } from './ReadOnlyDiff.js';
 
 interface PrDiffViewProps {
@@ -24,7 +25,8 @@ interface PrDiffViewProps {
  */
 export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
   const [mode, setMode] = useState<'split' | 'unified'>('split');
-  const { diff, error, refresh } = usePrDiff(session.id, entry.url);
+  const { diff, error, failure, refresh } = usePrDiff(session.id, entry.url);
+  const showSkeleton = useDelayedFlag(!diff && !error);
   // The card keeps polling while open: show its latest reading of the PR.
   const key = entry.url.toLowerCase();
   const live = useLastSessionPrs(session.id)?.find((e) => e.url.toLowerCase() === key);
@@ -32,8 +34,8 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
   const ref = prRef(entry.url, pr?.number);
 
   let body: React.ReactNode;
-  if (error && !diff) body = <ErrorState title="Couldn’t read the pull request’s changes" detail={error} onRetry={refresh} />;
-  else if (!diff) body = <LoadingState label="Loading pull request changes" />;
+  if (error && !diff) body = <ErrorState error={failure ?? error} fallbackTitle="Couldn’t read the pull request’s changes" onRetry={refresh} />;
+  else if (!diff) body = showSkeleton ? <SkeletonRows variant="diff" count={12} /> : null;
   else {
     body = (
       <ReadOnlyDiff
@@ -75,12 +77,7 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
       {/* A failed refresh: the last reading stays, the error goes above it. */}
-      {error && diff && (
-        <div className="argus-prdiff-notice argus-prdiff-stale" role="alert">
-          Couldn’t refresh — showing the last reading. {error}
-          <button type="button" className="argus-prdiff-retry" onClick={refresh}>Retry</button>
-        </div>
-      )}
+      {error && diff && <StaleNotice error={failure ?? error} subject="the last reading" onRetry={refresh} />}
       <div className="argus-prdiff-body">{body}</div>
     </div>
   );

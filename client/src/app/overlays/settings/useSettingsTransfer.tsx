@@ -2,13 +2,13 @@ import { useCallback, useState, type ReactNode } from 'react';
 import type { AppConfig, Launcher, SessionTemplate } from '@argus/shared';
 import { api } from '../../../services/api.js';
 import { pushToast } from '../../../components/primitives/Toast.js';
+import { toastError } from '../../../errors/toastError.js';
 import { buildExport, serializeExport } from '../../../settings-backup/buildExport.js';
 import { parseSettingsFile } from '../../../settings-backup/parseSettingsFile.js';
 import { diffImport, type ImportCurrent, type ImportPlan, type ImportSection } from '../../../settings-backup/diffImport.js';
 import { applyImport, importSummary, type ApplyDeps } from '../../../settings-backup/applyImport.js';
 import { ImportPreviewSheet } from './ImportPreviewSheet.js';
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 /** Stamped by Vite; absent under Vitest. */
 const APP_VERSION = typeof __ARGUS_VERSION__ === 'string' ? __ARGUS_VERSION__ : undefined;
 
@@ -59,12 +59,12 @@ export function useSettingsTransfer(config: AppConfig, onSave: (patch: Partial<A
       const text = serializeExport(buildExport({ ...current, appVersion: APP_VERSION }));
       const res = await bridge.saveFile(text);
       if (!res.ok) {
-        if (!res.canceled) pushToast(`Couldn’t export settings: ${res.error ?? 'refused'}`, 'danger');
+        if (!res.canceled) toastError(new Error(res.error ?? 'refused'), 'Couldn’t export settings');
         return;
       }
       pushToast('Settings exported', 'ok', { action: { label: 'Show in Finder', run: () => { void bridge.reveal('export'); } } });
     } catch (err) {
-      pushToast(`Couldn’t export settings: ${errorText(err)}`, 'danger');
+      toastError(err, 'Couldn’t export settings');
     }
   }, [bridge, config]);
 
@@ -73,18 +73,18 @@ export function useSettingsTransfer(config: AppConfig, onSave: (patch: Partial<A
     try {
       const res = await bridge.openFile();
       if (!res.ok) {
-        if (!res.canceled) pushToast(`Couldn’t open the file: ${res.error ?? 'refused'}`, 'danger');
+        if (!res.canceled) toastError(new Error(res.error ?? 'refused'), 'Couldn’t open the file');
         return;
       }
       const parsed = parseSettingsFile(res.text ?? '');
       if (!parsed.ok) {
-        pushToast(`Couldn’t import: ${parsed.error}`, 'danger');
+        toastError(new Error(parsed.error), 'Couldn’t import');
         return;
       }
       const current = await loadCurrent(config);
       setPreview({ plan: diffImport(parsed.value, current), current });
     } catch (err) {
-      pushToast(`Couldn’t import: ${errorText(err)}`, 'danger');
+      toastError(err, 'Couldn’t import');
     }
   }, [bridge, config]);
 
@@ -95,7 +95,7 @@ export function useSettingsTransfer(config: AppConfig, onSave: (patch: Partial<A
       // Back up before the first write, so the import can be undone by hand.
       const backup = await bridge.backup(serializeExport(buildExport({ ...preview.current, appVersion: APP_VERSION })));
       if (!backup.ok) {
-        pushToast(`Import stopped: couldn’t back up your current settings (${backup.error ?? 'refused'})`, 'danger');
+        toastError(new Error(backup.error ?? 'refused'), 'Import stopped: couldn’t back up your current settings');
         return;
       }
       const deps: ApplyDeps = {
@@ -119,7 +119,7 @@ export function useSettingsTransfer(config: AppConfig, onSave: (patch: Partial<A
         durationMs: 10_000,
       });
     } catch (err) {
-      pushToast(`Import failed: ${errorText(err)}`, 'danger');
+      toastError(err, 'Import failed');
     } finally {
       setApplying(false);
     }

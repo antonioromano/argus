@@ -9,7 +9,8 @@ declare global {
 }
 
 const getSessionPrDiff = vi.fn();
-vi.mock('../../services/api.js', () => ({
+vi.mock('../../services/api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api.js')>()),
   api: { getSessionPrDiff: (...a: unknown[]) => getSessionPrDiff(...a) },
 }));
 const openExternal = vi.fn();
@@ -139,12 +140,12 @@ describe('PrDiffView', () => {
     await act(async () => { button('Refresh').click(); });
     await flush();
     expect(fileRows()).toEqual(['src/a.ts', 'src/b.ts']);
-    const alert = container.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toContain('network down');
+    const notice = container.querySelector('.argus-stale-notice')!;
+    expect(notice.textContent).toContain('Showing the last reading');
     getSessionPrDiff.mockResolvedValueOnce({ url: URL, diff: DIFF });
-    await act(async () => { alert.querySelector('button')!.click(); });
+    await act(async () => { notice.querySelector('button')!.click(); });
     await flush();
-    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('.argus-stale-notice')).toBeNull();
   });
 
   it('shows the server error with a retry that reads again', async () => {
@@ -158,6 +159,16 @@ describe('PrDiffView', () => {
     await flush();
     expect(getSessionPrDiff).toHaveBeenCalledTimes(2);
     expect(fileRows()).toEqual(['src/a.ts', 'src/b.ts']);
+  });
+
+  it('gh not installed names the fix: a copyable brew install', async () => {
+    const { ApiError } = await import('../../services/api.js');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn() }, configurable: true });
+    getSessionPrDiff.mockRejectedValueOnce(new ApiError(503, 'GitHub CLI (gh) is missing', { code: 'GH_NOT_INSTALLED' }));
+    await act(async () => { root.render(<PrDiffView session={session} entry={entry} onClose={() => {}} />); });
+    await flush();
+    expect(container.textContent).toContain('GitHub CLI isn’t installed');
+    expect([...container.querySelectorAll('button')].some((b) => b.textContent?.includes('brew install gh'))).toBe(true);
   });
 
   it('Refresh reads again but keeps the diff on screen meanwhile', async () => {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FindInFilesResponse } from '@argus/shared';
 import { Search, X, CaseSensitive, WholeWord, Regex, Ellipsis, ChevronRight, ChevronDown } from 'lucide-react';
 import { api, ApiError, type FindInFilesQuery } from '../../services/api.js';
-import { Icon, IconButton, scaledPx } from '../primitives/index.js';
+import { Icon, IconButton, InlineErrorState, scaledPx } from '../primitives/index.js';
 import { relativeTo } from '../../utils/pathFormat.js';
 import { ResultIcon } from './FileSearchPanel.js';
 import { splitHighlights, flattenRows, type Row } from './findInFilesRows.js';
@@ -43,6 +43,10 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
   const [options, setOptions] = useState<Options>(readOptions);
   const [result, setResult] = useState<FindInFilesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A typed failure (e.g. RIPGREP_UNAVAILABLE): rendered as an error state with
+  // its fix instead of a status line. Uncoded ones (a bad regex) stay a line.
+  const [failure, setFailure] = useState<ApiError | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [searching, setSearching] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState(0);
@@ -72,6 +76,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
     if (!queryActive) {
       setResult(null);
       setError(null);
+      setFailure(null);
       setSearching(false);
     }
   }
@@ -87,12 +92,14 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         const resp = await api.findInFiles(folderPath, query, { regex, caseSensitive, wholeWord, include, exclude }, ctrl.signal);
         setResult(resp);
         setError(null);
+        setFailure(null);
         setCollapsed(new Set());
         setSelected(0);
       } catch (err) {
         if (ctrl.signal.aborted) return;
         setResult(null);
         setError(err instanceof ApiError ? err.message : 'Search failed');
+        setFailure(err instanceof ApiError && err.code ? err : null);
       } finally {
         if (!ctrl.signal.aborted) setSearching(false);
       }
@@ -101,7 +108,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [folderPath, query, regex, caseSensitive, wholeWord, include, exclude]);
+  }, [folderPath, query, regex, caseSensitive, wholeWord, include, exclude, retryNonce]);
 
   const files = useMemo(() => result?.files ?? [], [result]);
   const rows = useMemo(() => flattenRows(files, collapsed), [files, collapsed]);
@@ -157,7 +164,8 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
   const relPath = (abs: string) => relativeTo(folderPath, abs);
 
   let status: string | null = null;
-  if (error) status = error;
+  if (failure) status = null;
+  else if (error) status = error;
   else if (searching && !result) status = 'Searching…';
   else if (result) {
     const n = result.totalMatches;
@@ -249,6 +257,11 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         className="argus-scroll"
         style={{ flex: 1, overflowY: 'auto', minHeight: 0, opacity: searching && result ? 0.6 : 1 }}
       >
+        {failure && (
+          <div className="argus-find-error">
+            <InlineErrorState error={failure} fallbackTitle="Search failed" onRetry={() => setRetryNonce((n) => n + 1)} />
+          </div>
+        )}
         {rows.map((row, ri) => {
           const file = files[row.fi];
           const isSel = ri === selected;
