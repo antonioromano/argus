@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search } from 'lucide-react';
+import { ListChecks, Search } from 'lucide-react';
 import { GROUP_ORDER, type PaneDef, type PaneId } from './registry.js';
 import { visiblePanes, type SettingHit } from './search.js';
 import { Icon } from '../../../components/primitives/index.js';
@@ -8,7 +8,8 @@ import { Icon } from '../../../components/primitives/index.js';
 const MAX_HITS_PER_PANE = 4;
 
 interface SettingsNavProps {
-  active: PaneId;
+  /** The open pane, or the virtual Modified view. */
+  active: PaneId | 'modified';
   onSelect: (id: PaneId) => void;
   /** Panes holding at least one non-default value — rendered with an amber dot. */
   modified: Set<PaneId>;
@@ -18,6 +19,9 @@ interface SettingsNavProps {
   hits: SettingHit[];
   /** Open a setting: its pane, scrolled to and flashed. */
   onGoTo: (settingId: string) => void;
+  /** Settings differing from their default; the pinned Modified entry shows while > 0. */
+  modifiedCount: number;
+  onShowModified: () => void;
 }
 
 type Entry = { kind: 'pane'; pane: PaneId } | { kind: 'hit'; pane: PaneId; id: string };
@@ -29,7 +33,7 @@ type Entry = { kind: 'pane'; pane: PaneId } | { kind: 'hit'; pane: PaneId; id: s
  * so "which row holds X" is answered here, not by scanning the pane. Arrow keys
  * walk panes and hits; Enter opens the selected hit, or the best one.
  */
-export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, onGoTo }: SettingsNavProps) {
+export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, onGoTo, modifiedCount, onShowModified }: SettingsNavProps) {
   const visible = visiblePanes(query, hits);
   const [cursorHit, setCursorHit] = useState<string | null>(null);
 
@@ -95,6 +99,24 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, 
       </div>
 
       <div className="argus-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 var(--s-2) var(--s-4)' }}>
+        {/* Pinned above the groups: a cross-pane view, not a pane. Stays while
+            open so resetting the last row lands on its empty state. */}
+        {(modifiedCount > 0 || active === 'modified') && (
+          <button
+            role="tab"
+            aria-selected={active === 'modified'}
+            tabIndex={active === 'modified' ? 0 : -1}
+            onClick={() => { setCursorHit(null); onShowModified(); }}
+            className={`settings-nav-item${active === 'modified' ? ' is-active' : ''}`}
+            style={{ marginTop: 'var(--s-1)' }}
+          >
+            <Icon icon={ListChecks} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>Modified</span>
+            <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+              {modifiedCount}
+            </span>
+          </button>
+        )}
         {visible.length === 0 && (
           <div style={{ padding: 'var(--s-3) var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
             Nothing matches “{query.trim()}”.

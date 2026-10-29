@@ -6,13 +6,23 @@ import {
   PANES_BY_ID,
   modifiedKeys,
   modifiedPanes,
+  modifiedSettings,
+  paneResetKeys,
+  paneResetPatch,
   resetPatch,
+  settingResetPatch,
   resolvePaneId,
   RESETTABLE_KEYS,
   type PaneId,
 } from './settings/registry.js';
 import { jumpTarget, searchSettings, visiblePanes } from './settings/search.js';
 import { SettingTargetContext } from './settings/settingTarget.js';
+import type { SettingDescriptor } from './settings/catalog.js';
+import { useSettingsTransfer } from './settings/useSettingsTransfer.js';
+import { offerUndo } from '../../utils/undoable.js';
+import { pushToast } from '../../components/primitives/Toast.js';
+import { snapshotKeys } from '../../utils/configSnapshot.js';
+import { ModifiedPane } from './settings/panes/ModifiedPane.js';
 import { ThemePane } from './settings/panes/ThemePane.js';
 import { ShellHeaderPane } from './settings/panes/ShellHeaderPane.js';
 import { AgentsPane } from './settings/panes/AgentsPane.js';
@@ -41,12 +51,19 @@ interface SettingsOverlayProps {
   ngrokError: string | null;
   onNgrokStart: (password: string) => void;
   onNgrokStop: () => void;
-  /** Pane to open on mount. Accepts the pre-0.24 tab ids too (see resolvePaneId). */
+  /** Pane to open on mount. Accepts the pre-0.24 tab ids too (see resolvePaneId),
+   *  and `'modified'` for the Modified view. */
   initialTab?: string;
   /** Catalog id of a setting to open at: its pane opens and its row is scrolled
    *  to and flashed. Wins over `initialTab`; an unknown id falls back to it. */
   focusSetting?: string;
+  /** Run Export or Import (the app menu, the palette). A new object each time,
+   *  so asking twice runs twice while the sheet stays open. */
+  action?: { kind: 'export' | 'import' };
 }
+
+/** The open pane, or the virtual cross-pane Modified view. */
+type View = PaneId | 'modified';
 
 /**
  * The settings shell: sidebar, one pane, and a footer that accounts for what has
@@ -67,11 +84,14 @@ export function SettingsOverlay({
   onNgrokStop,
   initialTab,
   focusSetting,
+  action,
 }: SettingsOverlayProps) {
   // Resolved once, on mount: where a deep link lands (the parent toggle while
   // the setting itself is hidden).
   const [initialTarget] = useState(() => (focusSetting ? jumpTarget(focusSetting, config) : undefined));
-  const [pane, setPane] = useState<PaneId>(() => initialTarget?.pane ?? resolvePaneId(initialTab));
+  const [pane, setPane] = useState<View>(
+    () => initialTarget?.pane ?? (initialTab === 'modified' ? 'modified' : resolvePaneId(initialTab)),
+  );
   const [query, setQuery] = useState('');
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -84,7 +104,19 @@ export function SettingsOverlay({
   const modified = useMemo(() => modifiedPanes(config), [config]);
   const changedCount = useMemo(() => modifiedKeys(config).size, [config]);
   const hits = useMemo(() => searchSettings(query, config), [query, config]);
-  const def = PANES_BY_ID[pane];
+  const modifiedCount = useMemo(() => modifiedSettings(config).length, [config]);
+  const def = pane === 'modified' ? null : PANES_BY_ID[pane];
+  const paneResettable = def ? paneResetKeys(def.id, config) : [];
+  const transfer = useSettingsTransfer(config, onSave);
+
+  // Menu / palette asked for Export or Import while Settings is open (or opening).
+  const { exportSettings, importSettings } = transfer;
+  useEffect(() => {
+    if (action?.kind === 'export') void exportSettings();
+    else if (action?.kind === 'import') void importSettings();
+    // Only a new request runs; the handlers change with config.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [action]);
 
   /** Open the pane holding setting `id`, scroll its row into view and flash it.
    *  A hidden setting lands on the toggle that reveals it. */
@@ -120,6 +152,22 @@ export function SettingsOverlay({
     setPane(nextHits[0]?.setting.pane ?? matches[0].id);
   };
 
+  /** Reversible, so no confirm: write the defaults, offer Undo from a snapshot
+   *  (docs/design/feedback-surfaces.md). */
+  const resetWithUndo = (patch: Partial<AppConfig>, message: string) => {
+    const keys = Object.keys(patch) as (keyof AppConfig)[];
+    if (keys.length === 0) return;
+    const before = snapshotKeys(config, keys);
+    void onSave(patch).then(
+      () => { offerUndo({ message, undo: async () => { await onSave(before); } }); },
+      (err: unknown) => { pushToast(`Couldn’t reset: ${err instanceof Error ? err.message : String(err)}`, 'danger'); },
+    );
+  };
+  const resetPane = () => {
+    if (def) resetWithUndo(paneResetPatch(def.id, config), `Reset ${def.label}`);
+  };
+  const resetSetting = (s: SettingDescriptor) => resetWithUndo(settingResetPatch(s, config), `Reset ${s.label}`);
+
   const doReset = async () => {
     setResetting(true);
     try {
@@ -134,6 +182,7 @@ export function SettingsOverlay({
 
   const renderPane = () => {
     switch (pane) {
+      case 'modified': return <ModifiedPane config={config} onReset={resetSetting} onGoTo={goTo} />;
       case 'theme': return <ThemePane {...paneProps} />;
       case 'shell-header': return <ShellHeaderPane {...paneProps} />;
       case 'agents': return <AgentsPane {...paneProps} onSaveFlag={onSaveFlag} onDeleteFlag={onDeleteFlag} />;
@@ -168,10 +217,26 @@ export function SettingsOverlay({
         footer={
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
             <span className="eyebrow" style={{ flex: 1 }}>
-              {changedCount === 0
-                ? 'ALL SETTINGS AT DEFAULTS'
-                : `${changedCount} SETTING${changedCount === 1 ? '' : 'S'} CHANGED FROM DEFAULTS`}
+              {changedCount === 0 ? 'ALL SETTINGS AT DEFAULTS' : (
+                <button
+                  type="button"
+                  onClick={() => setPane('modified')}
+                  title="Show every modified setting"
+                  style={{
+                    background: 'none', border: 0, padding: 0, font: 'inherit', letterSpacing: 'inherit',
+                    color: 'var(--accent)', cursor: 'pointer',
+                  }}
+                >
+                  {`${changedCount} SETTING${changedCount === 1 ? '' : 'S'} CHANGED FROM DEFAULTS`}
+                </button>
+              )}
             </span>
+            {transfer.available && (
+              <>
+                <Button variant="ghost" onClick={() => void transfer.exportSettings()}>Export…</Button>
+                <Button variant="ghost" onClick={() => void transfer.importSettings()}>Import…</Button>
+              </>
+            )}
             <Button variant="ghost" disabled={changedCount === 0} onClick={() => setConfirmReset(true)}>
               Reset all…
             </Button>
@@ -187,6 +252,8 @@ export function SettingsOverlay({
             onQuery={handleQuery}
             hits={hits}
             onGoTo={goTo}
+            modifiedCount={modifiedCount}
+            onShowModified={() => setPane('modified')}
           />
 
           <main
@@ -197,15 +264,29 @@ export function SettingsOverlay({
             {/* Fixed width across every pane: the old per-tab maxWidth (720/580/520)
                 made content jump sideways on each tab switch. */}
             <div style={{ width: 640, maxWidth: '100%' }}>
-              <div className="eyebrow" style={{ color: 'var(--accent)' }}>{def.group}</div>
-              <h2 style={{
-                fontSize: 'var(--t-2xl)',
-                margin: '6px 0 var(--s-5)',
-                letterSpacing: 'var(--tracking-tight)',
-                fontWeight: 600,
-              }}>
-                {def.label}
-              </h2>
+              <div className="eyebrow" style={{ color: 'var(--accent)' }}>{def ? def.group : 'Overview'}</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--s-3)', margin: 'var(--s-1-5) 0 var(--s-5)' }}>
+                <h2 style={{
+                  flex: 1,
+                  fontSize: 'var(--t-2xl)',
+                  margin: 0,
+                  letterSpacing: 'var(--tracking-tight)',
+                  fontWeight: 600,
+                }}>
+                  {def ? def.label : 'Modified'}
+                </h2>
+                {def && def.keys.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={paneResettable.length === 0}
+                    title={paneResettable.length === 0 ? 'Everything here is at its default' : `Reset ${def.label} to its defaults`}
+                    onClick={resetPane}
+                  >
+                    Reset pane
+                  </Button>
+                )}
+              </div>
 
               <SettingTargetContext.Provider value={target?.id ?? null}>
                 {renderPane()}
@@ -229,6 +310,8 @@ export function SettingsOverlay({
         onConfirm={() => void doReset()}
         onCancel={() => setConfirmReset(false)}
       />
+
+      {transfer.sheet}
     </>
   );
 }

@@ -31,7 +31,8 @@ describe('pane registry', () => {
 
     // Layout state the inspector remembers by itself (dragged width, collapsed
     // sections): no pane edits it, so none owns it.
-    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen', 'inspectorWidth', 'inspectorCollapsed']);
+    // `discovery` is what tips/checklist have already shown — bookkeeping too.
+    const bookkeeping = new Set(['quickActionPromptedAt', 'introSeen', 'inspectorWidth', 'inspectorCollapsed', 'discovery']);
     const uncovered = (Object.keys(DEFAULT_CONFIG) as (keyof AppConfig)[])
       .filter((k) => !bookkeeping.has(k) && !owned.includes(k));
     expect(uncovered).toEqual([]);

@@ -38,8 +38,6 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
     delete next[id];
     void onSave({ keyboardShortcuts: next });
   };
-  const resetAll = () => void onSave({ keyboardShortcuts: {} });
-  const hasOverrides = Object.keys(overrides).length > 0;
 
   const comboPill = (danger = false): React.CSSProperties => ({
     minWidth: 56,
@@ -121,18 +119,6 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
           </Section>
         );
       })}
-
-      {/* Kept alongside the sheet-wide Reset: this one touches only bindings, so
-          re-defaulting a mangled keymap never disturbs any other preference. */}
-      <div style={{ marginTop: 'var(--s-4)' }}>
-        <button
-          style={{ ...actionBtn, opacity: hasOverrides ? 1 : 0.35, cursor: hasOverrides ? 'pointer' : 'default' }}
-          disabled={!hasOverrides}
-          onClick={resetAll}
-        >
-          Reset all shortcuts
-        </button>
-      </div>
     </>
   );
 }

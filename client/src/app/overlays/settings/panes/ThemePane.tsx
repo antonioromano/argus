@@ -1,4 +1,4 @@
-import { Section, SettingRow, Segmented, Toggle, Button } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { useTheme } from '../../../../context/theme-context.js';
 import { WaitingStylePreview } from '../../../ui/WaitingStylePreview.js';
 import { SettingField } from '../SettingField.js';
@@ -22,8 +22,6 @@ import type { PaneProps } from '../types.js';
  */
 export function ThemePane({ config, onSave }: PaneProps) {
   const { mode, setMode } = useTheme();
-  const codeAtDefault = (config.codeFontSize ?? DEFAULT_CODE_FONT_PX) === DEFAULT_CODE_FONT_PX;
-  const uiAtDefault = (config.uiFontSize ?? DEFAULT_UI_FONT_PX) === DEFAULT_UI_FONT_PX;
   const showClock = config.showClock ?? false;
 
   return (
@@ -64,15 +62,6 @@ export function ThemePane({ config, onSave }: PaneProps) {
             onChange={(px) => { void onSave({ uiFontSize: Number(px) }); }}
           />
         </SettingField>
-        <SettingRow trailing>
-          <Button
-            variant="ghost"
-            onClick={() => { void onSave({ codeFontSize: DEFAULT_CODE_FONT_PX, uiFontSize: DEFAULT_UI_FONT_PX }); }}
-            disabled={codeAtDefault && uiAtDefault}
-          >
-            Reset typography
-          </Button>
-        </SettingRow>
       </Section>
 
       <Section title="Shell layout">

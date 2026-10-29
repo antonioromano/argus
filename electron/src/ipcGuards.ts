@@ -118,3 +118,70 @@ export function menuInvokeTarget(e: IpcSenderLike, raw: unknown, origin: string)
   if (!isTrustedSender(e, origin) || !isMenuCommandId(raw)) return null;
   return isMainCommandId(raw) ? raw : null;
 }
+
+/** Largest settings file main writes or reads (the renderer's parser caps it too). */
+export const SETTINGS_PAYLOAD_MAX_BYTES = 1_000_000;
+/** Longest launcher list one `launcher:import` may carry. */
+export const LAUNCHER_IMPORT_MAX = 100;
+
+/** `settings:save-file` / `settings:backup` payload: a JSON string of at most 1 MB. */
+export function isSettingsPayload(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0 && Buffer.byteLength(v, 'utf8') <= SETTINGS_PAYLOAD_MAX_BYTES;
+}
+
+export interface LauncherImportItem {
+  id: string;
+  label: string;
+  request: {
+    agent: string;
+    folder: string;
+    flags: string[];
+    prompt?: string;
+    engine?: 'web' | 'native';
+    mode?: 'persistent' | 'direct';
+    name?: string;
+  };
+  overwrite: boolean;
+}
+
+const optText = (v: unknown, max: number) => v === undefined || shortText(v, max);
+
+/**
+ * One `launcher:import` entry, shape only: the request is validated for real
+ * (agent, folder, flags) by LaunchService.validate before anything is saved.
+ * Worktree fields are refused — a launcher can't create a worktree.
+ */
+export function isLauncherImportItem(v: unknown): v is LauncherImportItem {
+  if (!isPlainObject(v) || !isPlainObject(v.request)) return false;
+  const r = v.request;
+  return typeof v.id === 'string' && /^[a-z0-9-]{1,40}$/.test(v.id)
+    && shortText(v.label, 60) && v.label.trim().length > 0
+    && typeof v.overwrite === 'boolean'
+    && shortText(r.agent, 64) && shortText(r.folder, 4096)
+    && Array.isArray(r.flags) && r.flags.length <= 64 && r.flags.every((f) => shortText(f, 512))
+    && optText(r.prompt, 8000) && optText(r.name, 200)
+    && (r.engine === undefined || r.engine === 'web' || r.engine === 'native')
+    && (r.mode === undefined || r.mode === 'persistent' || r.mode === 'direct')
+    && r.worktree === undefined && r.base === undefined;
+}
+
+/** `launcher:import` payload: 1–100 well-formed entries with distinct ids, else null. */
+export function sanitizeLauncherImport(v: unknown): LauncherImportItem[] | null {
+  if (!Array.isArray(v) || v.length === 0 || v.length > LAUNCHER_IMPORT_MAX) return null;
+  if (!v.every(isLauncherImportItem)) return null;
+  if (new Set(v.map((i) => i.id)).size !== v.length) return null;
+  return v.map((i) => ({
+    id: i.id,
+    label: i.label,
+    overwrite: i.overwrite,
+    request: {
+      agent: i.request.agent,
+      folder: i.request.folder,
+      flags: [...i.request.flags],
+      ...(i.request.prompt !== undefined ? { prompt: i.request.prompt } : {}),
+      ...(i.request.engine !== undefined ? { engine: i.request.engine } : {}),
+      ...(i.request.mode !== undefined ? { mode: i.request.mode } : {}),
+      ...(i.request.name !== undefined ? { name: i.request.name } : {}),
+    },
+  }));
+}

@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { AgentRegistry } from '../services/AgentRegistry.js';
-import type { AgentDefinition, AgentFlag, AppConfig, TileQuickAction } from '@argus/shared';
+import type { AgentDefinition, AgentFlag, AppConfig, DiscoveryState, TileQuickAction } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { isUsageMeterParts, isWarnThresholds } from '../utils/usageMeter.js';
 import { INSPECTOR_WIDTH_MIN, INSPECTOR_WIDTH_MAX, INSPECTOR_SECTION_ID, INSPECTOR_SECTIONS_MAX } from '../constants/inspector.js';
+import { SHELL_AGENT_ID } from '../constants/agents.js';
 
 const TILE_QUICK_ACTIONS: readonly TileQuickAction[] = ['diff', 'files', 'shell', 'clone', 'restart', 'done', 'apply', 'none'];
 
@@ -12,7 +13,9 @@ function isTileQuickAction(v: unknown): v is TileQuickAction {
   return typeof v === 'string' && (TILE_QUICK_ACTIONS as readonly string[]).includes(v);
 }
 
-// Validate flag values stored in agentFlags config to prevent shell injection
+// Validate flag values stored in agentFlags config to prevent shell injection.
+// The settings import preview keeps copies of FLAG_PATTERN and COMMAND_PATTERN
+// (client/src/settings-backup/parseSettingsFile.ts); check-dep-sync pins them.
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 // Custom agent commands are spawned via the shell — restrict to safe characters
 // (binary name + simple args), rejecting shell metacharacters.
@@ -29,6 +32,45 @@ function isInspectorSectionList(v: unknown): v is string[] {
     && v.every((id) => typeof id === 'string' && INSPECTOR_SECTION_ID.test(id));
 }
 
+const DISCOVERY_LIST_MAX = 64;
+const DISCOVERY_ID_MAX = 64;
+const EMPTY_DISCOVERY: DiscoveryState = {
+  tipsSeen: [], tipLastShownAt: 0, notifAskedAt: 0, used: [],
+  checklistStartedAt: 0, checklistDone: [], checklistDismissed: false, betaPromosHidden: [],
+};
+
+/**
+ * Discovery bookkeeping is written whole by the client, but it is still input:
+ * lists are capped (64 ids of ≤ 64 chars), timestamps must be finite and
+ * non-negative, and unknown fields are dropped. A bad field keeps its current
+ * value rather than failing the whole PUT — this is bookkeeping, not a setting.
+ */
+export function sanitizeDiscovery(v: unknown, current: DiscoveryState | undefined): DiscoveryState {
+  const base: DiscoveryState = { ...EMPTY_DISCOVERY, ...(current ?? {}) };
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return base;
+  const raw = v as Record<string, unknown>;
+  const list = (key: keyof DiscoveryState): string[] => {
+    const x = raw[key];
+    if (!Array.isArray(x)) return base[key] as string[];
+    return x.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= DISCOVERY_ID_MAX)
+      .slice(0, DISCOVERY_LIST_MAX);
+  };
+  const time = (key: keyof DiscoveryState): number => {
+    const x = raw[key];
+    return typeof x === 'number' && Number.isFinite(x) && x >= 0 ? x : base[key] as number;
+  };
+  return {
+    tipsSeen: list('tipsSeen'),
+    tipLastShownAt: time('tipLastShownAt'),
+    notifAskedAt: time('notifAskedAt'),
+    used: list('used'),
+    checklistStartedAt: time('checklistStartedAt'),
+    checklistDone: list('checklistDone'),
+    checklistDismissed: typeof raw.checklistDismissed === 'boolean' ? raw.checklistDismissed : base.checklistDismissed,
+    betaPromosHidden: list('betaPromosHidden'),
+  };
+}
+
 function validateAgentFlags(agentFlags: unknown): string | null {
   if (typeof agentFlags !== 'object' || agentFlags === null || Array.isArray(agentFlags)) {
     return 'agentFlags must be an object of agent ids to flag lists.';
@@ -36,7 +78,12 @@ function validateAgentFlags(agentFlags: unknown): string | null {
   for (const flags of Object.values(agentFlags as Record<string, unknown>)) {
     if (!Array.isArray(flags)) return 'Each agent\'s flags must be a list.';
     for (const flag of flags as Partial<AgentFlag>[]) {
-      if (typeof flag?.value !== 'string') return 'Each flag needs a string value.';
+      // Type-guard every field before use: settings import sends untrusted
+      // JSON here, and a non-string must be a 400, never a crash.
+      if (typeof flag !== 'object' || flag === null) return 'Each flag must be an object.';
+      if (typeof flag.id !== 'string') return 'Each flag needs a string id.';
+      if (typeof flag.value !== 'string') return 'Each flag needs a string value.';
+      if (flag.enabled !== undefined && typeof flag.enabled !== 'boolean') return 'A flag\'s enabled must be true or false.';
       if (!FLAG_PATTERN.test(flag.value.trim())) {
         return `Invalid flag value: "${flag.value}". Flags must start with - or -- and contain only safe characters.`;
       }
@@ -45,11 +92,19 @@ function validateAgentFlags(agentFlags: unknown): string | null {
   return null;
 }
 
+/** Built-in agent ids. AgentRegistry.getById finds the built-in first, so a
+ *  custom agent reusing one would be silently shadowed (and its command never run). */
+const BUILTIN_AGENT_IDS: readonly string[] = ['claude', 'gemini', 'codex', SHELL_AGENT_ID];
+
 function validateCustomAgents(customAgents: unknown): string | null {
   if (!Array.isArray(customAgents)) return 'customAgents must be a list.';
+  const ids = new Set<string>();
   for (const a of customAgents as Partial<AgentDefinition>[]) {
     if (typeof a !== 'object' || a === null) return 'Each custom agent must be an object.';
     if (!a.id || typeof a.id !== 'string') return 'Each custom agent needs an id.';
+    if (BUILTIN_AGENT_IDS.includes(a.id)) return `Custom agent id "${a.id}" is reserved for a built-in agent.`;
+    if (ids.has(a.id)) return `Custom agent id "${a.id}" is used twice.`;
+    ids.add(a.id);
     if (typeof a.name !== 'string' || !a.name.trim()) return 'Each custom agent needs a name.';
     if (typeof a.command !== 'string' || !a.command.trim()) return `Agent "${a.name}" needs a command.`;
     if (!COMMAND_PATTERN.test(a.command.trim())) {
@@ -72,7 +127,7 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
 
   router.put('/', asyncHandler(async (req, res) => {
     const current = await configStore.load();
-    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, density, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, defaultSessionView, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains } = req.body;
+    const { defaultAgent, customAgents, agentFlags, notificationsEnabled, notifyOnWaiting, notifyOnDone, notifyOnPrChecks, notificationSound, showClock, clockShowSeconds, othersFolderName, preventSleepWhileRunning, confirmCloseShell, exitSessionsOnQuit, confirmExitOnQuit, keyboardShortcuts, uiFontSize, codeFontSize, mosaicWaitingStyle, mosaicOrientation, density, debugToolsEnabled, ptyBackend, tileQuickAction, tileRunningIndicator, quickActionPromptedAt, introSeen, defaultTerminalEngine, defaultRunMode, confirmQuitDirectSessions, launchFolderRoots, showUsageMeter, usageMeterParts, usageWarnContext, usageWarnPlan, showPrStatus, inspectorSide, inspectorVisible, inspectorWidth, inspectorCollapsed, autoApprovalEnabled, claudeRenderer, defaultSessionView, betaActivityTimeline, betaWorktreeLifecycle, betaSessionTemplates, betaHandoff, betaSessionChains, showTips, discovery } = req.body;
 
     if (keyboardShortcuts !== undefined && !isStringRecord(keyboardShortcuts)) {
       res.status(400).json({ error: 'keyboardShortcuts must be an object of string action ids to string combos.' });
@@ -204,6 +259,8 @@ export function createConfigRoutes(configStore: ConfigStore, onConfigChange?: (c
       betaSessionTemplates: typeof betaSessionTemplates === 'boolean' ? betaSessionTemplates : current.betaSessionTemplates,
       betaHandoff: typeof betaHandoff === 'boolean' ? betaHandoff : current.betaHandoff,
       betaSessionChains: typeof betaSessionChains === 'boolean' ? betaSessionChains : current.betaSessionChains,
+      showTips: typeof showTips === 'boolean' ? showTips : current.showTips,
+      discovery: discovery !== undefined ? sanitizeDiscovery(discovery, current.discovery) : current.discovery,
     };
     await configStore.save(updated);
     onConfigChange?.(updated);

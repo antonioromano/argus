@@ -27,7 +27,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
-import { paneConfigKeys, sameValue } from './catalog.js';
+import { SETTINGS, isSettingModified, paneConfigKeys, sameValue, type SettingDescriptor } from './catalog.js';
 
 export type PaneId =
   | 'theme'
@@ -138,7 +138,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
     label: 'Notifications',
     group: 'Behavior',
     icon: Bell,
-    keywords: ['notification', 'notify', 'alert', 'sound', 'banner', 'desktop', 'waiting', 'done', 'badge', 'ci', 'checks', 'pull request'],
+    keywords: ['notification', 'notify', 'alert', 'sound', 'banner', 'desktop', 'waiting', 'done', 'badge', 'ci', 'checks', 'pull request', 'tips', 'hints', 'onboarding', 'getting started', 'checklist'],
   },
   {
     id: 'keyboard',
@@ -263,5 +263,49 @@ export function resetPatch(): Partial<AppConfig> {
     (patch as Record<string, unknown>)[key] =
       typeof value === 'object' && value !== null ? structuredClone(value) : value;
   }
+  return patch;
+}
+
+/** A fresh copy of a key's shipped default, never the shared object itself. */
+function defaultValue(key: ConfigKey): unknown {
+  const value = DEFAULT_CONFIG[key];
+  return typeof value === 'object' && value !== null ? structuredClone(value) : value;
+}
+
+/** The agents the user defined and their flags: data, never "a modified setting". */
+const AGENT_DATA_KEYS: readonly ConfigKey[] = ['customAgents', 'agentFlags'];
+
+/** Settings shown in the Modified view: every descriptor that differs from its
+ *  default, in catalog order. Custom agents and their flags are not listed.
+ *  Folder roots are, because a single-row reset there is explicit and undoable. */
+export function modifiedSettings(config: AppConfig): SettingDescriptor[] {
+  return SETTINGS.filter((s) => !s.keys.some((k) => AGENT_DATA_KEYS.includes(k)) && isSettingModified(s, config));
+}
+
+/** What resetting one setting writes. A shortcut row shares the
+ *  keyboardShortcuts map with every other binding, so it drops only its own
+ *  override; anything else gets its keys' defaults. */
+export function settingResetPatch(s: SettingDescriptor, config: AppConfig): Partial<AppConfig> {
+  if (s.id.startsWith('shortcut:')) {
+    const next = { ...(config.keyboardShortcuts ?? {}) };
+    delete next[s.id.slice('shortcut:'.length)];
+    return { keyboardShortcuts: next };
+  }
+  const patch: Partial<AppConfig> = {};
+  for (const key of s.keys) (patch as Record<string, unknown>)[key] = defaultValue(key);
+  return patch;
+}
+
+/** Keys a pane's Reset writes: its preferences that differ from the default.
+ *  User data stays, as with Reset all — the Agents pane resets its three
+ *  preferences and never touches the agents themselves. */
+export function paneResetKeys(pane: PaneId, config: AppConfig): ConfigKey[] {
+  const keys = modifiedKeys(config);
+  return PANES_BY_ID[pane].keys.filter((k) => !USER_DATA_KEYS.includes(k) && keys.has(k));
+}
+
+export function paneResetPatch(pane: PaneId, config: AppConfig): Partial<AppConfig> {
+  const patch: Partial<AppConfig> = {};
+  for (const key of paneResetKeys(pane, config)) (patch as Record<string, unknown>)[key] = defaultValue(key);
   return patch;
 }
