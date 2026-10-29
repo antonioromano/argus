@@ -272,48 +272,23 @@ export function modifiedPanes(config: AppConfig): Set<PaneId> {
   return out;
 }
 
-/** What "Reset all" writes back.
- *
- *  Deliberately NOT every AppConfig key: customAgents and agentFlags are user
- *  data, not preferences — wiping them from a settings-wide reset would delete
- *  work, and removing an agent already has its own confirm. quickActionPromptedAt
- *  and introSeen are bookkeeping (resetting them would re-show a one-time
- *  prompt). All of these stay put.
+/** Pane-owned keys that hold user data, not preferences: agents the user
+ *  defined, the flags attached to them, and the folders launchers may open.
+ *  Wiping them from a settings-wide reset would delete work (removing an agent
+ *  already has its own confirm), so "Reset all" leaves them alone.
  */
-export const RESETTABLE_KEYS: ConfigKey[] = [
-  'defaultAgent',
-  'notificationsEnabled',
-  'notifyOnWaiting',
-  'notifyOnDone',
-  'notifyOnPrChecks',
-  'notificationSound',
-  'showClock',
-  'clockShowSeconds',
-  'othersFolderName',
-  'preventSleepWhileRunning',
-  'confirmCloseShell',
-  'exitSessionsOnQuit',
-  'confirmExitOnQuit',
-  'keyboardShortcuts',
-  'uiFontSize',
-  'codeFontSize',
-  'mosaicWaitingStyle',
-  'mosaicOrientation',
-  'debugToolsEnabled',
-  'ptyBackend',
-  'tileQuickAction',
-  'tileRunningIndicator',
-  'defaultTerminalEngine',
-  'defaultRunMode',
-  'confirmQuitDirectSessions',
-  'claudeRenderer',
-  'defaultSessionView',
-  'betaActivityTimeline',
-  'betaWorktreeLifecycle',
-  'betaSessionTemplates',
-  'betaHandoff',
-  'betaSessionChains',
-];
+export const USER_DATA_KEYS: readonly ConfigKey[] = ['customAgents', 'agentFlags', 'launchFolderRoots'];
+
+/** What "Reset all" writes back: every key a pane owns, minus user data.
+ *
+ *  Derived rather than hand-listed — the hand-kept list drifted and skipped
+ *  keys the footer counted as changed. Bookkeeping (introSeen,
+ *  quickActionPromptedAt, inspector layout) is owned by no pane, so it is never
+ *  reset either.
+ */
+export const RESETTABLE_KEYS: ConfigKey[] = PANES
+  .flatMap((p) => p.keys)
+  .filter((k) => !USER_DATA_KEYS.includes(k));
 
 export function resetPatch(): Partial<AppConfig> {
   const patch: Partial<AppConfig> = {};

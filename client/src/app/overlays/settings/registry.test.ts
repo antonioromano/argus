@@ -5,6 +5,7 @@ import {
   PANES_BY_ID,
   GROUP_ORDER,
   RESETTABLE_KEYS,
+  USER_DATA_KEYS,
   modifiedKeys,
   modifiedPanes,
   paneMatches,
@@ -134,6 +135,17 @@ describe('reset all', () => {
     expect('customAgents' in patch).toBe(false);
     expect('agentFlags' in patch).toBe(false);
     expect('quickActionPromptedAt' in patch).toBe(false);
+  });
+
+  // The list used to be hand-maintained and drifted: nine pane-owned keys
+  // (auto-approval, usage meter, PR status, inspector…) were counted by the
+  // footer but never reset. Every pane key is resettable unless it is user data.
+  it('resets every key a pane owns except user data', () => {
+    const expected = PANES.flatMap((p) => p.keys).filter((k) => !USER_DATA_KEYS.includes(k));
+    expect([...RESETTABLE_KEYS].sort()).toEqual([...expected].sort());
+    expect(RESETTABLE_KEYS).toContain('autoApprovalEnabled');
+    expect(RESETTABLE_KEYS).toContain('inspectorVisible');
+    expect(RESETTABLE_KEYS).not.toContain('launchFolderRoots');
   });
 
   it('hands out clones, never the shared default objects', () => {
