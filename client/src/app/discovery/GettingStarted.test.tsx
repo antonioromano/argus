@@ -96,4 +96,17 @@ describe('GettingStarted', () => {
     expect(disc.discovery.checklistStartedAt).toBeGreaterThan(0);
     expect(disc.discovery.checklistDismissed).toBe(false);
   });
+
+  it('collapsed: shows a rail row with the count that expands the sidebar', () => {
+    const onExpand = vi.fn();
+    render({ disc: fakeDisc({ ...started, checklistDone: ['inbox'] }), collapsed: true, onExpand });
+    expect(container.querySelector('.argus-checklist')).toBeNull();
+    act(() => button('Getting started · 1 of 4').click());
+    expect(onExpand).toHaveBeenCalledOnce();
+  });
+
+  it('collapsed: no rail row once dismissed', () => {
+    render({ disc: fakeDisc({ ...started, checklistDismissed: true }), collapsed: true });
+    expect(container.querySelector('.argus-checklist-rail')).toBeNull();
+  });
 });

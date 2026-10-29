@@ -844,6 +844,7 @@ function DesktopInner() {
     app.closeOverlay();
     // Stay in mosaic if creating from dashboard; only jump to focus when already focused.
     if (app.view === 'focus') app.openSession(created.id);
+    return created;
   };
 
   const handleClone = async (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => {
@@ -1174,6 +1175,8 @@ function DesktopInner() {
               notificationsEnabled={config?.notificationsEnabled ?? false}
               tunnelStatus={ngrok.status?.tunnelStatus}
               onAction={handleChecklistAction}
+              collapsed={sidebarCollapsed}
+              onExpand={() => setSidebarExpandRequest((n) => n + 1)}
             />
           )}
           onCollapsedChange={setSidebarCollapsed}

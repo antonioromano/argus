@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Circle, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Circle, ListChecks, X } from 'lucide-react';
 import type { NgrokStatus } from '@argus/shared';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, Tooltip } from '../../components/primitives/index.js';
 import { CHECKLIST_ITEMS, allDone, autoDone, checklistVisible, newlyDone, openChecklistState, type ChecklistId } from './checklist.js';
 import { registerDiscoveryCommands } from './discoveryCommands.js';
 import type { DiscoveryApi } from './useDiscovery.js';
@@ -74,6 +74,23 @@ export interface GettingStartedProps {
   notificationsEnabled: boolean;
   tunnelStatus: NgrokStatus['tunnelStatus'] | undefined;
   onAction: (id: ChecklistId) => void;
+  /** The sidebar is collapsed: show a rail button instead of the card. */
+  collapsed?: boolean;
+  /** Expands the sidebar; the rail button calls it. */
+  onExpand?: () => void;
+}
+
+/** Collapsed-sidebar stand-in for the card: one rail row that expands the sidebar. */
+export function GettingStartedRail({ done, onExpand }: { done: readonly string[]; onExpand?: () => void }) {
+  const count = CHECKLIST_ITEMS.filter((i) => done.includes(i.id)).length;
+  const label = `Getting started · ${count} of ${CHECKLIST_ITEMS.length}`;
+  return (
+    <Tooltip content={label}>
+      <button type="button" className="argus-sidebar-row argus-checklist-rail" aria-label={label} onClick={onExpand}>
+        <Icon icon={ListChecks} size={20} strokeWidth={1.6} />
+      </button>
+    </Tooltip>
+  );
 }
 
 /**
@@ -81,7 +98,7 @@ export interface GettingStartedProps {
  * tick), lingers on "You're set" after the last one, and registers the
  * `openChecklist` command for the palette.
  */
-export function GettingStarted({ disc, isMainWindow, liveCount, notificationsEnabled, tunnelStatus, onAction }: GettingStartedProps) {
+export function GettingStarted({ disc, isMainWindow, liveCount, notificationsEnabled, tunnelStatus, onAction, collapsed = false, onExpand }: GettingStartedProps) {
   const d = disc.discovery;
   const visible = checklistVisible(d);
 
@@ -115,6 +132,9 @@ export function GettingStarted({ disc, isMainWindow, liveCount, notificationsEna
   }, [lingering]);
 
   if (!isMainWindow || (!visible && !lingering)) return null;
+  // Collapsed: no room for the card, so keep a rail row that leads back to it.
+  // "You're set" has nothing to act on, so it doesn't earn a rail row.
+  if (collapsed) return visible ? <GettingStartedRail done={d.checklistDone} onExpand={onExpand} /> : null;
   return (
     <GettingStartedCard
       done={d.checklistDone}

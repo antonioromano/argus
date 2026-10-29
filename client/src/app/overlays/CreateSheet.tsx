@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
+import type { AgentFlag, AppConfig, RunMode, SessionInfo, TerminalEngine } from '@argus/shared';
 import { Play, Check, GitBranch, ChevronDown, Folder, X } from 'lucide-react';
 import { isPrimaryModifier } from '../../utils/platform.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
@@ -26,7 +26,8 @@ interface CreateSheetProps {
   config: AppConfig | null;
   initialFolderPath?: string | null;
   onClose: () => void;
-  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<void>;
+  /** Resolves with the created session when the caller has it (its folderPath is the server-resolved path). */
+  onCreate: (folderPath: string, name: string | undefined, agentType: string, flags: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => Promise<Pick<SessionInfo, 'folderPath'> | void>;
   onSaveFlag?: (agentId: string, flag: AgentFlag) => Promise<void>;
 }
 
@@ -318,8 +319,9 @@ export function CreateSheet({
     setError(null);
     try {
       const selected = currentFlags.filter((f) => flagStates[f.id]).map((f) => f.value);
-      await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
-      emitDiscovery({ type: 'create', gitRepo: isGitRepo === true, worktree: !!branch, folderPath: folderPath.trim() });
+      const created = await onCreate(folderPath.trim(), name.trim() || undefined, agentId, selected, branch || undefined, base || undefined, terminalEngine, runMode);
+      // The typed path may be `~/…` or relative; sessions carry the resolved one.
+      emitDiscovery({ type: 'create', gitRepo: isGitRepo === true, worktree: !!branch, folderPath: created?.folderPath ?? folderPath.trim() });
       if (branch) emitDiscovery({ type: 'used', marker: 'worktree' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to spawn');

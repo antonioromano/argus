@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { DEFAULT_CONFIG } from '@argus/shared';
 import { CreateSheet } from './CreateSheet.js';
+import { onDiscovery, type DiscoveryEvent } from '../discovery/discoveryEvents.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -139,5 +140,15 @@ describe('CreateSheet terminal', () => {
       'native',
       'persistent',
     );
+  });
+
+  it('reports the created session\'s resolved folder to discovery, not the typed one', async () => {
+    const events: DiscoveryEvent[] = [];
+    const off = onDiscovery((e) => events.push(e));
+    const onCreate = vi.fn(async () => ({ folderPath: '/Users/me/project' }));
+    await renderCreate({ onCreate });
+    await submit();
+    off();
+    expect(events.find((e) => e.type === 'create')).toMatchObject({ folderPath: '/Users/me/project' });
   });
 });
