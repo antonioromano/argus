@@ -18,6 +18,7 @@ import { KIND_LABEL, kindOf } from '../../ui/terminalKind.js';
 import {
   BACKEND_OPTIONS,
   CODE_FONT_PRESETS,
+  DENSITY_OPTIONS,
   INDICATOR_OPTIONS,
   INSPECTOR_SIDE_OPTIONS,
   LAYOUT_OPTIONS,
@@ -27,6 +28,7 @@ import {
   UI_FONT_PRESETS,
   VIEW_OPTIONS,
   WAITING_OPTIONS,
+  WINDOW_MATERIAL_OPTIONS,
 } from './options.js';
 
 type ConfigKey = keyof AppConfig;
@@ -76,6 +78,18 @@ const BASE: readonly SettingDescriptor[] = [
     label: 'Appearance', hint: 'Match the system or pick a fixed appearance',
     keywords: ['theme', 'dark', 'light', 'system', 'dark mode', 'light mode'],
     keys: [], kind: 'choice', options: THEME_OPTIONS, source: 'device',
+  },
+  {
+    id: 'windowMaterial', pane: 'theme', section: 'Theme',
+    label: 'Window', hint: 'Translucent lets the desktop show through the sidebar and toolbar. Solid is also used automatically when Reduce Transparency or Increase Contrast is on, and in full screen',
+    keywords: ['window', 'translucent', 'translucency', 'transparency', 'transparent', 'vibrancy', 'solid', 'opaque', 'blur', 'material', 'glass'],
+    keys: ['windowMaterial'], kind: 'choice', options: WINDOW_MATERIAL_OPTIONS,
+  },
+  {
+    id: 'density', pane: 'theme', section: 'Density',
+    label: 'Density', hint: 'Row height, header padding and toolbar height. Text and terminal sizes do not change',
+    keywords: ['density', 'compact', 'comfortable', 'spacing', 'rows', 'row height', 'dense', 'padding', 'toolbar height'],
+    keys: ['density'], kind: 'choice', options: DENSITY_OPTIONS,
   },
   {
     id: 'codeFontSize', pane: 'theme', section: 'Font sizes',

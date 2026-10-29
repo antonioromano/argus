@@ -79,6 +79,8 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
       'typography', 'font', 'font size', 'text size', 'code font', 'interface font', 'terminal font', 'zoom', 'bigger', 'smaller',
       // was Toolbar
       'clock', 'time', 'seconds', 'toolbar',
+      // plan 008
+      'density', 'compact', 'comfortable', 'spacing', 'rows', 'dense', 'translucency', 'transparency', 'vibrancy', 'solid', 'blur', 'material', 'window',
     ],
   },
   {

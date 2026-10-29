@@ -62,3 +62,26 @@ describe('material map (plan 008)', () => {
     expect(interactions).not.toContain('.glass-panel');
   });
 });
+
+describe('density and state rules never reflow rows (hover-no-reflow)', () => {
+  const SIZE = /\b(padding|margin|height|min-height|width|border-width|font-size|line-height)\s*:/;
+
+  it.each([
+    '.argus-sidebar-row:hover',
+    '.argus-sidebar-row:active',
+    '.argus-sidebar-row[data-active="true"]',
+    ':root[data-window-active="false"] .argus-titlebar-title',
+  ])('%s changes colour only', (selector) => {
+    expect(rule(selector)).not.toMatch(SIZE);
+  });
+
+  it('density moves rows through variables, so a row has one size per density', () => {
+    expect(rule('.argus-sidebar-row')).toMatch(/padding:\s*var\(--row-pad-y\) var\(--s-2\);/);
+    expect(rule('.argus-tile-header')).toMatch(/padding:\s*var\(--header-pad-y\) var\(--s-3\);/);
+    expect(rule('.argus-sidebar')).toMatch(/width:\s*var\(--w-sidebar\);/);
+    expect(rule('.argus-titlebar')).toMatch(/height:\s*var\(--h-titlebar, 44px\);/);
+    const tree = read('./SessionTree.tsx');
+    // Both leaf styles (hovered or not) share the one density padding.
+    expect(tree.match(/padding: 'var\(--leaf-pad-y\) var\(--s-2\) var\(--leaf-pad-y\) 28px'/g)).toHaveLength(2);
+  });
+});

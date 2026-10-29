@@ -48,9 +48,9 @@ function render() {
   return { onToggleCollapsed, onAncestorClick };
 }
 
-/** The group header row — the flex row carrying headStyle's 26px min-height. */
+/** The group header row — the flex row carrying headStyle's density min-height (--group-h). */
 function groupHeader(): HTMLElement {
-  const row = [...container.querySelectorAll('div')].find((d) => d.style.minHeight === '26px');
+  const row = [...container.querySelectorAll('div')].find((d) => d.style.minHeight === 'var(--group-h)');
   if (!row) throw new Error('group header row not found');
   return row;
 }

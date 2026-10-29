@@ -6,6 +6,7 @@ import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd, StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { SIDEBAR_COLLAPSE_KEY as COLLAPSE_KEY, readSidebarCollapsed } from './sidebarState.js';
+import { useDensity } from '../../context/density-context.js';
 
 const WIDTH_KEY = 'argus-sidebar-width';
 
@@ -15,15 +16,19 @@ const WIDTH_KEY = 'argus-sidebar-width';
 // space from the terminals it exists to navigate.
 const WIDTH_MIN = 190;
 const WIDTH_MAX = 460;
-const WIDTH_DEFAULT = 220;
+// Until the user drags it, the width is the density's (useDensity().sidebarW:
+// Compact is narrower). Builds before density persisted 220 for everyone on
+// first launch, so a stored 220 still means "never dragged".
+const LEGACY_DEFAULT = 220;
 
-function readStoredWidth(): number {
+/** The user's dragged width, or null to follow the density. */
+function readStoredWidth(): number | null {
   try {
     const n = Number(localStorage.getItem(WIDTH_KEY));
-    if (!Number.isFinite(n) || n === 0) return WIDTH_DEFAULT;
+    if (!Number.isFinite(n) || n === 0 || n === LEGACY_DEFAULT) return null;
     return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, n));
   } catch {
-    return WIDTH_DEFAULT;
+    return null;
   }
 }
 const EASE_IN  = 'cubic-bezier(.4,0,1,1)';   // expand: slow start so icons visibly travel
@@ -57,7 +62,9 @@ interface Item {
 export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, onCollapsedChange, expandRequest }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(readSidebarCollapsed);
   const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
-  const [width, setWidth] = useState<number>(readStoredWidth);
+  const { sidebarW } = useDensity();
+  const [customWidth, setWidth] = useState<number | null>(readStoredWidth);
+  const width = customWidth ?? sidebarW;
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -227,8 +234,11 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
   }, [resizing]);
 
   useEffect(() => {
-    try { localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* ignore */ }
-  }, [width]);
+    try {
+      if (customWidth === null) localStorage.removeItem(WIDTH_KEY);
+      else localStorage.setItem(WIDTH_KEY, String(customWidth));
+    } catch { /* ignore */ }
+  }, [customWidth]);
 
   useEffect(() => { onCollapsedChange?.(collapsed); }, [collapsed, onCollapsedChange]);
 
@@ -327,7 +337,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
           and the handle disappears with the sidebar when it collapses. */}
       {!collapsed && (
         <div
-          onDoubleClick={() => setWidth(WIDTH_DEFAULT)}
+          onDoubleClick={() => setWidth(null)}
           title="Drag to resize · double-click to reset"
           style={{
             position: 'absolute',

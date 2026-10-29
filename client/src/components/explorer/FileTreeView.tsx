@@ -18,9 +18,8 @@ import type { GitFileStatusCode } from '@argus/shared';
 import type { VisibleNode, TreeEdit } from '../../hooks/useFileTree.js';
 import { Tooltip, Icon } from '../primitives/index.js';
 import { useFontSettings, DEFAULT_UI_FONT_SIZE } from '../../context/font-settings-context.js';
+import { useDensity } from '../../context/density-context.js';
 
-/** Row height at the default interface font; scaled with it (the virtualizer needs px). */
-const BASE_ROW_HEIGHT = 22;
 const INDENT_PX = 12;
 
 interface FileTreeViewProps {
@@ -49,7 +48,10 @@ export function FileTreeView({
 }: FileTreeViewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const { uiFontSize } = useFontSettings();
-  const rowHeight = Math.round(BASE_ROW_HEIGHT * uiFontSize / DEFAULT_UI_FONT_SIZE);
+  // The density's row at the default interface font, scaled with the font
+  // (the virtualizer needs px).
+  const { treeRowH } = useDensity();
+  const rowHeight = Math.round(treeRowH * uiFontSize / DEFAULT_UI_FONT_SIZE);
   // eslint-disable-next-line react-hooks/incompatible-library -- @tanstack/react-virtual is not React-Compiler-compatible
   const virtualizer = useVirtualizer({
     count: nodes.length,

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../context/theme-context.js';
 import { useSystemAppearance } from '../hooks/useSystemAppearance.js';
+import { DensityProvider } from '../context/DensityContext.js';
+import { DENSITY_METRICS, DEFAULT_DENSITY, isDensity } from '../tokens/density.js';
 import { FontSettingsProvider } from '../context/FontSettingsContext.js';
 import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.js';
 import { useSessions } from '../hooks/useSessions.js';
@@ -214,8 +216,13 @@ function DesktopInner() {
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
-  // macOS appearance → <html> (material, contrast, active window, accent).
-  useSystemAppearance(theme);
+  // macOS appearance → <html> (material, contrast, active window, accent);
+  // the Window setting can only force solid, and the density's toolbar height
+  // re-centres the traffic lights.
+  useSystemAppearance(theme, {
+    windowMaterial: config?.windowMaterial,
+    titlebarH: DENSITY_METRICS[isDensity(config?.density) ? config.density : DEFAULT_DENSITY].titlebarH,
+  });
   // Usage meter: one stable object for every shell header (tiles are memoized).
   const meterView = useMemo(() => usageMeterView(config), [config]);
   const planUsage = usePlanUsage(socket, meterView !== null);
@@ -1054,6 +1061,7 @@ function DesktopInner() {
 
   return (
     <FontSettingsProvider uiFontSize={config?.uiFontSize} codeFontSize={config?.codeFontSize}>
+    <DensityProvider density={config?.density}>
     <ToastProvider>
     <SessionMenuProvider
       actions={sessionMenuActions}
@@ -1500,6 +1508,7 @@ function DesktopInner() {
     </SessionMenuProvider>
       {window.electronLaunch && <LaunchCardStack />}
     </ToastProvider>
+    </DensityProvider>
     </FontSettingsProvider>
   );
 }

@@ -3,12 +3,12 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import Papa from 'papaparse';
 import { Icon } from '../primitives/index.js';
+import { useDensity } from '../../context/density-context.js';
 
 interface CsvPreviewProps {
   source: string;
 }
 
-const ROW_HEIGHT = 28;
 const ROW_NUM_WIDTH = 52;
 const MIN_COL = 64;
 const MAX_COL = 480;
@@ -97,6 +97,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { header, rows, error } = useMemo(() => parseCsv(source), [source]);
+  const { csvRowH: rowHeight } = useDensity();
 
   const [fitToScreen, setFitToScreen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -130,9 +131,11 @@ export function CsvPreview({ source }: CsvPreviewProps) {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 12,
   });
+  // Rows are estimate-sized only, so a density change must drop the cached sizes.
+  useEffect(() => { virtualizer.measure(); }, [virtualizer, rowHeight]);
 
   // Reset to the first hit whenever the query changes.
   useEffect(() => {
@@ -287,7 +290,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
                     position: 'absolute',
                     top: vRow.start,
                     left: 0,
-                    height: ROW_HEIGHT,
+                    height: rowHeight,
                   }}
                 >
                   <td style={{ ...tdStyle, ...clip, ...rowNumCellStyle }}>{vRow.index + 1}</td>

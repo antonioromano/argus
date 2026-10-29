@@ -86,6 +86,9 @@ export type InspectorSide = 'left' | 'right';
 /** Window background: native vibrancy behind the chrome, or opaque (plan 008). */
 export type WindowMaterial = 'translucent' | 'solid';
 
+/** Row rhythm: list rows, header padding, toolbar height (plan 008). Type size is untouched. */
+export type Density = 'compact' | 'default' | 'comfortable';
+
 /**
  * What Electron main tells a window about the macOS appearance (plan 008).
  * The renderer writes it to <html> as data-material / data-contrast /
@@ -124,6 +127,8 @@ export interface AppConfig {
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   mosaicOrientation?: MosaicOrientation; // side by side ('horizontal') or stacked ('vertical') mosaic tiles (default: horizontal)
+  density?: Density; // row heights, header padding and toolbar height (default: 'default')
+  windowMaterial?: WindowMaterial; // 'solid' turns window translucency off (default: 'translucent')
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
@@ -248,6 +253,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
   mosaicOrientation: 'horizontal',
+  density: 'default',
+  windowMaterial: 'translucent',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',

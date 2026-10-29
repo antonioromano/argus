@@ -330,6 +330,16 @@
   --row-h-comfortable: var(--ctl-h-lg);
   --row-h-touch:       44px;
 
+  /* Density (plan 008) — the Default values. DensityProvider rewrites these
+     on <html> from tokens/density.ts (Compact / Comfortable); density.test.ts
+     keeps the two in step. */
+  --row-pad-y:    6px;    /* sidebar navigation rows */
+  --leaf-pad-y:   4px;    /* session-tree leaves */
+  --group-h:      26px;   /* session-tree group header */
+  --header-pad-y: 4px;    /* shell tile header */
+  --h-titlebar:   44px;   /* toolbar; the traffic lights centre on it */
+  --w-sidebar:    220px;  /* sidebar width until dragged */
+
   /* Collapsed sidebar rail — wide enough for a scaled icon plus its row padding. */
   --w-rail: calc(56px * var(--ui-scale));
 
@@ -359,10 +369,11 @@
   /* Panel header height — one row for the shell header and every side panel that
      docks beside it (diff, explorer, terminal), so their hairlines line up. Set by
      the tallest thing any of them holds: a size="sm" Button/IconButton (24px) plus
-     --s-1 above and below, plus the 1px bottom border. Headers pin this with
+     --header-pad-y above and below (--s-1 at Default density, so it follows the
+     tile header), plus the 1px bottom border. Headers pin this with
      box-sizing: border-box, so adding a control cannot silently retune the row.
      Scales with the sm control height, so it is 33px at the default font. */
-  --h-panel-header: calc(var(--ctl-h-sm) + 2 * var(--s-1) + 1px);
+  --h-panel-header: calc(var(--ctl-h-sm) + 2 * var(--header-pad-y) + 1px);
 
   /* Hairline — chrome separators. 0.5px on Retina (below). */
   --hairline: 1px;

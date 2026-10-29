@@ -35,6 +35,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
   mosaicOrientation: 'horizontal',
+  density: 'default',
+  windowMaterial: 'translucent',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',

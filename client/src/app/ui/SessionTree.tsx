@@ -601,7 +601,7 @@ function Leaf({
         onBlur={() => setHover(false)}
         style={{
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
-          padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
+          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) 28px', borderRadius: 'var(--r-2)',
           cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: dimmed ? 0.55 : 1,
           // Inset rather than a real border: a border would resize the row and
@@ -671,7 +671,7 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         onBlur={() => setHover(false)}
         style={{
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
-          padding: '4px var(--s-2) 4px 28px', borderRadius: 'var(--r-2)',
+          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) 28px', borderRadius: 'var(--r-2)',
           cursor: 'pointer', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: 0.45,
         }}
@@ -746,7 +746,7 @@ function headerClick(toggle: () => void) {
 const headStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
   padding: '4px var(--s-2) 4px 4px', borderRadius: 'var(--r-2)',
-  fontSize: 'var(--t-sm)', color: 'var(--fg-1)', minHeight: 26, boxSizing: 'border-box',
+  fontSize: 'var(--t-sm)', color: 'var(--fg-1)', minHeight: 'var(--group-h)', boxSizing: 'border-box',
 };
 const chevBtnStyle: React.CSSProperties = { all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 };
 const nameBtnStyle: React.CSSProperties = {

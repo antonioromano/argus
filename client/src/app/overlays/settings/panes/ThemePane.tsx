@@ -4,19 +4,21 @@ import { WaitingStylePreview } from '../../../ui/WaitingStylePreview.js';
 import { SettingField } from '../SettingField.js';
 import {
   CODE_FONT_PRESETS,
+  DENSITY_OPTIONS,
   DEFAULT_CODE_FONT_PX,
   DEFAULT_UI_FONT_PX,
   LAYOUT_OPTIONS,
   THEME_OPTIONS,
   UI_FONT_PRESETS,
   WAITING_OPTIONS,
+  WINDOW_MATERIAL_OPTIONS,
   fontPreset,
 } from '../options.js';
 import type { PaneProps } from '../types.js';
 
 /**
- * How Argus looks: theme, font sizes, mosaic layout, the waiting cue and the
- * toolbar clock. Typography and Toolbar were their own panes (two keys each);
+ * How Argus looks: theme and window material, density, font sizes, mosaic
+ * layout, the waiting cue and the toolbar clock. Typography and Toolbar were their own panes (two keys each);
  * they are the same subject, and together still fit a screen.
  */
 export function ThemePane({ config, onSave }: PaneProps) {
@@ -30,6 +32,25 @@ export function ThemePane({ config, onSave }: PaneProps) {
       <Section title="Theme">
         <SettingField id="device:themeMode">
           <Segmented label="Theme" value={mode} options={THEME_OPTIONS} onChange={setMode} />
+        </SettingField>
+        <SettingField id="windowMaterial">
+          <Segmented
+            label="Window material"
+            value={config.windowMaterial ?? 'translucent'}
+            options={WINDOW_MATERIAL_OPTIONS}
+            onChange={(windowMaterial) => { void onSave({ windowMaterial }); }}
+          />
+        </SettingField>
+      </Section>
+
+      <Section title="Density">
+        <SettingField id="density">
+          <Segmented
+            label="Density"
+            value={config.density ?? 'default'}
+            options={DENSITY_OPTIONS}
+            onChange={(density) => { void onSave({ density }); }}
+          />
         </SettingField>
       </Section>
 
