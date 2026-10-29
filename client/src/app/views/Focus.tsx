@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation } from '@argus/shared';
+import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation, type AgentDefinition } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
@@ -17,6 +17,8 @@ import { ChatView } from '../ui/chat/ChatView.js';
 import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
+import { exitedCardExitProps } from '../../utils/agentExit.js';
+import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
@@ -113,6 +115,8 @@ interface FocusProps {
   /** Close the maximized tool window, returning to the shell. */
   onRestore: () => void;
   onClone: () => void;
+  /** The user's custom agents (config), to name a missing agent command on the exited card. */
+  customAgents?: AgentDefinition[];
   onKill: () => void;
   onRestart: () => void;
   /** Reopen the last Claude conversation; pass only when it applies (canResume). */
@@ -155,6 +159,7 @@ export function Focus({
   onOpenFileInEditor,
   onRestore,
   onClone,
+  customAgents,
   onKill,
   onRestart,
   onResume,
@@ -454,7 +459,14 @@ export function Focus({
                 />
               </ErrorBoundary>
               {active.status === 'exited' && !useNativeTerminal && (
-                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
+                <ExitedCard
+                  runMode={active.runMode}
+                  folderPath={active.folderPath}
+                  onRestart={onRestart}
+                  onResume={onResume}
+                  onClone={onClone}
+                  {...exitedCardExitProps(active, resolveAgentDef(active.agentType, customAgents))}
+                />
               )}
               {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
               {viewPending && (

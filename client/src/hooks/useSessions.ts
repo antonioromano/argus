@@ -9,12 +9,42 @@ import { pruneFileTreeCache } from './useFileTree.js';
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
 
+/** What the user sees when the initial session list can't be fetched. The raw
+ *  error ("Failed to fetch") says nothing about the cause, so it isn't shown. */
+export function describeLoadError(err: unknown): string {
+  if (err instanceof TypeError) {
+    return 'The Argus server isn’t responding. It may still be starting, or it stopped. Argus retries when the connection comes back.';
+  }
+  const detail = err instanceof Error && err.message ? ` (${err.message})` : '';
+  return `The Argus server couldn’t return your sessions${detail}.`;
+}
+
+/** Previous run's exit info, carried across a snapshot that lacks it (the server doesn't persist exitCode yet). */
+function keepExitInfo(snapshot: SessionInfo[], prev: SessionInfo[]): SessionInfo[] {
+  const exited = new Map(prev.filter((s) => s.status === 'exited' && s.exitCode !== undefined).map((s) => [s.id, s]));
+  if (exited.size === 0) return snapshot;
+  return snapshot.map((s) => {
+    const old = exited.get(s.id);
+    if (!old || s.status !== 'exited' || s.exitCode !== undefined) return s;
+    return { ...s, exitCode: old.exitCode, exitedAfterMs: old.exitedAfterMs };
+  });
+}
+
 export function useSessions(socket: TypedSocket) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   // True once the initial REST fetch resolves. Consumers gate "session not
   // found" decisions on this so a restored focus view isn't dropped before the
   // list has loaded (Cmd+R focus persistence).
   const [loaded, setLoaded] = useState(false);
+  // Set when the session list has never been fetched successfully (server
+  // down or unreachable), so the shell can show the cause and a Retry instead
+  // of the empty "Ready when you are" landing. Cleared by the next good fetch.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadRef = useRef<(() => void) | null>(null);
+  // When this renderer last saw each session's agent (re)spawn: created here,
+  // created elsewhere (socket), or restarted (status left 'exited'). Sessions
+  // it never saw spawn fall back to createdAt.
+  const spawnedAtRef = useRef(new Map<string, number>());
   // Mirror of `sessions` so rename can read the pre-edit name for rollback
   // without taking `sessions` as a dependency (which would churn the callback).
   const sessionsRef = useRef<SessionInfo[]>([]);
@@ -53,39 +83,69 @@ export function useSessions(socket: TypedSocket) {
         // A newer GET already landed; this response is older than it.
         if (seq < appliedSeq) return;
         appliedSeq = seq;
-        setSessions(() => deltas.reduce((acc, fn) => fn(acc), snapshot));
+        setSessions((prev) => deltas.reduce((acc, fn) => fn(acc), keepExitInfo(snapshot, prev)));
       }).finally(() => {
         pendingDeltasRef.current.delete(deltas);
       });
     };
 
-    load().catch(console.error).finally(() => setLoaded(true));
-
-    const handleReconnect = () => {
-      load().catch(console.error);
+    // Only a list that was never loaded is an error: after a good load, a
+    // failed reconnect fetch keeps showing the sessions already on screen.
+    let everLoaded = false;
+    const run = () => {
+      load().then(() => {
+        everLoaded = true;
+        setLoadError(null);
+        setLoaded(true);
+      }, (err: unknown) => {
+        console.error(err);
+        if (!everLoaded) setLoadError(describeLoadError(err));
+      });
     };
-    socket.on('connect', handleReconnect);
-    return () => { socket.off('connect', handleReconnect); };
+    loadRef.current = run;
+    run();
+
+    socket.on('connect', run);
+    return () => {
+      socket.off('connect', run);
+      if (loadRef.current === run) loadRef.current = null;
+    };
   }, [socket]);
+
+  const retry = useCallback(() => { loadRef.current?.(); }, []);
 
   // Listen for socket events
   useEffect(() => {
     const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions }: SessionStatusPayload) => {
+      // Leaving 'exited' means the agent was restarted: restart its clock.
+      const respawned = status !== 'exited'
+        && sessionsRef.current.find((s) => s.id === sessionId)?.status === 'exited';
+      if (respawned) spawnedAtRef.current.set(sessionId, Date.now());
       applyDelta((prev) =>
-        prev.map((s) => (s.id === sessionId
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
           // waitingSince/promptOptions are only sent while waiting; their absence clears them.
-          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions }
-          : s)),
+          const next = { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions };
+          if (status !== 'exited') { delete next.exitCode; delete next.exitedAfterMs; }
+          return next;
+        }),
       );
     };
 
-    const handleExit = ({ sessionId }: { sessionId: string; exitCode: number }) => {
+    const handleExit = ({ sessionId, exitCode }: { sessionId: string; exitCode: number }) => {
+      const now = Date.now();
       applyDelta((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, status: 'exited' as const } : s)),
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          const spawnedAt = spawnedAtRef.current.get(sessionId) ?? Date.parse(s.createdAt);
+          const exitedAfterMs = Number.isFinite(spawnedAt) ? Math.max(0, now - spawnedAt) : undefined;
+          return { ...s, status: 'exited' as const, exitCode, exitedAfterMs };
+        }),
       );
     };
 
     const handleCreated = (session: SessionInfo) => {
+      if (!spawnedAtRef.current.has(session.id)) spawnedAtRef.current.set(session.id, Date.now());
       applyDelta((prev) => {
         if (prev.some((s) => s.id === session.id)) return prev;
         return [...prev, session];
@@ -93,6 +153,7 @@ export function useSessions(socket: TypedSocket) {
     };
 
     const handleDeleted = ({ sessionId }: { sessionId: string }) => {
+      spawnedAtRef.current.delete(sessionId);
       applyDelta((prev) => prev.filter((s) => s.id !== sessionId));
     };
 
@@ -161,6 +222,7 @@ export function useSessions(socket: TypedSocket) {
 
   const createSession = useCallback(async (folderPath: string, name?: string, agentType?: string, flags?: string[], worktreeBranch?: string, worktreeBase?: string, terminalEngine?: TerminalEngine, runMode?: RunMode) => {
     const session = await api.createSession({ folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine, runMode });
+    if (!spawnedAtRef.current.has(session.id)) spawnedAtRef.current.set(session.id, Date.now());
     applyDelta((prev) => {
       if (prev.some((s) => s.id === session.id)) return prev;
       return [...prev, session];
@@ -199,5 +261,5 @@ export function useSessions(socket: TypedSocket) {
     }
   }, [applyDelta]);
 
-  return { sessions, loaded, createSession, adoptSession, deleteSession, renameSession };
+  return { sessions, loaded, loadError, retry, createSession, adoptSession, deleteSession, renameSession };
 }

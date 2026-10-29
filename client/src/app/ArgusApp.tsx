@@ -205,7 +205,7 @@ function DesktopInner() {
   const { theme, isDark, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
-  const { sessions, loaded: sessionsLoaded, createSession, adoptSession, deleteSession, renameSession } = useSessions(socket);
+  const { sessions, loaded: sessionsLoaded, loadError: sessionsLoadError, retry: retrySessionsLoad, createSession, adoptSession, deleteSession, renameSession } = useSessions(socket);
   const ngrok = useNgrok(socket);
   const keepAwake = useKeepAwake(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
@@ -1168,11 +1168,15 @@ function DesktopInner() {
               orientation={config?.mosaicOrientation ?? 'horizontal'}
               defaultTerminalEngine={config?.defaultTerminalEngine}
               usageMeter={usageMeter}
+              customAgents={config?.customAgents}
+              loadError={sessionsLoadError}
+              onRetryLoad={retrySessionsLoad}
             />
           )}
 
           {app.view === 'focus' && activeSession && (
             <Focus
+              customAgents={config?.customAgents}
               runningIndicator={config?.tileRunningIndicator ?? 'hairline'}
               usageMeter={usageMeter}
               orientation={config?.mosaicOrientation ?? 'horizontal'}

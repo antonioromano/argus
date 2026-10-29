@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { SessionInfo, MosaicWaitingStyle, MosaicOrientation, TileQuickAction, TileRunningIndicator, TerminalEngine } from '@argus/shared';
+import type { SessionInfo, MosaicWaitingStyle, MosaicOrientation, TileQuickAction, TileRunningIndicator, TerminalEngine, AgentDefinition } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal } from 'lucide-react';
@@ -13,10 +13,12 @@ import { StaleChip } from '../ui/StaleChip.js';
 import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
+import { exitedCardExitProps } from '../../utils/agentExit.js';
+import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusDot, EmptyState, IconButton, Tooltip, ContextMenu, Icon } from '../../components/primitives/index.js';
+import { StatusDot, EmptyState, ErrorState, IconButton, Tooltip, ContextMenu, Icon } from '../../components/primitives/index.js';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
@@ -125,6 +127,11 @@ interface MosaicProps {
   orientation?: MosaicOrientation;
   /** Usage chip in tile headers (Claude, Codex); null/absent when the meter is off. */
   usageMeter?: UsageMeterState | null;
+  /** The user's custom agents (config), to name a missing agent command on the exited card. */
+  customAgents?: AgentDefinition[];
+  /** Set when the session list could not be loaded at all: shown instead of the landing. */
+  loadError?: string | null;
+  onRetryLoad?: () => void;
 }
 
 const MAX_TILES = 12;
@@ -132,7 +139,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onChain, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onDumpDiagnostics, showDiagnostics, onMarkDone, onMerge, onFinish, onHandoff, onChain, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -385,6 +392,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   // A minimized tile renders no terminal, so a focused tile is always an active one.
   useEffect(() => { onActiveTerminalChange?.(focusedId); }, [focusedId, onActiveTerminalChange]);
 
+  if (sessions.length === 0 && loadError) {
+    return (
+      <div className="grid-bg argus-mosaic-empty">
+        <ErrorState title="Couldn’t load your sessions" detail={loadError} onRetry={onRetryLoad} />
+      </div>
+    );
+  }
+
   if (sessions.length === 0) {
     return (
       <div className="grid-bg argus-mosaic-empty">
@@ -513,6 +528,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
                   onChain={onChain ? handleTileChain : undefined}
                   chainCount={chainCounts?.[s.id]}
                   onClone={onClone ? handleTileClone : undefined}
+                  agentDef={resolveAgentDef(s.agentType, customAgents)}
                   onFocusDiff={onFocusDiff ? handleTileFocusDiff : undefined}
                   onFocusExplorer={onFocusExplorer ? handleTileFocusExplorer : undefined}
                   onFocusTerminal={onFocusTerminal ? handleTileFocusTerminal : undefined}
@@ -630,6 +646,8 @@ type MosaicTileSharedProps = {
    *  root, but the outcome is per-session. Still a plain boolean, so it
    *  compares by value and can't bust MosaicTile's memo. */
   nativeEngine: boolean;
+  /** This session's agent definition (stable reference), for the exited card. */
+  agentDef?: AgentDefinition;
 };
 
 function SortableMosaicTile(props: MosaicTileSharedProps) {
@@ -754,6 +772,7 @@ function MosaicTileInner({
   onChain,
   chainCount,
   onClone,
+  agentDef,
   onFocusDiff,
   onFocusExplorer,
   onFocusTerminal,
@@ -1016,6 +1035,7 @@ function MosaicTileInner({
             onRestart={() => onRestart(session)}
             onResume={onResume ? () => onResume(session) : undefined}
             onClone={onClone ? () => onClone(session) : undefined}
+            {...exitedCardExitProps(session, agentDef)}
           />
         )}
         {(modalOpen || overlayHidden) && <ModalPlaceholder status={session.status} />}
