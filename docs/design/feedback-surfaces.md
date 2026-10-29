@@ -132,25 +132,26 @@ deliberate.
 ## Known violations
 
 Each has a planned fix. Owner "004 Ux" refers to the units of plan 004; 003 owns the inline
-error-state components.
+error-state components. Rows marked **fixed** are done; the native-dialog allowlist in the guard test is
+now empty, and the renderer's `dialog:showMessageBox` IPC is gone.
 
 | ID | Location | Violation | Fix | Owner |
 |---|---|---|---|---|
-| V1 | `RuntimePane.tsx` (backend switch) | Native dialog for an in-app decision | `AlertSheet` with "Restart now" + `altAction` "Apply on next launch". Only entry in the guard test's allowlist. | 004 U9 |
-| V2 | `orphanStartupCheck.ts` | Advisory sent as `danger` with "See Settings → Runtime" in the text | `warn` + **Review** action that opens Settings → Runtime | 004 U9 |
-| V3 | `useFileBuffer.ts` conflict toast | Duplicates the inline `ConflictBanner` | Delete the toast | 004 U9 |
-| V4 | `useFileBuffer.ts` "Saved" toast | Fires on every autosave while the dirty chip already clears | Only for an explicit ⌘S | 004 U9 |
+| V1 | `RuntimePane.tsx` (backend switch) | Native dialog for an in-app decision | `AlertSheet` with "Restart now" + `altAction` "Apply on next launch" | 004 U9 — **fixed** |
+| V2 | `orphanStartupCheck.ts` | Advisory sent as `danger` with "See Settings → Runtime" in the text | `warn` + **Review** action that opens Settings → Runtime | 004 U9 — **fixed** |
+| V3 | `useFileBuffer.ts` conflict toast | Duplicates the inline `ConflictBanner` | Delete the toast | 004 U9 — **fixed** |
+| V4 | `useFileBuffer.ts` "Saved" toast | Fires on every autosave while the dirty chip already clears | Only for an explicit ⌘S | 004 U9 — **fixed** |
 | V5 | `useFileBuffer.ts` save errors | Toast only; `buffer.error` never rendered | Inline error in the editor header with Retry | 003 |
-| V6 | `useFileTree.ts` create/rename errors | Toast while the inline name input is still open | Inline error under the edit row | 004 U9 |
+| V6 | `useFileTree.ts` create/rename errors | Toast while the inline name input is still open | Inline error under the edit row | 004 U9 — **fixed** |
 | V7 | `useFileTree.ts` folder load failure | Toast | Inline "Couldn't load, Retry" row | 003 |
-| V8 | `useFileTree.ts` "Created X" / "Renamed to X" | Toast for a result already visible in the tree | Delete | 004 U9 |
-| V9 | `DiffWorkbench.tsx` discard | Failure is silent; `ApiError` thrown unhandled | Inline error in the diff panel header | 004 U4 |
-| V10 | `LaunchersPane.tsx`, `TemplatesSection.tsx`, `AutoApprovalPane.tsx` | Inline two-step confirms | Deferred commit + Undo | 004 U6 |
-| V11 | `OrphanAgentsSection.tsx` | Inline two-step confirm for an irreversible kill | `AlertSheet` | 004 U9 |
-| V12 | `AutoApprovalPane.tsx` | Inline `role=alertdialog` card for a security decision | `AlertSheet` | 004 U9 |
-| V13 | `RevertConfirmCard` ×3 + `useSkipRevertConfirm` | Confirm on an undoable action | Remove | 004 U4 |
+| V8 | `useFileTree.ts` "Created X" / "Renamed to X" | Toast for a result already visible in the tree | Delete | 004 U9 — **fixed** |
+| V9 | `DiffWorkbench.tsx` discard | Failure is silent; `ApiError` thrown unhandled | Inline error in the diff panel header | 004 U4 — **fixed** |
+| V10 | `LaunchersPane.tsx`, `TemplatesSection.tsx`, `AutoApprovalPane.tsx` | Inline two-step confirms | Deferred commit + Undo | 004 U6 — **fixed** |
+| V11 | `OrphanAgentsSection.tsx` | Inline two-step confirm for an irreversible kill | `AlertSheet` | 004 U9 — **fixed** |
+| V12 | `AutoApprovalPane.tsx` | Inline `role=alertdialog` card for a security decision | `AlertSheet` | 004 U9 — **fixed** |
+| V13 | `RevertConfirmCard` ×3 + `useSkipRevertConfirm` | Confirm on an undoable action | Remove | 004 U4 — **fixed** |
 | V14 | `useSessions.ts` rename error | Toast while the inline rename field exists | Inline under the rename field | 003 |
-| V15 | `AgentsPane.tsx` remove, `SettingsOverlay.tsx` Reset all | Confirm on undoable actions | Remove; offer Undo | 004 U6 |
+| V15 | `AgentsPane.tsx` remove, `SettingsOverlay.tsx` Reset all | Confirm on undoable actions | Remove; offer Undo | 004 U6 — **fixed** |
 
 Compliant and unchanged: the quit dialogs, port conflict and update failure dialogs in
 `electron/src/main.ts`; the Create/Clone discard sheets; `MergePreviewSheet`; GitHub convert-to-draft;

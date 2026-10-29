@@ -4,7 +4,7 @@
  * Every Argus window loads http://127.0.0.1:<port>, but ipcMain accepts a
  * message from ANY frame of ANY webContents: a subframe, a page a renderer bug
  * navigated to, or a webContents some future feature opens. Several handlers
- * (native-term:*, dialog:showMessageBox, menu:set-shortcuts, app:relaunch) also
+ * (native-term:*, menu:set-shortcuts, app:relaunch) also
  * trusted their payload's shape outright. These helpers are pure (no electron
  * import) so they are unit-tested directly; main.ts wires them in.
  */
@@ -54,43 +54,7 @@ export const isFontPx = (v: unknown): v is number => finite(v, 4, 200);
 export const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** The message-box fields the renderer may set (client/src/utils/nativeDialog.ts). */
-export interface SafeMessageBoxOptions {
-  type?: 'none' | 'info' | 'error' | 'question' | 'warning';
-  message: string;
-  detail?: string;
-  title?: string;
-  buttons: string[];
-  defaultId?: number;
-  cancelId?: number;
-  checkboxLabel?: string;
-  checkboxChecked?: boolean;
-}
-
-const BOX_TYPES = new Set(['none', 'info', 'error', 'question', 'warning']);
 const shortText = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
-
-/**
- * Whitelist a renderer-supplied MessageBoxOptions. Everything else Electron
- * accepts (icon file paths, `signal`, textWidth, noLink…) is dropped. Returns
- * null when the required fields are malformed.
- */
-export function sanitizeMessageBoxOptions(v: unknown): SafeMessageBoxOptions | null {
-  if (!isPlainObject(v)) return null;
-  if (!shortText(v.message, 10_000) || !v.message) return null;
-  const buttons = v.buttons === undefined ? ['OK'] : v.buttons;
-  if (!Array.isArray(buttons) || buttons.length === 0 || buttons.length > 8 || !buttons.every((b) => shortText(b, 200))) return null;
-  const out: SafeMessageBoxOptions = { message: v.message, buttons: buttons as string[] };
-  if (typeof v.type === 'string' && BOX_TYPES.has(v.type)) out.type = v.type as SafeMessageBoxOptions['type'];
-  if (shortText(v.detail, 10_000)) out.detail = v.detail;
-  if (shortText(v.title, 500)) out.title = v.title;
-  const idx = (n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) < out.buttons.length;
-  if (idx(v.defaultId)) out.defaultId = v.defaultId as number;
-  if (idx(v.cancelId)) out.cancelId = v.cancelId as number;
-  if (shortText(v.checkboxLabel, 500)) out.checkboxLabel = v.checkboxLabel;
-  if (typeof v.checkboxChecked === 'boolean') out.checkboxChecked = v.checkboxChecked;
-  return out;
-}
 
 /** `menu:set-shortcuts` payload: a small string→string map, else null. */
 export function sanitizeShortcuts(v: unknown): Record<string, string> | null {

@@ -9,6 +9,18 @@ vi.mock('../../../../components/primitives/index.js', async (orig) => ({
   ...(await orig<typeof import('../../../../components/primitives/index.js')>()),
   pushToast: toasts.push,
 }));
+vi.mock('../../../../components/primitives/Toast.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../components/primitives/Toast.js')>()),
+  pushToast: toasts.push,
+}));
+
+// Deferred delete (plan 004 U6): capture the offer so a test can run Undo
+// (revert) or the toast closing (commit) itself.
+const deferred = vi.hoisted(() => ({ offers: [] as { message: string; apply: () => void; commit: () => Promise<void>; revert: () => void }[] }));
+vi.mock('../../../../utils/undoable.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../utils/undoable.js')>()),
+  deferUndoable: (o: (typeof deferred.offers)[number]) => { deferred.offers.push(o); o.apply(); return { dismiss() {} }; },
+}));
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
@@ -17,6 +29,7 @@ let container: HTMLDivElement; let root: Root;
 let bridge: { list: ReturnType<typeof vi.fn>; rename: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   toasts.push.mockClear();
+  deferred.offers.length = 0;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   bridge = { list: vi.fn(async () => [L]), rename: vi.fn(async () => ({ ok: true })), remove: vi.fn(async () => ({ ok: true })) };
   (window as unknown as { electronLaunch?: unknown }).electronLaunch = { launchers: bridge };
@@ -71,15 +84,26 @@ describe('LaunchersPane', () => {
     expect(bridge.rename).toHaveBeenCalledWith('jarvar-refresh', 'Refresh JarvAR');
   });
 
-  it('delete goes over the bridge and refreshes', async () => {
+  it('delete hides the row at once with no confirm; the toast closing deletes over the bridge once', async () => {
     await render();
     bridge.list.mockResolvedValueOnce([]);
     await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
+    expect(container.textContent).not.toContain('JarvAR refresh');
+    expect(container.querySelector('[data-testid="launcher-delete-confirm"]')).toBeNull();
     expect(bridge.remove).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('Delete JarvAR refresh?');
-    await act(async () => { (container.querySelector('[data-testid="launcher-delete-confirm"]') as HTMLElement).click(); await Promise.resolve(); });
+    expect(deferred.offers[0].message).toBe('Deleted JarvAR refresh');
+    await act(async () => { await deferred.offers[0].commit(); });
+    expect(bridge.remove).toHaveBeenCalledTimes(1);
     expect(bridge.remove).toHaveBeenCalledWith('jarvar-refresh');
     expect(container.textContent).toContain('No launchers');
+  });
+
+  it('Undo brings the launcher back without touching the bridge', async () => {
+    await render();
+    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
+    await act(async () => { deferred.offers[0].revert(); });
+    expect(container.textContent).toContain('JarvAR refresh');
+    expect(bridge.remove).not.toHaveBeenCalled();
   });
 
   it('roots editor saves one root per line', async () => {
@@ -116,27 +140,24 @@ describe('LaunchersPane fixes', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('list rejection renders an error row', async () => {
+  it('list rejection renders an error row with Retry, which loads again', async () => {
     bridge.list.mockRejectedValueOnce(new Error('boom'));
     await render();
-    const row = container.querySelector('[data-testid="launchers-error"]');
-    expect(row?.textContent).toContain('boom');
+    const row = container.querySelector('[data-testid="launchers-error"]')!;
+    expect(row.textContent).toContain('Couldn’t load launchers');
+    expect(row.textContent).toContain('boom');
+    expect(container.textContent).not.toContain('No launchers');
+    const retry = [...row.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;
+    await act(async () => { retry.click(); await Promise.resolve(); });
+    expect(bridge.list).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('JarvAR refresh');
   });
 
-  it('remove rejection pushes a danger toast', async () => {
+  it('a bridge refusal fails the commit, so the helper restores the row', async () => {
     await render();
-    bridge.remove.mockRejectedValueOnce(new Error('nope'));
+    bridge.remove.mockResolvedValueOnce({ ok: false, error: 'nope' });
     await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
-    await act(async () => { (container.querySelector('[data-testid="launcher-delete-confirm"]') as HTMLElement).click(); await Promise.resolve(); });
-    expect(toasts.push).toHaveBeenCalledWith('nope', 'danger');
-  });
-
-  it('cancel on delete confirm does not remove', async () => {
-    await render();
-    await act(async () => { (container.querySelector('[data-testid="launcher-delete"]') as HTMLElement).click(); });
-    await act(async () => { (container.querySelector('[data-testid="launcher-delete-cancel"]') as HTMLElement).click(); });
-    expect(bridge.remove).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="launcher-delete-confirm"]')).toBeNull();
+    await expect(deferred.offers[0].commit()).rejects.toThrow('nope');
   });
 
   it('rename Save is disabled for a blank label', async () => {

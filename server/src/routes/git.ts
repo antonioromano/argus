@@ -418,28 +418,6 @@ export function createGitRoutes(manager: SessionManager, gitService: GitService,
     res.json(result);
   }));
 
-  router.post('/sessions/:id/git-revert-file', asyncHandler(async (req, res) => {
-    const session = manager.getSessionInfo(req.params.id);
-    if (!session) {
-      res.status(404).json({ success: false, error: 'Session not found' });
-      return;
-    }
-
-    const { filePath } = req.body as { filePath?: string };
-    if (!filePath) {
-      res.status(400).json({ success: false, error: 'filePath required' });
-      return;
-    }
-
-    if (!resolveRelativeWithinBase(workRootOf(session), filePath)) {
-      res.status(400).json({ success: false, error: 'Invalid file path' });
-      return;
-    }
-
-    const result = await gitService.revertFileToHead(workRootOf(session), filePath);
-    res.status(result.success ? 200 : 400).json(result);
-  }));
-
   router.get('/sessions/:id/git-log', asyncHandler(async (req, res) => {
     const session = manager.getSessionInfo(req.params.id);
     if (!session) {

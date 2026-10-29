@@ -15,13 +15,11 @@ const CLIENT_SRC = fileURLToPath(new URL('..', import.meta.url));
 const ELECTRON_SRC = fileURLToPath(new URL('../../../electron/src', import.meta.url));
 
 /**
- * Renderer files still allowed to open a native dialog through the preload
- * bridge. Each entry is a known violation with a planned fix; the list only
- * shrinks. RuntimePane → AlertSheet in plan 004 U9 (V1).
+ * Renderer files allowed to open a native dialog through a preload bridge.
+ * Empty since plan 004 U9 moved the backend switch (V1) to an AlertSheet and
+ * dropped the dialog:showMessageBox IPC; keep it empty.
  */
-const NATIVE_DIALOG_ALLOWLIST = new Set<string>([
-  'app/overlays/settings/panes/RuntimePane.tsx',
-]);
+const NATIVE_DIALOG_ALLOWLIST = new Set<string>([]);
 
 /** The only electron file allowed to call dialog.showMessageBox: quit, port conflict, update failure. */
 const ELECTRON_DIALOG_FILES = new Set<string>(['main.ts']);

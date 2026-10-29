@@ -3,7 +3,8 @@ import { FilePlus, FolderPlus, Pencil, ExternalLink, Trash2 } from 'lucide-react
 import type { GitFileStatusCode } from '@argus/shared';
 import type { UseFileTreeResult, VisibleNode } from '../../hooks/useFileTree.js';
 import { api } from '../../services/api.js';
-import { AlertSheet, ContextMenu, pushToast } from '../primitives/index.js';
+import { AlertSheet, ContextMenu } from '../primitives/index.js';
+import { toastError } from '../../errors/toastError.js';
 import type { ContextMenuEntry } from '../primitives/index.js';
 import { FileTreeView } from './FileTreeView.js';
 
@@ -31,7 +32,14 @@ function dirOf(p: string): string {
 
 export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, onOpenFile, onActivateFile }: ExplorerFileTreeProps) {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // Only for an item the staged trash can't take (another volume): its delete
+  // is permanent, so it is confirmed first. Everything else deletes with Undo.
   const [pendingDelete, setPendingDelete] = useState<VisibleNode | null>(null);
+  const remove = (node: VisibleNode) => {
+    void tree.removePath(node.path, !node.entry.isFile).then((r) => {
+      if (r === 'needs-permanent') setPendingDelete(node);
+    });
+  };
 
   const buildItems = (node: VisibleNode | null): ContextMenuEntry[] => {
     // Where new items are created: inside a folder, alongside a file, or at root.
@@ -50,10 +58,10 @@ export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, o
           id: 'reveal',
           label: 'Reveal in Finder',
           icon: ExternalLink,
-          onClick: () => { void api.openPath(sessionId, node.path, true).catch((e: Error) => pushToast(e.message, 'danger')); },
+          onClick: () => { void api.openPath(sessionId, node.path, true).catch((e: unknown) => toastError(e, 'Couldn’t reveal it in Finder')); },
         },
         { separator: true },
-        { id: 'delete', label: 'Delete', icon: Trash2, shortcut: '⌫', danger: true, onClick: () => setPendingDelete(node) },
+        { id: 'delete', label: 'Delete', icon: Trash2, shortcut: '⌫', danger: true, onClick: () => remove(node) },
       );
     }
     return items;
@@ -96,13 +104,13 @@ export function ExplorerFileTree({ tree, sessionId, gitStatuses, selectedPath, o
         title={`Delete ${deleteName}?`}
         message={
           deleteIsDir
-            ? 'This permanently deletes the folder and everything inside it. This cannot be undone.'
-            : 'This permanently deletes the file. This cannot be undone.'
+            ? 'This folder is on another volume, so it can’t go to the Argus trash. Deleting it removes everything inside it for good. This cannot be undone.'
+            : 'This file is on another volume, so it can’t go to the Argus trash. Deleting it cannot be undone.'
         }
         confirmLabel="Delete"
         confirmDestructive
         onConfirm={() => {
-          if (pendingDelete) void tree.removePath(pendingDelete.path, deleteIsDir);
+          if (pendingDelete) void tree.removePath(pendingDelete.path, deleteIsDir, { permanent: true });
           setPendingDelete(null);
         }}
         onCancel={() => setPendingDelete(null)}

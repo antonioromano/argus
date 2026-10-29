@@ -22,6 +22,14 @@ vi.mock('../../../../components/primitives/index.js', async (orig) => ({
   pushToast: toasts.push,
 }));
 
+// Deferred delete (plan 004 U6): capture the offer so a test can run Undo
+// (revert) or the toast closing (commit) itself.
+const deferred = vi.hoisted(() => ({ offers: [] as { message: string; apply: () => void; commit: () => Promise<void>; revert: () => void }[] }));
+vi.mock('../../../../utils/undoable.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../utils/undoable.js')>()),
+  deferUndoable: (o: (typeof deferred.offers)[number]) => { deferred.offers.push(o); o.apply(); return { dismiss() {} }; },
+}));
+
 import { TemplatesSection } from './TemplatesSection.js';
 import { LaunchersPane } from './LaunchersPane.js';
 import { TemplateApiError } from '../../../../services/api.js';
@@ -43,6 +51,7 @@ beforeEach(() => {
   apiMock.getPathCompletions.mockResolvedValue([]);
   apiMock.listTemplates.mockResolvedValue([T]);
   toasts.push.mockClear();
+  deferred.offers.length = 0;
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -160,12 +169,23 @@ describe('TemplatesSection', () => {
     expect($('[data-testid="template-results"]')).toBeNull();
   });
 
-  it('delete asks inline first', async () => {
+  it('delete hides the row with no confirm; Undo restores it without a request', async () => {
     apiMock.deleteTemplate.mockResolvedValue(undefined);
     await render();
     await click(btn('template-delete'));
+    expect($$('[data-testid="template-row"]')).toHaveLength(0);
+    expect($('[data-testid="template-delete-confirm"]')).toBeNull();
+    await act(async () => { deferred.offers[0].revert(); });
+    expect($$('[data-testid="template-row"]')).toHaveLength(1);
     expect(apiMock.deleteTemplate).not.toHaveBeenCalled();
-    await click(btn('template-delete-confirm'));
+  });
+
+  it('the Undo window closing deletes the template exactly once', async () => {
+    apiMock.deleteTemplate.mockResolvedValue(undefined);
+    await render();
+    await click(btn('template-delete'));
+    await act(async () => { await deferred.offers[0].commit(); });
+    expect(apiMock.deleteTemplate).toHaveBeenCalledTimes(1);
     expect(apiMock.deleteTemplate).toHaveBeenCalledWith('t1');
   });
 });

@@ -1256,16 +1256,6 @@ export class GitService {
     }
   }
 
-  async revertFileToHead(folderPath: string, filePath: string): Promise<PatchOperationResponse> {
-    try {
-      await execGitWithStderr(['restore', '--source=HEAD', '--', filePath], folderPath);
-      return { success: true };
-    } catch (err) {
-      const e = err as { message?: string; stderr?: string };
-      return { success: false, error: e.stderr || e.message || 'Failed to revert file' };
-    }
-  }
-
   /**
    * Append one exact path to `<folderPath>/.gitignore`.
    *

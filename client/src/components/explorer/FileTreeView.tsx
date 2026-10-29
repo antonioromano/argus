@@ -169,6 +169,28 @@ export function FileTreeView({
                   onSubmit={(name) => onSubmitEdit?.(name)}
                   onCancel={() => onCancelEdit?.()}
                 />
+                {edit?.error && (
+                  // Floats under the input instead of growing the row: rows are
+                  // virtualized at a fixed height.
+                  <div
+                    role="alert"
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 8 + node.depth * INDENT_PX,
+                      right: 8,
+                      zIndex: 1,
+                      padding: 'var(--s-0-5) var(--s-1-5)',
+                      borderRadius: 'var(--r-1)',
+                      background: 'var(--bg-1)',
+                      border: '1px solid var(--danger)',
+                      color: 'var(--danger)',
+                      whiteSpace: 'normal',
+                    }}
+                  >
+                    {edit.error}
+                  </div>
+                )}
               </div>
             );
           }

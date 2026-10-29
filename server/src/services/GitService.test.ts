@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { GitService } from './GitService.js';
@@ -187,6 +187,32 @@ test('undoDiscard only restores a discard made in the same work root', async () 
   } finally {
     rmSync(repoA, { recursive: true, force: true });
     rmSync(repoB, { recursive: true, force: true });
+  }
+});
+
+// The agent may edit the same lines inside the undo window; re-applying the
+// discarded patch then fails, and the client shows git's reason.
+test('undoDiscard after an overlapping edit fails with git stderr and keeps the edit', async () => {
+  const repo = makeTempRepo();
+  try {
+    const git = new GitService();
+    writeFileSync(path.join(repo, 'file.txt'), 'hello\nworld\n');
+    const discard = await git.discardPatch(repo, {
+      filePath: 'file.txt',
+      source: 'unstaged',
+      chunks: [{ chunkIndex: 0, selectedChangeIndices: [0] }],
+    } as Parameters<GitService['discardPatch']>[1]);
+    assert.equal(discard.success, true, discard.error);
+
+    const edited = readFileSync(path.join(repo, 'file.txt'), 'utf8').replace(/^.*$/m, 'agent edit');
+    writeFileSync(path.join(repo, 'file.txt'), edited);
+
+    const undo = await git.undoDiscard(discard.undoId!, repo);
+    assert.equal(undo.success, false);
+    assert.match(undo.error ?? '', /patch|apply/i);
+    assert.equal(readFileSync(path.join(repo, 'file.txt'), 'utf8'), edited);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });
 

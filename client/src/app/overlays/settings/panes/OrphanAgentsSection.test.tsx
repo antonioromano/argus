@@ -40,7 +40,7 @@ describe('OrphanAgentsSection', () => {
     mocks.getOrphans.mockResolvedValue({ daemons: [], agents: [], totalRssKb: 0 });
     await render();
     expect(container.textContent).toContain('No orphan daemons');
-    expect(button('Kill selected')).toBeUndefined();
+    expect(button('Kill selected…')).toBeUndefined();
   });
 
   it('lists daemons with their agents and the total RSS', async () => {
@@ -51,13 +51,14 @@ describe('OrphanAgentsSection', () => {
     expect(container.textContent).toContain('claude · pid 201 · 880 MB · /Users/me/proj');
   });
 
-  it('kills only after the in-page confirmation, then rescans', async () => {
+  it('kills only after the sheet is confirmed, then rescans', async () => {
     await render();
-    expect(button('Kill selected')?.disabled).toBe(true);
+    expect(button('Kill selected…')?.disabled).toBe(true);
     await act(async () => { (container.querySelector('[role="checkbox"]') as HTMLElement).click(); });
-    await act(async () => { button('Kill selected')!.click(); });
+    await act(async () => { button('Kill selected…')!.click(); });
     expect(mocks.killOrphans).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('Stop 1 daemon(s) and their agents (900 MB)?');
+    expect(container.textContent).toContain('Stop 1 daemon(s) and their agents?');
+    expect(container.textContent).toContain('frees about 900 MB');
     mocks.getOrphans.mockResolvedValue({ daemons: [], agents: [], totalRssKb: 0 });
     await act(async () => { button('Kill')!.click(); await Promise.resolve(); });
     expect(mocks.killOrphans).toHaveBeenCalledWith([200]);
@@ -68,9 +69,9 @@ describe('OrphanAgentsSection', () => {
   it('cancel leaves everything running', async () => {
     await render();
     await act(async () => { (container.querySelector('[role="checkbox"]') as HTMLElement).click(); });
-    await act(async () => { button('Kill selected')!.click(); });
+    await act(async () => { button('Kill selected…')!.click(); });
     await act(async () => { button('Cancel')!.click(); });
     expect(mocks.killOrphans).not.toHaveBeenCalled();
-    expect(button('Kill selected')).toBeDefined();
+    expect(button('Kill selected…')).toBeDefined();
   });
 });

@@ -19,6 +19,14 @@ vi.mock('../../../../hooks/useSocket.js', () => {
   return { useSocket: () => socket };
 });
 
+// Deferred delete (plan 004 U6): capture the offer so a test can run Undo
+// (revert) or the toast closing (commit) itself.
+const deferred = vi.hoisted(() => ({ offers: [] as { message: string; apply: () => void; commit: () => Promise<void>; revert: () => void }[] }));
+vi.mock('../../../../utils/undoable.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../utils/undoable.js')>()),
+  deferUndoable: (o: (typeof deferred.offers)[number]) => { deferred.offers.push(o); o.apply(); return { dismiss() {} }; },
+}));
+
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
 const CHAIN: SessionChain = {
@@ -66,8 +74,20 @@ describe('ChainsSection', () => {
     expect(mocks.arm).toHaveBeenCalledWith('c1', true);
     expect(container.querySelector('[data-testid="chain-reason"]')).toBeNull();
     await act(async () => { (container.querySelector('button[aria-label="Remove chain"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-testid="chain-c1"]')).toBeNull();
+    expect(mocks.del).not.toHaveBeenCalled();
+    await act(async () => { await deferred.offers.at(-1)!.commit(); });
+    expect(mocks.del).toHaveBeenCalledTimes(1);
     expect(mocks.del).toHaveBeenCalledWith('c1');
     expect(container.querySelector('[data-testid="chain-c1"]')).toBeNull();
+  });
+
+  it('Undo on a removed chain brings it back with no request', async () => {
+    await render();
+    await act(async () => { (container.querySelector('button[aria-label="Remove chain"]') as HTMLButtonElement).click(); });
+    await act(async () => { deferred.offers.at(-1)!.revert(); });
+    expect(container.querySelector('[data-testid="chain-c1"]')).not.toBeNull();
+    expect(mocks.del).not.toHaveBeenCalled();
   });
 
   it('refetches on chains:changed and stops listening on unmount', async () => {

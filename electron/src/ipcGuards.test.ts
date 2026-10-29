@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appOrigin, isTrustedSender, isSessionId, isRect, isFontPx,
-  sanitizeMessageBoxOptions, sanitizeShortcuts, isMenuCommandId, menuInvokeTarget,
+  sanitizeShortcuts, isMenuCommandId, menuInvokeTarget,
 } from './ipcGuards.js';
 
 const ORIGIN = 'http://127.0.0.1:5757';
@@ -36,22 +36,6 @@ test('isSessionId / isRect / isFontPx shape guards', () => {
   assert.equal(isFontPx(13), true);
   assert.equal(isFontPx(0), false);
   assert.equal(isFontPx(Infinity), false);
-});
-
-test('sanitizeMessageBoxOptions keeps whitelisted fields only', () => {
-  const out = sanitizeMessageBoxOptions({
-    type: 'warning', message: 'Delete?', detail: 'd', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1,
-    icon: '/Users/x/evil.png', signal: {}, textWidth: 9999, noLink: true,
-  });
-  assert.deepEqual(out, { type: 'warning', message: 'Delete?', detail: 'd', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1 });
-});
-
-test('sanitizeMessageBoxOptions rejects malformed input', () => {
-  for (const bad of [null, 'x', [], {}, { message: 42 }, { message: '' }, { message: 'm', buttons: [] }, { message: 'm', buttons: [1] }, { message: 'm', buttons: Array(9).fill('b') }]) {
-    assert.equal(sanitizeMessageBoxOptions(bad), null, JSON.stringify(bad));
-  }
-  // Out-of-range ids and bad types are dropped, not trusted.
-  assert.deepEqual(sanitizeMessageBoxOptions({ message: 'm', buttons: ['OK'], defaultId: 5, type: 'evil' }), { message: 'm', buttons: ['OK'] });
 });
 
 test('sanitizeShortcuts: small string map only', () => {

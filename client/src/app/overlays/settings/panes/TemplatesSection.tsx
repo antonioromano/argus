@@ -10,6 +10,9 @@ import {
 import { Button, Section, TextInput, pushToast } from '../../../../components/primitives/index.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import { api, TemplateApiError } from '../../../../services/api.js';
+import { toastError } from '../../../../errors/toastError.js';
+import { PaneLoadState } from '../PaneLoadState.js';
+import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
 import { myWindowId } from '../../../../utils/windowId.js';
 import { base, blankSpec, describeSpec, fromTemplate, toRequest, type Draft, type DraftSpec } from './templateDraft.js';
 
@@ -42,7 +45,7 @@ function FolderInput({ value, onChange, error }: { value: string; onChange: (v: 
     try {
       const p = await api.pickFolder();
       if (p) onChange(p);
-    } catch (e) { pushToast(errMsg(e), 'danger'); }
+    } catch (e) { toastError(e, 'Couldn’t open the folder picker'); }
   };
   return (
     <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
@@ -137,25 +140,26 @@ function TemplateEditor({ draft, agents, onCancel, onSaved }: {
 export function TemplatesSection({ config }: { config: AppConfig }) {
   const agents = useMemo(() => [...BUILTIN_AGENTS, ...(config.customAgents ?? [])], [config.customAgents]);
   const [list, setList] = useState<SessionTemplate[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [confirmLaunch, setConfirmLaunch] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const { hidden, remove: deferRemove } = useDeferredRemove();
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [result, setResult] = useState<{ template: SessionTemplate; response: LaunchTemplateResponse } | null>(null);
 
   const refresh = useCallback(() => {
-    api.listTemplates().then((l) => { setLoadError(null); setList(l); }, (e: unknown) => setLoadError(errMsg(e)));
+    api.listTemplates().then((l) => { setLoadError(null); setList(l); }, (e: unknown) => setLoadError(e ?? new Error('Couldn’t load templates')));
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const remove = async (t: SessionTemplate) => {
-    setConfirmDelete(null);
-    try { await api.deleteTemplate(t.id); } catch (e) { pushToast(errMsg(e), 'danger'); return; }
-    pushToast(`Deleted ${t.name}`, 'ok');
-    refresh();
-  };
+  // Deferred: re-creating a template would change its id.
+  const remove = (t: SessionTemplate) => deferRemove(t.id, {
+    message: `Deleted ${t.name}`,
+    commit: () => api.deleteTemplate(t.id),
+    onCommitted: refresh,
+  });
+  const visible = list?.filter((t) => !hidden.has(t.id));
 
   const launch = async (t: SessionTemplate) => {
     setLaunching(true);
@@ -186,7 +190,7 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
       <div className="setting-row"><div className="setting-row-hint">
         Start up to {TEMPLATE_MAX_SPECS} shells at once into a new group — each in its own folder, optionally on a new worktree branch with a first prompt.
       </div></div>
-      {loadError && <div className="setting-row" data-testid="templates-error"><div className="setting-row-hint">Could not load templates: {loadError}</div></div>}
+      <PaneLoadState loaded={list !== null} error={loadError} errorTitle="Couldn’t load templates" onRetry={refresh} testId="templates-error" />
       {editing && (
         <TemplateEditor
           key={editing.id ?? 'new'}
@@ -196,10 +200,10 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
           onSaved={() => { setEditing(null); refresh(); }}
         />
       )}
-      {list?.length === 0 && !editing && (
+      {visible?.length === 0 && !editing && !loadError && (
         <div className="setting-row"><div className="setting-row-hint">No templates yet.</div></div>
       )}
-      {list?.map((t) => (
+      {visible?.map((t) => (
         <div key={t.id} data-testid="template-row" className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -208,15 +212,7 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
             </div>
             <span data-testid="template-launch"><Button size="sm" variant="primary" disabled={launching} onClick={() => { setResult(null); setLaunchError(null); setConfirmLaunch(t.id); }}>Launch</Button></span>
             <span data-testid="template-edit"><Button size="sm" variant="ghost" onClick={() => { setResult(null); setEditing(fromTemplate(t)); }}>Edit</Button></span>
-            {confirmDelete === t.id ? (
-              <>
-                <span className="setting-row-hint">Delete {t.name}?</span>
-                <span data-testid="template-delete-confirm"><Button size="sm" variant="ghost" danger onClick={() => void remove(t)}>Confirm</Button></span>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-              </>
-            ) : (
-              <span data-testid="template-delete"><Button size="sm" variant="ghost" danger onClick={() => setConfirmDelete(t.id)}>Delete</Button></span>
-            )}
+            <span data-testid="template-delete"><Button size="sm" variant="ghost" danger onClick={() => remove(t)}>Delete</Button></span>
           </div>
 
           {confirmLaunch === t.id && (

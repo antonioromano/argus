@@ -1,8 +1,8 @@
+import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Section, Segmented, Icon, Toggle } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Segmented, Icon, Toggle } from '../../../../components/primitives/index.js';
 import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
-import { showNativeMessageBox } from '../../../../utils/nativeDialog.js';
 import type { PaneProps } from '../types.js';
 import { OrphanAgentsSection } from './OrphanAgentsSection.js';
 import { SettingAnchor, SettingField } from '../SettingField.js';
@@ -18,21 +18,19 @@ import { SETTINGS_BY_ID, settingHint } from '../catalog.js';
 export function RuntimePane({ config, onSave }: PaneProps) {
   const backend: Backend = config.ptyBackend ?? 'auto';
 
-  const changeBackend = async (target: Backend) => {
-    if (target === backend) return;
-    const choice = await showNativeMessageBox({
-      type: 'question',
-      message: target === 'auto' ? 'Switch to the argusd daemon backend?' : 'Switch to the legacy tmux backend?',
-      detail:
-        'Running sessions stay on their current backend. The switch applies to sessions hosted after the app restarts. '
-        + 'Direct sessions stop on restart.',
-      buttons: ['Cancel', 'Apply on next launch', 'Restart now'],
-      defaultId: 2,
-      cancelId: 0,
-    }).catch(() => 0);
-    if (choice === 0) return; // Cancel — Segmented is config-controlled, so it snaps back
+  // An in-app choice between two paths, so a sheet, not a native dialog
+  // (docs/design/feedback-surfaces.md). Cancel leaves the config alone, and
+  // Segmented is config-controlled, so it snaps back.
+  const [pendingBackend, setPendingBackend] = useState<Backend | null>(null);
+  const changeBackend = (target: Backend) => {
+    if (target !== backend) setPendingBackend(target);
+  };
+  const applyBackend = async (restart: boolean) => {
+    const target = pendingBackend;
+    setPendingBackend(null);
+    if (!target) return;
     await onSave({ ptyBackend: target });
-    if (choice === 2) window.electronApp?.relaunch();
+    if (restart) window.electronApp?.relaunch();
   };
 
   return (
@@ -63,7 +61,7 @@ export function RuntimePane({ config, onSave }: PaneProps) {
             label="Process backend"
             value={backend}
             options={BACKEND_OPTIONS}
-            onChange={(v) => { void changeBackend(v); }}
+            onChange={changeBackend}
           />
         </SettingField>
       </Section>
@@ -92,6 +90,19 @@ export function RuntimePane({ config, onSave }: PaneProps) {
           <Toggle checked={config.debugToolsEnabled ?? false} onChange={(v) => onSave({ debugToolsEnabled: v })} />
         </SettingField>
       </Section>
+
+      <AlertSheet
+        isOpen={pendingBackend !== null}
+        title={pendingBackend === 'auto' ? 'Switch to the argusd daemon backend?' : 'Switch to the legacy tmux backend?'}
+        message={
+          'Running sessions stay on their current backend. The switch applies to sessions hosted after Argus restarts. '
+          + 'Direct sessions stop on restart.'
+        }
+        confirmLabel="Restart now"
+        altAction={{ label: 'Apply on next launch', onClick: () => { void applyBackend(false); } }}
+        onConfirm={() => { void applyBackend(true); }}
+        onCancel={() => setPendingBackend(null)}
+      />
     </>
   );
 }

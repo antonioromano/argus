@@ -23,6 +23,7 @@
  * Monaco and text inputs own it.
  */
 import { pushToast, type ToastHandle } from '../components/primitives/Toast.js';
+import { toastError } from '../errors/toastError.js';
 
 /** Closing a session, deleting a list row or group. */
 export const UNDO_WINDOW_SHORT_MS = 6000;
@@ -44,10 +45,6 @@ const open: OpenOffer[] = [];
 function leave(offer: OpenOffer) {
   const i = open.indexOf(offer);
   if (i !== -1) open.splice(i, 1);
-}
-
-function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 /** Runs `fn`, sync or async, and routes any failure to `onError`. */
@@ -98,7 +95,7 @@ export function deferUndoable(opts: DeferUndoableOptions): ToastHandle {
     leave(offer);
     return true;
   };
-  const reportRevertFailure = (err: unknown) => pushToast(`Couldn’t undo: ${errorText(err)}`, 'danger');
+  const reportRevertFailure = (err: unknown) => { toastError(err, 'Couldn’t undo'); };
 
   const offer: OpenOffer = {
     message,
@@ -119,7 +116,7 @@ export function deferUndoable(opts: DeferUndoableOptions): ToastHandle {
       if (!settle()) return;
       void attempt(commit, (err) => {
         void attempt(revert, reportRevertFailure);
-        pushToast(`${failurePrefix}: ${errorText(err)}`, 'danger');
+        toastError(err, failurePrefix);
       });
     },
   });
@@ -155,7 +152,7 @@ export function offerUndo(opts: OfferUndoOptions): ToastHandle {
       if (!settle()) return;
       handle?.dismiss();
       void attempt(undo, (err) => {
-        pushToast(`Couldn’t ${actionLabel.toLowerCase()}: ${errorText(err)}`, 'danger');
+        toastError(err, `Couldn’t ${actionLabel.toLowerCase()}`);
       });
     },
   };

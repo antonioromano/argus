@@ -9,7 +9,8 @@ import { atomicWrite } from '../utils/atomicWrite.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { BINARY_EXTENSIONS, EXCLUDED_SEARCH_DIRS, EXCLUDED_SEARCH_EXTS } from '../utils/searchExclusions.js';
 import type { SessionManager } from '../services/SessionManager.js';
-import type { ApiErrorBody, WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
+import type { ApiErrorBody, WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse, RestoreFileRequest } from '@argus/shared';
+import type { StagedTrash } from '../services/StagedTrash.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { getRipgrepPath } from '../utils/ripgrep.js';
 import { sendError } from '../errors/ArgusError.js';
@@ -86,6 +87,8 @@ export function createFilesystemRoutes(
     pickFolder?: () => Promise<string | null>;
     /** ripgrep lookup; injectable so tests can simulate a build without it. */
     ripgrepPath?: () => string | null;
+    /** Staged trash behind DELETE /file. Without it a delete is permanent. */
+    trash?: StagedTrash;
   },
 ): Router {
   const ripgrepPath = options?.ripgrepPath ?? getRipgrepPath;
@@ -555,7 +558,7 @@ export function createFilesystemRoutes(
   });
 
   router.delete('/file', express.json(), async (req, res) => {
-    const { sessionId, path: rawPath } = req.body as DeleteFileRequest;
+    const { sessionId, path: rawPath, permanent } = req.body as DeleteFileRequest;
 
     const validated = validateDestructivePath(sessionManager, sessionId, rawPath);
     if ('error' in validated) {
@@ -564,6 +567,26 @@ export function createFilesystemRoutes(
     }
 
     const { resolved } = validated;
+    const trash = options?.trash;
+
+    // Undoable by default: move into the staged trash. Across volumes the move
+    // fails with EXDEV, and the client asks before deleting for good.
+    if (trash && permanent !== true) {
+      try {
+        const undoId = await trash.stage(resolved, sessionId);
+        res.json({ success: true, undoId } satisfies FileCrudResponse);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'EXDEV') {
+          res.status(409).json({ success: false, error: 'This item is on another volume, so deleting it cannot be undone', needsPermanent: true } satisfies FileCrudResponse);
+        } else if (code === 'ENOENT') {
+          res.status(404).json({ success: false, error: 'file or directory not found', code: 'FOLDER_NOT_FOUND' });
+        } else {
+          sendError(res, err, undefined, { success: false });
+        }
+      }
+      return;
+    }
 
     try {
       const fileStat = await stat(resolved);
@@ -581,6 +604,28 @@ export function createFilesystemRoutes(
         sendError(res, err, undefined, { success: false });
       }
     }
+  });
+
+  // Undo of DELETE /file. The staged trash checks the session and that the
+  // original path is free; the scope check is the destructive one, so a path
+  // that now resolves outside the session (or to its root) is refused.
+  router.post('/file/restore', express.json(), async (req, res) => {
+    const { sessionId, undoId } = (req.body ?? {}) as RestoreFileRequest;
+    const trash = options?.trash;
+    if (!trash || typeof sessionId !== 'string' || typeof undoId !== 'string' || !sessionId || !undoId) {
+      res.status(400).json({ success: false, error: 'sessionId and undoId are required' } satisfies FileCrudResponse);
+      return;
+    }
+    if (!sessionManager.getSession(sessionId)) {
+      res.status(404).json({ success: false, error: 'session not found' } satisfies FileCrudResponse);
+      return;
+    }
+    const result = await trash.restore(undoId, sessionId, (origin) => {
+      const v = validateDestructivePath(sessionManager, sessionId, origin);
+      return 'error' in v ? null : v.resolved;
+    });
+    if (result.ok) res.json({ success: true } satisfies FileCrudResponse);
+    else res.status(result.status).json({ success: false, error: result.error } satisfies FileCrudResponse);
   });
 
   router.post('/move', express.json(), async (req, res) => {

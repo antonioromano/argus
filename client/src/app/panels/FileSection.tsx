@@ -4,8 +4,6 @@ import type { LucideIcon } from 'lucide-react';
 import { useDiffInlineEdit } from '../../hooks/useDiffInlineEdit.js';
 import type { ChangeBlock } from '../overlays/diff/changeBlocks.js';
 import type { FileModel } from '../overlays/diff/diffModel.js';
-import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
-import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { DiffViewer } from './DiffViewer.js';
 import { Icon } from '../../components/primitives/index.js';
 
@@ -134,8 +132,6 @@ export function FileSection({
   unstageBusy = false,
 }: FileSectionProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const [pendingRollback, setPendingRollback] = useState(false);
-  const { skip: skipConfirm, toggle: toggleSkipConfirm } = useSkipRevertConfirm();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -158,16 +154,6 @@ export function FileSection({
   });
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
-
-  const requestRollback = useCallback(() => {
-    if (skipConfirm) void onRollback?.();
-    else setPendingRollback(true);
-  }, [skipConfirm, onRollback]);
-
-  const confirmRollback = useCallback(async () => {
-    await onRollback?.();
-    setPendingRollback(false);
-  }, [onRollback]);
 
   const selection = isUnstaged
     ? { isChecked, toggle: onToggleBlock, revert: onRevertBlock }
@@ -249,7 +235,7 @@ export function FileSection({
               tone="danger"
               busy={rollbackBusy}
               title="Discard all changes in this file"
-              onClick={requestRollback}
+              onClick={() => void onRollback()}
             />
           )}
           {file.source === 'staged' && onUnstage && (
@@ -282,27 +268,6 @@ export function FileSection({
           )}
         </div>
       </div>
-
-      {pendingRollback && (
-        <div
-          style={{
-            padding: '10px var(--s-4)',
-            background: 'color-mix(in srgb, var(--danger) 7%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
-          }}
-        >
-          <RevertConfirmCard
-            title="Roll back all changes?"
-            subtitle="Cannot be undone."
-            confirmLabel={rollbackBusy ? 'Rolling back' : 'Roll back'}
-            busy={rollbackBusy}
-            skip={skipConfirm}
-            onToggleSkip={toggleSkipConfirm}
-            onCancel={() => setPendingRollback(false)}
-            onConfirm={() => void confirmRollback()}
-          />
-        </div>
-      )}
 
       {!collapsed && (
         bodyMounted ? (

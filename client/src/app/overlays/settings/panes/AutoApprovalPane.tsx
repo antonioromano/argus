@@ -6,7 +6,9 @@ import {
   type AutoApprovalRule,
   type AutoApprovalTool,
 } from '@argus/shared';
-import { Button, Section, Segmented, TextInput, Toggle, pushToast } from '../../../../components/primitives/index.js';
+import { AlertSheet, Button, Section, Segmented, TextInput, Toggle } from '../../../../components/primitives/index.js';
+import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
+import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
@@ -39,12 +41,12 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
   const [folders, setFolders] = useState<AutoApprovalFolder[] | null>(null);
   const [folder, setFolder] = useState<string>('');
   const [state, setState] = useState<AutoApprovalFolderState | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [tool, setTool] = useState<AutoApprovalTool>('Bash');
   const [pattern, setPattern] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const { hidden, remove: deferRemove } = useDeferredRemove();
   const [claudeMode, setClaudeMode] = useState<string | null>(null);
 
   const loadFolders = useCallback(() => api.getAutoApprovalFolders().then(
@@ -53,14 +55,14 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
       setLoadError(null);
       setFolder((cur) => (cur && list.some((f) => f.folder === cur) ? cur : list[0]?.folder ?? ''));
     },
-    (e: unknown) => setLoadError(errMsg(e)),
+    (e: unknown) => setLoadError(e ?? new Error('Couldn’t load auto-approval folders')),
   ), []);
 
   const loadRules = useCallback((f: string) => {
     if (!f) return Promise.resolve().then(() => setState(null));
     return api.getAutoApprovalRules(f).then(
       (s) => { setState(s); setLoadError(null); },
-      (e: unknown) => setLoadError(errMsg(e)),
+      (e: unknown) => setLoadError(e ?? new Error('Couldn’t load the rules')),
     );
   }, []);
 
@@ -86,14 +88,14 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
     }
   };
 
-  const remove = async (id: string) => {
-    setConfirmRemove(null);
-    try {
-      await api.removeAutoApprovalRule(folder, id);
-    } catch (e) {
-      pushToast(errMsg(e), 'danger');
-    }
-    await Promise.all([loadRules(folder), loadFolders()]);
+  // Deferred: re-creating a rule would give it a new id.
+  const remove = (r: AutoApprovalRule) => {
+    const from = folder;
+    deferRemove(r.id, {
+      message: `Removed rule ${describeRule(r)}`,
+      commit: () => api.removeAutoApprovalRule(from, r.id),
+      onCommitted: () => { void Promise.all([loadRules(from), loadFolders()]); },
+    });
   };
 
   return (
@@ -108,16 +110,14 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
             }}
           />
         </SettingField>
-        {confirmEnable && !enabled && (
-          <div className="settings-card-pad" role="alertdialog" aria-label="Confirm auto-approval"
-            style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>
-            <span style={{ flex: 1 }}>Tool calls matching your rules will run without asking. Turn on?</span>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmEnable(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={() => { setConfirmEnable(false); void onSave({ autoApprovalEnabled: true }); }}>
-              Turn on
-            </Button>
-          </div>
-        )}
+        <AlertSheet
+          isOpen={confirmEnable && !enabled}
+          title="Turn on auto-approval?"
+          message="Tool calls matching your rules will run without asking."
+          confirmLabel="Turn on"
+          onConfirm={() => { setConfirmEnable(false); void onSave({ autoApprovalEnabled: true }); }}
+          onCancel={() => setConfirmEnable(false)}
+        />
       </Section>
 
       <Section
@@ -131,8 +131,13 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
               <code> default</code> and <code>acceptEdits</code> modes, where an allow means skipping a prompt you would otherwise see.
             </p>
           )}
-          {loadError && <p role="alert" style={{ margin: 0, color: 'var(--danger)' }}>{loadError}</p>}
-          {folders && folders.length === 0 && (
+          <PaneLoadState
+            loaded={folders !== null}
+            error={loadError}
+            errorTitle="Couldn’t load auto-approval rules"
+            onRetry={() => { void loadFolders().then(() => loadRules(folder)); }}
+          />
+          {folders && folders.length === 0 && !loadError && (
             <p style={{ margin: 0, color: 'var(--fg-3)' }}>No session folders yet. Open a session to add rules for its folder.</p>
           )}
           {folders && folders.length > 0 && (
@@ -141,7 +146,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
               <select
                 aria-label="Folder"
                 value={folder}
-                onChange={(e) => { setConfirmRemove(null); setFolder(e.target.value); }}
+                onChange={(e) => setFolder(e.target.value)}
                 style={{ flex: 1, minWidth: 0, height: 28, background: 'var(--bg-3)', color: 'var(--fg-0)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)' }}
               >
                 {folders.map((f) => (
@@ -155,23 +160,15 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
 
           {state && (
             <>
-              {state.rules.length === 0 && (
+              {state.rules.every((r) => hidden.has(r.id)) && (
                 <p style={{ margin: 0, color: 'var(--fg-3)' }}>No rules for this folder. Nothing is auto-approved here.</p>
               )}
-              {state.rules.map((r) => (
+              {state.rules.filter((r) => !hidden.has(r.id)).map((r) => (
                 <div key={r.id} data-testid="aa-rule" style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 28 }}>
                   <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', color: 'var(--fg-0)' }}>
                     {describeRule(r)}
                   </code>
-                  {confirmRemove === r.id ? (
-                    <>
-                      <span style={{ color: 'var(--fg-1)' }}>Remove?</span>
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Cancel</Button>
-                      <Button size="sm" variant="danger" onClick={() => { void remove(r.id); }}>Remove</Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(r.id)}>Remove…</Button>
-                  )}
+                  <Button size="sm" variant="ghost" onClick={() => remove(r)}>Remove</Button>
                 </div>
               ))}
 

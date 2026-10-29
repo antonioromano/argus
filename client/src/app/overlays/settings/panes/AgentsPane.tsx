@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag } from 'lucide-react';
 import {
@@ -8,9 +8,11 @@ import {
   IconButton,
   Button,
   TextInput,
-  AlertSheet,
   Icon,
 } from '../../../../components/primitives/index.js';
+import { offerUndo } from '../../../../utils/undoable.js';
+import { toastError } from '../../../../errors/toastError.js';
+import { restoreCustomAgentPatch } from './restoreCustomAgent.js';
 import { AgentGlyph } from '../../../ui/AgentGlyph.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import type { PaneProps } from '../types.js';
@@ -36,7 +38,9 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
   const [editingAgent, setEditingAgent] = useState<{ id: string | null; name: string; command: string; installUrl: string } | null>(null);
   const [agentFormError, setAgentFormError] = useState<string | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
-  const [removingAgent, setRemovingAgent] = useState<AgentDefinition | null>(null);
+  // The latest config, for an Undo that runs after other edits landed.
+  const configRef = useRef(config);
+  useEffect(() => { configRef.current = config; }, [config]);
 
   const toggleAgent = (agentId: string) => {
     setExpandedAgent((prev) => (prev === agentId ? null : agentId));
@@ -77,19 +81,20 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
     }
   };
 
-  const confirmRemoveAgent = async () => {
-    if (!removingAgent) return;
-    const id = removingAgent.id;
-    const nextAgents = config.customAgents.filter((a) => a.id !== id);
-    const nextFlags = { ...config.agentFlags };
+  // Config slices restore exactly, so removing asks nothing and offers Undo,
+  // which merges the agent back into whatever the config is by then.
+  const removeAgent = async (agent: AgentDefinition) => {
+    const before = configRef.current;
+    const id = agent.id;
+    const nextFlags = { ...before.agentFlags };
     delete nextFlags[id];
-    const patch: Partial<AppConfig> = { customAgents: nextAgents, agentFlags: nextFlags };
-    if (config.defaultAgent === id) patch.defaultAgent = 'claude';
-    try {
-      await onSave(patch);
-    } finally {
-      setRemovingAgent(null);
-    }
+    const patch: Partial<AppConfig> = { customAgents: before.customAgents.filter((a) => a.id !== id), agentFlags: nextFlags };
+    if (before.defaultAgent === id) patch.defaultAgent = 'claude';
+    await onSave(patch);
+    offerUndo({
+      message: `Removed ${agent.name}`,
+      undo: async () => { await onSave(restoreCustomAgentPatch(configRef.current, before, id)); },
+    });
   };
 
   const handleAddFlag = async (agentId: string) => {
@@ -204,7 +209,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                   {!a.builtin && (
                     <>
                       <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => { e.stopPropagation(); startEditAgent(a); }} />
-                      <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => { e.stopPropagation(); setRemovingAgent(a); }} />
+                      <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => { e.stopPropagation(); void removeAgent(a).catch((err: unknown) => toastError(err, `Couldn’t remove ${a.name}`)); }} />
                     </>
                   )}
                   {expanded
@@ -273,16 +278,6 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
           })}
         </Section>
       </SettingAnchor>
-
-      <AlertSheet
-        isOpen={removingAgent !== null}
-        title="Remove agent?"
-        message={`Remove "${removingAgent?.name ?? ''}"? Its saved flags will be cleared. This does not uninstall the CLI.`}
-        confirmLabel="Remove agent"
-        confirmDestructive
-        onConfirm={() => void confirmRemoveAgent()}
-        onCancel={() => setRemovingAgent(null)}
-      />
     </>
   );
 }

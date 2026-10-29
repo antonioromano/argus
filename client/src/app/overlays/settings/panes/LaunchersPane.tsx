@@ -3,13 +3,15 @@ import type { Launcher } from '@argus/shared';
 import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
+import { PaneLoadState } from '../PaneLoadState.js';
+import { toastError } from '../../../../errors/toastError.js';
 import { isBetaEnabled } from '../../../../utils/betaFlags.js';
 import { TemplatesSection } from './TemplatesSection.js';
+import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
 
 /** The deep-link scheme main registered (argus / argus-dev); main is the source of truth. */
 const scheme = () => window.electronLaunch?.scheme || 'argus';
 const base = (p: string) => p.replace(/\/+$/, '').split('/').pop() || p;
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const EXAMPLE = () => `${scheme()}://new?agent=claude&folder=~/development/my-repo&prompt=hello`;
 
 export function LaunchersPane({ config, onSave }: PaneProps) {
@@ -19,56 +21,57 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
   const configRoots = (config.launchFolderRoots ?? []).join('\n');
   const [roots, setRoots] = useState(configRoots);
   const rootsFocused = useRef(false);
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const { hidden, remove: deferRemove } = useDeferredRemove();
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [editing, setEditing] = useState<{ id: string; draft: string } | null>(null);
   const refresh = useCallback(() => {
-    bridge?.list().then((l) => { setLoadError(null); setList(l); }, (e: unknown) => setLoadError(errMsg(e)));
+    bridge?.list().then((l) => { setLoadError(null); setList(l); }, (e: unknown) => setLoadError(e ?? new Error('Couldn’t load launchers')));
   }, [bridge]);
   useEffect(() => { refresh(); }, [refresh]);
   // Follow external config changes (footer Reset, another window) unless the user is typing.
   useEffect(() => { if (!rootsFocused.current) setRoots(configRoots); }, [configRoots]);
 
-  const remove = async (l: Launcher) => {
-    setConfirming(null);
-    try {
+  // Deferred: re-creating a launcher over IPC is deliberately impossible, so
+  // the delete waits out the Undo window instead of being reversed.
+  const remove = (l: Launcher) => deferRemove(l.id, {
+    message: `Deleted ${l.label}`,
+    commit: async () => {
       const r = await bridge!.remove(l.id);
-      if (!r.ok) { pushToast(r.error, 'danger'); return; }
-    } catch (e) { pushToast(errMsg(e), 'danger'); return; }
-    pushToast(`Deleted ${l.label}`, 'ok');
-    refresh();
-  };
+      if (!r.ok) throw new Error(r.error);
+    },
+    onCommitted: refresh,
+  });
   // Inline edit: Electron does not implement window.prompt().
   const saveRename = async () => {
     if (!editing || !editing.draft.trim()) return;
     try {
       const r = await bridge!.rename(editing.id, editing.draft);
-      if (!r.ok) { pushToast(r.error, 'danger'); return; }
-    } catch (e) { pushToast(errMsg(e), 'danger'); return; }
+      if (!r.ok) { toastError(new Error(r.error), 'Couldn’t rename the launcher'); return; }
+    } catch (e) { toastError(e, 'Couldn’t rename the launcher'); return; }
     setEditing(null);
     refresh();
   };
   const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => pushToast('Link copied', 'ok'), (e: unknown) => pushToast(errMsg(e), 'danger'));
+    navigator.clipboard.writeText(text).then(() => pushToast('Link copied', 'ok'), (e: unknown) => toastError(e, 'Couldn’t copy the link'));
   };
   const saveRoots = async () => {
     rootsFocused.current = false;
     const next = roots.split('\n').map((r) => r.trim()).filter(Boolean);
     if (next.join('\n') === configRoots) { setRoots(configRoots); return; }
-    try { await onSave({ launchFolderRoots: next }); } catch (e) { pushToast(errMsg(e), 'danger'); }
+    try { await onSave({ launchFolderRoots: next }); } catch (e) { toastError(e, 'Couldn’t save the folder roots'); }
   };
 
   return (
     <>
       <Section title="Launchers">
         {!bridge && <div className="setting-row"><div className="setting-row-hint">Launchers are available in the desktop app.</div></div>}
-        {bridge && list?.length === 0 && (
+        {bridge && (
+          <PaneLoadState loaded={list !== null} error={loadError} errorTitle="Couldn’t load launchers" onRetry={refresh} testId="launchers-error" />
+        )}
+        {bridge && !loadError && list?.length === 0 && (
           <div className="setting-row"><div className="setting-row-hint">No launchers. Approve a launch link and choose Save as launcher.</div></div>
         )}
-        {bridge && loadError && (
-          <div className="setting-row" data-testid="launchers-error"><div className="setting-row-hint">Could not load launchers: {loadError}</div></div>
-        )}
-        {list?.map((l) => (
+        {list?.filter((l) => !hidden.has(l.id)).map((l) => (
           <div key={l.id} className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -86,15 +89,7 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
               </div>
               <Button size="sm" variant="ghost" onClick={() => copy(`${scheme()}://run/${l.id}`)}>Copy link</Button>
               <span data-testid="launcher-rename" onClick={() => setEditing({ id: l.id, draft: l.label })}><Button size="sm" variant="ghost">Rename</Button></span>
-              {confirming === l.id ? (
-                <>
-                  <span className="setting-row-hint">Delete {l.label}?</span>
-                  <span data-testid="launcher-delete-confirm" onClick={() => void remove(l)}><Button size="sm" variant="ghost" danger>Confirm</Button></span>
-                  <span data-testid="launcher-delete-cancel" onClick={() => setConfirming(null)}><Button size="sm" variant="ghost">Cancel</Button></span>
-                </>
-              ) : (
-                <span data-testid="launcher-delete" onClick={() => setConfirming(l.id)}><Button size="sm" variant="ghost" danger>Delete</Button></span>
-              )}
+              <span data-testid="launcher-delete" onClick={() => remove(l)}><Button size="sm" variant="ghost" danger>Delete</Button></span>
               <span data-testid="launcher-expand" onClick={() => setOpen(open === l.id ? null : l.id)}><Button size="sm" variant="ghost">{open === l.id ? 'Hide' : 'Details'}</Button></span>
             </div>
             {open === l.id && (
