@@ -63,6 +63,15 @@ export function GeneralPane({ config, onSave }: PaneProps) {
       <Section title="Naming">
         <OthersFolderName saved={config.othersFolderName ?? 'Others'} onSave={onSave} />
       </Section>
+
+      <Section title="Windows">
+        <SettingField id="restoreLayoutOnLaunch">
+          <Toggle
+            checked={config.restoreLayoutOnLaunch ?? true}
+            onChange={(v) => onSave({ restoreLayoutOnLaunch: v })}
+          />
+        </SettingField>
+      </Section>
     </>
   );
 }

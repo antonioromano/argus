@@ -79,6 +79,8 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
       'typography', 'font', 'font size', 'text size', 'code font', 'interface font', 'terminal font', 'zoom', 'bigger', 'smaller',
       // was Toolbar
       'clock', 'time', 'seconds', 'toolbar',
+      // plan 009
+      'status bar', 'footer', 'connection', 'daemon',
       // plan 008
       'density', 'compact', 'comfortable', 'spacing', 'rows', 'dense',
     ],
@@ -124,6 +126,8 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
       'power', 'sleep', 'awake', 'caffeinate', 'idle', 'battery',
       // was Groups
       'groups', 'group', 'folder', 'others', 'ungrouped', 'bucket', 'name', 'naming',
+      // plan 009
+      'restore', 'reopen', 'launch', 'window', 'layout', 'remember',
     ],
   },
   {

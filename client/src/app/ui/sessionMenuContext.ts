@@ -18,6 +18,8 @@ export interface SessionMenuApi {
   isRenaming: (id: string, surface: SessionSurface) => boolean;
   commitRename: (id: string, name: string) => void;
   cancelRename: () => void;
+  /** Open the "Color & emoji…" editor for a session, at a point or centred. */
+  editIdentity: (session: SessionInfo, at?: { x: number; y: number }) => void;
 }
 
 /** Inert default so a surface rendered outside the provider (tests, the mobile
@@ -29,6 +31,7 @@ const noop: SessionMenuApi = {
   isRenaming: () => false,
   commitRename: () => {},
   cancelRename: () => {},
+  editIdentity: () => {},
 };
 
 export const SessionMenuContext = createContext<SessionMenuApi>(noop);

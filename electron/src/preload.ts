@@ -37,11 +37,6 @@ contextBridge.exposeInMainWorld('electronFiles', {
   getPath: (name: string): string | undefined => pathMap.get(name),
 });
 
-contextBridge.exposeInMainWorld('electronDialog', {
-  showMessageBox: (opts: Electron.MessageBoxOptions) =>
-    ipcRenderer.invoke('dialog:showMessageBox', opts),
-});
-
 // App-level IPC bridge: menu commands main → renderer; Dock badge renderer → main.
 //
 // Every renderer-run menu item arrives as ONE `menu:command` message carrying
@@ -130,7 +125,7 @@ contextBridge.exposeInMainWorld('electronHelp', {
 });
 
 // Native terminal overlay bridge. A
-// new flat namespace, matching the existing electronFiles / electronDialog /
+// new flat namespace, matching the existing electronFiles /
 // electronApp convention — there is no `window.argus` object in this codebase.
 interface NativeTerminalRect { x: number; y: number; width: number; height: number }
 interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }

@@ -41,6 +41,18 @@ describe('buildSessionMenuItems', () => {
     expect(a.onRename).toHaveBeenCalledWith(session);
   });
 
+  it('offers Color & emoji… right after rename, only when the surface wires the editor', () => {
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('identity');
+    const onEditIdentity = vi.fn();
+    const entries = buildSessionMenuItems(session, actions({ onEditIdentity }));
+    const order = ids(entries);
+    expect(order[order.indexOf('rename') + 1]).toBe('identity');
+    const item = entries.find((e) => 'id' in e && e.id === 'identity') as { label: string; onClick: () => void };
+    expect(item.label).toBe('Color & emoji…');
+    item.onClick();
+    expect(onEditIdentity).toHaveBeenCalledWith(session);
+  });
+
   it('omits minimize on surfaces that cannot minimize', () => {
     expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('minimize');
     expect(ids(buildSessionMenuItems(session, actions({ onToggleMinimize: vi.fn() })))).toContain('minimize');

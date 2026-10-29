@@ -4,6 +4,7 @@ import { Inbox } from 'lucide-react';
 import { Checkbox, Kbd, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
+import { displayLabel } from '../../utils/sessionLabel.js';
 
 interface WaitingInboxProps {
   sessions: SessionInfo[];
@@ -178,7 +179,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {s.name}
+                    {displayLabel(s)}
                   </span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                     {s.agentType} · {s.folderPath.split('/').slice(-2).join('/')}

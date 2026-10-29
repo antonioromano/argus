@@ -26,6 +26,8 @@ import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } fr
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 import { ActivityPanel } from '../panels/ActivityPanel.js';
 import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
@@ -298,7 +300,9 @@ export function Focus({
       <div ref={splitRef} style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: stacked ? CONVERSATION_MIN_HEIGHT : 0 }}>
           <div
+            data-identity-edge={identityEdgeProps(active.color, theme === 'dark')['data-identity-edge']}
             style={{
+              ...identityEdgeProps(active.color, theme === 'dark').style,
               position: 'relative', // anchors the running hairline
               display: 'flex',
               alignItems: 'center',
@@ -313,6 +317,7 @@ export function Focus({
           >
             <AgentGlyph agent={active.agentType} size={16} />
             <StatusPill status={active.status} />
+            <SessionIdentity session={active} />
             {sessionMenu.isRenaming(active.id, 'focus') ? (
               <SessionRenameInput
                 initial={shellLabel(active)}

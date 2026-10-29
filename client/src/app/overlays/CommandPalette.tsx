@@ -9,6 +9,7 @@ import { isMac, isPrimaryModifier } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
 import { Kbd, Tooltip, StatusPill, Icon } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { displayLabel } from '../../utils/sessionLabel.js';
 
 const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
@@ -472,7 +473,7 @@ export function CommandPalette({
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {s.name}
+                      {displayLabel(s)}
                     </span>
                     <span style={{ flex: 1 }} />
                     <span
@@ -723,7 +724,7 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
           <AgentGlyph agent={session.agentType} size={18} />
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-lg)', fontWeight: 600, color: 'var(--fg-0)' }}>
-            {session.name}
+            {displayLabel(session)}
           </span>
         </div>
         <StatusPill status={session.status} />

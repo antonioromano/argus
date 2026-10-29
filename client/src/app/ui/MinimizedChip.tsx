@@ -4,6 +4,9 @@ import { AgentGlyph } from './AgentGlyph.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from './sessionMenuContext.js';
 import { SessionRenameInput } from './SessionRenameInput.js';
+import { SessionIdentity } from './SessionIdentity.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
+import { useTheme } from '../../context/theme-context.js';
 
 interface MinimizedChipProps {
   session: SessionInfo;
@@ -26,11 +29,14 @@ interface MinimizedChipProps {
 export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget, windowBadge }: MinimizedChipProps) {
   const sessionMenu = useSessionMenu();
   const renaming = sessionMenu.isRenaming(session.id, 'chip');
+  const { isDark } = useTheme();
+  const edge = identityEdgeProps(session.color, isDark);
 
   const body = (
     <>
       <StatusDot status={session.status} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
+      <SessionIdentity session={session} />
       {renaming ? (
         <SessionRenameInput
           initial={shellLabel(session)}
@@ -60,6 +66,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
     return (
       <div
         className="argus-chip"
+        {...edge}
         data-drop-target={isDropTarget || undefined}
         onContextMenu={(e) => sessionMenu.openMenu(session, e, 'chip')}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver(); }}
@@ -74,6 +81,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
   return (
     <button
       className="argus-chip"
+        {...edge}
       draggable
       data-drop-target={isDropTarget || undefined}
       onClick={onClick}

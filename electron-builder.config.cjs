@@ -136,6 +136,16 @@ module.exports = {
     background: null,
     icon: null,
     writeUpdateInfo: false,
+    // The app is ad-hoc signed, so a DMG download is blocked on first launch.
+    // "Read Me First.txt" sits under the drag pair and walks through the free
+    // System Settings → Privacy & Security → Open Anyway path (plan 009 D2).
+    // release.yml asserts it is in the image.
+    window: { width: 540, height: 380 },
+    contents: [
+      { x: 130, y: 150, type: 'file' },
+      { x: 410, y: 150, type: 'link', path: '/Applications' },
+      { x: 270, y: 300, type: 'file', path: 'electron/resources/dmg/Read Me First.txt' },
+    ],
   },
   // Electron fuses are flipped in electron/afterPack.cjs via @electron/fuses
   // (the `electronFuses` config key needs electron-builder 26; this repo is on

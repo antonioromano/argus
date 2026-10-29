@@ -7,8 +7,15 @@ export const REPO_URL = 'https://github.com/antonioromano/argus';
 export const ISSUES_NEW_URL = `${REPO_URL}/issues/new`;
 export const RELEASES_URL = `${REPO_URL}/releases`;
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
-// TODO(plan 009): the docs site. The README is the documentation until then.
-export const DOCS_URL = `${REPO_URL}#readme`;
+/** The user docs site (plan 009, `site/` on GitHub Pages). Duplicated in
+ *  client/src/constants/docs.ts — main cannot import renderer code — and
+ *  pinned by check:deps. */
+export const DOCS_URL = 'https://antonioromano.github.io/argus';
+
+/** A page of the docs site: `docsUrl('/install/#first-launch')`. */
+export function docsUrl(path = '/'): string {
+  return `${DOCS_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 /** GitHub rejects issue URLs somewhere past ~8 KB; stay well under. */
 export const ISSUE_URL_MAX = 7000;

@@ -35,6 +35,8 @@ export const CONFIG_DIAG_POLICY: Record<keyof AppConfig, DiagPolicy> = {
   notificationSound: 'include',
   showClock: 'include',
   clockShowSeconds: 'include',
+  showStatusBar: 'include',
+  restoreLayoutOnLaunch: 'include',
   othersFolderName: 'presence',
   preventSleepWhileRunning: 'include',
   confirmCloseShell: 'include',

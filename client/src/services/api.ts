@@ -8,6 +8,7 @@ import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/share
 import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
 // Typed error contract (plan 003) — its own line too, for the same reason.
 import type { ApiErrorBody, ArgusErrorCode } from '@argus/shared';
+import type { BackendHealth, SetSessionIdentityRequest } from '@argus/shared';
 
 const API_BASE = '/api';
 const TOKEN_KEY = 'orchestrator_auth_token';
@@ -193,6 +194,21 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     });
+    return (await requireOk(res)).json();
+  },
+
+  /** Set or clear a session's identity colour / emoji (`null` clears a field). */
+  setSessionIdentity: async (id: string, req: SetSessionIdentityRequest): Promise<SessionInfo> => {
+    const res = await authFetch(`${API_BASE}/sessions/${id}/identity`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  getBackendHealth: async (): Promise<BackendHealth> => {
+    const res = await authFetch(`${API_BASE}/backend/health`);
     return (await requireOk(res)).json();
   },
 
@@ -675,18 +691,6 @@ export const api = {
     return (await requireOk(res)).json();
   },
 
-  revertFileToHead: async (
-    sessionId: string,
-    filePath: string
-  ): Promise<PatchOperationResponse> => {
-    const res = await authFetch(`${API_BASE}/sessions/${sessionId}/git-revert-file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath }),
-    });
-    return (await requireOk(res)).json();
-  },
-
   commitWithFiles: async (
     sessionId: string,
     message: string,
@@ -759,14 +763,32 @@ export const api = {
     return (await requireOk(res)).json();
   },
 
+  /** Moves the item to the staged trash (`undoId` in the reply) unless
+   *  `permanent`. An item on another volume can't be staged: that comes back
+   *  as `{ success: false, needsPermanent: true }`, not as a thrown error. */
   deleteFile: async (
     sessionId: string,
-    filePath: string
+    filePath: string,
+    permanent = false,
   ): Promise<FileCrudResponse> => {
     const res = await authFetch(`${API_BASE}/fs/file`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, path: filePath }),
+      body: JSON.stringify({ sessionId, path: filePath, ...(permanent ? { permanent: true } : {}) }),
+    });
+    if (res.status === 409) {
+      const body = await res.clone().json().catch(() => null) as FileCrudResponse | null;
+      if (body?.needsPermanent) return body;
+    }
+    return (await requireOk(res)).json();
+  },
+
+  /** Undo of deleteFile: puts the staged item back where it was. */
+  restoreFile: async (sessionId: string, undoId: string): Promise<FileCrudResponse> => {
+    const res = await authFetch(`${API_BASE}/fs/file/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, undoId }),
     });
     return (await requireOk(res)).json();
   },

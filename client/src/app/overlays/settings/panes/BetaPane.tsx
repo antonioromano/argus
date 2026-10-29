@@ -4,6 +4,8 @@ import { BETA_FEATURES, isBetaEnabled } from '../../../../utils/betaFlags.js';
 import type { PaneProps } from '../types.js';
 import { ChainsSection } from './ChainsSection.js';
 import { SettingTargetContext, settingAnchorProps } from '../settingTarget.js';
+import { docsUrl } from '../../../../constants/docs.js';
+import { openExternal } from '../../../../utils/openExternal.js';
 
 /**
  * Opt-in switches for experimental features. Every flag ships off, and an off
@@ -25,6 +27,14 @@ export function BetaPane({ config, onSave }: PaneProps) {
               <div className="setting-row-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
                 <span>{f.label}</span>
                 <Badge label="Beta" />
+                <button
+                  type="button"
+                  className="setting-learn-more"
+                  data-testid={`beta-docs-${f.flag}`}
+                  onClick={() => openExternal(docsUrl(`/beta/${f.docsSlug}/`))}
+                >
+                  Learn more
+                </button>
               </div>
               <div className="setting-row-hint">{f.description}</div>
               <div data-testid={`beta-how-${f.flag}`} style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6, fontSize: 'var(--t-tiny)', color: 'var(--fg-1)' }}>

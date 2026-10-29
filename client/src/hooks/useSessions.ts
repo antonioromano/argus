@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr } from '@argus/shared';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { CreateSessionRequest, SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { api } from '../services/api.js';
-import { pushToast } from '../components/primitives/index.js';
+import { api, ApiError } from '../services/api.js';
+import { toastError } from '../errors/toastError.js';
 import { pruneFileTreeCache } from './useFileTree.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -166,6 +166,12 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, name } : s)));
     };
 
+    const handleIdentity = ({ sessionId, color, emoji }: { sessionId: string; color: string | null; emoji: string | null }) => {
+      applyDelta((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, color: color ?? undefined, emoji: emoji ?? undefined } : s)),
+      );
+    };
+
     const handleGitStatus = ({ sessionId, hasGitChanges }: { sessionId: string; hasGitChanges: boolean }) => {
       applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId ? { ...s, hasGitChanges } : s)),
@@ -199,6 +205,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:created', handleCreated);
     socket.on('session:deleted', handleDeleted);
     socket.on('session:renamed', handleRenamed);
+    socket.on('session:identity', handleIdentity);
     socket.on('session:error', handleSessionError);
     socket.on('session:gitStatus', handleGitStatus);
     socket.on('session:shellContext', handleShellContext);
@@ -213,6 +220,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:created', handleCreated);
       socket.off('session:deleted', handleDeleted);
       socket.off('session:renamed', handleRenamed);
+      socket.off('session:identity', handleIdentity);
       socket.off('session:error', handleSessionError);
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
@@ -228,6 +236,14 @@ export function useSessions(socket: TypedSocket) {
       if (prev.some((s) => s.id === session.id)) return prev;
       return [...prev, session];
     });
+    return session;
+  }, [applyDelta]);
+
+  /** Re-create a closed session from a full request (Reopen, plan 004 U8). */
+  const reopenSession = useCallback(async (req: CreateSessionRequest) => {
+    const session = await api.createSession(req);
+    if (!spawnedAtRef.current.has(session.id)) spawnedAtRef.current.set(session.id, Date.now());
+    applyDelta((prev) => (prev.some((s) => s.id === session.id) ? prev : [...prev, session]));
     return session;
   }, [applyDelta]);
 
@@ -249,18 +265,54 @@ export function useSessions(socket: TypedSocket) {
       if (previous !== undefined) {
         applyDelta((prev) => prev.map((s) => (s.id === id ? { ...s, name: previous } : s)));
       }
-      pushToast(err instanceof Error ? err.message : 'Failed to rename shell', 'danger');
+      toastError(err, 'Couldn’t rename the session');
     }
   }, [applyDelta]);
+
+  // Pending close (deferred commit, plan 004): hidden in this window until the
+  // Undo toast closes. Other windows and the phone keep showing it meanwhile.
+  // Filtered from the returned list only — the raw list still drives the
+  // file-tree cache prune above, so an Undo brings the session back warm.
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const hideSession = useCallback((id: string) => {
+    setHiddenIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, []);
+  const unhideSession = useCallback((id: string) => {
+    setHiddenIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+  const visibleSessions = useMemo(
+    () => (hiddenIds.size === 0 ? sessions : sessions.filter((s) => !hiddenIds.has(s.id))),
+    [sessions, hiddenIds],
+  );
+
+  /** The commit of a deferred close. Throws so the caller can undo the hide;
+   *  a 404 (already closed, e.g. from another window) counts as done. */
+  const commitClose = useCallback(async (id: string) => {
+    try {
+      await api.deleteSession(id);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 404)) throw err;
+    }
+    applyDelta((prev) => prev.filter((s) => s.id !== id));
+    unhideSession(id);
+  }, [applyDelta, unhideSession]);
 
   const deleteSession = useCallback(async (id: string) => {
     try {
       await api.deleteSession(id);
       applyDelta((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : 'Failed to delete session', 'danger');
+      toastError(err, 'Couldn’t delete the session');
     }
   }, [applyDelta]);
 
-  return { sessions, loaded, loadError, retry, createSession, adoptSession, deleteSession, renameSession };
+  return {
+    sessions: visibleSessions, loaded, loadError, retry, createSession, adoptSession, deleteSession, renameSession,
+    reopenSession, hideSession, unhideSession, commitClose,
+  };
 }

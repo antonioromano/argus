@@ -12,7 +12,7 @@ import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
 import { createLaunchGate, type LaunchGate } from './launchGate.js';
 import { systemSettingsUrl } from './systemSettings.js';
-import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, menuInvokeTarget, isSettingsPayload, sanitizeLauncherImport, SETTINGS_PAYLOAD_MAX_BYTES, type IpcSenderLike } from './ipcGuards.js';
+import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeShortcuts, menuInvokeTarget, isSettingsPayload, sanitizeLauncherImport, SETTINGS_PAYLOAD_MAX_BYTES, type IpcSenderLike } from './ipcGuards.js';
 import { backupFileName, backupsToPrune, defaultExportName } from './settingsFiles.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
@@ -1053,15 +1053,6 @@ async function main() {
     const { sessionId } = a;
     const win = BrowserWindow.fromWebContents(e.sender);
     nativeTerminal!.show(sessionId, win?.getNativeWindowHandle());
-  });
-
-  // Native message box — used by the renderer for confirmations (delete, close session, etc.)
-  // Only whitelisted fields reach dialog.showMessageBox (no icon paths, signal…).
-  ipcMain.handle('dialog:showMessageBox', async (event, raw: unknown) => {
-    const opts = trusted(event) ? sanitizeMessageBoxOptions(raw) : null;
-    if (!opts) throw new Error('Refused: untrusted sender or bad message box options');
-    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    return dialog.showMessageBox(win!, opts);
   });
 
   // Open URLs in the system default browser (called from the xterm link

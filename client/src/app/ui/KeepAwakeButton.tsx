@@ -9,6 +9,8 @@ interface KeepAwakeButtonProps {
   status: KeepAwakeStatus | null;
   onArm: (durationMs: number | null) => void;
   onDisarm: () => void;
+  /** Status-bar size: text-height control, menu opens upward. */
+  compact?: boolean;
 }
 
 // WebkitAppRegion is Electron-only and absent from React's CSSProperties; the
@@ -50,6 +52,21 @@ const armedPill: React.CSSProperties = {
   ...noDrag,
 };
 
+/** Compact (status bar): a text-height control, no fixed hit box, so the bar
+ *  stays one line. Armed it only changes colour; the width is the countdown's. */
+const compactBtn = (active: boolean): React.CSSProperties => ({
+  all: 'unset',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--s-1)',
+  height: '100%',
+  padding: '0 var(--s-1-5)',
+  borderRadius: 'var(--r-1)',
+  color: active ? 'var(--accent)' : 'var(--fg-3)',
+  cursor: 'pointer',
+  fontVariantNumeric: 'tabular-nums',
+});
+
 /**
  * "Keep this Mac awake" for a chosen window — the Amphetamine gesture.
  *
@@ -71,7 +88,7 @@ export function KeepAwakeButton(props: KeepAwakeButtonProps) {
   return <KeepAwakeButtonInner key={windowKey} {...props} />;
 }
 
-function KeepAwakeButtonInner({ status, onArm, onDisarm }: KeepAwakeButtonProps) {
+function KeepAwakeButtonInner({ status, onArm, onDisarm, compact = false }: KeepAwakeButtonProps) {
   const btnRef = useRef<HTMLButtonElement>(null);
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   // The clock lives in state and is formatted during render: reading Date.now()
@@ -97,7 +114,9 @@ function KeepAwakeButtonInner({ status, onArm, onDisarm }: KeepAwakeButtonProps)
   const openMenu = () => {
     const rect = btnRef.current?.getBoundingClientRect();
     // ContextMenu clamps itself inside the viewport, so a raw anchor is fine.
-    setMenuAt(rect ? { x: rect.left, y: rect.bottom + 6 } : { x: 0, y: 34 });
+    // In the status bar the menu opens upward from the bar.
+    if (compact) setMenuAt(rect ? { x: rect.left, y: rect.top - 6 } : { x: 0, y: window.innerHeight - 30 });
+    else setMenuAt(rect ? { x: rect.left, y: rect.bottom + 6 } : { x: 0, y: 34 });
   };
 
   const header = active
@@ -135,15 +154,24 @@ function KeepAwakeButtonInner({ status, onArm, onDisarm }: KeepAwakeButtonProps)
         <button
           ref={btnRef}
           onClick={openMenu}
-          style={active ? armedPill : idleBtn}
+          style={compact ? compactBtn(active) : active ? armedPill : idleBtn}
           aria-label={tooltip}
+          data-compact={compact || undefined}
         >
-          <Icon icon={Coffee} size={13} strokeWidth={1.6} />
-          {active && <span style={{ minWidth: 44, textAlign: 'right' }}>{countdown}</span>}
+          <Icon icon={Coffee} size={compact ? 11 : 13} strokeWidth={1.6} />
+          {compact
+            ? active && <span>Awake {countdown}</span>
+            : active && <span style={{ minWidth: 44, textAlign: 'right' }}>{countdown}</span>}
         </button>
       </Tooltip>
       {menuAt && (
-        <ContextMenu x={menuAt.x} y={menuAt.y} items={items} onClose={() => setMenuAt(null)} />
+        <ContextMenu
+          x={menuAt.x}
+          y={menuAt.y}
+          items={items}
+          onClose={() => setMenuAt(null)}
+          placement={compact ? 'above' : 'below'}
+        />
       )}
     </>
   );

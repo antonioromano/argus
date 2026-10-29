@@ -16,7 +16,11 @@ type Props = Omit<ComponentProps<typeof CommandPalette>, 'commands'> & {
  * registry is built only then.
  */
 export function RegistryPalette({ ctx, renameSurface, ...palette }: Props) {
-  const { beginRename } = useSessionMenu();
-  const commands = useCommandRegistry({ ...ctx, beginRename: (id) => beginRename(id, renameSurface) });
+  const { beginRename, editIdentity } = useSessionMenu();
+  const commands = useCommandRegistry({
+    ...ctx,
+    beginRename: (id) => beginRename(id, renameSurface),
+    editIdentity: (session) => editIdentity(session),
+  });
   return <CommandPalette {...palette} commands={commands} />;
 }

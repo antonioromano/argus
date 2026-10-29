@@ -23,6 +23,9 @@ export interface PersistedSession {
   usage?: SessionUsageTrackerState;
   /** Codex only: spawn time and matched rollout log (usage meter). */
   codexUsage?: CodexUsageState;
+  /** Identity: palette key and emoji; absent in files written before 0.31. */
+  color?: string;
+  emoji?: string;
 }
 
 export class SessionStore {

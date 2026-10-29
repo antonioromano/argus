@@ -19,7 +19,7 @@ describe('searchSettings', () => {
     const hits = searchSettings('show');
     const ranks = hits.map((h) => h.rank);
     expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
-    // "Show clock in toolbar" starts with the query; "Usage meter" only has it as a keyword.
+    // "Show clock in status bar" starts with the query; "Usage meter" only has it as a keyword.
     expect(ids('show').indexOf('showClock')).toBeLessThan(ids('show').indexOf('showUsageMeter'));
   });
 

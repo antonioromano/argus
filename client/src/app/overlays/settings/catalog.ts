@@ -109,13 +109,20 @@ const BASE: readonly SettingDescriptor[] = [
     keys: ['mosaicWaitingStyle'], kind: 'choice', options: WAITING_OPTIONS,
   },
   {
-    id: 'showClock', pane: 'theme', section: 'Toolbar clock',
-    label: 'Show clock in toolbar', hint: 'Displays current time (HH:MM) before the remote access icon',
+    id: 'showStatusBar', pane: 'theme', section: 'Status bar',
+    label: 'Show status bar',
+    hint: 'A thin bar along the bottom with connection, session counts, remote access, keep-awake, updates and the clock. When off, the update notice moves to the toolbar.',
+    keywords: ['status bar', 'footer', 'bottom', 'connection', 'daemon', 'health', 'indicators'],
+    keys: ['showStatusBar'], kind: 'toggle', palette: 'toggle',
+  },
+  {
+    id: 'showClock', pane: 'theme', section: 'Status bar',
+    label: 'Show clock in status bar', hint: 'Displays the current time (HH:MM) at the right of the status bar',
     keywords: ['clock', 'time', 'toolbar'],
     keys: ['showClock'], kind: 'toggle', palette: 'toggle',
   },
   {
-    id: 'clockShowSeconds', pane: 'theme', section: 'Toolbar clock',
+    id: 'clockShowSeconds', pane: 'theme', section: 'Status bar',
     label: 'Show seconds', hint: 'Extends the clock to HH:MM:SS',
     keywords: ['clock', 'time', 'seconds'],
     keys: ['clockShowSeconds'], kind: 'toggle', palette: 'toggle',
@@ -224,7 +231,7 @@ const BASE: readonly SettingDescriptor[] = [
   // ── General ───────────────────────────────────────────────────────────────
   {
     id: 'confirmCloseShell', pane: 'general', section: 'Ask before',
-    label: 'Closing a shell', hint: 'Show a confirmation when closing a shell with ⌘W or the close button',
+    label: 'Closing a running session', hint: 'Ask before closing a session whose agent is still running. When off, sessions close right away; Claude sessions can be reopened from the toast.',
     keywords: ['confirm', 'close', 'cmd+w', 'dialog'],
     keys: ['confirmCloseShell'], kind: 'toggle',
   },
@@ -262,6 +269,13 @@ const BASE: readonly SettingDescriptor[] = [
     label: '"Others" folder name', hint: 'Display name for the ungrouped shells bucket',
     keywords: ['group', 'folder', 'others', 'ungrouped', 'bucket', 'name'],
     keys: ['othersFolderName'], kind: 'text',
+  },
+  {
+    id: 'restoreLayoutOnLaunch', pane: 'general', section: 'Windows',
+    label: 'Restore layout on launch',
+    hint: 'Reopen each window on the session, side panel and group filter it showed when Argus quit. When off, windows open on the mosaic.',
+    keywords: ['restore', 'reopen', 'launch', 'relaunch', 'window', 'layout', 'remember', 'state'],
+    keys: ['restoreLayoutOnLaunch'], kind: 'toggle',
   },
 
   // ── Auto-approval ─────────────────────────────────────────────────────────

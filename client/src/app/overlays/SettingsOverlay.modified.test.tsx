@@ -7,9 +7,10 @@ import { SettingsOverlay } from './SettingsOverlay.js';
 // Modified view (plan 007 U5) and per-pane reset (U6): both are reversible, so
 // they write at once and offer Undo from a snapshot — no confirm.
 
-const undo = vi.hoisted(() => ({ offers: [] as { message: string; undo: () => unknown }[] }));
+const undo = vi.hoisted(() => ({ offers: [] as { message: string; undo: () => unknown; durationMs?: number }[] }));
 vi.mock('../../utils/undoable.js', () => ({
-  offerUndo: (o: { message: string; undo: () => unknown }) => { undo.offers.push(o); return { dismiss() {} }; },
+  UNDO_WINDOW_LONG_MS: 10_000,
+  offerUndo: (o: { message: string; undo: () => unknown; durationMs?: number }) => { undo.offers.push(o); return { dismiss() {} }; },
 }));
 
 declare global {
@@ -152,6 +153,23 @@ describe('Reset pane', () => {
     act(() => { button(container, 'Reset pane').click(); });
     await flush();
     expect(onSave).toHaveBeenCalledWith({ defaultAgent: 'claude', claudeRenderer: 'fullscreen', defaultSessionView: 'terminal' });
+  });
+
+  it('Reset all writes at once with no sheet, and Undo (10 s) restores shortcuts deep-equal', async () => {
+    const keyboardShortcuts = { 'open-diff': 'mod+y', 'toggle-sidebar': 'mod+shift+b' };
+    const config: AppConfig = { ...DEFAULT_CONFIG, uiFontSize: 18, keyboardShortcuts };
+    const onSave = vi.fn(async (p: Partial<AppConfig>) => ({ ...config, ...p }));
+    render(config, onSave);
+    act(() => { button(container, 'Reset all').click(); });
+    await flush();
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toMatchObject({ uiFontSize: 14, keyboardShortcuts: {} });
+    expect(undo.offers[0]).toMatchObject({ message: 'Reset all settings', durationMs: 10_000 });
+    await act(async () => { await undo.offers[0].undo(); });
+    const restored = onSave.mock.lastCall![0];
+    expect(restored.keyboardShortcuts).toEqual(keyboardShortcuts);
+    expect(restored.uiFontSize).toBe(18);
   });
 
   it('replaces the old Reset typography and Reset all shortcuts buttons', () => {

@@ -55,6 +55,16 @@ export type ApplyUpdateFn = (
   onResult: (result: ApplyUpdateResult) => void,
 ) => Promise<ApplyUpdateResult>;
 
+/** release.yml appends a first-launch footer for DMG downloaders after this
+ *  marker; someone updating in-app has launched Argus already, so the
+ *  "What's new" dialog stops here. */
+export const RELEASE_FOOTER_MARKER = '<!-- first-launch -->';
+
+/** The release body as the update dialog shows it: no footer, no comments. */
+export function changelogFromReleaseBody(body: string): string {
+  return body.split(RELEASE_FOOTER_MARKER)[0].replace(/<!--[\s\S]*?-->/g, '').trim();
+}
+
 export class UpdateService {
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private readonly installedVersion: string = getCurrentVersion();
@@ -131,7 +141,7 @@ export class UpdateService {
       }
 
       this.latestVersion = remoteVersion;
-      this.changelog = (release.body ?? '').replace(/<!--[\s\S]*?-->/g, '').trim();
+      this.changelog = changelogFromReleaseBody(release.body ?? '');
       this.releaseUrl = release.html_url ?? `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
       const status = this.getStatus();

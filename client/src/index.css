@@ -124,6 +124,19 @@ span.ds-truncate { display: inline-block; max-width: 100%; vertical-align: botto
 .setting-row-meta { flex: 1; min-width: 0; }
 .setting-row-label { font-size: var(--t-sm); color: var(--fg-0); }
 .setting-row-hint { font-size: var(--t-tiny); color: var(--fg-3); margin-top: 2px; }
+/* "Learn more" → the docs site (plan 009). A text button: colour on hover, never size. */
+.setting-learn-more {
+  all: unset;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--fg-3);
+  font-size: var(--t-tiny);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.setting-learn-more:hover { color: var(--accent); }
+.setting-learn-more:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; border-radius: var(--r-1); }
 .settings-card-pad { padding: var(--s-4); }
 
 /* ===== Settings sidebar — filter box, group headings, pane rows =====
@@ -379,6 +392,9 @@ body {
 
 /* Mobile session list row: tap press feedback */
 .mobile-list-row:active { background: var(--bg-3) !important; }
+/* Per-session chips under the row's subtitle (plan 009 M1): same chips as the
+   desktop tile header. */
+.mobile-row-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1-5); margin-top: var(--s-1); }
 
 /* Narrow phones: hide "BACK" text in focus header, keep chevron only */
 @media (max-width: 375px) {
@@ -427,8 +443,8 @@ body {
   .mobile-terminal-input {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: var(--s-1-5);
+    padding: var(--s-1-5) var(--s-2);
     background: var(--bg-2);
     border-top: 1px solid var(--line-2);
     flex-shrink: 0;
@@ -437,17 +453,18 @@ body {
   .mobile-terminal-quickkeys {
     display: flex;
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: var(--s-1);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 2px;
+    padding-bottom: var(--s-0-5);
   }
 
   .mobile-quickkey-btn {
     flex-shrink: 0;
+    /* 36px keycaps: a dense row of touch targets, not a spacing step. */
     min-width: 36px;
     height: 36px;
-    padding: 0 6px;
+    padding: 0 var(--s-1-5);
     border: 1px solid var(--line-2);
     border-radius: var(--r-2);
     background: var(--bg-2);
@@ -469,16 +486,17 @@ body {
 
   .mobile-terminal-textrow {
     display: flex;
-    gap: 6px;
+    gap: var(--s-1-5);
     align-items: center;
   }
 
   .mobile-terminal-text-input {
     flex: 1;
     min-width: 0;
+    /* 16px stops iOS zooming into the field; 44px is the touch minimum. */
     font-size: 16px !important;
     font-family: var(--font-mono);
-    padding: 8px 12px;
+    padding: var(--s-2) var(--s-3);
     min-height: 44px;
     border: 1px solid var(--line-2);
     border-radius: var(--r-2);
@@ -491,7 +509,7 @@ body {
   .mobile-terminal-send-btn {
     flex-shrink: 0;
     min-height: 44px;
-    padding: 0 16px;
+    padding: 0 var(--s-4);
     border: none;
     border-radius: var(--r-2);
     background: var(--accent);
@@ -1043,6 +1061,136 @@ body {
 .argus-tile-header[data-drop-target] {
   box-shadow: inset 3px 0 0 0 var(--accent);
 }
+
+/* Session identity (plan 009): the colour is a 3px leading edge bar — inset
+   shadow, so it never reflows a row — and the emoji sits in a fixed slot so a
+   wide sequence cannot shift the name. Drop targets (above) out-rank the edge. */
+[data-identity-edge] {
+  box-shadow: inset 3px 0 0 0 var(--identity-edge);
+}
+.argus-identity-emoji {
+  display: inline-block;
+  width: 1.25em;
+  flex: 0 0 1.25em;
+  overflow: hidden;
+  text-align: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+.argus-identity-pop {
+  position: fixed;
+  z-index: var(--z-pop);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--material-menu);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  animation: argus-fade-in var(--dur-fast) var(--ease);
+}
+.argus-identity-pop-label { color: var(--fg-3); }
+.argus-identity-swatches { display: flex; gap: var(--s-1-5); }
+.argus-identity-swatch {
+  all: unset;
+  box-sizing: border-box;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  color: var(--fg-3);
+  cursor: pointer;
+  /* Selection ring as a shadow: same box size selected or not. */
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+.argus-identity-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 3px var(--fg-1); }
+.argus-identity-swatch:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; }
+.argus-identity-emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-0-5); }
+.argus-identity-emoji-pick {
+  all: unset;
+  box-sizing: border-box;
+  height: var(--ctl-h-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+.argus-identity-emoji-pick:hover { background: var(--bg-3); }
+.argus-identity-emoji-pick[aria-pressed="true"] { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-3); }
+.argus-identity-emoji-pick:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: -2px; }
+.argus-identity-input {
+  box-sizing: border-box;
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s-2);
+  background: var(--bg-inset);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+}
+.argus-identity-input[aria-invalid="true"] { border-color: var(--danger); }
+.argus-identity-error { color: var(--danger); font-size: var(--t-tiny); }
+.argus-identity-pop-foot { display: flex; justify-content: flex-end; gap: var(--s-1-5); }
+
+/* App status bar (plan 009): one quiet line of global health along the bottom.
+   Height is the density-scaled --h-statusbar; solid background (the window is
+   never translucent). Items change colour on hover, never size. */
+.argus-statusbar {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: var(--h-statusbar);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 0 var(--s-2);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.argus-statusbar-side { display: flex; align-items: stretch; gap: var(--s-1); min-width: 0; }
+.argus-statusbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-1-5);
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.argus-statusbar-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-1-5);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-statusbar-btn:hover { background: var(--bg-2); color: var(--fg-1); }
+.argus-statusbar-btn:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: -2px; }
+.argus-statusbar-item[data-tone="warn"] { color: var(--warn); }
+.argus-statusbar-item[data-tone="danger"] { color: var(--danger); }
+.argus-statusbar-item[data-tone="accent"] { color: var(--accent); }
+.argus-statusbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--status-done);
+}
+.argus-statusbar-item[data-tone="warn"] .argus-statusbar-dot { background: var(--warn); }
+.argus-statusbar-item[data-tone="danger"] .argus-statusbar-dot { background: var(--danger); }
 
 /* @dnd-kit DragOverlay card for active tile drag */
 .argus-tile-drag-overlay {
@@ -2699,10 +2847,6 @@ body {
   background: var(--warn-bg);
   border-radius: var(--r-2);
 }
-.argus-prdiff-stale { display: flex; align-items: center; gap: var(--s-2); flex-shrink: 0; }
-.argus-prdiff-retry { all: unset; cursor: pointer; margin-left: auto; color: var(--accent); }
-.argus-prdiff-retry:hover { text-decoration: underline; }
-.argus-prdiff-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
 .argus-prdiff-notice-files { list-style: none; margin: var(--s-1) 0 0; padding: 0; color: var(--fg-1); font-family: var(--font-mono); }
 .argus-prdiff-notice-files li { overflow-wrap: anywhere; }
 
@@ -2818,13 +2962,40 @@ body {
   border: 1px solid var(--line-2);
   border-radius: var(--r-2);
 }
+/* A panel's one-line empty / filtered-out note. */
+.argus-panel-note { padding: var(--s-4); color: var(--fg-3); font-size: var(--t-sm); }
+.argus-find-error { padding: var(--s-2) var(--s-3); }
+/* Sidebar tree with zero sessions: one line, one link-styled action (no hover reflow). */
+.argus-tree-empty { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-1) var(--s-3); color: var(--fg-3); font-size: var(--t-sm); }
+.argus-tree-empty-action { all: unset; cursor: pointer; color: var(--accent); }
+.argus-tree-empty-action:hover { text-decoration: underline; }
+.argus-tree-empty-action:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+/* Error state inside a settings pane or inspector section: left-aligned, not centred in the pane. */
+.argus-inline-surface-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); padding: var(--s-2) 0; }
+.argus-inline-surface-error .argus-error-actions { justify-content: flex-start; }
+.argus-inline-surface-error .argus-error-details > summary { text-align: left; }
+.argus-inline-surface-error-title { color: var(--fg-0); font-size: var(--t-sm); font-weight: 500; }
+/* Create sheet: the selected agent CLI isn't on PATH. A warning, never a gate. */
+.argus-preflight-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: var(--t-small);
+}
+.argus-preflight-notice-title { display: flex; align-items: center; gap: var(--s-1-5); color: var(--warn); font-weight: 500; }
+.argus-preflight-notice .argus-error-actions { justify-content: flex-start; }
 
 /* ── Tip card (plan 006): one-time hint, bottom-left so it never stacks with
    the bottom-right toasts. Opacity/transform only on enter. ──────────────── */
 .argus-tipcard {
   position: fixed;
   left: var(--s-4);
-  bottom: var(--s-4);
+  bottom: calc(var(--s-4) + var(--statusbar-offset, 0px));
   z-index: var(--z-toast);
   width: 320px;
   max-width: calc(100vw - 2 * var(--s-4));

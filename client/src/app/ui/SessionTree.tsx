@@ -9,6 +9,9 @@ import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from './sessionMenuContext.js';
 import { SessionRenameInput } from './SessionRenameInput.js';
+import { SessionIdentity } from './SessionIdentity.js';
+import { resolveIdentityColor } from '../../utils/sessionIdentity.js';
+import { useTheme } from '../../context/theme-context.js';
 import { insertionPoint } from '../../utils/reorder.js';
 
 const OTHERS = '__others__';
@@ -37,6 +40,8 @@ interface SessionTreeProps {
   isFavorite: (sessionId: string) => boolean;
   onToggleFavoritesCollapsed: () => void;
   othersFolderName?: string;
+  /** Opens the new-session sheet: the zero-session row's one action. */
+  onCreateSession?: () => void;
 }
 
 export function SessionTree({
@@ -45,6 +50,7 @@ export function SessionTree({
   onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers,
   onOpenSession, onToggleFavorite, onSpawnFromFavorite, isFavorite, onToggleFavoritesCollapsed,
   othersFolderName = 'Others',
+  onCreateSession,
 }: SessionTreeProps) {
   const dragId = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -167,6 +173,17 @@ export function SessionTree({
         onToggleFavorite={onToggleFavorite}
         isFavorite={isFavorite}
       />
+
+      {grouped.others.length === 0
+        && grouped.groups.every((g) => g.sessions.length === 0)
+        && !grouped.favorites?.items.some((item) => !('ghost' in item)) && (
+        <div className="argus-tree-empty" data-testid="session-tree-empty">
+          <span>No sessions yet.</span>
+          {onCreateSession && (
+            <button type="button" className="argus-tree-empty-action" onClick={onCreateSession}>New session</button>
+          )}
+        </div>
+      )}
 
       {creating ? (
         <NameInput
@@ -574,6 +591,8 @@ function Leaf({
   const sessionMenu = useSessionMenu();
   const label = shellLabel(session);
   const renaming = sessionMenu.isRenaming(session.id, 'tree');
+  const { isDark } = useTheme();
+  const identityEdge = resolveIdentityColor(session.color, isDark);
   return (
     <Tooltip content={session.folderPath}>
       <div
@@ -606,13 +625,16 @@ function Leaf({
           opacity: dimmed ? 0.55 : 1,
           // Inset rather than a real border: a border would resize the row and
           // shove the list around under the cursor mid-drag.
+          // The drop line wins over the identity edge while dragging.
           boxShadow: drag?.edge === 'top' ? 'inset 0 2px 0 var(--accent)'
             : drag?.edge === 'bottom' ? 'inset 0 -2px 0 var(--accent)'
+            : identityEdge ? `inset 3px 0 0 0 ${identityEdge}`
             : undefined,
         }}
       >
         <StatusDot status={session.status} size={6} decorative />
         <AgentGlyph agent={session.agentType} size={12} />
+        <SessionIdentity session={session} />
         {renaming ? (
           <SessionRenameInput
             initial={label}

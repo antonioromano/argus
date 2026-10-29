@@ -18,7 +18,7 @@ import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusDot, EmptyState, ErrorState, IconButton, Tooltip, Icon } from '../../components/primitives/index.js';
+import { StatusDot, EmptyState, ErrorState, IconButton, Tooltip, Icon, Button } from '../../components/primitives/index.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
 import { Landing, type LandingPromo } from './Landing.js';
@@ -27,6 +27,8 @@ import { filterSessions } from '../../utils/sessionFilter.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { mosaicLayout } from '../../utils/mosaicLayout.js';
 import {
   DndContext,
@@ -121,6 +123,8 @@ interface MosaicProps {
   /** Set when the session list could not be loaded at all: shown instead of the landing. */
   loadError?: string | null;
   onRetryLoad?: () => void;
+  /** Clears the sidebar filter (the "nothing matches" state's one action). */
+  onClearFilter?: () => void;
   /** The empty landing's beta suggestion (main window, flag off, not dismissed). */
   landingPromo?: LandingPromo;
 }
@@ -130,7 +134,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onMarkDone, onMerge, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad, landingPromo }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onMarkDone, onMerge, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad, onClearFilter, landingPromo }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -402,8 +406,11 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
           icon={SquareIcon}
           title="No matching shells"
           hint={filter.trim()
-            ? `Nothing matches "${filter.trim()}". Clear the filter to see all shells.`
+            ? `Nothing matches "${filter.trim()}".`
             : 'No shells to display.'}
+          action={filter.trim() && onClearFilter
+            ? <Button size="sm" variant="outline" onClick={onClearFilter}>Clear filter</Button>
+            : undefined}
         />
       </div>
     );
@@ -842,6 +849,7 @@ function MosaicTileInner({
           state can strand the name off-screen (the pre-0.22 swap could). */}
       <div
         className="argus-tile-header"
+        {...identityEdgeProps(session.color, theme === 'dark')}
         {...dragHandleListeners}
         {...dragHandleAttributes}
       >
@@ -853,6 +861,7 @@ function MosaicTileInner({
           />
         )}
         <StatusDot status={session.status} size={7} />
+        <SessionIdentity session={session} />
 
         {sessionMenu.isRenaming(session.id, 'tile') ? (
           <SessionRenameInput

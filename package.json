@@ -15,7 +15,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js && node scripts/register-dev-scheme.mjs",
     "sync-versions": "node scripts/sync-versions.mjs",
-    "check:deps": "node scripts/check-dep-sync.mjs",
+    "check:deps": "node scripts/check-dep-sync.mjs && node scripts/check-docs-links.mjs",
     "audit:styles": "node scripts/audit-inline-styles.mjs",
     "lint": "npm run lint -w client",
     "test": "npm test -w server && npm test -w client && npm run test:electron",

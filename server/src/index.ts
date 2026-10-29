@@ -44,6 +44,7 @@ import { LaunchService } from './services/launch/LaunchService.js';
 import { AuthService } from './services/AuthService.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
+import { StagedTrash } from './services/StagedTrash.js';
 import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
 import { createSessionPrRoutes } from './routes/sessionPrs.js';
@@ -90,7 +91,7 @@ const HOST = process.env.ARGUS_HOST || '127.0.0.1';
 // Injected folder picker — set by Electron host before startServer() is called.
 // We keep a mutable options object so the filesystem route reads the current fn
 // at request time rather than at module-evaluation time.
-const _filesystemOptions: { pickFolder?: () => Promise<string | null> } = {};
+const _filesystemOptions: { pickFolder?: () => Promise<string | null>; trash?: StagedTrash } = {};
 
 export function setPickFolderFn(fn: () => Promise<string | null>): void {
   _filesystemOptions.pickFolder = fn;
@@ -503,6 +504,10 @@ app.use('/api/chains', createChainRoutes({
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).
+// Explorer delete goes through an in-app trash so it can be undone (plan 004
+// U7). Items from a previous run are unrestorable: sweep them at startup.
+_filesystemOptions.trash = new StagedTrash(path.join(dataDir, 'trash'));
+void _filesystemOptions.trash.sweep();
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
@@ -510,6 +515,11 @@ app.use('/api', createSessionPrRoutes(sessionManager));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
 // Plan usage per agent account (the usage meter); live updates ride `usage:plan`.
+// Plan 009 S1: argusd/tmux health for the status bar; changes also go out as
+// `backend:health`, this covers a client that connects after the last change.
+app.get('/api/backend/health', (_req, res) => {
+  res.json(sessionManager.backendHealth());
+});
 app.get('/api/usage/plan', (_req, res) => {
   res.json(sessionManager.getPlanUsage());
 });

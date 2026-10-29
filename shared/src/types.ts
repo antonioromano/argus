@@ -117,6 +117,8 @@ export interface AppConfig {
   notificationSound: boolean; // play the default system sound with each notification
   showClock?: boolean;        // show HH:MM clock in the toolbar
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
+  showStatusBar?: boolean;    // bottom status bar: connection, sessions, remote, keep-awake, update, clock
+  restoreLayoutOnLaunch?: boolean; // reopen each window on its last view, panel and group filter
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
   preventSleepWhileRunning?: boolean; // keep macOS awake while ≥1 shell is running
   confirmCloseShell?: boolean; // show the confirm modal before closing a shell (Cmd+W / card button)
@@ -268,6 +270,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
+  showStatusBar: true,
+  restoreLayoutOnLaunch: true,
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
   confirmCloseShell: true,
@@ -477,6 +481,18 @@ export interface SessionInfo {
   /** Renderer-only: ms from the agent's latest spawn to its exit. Tells a missing
    *  command (exit 127 right after spawn) apart from the agent itself exiting 127. */
   exitedAfterMs?: number;
+  /** Identity: a `SESSION_COLOR_KEYS` key drawn as a leading edge bar. */
+  color?: string;
+  /** Identity: one emoji grapheme shown before the name. */
+  emoji?: string;
+}
+
+/** Health of the process backend that owns the ptys. tmux has no connection to
+ *  lose, so it is always `ok`. `drain`: argusd is a different version and is
+ *  being retired once its sessions end. */
+export interface BackendHealth {
+  kind: 'daemon' | 'tmux';
+  state: 'ok' | 'reconnecting' | 'down' | 'drain';
 }
 
 // ── Beta F8: worktree lifecycle ────────────────────────────────────────────
@@ -991,6 +1007,9 @@ export interface CreateSessionRequest {
   worktreeBase?: string;    // base branch/commit for the new branch (default: HEAD)
   terminalEngine?: TerminalEngine;
   runMode?: RunMode;
+  /** Reopen a closed Claude session's conversation (`claude --resume <id>`).
+   *  Must be a Claude conversation UUID. Leaves sticky flag defaults alone. */
+  resumeClaudeSessionId?: string;
 }
 
 export interface CreateSessionResponse extends SessionInfo {}
@@ -1010,6 +1029,28 @@ export interface RenameSessionRequest {
 /** Longest accepted shell display name. Long enough for a descriptive label,
  *  short enough that the tile header still fits its status pill. */
 export const SESSION_NAME_MAX = 60;
+
+/** Colour keys a session's identity may carry — the group palette's keys
+ *  (client `GROUP_COLORS`), resolved per theme at render. The server keeps a
+ *  copy (server/src/constants/sessionIdentity.ts), pinned by check:deps. */
+export const SESSION_COLOR_KEYS = {
+  blue: true,
+  green: true,
+  purple: true,
+  amber: true,
+  pink: true,
+  teal: true,
+  grey: true,
+} as const;
+
+/** Longest accepted identity emoji, in UTF-16 units (a ZWJ family fits). */
+export const SESSION_EMOJI_MAX = 16;
+
+/** `PATCH /api/sessions/:id/identity`. Omitted field = unchanged, `null` = cleared. */
+export interface SetSessionIdentityRequest {
+  color?: string | null;
+  emoji?: string | null;
+}
 
 /** Session Inspector column width bounds (px); the server clamps `inspectorWidth` to them. */
 export const INSPECTOR_WIDTH_MIN = 220;
@@ -1164,6 +1205,9 @@ export interface ServerToClientEvents {
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
   'session:renamed': (payload: { sessionId: string; name: string }) => void;
+  'session:identity': (payload: { sessionId: string; color: string | null; emoji: string | null }) => void;
+  /** argusd/tmux health; sent on change and to each socket on connect. */
+  'backend:health': (health: BackendHealth) => void;
   'ngrok:status': (status: NgrokStatus) => void;
   'keepawake:status': (status: KeepAwakeStatus) => void;
   /** Broadcast on every window-registry mutation (create/delete/assign/merge). */
@@ -1610,6 +1654,11 @@ export interface CommitSelectionState {
 export interface FileCrudResponse {
   success: boolean;
   error?: string;
+  /** DELETE /fs/file: the staged-trash id that POST /fs/file/restore takes. */
+  undoId?: string;
+  /** DELETE /fs/file: the item can't be moved to the trash (another volume);
+   *  resend with `permanent: true` after the user confirms. */
+  needsPermanent?: boolean;
 }
 
 export interface CreateFileRequest {
@@ -1627,6 +1676,14 @@ export interface RenameFileRequest {
 export interface DeleteFileRequest {
   sessionId: string;
   path: string; // absolute path
+  /** Skip the staged trash and delete for good (after a confirm). */
+  permanent?: boolean;
+}
+
+/** POST /fs/file/restore: undo a DELETE /fs/file from the same session. */
+export interface RestoreFileRequest {
+  sessionId: string;
+  undoId: string;
 }
 
 export interface MoveFileRequest {

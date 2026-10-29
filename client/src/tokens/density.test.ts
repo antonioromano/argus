@@ -18,7 +18,7 @@ describe('density table', () => {
 
   it('every number grows from Compact to Comfortable, except the sidebar which only Compact narrows', () => {
     const { compact: c, default: d, comfortable: f } = DENSITY_METRICS;
-    for (const k of ['rowPadY', 'leafPadY', 'groupH', 'headerPadY', 'titlebarH', 'treeRowH', 'csvRowH'] as const) {
+    for (const k of ['rowPadY', 'leafPadY', 'groupH', 'headerPadY', 'titlebarH', 'statusbarH', 'treeRowH', 'csvRowH'] as const) {
       expect(c[k], k).toBeLessThan(d[k]);
       expect(d[k], k).toBeLessThan(f[k]);
     }

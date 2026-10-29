@@ -6,6 +6,18 @@ import { StatusDot, StatusPill, DirtyBadge, Icon } from '../../components/primit
 import { resolveGroupColor } from '../../constants/groupColors.js';
 import { useTheme } from '../../context/theme-context.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { PrChip } from '../ui/PrChip.js';
+import { UsageChip } from '../ui/UsageChip.js';
+import { StaleChip } from '../ui/StaleChip.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
+import { usageMeterView } from '../../utils/usageFormat.js';
+import { formatWaiting } from '../overlays/inboxItems.js';
+
+/** The phone has no settings of its own: the meter shows its default parts
+ *  (context), without the account-wide plan usage. */
+const MOBILE_METER = usageMeterView(null)!;
 
 interface SessionsProps {
   sessions: SessionInfo[];
@@ -127,6 +139,11 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
   );
 }
 
+/** How long a waiting session has waited, in the inbox's format ("2m"). */
+function waitedFor(since: number): string {
+  return formatWaiting(Date.now() - since);
+}
+
 function timeAgo(d: string): string {
   const diff = Date.now() - new Date(d).getTime();
   const s = Math.floor(diff / 1000);
@@ -140,9 +157,14 @@ function timeAgo(d: string): string {
 
 function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; collides: boolean; onSelect: () => void; onAction: () => void }) {
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
+  const { isDark } = useTheme();
+  const edge = identityEdgeProps(session.color, isDark);
+  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage;
   return (
     <div
+      data-identity-edge={edge['data-identity-edge']}
       style={{
+        ...edge.style,
         display: 'flex',
         alignItems: 'center',
         borderBottom: '1px solid var(--line-1)',
@@ -181,7 +203,8 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
               textOverflow: 'ellipsis',
             }}
           >
-            {session.name}
+            <SessionIdentity session={session} />
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{shellLabel(session)}</span>
             {session.hasGitChanges && <DirtyBadge size="sm" />}
           </div>
           <div
@@ -193,8 +216,15 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
               textOverflow: 'ellipsis',
             }}
           >
-            {folder} · {timeAgo(session.createdAt)}{collides ? discriminator(session) : ''}
+            {folder} · {session.status === 'waiting' && session.waitingSince !== undefined ? `waiting ${waitedFor(session.waitingSince)}` : timeAgo(session.createdAt)}{collides ? discriminator(session) : ''}
           </div>
+          {hasChips && (
+            <div className="mobile-row-chips">
+              {session.pr && <PrChip pr={session.pr} />}
+              <StaleChip staleDays={session.worktreeStaleDays} />
+              <UsageChip agentType={session.agentType} usage={session.usage} view={MOBILE_METER} />
+            </div>
+          )}
           {session.status === 'waiting' && session.lastPrompt && (
             <div
               style={{
@@ -215,7 +245,7 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
       </button>
       <button
         onClick={onAction}
-        aria-label={`Actions for ${session.name}`}
+        aria-label={`Actions for ${shellLabel(session)}`}
         style={{
           width: 44,
           minHeight: 64,

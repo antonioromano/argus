@@ -1,7 +1,7 @@
 export { Tooltip } from './Tooltip.js';
 export { StatusDot } from './StatusDot.js';
 export { StatusPill } from './StatusPill.js';
-export { StatusBar } from './StatusBar.js';
+export { StatusStrip } from './StatusStrip.js';
 export { DirtyBadge } from './DirtyBadge.js';
 export { Badge } from './Badge.js';
 export { Icon } from './Icon.js';
@@ -25,7 +25,7 @@ export { space, textSize, SPACE_TOKENS, TEXT_SIZES, TEXT_TONES } from './scale.j
 export type { SpaceToken, TextSize, TextTone } from './scale.js';
 export { Sheet } from './Sheet.js';
 export { Spinner } from './Spinner.js';
-export { EmptyState, LoadingState, ErrorState, StaleNotice } from './States.js';
+export { EmptyState, LoadingState, ErrorState, ErrorActions, InlineErrorState, StaleNotice } from './States.js';
 export { SkeletonRows } from './SkeletonRows.js';
 export type { SkeletonVariant } from './SkeletonRows.js';
 export { SurfaceStates } from './SurfaceStates.js';

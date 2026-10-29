@@ -19,7 +19,11 @@ const MENU_TWIN: Readonly<Record<string, string>> = {
 export function sessionSource(ctx: CommandContext): Command[] {
   const s = ctx.focusedSession;
   if (!s) return [];
-  const actions = { ...ctx.sessionMenuActions, onRename: () => ctx.beginRename(s.id) };
+  const actions = {
+    ...ctx.sessionMenuActions,
+    onRename: () => ctx.beginRename(s.id),
+    onEditIdentity: ctx.editIdentity,
+  };
   return buildSessionMenuItems(s, actions, ctx.shortcuts)
     .filter((e): e is ContextMenuItem => 'id' in e && !e.disabled)
     .map((item) => ({

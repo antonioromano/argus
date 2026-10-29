@@ -34,10 +34,13 @@ export interface GroupedSessions {
  */
 export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEvents>) {
   const [groups, setGroups] = useState<SessionGroup[]>([]);
+  // True once the first fetch landed: until then an empty list means "not
+  // known yet", not "no groups" (a restored group filter waits on it).
+  const [loaded, setLoaded] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    api.getGroups().then(setGroups).catch(console.error);
+    api.getGroups().then((g) => { setGroups(g); setLoaded(true); }).catch(console.error);
   }, []);
 
   useEffect(() => {
@@ -96,6 +99,23 @@ export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEv
     if (id === FAVORITES_GROUP_ID) return; // reserved — not user-deletable
     setGroups((prev) => {
       const next = prev.filter((g) => g.id !== id);
+      commit(next);
+      return next;
+    });
+  }, [commit]);
+
+  /**
+   * Undo of deleteGroup: put `group` back at `index`. Members that have since
+   * joined another group are left where they are now (single-membership).
+   * Members that no longer exist are dropped by `groupedSessions` anyway.
+   */
+  const restoreGroup = useCallback((group: SessionGroup, index: number) => {
+    setGroups((prev) => {
+      if (prev.some((g) => g.id === group.id)) return prev;
+      const taken = new Set(prev.flatMap((g) => (g.id === OTHERS_GROUP_ID ? [] : g.sessionIds)));
+      const restored = { ...group, sessionIds: group.sessionIds.filter((sid) => !taken.has(sid)) };
+      const next = [...prev];
+      next.splice(Math.min(Math.max(index, 0), next.length), 0, restored);
       commit(next);
       return next;
     });
@@ -287,11 +307,13 @@ export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEv
 
   return {
     groups,
+    loaded,
     createGroup,
     setOthersColor,
     renameGroup,
     setColor,
     deleteGroup,
+    restoreGroup,
     toggleCollapsed,
     assign,
     reorderGroups,

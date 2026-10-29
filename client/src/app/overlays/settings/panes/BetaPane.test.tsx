@@ -51,6 +51,15 @@ describe('BetaPane', () => {
     expect(warn?.textContent).toBe('Types into the target shell');
   });
 
+  it('each feature links to its page on the docs site', () => {
+    const openExternal = vi.fn();
+    (window as unknown as { electronShell: unknown }).electronShell = { openExternal };
+    render();
+    act(() => { (container.querySelector('[data-testid="beta-docs-betaHandoff"]') as HTMLButtonElement).click(); });
+    expect(openExternal).toHaveBeenCalledWith('https://antonioromano.github.io/argus/beta/handoff/');
+    delete (window as unknown as { electronShell?: unknown }).electronShell;
+  });
+
   it('toggles worktree lifecycle on and off as a strict boolean', () => {
     render();
     act(() => { track('betaWorktreeLifecycle').click(); });

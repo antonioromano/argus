@@ -1,46 +1,12 @@
-import { Globe, Sun, Moon, Settings, ArrowUp, Columns2, Rows2 } from 'lucide-react';
+import { Sun, Moon, Settings, ArrowUp, Columns2, Rows2 } from 'lucide-react';
 import type { InspectorSide } from '@argus/shared';
 import { PanelSideGlyph } from './PanelSideGlyph.js';
-import { useState, useEffect } from 'react';
-import type { KeepAwakeStatus, MosaicOrientation } from '@argus/shared';
+import type { MosaicOrientation } from '@argus/shared';
 import { Tooltip, Icon } from '../../components/primitives/index.js';
-import { KeepAwakeButton } from './KeepAwakeButton.js';
-
-function formatTime(date: Date, showSeconds: boolean): string {
-  const h = String(date.getHours()).padStart(2, '0');
-  const m = String(date.getMinutes()).padStart(2, '0');
-  if (!showSeconds) return `${h}:${m}`;
-  return `${h}:${m}:${String(date.getSeconds()).padStart(2, '0')}`;
-}
-
-function ClockDisplay({ showSeconds = false }: { showSeconds?: boolean }) {
-  // Store the raw Date in state and format during render: a `showSeconds` change
-  // reformats immediately via the prop without a synchronous setState in the effect.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const time = formatTime(now, showSeconds);
-  return (
-    <span style={{
-      fontFamily: 'var(--font-mono)',
-      fontSize: 'var(--t-tiny)',
-      letterSpacing: 'var(--tracking-eye)',
-      color: 'var(--fg-3)',
-      padding: '3px 6px',
-      // @ts-expect-error Electron-only
-      WebkitAppRegion: 'no-drag',
-    }}>
-      {time}
-    </span>
-  );
-}
 
 interface ElectronToolbarProps {
   onOpenSettings: () => void;
   onToggleTheme: () => void;
-  onOpenRemote: () => void;
   /** Current mosaic arrangement; the button flips it. Omit to hide the button. */
   mosaicOrientation?: MosaicOrientation;
   onToggleMosaicOrientation?: () => void;
@@ -51,15 +17,11 @@ interface ElectronToolbarProps {
   /** Shortcut label for the tooltip, e.g. "⌘I". */
   inspectorHint?: string;
   isDark: boolean;
-  ngrokConnected: boolean;
+  /** The update notice. Passed only while the status bar is hidden — the bar
+   *  carries it otherwise (plan 009: clock, keep-awake and remote moved there). */
   updateAvailable?: boolean;
   updateVersion?: string;
   onOpenUpdate?: () => void;
-  showClock?: boolean;
-  clockShowSeconds?: boolean;
-  keepAwakeStatus: KeepAwakeStatus | null;
-  onArmKeepAwake: (durationMs: number | null) => void;
-  onDisarmKeepAwake: () => void;
 }
 
 const iconBtn = (active = false): React.CSSProperties => ({
@@ -81,7 +43,6 @@ const iconBtn = (active = false): React.CSSProperties => ({
 export function ElectronToolbar({
   onOpenSettings,
   onToggleTheme,
-  onOpenRemote,
   mosaicOrientation,
   onToggleMosaicOrientation,
   inspectorSide = 'left',
@@ -89,15 +50,9 @@ export function ElectronToolbar({
   onToggleInspector,
   inspectorHint,
   isDark,
-  ngrokConnected,
   updateAvailable,
   updateVersion,
   onOpenUpdate,
-  showClock,
-  clockShowSeconds,
-  keepAwakeStatus,
-  onArmKeepAwake,
-  onDisarmKeepAwake,
 }: ElectronToolbarProps) {
   return (
     <div
@@ -109,7 +64,6 @@ export function ElectronToolbar({
         WebkitAppRegion: 'no-drag',
       }}
     >
-        {showClock && <ClockDisplay showSeconds={clockShowSeconds} />}
         {updateAvailable && (
           <button
             onClick={onOpenUpdate}
@@ -134,41 +88,6 @@ export function ElectronToolbar({
             <Icon icon={ArrowUp} size={10} strokeWidth={2} /> v{updateVersion}
           </button>
         )}
-
-        <KeepAwakeButton
-          status={keepAwakeStatus}
-          onArm={onArmKeepAwake}
-          onDisarm={onDisarmKeepAwake}
-        />
-
-        <Tooltip content="Remote Access">
-          <button
-            onClick={onOpenRemote}
-            style={{
-              ...iconBtn(ngrokConnected),
-              position: 'relative',
-              border: `1px solid ${ngrokConnected ? 'var(--accent-edge)' : 'transparent'}`,
-              color: ngrokConnected ? 'var(--accent)' : 'var(--fg-2)',
-            }}
-          >
-            <Icon icon={Globe} size={13} strokeWidth={1.6} />
-            {ngrokConnected && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: 'var(--accent)',
-                  boxShadow: '0 0 6px var(--accent)',
-                  border: '1.5px solid var(--bg-1)',
-                }}
-              />
-            )}
-          </button>
-        </Tooltip>
 
         {mosaicOrientation && onToggleMosaicOrientation && (
           <Tooltip content={mosaicOrientation === 'vertical' ? 'Arrange shells side by side' : 'Stack shells vertically'}>

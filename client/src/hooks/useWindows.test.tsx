@@ -157,6 +157,23 @@ describe('useWindows hook (fake socket + mocked api)', () => {
     expect(captured!.windows).toHaveLength(2);
   });
 
+  it('a window that leaves the registry has its saved view and group filter dropped', async () => {
+    vi.mocked(api.getWindows).mockReturnValue(deferred<WindowRegistryState>().promise);
+    const socket = createFakeSocket();
+    localStorage.setItem('argus.appView.w2', '{}');
+    localStorage.setItem('argus.groupFilter.w2', 'g1');
+    localStorage.setItem('argus.appView.main', '{}');
+
+    await act(async () => { root.render(<Probe socket={socket} />); });
+    await act(async () => { socket.emit('window:state', stateWith(MAIN, W2)); });
+    expect(localStorage.getItem('argus.appView.w2')).toBe('{}');
+
+    await act(async () => { socket.emit('window:state', stateWith(MAIN)); });
+    expect(localStorage.getItem('argus.appView.w2')).toBeNull();
+    expect(localStorage.getItem('argus.groupFilter.w2')).toBeNull();
+    expect(localStorage.getItem('argus.appView.main')).toBe('{}');
+  });
+
   it('refetches when the socket reconnects (mirrors useSessions)', async () => {
     vi.mocked(api.getWindows).mockResolvedValueOnce(stateWith(MAIN));
     const socket = createFakeSocket();

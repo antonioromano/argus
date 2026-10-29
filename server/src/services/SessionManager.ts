@@ -27,6 +27,7 @@ import type {
   SessionPrDiffResponse,
   AppConfig,
   ActivityEvent,
+  BackendHealth,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { ActivityStore } from './activity/ActivityStore.js';
@@ -82,6 +83,8 @@ import {
 import type { SearchTarget } from './search/crossSessionSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 import { ArgusError } from '../errors/ArgusError.js';
+import type { SessionIdentityPatch } from '../constants/sessionIdentity.js';
+import { BackendHealthTracker } from './backendHealth.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -98,6 +101,12 @@ export interface CreateSessionOpts {
   usage?: SessionUsageTrackerState;
   /** Restore only: a Codex shell's spawn time and matched rollout log. */
   codexUsage?: CodexUsageState;
+  /** Restore only: the persisted identity (colour key, emoji). */
+  color?: string;
+  emoji?: string;
+  /** Reopen after a close: spawn `claude --resume <id>` on a FRESH create. The
+   *  resume argv is spawn-only (never stored in `flags`), like restartSession's. */
+  resumeClaudeSessionId?: string;
 }
 
 interface ManagedSession {
@@ -142,6 +151,9 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
+  /** Identity: palette key and emoji, validated by setSessionIdentity. */
+  color?: string;
+  emoji?: string;
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -519,6 +531,8 @@ export class SessionManager {
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
+  /** Set by wireBackend, alongside the backend it watches. */
+  private health!: BackendHealthTracker;
   /** Direct run mode: plain node-pty, no daemon/tmux, nothing survives a quit. */
   private directBackend: PtyBackend;
 
@@ -543,6 +557,18 @@ export class SessionManager {
   /** Subscribe to backend-level events that outlive an individual session. */
   private wireBackend(): void {
     this.backend.onSessionResync?.((id) => this.beginResync(id));
+    this.health?.dispose();
+    this.health = new BackendHealthTracker(
+      this.backend.kind === 'daemon' ? 'daemon' : 'tmux',
+      (h) => this.io?.emit('backend:health', h),
+    );
+    const health = this.health;
+    this.backend.onHealthEvent?.((e) => health.handle(e));
+  }
+
+  /** argusd/tmux health for the status bar (GET /api/backend/health). */
+  backendHealth(): BackendHealth {
+    return this.health.current();
   }
 
   /**
@@ -1259,7 +1285,13 @@ export class SessionManager {
       if (!pa) throw new Error(`Agent "${resolvedAgentType}" does not accept an initial prompt`);
       promptTail = pa;
     }
-    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags, effectiveFolderPath);
+    const freshCreate = !attachExisting && !restoreExited && existingId == null;
+    const resumeId = freshCreate ? opts.resumeClaudeSessionId : undefined;
+    if (resumeId !== undefined && resolvedAgentType !== 'claude') {
+      throw new Error('Only Claude sessions can resume a conversation');
+    }
+    const spawnUserFlags = resumeId !== undefined ? buildResumeFlags(resolvedFlags, resumeId) : resolvedFlags;
+    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, spawnUserFlags, effectiveFolderPath);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -1269,7 +1301,7 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? spawnUserFlags)];
     const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -1334,6 +1366,8 @@ export class SessionManager {
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       launcherId: opts.launcherId,
+      color: opts.color,
+      emoji: opts.emoji,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1368,6 +1402,8 @@ export class SessionManager {
     });
 
     this.applyRestoredInsights(session, opts);
+    // A reopened conversation is the same Claude session: Resume works at once.
+    if (resumeId !== undefined) session.claudeSessionId = resumeId;
     this.sessions.set(id, session);
     if (!attachExisting && !restoreExited && !session.codex) this.startCodexUsage(session);
     else this.refreshCodexPoll();
@@ -1395,6 +1431,22 @@ export class SessionManager {
     session.name = trimmed;
     await this.persistSessions();
     this.io?.emit('session:renamed', { sessionId: id, name: trimmed });
+    return this.toSessionInfo(session);
+  }
+
+  /**
+   * Set or clear a session's identity colour and emoji. Cosmetic, like rename.
+   * The patch is validated by the route (validateIdentity); a field left
+   * undefined keeps its value, `null` clears it.
+   */
+  async setSessionIdentity(id: string, patch: SessionIdentityPatch): Promise<SessionInfo> {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found`);
+
+    if (patch.color !== undefined) session.color = patch.color ?? undefined;
+    if (patch.emoji !== undefined) session.emoji = patch.emoji ?? undefined;
+    await this.persistSessions();
+    this.io?.emit('session:identity', { sessionId: id, color: session.color ?? null, emoji: session.emoji ?? null });
     return this.toSessionInfo(session);
   }
 
@@ -2782,7 +2834,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2802,7 +2854,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2859,6 +2911,8 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      color: session.color,
+      emoji: session.emoji,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
@@ -3007,6 +3061,8 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        color: s.color,
+        emoji: s.emoji,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
         codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,

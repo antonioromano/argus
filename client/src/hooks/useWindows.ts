@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 import { MAIN_WINDOW_ID, type ArgusWindow, type ClientToServerEvents, type ServerToClientEvents, type WindowRegistryState } from '@argus/shared';
 import { api } from '../services/api.js';
 import { myWindowId } from '../utils/windowId.js';
+import { clearWindowUiState } from '../app/state/windowUiState.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -68,6 +69,19 @@ export function useWindows(socket: TypedSocket): WindowsApi {
       socket.off('connect', fetchState);
     };
   }, [socket]);
+
+  // A window that left the registry was closed for good (a secondary's close
+  // merges its sessions back to main): drop its saved view and group filter so
+  // the next window to get a fresh id does not inherit stale keys.
+  const knownIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!loaded) return;
+    const ids = new Set(state.windows.map((w) => w.id));
+    for (const id of knownIds.current ?? []) {
+      if (!ids.has(id) && id !== myWindowId) clearWindowUiState(id);
+    }
+    knownIds.current = ids;
+  }, [loaded, state.windows]);
 
   const ownerOf = useCallback(
     (sessionId: string) => computeOwnerOf(state, sessionId),

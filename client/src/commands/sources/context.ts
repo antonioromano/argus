@@ -64,6 +64,8 @@ export interface CommandContext {
   sessionMenuActions: Omit<SessionMenuActions, 'onRename'>;
   /** Flip the focused session's name into its inline editor. */
   beginRename(id: string): void;
+  /** Open "Color & emoji…" for a session (supplied by the palette host). */
+  editIdentity?(session: SessionInfo): void;
   resumable: readonly SessionInfo[];
   resume(session: SessionInfo): void;
 }

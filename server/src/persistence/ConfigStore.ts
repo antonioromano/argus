@@ -25,6 +25,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
+  showStatusBar: true,
+  restoreLayoutOnLaunch: true,
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
   confirmCloseShell: true,

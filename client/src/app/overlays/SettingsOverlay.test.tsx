@@ -100,6 +100,7 @@ let scrolled: string[];
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  localStorage.clear(); // the last pane shown is remembered across opens
   // jsdom has no layout, so no scrollIntoView — record which row asked for it.
   scrolled = [];
   Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
@@ -144,6 +145,27 @@ describe('settings shell', () => {
     const runtime = navItems().find((b) => b.textContent?.includes('Runtime'));
     act(() => { runtime?.click(); });
     expect(paneTitle()).toBe('Runtime');
+  });
+
+  it('reopens on the last pane shown', () => {
+    render({ ...DEFAULT_CONFIG });
+    act(() => { navItems().find((b) => b.textContent?.includes('Runtime'))?.click(); });
+    act(() => root.unmount());
+    act(() => { root = createRoot(container); });
+    render({ ...DEFAULT_CONFIG });
+    expect(paneTitle()).toBe('Runtime');
+  });
+
+  it('an explicit tab wins over the remembered pane', () => {
+    localStorage.setItem('argus.settingsPane', 'runtime');
+    render({ ...DEFAULT_CONFIG }, 'remote');
+    expect(paneTitle()).toBe('Remote access');
+  });
+
+  it('a remembered pane id that no longer exists falls back to the first pane', () => {
+    localStorage.setItem('argus.settingsPane', 'gone');
+    render({ ...DEFAULT_CONFIG });
+    expect(paneTitle()).toBe('Theme & layout');
   });
 });
 
@@ -216,7 +238,7 @@ describe('pane content', () => {
     render({ ...DEFAULT_CONFIG, exitSessionsOnQuit: true }, 'confirmations');
     expect(paneTitle()).toBe('General');
     const text = container.querySelector('main')?.textContent ?? '';
-    expect(text).toContain('Closing a shell');
+    expect(text).toContain('Closing a running session');
     expect(text).toContain('Exit all sessions on Quit');
     expect(text).toContain('Confirm before exiting');
   });
@@ -224,19 +246,19 @@ describe('pane content', () => {
   it('General also holds sleep and the Others folder name', () => {
     render({ ...DEFAULT_CONFIG }, 'general');
     const text = container.querySelector('main')?.textContent ?? '';
-    expect(text).toContain('Closing a shell');
+    expect(text).toContain('Closing a running session');
     expect(text).toContain('Keep Mac awake while running');
     expect(text).toContain('"Others" folder name');
   });
 
-  it('Theme & layout holds the font sizes and the toolbar clock', () => {
+  it('Theme & layout holds the font sizes and the status bar clock', () => {
     render({ ...DEFAULT_CONFIG }, 'typography');
     expect(paneTitle()).toBe('Theme & layout');
     const text = container.querySelector('main')?.textContent ?? '';
     expect(text).toContain('Appearance');
     expect(text).toContain('Code');
     expect(text).toContain('Interface');
-    expect(text).toContain('Show clock in toolbar');
+    expect(text).toContain('Show clock in status bar');
   });
 
   it('Runtime holds the developer tools under Diagnostics', () => {
@@ -292,7 +314,7 @@ describe('control-level search', () => {
   it('points a hidden control at the toggle that reveals it', async () => {
     render({ ...DEFAULT_CONFIG, showClock: false });
     type('seconds');
-    expect(hit('Show seconds').textContent).toContain('Turn on Show clock in toolbar first');
+    expect(hit('Show seconds').textContent).toContain('Turn on Show clock in status bar first');
     act(() => { hit('Show seconds').click(); });
     await flushFrame();
     expect(row('clockShowSeconds')).toBeNull();

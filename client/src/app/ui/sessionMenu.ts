@@ -1,4 +1,4 @@
-import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2, EyeOff, type LucideIcon } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2, EyeOff, Palette, type LucideIcon } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -14,6 +14,8 @@ import { formatCombo } from '../../keyboard/combo.js';
  */
 export interface SessionMenuActions {
   onRename: (session: SessionInfo) => void;
+  /** "Color & emoji…": opens the identity editor. Absent → no entry (mobile). */
+  onEditIdentity?: (session: SessionInfo) => void;
   onOpen: (id: string) => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
@@ -91,6 +93,7 @@ export function buildSessionMenuItems(
     { separator: true },
     { header: 'Session' },
     { id: 'rename', label: 'Rename shell', icon: Pencil, onClick: () => a.onRename(session) },
+    ...(a.onEditIdentity ? [{ id: 'identity', label: 'Color & emoji…', icon: Palette, onClick: () => a.onEditIdentity!(session) }] : []),
     ...(a.onToggleMinimize ? [{ id: 'minimize', label: 'Minimize', icon: Minus, onClick: () => a.onToggleMinimize!(session.id) }] : []),
     ...(a.onMoveToNewWindow ? [{ id: 'move-new-window', label: 'Move to New Window', icon: AppWindow, onClick: () => a.onMoveToNewWindow!(session) }] : []),
     ...(a.onMoveToWindow

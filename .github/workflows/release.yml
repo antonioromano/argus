@@ -156,6 +156,24 @@ jobs:
           smoke arm64 "dist/mac-arm64/Argus.app"
           smoke x64 "dist/mac/Argus.app" arch -x86_64
 
+      # The DMG carries "Read Me First.txt" (first-launch steps for an ad-hoc
+      # signed app, plan 009 D2). Assert both images have it.
+      - name: Check DMG contents
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for DMG in "dist/Argus-${VERSION}-arm64.dmg" "dist/Argus-${VERSION}.dmg"; do
+            MNT="$(mktemp -d /tmp/argus-dmg.XXXXXX)"
+            hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG" > /dev/null
+            if [ ! -f "$MNT/Read Me First.txt" ] || [ ! -d "$MNT/Argus.app" ]; then
+              echo "✖ $DMG is missing Read Me First.txt or Argus.app:"
+              ls -la "$MNT"
+              hdiutil detach "$MNT" -force > /dev/null || true
+              exit 1
+            fi
+            echo "✔ $DMG has Argus.app and Read Me First.txt"
+            hdiutil detach "$MNT" > /dev/null || hdiutil detach "$MNT" -force > /dev/null
+          done
+
       - name: Compute SHA256
         id: sha
         run: |
@@ -183,9 +201,21 @@ jobs:
           # containing only chore:bump commits), which would fail the step under
           # `set -e`. An empty changelog is fine — the release still publishes.
           NOTES=$(echo "$RAW" | grep -v "^- chore: bump" || true)
+          # First-launch help for DMG downloaders (the app is ad-hoc signed, so
+          # macOS blocks the first open). The update dialog cuts the body at the
+          # marker (UpdateService RELEASE_FOOTER_MARKER): in-app updaters never
+          # see it.
+          FOOTER=$(cat <<'MD'
+          <!-- first-launch -->
+          ---
+          **Installing from the DMG:** macOS blocks the first launch of this ad-hoc signed app. Open Argus once, then go to **System Settings → Privacy & Security** and click **Open Anyway** next to "Argus was blocked". Or install with Homebrew (`brew install --cask argus`), which skips this. [First-launch guide](https://antonioromano.github.io/argus/install/#first-launch)
+          MD
+          )
           {
             echo "notes<<EOF"
             echo "$NOTES"
+            echo ""
+            echo "$FOOTER"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

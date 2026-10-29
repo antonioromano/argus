@@ -20,6 +20,8 @@ export interface BetaFeature {
   how: string;
   /** Limits worth knowing before turning it on; `warn` marks the ones with side effects. */
   caveats: readonly { text: string; warn?: boolean }[];
+  /** Its page on the docs site: site/beta/<docsSlug>.md (check:docs-links pins it). */
+  docsSlug: string;
 }
 
 export const BETA_FEATURES: readonly BetaFeature[] = [
@@ -30,6 +32,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     description: 'Finish a worktree shell in one go: commit, push, open a PR. Remove it once merged; stale worktrees get flagged.',
     how: 'Right-click a worktree shell → Finish…',
     caveats: [{ text: 'Worktree shells' }, { text: 'Uses gh if installed' }],
+    docsSlug: 'worktree-lifecycle',
   },
   {
     flag: 'betaActivityTimeline',
@@ -38,6 +41,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     description: 'A live feed of what the agent does: prompts, tool calls with their command or file, subagents, compactions.',
     how: 'Focus a shell → Activity button in the header',
     caveats: [{ text: 'Claude only' }, { text: 'New or restarted shells', warn: true }, { text: 'Last 500, not saved' }],
+    docsSlug: 'activity-timeline',
   },
   {
     flag: 'betaSessionTemplates',
@@ -46,6 +50,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     description: 'Save a set of shells (agent, folder, optional new worktree, first prompt) and start them together into a new group.',
     how: 'Settings → Launchers → Templates, or ⌘K → “Launch template…”',
     caveats: [{ text: 'Up to 8 shells' }],
+    docsSlug: 'session-templates',
   },
   {
     flag: 'betaHandoff',
@@ -54,6 +59,7 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     description: 'Start a new shell seeded with a brief of another: its diff and last messages. No model call, no extra cost.',
     how: 'Right-click a shell → Hand off…',
     caveats: [],
+    docsSlug: 'handoff',
   },
   {
     flag: 'betaSessionChains',
@@ -62,5 +68,6 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
     description: 'When one shell goes idle, waiting or done, type a prompt into another.',
     how: 'Right-click a shell → Chain to…',
     caveats: [{ text: 'Once by default' }, { text: 'Types into the target shell', warn: true }, { text: 'Max 10/h per chain' }],
+    docsSlug: 'session-chains',
   },
 ];

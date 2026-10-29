@@ -20,6 +20,8 @@ export interface DensityMetrics {
   headerPadY: number;
   /** --h-titlebar: toolbar height; the traffic lights centre on it. */
   titlebarH: number;
+  /** --h-statusbar: the app status bar along the bottom (plan 009). */
+  statusbarH: number;
   /** --w-sidebar: sidebar width until the user drags it. */
   sidebarW: number;
   /** File-tree virtual row at the default interface font. */
@@ -31,15 +33,15 @@ export interface DensityMetrics {
 export const DENSITY_METRICS: Record<Density, DensityMetrics> = {
   compact: {
     rowH: 'var(--row-h-compact)', rowPadY: 4, leafPadY: 2, groupH: 22, headerPadY: 2,
-    titlebarH: 38, sidebarW: 200, treeRowH: 20, csvRowH: 24,
+    titlebarH: 38, statusbarH: 20, sidebarW: 200, treeRowH: 20, csvRowH: 24,
   },
   default: {
     rowH: 'var(--ctl-h-md)', rowPadY: 6, leafPadY: 4, groupH: 26, headerPadY: 4,
-    titlebarH: 44, sidebarW: 220, treeRowH: 22, csvRowH: 28,
+    titlebarH: 44, statusbarH: 22, sidebarW: 220, treeRowH: 22, csvRowH: 28,
   },
   comfortable: {
     rowH: 'var(--row-h-comfortable)', rowPadY: 8, leafPadY: 6, groupH: 30, headerPadY: 6,
-    titlebarH: 52, sidebarW: 220, treeRowH: 26, csvRowH: 32,
+    titlebarH: 52, statusbarH: 26, sidebarW: 220, treeRowH: 26, csvRowH: 32,
   },
 };
 
@@ -58,6 +60,7 @@ export function densityCssVars(m: DensityMetrics): Record<string, string> {
     '--group-h': `${m.groupH}px`,
     '--header-pad-y': `${m.headerPadY}px`,
     '--h-titlebar': `${m.titlebarH}px`,
+    '--h-statusbar': `${m.statusbarH}px`,
     '--w-sidebar': `${m.sidebarW}px`,
   };
 }

@@ -137,7 +137,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       <div
         style={{
           position: 'fixed',
-          bottom: 16,
+          // Clear of the app status bar when it is shown (AppStatusBar sets the offset).
+          bottom: 'calc(16px + var(--statusbar-offset, 0px))',
           right: 16,
           display: 'flex',
           flexDirection: 'column',

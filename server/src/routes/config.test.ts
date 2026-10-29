@@ -64,6 +64,16 @@ test('PUT confirmExitOnQuit:false persists', async () => {
   assert.equal(loaded.confirmExitOnQuit, false);
 });
 
+test('showStatusBar and restoreLayoutOnLaunch persist (allowlist)', async () => {
+  const { body } = await put({ showStatusBar: false, restoreLayoutOnLaunch: false });
+  assert.equal(body.showStatusBar, false);
+  assert.equal(body.restoreLayoutOnLaunch, false);
+  const loaded = await get();
+  assert.equal(loaded.showStatusBar, false);
+  assert.equal(loaded.restoreLayoutOnLaunch, false);
+  await put({ showStatusBar: true, restoreLayoutOnLaunch: true });
+});
+
 test('omitting fields preserves existing values', async () => {
   await put({ exitSessionsOnQuit: true, confirmExitOnQuit: false });
   // A PUT touching only an unrelated field must not drop the quit settings.
@@ -201,6 +211,8 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     notificationSound: true,
     showClock: true,
     clockShowSeconds: true,
+    showStatusBar: false,
+    restoreLayoutOnLaunch: false,
     othersFolderName: 'Archive',
     preventSleepWhileRunning: true,
     confirmCloseShell: false,

@@ -3,6 +3,8 @@ import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 import { Icon } from '../../components/primitives/index.js';
 
 interface ActionSheetProps {
@@ -79,7 +81,8 @@ export function ActionSheet({
           }}
         >
           <AgentGlyph agent={session.agentType} size={20} />
-          {session.name}
+          <SessionIdentity session={session} />
+          {shellLabel(session)}
         </div>
 
         <Row icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />

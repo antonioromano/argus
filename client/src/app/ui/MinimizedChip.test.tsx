@@ -30,16 +30,17 @@ function menu(renaming: boolean): SessionMenuApi {
     isRenaming: () => renaming,
     commitRename: () => {},
     cancelRename: () => {},
+    editIdentity: () => {},
   };
 }
 
-function render(renaming: boolean) {
+function render(renaming: boolean, s: SessionInfo = session) {
   const onClick = vi.fn();
   act(() => {
     root.render(
       <SessionMenuContext.Provider value={menu(renaming)}>
         <MinimizedChip
-          session={session}
+          session={s}
           onClick={onClick}
           onDragStart={() => {}}
           onDragOver={() => {}}
@@ -91,6 +92,23 @@ describe('MinimizedChip', () => {
     // The rename branch is a different element, so the class it is styled by has
     // to come with it.
     expect(container.querySelector('.argus-chip')).not.toBeNull();
+  });
+
+  it('without an identity, the chip carries no edge and no emoji slot', () => {
+    render(false);
+    const chip = container.querySelector('.argus-chip') as HTMLElement;
+    expect(chip.hasAttribute('data-identity-edge')).toBe(false);
+    expect(container.querySelector('.argus-identity-emoji')).toBeNull();
+  });
+
+  it('shows the identity emoji and colour edge, in both the chip and its rename form', () => {
+    for (const renaming of [false, true]) {
+      render(renaming, { ...session, color: 'teal', emoji: '🦊' });
+      const chip = container.querySelector('.argus-chip') as HTMLElement;
+      expect(chip.getAttribute('data-identity-edge')).toBe('teal');
+      expect(chip.style.getPropertyValue('--identity-edge')).not.toBe('');
+      expect(container.querySelector('.argus-identity-emoji')?.textContent).toBe('🦊');
+    }
   });
 
   it('is not draggable while renaming, so selecting text is not read as a drag', () => {

@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@argus/shared';
 import { MoreHorizontal, CircleX } from 'lucide-react';
 import { AgentGlyph } from './AgentGlyph.js';
-import { StatusBar, DirtyBadge, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusStrip, DirtyBadge, IconButton, Tooltip } from '../../components/primitives/index.js';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 
@@ -58,7 +58,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             : 'var(--shadow-1)',
       }}
     >
-      <StatusBar status={s.status} height={3} />
+      <StatusStrip status={s.status} height={3} />
 
       <div
         style={{

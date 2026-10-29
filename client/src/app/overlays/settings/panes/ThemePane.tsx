@@ -17,7 +17,7 @@ import type { PaneProps } from '../types.js';
 
 /**
  * How Argus looks: theme and window material, density, font sizes, mosaic
- * layout, the waiting cue and the toolbar clock. Typography and Toolbar were their own panes (two keys each);
+ * layout, the waiting cue and the status bar (with its clock). Typography and Toolbar were their own panes (two keys each);
  * they are the same subject, and together still fit a screen.
  */
 export function ThemePane({ config, onSave }: PaneProps) {
@@ -91,7 +91,10 @@ export function ThemePane({ config, onSave }: PaneProps) {
         </SettingRow>
       </Section>
 
-      <Section title="Toolbar clock">
+      <Section title="Status bar">
+        <SettingField id="showStatusBar">
+          <Toggle checked={config.showStatusBar ?? true} onChange={(v) => onSave({ showStatusBar: v })} />
+        </SettingField>
         <SettingField id="showClock">
           <Toggle checked={showClock} onChange={(v) => onSave({ showClock: v })} />
         </SettingField>

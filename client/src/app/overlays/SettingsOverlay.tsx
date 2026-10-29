@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
-import { Sheet, Button, AlertSheet } from '../../components/primitives/index.js';
+import { Sheet, Button } from '../../components/primitives/index.js';
 import { SettingsNav } from './settings/SettingsNav.js';
 import {
   PANES_BY_ID,
@@ -12,15 +12,14 @@ import {
   resetPatch,
   settingResetPatch,
   resolvePaneId,
-  RESETTABLE_KEYS,
   type PaneId,
 } from './settings/registry.js';
 import { jumpTarget, searchSettings, visiblePanes } from './settings/search.js';
 import { SettingTargetContext } from './settings/settingTarget.js';
 import type { SettingDescriptor } from './settings/catalog.js';
 import { useSettingsTransfer } from './settings/useSettingsTransfer.js';
-import { offerUndo } from '../../utils/undoable.js';
-import { pushToast } from '../../components/primitives/Toast.js';
+import { offerUndo, UNDO_WINDOW_LONG_MS } from '../../utils/undoable.js';
+import { toastError } from '../../errors/toastError.js';
 import { snapshotKeys } from '../../utils/configSnapshot.js';
 import { ModifiedPane } from './settings/panes/ModifiedPane.js';
 import { ThemePane } from './settings/panes/ThemePane.js';
@@ -70,6 +69,24 @@ type View = PaneId | 'modified';
  * been changed. It owns navigation and nothing else — every pane reads `config`
  * and writes through `onSave`, so no settings state lives here.
  */
+const LAST_PANE_KEY = 'argus.settingsPane';
+
+function loadLastPane(): string | undefined {
+  try {
+    return localStorage.getItem(LAST_PANE_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveLastPane(id: string): void {
+  try {
+    localStorage.setItem(LAST_PANE_KEY, id);
+  } catch {
+    /* best effort */
+  }
+}
+
 export function SettingsOverlay({
   config,
   sessions = [],
@@ -89,12 +106,14 @@ export function SettingsOverlay({
   // Resolved once, on mount: where a deep link lands (the parent toggle while
   // the setting itself is hidden).
   const [initialTarget] = useState(() => (focusSetting ? jumpTarget(focusSetting, config) : undefined));
+  // An explicit tab or deep link wins; otherwise reopen on the last pane shown.
   const [pane, setPane] = useState<View>(
-    () => initialTarget?.pane ?? (initialTab === 'modified' ? 'modified' : resolvePaneId(initialTab)),
+    () => initialTarget?.pane ?? (initialTab === 'modified' ? 'modified' : resolvePaneId(initialTab ?? loadLastPane())),
   );
+  useEffect(() => {
+    if (pane !== 'modified') saveLastPane(pane);
+  }, [pane]);
   const [query, setQuery] = useState('');
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [resetting, setResetting] = useState(false);
   /** Row being flashed after a jump; `seq` re-triggers the scroll for a repeat jump. */
   const [target, setTarget] = useState<{ id: string; seq: number } | null>(
     () => (initialTarget ? { id: initialTarget.id, seq: 0 } : null),
@@ -154,13 +173,13 @@ export function SettingsOverlay({
 
   /** Reversible, so no confirm: write the defaults, offer Undo from a snapshot
    *  (docs/design/feedback-surfaces.md). */
-  const resetWithUndo = (patch: Partial<AppConfig>, message: string) => {
+  const resetWithUndo = (patch: Partial<AppConfig>, message: string, durationMs?: number) => {
     const keys = Object.keys(patch) as (keyof AppConfig)[];
     if (keys.length === 0) return;
     const before = snapshotKeys(config, keys);
     void onSave(patch).then(
-      () => { offerUndo({ message, undo: async () => { await onSave(before); } }); },
-      (err: unknown) => { pushToast(`Couldn’t reset: ${err instanceof Error ? err.message : String(err)}`, 'danger'); },
+      () => { offerUndo({ message, durationMs, undo: async () => { await onSave(before); } }); },
+      (err: unknown) => { toastError(err, 'Couldn’t reset'); },
     );
   };
   const resetPane = () => {
@@ -168,15 +187,9 @@ export function SettingsOverlay({
   };
   const resetSetting = (s: SettingDescriptor) => resetWithUndo(settingResetPatch(s, config), `Reset ${s.label}`);
 
-  const doReset = async () => {
-    setResetting(true);
-    try {
-      await onSave(resetPatch());
-      setConfirmReset(false);
-    } finally {
-      setResetting(false);
-    }
-  };
+  // Reset all is exactly reversible too (a snapshot of every key it writes,
+  // shortcuts included), so it gets the long Undo window instead of a sheet.
+  const resetAll = () => resetWithUndo(resetPatch(), 'Reset all settings', UNDO_WINDOW_LONG_MS);
 
   const paneProps = { config, onSave };
 
@@ -237,8 +250,8 @@ export function SettingsOverlay({
                 <Button variant="ghost" onClick={() => void transfer.importSettings()}>Import…</Button>
               </>
             )}
-            <Button variant="ghost" disabled={changedCount === 0} onClick={() => setConfirmReset(true)}>
-              Reset all…
+            <Button variant="ghost" disabled={changedCount === 0} onClick={resetAll}>
+              Reset all
             </Button>
           </div>
         }
@@ -295,21 +308,6 @@ export function SettingsOverlay({
           </main>
         </div>
       </Sheet>
-
-      <AlertSheet
-        isOpen={confirmReset}
-        title="Reset all settings?"
-        message={
-          `Every preference goes back to its shipped default (${RESETTABLE_KEYS.length} in total), `
-          + 'including your keyboard shortcuts.\n\n'
-          + 'Your custom agents and their saved flags are left alone, and no session is touched.'
-        }
-        confirmLabel="Reset all settings"
-        confirmDestructive
-        confirmLoading={resetting}
-        onConfirm={() => void doReset()}
-        onCancel={() => setConfirmReset(false)}
-      />
 
       {transfer.sheet}
     </>

@@ -338,6 +338,7 @@
   --group-h:      26px;   /* session-tree group header */
   --header-pad-y: 4px;    /* shell tile header */
   --h-titlebar:   44px;   /* toolbar; the traffic lights centre on it */
+  --h-statusbar:  22px;   /* app status bar (plan 009); toasts sit above it */
   --w-sidebar:    220px;  /* sidebar width until dragged */
 
   /* Collapsed sidebar rail — wide enough for a scaled icon plus its row padding. */

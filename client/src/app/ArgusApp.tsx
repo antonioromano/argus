@@ -8,7 +8,7 @@ import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
 import { useMosaicOrder } from '../hooks/useMosaicOrder.js';
-import { useGroups } from '../hooks/useGroups.js';
+import { useGroups, OTHERS_GROUP_ID } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
@@ -28,11 +28,16 @@ import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { focusPendingLaunch, hasPendingLaunch } from './ui/launchFocus.js';
 import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
 import { registerErrorActionHost } from '../errors/errorActions.js';
+import { toastError } from '../errors/toastError.js';
+import { deferUndoable, offerUndo } from '../utils/undoable.js';
+import { canReopen, closeShellMode, groupSlotOf, reopenRequest } from './closeShellFlow.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
 import { WindowChrome } from './ui/WindowChrome.js';
 import { ElectronToolbar } from './ui/ElectronToolbar.js';
+import { AppStatusBar } from './ui/AppStatusBar.js';
+import { useBackendHealth } from '../hooks/useBackendHealth.js';
 import { Sidebar } from './ui/Sidebar.js';
 import { readSidebarCollapsed } from './ui/sidebarState.js';
 import { SessionInspector } from './inspector/SessionInspector.js';
@@ -81,6 +86,7 @@ import { useChains } from '../hooks/useChains.js';
 import { isBetaEnabled } from '../utils/betaFlags.js';
 import { SessionPickerSheet } from './overlays/SessionPickerSheet.js';
 import { useAppView } from './state/useAppView.js';
+import { consumeFreshLaunch, loadGroupFilter, persistGroupFilter } from './state/windowUiState.js';
 import { useMosaicVisibility } from './state/useMosaicVisibility.js';
 import { useWindows } from '../hooks/useWindows.js';
 import { insertBefore } from '../utils/reorder.js';
@@ -222,11 +228,15 @@ function DesktopInner() {
   const { theme, isDark, mode: themeMode, setMode: setThemeMode, toggle: toggleTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
-  const { sessions, loaded: sessionsLoaded, loadError: sessionsLoadError, retry: retrySessionsLoad, createSession, adoptSession, deleteSession, renameSession } = useSessions(socket);
+  const { sessions, loaded: sessionsLoaded, loadError: sessionsLoadError, retry: retrySessionsLoad, createSession, adoptSession, deleteSession, renameSession, reopenSession, hideSession, unhideSession, commitClose } = useSessions(socket);
   const ngrok = useNgrok(socket);
   const keepAwake = useKeepAwake(socket);
+  const backendHealth = useBackendHealth(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
   const { config, updateConfig } = useConfig();
+  // Plan 009 S2: on by default; config loads after first paint, so treat
+  // "not loaded yet" as on rather than flashing the bar in.
+  const showStatusBar = config?.showStatusBar ?? true;
   // macOS appearance → <html> (material, contrast, active window, accent);
   // the density's toolbar height re-centres the traffic lights.
   useSystemAppearance(theme, {
@@ -338,7 +348,29 @@ function DesktopInner() {
   const [pendingKill, setPendingKill] = useState<SessionInfo | null>(null);
   const [pendingKillGroup, setPendingKillGroup] = useState<SessionGroup | null>(null);
   const [pendingRestart, setPendingRestart] = useState<SessionInfo | null>(null);
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  // Group filter, per window, restored on relaunch (plan 009 W2).
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(() => loadGroupFilter(windowsApi.myWindowId));
+  useEffect(() => { persistGroupFilter(windowsApi.myWindowId, activeGroupId); }, [windowsApi.myWindowId, activeGroupId]);
+  // A restored filter naming a group that was deleted meanwhile would show an
+  // empty mosaic with no visible cause: drop it once the groups are known.
+  useEffect(() => {
+    if (!groups.loaded || activeGroupId === null || activeGroupId === OTHERS_GROUP_ID) return;
+    if (!groups.groups.some((g) => g.id === activeGroupId)) setActiveGroupId(null);
+  }, [groups.loaded, groups.groups, activeGroupId]);
+  // "Restore layout on launch" off: a relaunch starts at the dashboard with no
+  // filter. A Cmd+R reload still keeps the layout — it is not a launch.
+  const [freshLaunch] = useState(consumeFreshLaunch);
+  const restoreLayout = config?.restoreLayoutOnLaunch;
+  const { exitFocus: resetToDashboard } = app;
+  const launchResetDone = useRef(false);
+  useEffect(() => {
+    if (launchResetDone.current || !config) return;
+    launchResetDone.current = true;
+    if (freshLaunch && restoreLayout === false) {
+      resetToDashboard();
+      setActiveGroupId(null);
+    }
+  }, [config, freshLaunch, restoreLayout, resetToDashboard]);
   const [mergeFlow, setMergeFlow] = useState<MergeFlow>(null);
   // Beta F8: the worktree shell whose Finish sheet is open.
   const [finishSession, setFinishSession] = useState<SessionInfo | null>(null);
@@ -366,7 +398,9 @@ function DesktopInner() {
   const [themeGate] = useState(() => createDedupeGate());
 
   // F16: tell the user once per launch when stale daemons still run agents.
-  useEffect(() => { checkOrphansOnStartup(); }, []);
+  const openRuntimeSettingsRef = useRef<() => void>(() => {});
+  openRuntimeSettingsRef.current = () => app.openOverlay({ kind: 'settings', initialTab: 'runtime' });
+  useEffect(() => { checkOrphansOnStartup(() => openRuntimeSettingsRef.current()); }, []);
 
   // Which terminal is "active" for Cmd+W / Cmd+F: the focused mosaic tile on the
   // dashboard, or the open session in focus view. Mosaic reports its focused tile up.
@@ -395,21 +429,75 @@ function DesktopInner() {
   }, []);
   const closeTerminalSearch = useCallback(() => setSearchSessionId(null), []);
 
-  // Whether closing a shell shows the confirm modal (off → close immediately).
+  // Whether closing a live session asks first (docs/design/feedback-surfaces.md).
   const confirmCloseShell = config?.confirmCloseShell !== false;
   const [killRemember, setKillRemember] = useState(false);
 
-  // Close a shell, honoring the saved "don't ask again" choice. Shared by the card
-  // close button and Cmd+W (menu:close-session).
+  // Read at close time, so the close handlers below don't churn on every edit.
+  const groupsListRef = useRef(groups.groups);
+  groupsListRef.current = groups.groups;
+  const assignGroupRef = useRef(groups.assign);
+  assignGroupRef.current = groups.assign;
+  const myWindowIdRef = useRef(windowsApi.myWindowId);
+  myWindowIdRef.current = windowsApi.myWindowId;
+
+  // Kill a live session now. A Claude session's conversation can come back:
+  // the toast offers Reopen (never "Undo" — the in-flight work is gone), which
+  // re-creates it with `--resume`, back in its group slot and this window.
+  const closeLiveSession = useCallback((s: SessionInfo) => {
+    const slot = groupSlotOf(groupsListRef.current, s.id, new Set([FAVORITES_GROUP_ID, OTHERS_GROUP_ID]));
+    void deleteSession(s.id);
+    if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
+    if (!canReopen(s)) return;
+    offerUndo({
+      message: `Closed ${s.name}`,
+      actionLabel: 'Reopen',
+      undo: async () => {
+        const created = await reopenSession(reopenRequest(s));
+        if (slot) assignGroupRef.current(created.id, slot.groupId, slot.beforeId);
+        const windowId = myWindowIdRef.current;
+        if (windowId !== MAIN_WINDOW_ID) await api.assignWindow(created.id, windowId).catch(console.error);
+      },
+    });
+  }, [deleteSession, reopenSession, app]);
+
+  // Close a session. Exited: hidden now, deleted when the Undo toast closes.
+  // Live: asks first unless the confirm is off, then closes at once. Shared by
+  // the card close button and Cmd+W (menu:close-session).
   const requestKill = useCallback((s: SessionInfo) => {
-    if (!confirmCloseShell) {
-      void deleteSession(s.id);
-      if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
+    const mode = closeShellMode(s, confirmCloseShell);
+    if (mode === 'confirm') {
+      setKillRemember(false);
+      setPendingKill(s);
       return;
     }
-    setKillRemember(false);
-    setPendingKill(s);
-  }, [confirmCloseShell, deleteSession, app]);
+    if (mode === 'immediate') {
+      closeLiveSession(s);
+      return;
+    }
+    deferUndoable({
+      message: `Closed ${s.name}`,
+      apply: () => {
+        hideSession(s.id);
+        if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
+      },
+      commit: () => commitClose(s.id),
+      revert: () => unhideSession(s.id),
+      failureMessage: `Couldn’t close ${s.name}`,
+    });
+  }, [confirmCloseShell, closeLiveSession, hideSession, unhideSession, commitClose, app]);
+
+  // Deleting a group is pure client state, so it restores exactly: no confirm,
+  // just Undo. Its sessions fall back to Others meanwhile.
+  const { deleteGroup, restoreGroup } = groups;
+  const deleteGroupWithUndo = useCallback((id: string) => {
+    const list = groupsListRef.current;
+    const index = list.findIndex((g) => g.id === id);
+    const group = list[index];
+    if (!group || id === FAVORITES_GROUP_ID) return;
+    deleteGroup(id);
+    offerUndo({ message: `Deleted group ${group.name}`, undo: () => restoreGroup(group, index) });
+  }, [deleteGroup, restoreGroup]);
 
   // Debug action: write a full diagnostics dump for the session to disk, then
   // toast the path so it can be copied and handed to an external tool.
@@ -423,8 +511,7 @@ function DesktopInner() {
   }, []);
 
   // Error action host (plan 003): error surfaces anywhere dispatch "Open
-  // Settings → X" / "Restart session" without prop-drilling. report-issue stays
-  // unregistered (hidden) until plan 002 adds its handler.
+  // Settings → X" / "Restart session" / "Report issue" without prop-drilling.
   const errorHostSessionsRef = useRef(sessions);
   errorHostSessionsRef.current = sessions;
   const openAppOverlay = app.openOverlay;
@@ -434,13 +521,14 @@ function DesktopInner() {
       const s = errorHostSessionsRef.current.find((x) => x.id === a.sessionId);
       if (s) setPendingRestart(s);
     },
+    'report-issue': () => runHelpAction('report-issue'),
   }), [openAppOverlay]);
 
   // Resume an exited Claude session's last conversation. No confirm: the agent
   // is already gone, so nothing running is interrupted.
   const resumeSession = useCallback((s: SessionInfo) => {
     api.restartSession(s.id, { resume: true }).catch((err) => {
-      pushToast(err instanceof Error ? err.message : 'Failed to resume conversation', 'danger');
+      toastError(err, 'Couldn’t resume the conversation');
     });
   }, []);
 
@@ -994,7 +1082,6 @@ function DesktopInner() {
       <ElectronToolbar
         onOpenSettings={() => app.openOverlay({ kind: 'settings' })}
         onToggleTheme={toggleTheme}
-        onOpenRemote={() => app.openOverlay({ kind: 'settings', initialTab: 'remote' })}
         mosaicOrientation={app.view === 'dashboard' ? (config?.mosaicOrientation ?? 'horizontal') : undefined}
         onToggleMosaicOrientation={() => void updateConfig({
           mosaicOrientation: config?.mosaicOrientation === 'vertical' ? 'horizontal' : 'vertical',
@@ -1004,15 +1091,9 @@ function DesktopInner() {
         onToggleInspector={toggleInspector}
         inspectorHint={formatCombo(shortcuts.resolved['toggle-inspector'])}
         isDark={isDark}
-        ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
-        updateAvailable={updateStatus?.hasUpdate}
+        updateAvailable={!showStatusBar && updateStatus?.hasUpdate}
         updateVersion={updateStatus?.latestVersion ?? undefined}
         onOpenUpdate={() => app.openOverlay({ kind: 'update' })}
-        showClock={config?.showClock ?? false}
-        clockShowSeconds={config?.clockShowSeconds ?? false}
-        keepAwakeStatus={keepAwake.status}
-        onArmKeepAwake={keepAwake.arm}
-        onDisarmKeepAwake={keepAwake.disarm}
       />
       <Tooltip content="⌘N">
         <Button variant="primary" icon={Plus} size="md" onClick={() => app.openOverlay({ kind: 'create' })}>
@@ -1164,7 +1245,7 @@ function DesktopInner() {
           active={sidebarActive}
           counts={counts}
           onSelect={handleSidebar}
-          version={updateStatus?.currentVersion}
+          version={showStatusBar ? undefined : updateStatus?.currentVersion}
           ngrokConnected={ngrok.status?.tunnelStatus === 'connected'}
           inspector={inspectorVisible && inspectorSide === 'left' ? renderInspector('sidebar') : undefined}
           checklist={(
@@ -1194,7 +1275,7 @@ function DesktopInner() {
               onRenameGroup={groups.renameGroup}
               onSetColor={groups.setColor}
               onSetOthersColor={groups.setOthersColor}
-              onDeleteGroup={groups.deleteGroup}
+              onDeleteGroup={deleteGroupWithUndo}
               onKillGroup={setPendingKillGroup}
               onKillOthers={() => setPendingKillGroup({
                 id: '__others__',
@@ -1209,6 +1290,7 @@ function DesktopInner() {
               isFavorite={groups.isFavorite}
               onToggleFavoritesCollapsed={() => groups.toggleCollapsed(FAVORITES_GROUP_ID)}
               othersFolderName={config?.othersFolderName ?? 'Others'}
+              onCreateSession={openCreate}
             />
           }
         />
@@ -1263,6 +1345,7 @@ function DesktopInner() {
               customAgents={config?.customAgents}
               loadError={sessionsLoadError}
               onRetryLoad={retrySessionsLoad}
+              onClearFilter={() => setFilter('')}
               landingPromo={isMainWindow && templatesPromoVisible(config, disc.discovery) ? {
                 onTry: () => {
                   void updateConfig({ betaSessionTemplates: true })
@@ -1330,6 +1413,26 @@ function DesktopInner() {
           </InspectorColumn>
         )}
       </div>
+
+      {showStatusBar && (
+        <AppStatusBar
+          socketConnected={socketConnected}
+          health={backendHealth}
+          waiting={counts.waiting}
+          running={counts.running}
+          onOpenInbox={openInbox}
+          remoteOn={ngrok.status?.tunnelStatus === 'connected'}
+          onOpenRemote={() => app.openOverlay({ kind: 'settings', initialTab: 'remote' })}
+          keepAwakeStatus={keepAwake.status}
+          onArmKeepAwake={keepAwake.arm}
+          onDisarmKeepAwake={keepAwake.disarm}
+          updateVersion={updateStatus?.hasUpdate ? updateStatus.latestVersion ?? undefined : undefined}
+          onOpenUpdate={() => app.openOverlay({ kind: 'update' })}
+          showClock={config?.showClock ?? false}
+          clockShowSeconds={config?.clockShowSeconds ?? false}
+          version={updateStatus?.currentVersion}
+        />
+      )}
 
       {/* Overlays */}
       {app.overlay?.kind === 'create' && (
@@ -1474,11 +1577,7 @@ function DesktopInner() {
         confirmDestructive
         rememberChoice={{ label: "Don't ask again", checked: killRemember, onChange: setKillRemember }}
         onConfirm={() => {
-          if (pendingKill) {
-            const id = pendingKill.id;
-            void deleteSession(id);
-            if (app.view === 'focus' && app.activeSessionId === id) app.exitFocus();
-          }
+          if (pendingKill) closeLiveSession(pendingKill);
           if (killRemember) void updateConfig({ confirmCloseShell: false });
           setPendingKill(null);
         }}

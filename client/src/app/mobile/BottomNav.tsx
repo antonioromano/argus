@@ -87,7 +87,7 @@ function NavBadge({ count, type, shiftLeft }: { count: number; type: 'done' | 'w
         background: bg,
         color: textColor,
         fontFamily: 'var(--font-mono)',
-        fontSize: 9,
+        fontSize: 'var(--t-micro)',
         fontWeight: 700,
         display: 'flex',
         alignItems: 'center',

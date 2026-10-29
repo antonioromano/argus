@@ -68,37 +68,61 @@ describe('dismissMaximizedState (close returns to origin)', () => {
   });
 });
 
-describe('focus persistence across Cmd+R (loadPersistedView / persistView)', () => {
-  beforeEach(() => sessionStorage.clear());
+describe('per-window view persistence across reload and relaunch (loadPersistedView / persistView)', () => {
+  beforeEach(() => localStorage.clear());
 
-  it('round-trips a focused view', () => {
-    persistView('focus', 's42');
-    expect(loadPersistedView()).toEqual({ view: 'focus', activeSessionId: 's42' });
+  const DASH = { view: 'dashboard', activeSessionId: null, sidePanel: null, maximizedOrigin: null };
+  const focus = (over: Partial<AppViewState> = {}): AppViewState => ({ ...base, ...over });
+
+  it('round-trips a focused view with its docked panel', () => {
+    persistView('main', focus({ activeSessionId: 's42', sidePanel: { kind: 'terminal', sessionId: 's42' } }));
+    expect(loadPersistedView('main')).toEqual({
+      view: 'focus', activeSessionId: 's42', sidePanel: { kind: 'terminal', sessionId: 's42' }, maximizedOrigin: null,
+    });
   });
 
-  it('defaults to dashboard when nothing is stored', () => {
-    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+  it('round-trips a maximized tool window with its origin', () => {
+    persistView('main', openMaximizedState(dashboard, { kind: 'explorer', sessionId: 's2' }));
+    expect(loadPersistedView('main')).toEqual({
+      view: 'focus', activeSessionId: 's2', sidePanel: { kind: 'explorer', sessionId: 's2', maximized: true }, maximizedOrigin: 'dashboard',
+    });
+  });
+
+  it('keeps two windows apart', () => {
+    persistView('main', focus({ activeSessionId: 'a' }));
+    persistView('w2', focus({ activeSessionId: 'b' }));
+    expect(loadPersistedView('main').activeSessionId).toBe('a');
+    expect(loadPersistedView('w2').activeSessionId).toBe('b');
+    expect(loadPersistedView('w3')).toEqual(DASH);
+  });
+
+  it('never restores a PR diff (it is opened from a fetched PR), nor a panel for another session', () => {
+    const pr = { url: 'https://github.com/o/r/pull/7', pr: null, folderBranch: false, linked: true };
+    persistView('main', openMaximizedState(base, { kind: 'prdiff', sessionId: 's1', pr }));
+    expect(loadPersistedView('main').sidePanel).toBeNull();
+    persistView('main', focus({ sidePanel: { kind: 'diff', sessionId: 'other' } }));
+    expect(loadPersistedView('main')).toEqual({ ...DASH, view: 'focus', activeSessionId: 's1' });
   });
 
   it('clears the key when persisting a non-focus view', () => {
-    persistView('focus', 's1');
-    persistView('dashboard', null);
-    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+    persistView('main', focus());
+    persistView('main', dashboard);
+    expect(loadPersistedView('main')).toEqual(DASH);
   });
 
   it('does not persist a focus view without a session id', () => {
-    persistView('focus', null);
-    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+    persistView('main', focus({ activeSessionId: null }));
+    expect(loadPersistedView('main')).toEqual(DASH);
   });
 
   it('ignores malformed stored JSON', () => {
-    sessionStorage.setItem('argus.appView', '{not json');
-    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+    localStorage.setItem('argus.appView.main', '{not json');
+    expect(loadPersistedView('main')).toEqual(DASH);
   });
 
   it('ignores a stored focus view missing its session id', () => {
-    sessionStorage.setItem('argus.appView', JSON.stringify({ view: 'focus', activeSessionId: null }));
-    expect(loadPersistedView()).toEqual({ view: 'dashboard', activeSessionId: null });
+    localStorage.setItem('argus.appView.main', JSON.stringify({ view: 'focus', activeSessionId: null }));
+    expect(loadPersistedView('main')).toEqual(DASH);
   });
 });
 

@@ -1,6 +1,8 @@
 import type { SessionInfo } from '@argus/shared';
 import { ChevronLeft, MoreVertical, GitBranch } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
 import { StatusPill, DirtyBadge, Icon } from '../../components/primitives/index.js';
 
 interface FocusHeaderProps {
@@ -49,6 +51,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
       </button>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, justifyContent: 'center' }}>
         <AgentGlyph agent={session.agentType} size={16} />
+        <SessionIdentity session={session} />
         <span
           style={{
             fontFamily: 'var(--font-mono)',
@@ -60,7 +63,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
             textOverflow: 'ellipsis',
           }}
         >
-          {session.name}
+          {shellLabel(session)}
         </span>
         {session.hasGitChanges && <DirtyBadge size="sm" />}
       </div>

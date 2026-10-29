@@ -1,0 +1,19 @@
+Installing Argus
+================
+
+1. Drag Argus onto the Applications folder in this window.
+
+2. Open Argus once from Applications. macOS blocks it the first time
+   ("Apple could not verify Argus is free of malware"). Click Done.
+
+3. Open System Settings > Privacy & Security, scroll down to
+   "Argus was blocked to protect your Mac" and click Open Anyway.
+   Confirm with your password or Touch ID.
+
+Argus opens normally after that. Right-click > Open does not skip this
+on macOS 15 and later.
+
+Prefer Terminal? xattr -dr com.apple.quarantine /Applications/Argus.app
+Installing with Homebrew skips all of this: brew install --cask argus
+
+More: https://antonioromano.github.io/argus/install/#first-launch

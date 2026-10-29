@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { SessionInfo, SessionPr } from '@argus/shared';
 import { ciSummary, prRef } from '../utils/prFormat.js';
+import { displayLabel } from '../utils/sessionLabel.js';
 
 interface UseNotificationsOptions {
   sessions: SessionInfo[];
@@ -97,7 +98,7 @@ export function useNotifications({
           // terminal-notifier 2.0.0 drops -message bodies starting with '[',
           // so session name goes in subtitle, body is the message text only.
           const body = session.lastPrompt ?? 'Waiting for your input';
-          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body, sound: notificationSound, attributeToApp: true });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: displayLabel(session), body, sound: notificationSound, attributeToApp: true });
           activeIds.current.set(session.id, { usedFallback: session.lastPrompt == null });
         }
       }
@@ -107,14 +108,14 @@ export function useNotifications({
       if (curr === 'waiting' && session.lastPrompt != null) {
         const active = activeIds.current.get(session.id);
         if (active?.usedFallback) {
-          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body: session.lastPrompt, sound: notificationSound, attributeToApp: true });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: displayLabel(session), body: session.lastPrompt, sound: notificationSound, attributeToApp: true });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }
 
       if (mine && curr === 'done' && prev !== 'done' && prev !== undefined && notifyOnDone) {
         if (!document.hasFocus() && !activeIds.current.has(session.id)) {
-          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body: 'Finished', sound: notificationSound, attributeToApp: true });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: displayLabel(session), body: 'Finished', sound: notificationSound, attributeToApp: true });
           activeIds.current.set(session.id, { usedFallback: false });
         }
       }
@@ -153,7 +154,7 @@ export function useNotifications({
           ciNotified.current.add(held.key);
           if (ciNotified.current.size > CI_NOTIFIED_MAX) ciNotified.current.delete(ciNotified.current.values().next().value as string);
           const body = `${ciSummary(held.pr)} · ${prRef(held.pr.url, held.pr.number)}`;
-          bridge.show({ id: session.id, title: 'Argus', subtitle: session.name, body, sound: notificationSound, attributeToApp: true });
+          bridge.show({ id: session.id, title: 'Argus', subtitle: displayLabel(session), body, sound: notificationSound, attributeToApp: true });
         }
       }
     }

@@ -16,7 +16,7 @@ const group: SessionGroup = { id: 'g1', name: 'billing', color: 'blue', collapse
 
 /** Renders the tree inside an ancestor that mimics the sidebar's
  *  click-anywhere-to-collapse handler, so propagation is observable. */
-function render() {
+function render(extra: { onCreateSession?: () => void } = {}) {
   const onToggleCollapsed = vi.fn();
   const onAncestorClick = vi.fn();
   act(() => {
@@ -42,6 +42,7 @@ function render() {
           onSpawnFromFavorite={vi.fn()}
           isFavorite={() => false}
           onToggleFavoritesCollapsed={vi.fn()}
+          {...extra}
         />
       </div>,
     );
@@ -73,6 +74,17 @@ afterEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
 });
 
+describe('SessionTree with zero sessions', () => {
+  it('says so and offers New session', () => {
+    const onCreateSession = vi.fn();
+    render({ onCreateSession });
+    const row = container.querySelector('[data-testid="session-tree-empty"]')!;
+    expect(row.textContent).toContain('No sessions yet.');
+    click([...row.querySelectorAll('button')].find((b) => b.textContent === 'New session')!);
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('SessionTree group header', () => {
   it('toggles the group when the row itself is clicked', () => {
     const { onToggleCollapsed } = render();
@@ -102,7 +114,7 @@ describe('SessionTree row — session actions ⋯', () => {
     const openMenuAt = vi.fn();
     const onOpenSession = vi.fn();
     const api: SessionMenuApi = {
-      openMenu: vi.fn(), openMenuAt, beginRename: vi.fn(), isRenaming: () => false, commitRename: vi.fn(), cancelRename: vi.fn(),
+      openMenu: vi.fn(), openMenuAt, beginRename: vi.fn(), isRenaming: () => false, commitRename: vi.fn(), cancelRename: vi.fn(), editIdentity: vi.fn(),
     };
     act(() => {
       root.render(

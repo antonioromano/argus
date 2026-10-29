@@ -331,7 +331,7 @@ describe('Focus header — session actions ⋯', () => {
   it('opens the shared session menu anchored to the button, for the focus surface', () => {
     const openMenuAt = vi.fn();
     const api: SessionMenuApi = {
-      openMenu: noop, openMenuAt, beginRename: noop, isRenaming: () => false, commitRename: noop, cancelRename: noop,
+      openMenu: noop, openMenuAt, beginRename: noop, isRenaming: () => false, commitRename: noop, cancelRename: noop, editIdentity: noop,
     };
     const active = session();
     act(() => {
