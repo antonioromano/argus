@@ -12,7 +12,14 @@ export function registerLaunchStack(el: HTMLElement | null): () => void {
   return () => { if (mountedStack === el) mountedStack = null; };
 }
 
+const PENDING = '[data-testid="launch-prompt"], [data-testid="launch-card"] button';
+
 /** Focus the newest pending launch's first control, if a stack is showing one. */
 export function focusPendingLaunch(): void {
-  mountedStack?.querySelector<HTMLElement>('[data-testid="launch-prompt"], [data-testid="launch-card"] button')?.focus();
+  mountedStack?.querySelector<HTMLElement>(PENDING)?.focus();
+}
+
+/** Whether a stack is showing a launch to review (gates the palette's row). */
+export function hasPendingLaunch(): boolean {
+  return !!mountedStack?.querySelector(PENDING);
 }

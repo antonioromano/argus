@@ -108,6 +108,7 @@ test('describeMenuCommands returns one wire descriptor per command with live acc
   assert.deepEqual(theme, {
     id: 'menu:toggle-theme', label: 'Use Light Appearance', section: 'View',
     accelerator: 'CmdOrCtrl+Alt+T', runIn: 'renderer', palette: true, keywords: 'theme dark light toggle',
+    shortcut: 'toggle-theme',
   });
 });
 
