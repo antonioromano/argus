@@ -17,6 +17,12 @@ export interface ChatState {
   commands?: ChatCommand[];
   /** The next prompt Claude Code suggests (ghost text in its empty input box). */
   suggestion?: string;
+  /**
+   * The last settled screen (F6): whether it showed Claude's empty input box, or a picker,
+   * dialog or typed text instead. `seq` grows with every settle, so an unchanged value still
+   * tells that one happened.
+   */
+  screen?: { atPrompt: boolean; seq: number };
 }
 
 export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages: [] };
@@ -40,6 +46,8 @@ export function applyChatUpdate(
       modelSet: update.modelSet,
       commands: update.commands,
       suggestion: update.suggestion,
+      // The screen comes by session:chatAtPrompt only; a transcript reset leaves it be.
+      screen: prev.screen,
     };
   }
   // Appends carry the mode and model only when they changed.
@@ -77,7 +85,7 @@ export function applyChatUpdate(
   }
   const messages = fresh.length ? next.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : next;
   // The suggestion comes on a reset, then by session:chatSuggestion.
-  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion };
+  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion, screen: prev.screen };
 }
 
 const MODE_LABELS: Record<string, string> = {
@@ -156,6 +164,59 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
   { name: 'status', description: 'Show version, model and account' },
   { name: 'usage', description: 'Show plan usage' },
 ];
+
+/**
+ * Built-in commands that, sent bare, open a full-screen picker or dialog in
+ * Claude Code's terminal UI, which the Chat can't render: the Chat view shows
+ * them in a sheet over the live terminal (F6). Aliases Claude Code accepts are
+ * listed too. `/resume` and `/model` are left out: the Chat handles those itself.
+ */
+export const INTERACTIVE_COMMANDS: ReadonlySet<string> = new Set([
+  'add-dir',
+  'agents',
+  'allowed-tools', // alias of permissions
+  'config',
+  'doctor',
+  'effort',
+  'export',
+  'help',
+  'hooks',
+  'ide',
+  'login',
+  'mcp',
+  'memory',
+  'output-style',
+  'permissions',
+  'plugin',
+  'plugins', // alias of plugin
+  'privacy-settings',
+  'rewind',
+  'settings', // alias of config
+  'status',
+  'theme',
+  'usage',
+]);
+
+/**
+ * The name of the slash command `text` starts with, as the server echoes one
+ * (ChatTail.echoCommandOf): `/name`, then a space or the end. A message can
+ * start with an attachment's path: `/var/…` is no command.
+ */
+export function slashCommandName(text: string): string | null {
+  return /^\/([^\s/]+)(?:\s|$)/.exec(text.trim())?.[1] ?? null;
+}
+
+/**
+ * The command name when `text` is one of INTERACTIVE_COMMANDS sent bare, else
+ * null. With arguments these commands mostly run without a picker
+ * (`/mcp enable x`, `/add-dir ~/src`), so they stay in the Chat.
+ */
+export function interactiveCommandOf(text: string): string | null {
+  const name = slashCommandName(text);
+  if (!name || text.trim().length !== name.length + 1) return null;
+  const id = name.toLowerCase();
+  return INTERACTIVE_COMMANDS.has(id) ? id : null;
+}
 
 /** Suggestions shown at most. */
 export const MAX_SLASH_SUGGESTIONS = 50;

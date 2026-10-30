@@ -103,7 +103,7 @@ test('submit: text the chat did not send, or a running turn, is never cleared', 
 test('mode: footer changes are pushed to chat viewers; Shift+Tab until the target shows', async () => {
   const f = fixture();
   f.settle(['  ⏵⏵ auto mode on (shift+tab to cycle)']);
-  assert.deepEqual(f.emitted.at(-1), { event: 'session:chatMode', payload: { sessionId: 's', permissionMode: 'auto' } });
+  assert.deepEqual(f.emitted.findLast((e) => e.event === 'session:chatMode'), { event: 'session:chatMode', payload: { sessionId: 's', permissionMode: 'auto' } });
 
   const p = f.sm.setPermissionMode('s', 'acceptEdits', f.write);
   assert.deepEqual(f.writes, [['\x1b[Z', undefined]]);
@@ -162,4 +162,21 @@ test('prompt suggestion: only read while a Chat view is open; a new viewer reads
   f.settle(['❯ commit it'], [faint('❯ commit it', 2)]);
   assert.equal(f.cellReads(), 0);
   assert.equal((await f.sm.openChat('s'))?.suggestion, 'commit it');
+});
+
+test('at prompt: every settle tells Chat views whether the empty input box is shown (F6)', () => {
+  const f = fixture();
+  const sent = () => f.emitted.filter((e) => e.event === 'session:chatAtPrompt').map((e) => e.payload.atPrompt);
+  f.settle(['────', '❯ ', '────']);
+  f.settle(['────', '❯ ', '────']);
+  f.settle(['   ❯ Auto-compact   true', '   Esc to close']);
+  f.settle(['────', '❯ /config', '────']);
+  assert.deepEqual(sent(), [true, true, false, false], 'on every settle, not only changes');
+  assert.deepEqual(f.emitted.find((e) => e.event === 'session:chatAtPrompt')?.payload, { sessionId: 's', atPrompt: true });
+  // A box holding only the suggestion is empty.
+  f.settle(['────', '❯ commit it', '────'], [[...'❯ commit it'].map((ch, i) => ({ ch, dim: i >= 2 }))]);
+  assert.equal(sent().at(-1), true);
+  f.sm.closeChat('s');
+  f.settle(['────', '❯ ', '────']);
+  assert.equal(sent().length, 5, 'nothing without a Chat view');
 });

@@ -104,6 +104,27 @@ const PLACEHOLDER = /^Try ".*"$/;
 
 const blank = (c: ScreenCell) => c.ch.trim() === '';
 
+/** A bare horizontal rule: the edges of Claude's input box. Dialogs draw `╭─`, `▔▔` instead. */
+const RULE_ROW = /^\s*─{3,}\s*$/;
+
+/**
+ * True when Claude's input box is on screen and holds no typed text (F6): the
+ * lowest `❯` row right under a bare rule, empty or with the `Try "…"`
+ * placeholder (pass rows a suggestion was cleared from, see clearPromptInput).
+ * A picker or dialog (`/config`, `/mcp`, `/hooks`, a permission menu) takes the
+ * box's place, and its own `❯` rows sit under no rule: captured from Claude
+ * Code 2.1.312. A command still typed in the box is not empty either.
+ */
+export function promptBoxEmpty(rows: readonly string[]): boolean {
+  for (let i = rows.length - 1; i > 0; i--) {
+    const m = /^\s*❯(?:\s(.*))?$/.exec(rows[i]);
+    if (!m || !RULE_ROW.test(rows[i - 1])) continue;
+    const text = (m[1] ?? '').trim();
+    return text === '' || PLACEHOLDER.test(text);
+  }
+  return false;
+}
+
 /**
  * The next prompt Claude Code suggests (F9): faint text in an otherwise empty
  * input box, `❯ commit it`, which Tab accepts there. Captured from Claude Code

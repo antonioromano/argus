@@ -13,7 +13,7 @@ import { workRoot } from '../../utils/workRoot.js';
 import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
-import { ChatView } from '../ui/chat/ChatView.js';
+import { ChatView, TERMINAL_SHEET_BAR_PX } from '../ui/chat/ChatView.js';
 import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -172,6 +172,12 @@ export function Focus({
   const [bottomPanelHeight, setBottomPanelHeight] = useState<number>(readStoredHeight);
   const [isResizing, setIsResizing] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
+  // The Chat's terminal sheet (F6) is open: inset the terminal below its bar and hand it the keyboard.
+  const [chatSheet, setChatSheet] = useState(false);
+  const onChatSheet = useCallback((open: boolean) => {
+    setChatSheet(open);
+    if (open) setFocusToken((t) => t + 1);
+  }, []);
   const dragStateRef = useRef<{ start: number; startSize: number } | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
   // Side panels dock below the conversation in the stacked layout, and beside
@@ -427,7 +433,16 @@ export function Focus({
               tool window is maximized it collapses to 0 height and the workbench
               overlays the region, with a clickable peek strip to return. */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-            <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+            <div
+              style={{
+                flex: maximized ? '0 0 0px' : 1,
+                minHeight: 0,
+                display: 'flex',
+                overflow: 'hidden',
+                position: 'relative',
+                paddingTop: chatMode && chatSheet && !maximized ? TERMINAL_SHEET_BAR_PX : 0,
+              }}
+            >
               <ErrorBoundary key={active.id} label={active.name}>
                 <TerminalShell
                   session={active}
@@ -456,7 +471,8 @@ export function Focus({
               {active.status === 'exited' && !useNativeTerminal && (
                 <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
               )}
-              {(modalOpen || overlayHidden) && !chatMode && <ModalPlaceholder status={active.status} />}
+              {/* The Chat paints over a hidden terminal, unless its see-through terminal sheet is open. */}
+              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={active.status} />}
               {viewPending && (
                 <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
               )}
@@ -468,6 +484,7 @@ export function Focus({
                   socket={socket}
                   onShowTerminal={() => setViewMode('terminal')}
                   autoFocus
+                  onTerminalSheet={onChatSheet}
                 />
               )}
             </div>

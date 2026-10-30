@@ -3,10 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
-import { ChatView } from './ChatView.js';
 import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
 import { ANSWER_TIMEOUT_MS } from './ChatPromptCard.js';
+import { ChatView } from './ChatView.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -494,6 +494,154 @@ describe('ChatView', () => {
       expect(stopButton().disabled).toBe(true);
       act(() => { vi.advanceTimersByTime(8000); });
       expect(stopButton().disabled).toBe(false);
+    });
+  });
+
+  describe('terminal sheet for interactive commands (F6)', () => {
+    const type = (text: string) => {
+      const box = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    };
+    const sheet = () => container.querySelector('[data-testid="chat-terminal-sheet"]');
+    const view = () => container.querySelector('[data-testid="chat-view"]')!;
+    function mount(s: SessionInfo, socket: Socket<any, any>, onTerminalSheet = vi.fn(), onShowTerminal = vi.fn()) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      act(() => {
+        root.render(<ChatView session={s} socket={socket} onShowTerminal={onShowTerminal} onTerminalSheet={onTerminalSheet} />);
+      });
+      return { onTerminalSheet, onShowTerminal };
+    }
+
+    it('sends the command and opens the sheet over the terminal', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp' }]);
+      expect(sheet()?.textContent).toContain('/mcp');
+      expect(view().hasAttribute('data-sheet')).toBe(true);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+    });
+
+    const settle = (fire: (ev: string, p: unknown) => void, atPrompt: boolean) => fire('session:chatAtPrompt', { sessionId: 's1', atPrompt });
+
+    it('closes on the first settle that shows the empty input box again, even off `waiting` (/config, /hooks)', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      // A settle from before the command tells nothing about it.
+      settle(fire, true);
+      type('/config');
+      expect(sheet()).not.toBeNull();
+      // The command still typed in the box, then the picker, then a nested view: all off the prompt.
+      settle(fire, false);
+      settle(fire, false);
+      // Esc in the nested view only goes back a level: the window key changes nothing.
+      act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+      expect(sheet()).not.toBeNull();
+      settle(fire, true);
+      expect(sheet()).toBeNull();
+      expect(view().hasAttribute('data-sheet')).toBe(false);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
+    });
+
+    it('closes when the command opened no picker (it printed and the box is back)', () => {
+      const { socket, fire } = fakeSocket();
+      mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/agents');
+      settle(fire, true);
+      expect(sheet()).toBeNull();
+    });
+
+    it('ignores the other sessions\' screens and stays open through a flow at work', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      fire('session:chatAtPrompt', { sessionId: 'other', atPrompt: true });
+      settle(fire, false);
+      mount(session({ status: 'running' }), socket, onTerminalSheet);
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      expect(sheet()).not.toBeNull();
+      settle(fire, true);
+      expect(sheet()).toBeNull();
+    });
+
+    it('sent during a turn, opens once the turn ends and Claude Code runs it', () => {
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session({ status: 'running' }), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp' }]);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      expect(sheet()?.textContent).toContain('/mcp');
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+      // The turn's last screen can still show the empty box: only after the picker does it count.
+      settle(fire, true);
+      expect(sheet()).not.toBeNull();
+      settle(fire, false);
+      settle(fire, true);
+      expect(sheet()).toBeNull();
+    });
+
+    it('sent during a turn, ignores a permission prompt mid-turn and opens only at its end', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session({ status: 'running' }), socket);
+      fire('session:chat', update({}));
+      type('/mcp');
+      mount(session({ status: 'waiting' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      mount(session({ status: 'running' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      mount(session({ status: 'idle' }), socket, onTerminalSheet);
+      expect(sheet()?.textContent).toContain('/mcp');
+    });
+
+    it('the bar closes it, or hands over to the terminal view', () => {
+      const { socket, fire } = fakeSocket();
+      const { onShowTerminal } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/agents');
+      const button = (label: string) => Array.from(sheet()!.querySelectorAll('button')).find((b) => b.textContent?.includes(label))!;
+      act(() => button('Close').click());
+      expect(sheet()).toBeNull();
+      type('/agents');
+      act(() => button('Open terminal').click());
+      expect(sheet()).toBeNull();
+      expect(onShowTerminal).toHaveBeenCalled();
+    });
+
+    it('closes when the session exits, and on unmount tells the host', () => {
+      const { socket, fire } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/permissions');
+      mount(session({ status: 'exited' }), socket, onTerminalSheet);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
+    });
+
+    it('opens for no other text: arguments, plain prompts, /resume', async () => {
+      const list = vi.spyOn(api, 'listConversations').mockResolvedValue([]);
+      const { socket, fire, emitted } = fakeSocket();
+      const { onTerminalSheet } = mount(session(), socket);
+      fire('session:chat', update({}));
+      type('/mcp enable github');
+      type('what is mcp');
+      type('/resume');
+      await act(async () => {});
+      expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp enable github' }]);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).not.toHaveBeenCalled();
+      list.mockRestore();
     });
   });
 });

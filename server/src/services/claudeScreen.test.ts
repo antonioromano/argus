@@ -6,6 +6,7 @@ import {
   clearPromptInput,
   inputStillPending,
   permissionModeFromFooter,
+  promptBoxEmpty,
   promptInputText,
   promptSuggestion,
   readScreenRows,
@@ -91,4 +92,38 @@ test('clearPromptInput empties only the input box', () => {
   assert.deepEqual(clearPromptInput(rows), ['❯ earlier prompt', '──', '❯ ', '──', '  ⏵⏵ auto mode on']);
   assert.equal(inputStillPending(clearPromptInput(rows), 'run the tests'), false);
   assert.deepEqual(clearPromptInput(['no prompt']), ['no prompt']);
+});
+
+// Bottom rows captured from Claude Code 2.1.312 (F6).
+const RULE = '────────────────────────────────────────────────────────────';
+const FOOTER = ['  Sonnet 5.5 medium │ 5h █▏░░░░ 20%', '  ⎇ main ~1', '  ⏵⏵ auto mode on (shift+tab to cycle)'];
+
+test('promptBoxEmpty: the empty input box, also with the first-run placeholder', () => {
+  assert.equal(promptBoxEmpty(['  Docs: https://code.claude.com/docs', '', RULE, '❯ ', RULE, ...FOOTER]), true);
+  assert.equal(promptBoxEmpty([RULE, '❯', RULE, ...FOOTER]), true);
+  assert.equal(promptBoxEmpty([RULE, '❯ Try "how does CompanionTerminalPanel.tsx work?"', RULE, ...FOOTER]), true);
+});
+
+test('promptBoxEmpty: typed text in the box, below echoed prompts, is not empty', () => {
+  assert.equal(promptBoxEmpty([RULE, '❯ /config', RULE, ...FOOTER]), false);
+  assert.equal(promptBoxEmpty(['❯ /agents', '  ⎿  The /agents wizard has been removed.', RULE, '❯ fix the bug', RULE]), false);
+  // An echoed prompt sits under no rule; the empty box below it decides.
+  assert.equal(promptBoxEmpty(['❯ /agents', '  ⎿  The /agents wizard has been removed.', RULE, '❯ ', RULE]), true);
+});
+
+test('promptBoxEmpty: pickers and dialogs take the box\'s place', () => {
+  const config = [
+    '▔'.repeat(60),
+    '   Settings  Status   Config   Usage   Stats',
+    '   ╭' + '─'.repeat(56),
+    '   │ ⌕ Search settings…',
+    '   ╰' + '─'.repeat(56),
+    '   ❯ Auto-compact                                true',
+    '     Idle compaction                             true',
+    '   Type to filter · Enter/↓ to select · ↑ to tabs · Esc to clear',
+  ];
+  const mcp = ['   Manage MCP servers', '   4 servers', '   ❯ ✔ claude.ai Claude Docs   8 tools', '   ↑/↓ to navigate · Enter to confirm · Esc to cancel'];
+  const hooks = ['▔'.repeat(60), '   Hooks', '   no hooks yet', '   ❯ All events', '   Enter to view · Esc to close'];
+  for (const rows of [config, mcp, hooks]) assert.equal(promptBoxEmpty(rows), false);
+  assert.equal(promptBoxEmpty([]), false);
 });

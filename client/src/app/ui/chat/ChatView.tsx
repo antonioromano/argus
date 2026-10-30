@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
 import type { ChatBlock, ChatMessage, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
-import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
+import { MessagesSquare, ArrowDown, Terminal, X } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
+import { interactiveCommandOf, slashCommandName } from '../../../utils/chat.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
 import { ChatComposer } from './ChatComposer.js';
 import { ChatPromptCard } from './ChatPromptCard.js';
@@ -38,8 +39,8 @@ const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude
 let pendingSeq = 0;
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
-/** A slash command as the server echoes it (ChatTail.echoCommandOf): `/name`, then a space or the end. */
-const SLASH_COMMAND_RE = /^\/[^\s/]+(?:\s|$)/;
+/** Height of the terminal sheet's bar; the host insets the terminal by it so the bar never covers it. */
+export const TERMINAL_SHEET_BAR_PX = 36;
 
 interface ChatViewProps {
   session: SessionInfo;
@@ -49,6 +50,11 @@ interface ChatViewProps {
   /** Rendered between the messages and the composer. */
   aboveComposer?: ReactNode;
   autoFocus?: boolean;
+  /**
+   * The terminal sheet (F6) opened or closed. While it is open the Chat is see-through below
+   * its bar: the host insets the terminal by TERMINAL_SHEET_BAR_PX and gives it the keyboard.
+   */
+  onTerminalSheet?: (open: boolean) => void;
 }
 
 /** Hides a native terminal overlay under the chat while it is shown. */
@@ -65,7 +71,7 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
  * transcript, rendered as messages, with a composer that types into the pty.
  * The terminal stays mounted underneath; this only covers it.
  */
-export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus }: ChatViewProps) {
+export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -73,6 +79,20 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   // `/resume` alone opens the Chat's own picker instead of Claude Code's terminal one.
   const [resumeOpen, setResumeOpen] = useState(false);
   const send = (text: string) => socket.emit('session:chat:send', { sessionId: session.id, text });
+  // An interactive command (`/mcp`, `/config`, …) runs in the terminal, shown through a sheet.
+  const [sheet, setSheet] = useState<string | null>(null);
+  /** Sent during a turn: Claude Code runs it once the turn ends, and the sheet opens then. */
+  const [queuedSheet, setQueuedSheet] = useState<string | null>(null);
+  /**
+   * Which settled screens tell how the command went: those after `from` (chat.screen.seq).
+   * A queued command closes the sheet only after its picker was seen (`left`): the turn's
+   * own last screen can still show the empty box before Claude Code runs it.
+   */
+  const sheetTrack = useRef({ from: 0, needsLeave: false, left: false });
+  const openSheet = (name: string, queued: boolean) => {
+    sheetTrack.current = { from: chat.screen?.seq ?? 0, needsLeave: queued, left: false };
+    setSheet(name);
+  };
   const [pending, setPending] = useState<Pending[]>([]);
   /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
   const [stoppedId, setStoppedId] = useState<string | null>(null);
@@ -130,6 +150,45 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     if (!running) setStopAsked(false);
   }, [running]);
 
+  const status = session.status;
+  useEffect(() => {
+    if (!queuedSheet) return;
+    if (status === 'exited') {
+      setQueuedSheet(null);
+      return;
+    }
+    // Only the turn's end runs it: a permission prompt mid-turn (`waiting`) is no picker of ours.
+    if (status !== 'idle') return;
+    setQueuedSheet(null);
+    openSheet(queuedSheet, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- openSheet reads the screen seq now
+  }, [queuedSheet, status]);
+  const screen = chat.screen;
+  useEffect(() => {
+    if (!sheet) return;
+    if (status === 'exited') {
+      setSheet(null);
+      return;
+    }
+    // Read from the screen, not the status: many pickers (/config, /hooks) never read as
+    // `waiting`. The first settle after the command that shows Claude's empty input box again
+    // closes it: the picker was left (Esc, a pick), or the command opened none. A picker, a
+    // nested view, a flow at work or the command still typed in the box keep it open. There is
+    // no Esc shortcut: in a nested picker Esc only goes back a level.
+    const track = sheetTrack.current;
+    if (!screen || screen.seq <= track.from) return;
+    if (!screen.atPrompt) track.left = true;
+    else if (!track.needsLeave || track.left) setSheet(null);
+  }, [sheet, status, screen]);
+  const onSheetRef = useRef(onTerminalSheet);
+  onSheetRef.current = onTerminalSheet;
+  const sheetOpen = sheet !== null;
+  useEffect(() => {
+    if (!sheetOpen) return;
+    onSheetRef.current?.(true);
+    return () => onSheetRef.current?.(false);
+  }, [sheetOpen]);
+
   // A prompt drops out once the transcript holds that many user messages.
   const shown = useMemo(() => pending.filter((p) => p.at > userCount), [pending, userCount]);
   useEffect(() => {
@@ -164,7 +223,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
    * (A message can start with an attachment's path: `/var/…` is no command.)
    */
   const echo = (text: string, preview: ChatBlock[]) => {
-    if (preview.length === 0 || SLASH_COMMAND_RE.test(text.trim()) || session.status === 'waiting') return;
+    if (preview.length === 0 || slashCommandName(text) !== null || session.status === 'waiting') return;
     setPending((cur) => [...cur, { id: `pending-${++pendingSeq}`, blocks: preview, at: userCount + cur.length + 1 }]);
     setFollowing(true);
   };
@@ -234,8 +293,26 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       ref={rootRef}
       className="argus-chat"
       data-testid="chat-view"
+      data-sheet={sheetOpen || undefined}
     >
-      <SuppressNativeUnder target={rootRef} />
+      {/* The sheet's bar sits above the inset terminal, so nothing of the Chat covers it then. */}
+      {!sheetOpen && <SuppressNativeUnder target={rootRef} />}
+      {sheet && (
+        <div className="argus-chat-sheet-bar" style={{ height: TERMINAL_SHEET_BAR_PX }} data-testid="chat-terminal-sheet">
+          <Icon icon={Terminal} size={13} aria-hidden />
+          <span className="argus-chat-sheet-title">
+            <code>/{sheet}</code> runs in the terminal
+          </span>
+          <span className="argus-chat-sheet-hint">Close it when you are done</span>
+          <Button variant="ghost" size="sm" onClick={() => { setSheet(null); onShowTerminal(); }}>
+            Open terminal
+          </Button>
+          {/* Text, not a tooltip-ed icon: a tooltip over a native terminal would hide it. */}
+          <Button variant="ghost" size="sm" icon={X} onClick={() => setSheet(null)}>
+            Close
+          </Button>
+        </div>
+      )}
       <div className="argus-chat-main">
         {body}
         {!following && messages.length > 0 && (
@@ -296,6 +373,10 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         onSubmit={(text, preview) => {
           if (text.trim() === '/resume') setResumeOpen(true);
           else {
+            // Typed into a waiting prompt it is an answer, not a command.
+            const interactive = session.status === 'waiting' ? null : interactiveCommandOf(text);
+            if (interactive && running) setQueuedSheet(interactive);
+            else if (interactive) openSheet(interactive, false);
             echo(text, preview);
             send(text);
           }
@@ -312,7 +393,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         suggestion={chat.suggestion}
         onUploadImage={(file) => api.uploadChatImage(session.id, file)}
         onShowTerminal={onShowTerminal}
-        autoFocus={autoFocus}
+        // Back from the sheet, the composer takes the keyboard again.
+        autoFocus={autoFocus && !sheetOpen}
       />
     </div>
   );

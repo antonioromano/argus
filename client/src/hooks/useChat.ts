@@ -5,6 +5,8 @@ import { EMPTY_CHAT, applyChatUpdate, type ChatState } from '../utils/chat.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+let screenSeq = 0;
+
 /**
  * Chat view messages of one Claude session (B1). Subscribes while `enabled`
  * (the server reads the transcript for chat only while someone does) and
@@ -28,16 +30,23 @@ export function useChat(socket: TypedSocket, sessionId: string, enabled: boolean
       if (id !== sessionId) return;
       setState((prev) => (prev.sessionId === sessionId ? { sessionId, chat: { ...prev.chat, suggestion: suggestion ?? undefined } } : prev));
     };
+    const onAtPrompt = ({ sessionId: id, atPrompt }: { sessionId: string; atPrompt: boolean }) => {
+      if (id !== sessionId) return;
+      const screen = { atPrompt, seq: ++screenSeq };
+      setState((prev) => (prev.sessionId === sessionId ? { sessionId, chat: { ...prev.chat, screen } } : prev));
+    };
     const subscribe = () => socket.emit('session:chat:subscribe', sessionId);
     socket.on('session:chat', onChat);
     socket.on('session:chatMode', onMode);
     socket.on('session:chatSuggestion', onSuggestion);
+    socket.on('session:chatAtPrompt', onAtPrompt);
     socket.on('connect', subscribe);
     if (socket.connected) subscribe();
     return () => {
       socket.off('session:chat', onChat);
       socket.off('session:chatMode', onMode);
       socket.off('session:chatSuggestion', onSuggestion);
+      socket.off('session:chatAtPrompt', onAtPrompt);
       socket.off('connect', subscribe);
       socket.emit('session:chat:unsubscribe', sessionId);
     };

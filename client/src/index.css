@@ -2332,6 +2332,23 @@ body {
 .argus-chat-resume-empty { padding: var(--s-3); font-size: var(--t-sm); color: var(--fg-3); }
 /* What Claude Code waits for (ChatPromptCard). */
 .argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
+/* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
+.argus-chat[data-sheet] { background: transparent; pointer-events: none; }
+.argus-chat[data-sheet] > :not(.argus-chat-sheet-bar) { visibility: hidden; }
+.argus-chat-sheet-bar {
+  pointer-events: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-2) 0 var(--s-3);
+  box-sizing: border-box;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--fg-2);
+}
+.argus-chat-sheet-title { color: var(--fg-1); white-space: nowrap; }
+.argus-chat-sheet-hint { flex: 1; min-width: 0; color: var(--fg-3); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .argus-chat-prompt {
   display: flex;
   flex-direction: column;
