@@ -7,6 +7,7 @@ export { Badge } from './Badge.js';
 export { Icon } from './Icon.js';
 export { iconSize, scaledPx } from './iconSize.js';
 export type { IconSize, IconToken } from './iconSize.js';
+export { ICON_CONCEPTS, type IconConcept } from './iconConcepts.js';
 export { IconButton } from './IconButton.js';
 export { Button } from './Button.js';
 export type { ButtonVariant } from './Button.js';

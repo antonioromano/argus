@@ -9,9 +9,13 @@ interface IconProps extends Omit<LucideProps, 'size' | 'ref'> {
 
 /** The one place lucide icons get a size. Width/height go through CSS so the
  *  icon tracks the interface font instead of a hardcoded pixel box — the
- *  `iconSizing` test keeps every other component off raw lucide sizes. */
+ *  `iconSizing` test keeps every other component off raw lucide sizes.
+ *
+ *  Two stroke weights: the `--icon-stroke` token by default, and
+ *  `strokeWidth={2}` for emphasis (tiny glyphs, checkbox ticks). */
 export function Icon({ icon: Glyph, size = 'md', style, ...rest }: IconProps) {
   const dim = iconSize(size);
-  const sized: CSSProperties = { width: dim, height: dim, ...style };
+  const stroke: CSSProperties = rest.strokeWidth === undefined ? { strokeWidth: 'var(--icon-stroke)' } : {};
+  const sized: CSSProperties = { width: dim, height: dim, ...stroke, ...style };
   return <Glyph {...rest} style={sized} />;
 }

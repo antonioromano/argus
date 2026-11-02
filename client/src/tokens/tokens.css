@@ -340,6 +340,7 @@
   --h-titlebar:   44px;   /* toolbar; the traffic lights centre on it */
   --h-statusbar:  22px;   /* app status bar (plan 009); toasts sit above it */
   --w-sidebar:    220px;  /* sidebar width until dragged */
+  --tree-indent:  28px;   /* session-tree leaf indent: lines leaves up under the group label */
 
   /* Collapsed sidebar rail — wide enough for a scaled icon plus its row padding. */
   --w-rail: calc(56px * var(--ui-scale));
@@ -398,7 +399,7 @@
   --ease-std: var(--ease);   /* deprecated alias — use --ease */
   --ease-out: var(--ease);   /* deprecated alias — use --ease */
   --ease-in:  var(--ease);   /* deprecated alias — use --ease */
-  --ease-snap: cubic-bezier(.4, 0, .2, 1.4);   /* tile reflow spring only */
+  --ease-snap: cubic-bezier(.34, 1.56, .64, 1);   /* tile reflow spring only */
   --dur-fast: 120ms;         /* hover, chevrons */
   --dur-base: 200ms;         /* popovers, toasts, fades */
   --dur-slow: 360ms;         /* sheets, layout */
@@ -408,12 +409,16 @@
      Exempt from the three-duration rule; nothing else should use them. */
   --motion-sidebar-collapse: 520ms;
   --motion-sidebar-expand:   450ms;
+  --motion-sidebar-fade:     420ms;   /* content fade before collapse / after expand */
   --ease-sidebar-collapse: cubic-bezier(.4, 0, .6, 1);   /* symmetric, not too snappy */
   --ease-sidebar-expand:   cubic-bezier(.4, 0, 1, 1);    /* slow start so icons visibly travel */
   --motion-tile-genie-out: 340ms;
   --motion-tile-genie-in:  380ms;
   --ease-tile-genie-out: cubic-bezier(.4, 0, .2, 1);
   --ease-tile-genie-in:  cubic-bezier(.16, 1, .3, 1);
+  --motion-chip-enter:   280ms;   /* minimized chip, eases with --ease-tile-genie-in */
+  --motion-tile-reflow:  440ms;   /* with --ease-snap */
+  --motion-tile-stagger: 40ms;    /* per-tile fade-in delay step */
 
   /* Z stack */
   --z-grid: 0;

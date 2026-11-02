@@ -6,7 +6,7 @@
 /* === GHOST BORDERS === */
 .ghost-border {
   box-shadow: inset 0 0 0 1px var(--line-1);
-  transition: box-shadow var(--dur-base) var(--ease-std);
+  transition: box-shadow var(--dur-base) var(--ease);
 }
 .ghost-border:hover {
   box-shadow: inset 0 0 0 1px var(--line-3);
@@ -15,7 +15,7 @@
 /* === TERMINAL CARD — State glow + LED border === */
 .terminal-card {
   position: relative;
-  transition: border-color var(--dur-slow) var(--ease-std);
+  transition: border-color var(--dur-slow) var(--ease);
 }
 
 .terminal-card > * {
@@ -31,7 +31,7 @@
   opacity: 0;
   pointer-events: none;
   z-index: 1;
-  transition: opacity var(--dur-slow) var(--ease-std);
+  transition: opacity var(--dur-slow) var(--ease);
 }
 
 .terminal-card[data-status="running"]::before {
@@ -108,6 +108,6 @@
 
 /* === CONTEXT MENU ITEMS === */
 .argus-ctx-sep { height: var(--hairline); background: var(--line-2); margin: var(--s-1) var(--s-1-5); }
-.argus-ctx-item { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+.argus-ctx-item { transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .argus-ctx-item:not(:disabled):hover { background: var(--bg-3); color: var(--accent); }
 .argus-ctx-item[data-danger]:not(:disabled):hover { background: var(--danger-bg); color: var(--danger); }
