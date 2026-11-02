@@ -479,6 +479,17 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(box().value).toBe('```\n  x = 1\n  \n```');
   });
 
+  it('Enter at the end of the closing fence adds a line below the box; ⌘Enter sends', () => {
+    const onSubmit = render();
+    type('```\nx\n```');
+    key('Enter');
+    expect(box().value).toBe('```\nx\n```\n');
+    expect(box().selectionStart).toBe(10);
+    expect(onSubmit).not.toHaveBeenCalled();
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith('```\nx\n```', expect.any(Array));
+  });
+
   it('opens the box with one insertText on the changed span (one undo step)', () => {
     render();
     type('```ts');

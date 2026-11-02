@@ -67,7 +67,10 @@ describe('Enter in lists', () => {
     expect(enter('```ts|')).toBe('```ts\n|\n```');
     expect(enter('```ts|\nx\n```')).toBe('```ts\n|\nx\n```');
     expect(enter('```\n  x = 1|')).toBe('```\n  x = 1\n  |');
-    expect(enter('```\nx\n```|')).toBeUndefined();
+    expect(enter('```\nx\n```|')).toBe('```\nx\n```\n|'); // past the closing fence: a line below (⌘Enter sends)
+    expect(enter('```\nx\n```|\nmore')).toBe('```\nx\n```\n|\nmore');
+    expect(enter('```\nx\n``|`')).toBeUndefined(); // not at the end of the fence
+    expect(enterContinues('```\nx\n```', 9)).toBe(true);
   });
 
   it('enterContinues mirrors enterEdit for the hint', () => {
@@ -206,7 +209,15 @@ describe('fenceOpenEdit', () => {
     expect(open('a ```|')).toBeUndefined(); // not alone on its line
     expect(open('``|')).toBeUndefined();
     expect(open('```\ncode\n```|')).toBeUndefined(); // closes the open block
-    expect(open('```|\ncode\n```')).toBeUndefined(); // already closed below
+    expect(open('```|\ncode\n```')).toBeUndefined(); // wraps code whose closing fence is already below
+    expect(open('```ts|\ncode\n  ```')).toBeUndefined();
+  });
+
+  it('adds the closing fence when a block is opened above existing code, which keeps its own fences', () => {
+    expect(open('intro\n```|\n\nmore\n```py\ncode\n```')).toBe('intro\n```\n|\n```\n\nmore\n```py\ncode\n```');
+    expect(open('```|\n\n```\nx\n```')).toBe('```\n|\n```\n\n```\nx\n```');
+    // A block still being typed below (no closer of its own) is not this one's closer.
+    expect(open('```|\n\n```py\nx')).toBe('```\n|\n```\n\n```py\nx');
     expect(open('```bash``` x|')).toBeUndefined(); // inline code
     expect(open('```\ncode\n```ts|')).toBeUndefined(); // code inside an open block
     expect(enter('```\ncode\n```ts|')).toBe('```\ncode\n```ts\n|');
