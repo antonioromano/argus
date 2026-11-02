@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { ArrowUp, Globe } from 'lucide-react';
 import type { BackendHealth, KeepAwakeStatus } from '@argus/shared';
 import { connectionState } from './connectionState.js';
@@ -38,7 +38,9 @@ export function AppStatusBar(props: AppStatusBarProps) {
     showClock, clockShowSeconds, version,
   } = props;
 
-  useEffect(() => {
+  // Layout effect: set before paint, so the toast stack never shows one frame
+  // under the bar.
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--statusbar-offset', 'var(--h-statusbar)');
     return () => { root.style.removeProperty('--statusbar-offset'); };
@@ -61,12 +63,12 @@ export function AppStatusBar(props: AppStatusBarProps) {
         </Tooltip>
         <button
           type="button"
-          className="argus-statusbar-item argus-statusbar-btn"
+          className="argus-statusbar-item argus-statusbar-btn argus-statusbar-fill"
           onClick={onOpenInbox}
           data-tone={waiting > 0 ? 'warn' : undefined}
           aria-label={`${sessions}. Open the waiting inbox`}
         >
-          {sessions}
+          <span className="argus-statusbar-text">{sessions}</span>
         </button>
       </div>
 
@@ -89,13 +91,18 @@ export function AppStatusBar(props: AppStatusBarProps) {
             className="argus-statusbar-item argus-statusbar-btn"
             data-tone={remoteOn ? 'accent' : undefined}
             onClick={onOpenRemote}
+            aria-label={`Remote: ${remoteOn ? 'on' : 'off'}`}
           >
             <Icon icon={Globe} size="sm" />
-            Remote: {remoteOn ? 'on' : 'off'}
+            <span className="argus-statusbar-label">Remote: {remoteOn ? 'on' : 'off'}</span>
           </button>
         </Tooltip>
-        {showClock && <ClockDisplay className="argus-statusbar-item" showSeconds={clockShowSeconds} />}
-        {version && <span className="argus-statusbar-item">v{version}</span>}
+        {showClock && (
+          <span className="argus-statusbar-item" data-priority="mid">
+            <ClockDisplay showSeconds={clockShowSeconds} />
+          </span>
+        )}
+        {version && <span className="argus-statusbar-item" data-priority="low">v{version}</span>}
       </div>
     </footer>
   );

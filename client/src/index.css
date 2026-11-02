@@ -1158,8 +1158,19 @@ body {
   color: var(--fg-3);
   white-space: nowrap;
   overflow: hidden;
+  container: statusbar / inline-size;
 }
 .argus-statusbar-side { display: flex; align-items: stretch; gap: var(--s-1); min-width: 0; }
+/* Narrow window: the left side (connection, session counts) gives way with an
+   ellipsis; the right side keeps its size and sheds items by priority instead
+   of being clipped at the edge. */
+.argus-statusbar-side:first-child { flex: 1 1 auto; overflow: hidden; }
+.argus-statusbar-side:last-child { flex-shrink: 0; }
+.argus-statusbar-btn.argus-statusbar-fill { min-width: 0; }
+.argus-statusbar-text { overflow: hidden; text-overflow: ellipsis; }
+@container statusbar (max-width: 900px) { .argus-statusbar [data-priority="low"] { display: none; } }
+@container statusbar (max-width: 720px) { .argus-statusbar [data-priority="mid"] { display: none; } }
+@container statusbar (max-width: 560px) { .argus-statusbar .argus-statusbar-label { display: none; } }
 .argus-statusbar-item {
   display: inline-flex;
   align-items: center;
