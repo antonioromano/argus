@@ -40,4 +40,4 @@ Turn these on in Settings, Beta features.
 - [Activity timeline](beta/activity-timeline/)
 - [Session templates](beta/session-templates/)
 - [Agent handoff](beta/handoff/)
-- [Session chains](beta/session-chains/)
+- [Follow-up prompts](beta/session-chains/)

@@ -64,10 +64,10 @@ export const BETA_FEATURES: readonly BetaFeature[] = [
   {
     flag: 'betaSessionChains',
     ref: 'F13',
-    label: 'Session chains',
+    label: 'Follow-up prompts',
     description: 'When one session goes idle, waiting or done, type a prompt into another.',
-    how: 'Right-click a session → Chain to…',
-    caveats: [{ text: 'Once by default' }, { text: 'Types into the target session', warn: true }, { text: 'Max 10/h per chain' }],
+    how: 'Right-click a session → Add Follow-up Prompt…',
+    caveats: [{ text: 'Once by default' }, { text: 'Types into the target session', warn: true }, { text: 'At most 10 per hour each' }],
     docsSlug: 'session-chains',
   },
 ];

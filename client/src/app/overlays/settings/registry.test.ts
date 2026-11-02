@@ -128,7 +128,7 @@ const LEGACY_PANES: Record<string, { owner: PaneId; keys: (keyof AppConfig)[]; k
   power: { owner: 'general', keys: ['preventSleepWhileRunning'], keywords: ['power', 'sleep', 'awake', 'caffeinate', 'idle', 'battery'] },
   remote: { owner: 'remote', keys: [], keywords: ['remote', 'ngrok', 'tunnel', 'mobile', 'phone', 'companion', 'qr', 'public url', 'password'] },
   developer: { owner: 'runtime', keys: ['debugToolsEnabled'], keywords: ['developer', 'debug', 'diagnostics', 'dump', 'devtools'] },
-  beta: { owner: 'beta', keys: ['betaWorktreeLifecycle', 'betaActivityTimeline', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'], keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'chain to', 'loop'] },
+  beta: { owner: 'beta', keys: ['betaWorktreeLifecycle', 'betaActivityTimeline', 'betaSessionTemplates', 'betaHandoff', 'betaSessionChains'], keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chain', 'chains', 'chain to', 'follow-up', 'follow-up prompts', 'loop'] },
 };
 
 describe('consolidation keeps old search terms working', () => {

@@ -1625,7 +1625,7 @@ function DesktopInner() {
           session={chainSession}
           sessions={sessions}
           onClose={() => setChainSession(null)}
-          onCreated={() => pushToast(`Chain armed from ${chainSession.name}`, 'ok')}
+          onCreated={() => pushToast(`Follow-up prompt added to ${chainSession.name}`, 'ok')}
         />
       )}
 

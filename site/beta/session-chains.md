@@ -1,22 +1,22 @@
 ---
-title: Session chains
+title: Follow-up prompts
 permalink: /beta/session-chains/
 ---
 
-# Session chains
+# Follow-up prompts
 
 When one session goes idle, waiting or done, type a prompt into another.
 
 ## How to use
 
-Right-click a session, then Chain to...
+Right-click a session, then Add Follow-up Prompt...
 
 ## Before you turn it on
 
-- A chain runs once by default.
+- A follow-up prompt is sent once by default.
 - Side effect: it types into the target session.
-- At most 10 runs per hour per chain.
+- At most 10 per hour for each follow-up prompt.
 
 ## Enable it
 
-Settings, Beta features, then switch on "Session chains".
+Settings, Beta features, then switch on "Follow-up prompts".

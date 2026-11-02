@@ -174,7 +174,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
     label: 'Beta features',
     group: 'System',
     icon: FlaskConical,
-    keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chains', 'chain to', 'loop'],
+    keywords: ['beta', 'experimental', 'preview', 'labs', 'worktree', 'finish', 'stale', 'pull request', 'timeline', 'templates', 'handoff', 'chain', 'chains', 'chain to', 'follow-up', 'follow-up prompts', 'loop'],
   },
 ];
 

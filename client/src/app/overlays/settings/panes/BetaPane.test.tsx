@@ -46,7 +46,7 @@ describe('BetaPane', () => {
       expect(chips.map((c) => c.textContent)).toEqual(f.caveats.map((c) => c.text));
       expect(chips.map((c) => c.getAttribute('data-warn') === 'true')).toEqual(f.caveats.map((c) => !!c.warn));
     }
-    expect(row('betaSessionChains').textContent).toContain('Right-click a session → Chain to…');
+    expect(row('betaSessionChains').textContent).toContain('Right-click a session → Add Follow-up Prompt…');
     const warn = row('betaSessionChains').querySelector('[data-warn="true"]');
     expect(warn?.textContent).toBe('Types into the target session');
   });

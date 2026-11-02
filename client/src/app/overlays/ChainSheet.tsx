@@ -8,7 +8,7 @@ import { shellLabel } from '../../utils/sessionLabel.js';
 import { chainTargets } from './chains.js';
 
 /**
- * Beta F13 — "Chain to…": when this shell enters a state, type a prompt into
+ * Beta F13 — "Add Follow-up Prompt…" (internally a chain): when this shell enters a state, type a prompt into
  * another one. The server enforces every rule (A ≠ B, live agent target,
  * prompt cap, repeat-loop refusal, rate caps); the sheet only pre-filters the
  * target list. Mounted only while `betaSessionChains` is on (ArgusApp gates it).
@@ -20,8 +20,8 @@ const TRIGGERS: ReadonlyArray<{ value: ChainTrigger; label: string }> = [
   { value: 'done', label: 'Done' },
 ];
 const MODES: ReadonlyArray<{ value: ChainMode; label: string; title: string }> = [
-  { value: 'once', label: 'Once', title: 'Fire one time, then disarm' },
-  { value: 'repeat', label: 'Repeat', title: 'Fire on every transition (at most 10 per hour)' },
+  { value: 'once', label: 'Once', title: 'Send one time, then turn off' },
+  { value: 'repeat', label: 'Repeat', title: 'Send on every transition (at most 10 per hour)' },
 ];
 
 const selectStyle = { height: 32, width: '100%', background: 'var(--bg-3)', color: 'var(--fg-0)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)' } as const;
@@ -63,7 +63,7 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
       onCreated?.(chain);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create the chain');
+      setError(err instanceof Error ? err.message : 'Couldn’t add the follow-up prompt');
       setSubmitting(false);
     }
   };
@@ -73,17 +73,17 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
       <span data-testid="chain-summary" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', flex: 1, minWidth: 0 }}>
         {target
           ? `When ${shellLabel(session)} goes ${trigger}, type the prompt into ${shellLabel(target)}${mode === 'once' ? ' (once)' : ' (every time)'}.`
-          : 'No agent session to chain to.'}
+          : 'No agent session to send a follow-up prompt to.'}
       </span>
       <Button variant="ghost" size="md" onClick={onClose} disabled={submitting}>Cancel</Button>
       <Button variant="primary" size="md" icon={Link2} onClick={() => { void submit(); }} disabled={!canSubmit} loading={submitting}>
-        Create chain
+        Add follow-up prompt
       </Button>
     </Row>
   );
 
   return (
-    <Sheet eyebrow="CHAIN TO" title={shellLabel(session)} width={560} onClose={submitting ? undefined : onClose} footer={footer}>
+    <Sheet eyebrow="FOLLOW-UP PROMPT" title={shellLabel(session)} width={560} onClose={submitting ? undefined : onClose} footer={footer}>
       <Stack gap={4} data-testid="chain-sheet">
         <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
           When this session enters the state below, Argus types the prompt into the target and presses Enter.

@@ -108,7 +108,7 @@ export function buildSessionMenuItems(
     ...(a.onClone ? [{ id: 'clone', label: 'Clone Session…', icon: Copy, onClick: () => a.onClone!(session) }] : []),
     ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply Changes to Project…', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
     ...(a.onHandoff ? [{ id: 'handoff', label: 'Hand Off…', icon: Forward, onClick: () => a.onHandoff!(session) }] : []),
-    ...(a.onChain && session.status !== 'exited' ? [{ id: 'chain', label: 'Chain to…', icon: Link2, onClick: () => a.onChain!(session) }] : []),
+    ...(a.onChain && session.status !== 'exited' ? [{ id: 'chain', label: 'Add Follow-up Prompt…', icon: Link2, onClick: () => a.onChain!(session) }] : []),
     ...(a.onFinish && a.canFinish?.(session) ? [{ id: 'finish', label: 'Finish…', icon: Flag, onClick: () => a.onFinish!(session) }] : []),
     ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as Done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
     ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume Conversation', icon: History, onClick: () => a.onResume!(session) }] : []),

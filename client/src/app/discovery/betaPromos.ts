@@ -26,7 +26,7 @@ const SESSION_PROMOS: readonly (BetaPromo & { fits: (s: SessionInfo, liveCount: 
     fits: (s) => s.status !== 'exited',
   },
   {
-    flag: 'betaSessionChains', label: 'Chain to another session', hint: 'Beta · types into the target session', icon: Link2,
+    flag: 'betaSessionChains', label: 'Send a follow-up prompt to another session', hint: 'Beta · types into the target session', icon: Link2,
     fits: (s, live) => s.status !== 'exited' && live >= 2,
   },
   {

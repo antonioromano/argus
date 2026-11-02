@@ -132,11 +132,11 @@ describe('buildSessionMenuItems', () => {
     expect(onHandoff).toHaveBeenCalledWith(session);
   });
 
-  it('offers Chain to… (beta F13) only when a handler is passed, and not for an exited shell', () => {
+  it('offers Add Follow-up Prompt… (beta F13) only when a handler is passed, and not for an exited session', () => {
     expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('chain');
     const onChain = vi.fn();
     const item = buildSessionMenuItems(session, actions({ onChain })).find((e) => 'id' in e && e.id === 'chain');
-    expect(item).toBeTruthy();
+    expect(item).toMatchObject({ label: 'Add Follow-up Prompt…' });
     (item as { onClick: () => void }).onClick();
     expect(onChain).toHaveBeenCalledWith(session);
     expect(ids(buildSessionMenuItems({ ...session, status: 'exited' }, actions({ onChain })))).not.toContain('chain');

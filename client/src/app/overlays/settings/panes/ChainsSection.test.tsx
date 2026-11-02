@@ -73,7 +73,7 @@ describe('ChainsSection', () => {
     await act(async () => { (container.querySelector('[data-testid="chain-c1"] label > span') as HTMLElement).click(); });
     expect(mocks.arm).toHaveBeenCalledWith('c1', true);
     expect(container.querySelector('[data-testid="chain-reason"]')).toBeNull();
-    await act(async () => { (container.querySelector('button[aria-label="Remove chain"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('button[aria-label="Remove follow-up prompt"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('[data-testid="chain-c1"]')).toBeNull();
     expect(mocks.del).not.toHaveBeenCalled();
     await act(async () => { await deferred.offers.at(-1)!.commit(); });
@@ -84,7 +84,7 @@ describe('ChainsSection', () => {
 
   it('Undo on a removed chain brings it back with no request', async () => {
     await render();
-    await act(async () => { (container.querySelector('button[aria-label="Remove chain"]') as HTMLButtonElement).click(); });
+    await act(async () => { (container.querySelector('button[aria-label="Remove follow-up prompt"]') as HTMLButtonElement).click(); });
     await act(async () => { deferred.offers.at(-1)!.revert(); });
     expect(container.querySelector('[data-testid="chain-c1"]')).not.toBeNull();
     expect(mocks.del).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe('ChainsSection', () => {
     mocks.list.mockResolvedValue([]);
     mocks.audit.mockResolvedValue([]);
     await render();
-    expect(container.textContent).toContain('No chains yet');
+    expect(container.textContent).toContain('No follow-up prompts yet');
     expect(container.querySelector('[data-testid="chain-fires"]')).toBeNull();
   });
 });

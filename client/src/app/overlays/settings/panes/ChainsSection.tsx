@@ -12,7 +12,8 @@ import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
 /**
  * Beta F13: every chain (armed state, why it disarmed, remove) and the last
  * fires (sent / queued / dropped + reason). Rendered by BetaPane only while
- * `betaSessionChains` is on; new chains are made from a shell's "Chain to…".
+ * `betaSessionChains` is on; new chains are made from a session's "Add Follow-up
+ * Prompt…". User-facing copy says "follow-up prompt"; code keeps "chain".
  */
 export function ChainsSection() {
   const socket = useSocket();
@@ -29,7 +30,7 @@ export function ChainsSection() {
         setNames(Object.fromEntries(sessions.map((s: SessionInfo) => [s.id, shellLabel(s)])));
         setError(null);
       })
-      .catch((err: unknown) => setError(err ?? new Error('Couldn’t load chains')));
+      .catch((err: unknown) => setError(err ?? new Error('Couldn’t load follow-up prompts')));
   }, []);
 
   useEffect(() => {
@@ -45,25 +46,25 @@ export function ChainsSection() {
       const next = await api.setChainArmed(c.id, armed);
       setChains((list) => list?.map((x) => (x.id === c.id ? next : x)) ?? null);
     } catch (err) {
-      toastError(err, 'Couldn’t update the chain');
+      toastError(err, 'Couldn’t update the follow-up prompt');
     }
   };
 
   // Deferred: re-creating a chain would lose its armed state and fire history.
   const { hidden, remove: deferRemove } = useDeferredRemove();
   const remove = (c: SessionChain) => deferRemove(c.id, {
-    message: `Removed chain ${name(c.sourceId)} → ${name(c.targetId)}`,
+    message: `Removed follow-up prompt ${name(c.sourceId)} → ${name(c.targetId)}`,
     commit: () => api.deleteChain(c.id),
     onCommitted: () => setChains((list) => list?.filter((x) => x.id !== c.id) ?? null),
   });
   const visible = chains?.filter((c) => !hidden.has(c.id));
 
   return (
-    <Section title="Chains">
+    <Section title="Follow-up prompts">
       <Stack gap={2} data-testid="chains-section">
-        <PaneLoadState loaded={chains !== null} error={error} errorTitle="Couldn’t load chains" onRetry={refetch} />
+        <PaneLoadState loaded={chains !== null} error={error} errorTitle="Couldn’t load follow-up prompts" onRetry={refetch} />
         {visible && visible.length === 0 && !error && (
-          <div className="setting-row-hint">No chains yet. Right-click a session → Chain to… to add one.</div>
+          <div className="setting-row-hint">No follow-up prompts yet. Right-click a session → Add Follow-up Prompt… to add one.</div>
         )}
         {visible?.map((c) => (
           <div key={c.id} className="setting-row" data-testid={`chain-${c.id}`}>
@@ -83,14 +84,14 @@ export function ChainsSection() {
             </div>
             <Row gap={2} style={{ flexShrink: 0 }}>
               <Toggle checked={c.armed} onChange={(v) => { void setArmed(c, v); }} label={c.armed ? 'On' : 'Off'} size="sm" />
-              <IconButton icon={Trash2} label="Remove chain" size="sm" onClick={() => remove(c)} />
+              <IconButton icon={Trash2} label="Remove follow-up prompt" size="sm" onClick={() => remove(c)} />
             </Row>
           </div>
         ))}
 
         {fires.length > 0 && (
           <div data-testid="chain-fires" style={{ marginTop: 'var(--s-2)' }}>
-            <div className="eyebrow" style={{ color: 'var(--fg-2)', marginBottom: 'var(--s-1)' }}>Recent fires</div>
+            <div className="eyebrow" style={{ color: 'var(--fg-2)', marginBottom: 'var(--s-1)' }}>Recently sent</div>
             {fires.map((f, i) => (
               <Row
                 align="stretch"
