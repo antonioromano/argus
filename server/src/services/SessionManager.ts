@@ -151,8 +151,23 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
-  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15). */
+  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15).
+   *  Cleared when startup ends (see `startup`), so it never outlives the first turn. */
   initialPrompt?: { text: string; clipped?: boolean };
+  /**
+   * Set from spawn (create or restart) until the first turn ends: the first
+   * running → idle/done once the conversation has its first prompt. Drives
+   * SessionInfo.starting and the end of `initialPrompt` (F15b).
+   * - `last`: the last status announced.
+   * - `prompted`: the first prompt was submitted — the launch prompt, a Chat
+   *   send, or a native `running` (UserPromptSubmit/PreToolUse: a prompt typed
+   *   in the terminal). Raw pty input never counts: the folder-trust Enter,
+   *   xterm's query replies and keystrokes are no prompt.
+   * - `heuristicOk`: a heuristic settle may end it. False for a launch prompt
+   *   until a native `running` is seen or STARTUP_NATIVE_WAIT_MS passes
+   *   (`fallback`), since before the first hook a startup paint can settle.
+   */
+  startup?: { last: SessionStatus; prompted: boolean; heuristicOk: boolean; nativeRan?: boolean; heldSettle?: boolean; fallback?: NodeJS.Timeout };
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -325,6 +340,15 @@ const MENU_AFTER_RUNNING_MS = 15_000;
 const DONE_GRACE_MS = 2_000;
 /** Output younger than this at grace-fire means the session is still working. */
 const DONE_QUIET_MS = 1_200;
+/**
+ * A launch prompt's startup ends on a heuristic settle only once a native
+ * `running` (UserPromptSubmit) was seen, or after this long without one (F15b).
+ * Claude's hooks fire within a few seconds of spawn even with slow MCP servers
+ * (10–20 s at worst); 30 s is past any normal startup, so the fallback only
+ * kicks in when hooks are broken, where the cost of waiting is just a longer
+ * "Starting Claude…".
+ */
+const STARTUP_NATIVE_WAIT_MS = 30_000;
 /** After an Esc interrupt, re-read the settled screen once this long later. */
 const INTERRUPT_SETTLE_MS = 1_500;
 // Depth of the per-session raw-signal ring kept for the diagnostics dump.
@@ -1383,12 +1407,17 @@ export class SessionManager {
       launcherId: opts.launcherId,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
+      // A fresh Claude spawn only (Chat is its sole reader): a restored or re-attached agent started long ago.
+      startup: resolvedAgentType === 'claude' && !attachExisting && !restoreExited && existingId == null
+        ? { last: initialStatus, prompted: promptTail.length > 0, heuristicOk: promptTail.length === 0 }
+        : undefined,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
       hasUserInputSinceIdle: !attachExisting && existingId == null,
       cwdParser: resolvedAgentType === SHELL_AGENT_ID ? new OscCwdParser() : undefined,
     };
+    if (session.startup && !session.startup.heuristicOk) this.armStartupFallback(session);
 
     ptyProcess.onData((data) => {
       // Ignore late output from a pty that restart already replaced (node-pty
@@ -1468,6 +1497,7 @@ export class SessionManager {
     void this.fileWatcher.stop(id);
     session.usage?.dispose();
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    this.endStartup(session);
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
     const backend = this.backendFor(session);
@@ -1536,6 +1566,8 @@ export class SessionManager {
     this.setSuggestion(id, session, undefined);
     // A restart never replays the launch prompt (see createSession).
     session.initialPrompt = undefined;
+    this.endStartup(session);
+    session.startup = session.agentType === 'claude' ? { last: 'running', prompted: false, heuristicOk: true } : undefined;
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -1851,6 +1883,57 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
   }
 
+  /**
+   * Startup ends at the first turn's end: running → idle/done once the agent
+   * has a prompt (F15b). Not at the first native running (UserPromptSubmit):
+   * Claude writes the prompt to its transcript around then and ChatTail reads
+   * it later still, so a Chat mounted in that gap would have neither the
+   * launch prompt nor its record. At the turn's end the record is there. Not
+   * `waiting` either: the folder-trust dialog comes before the prompt is read.
+   * An exit keeps it, so a Chat opened after a failed start still shows the
+   * prompt with its "ended" notice; a restart starts over.
+   */
+  private trackStartup(session: ManagedSession, status: SessionStatus): void {
+    const st = session.startup;
+    if (!st) return;
+    const turnEnded = (status === 'idle' || status === 'done') && st.last === 'running' && st.prompted;
+    if (turnEnded && (st.heuristicOk || st.nativeRan)) {
+      this.endStartup(session);
+      return;
+    }
+    // Held only for want of a hook: the fallback may end it if the session stays settled.
+    if (status !== 'exited') st.heldSettle = turnEnded || (st.heldSettle === true && status !== 'running');
+    st.last = status;
+  }
+
+  private endStartup(session: ManagedSession): void {
+    if (session.startup?.fallback) clearTimeout(session.startup.fallback);
+    session.startup = undefined;
+    session.initialPrompt = undefined;
+  }
+
+  /**
+   * A launch prompt: no hook within STARTUP_NATIVE_WAIT_MS means hooks are not
+   * coming, so the heuristic may end startup from now on — and at once if the
+   * session already settled after running (the turn ended while we waited).
+   * That end is announced to sockets only: the status itself did not change,
+   * so in-process status subscribers must not see a repeat.
+   */
+  private armStartupFallback(session: ManagedSession): void {
+    const st = session.startup;
+    if (!st) return;
+    st.fallback = setTimeout(() => {
+      if (session.startup !== st || st.nativeRan) return;
+      st.fallback = undefined;
+      st.heuristicOk = true;
+      const settled = session.status === 'idle' || session.status === 'done';
+      if (!settled || !st.prompted || !st.heldSettle) return;
+      this.endStartup(session);
+      this.io?.emit('session:status', { sessionId: session.id, status: session.status, lastPrompt: session.lastPrompt });
+    }, STARTUP_NATIVE_WAIT_MS);
+    st.fallback.unref?.();
+  }
+
   /** Esc was written to the running session and no native signal has come since. */
   private interruptPending(session: ManagedSession): boolean {
     return (
@@ -1885,6 +1968,11 @@ export class SessionManager {
 
     session.nativeLastSeenAt = Date.now();
     session.nativeState = signal.state;
+    // A native running is a submitted prompt (a terminal one included): the first turn started.
+    if (session.startup && signal.state === 'running') {
+      session.startup.prompted = true;
+      session.startup.nativeRan = true;
+    }
     session.menuAtNativeRunning = signal.state === 'running' ? !!session.stateDetector.getMenuOptions?.() : undefined;
     if (signal.coverage && signal.coverage.length > 0) {
       session.nativeCoverage = new Set(signal.coverage);
@@ -2078,6 +2166,8 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // The conversation's first prompt, if none yet: startup ends with its turn (F15b).
+    if (session.startup) session.startup.prompted = true;
     // A stopped turn puts its prompt back into Claude's input box, out of the
     // Chat view's sight: typing now would append to it (and send both). Clear
     // it first, but only text this view sent, and never mid-turn or at a menu,
@@ -2397,6 +2487,11 @@ export class SessionManager {
     const payload: SessionStatusPayload = { ...base };
     const session = this.sessions.get(base.sessionId);
     if (session) {
+      this.trackStartup(session, base.status);
+      if (session.startup) {
+        payload.starting = true;
+        if (session.initialPrompt) payload.initialPrompt = session.initialPrompt;
+      }
       if (base.status === 'waiting') {
         session.waitingSince ??= Date.now();
         session.promptOptions = session.stateDetector.getMenuOptions?.();
@@ -3059,6 +3154,7 @@ export class SessionManager {
       runMode: session.runMode,
       launcherId: session.launcherId,
       initialPrompt: session.initialPrompt,
+      starting: session.startup ? true : undefined,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),

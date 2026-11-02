@@ -735,7 +735,7 @@ describe('ChatView', () => {
     it('a prompt sent before the transcript exists shows at once, with "Starting Claude…" and the terminal at hand', () => {
       vi.useFakeTimers();
       const { socket, fire } = fakeSocket();
-      const { onShowTerminal } = render(session(), socket);
+      const { onShowTerminal } = render(session({ starting: true }), socket);
       fire('session:chat', update({ available: false }));
       typeAndSend('hello there');
       expect(container.textContent).not.toContain('Chat not available yet');
@@ -756,7 +756,7 @@ describe('ChatView', () => {
 
     it('the prompt a session was launched with shows at once and is replaced exactly once', () => {
       const { socket, fire } = fakeSocket();
-      const s = session({ id: 'launch-1', status: 'running', initialPrompt: { text: 'fix  the bug' } });
+      const s = session({ id: 'launch-1', status: 'running', starting: true, initialPrompt: { text: 'fix  the bug' } });
       render(s, socket);
       fire('session:chat', update({ sessionId: 'launch-1', available: false }));
       expect(users()).toHaveLength(1);
@@ -769,10 +769,11 @@ describe('ChatView', () => {
       expect(users()).toHaveLength(1);
       expect(pendingCount()).toBe(0);
 
-      // A later Chat view of the same session never shows it again, not even on an empty transcript (/clear).
+      // The first turn ended, so the server dropped it (F15b): a later Chat view never shows it
+      // again, not even on an empty transcript (/clear).
       act(() => root.unmount());
       act(() => { root = createRoot(container); });
-      render(s, socket);
+      render({ ...s, status: 'idle', starting: undefined, initialPrompt: undefined }, socket);
       fire('session:chat', update({ sessionId: 'launch-1', messages: [] }));
       expect(pendingCount()).toBe(0);
       expect(container.textContent).not.toContain('fix');
@@ -795,13 +796,83 @@ describe('ChatView', () => {
 
     it('a session that ends before Claude records the prompt marks it instead of leaving it pending', () => {
       const { socket, fire } = fakeSocket();
-      render(session({ id: 'launch-3', status: 'running', initialPrompt: { text: 'never recorded' } }), socket);
+      render(session({ id: 'launch-3', status: 'running', starting: true, initialPrompt: { text: 'never recorded' } }), socket);
       fire('session:chat', update({ sessionId: 'launch-3', available: false }));
-      render(session({ id: 'launch-3', status: 'exited', initialPrompt: { text: 'never recorded' } }), socket);
+      render(session({ id: 'launch-3', status: 'exited', starting: true, initialPrompt: { text: 'never recorded' } }), socket);
       expect(starting()?.textContent).toContain('The session ended');
       const last = users().at(-1)!;
       expect(last.textContent).toContain('never recorded');
       expect(last.textContent).toContain('The session ended before Claude recorded it');
+    });
+
+    it('a remount during startup (Chat/Terminal toggle, session switch) shows the launch prompt again (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'launch-5', status: 'running', starting: true, initialPrompt: { text: 'refactor it' } });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-5', available: false }));
+      expect(pendingCount()).toBe(1);
+      act(() => root.unmount());
+      act(() => { root = createRoot(container); });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-5', available: false }));
+      expect(users().map((m) => m.textContent)).toEqual(['Yourefactor it']);
+      expect(pendingCount()).toBe(1);
+      expect(starting()?.textContent).toContain('Starting Claude…');
+    });
+
+    it('every window shows the launch prompt while the session starts (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const other = document.createElement('div');
+      document.body.appendChild(other);
+      let otherRoot!: Root;
+      act(() => { otherRoot = createRoot(other); });
+      const s = session({ id: 'launch-6', status: 'running', starting: true, initialPrompt: { text: 'two windows' } });
+      render(s, socket);
+      act(() => otherRoot.render(<ChatView session={s} socket={socket} onShowTerminal={vi.fn()} />));
+      fire('session:chat', update({ sessionId: 'launch-6', available: false }));
+      expect(container.querySelectorAll('.argus-chat-msg.is-pending')).toHaveLength(1);
+      expect(other.querySelectorAll('.argus-chat-msg.is-pending')).toHaveLength(1);
+      act(() => otherRoot.unmount());
+      other.remove();
+    });
+
+    it('the echo stays until recorded even when the server drops the prompt first (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'launch-7', status: 'running', starting: true, initialPrompt: { text: 'keep me' } });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-7', available: false }));
+      expect(pendingCount()).toBe(1);
+      render({ ...s, status: 'done', starting: undefined, initialPrompt: undefined }, socket);
+      expect(users().map((m) => m.textContent)).toEqual(['Youkeep me']);
+      fire('session:chat', update({ sessionId: 'launch-7', messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'keep me' }] }] }));
+      expect(users()).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+    });
+
+    it('a session with no startup info (restored) says "Starting Claude…" until a turn ends unrecorded (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'restored-1', status: 'idle' });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'restored-1', available: false }));
+      typeAndSend('first one');
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      render({ ...s, status: 'running' }, socket);
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      render({ ...s, status: 'idle' }, socket);
+      expect(starting()?.textContent).toContain("Chat can't read this session's transcript");
+    });
+
+    it('once the first turn ended with no transcript, the line says Chat cannot read it (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'launch-8', status: 'running', starting: true, initialPrompt: { text: 'lost' } });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-8', available: false }));
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      render({ ...s, status: 'done', starting: undefined, initialPrompt: undefined }, socket);
+      expect(starting()?.textContent).toContain("Chat can't read this session's transcript — use the terminal");
+      expect(starting()?.querySelector('button')).not.toBeNull();
+      // Still the prompt the user sent, not dropped: it is in the terminal.
+      expect(users().map((m) => m.textContent)).toEqual(['Youlost']);
     });
   });
 
