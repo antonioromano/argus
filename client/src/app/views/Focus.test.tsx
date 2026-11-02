@@ -325,3 +325,19 @@ describe('Focus — PR diff tool window (B4)', () => {
     expect(container.querySelector('[data-testid="pr-diff-view"]')).toBeNull();
   });
 });
+
+describe('Focus — sibling keys', () => {
+  // The terminal's ErrorBoundary and the Chat view are siblings and both used
+  // `key={active.id}`. React reconciles by key, so on a session switch it
+  // deleted the old terminal's fiber but left its DOM behind: a native tile
+  // stayed on screen beside the new session's.
+  it('gives the terminal and the Chat view different keys while Chat is showing', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+    renderFocus(session({ id: 's2', name: 'other', status: 'running' }), noop, { defaultSessionView: 'chat' });
+    expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+    const dupKey = errors.mock.calls.filter((c) => String(c[0]).includes('two children with the same key'));
+    expect(dupKey).toEqual([]);
+    errors.mockRestore();
+  });
+});
