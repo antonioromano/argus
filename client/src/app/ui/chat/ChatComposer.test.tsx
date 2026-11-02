@@ -466,14 +466,17 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(box().value).toBe('see:\n```\n- a\n\n```');
   });
 
-  it('Shift+Enter elsewhere stays the textarea\'s own new line', () => {
+  it('Shift+Enter outside a code block stays the textarea\'s own new line, inside it is Enter\'s', () => {
     render();
-    for (const [src, caret] of [['hello', 5], ['```\nx\n```', 9], ['```ts', 3]] as const) {
+    for (const [src, caret] of [['hello', 5], ['```\nx\n```', 9], ['- item', 6]] as const) {
       type(src, caret);
       const e = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
       act(() => { box().dispatchEvent(e); });
       expect(e.defaultPrevented).toBe(false);
     }
+    type('```\n  x = 1\n```', 11);
+    key('Enter', { shiftKey: true });
+    expect(box().value).toBe('```\n  x = 1\n  \n```');
   });
 
   it('opens the box with one insertText on the changed span (one undo step)', () => {

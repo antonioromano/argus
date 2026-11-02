@@ -168,6 +168,8 @@ describe('highlight lines', () => {
     expect(enter('```bash``` is the syntax|')).toBeUndefined();
     expect(composerLines('```bash``` here')[0].kind).toBe('text');
     expect(inCodeFence('````\nx', 6)).toBe(true);
+    expect(inCodeFence('````\n```\nx', 10)).toBe(true); // a shorter fence doesn't close it
+    expect(inCodeFence('````\n```\n`````\nx', 16)).toBe(false);
   });
 
   it('marks list bullets and numbers', () => {
@@ -189,6 +191,10 @@ describe('fenceOpenEdit', () => {
     expect(open('~~~|')).toBe('~~~\n|\n~~~');
     expect(open('```|\n\nafter')).toBe('```\n|\n```\n\nafter');
     expect(open('```ts|sel|')).toBe('```ts\n|\n```');
+    expect(open('``` python|')).toBe('``` python\n|\n```'); // space before the language
+    expect(open('```ts |')).toBe('```ts \n|\n```'); // trailing space
+    expect(open('~~~js`x|')).toBe('~~~js`x\n|\n~~~'); // a tilde info string may hold backticks
+    expect(open('````md|\nsee ```\n```')).toBe('````md\n|\n````\nsee ```\n```'); // ``` can't close ````
   });
 
   it('is a plain new line everywhere else', () => {
@@ -199,6 +205,8 @@ describe('fenceOpenEdit', () => {
     expect(open('```\ncode\n```|')).toBeUndefined(); // closes the open block
     expect(open('```|\ncode\n```')).toBeUndefined(); // already closed below
     expect(open('```bash``` x|')).toBeUndefined(); // inline code
+    expect(open('```\ncode\n```ts|')).toBeUndefined(); // code inside an open block
+    expect(enter('```\ncode\n```ts|')).toBe('```\ncode\n```ts\n|');
   });
 });
 

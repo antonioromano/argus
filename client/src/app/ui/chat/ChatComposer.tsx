@@ -13,7 +13,7 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, fenceOpenEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, inCodeFence, indentEdit, type Edit } from './composerMarkdown.js';
 import { newAttachmentKey as newKey, revokePreviews as revoke, useChatDraft, type DraftAttachment as Attachment } from './chatDrafts.js';
 
 interface ChatComposerProps {
@@ -419,8 +419,9 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
               // The caret is final only now: the input event saw the end of the replaced span.
               trackCaret();
             } else if (e.key === 'Enter' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
-              // Shift+Enter is a plain new line, except after an opening fence: that opens the block.
-              const edit = fenceOpenEdit(box.value, box.selectionStart, box.selectionEnd);
+              // Shift+Enter is the textarea's own new line, except in a code block (its
+              // opening fence included): there it is Enter's, opening the box / keeping the indent.
+              const edit = inCodeFence(box.value, box.selectionStart) ? enterEdit(box.value, box.selectionStart, box.selectionEnd) : undefined;
               if (!edit) return;
               e.preventDefault();
               applyEdit(box, edit);

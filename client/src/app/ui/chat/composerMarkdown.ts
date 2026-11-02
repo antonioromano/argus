@@ -11,10 +11,13 @@ const ITEM_RE = /^( *)([-*+]|(\d{1,9})([.)]))( +)(\[[ xX]\] )?/;
 // A backtick fence's info string has no backtick (CommonMark): "```x``` …" is inline code.
 const FENCE_RE = /^ *(`{3,}(?![^\n]*`)|~{3,})/;
 
-/** `line` closes a fence opened with `char`: the same fence character and nothing after it. */
-function closesFence(line: string, char: string): boolean {
+/**
+ * `line` closes the fence `open` (the opening line's backticks or tildes): the
+ * same character, at least as many of it, and nothing after (CommonMark).
+ */
+function closesFence(line: string, open: string): boolean {
   const m = FENCE_RE.exec(line);
-  return !!m && m[1][0] === char && !line.slice(m[0].length).trim();
+  return !!m && m[1][0] === open[0] && m[1].length >= open.length && !line.slice(m[0].length).trim();
 }
 
 export interface Edit {
@@ -55,7 +58,7 @@ export function inCodeFence(value: string, pos: number): boolean {
     if (open) {
       if (closesFence(line, open)) open = null;
     } else {
-      open = FENCE_RE.exec(line)?.[1][0] ?? null;
+      open = FENCE_RE.exec(line)?.[1] ?? null;
     }
   }
   return open !== null;
@@ -96,7 +99,7 @@ function renumberAll(value: string, positions: number[], touched?: [number, numb
       return;
     }
     if (f) {
-      fence = f[1][0];
+      fence = f[1];
       runs.clear();
       return;
     }
@@ -262,10 +265,14 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
 export function fenceOpenEdit(value: string, selStart: number, selEnd: number): Edit | undefined {
   if (selStart !== selEnd) return fenceOpenEdit(value.slice(0, selStart) + value.slice(selEnd), selStart, selStart);
   const { start, end } = lineBounds(value, selStart);
-  const m = /^( *)(`{3,}|~{3,})[^\s`]*$/.exec(value.slice(start, end));
-  if (!m || selStart !== end || !inCodeFence(value, selStart)) return undefined;
+  if (selStart !== end) return undefined;
+  // The fence, then at most a language (spaces around it allowed); a backtick
+  // fence's info string has no backtick, a tilde fence's may.
+  const m = /^( *)(`{3,}(?=\s*[^\s`]*\s*$)|~{3,}(?=\s*\S*\s*$))/.exec(value.slice(start, end));
+  // It opens a block only when no block is open on the line above (else it is code, or closes it).
+  if (!m || (start > 0 && inCodeFence(value, start - 1))) return undefined;
   const fence = m[2];
-  if (value.slice(end + 1).split('\n').some((l) => closesFence(l, fence[0]))) return undefined;
+  if (value.slice(end + 1).split('\n').some((l) => closesFence(l, fence))) return undefined;
   const indent = m[1];
   const v = value.slice(0, end) + '\n' + indent + '\n' + indent + fence + value.slice(end);
   const at = end + 1 + indent.length;
@@ -330,11 +337,11 @@ export function inlineSpans(text: string, style: Pick<Span, 'bold' | 'italic'> =
 /** The composer text as highlight lines; joining every line's text with `\n` gives the input back. */
 export function composerLines(value: string): Line[] {
   const out: Line[] = [];
-  let fence: { char: string; lang: string | null; lines: string[] } | null = null;
+  let fence: { open: string; lang: string | null; lines: string[] } | null = null;
   for (const line of value.split('\n')) {
     const f = FENCE_RE.exec(line);
     if (fence) {
-      if (closesFence(line, fence.char)) {
+      if (closesFence(line, fence.open)) {
         out.push({ kind: 'code', lang: fence.lang, lines: fence.lines }, { kind: 'fence', text: line });
         fence = null;
       } else {
@@ -343,7 +350,7 @@ export function composerLines(value: string): Line[] {
       continue;
     }
     if (f) {
-      fence = { char: f[1][0], lang: line.slice(f[0].length).trim().split(/\s/)[0] || null, lines: [] };
+      fence = { open: f[1], lang: line.slice(f[0].length).trim().split(/\s/)[0] || null, lines: [] };
       out.push({ kind: 'fence', text: line });
       continue;
     }
