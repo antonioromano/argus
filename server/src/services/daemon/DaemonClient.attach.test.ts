@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import net from 'net';
 import os from 'os';
 import path from 'path';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { DaemonClient, DaemonPty } from './DaemonClient.js';
 import { resolveDaemonBin } from './resolveDaemonBin.js';
 import { DaemonBackend } from '../ptyBackend/DaemonBackend.js';
@@ -173,13 +173,25 @@ test('DaemonClient: connecting to a daemon that closes without a hello fails ins
   fake.close();
 });
 
-test('DaemonClient: a restore burst replays every session\'s backlog', { ...(guard ?? {}), timeout: 120_000 }, async () => {
+test('DaemonClient: a restore burst replays every session\'s backlog', { ...(guard ?? {}), timeout: 120_000 }, async (t) => {
   const { socketPath, cleanup } = shortSocket();
   const ids = ['s0', 's1', 's2', 's3', 's4', 's5'];
+  const clients: DaemonClient[] = [];
+  // Runs on failure too. A client left connected keeps this process alive and
+  // the real daemon it spawned along with it, so a timed-out assert used to hang
+  // the whole suite and leak an argusd. SIGTERM kills its sessions and exits it.
+  t.after(() => {
+    for (const c of clients) c.dispose();
+    try {
+      process.kill(Number(readFileSync(`${socketPath}.pid`, 'utf8')), 'SIGTERM');
+    } catch { /* never started, or already gone */ }
+    cleanup();
+  });
 
   // Fill each session's 2MB ring: six of them are several times the daemon's
   // 8MB outbox, which is what used to make the whole restore burst collapse.
   const c1 = new DaemonClient(socketPath, BIN!, 'test');
+  clients.push(c1);
   await c1.ensureConnected();
   const seen: Record<string, number> = {};
   for (const id of ids) {
@@ -192,6 +204,7 @@ test('DaemonClient: a restore burst replays every session\'s backlog', { ...(gua
   await new Promise((r) => setTimeout(r, 200));
 
   const c2 = new DaemonClient(socketPath, BIN!, 'test');
+  clients.push(c2);
   await c2.ensureConnected();
   const replayed: Record<string, number> = {};
   for (const id of ids) {
@@ -204,10 +217,6 @@ test('DaemonClient: a restore burst replays every session\'s backlog', { ...(gua
   for (const id of ids) {
     assert.ok((replayed[id] ?? 0) >= 2_000_000, `${id} replayed only ${replayed[id] ?? 0} bytes`);
   }
-
-  c2.killAll();
-  c2.dispose();
-  cleanup();
 });
 
 test('DaemonClient: announces the resync capability right after the handshake', async () => {
