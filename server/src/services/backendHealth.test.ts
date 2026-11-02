@@ -1,59 +1,61 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import type { BackendHealth } from '@argus/shared';
 import { BackendHealthTracker } from './backendHealth.js';
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Mock timers: the debounce windows are tens of ms, and a real sleep under a
+// loaded verify run overshoots them (a 30ms sleep took 67ms and fired 'down').
 
-function tracker() {
+function tracker(ctx: TestContext) {
+  ctx.mock.timers.enable({ apis: ['setTimeout'] });
   const seen: BackendHealth['state'][] = [];
-  const t = new BackendHealthTracker('daemon', (h) => seen.push(h.state), { reconnectingAfterMs: 20, downAfterMs: 60 });
-  return { t, seen };
+  const health = new BackendHealthTracker('daemon', (h) => seen.push(h.state), { reconnectingAfterMs: 20, downAfterMs: 60 });
+  return { health, seen };
 }
 
-test('a flap shorter than the debounce emits nothing', async () => {
-  const { t, seen } = tracker();
-  t.handle('disconnected');
-  await sleep(5);
-  t.handle('connected');
-  await sleep(80);
+test('a flap shorter than the debounce emits nothing', (t) => {
+  const { health, seen } = tracker(t);
+  health.handle('disconnected');
+  t.mock.timers.tick(5);
+  health.handle('connected');
+  t.mock.timers.tick(80);
   assert.deepEqual(seen, []);
-  assert.equal(t.current().state, 'ok');
+  assert.equal(health.current().state, 'ok');
 });
 
-test('a longer drop goes reconnecting, then down, then ok on reconnect', async () => {
-  const { t, seen } = tracker();
-  t.handle('disconnected');
-  await sleep(35);
+test('a longer drop goes reconnecting, then down, then ok on reconnect', (t) => {
+  const { health, seen } = tracker(t);
+  health.handle('disconnected');
+  t.mock.timers.tick(35);
   assert.deepEqual(seen, ['reconnecting']);
-  await sleep(50);
+  t.mock.timers.tick(50);
   assert.deepEqual(seen, ['reconnecting', 'down']);
-  t.handle('connected');
+  health.handle('connected');
   assert.deepEqual(seen, ['reconnecting', 'down', 'ok']);
 });
 
-test('repeated disconnect events do not restart the clock or emit twice', async () => {
-  const { t, seen } = tracker();
-  t.handle('disconnected');
-  await sleep(10);
-  t.handle('disconnected');
-  await sleep(20);
+test('repeated disconnect events do not restart the clock or emit twice', (t) => {
+  const { health, seen } = tracker(t);
+  health.handle('disconnected');
+  t.mock.timers.tick(10);
+  health.handle('disconnected');
+  t.mock.timers.tick(20);
   assert.deepEqual(seen, ['reconnecting']);
-  t.dispose();
+  health.dispose();
 });
 
-test('a version mismatch drains and stays drained across reconnects', async () => {
-  const { t, seen } = tracker();
-  t.handle('versionMismatch');
-  t.handle('connected');
-  t.handle('disconnected');
-  await sleep(80);
+test('a version mismatch drains and stays drained across reconnects', (t) => {
+  const { health, seen } = tracker(t);
+  health.handle('versionMismatch');
+  health.handle('connected');
+  health.handle('disconnected');
+  t.mock.timers.tick(80);
   assert.deepEqual(seen, ['drain']);
-  assert.deepEqual(t.current(), { kind: 'daemon', state: 'drain' });
+  assert.deepEqual(health.current(), { kind: 'daemon', state: 'drain' });
 });
 
-test('connected while ok emits nothing', () => {
-  const { t, seen } = tracker();
-  t.handle('connected');
+test('connected while ok emits nothing', (t) => {
+  const { health, seen } = tracker(t);
+  health.handle('connected');
   assert.deepEqual(seen, []);
 });
