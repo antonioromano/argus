@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { SessionInfo } from '@argus/shared';
-import { canReopen, closeShellMode, groupSlotOf, reopenRequest } from './closeShellFlow.js';
+import { canReopen, closeShellMode, closeThenOfferReopen, groupSlotOf, reopenRequest } from './closeShellFlow.js';
 
 const CONVO = '0f8fad5b-d9cb-469f-a165-70867728950e';
 
@@ -51,5 +51,38 @@ describe('groupSlotOf', () => {
   it('last in its group → beforeId null; ungrouped → null', () => {
     expect(groupSlotOf(groups, 'z')).toEqual({ groupId: 'g2', beforeId: null });
     expect(groupSlotOf(groups, 'nope')).toBeNull();
+  });
+});
+
+describe('closeThenOfferReopen', () => {
+  const claude = { agentType: 'claude', claudeSessionId: CONVO, worktreePath: undefined } as const;
+
+  it('offers Reopen once the kill has landed', async () => {
+    const offer = vi.fn();
+    await closeThenOfferReopen(claude, async () => true, offer);
+    expect(offer).toHaveBeenCalledOnce();
+  });
+
+  it('offers nothing when the kill failed: the agent is still running', async () => {
+    const offer = vi.fn();
+    await closeThenOfferReopen(claude, async () => false, offer);
+    expect(offer).not.toHaveBeenCalled();
+  });
+
+  it('waits for the kill before offering', async () => {
+    const offer = vi.fn();
+    let land!: (ok: boolean) => void;
+    const done = closeThenOfferReopen(claude, () => new Promise<boolean>((r) => { land = r; }), offer);
+    await Promise.resolve();
+    expect(offer).not.toHaveBeenCalled();
+    land(true);
+    await done;
+    expect(offer).toHaveBeenCalledOnce();
+  });
+
+  it('offers nothing for a session that cannot come back', async () => {
+    const offer = vi.fn();
+    await closeThenOfferReopen({ ...claude, agentType: 'codex' }, async () => true, offer);
+    expect(offer).not.toHaveBeenCalled();
   });
 });

@@ -22,6 +22,20 @@ export function canReopen(session: Pick<SessionInfo, 'agentType' | 'claudeSessio
   return session.agentType === 'claude' && !!session.claudeSessionId && !session.worktreePath;
 }
 
+/**
+ * Kill a live session, then offer Reopen — but only once the kill has landed.
+ * A failed or still-pending kill leaves the agent running, and Reopen would
+ * start a second `claude --resume` on the same conversation.
+ */
+export async function closeThenOfferReopen(
+  session: Pick<SessionInfo, 'agentType' | 'claudeSessionId' | 'worktreePath'>,
+  kill: () => Promise<boolean>,
+  offerReopen: () => void,
+): Promise<void> {
+  const closed = await kill();
+  if (closed && canReopen(session)) offerReopen();
+}
+
 /** The create request that reopens `session`'s conversation. Same folder, name,
  *  flags, engine and run mode; the server never persists the resume argv. */
 export function reopenRequest(session: SessionInfo): CreateSessionRequest {

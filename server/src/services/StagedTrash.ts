@@ -71,6 +71,7 @@ export class StagedTrash {
       await this.rename(absPath, path.join(slot, path.basename(absPath)));
     } catch (err) {
       await rm(slot, { recursive: true, force: true }).catch(() => {});
+      this.ownSlots.delete(undoId);
       throw err;
     }
     const timer = setTimeout(() => { void this.purge(undoId); }, this.ttlMs);
@@ -105,6 +106,7 @@ export class StagedTrash {
     clearTimeout(entry.timer);
     this.entries.delete(undoId);
     await rm(entry.slot, { recursive: true, force: true }).catch(() => {});
+    this.ownSlots.delete(undoId);
     return { ok: true, path: target };
   }
 
@@ -115,6 +117,7 @@ export class StagedTrash {
     clearTimeout(entry.timer);
     this.entries.delete(undoId);
     await rm(entry.slot, { recursive: true, force: true }).catch(() => {});
+    this.ownSlots.delete(undoId);
   }
 
   /** Purges every staged item now (server shutdown). */

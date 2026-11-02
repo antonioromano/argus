@@ -30,7 +30,7 @@ import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon, Spinner, R
 import { registerErrorActionHost } from '../errors/errorActions.js';
 import { toastError } from '../errors/toastError.js';
 import { deferUndoable, offerUndo } from '../utils/undoable.js';
-import { canReopen, closeShellMode, groupSlotOf, reopenRequest } from './closeShellFlow.js';
+import { closeShellMode, closeThenOfferReopen, groupSlotOf, reopenRequest } from './closeShellFlow.js';
 
 import { MobileApp } from './mobile/MobileApp.js';
 import { PasswordGate } from './PasswordGate.js';
@@ -436,22 +436,16 @@ function DesktopInner() {
   const closeLiveSession = useCallback((s: SessionInfo) => {
     const slot = groupSlotOf(groupsListRef.current, s.id, new Set([FAVORITES_GROUP_ID, OTHERS_GROUP_ID]));
     if (app.view === 'focus' && app.activeSessionId === s.id) app.exitFocus();
-    void deleteSession(s.id).then((closed) => {
-      // Offer Reopen only once the kill has landed: a failed or pending kill
-      // leaves the agent running, and Reopen would start a second one on the
-      // same conversation.
-      if (!closed || !canReopen(s)) return;
-      offerUndo({
-        message: `Closed ${s.name}`,
-        actionLabel: 'Reopen',
-        undo: async () => {
-          const created = await reopenSession(reopenRequest(s));
-          if (slot) assignGroupRef.current(created.id, slot.groupId, slot.beforeId);
-          const windowId = myWindowIdRef.current;
-          if (windowId !== MAIN_WINDOW_ID) await api.assignWindow(created.id, windowId).catch(console.error);
-        },
-      });
-    });
+    void closeThenOfferReopen(s, () => deleteSession(s.id), () => offerUndo({
+      message: `Closed ${s.name}`,
+      actionLabel: 'Reopen',
+      undo: async () => {
+        const created = await reopenSession(reopenRequest(s));
+        if (slot) assignGroupRef.current(created.id, slot.groupId, slot.beforeId);
+        const windowId = myWindowIdRef.current;
+        if (windowId !== MAIN_WINDOW_ID) await api.assignWindow(created.id, windowId).catch(console.error);
+      },
+    }));
   }, [deleteSession, reopenSession, app]);
 
   // Close a session. Exited: hidden now, deleted when the Undo toast closes.
