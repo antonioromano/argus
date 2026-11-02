@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Icon, Row } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Icon, Row, Text } from '../../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
@@ -85,15 +85,15 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                 >
                   <Row gap={2}>
                     {conflict && (
-                      <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>
+                      <Row as="span" align="stretch" title="This combo is bound to more than one action" style={{ color: 'var(--danger)' }}>
                         <Icon icon={AlertTriangle} size="md" />
-                      </span>
+                      </Row>
                     )}
                     <span style={comboPill(conflict)}>
                       {isRecording ? 'Press keys…' : formatCombo(resolved[a.id])}
                     </span>
                     {a.fixed ? (
-                      <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)', minWidth: 70 }}>Not editable</span>
+                      <Text size="caption" tone="faint" style={{ minWidth: 70 }}>Not editable</Text>
                     ) : (
                       <>
                         <button

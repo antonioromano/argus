@@ -12,7 +12,7 @@ import {
   Search,
   TextSearch,
 } from 'lucide-react';
-import { Button, IconButton, Chip, ErrorState, Icon, SkeletonRows, StaleNotice } from '../../components/primitives/index.js';
+import { Button, IconButton, Chip, ErrorState, Icon, Row, SkeletonRows, Spacer, StaleNotice, Text } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
 import { useDelayedFlag } from '../../hooks/useDelayedFlag.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
@@ -378,11 +378,9 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
         position: 'relative',
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-4)',
@@ -393,22 +391,12 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
       >
         <Icon icon={FolderOpen} size="md" color="var(--accent)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · EXPLORER</div>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-sm)',
-            color: 'var(--fg-1)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '40%',
-          }}
-        >
+        <Text mono size="body" tone="default" truncate style={{ maxWidth: '40%' }}>
           {focusedPath ?? workRoot(session)}
-        </span>
+        </Text>
         {focusedSnap?.dirty && <Chip dot="var(--dirty)">UNSAVED</Chip>}
         {focusedSnap?.saving && <Chip dot="var(--accent)">SAVING…</Chip>}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         {isPreviewable && focusedPath && (
           <SegmentedControl
             value={viewModeFor(focusedPath)}
@@ -428,7 +416,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           Save
         </Button>
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
-      </div>
+      </Row>
 
       <div ref={bodyRef} style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <aside
@@ -523,11 +511,11 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                   />
                   {/* Match the editor surface so there's no flash before Monaco paints:
                       dark editor (argus-dark) == --bg-inset; light editor (argus-light) is white. */}
-                  <div
+                  <Row
+                    align="stretch"
                     style={{
                       flex: 1,
                       minHeight: 0,
-                      display: 'flex',
                       background: theme === 'dark' ? 'var(--bg-inset)' : 'var(--bg-2)',
                     }}
                   >
@@ -550,7 +538,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                         />
                       ))
                     )}
-                  </div>
+                  </Row>
                 </div>
                 {isSplit && gi === 0 && (
                   <ResizeDivider
@@ -622,7 +610,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             pointerEvents: 'none',
           }}
         >
-          <span style={{ color: 'var(--accent)', fontSize: 'var(--t-tiny)' }}>TS</span>
+          <Text size="caption" tone="accent">TS</Text>
           {ghost.label}
         </div>
       )}
@@ -709,13 +697,11 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
 
 function ConflictBanner({ onReload }: { onReload: () => void }) {
   return (
-    <div
+    <Row
+      gap={2}
       role="alert"
       className="eyebrow"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--s-2)',
         padding: 'var(--s-1-5) var(--s-4)',
         background: 'var(--warn-bg)',
         borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
@@ -726,8 +712,8 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
     >
       <Icon icon={AlertTriangle} size="md" />
       File changed on disk
-      <div style={{ flex: 1 }} />
+      <Spacer />
       <Button variant="ghost" size="sm" onClick={onReload}>Reload from disk</Button>
-    </div>
+    </Row>
   );
 }

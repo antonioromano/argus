@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, History, Power, RotateCcw, SearchX } from 'lucide-react';
 import type { RunMode } from '@argus/shared';
-import { Button, Icon } from '../../components/primitives/index.js';
+import { Button, Icon, Row, Text } from '../../components/primitives/index.js';
 import { isCommandNotFoundExit } from '../../utils/agentExit.js';
 
 /**
@@ -72,20 +72,20 @@ export function ExitedCard({
             <div aria-hidden style={iconBadge(false)}>
               <Icon icon={Power} size="lg" strokeWidth={2} />
             </div>
-            <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
+            <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
               {stoppedWithArgus ? 'Session stopped' : 'Agent exited'}
-            </div>
-            <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-xs)', lineHeight: 1.45, color: 'var(--fg-2)' }}>
+            </Text>
+            <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-1)', lineHeight: 1.45 }}>
               {stoppedWithArgus ? 'The agent isn’t running. Sessions using the Native terminal stop when Argus quits.' : 'The agent process has ended.'}
               <br />
               {onResume && <>Resume picks up the last conversation. </>}
               Restart starts a fresh agent in <span style={mono}>{folderPath}</span>.
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'center', flexWrap: 'wrap', marginTop: 'var(--s-4)' }}>
+            </Text>
+            <Row align="stretch" justify="center" wrap gap={2} style={{ marginTop: 'var(--s-4)' }}>
               {onResume && <Button variant="primary" size="sm" icon={History} onClick={onResume}>Resume conversation</Button>}
               <Button variant={onResume ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
               {onClone && <Button variant="outline" size="sm" onClick={onClone}>Clone…</Button>}
-            </div>
+            </Row>
           </>
         )}
       </div>
@@ -125,16 +125,16 @@ function NotFoundBody({ command, installCommand, onRestart }: { command: string;
       <div aria-hidden style={iconBadge(true)}>
         <Icon icon={SearchX} size="lg" strokeWidth={2} />
       </div>
-      <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
+      <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
         Couldn’t find <span style={mono}>{command}</span>
-      </div>
-      <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-xs)', lineHeight: 1.45, color: 'var(--fg-2)' }}>
+      </Text>
+      <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-1)', lineHeight: 1.45 }}>
         The session ended right after it started, with exit code 127 (command not found).
         <br />
         {installCommand
           ? <>Install it, then restart:</>
           : <>Check that <span style={mono}>{command}</span> is installed and on your PATH, then restart.</>}
-      </div>
+      </Text>
       {installCommand && (
         <code
           style={{
@@ -153,14 +153,14 @@ function NotFoundBody({ command, installCommand, onRestart }: { command: string;
           {installCommand}
         </code>
       )}
-      <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'center', flexWrap: 'wrap', marginTop: 'var(--s-4)' }}>
+      <Row align="stretch" justify="center" wrap gap={2} style={{ marginTop: 'var(--s-4)' }}>
         {installCommand && (
           <Button variant="primary" size="sm" icon={copied ? Check : Copy} onClick={copy}>
             {copied ? 'Copied' : 'Copy install command'}
           </Button>
         )}
         <Button variant={installCommand ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
-      </div>
+      </Row>
     </>
   );
 }

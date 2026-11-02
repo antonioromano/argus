@@ -18,7 +18,9 @@
    never change a row's size (it may only change its background, elsewhere). */
 .ds-row   { display: flex; flex-direction: row; min-width: 0; }
 .ds-stack { display: flex; flex-direction: column; min-width: 0; }
-span.ds-row, span.ds-stack, label.ds-row, label.ds-stack { display: inline-flex; }
+/* A span stays inline; a label is block-level like a div, because a labelled
+   control row (checkbox + text) is a line of its own in a list. */
+span.ds-row, span.ds-stack { display: inline-flex; }
 .ds-wrap  { flex-wrap: wrap; }
 .ds-grow  { flex: 1; min-width: 0; }
 .ds-align-center   { align-items: center; }

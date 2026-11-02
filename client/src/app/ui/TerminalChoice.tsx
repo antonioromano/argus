@@ -10,6 +10,7 @@ import {
   type KindCell,
   type TerminalKind,
 } from './terminalKind.js';
+import { Row, Stack, Text } from '../../components/primitives/index.js';
 
 /**
  * Three tabs (Universal / Advanced / Native), a one-line tagline that is always
@@ -25,8 +26,8 @@ export function TerminalChoice({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
-      <div role="radiogroup" aria-label="Terminal" style={{ display: 'flex', borderBottom: '1px solid var(--line-2)' }}>
+    <Stack gap={2}>
+      <Row align="stretch" role="radiogroup" aria-label="Terminal" style={{ borderBottom: '1px solid var(--line-2)' }}>
         {TERMINAL_KINDS.map((k) => {
           const on = value === k;
           return (
@@ -68,7 +69,7 @@ export function TerminalChoice({
             </button>
           );
         })}
-      </div>
+      </Row>
 
       <div
         style={{
@@ -79,7 +80,7 @@ export function TerminalChoice({
           fontSize: 'var(--t-xs)',
         }}
       >
-        <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>{KIND_TAGLINE[value]}</div>
+        <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>{KIND_TAGLINE[value]}</Text>
         <button
           type="button"
           aria-expanded={open}
@@ -119,7 +120,7 @@ export function TerminalChoice({
           </div>
         )}
       </div>
-    </div>
+    </Stack>
   );
 }
 
@@ -136,6 +137,6 @@ function colStyle(selected: boolean, header: boolean): CSSProperties {
 
 function Cell({ v }: { v: KindCell }) {
   if (v === true) return <span style={{ color: 'var(--ok)', fontWeight: 700 }}>✓</span>;
-  if (v === false) return <span style={{ color: 'var(--fg-3)' }}>–</span>;
+  if (v === false) return <Text tone="faint">–</Text>;
   return <span style={{ color: v === 'medium' ? 'var(--warn)' : 'var(--ok)' }}>{v}</span>;
 }

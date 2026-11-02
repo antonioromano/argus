@@ -22,7 +22,7 @@ import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } from '../../components/primitives/index.js';
+import { StatusPill, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon, Row, Spacer } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
@@ -299,14 +299,12 @@ export function Focus({
 
       <div ref={splitRef} style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: stacked ? CONVERSATION_MIN_HEIGHT : 0 }}>
-          <div
+          <Row
+            gap={3}
             data-identity-edge={identityEdgeProps(active.color, theme === 'dark')['data-identity-edge']}
             style={{
               ...identityEdgeProps(active.color, theme === 'dark').style,
               position: 'relative', // anchors the running hairline
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-3)',
               height: 'var(--h-panel-header)',
               boxSizing: 'border-box',
               padding: '0 var(--s-4)',
@@ -376,7 +374,7 @@ export function Focus({
             {!inspectorShown && usageMeter && (
               <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} />
             )}
-            <div style={{ flex: 1 }} />
+            <Spacer />
             {chatCapable && (
               <div role="group" aria-label="Session view" className="argus-view-toggle">
                 <Button
@@ -437,7 +435,7 @@ export function Focus({
             {runningIndicator === 'hairline' && active.status === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}
-          </div>
+          </Row>
 
           {/* Terminal/reply region. The terminal stays mounted at all times; when a
               tool window is maximized it collapses to 0 height and the workbench
@@ -578,7 +576,7 @@ export function Focus({
                 >
                   <Icon icon={SquareTerminal} size="sm" />
                   <span>Shell · collapsed</span>
-                  <div style={{ flex: 1 }} />
+                  <Spacer />
                   <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1)' }}>
                     <Icon icon={ChevronUp} size="sm" /> RETURN
                   </span>

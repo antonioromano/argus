@@ -2,7 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { UpdateStatus, UpdateProgress, SessionInfo } from '@argus/shared';
 import { ArrowRight, AlertTriangle, Info, type LucideIcon } from 'lucide-react';
-import { Sheet, Button, Kbd, Icon, Stack, Row } from '../../components/primitives/index.js';
+import { Sheet, Button, Kbd, Icon, Stack, Row, Text } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { ENGINE_SHORT, ENGINE_NOTE_UPDATE } from '../ui/terminalEngineCopy.js';
 import type { UpdateFailure } from '../../hooks/useUpdate.js';
@@ -123,19 +123,20 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
                     marginBottom: 'var(--s-2)',
                   }}
                 >
-                  <div
+                  <Text
+                    as="div"
+                    size="eyebrow"
+                    tone="faint"
                     style={{
                       padding: 'var(--s-1-5) var(--s-3)',
                       background: 'var(--bg-1)',
                       borderBottom: '1px solid var(--line-1)',
-                      fontSize: 'var(--t-eyebrow)',
                       textTransform: 'uppercase',
                       letterSpacing: '.07em',
-                      color: 'var(--fg-3)',
                     }}
                   >
                     {ENGINE_SHORT.native} sessions · {advanced.length} of {sessions.length}
-                  </div>
+                  </Text>
                   {advanced.slice(0, 8).map((sn) => (
                     <Row
                       gap={3}
@@ -146,25 +147,25 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
                         fontSize: 'var(--t-sm)',
                       }}
                     >
-                      <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>{sn.name}</span>
-                      <span
+                      <Text weight={500} style={{ color: 'var(--fg-0)' }}>{sn.name}</Text>
+                      <Text
+                        size="eyebrow"
+                        tone="accent"
                         style={{
-                          fontSize: 'var(--t-eyebrow)',
                           padding: 'var(--s-px) var(--s-1-5)',
                           borderRadius: 'var(--r-2)',
-                          color: 'var(--accent)',
                           border: '1px solid var(--accent-edge)',
                           background: 'var(--accent-bg)',
                         }}
                       >
                         {ENGINE_SHORT.native}
-                      </span>
+                      </Text>
                     </Row>
                   ))}
                   {advanced.length > 8 && (
-                    <div style={{ padding: 'var(--s-2) var(--s-3)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+                    <Text as="div" size="small" tone="faint" style={{ padding: 'var(--s-2) var(--s-3)' }}>
                       …and {advanced.length - 8} more
-                    </div>
+                    </Text>
                   )}
                 </div>
                 <Notice kind="warn" icon={AlertTriangle}>{ENGINE_NOTE_UPDATE}</Notice>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
-import { Button, Section, SettingRow, pushToast, Row } from '../../../../components/primitives/index.js';
+import { Button, Section, SettingRow, pushToast, Row, Text } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
 import { PaneLoadState } from '../PaneLoadState.js';
@@ -93,12 +93,12 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
               <span data-testid="launcher-expand" onClick={() => setOpen(open === l.id ? null : l.id)}><Button size="sm" variant="ghost">{open === l.id ? 'Hide' : 'Details'}</Button></span>
             </Row>
             {open === l.id && (
-              <div className="mono" style={{ fontSize: 'var(--t-xs)', marginTop: 'var(--s-1-5)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              <Text as="div" className="mono" size="small" style={{ marginTop: 'var(--s-1-5)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                 <div>folder: {l.request.folder}</div>
                 <div>command: {l.agentCommand}</div>
                 {l.request.flags.map((f, i) => <div key={i}>arg: {f}</div>)}
                 {l.request.prompt !== undefined && <div>prompt: {l.request.prompt}</div>}
-              </div>
+              </Text>
             )}
           </div>
         ))}

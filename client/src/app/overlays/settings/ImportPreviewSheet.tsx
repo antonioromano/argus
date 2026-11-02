@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Badge, Button, Checkbox, Sheet, Row, Stack } from '../../../components/primitives/index.js';
+import { Badge, Button, Checkbox, Sheet, Row, Stack, Text } from '../../../components/primitives/index.js';
 import { SECTION_ORDER, type ImportItem, type ImportPlan, type ImportSection } from '../../../settings-backup/diffImport.js';
 
 const SECTION_TITLE: Record<ImportSection, string> = {
@@ -53,9 +53,9 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
       onClose={applying ? undefined : onCancel}
       footer={
         <Row gap={3} style={{ width: '100%' }}>
-          <span style={{ flex: 1, fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+          <Text size="small" tone="faint" style={{ flex: 1 }}>
             Your current settings are backed up first.
-          </span>
+          </Text>
           <Button variant="ghost" onClick={onCancel} disabled={applying}>Cancel</Button>
           <Button variant="primary" onClick={() => onApply(selected)} disabled={count === 0} loading={applying}>
             Import {count} item{count === 1 ? '' : 's'}
@@ -65,9 +65,9 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
     >
       <Stack gap={5}>
         {sections.length === 0 && (
-          <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)' }}>
+          <Text as="div" size="body" tone="muted">
             Everything in this file already matches your settings.
-          </div>
+          </Text>
         )}
         {sections.map(({ id, items }) => {
           const pickable = items.filter((i) => i.status !== 'identical').map((i) => i.key);
@@ -85,9 +85,9 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
                 <span className="settings-group-title" style={{ flex: 1 }}>{SECTION_TITLE[id]}</span>
               </Row>
               {sectionNotes[id] && (
-                <div style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', marginBottom: 'var(--s-2)' }}>
+                <Text as="div" size="small" tone="warn" style={{ marginBottom: 'var(--s-2)' }}>
                   {sectionNotes[id]}
-                </div>
+                </Text>
               )}
               <div className="settings-card">
                 {items.map((i) => (
@@ -133,11 +133,11 @@ function ImportRow({ item, checked, onToggle }: { item: ImportItem; checked: boo
           {item.status === 'new' && <Badge label="New" />}
           {item.sensitive && <Badge label="Review" color="var(--warn)" />}
         </Row>
-        <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', overflowWrap: 'anywhere' }}>
+        <Text as="div" size="small" tone="muted" style={{ overflowWrap: 'anywhere' }}>
           {item.before !== undefined && <><span style={valueStyle}>{item.before}</span>{' → '}</>}
           <span style={valueStyle}>{item.after}</span>
-        </div>
-        {item.note && <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>{item.note}</div>}
+        </Text>
+        {item.note && <Text as="div" size="small" tone="faint">{item.note}</Text>}
       </div>
     </Row>
   );

@@ -6,7 +6,7 @@ import {
   type AutoApprovalRule,
   type AutoApprovalTool,
 } from '@argus/shared';
-import { AlertSheet, Button, Section, Segmented, TextInput, Toggle, Stack, Row } from '../../../../components/primitives/index.js';
+import { AlertSheet, Button, Section, Segmented, TextInput, Toggle, Stack, Row, Text } from '../../../../components/primitives/index.js';
 import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
 import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
@@ -138,10 +138,10 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
             onRetry={() => { void loadFolders().then(() => loadRules(folder)); }}
           />
           {folders && folders.length === 0 && !loadError && (
-            <p style={{ margin: 0, color: 'var(--fg-3)' }}>No session folders yet. Open a session to add rules for its folder.</p>
+            <Text as="p" tone="faint">No session folders yet. Open a session to add rules for its folder.</Text>
           )}
           {folders && folders.length > 0 && (
-            <label style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'center', color: 'var(--fg-2)' }}>
+            <Row as="label" gap={2} style={{ color: 'var(--fg-2)' }}>
               Folder
               <select
                 aria-label="Folder"
@@ -155,13 +155,13 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
                   </option>
                 ))}
               </select>
-            </label>
+            </Row>
           )}
 
           {state && (
             <>
               {state.rules.every((r) => hidden.has(r.id)) && (
-                <p style={{ margin: 0, color: 'var(--fg-3)' }}>No rules for this folder. Nothing is auto-approved here.</p>
+                <Text as="p" tone="faint">No rules for this folder. Nothing is auto-approved here.</Text>
               )}
               {state.rules.filter((r) => !hidden.has(r.id)).map((r) => (
                 <Row gap={2} key={r.id} data-testid="aa-rule" style={{ minHeight: 28 }}>
@@ -211,14 +211,14 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
       {state && (
         <Section title="Recent auto-approvals">
           <Stack gap={1} className="settings-card-pad" style={{ fontSize: 'var(--t-xs)' }}>
-            {state.audit.length === 0 && <p style={{ margin: 0, color: 'var(--fg-3)' }}>None yet for this folder.</p>}
+            {state.audit.length === 0 && <Text as="p" tone="faint">None yet for this folder.</Text>}
             {state.audit.map((a, i) => (
               <Row align="stretch" gap={2} key={`${a.at}-${i}`} data-testid="aa-audit" style={{ color: 'var(--fg-2)' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{formatTime(a.at)}</span>
-                <span style={{ color: 'var(--fg-1)' }}>{a.tool}</span>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }} title={a.summary}>
+                <Text mono tone="faint">{formatTime(a.at)}</Text>
+                <Text tone="default">{a.tool}</Text>
+                <Text mono truncate style={{ flex: 1 }} title={a.summary}>
                   {a.summary}
-                </span>
+                </Text>
               </Row>
             ))}
           </Stack>

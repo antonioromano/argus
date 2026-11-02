@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OrphanReport } from '@argus/shared';
-import { AlertSheet, Section, Button, Checkbox, pushToast, Stack, Row } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Button, Checkbox, pushToast, Stack, Row, Text } from '../../../../components/primitives/index.js';
 import { toastError } from '../../../../errors/toastError.js';
 import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
@@ -86,11 +86,11 @@ export function OrphanAgentsSection() {
                     <div style={{ color: 'var(--fg-0)' }}>
                       {d.kind === 'argusd' ? 'argusd' : 'tmux'} · {d.label} · pid {d.pid} · {formatKb(d.treeRssKb)}
                     </div>
-                    {agents.length === 0 && <div style={{ color: 'var(--fg-3)' }}>no agents (child pids: {d.childPids.join(', ') || 'none'})</div>}
+                    {agents.length === 0 && <Text as="div" tone="faint">no agents (child pids: {d.childPids.join(', ') || 'none'})</Text>}
                     {agents.map((a) => (
-                      <div key={a.pid} style={{ color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.command}>
+                      <Text as="div" key={a.pid} tone="muted" truncate title={a.command}>
                         {a.agent} · pid {a.pid} · {formatKb(a.rssKb)}{a.cwd ? ` · ${a.cwd}` : ''}
-                      </div>
+                      </Text>
                     ))}
                   </div>
                 </Row>

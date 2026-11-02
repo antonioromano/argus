@@ -1,6 +1,6 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { PlanUsage, SessionUsage, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
-import { Section, SettingRow, Segmented, Toggle, Row } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Toggle, Row, Text } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
 import { UsageChip } from '../../../ui/UsageChip.js';
@@ -220,16 +220,16 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
         ) : (
           <SettingRow label="Simulate" hint="Preview only — try the warning colors">
             <Row as="span" gap={3} style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-              <label style={{ display: 'inline-flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
+              <Row as="label" gap={1.5}>
                 Context
                 <input type="range" min={1} max={100} value={simCtx} aria-label="Simulated context %" onChange={(e) => setSimCtx(Number(e.target.value))} />
-                <span style={{ minWidth: 32, fontFamily: 'var(--font-mono)' }}>{simCtx}%</span>
-              </label>
-              <label style={{ display: 'inline-flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
+                <Text mono style={{ minWidth: 32 }}>{simCtx}%</Text>
+              </Row>
+              <Row as="label" gap={1.5}>
                 Plan
                 <input type="range" min={1} max={100} value={simPlan} aria-label="Simulated plan usage %" onChange={(e) => setSimPlan(Number(e.target.value))} />
-                <span style={{ minWidth: 32, fontFamily: 'var(--font-mono)' }}>{simPlan}%</span>
-              </label>
+                <Text mono style={{ minWidth: 32 }}>{simPlan}%</Text>
+              </Row>
             </Row>
           </SettingRow>
         )}

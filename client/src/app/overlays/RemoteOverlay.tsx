@@ -13,6 +13,7 @@ import {
   Icon,
   Stack,
   Row,
+  Text,
 } from '../../components/primitives/index.js';
 
 interface RemoteOverlayProps {
@@ -140,17 +141,9 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
                   borderRadius: 'var(--r-2)',
                 }}
               >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-sm)',
-                    color: 'var(--accent)',
-                    flex: 1,
-                    wordBreak: 'break-all',
-                  }}
-                >
+                <Text mono size="body" tone="accent" style={{ flex: 1, wordBreak: 'break-all' }}>
                   {publicUrl}
-                </span>
+                </Text>
                 <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => copy(publicUrl)}>
                   {copied ? 'Copied' : 'Copy'}
                 </Button>

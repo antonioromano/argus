@@ -5,7 +5,7 @@ import { useDiffInlineEdit } from '../../hooks/useDiffInlineEdit.js';
 import type { ChangeBlock } from '../overlays/diff/changeBlocks.js';
 import type { FileModel } from '../overlays/diff/diffModel.js';
 import { DiffViewer } from './DiffViewer.js';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, Row, Text } from '../../components/primitives/index.js';
 
 export interface FileSectionProps {
   file: FileModel;
@@ -163,14 +163,12 @@ export function FileSection({
 
   return (
     <div ref={rootRef} data-file-id={file.id} style={{ borderBottom: '1px solid var(--line-2)' }}>
-      <div
+      <Row
+        gap={2}
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           padding: 'var(--s-1-5) var(--s-4)',
           background: active ? 'var(--bg-2)' : 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
@@ -190,31 +188,22 @@ export function FileSection({
             flexShrink: 0,
           }}
         />
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-xs)',
-            color: active ? 'var(--accent)' : 'var(--fg-1)',
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <Text mono size="small" tone={active ? 'accent' : 'default'} truncate style={{ flex: 1 }}>
           {file.path}
-        </span>
+        </Text>
         {file.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
         {file.source !== 'untracked' && file.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
         {file.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{file.add}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{file.del}</span>
+        <Text mono size="eyebrow" tone="danger">−{file.del}</Text>
         {collapsed && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-4)' }}>
             {file.parsed.chunks.length} {file.parsed.chunks.length === 1 ? 'hunk' : 'hunks'} · collapsed
           </span>
         )}
-        <div
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}
+        <Row
+          gap={2}
+          style={{ flexShrink: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
           {isUnstaged && onAccept && (
@@ -266,8 +255,8 @@ export function FileSection({
               onClick={onIgnore}
             />
           )}
-        </div>
-      </div>
+        </Row>
+      </Row>
 
       {!collapsed && (
         bodyMounted ? (

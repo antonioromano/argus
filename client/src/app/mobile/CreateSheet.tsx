@@ -4,7 +4,7 @@ import { X, CornerDownLeft, FolderSearch } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { useConfig } from '../../hooks/useConfig.js';
 import { FolderBrowser } from './FolderBrowser.js';
-import { Switch, Icon } from '../../components/primitives/index.js';
+import { Switch, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 interface CreateSheetProps {
   sessions: SessionInfo[];
@@ -125,22 +125,22 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
   };
 
   return (
-    <div
+    <Stack
       onClick={onClose}
       className="glass-overlay"
+      justify="end"
       style={{
         position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)',
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
         background: 'var(--bg-overlay)', animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
-      <div
+      <Stack
         role="dialog"
         aria-modal="true"
         aria-label="New session"
         onClick={(e) => e.stopPropagation()}
         style={{
-          display: 'flex', flexDirection: 'column', maxHeight: '92%',
+          maxHeight: '92%',
           background: 'var(--bg-1)', borderTop: '1px solid var(--line-3)',
           borderRadius: 'var(--r-4) var(--r-4) 0 0', boxShadow: 'var(--shadow-sheet)',
           animation: 'argus-sheet-up var(--dur-base) var(--ease)',
@@ -148,17 +148,17 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
         }}
       >
         <div style={{ width: 36, height: 4, borderRadius: 'var(--r-1)', background: 'var(--line-3)', margin: 'var(--s-2) auto var(--s-1)' }} />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--s-2) var(--s-4) var(--s-3)', borderBottom: '1px solid var(--line-1)' }}>
+        <Row justify="between" style={{ padding: 'var(--s-2) var(--s-4) var(--s-3)', borderBottom: '1px solid var(--line-1)' }}>
           <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>NEW SESSION</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--fg-2)', cursor: 'pointer', padding: 'var(--s-1)' }}>
             <Icon icon={X} size="xl" />
           </button>
-        </div>
+        </Row>
 
         <div className="argus-scroll" style={{ overflowY: 'auto', padding: 'var(--s-4)' }}>
           {/* Folder */}
           <Label>Folder</Label>
-          <div style={{ display: 'flex', gap: 'var(--s-2)' }}>
+          <Row align="stretch" gap={2}>
             <input
               value={folderPath}
               onChange={(e) => setFolderPath(e.target.value)}
@@ -175,7 +175,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             >
               <Icon icon={FolderSearch} size="xl" />
             </button>
-          </div>
+          </Row>
           {completions.length > 0 && folderTrimmed && completions[0] !== folderTrimmed && (
             <div style={{ marginTop: 'var(--s-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-2)' }}>
               {completions.slice(0, 4).map((c) => (
@@ -190,7 +190,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             </div>
           )}
           {recents.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-1-5)', marginTop: 'var(--s-2)' }}>
+            <Row wrap align="stretch" gap={1.5} style={{ marginTop: 'var(--s-2)' }}>
               {recents.map((r) => (
                 <button
                   key={r}
@@ -201,7 +201,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
                   {r.split('/').filter(Boolean).pop()}
                 </button>
               ))}
-            </div>
+            </Row>
           )}
 
           {/* Name */}
@@ -218,7 +218,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
 
           {/* Agent */}
           <Label style={{ marginTop: 'var(--s-4)' }}>Agent</Label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-1-5)' }}>
+          <Row wrap align="stretch" gap={1.5}>
             {agents.map((a) => {
               const sel = agentId === a.id;
               return (
@@ -238,7 +238,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
                 </button>
               );
             })}
-          </div>
+          </Row>
 
           {/* Worktree */}
           {isGitRepo && (
@@ -250,8 +250,8 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                 >
                   <span style={{ textAlign: 'left' }}>
-                    <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', fontWeight: 500 }}>Isolate in a worktree</span>
-                    <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>git repo detected</span>
+                    <Text size="body" weight={500} style={{ display: 'block', fontFamily: 'var(--font-sans)', color: 'var(--fg-0)' }}>Isolate in a worktree</Text>
+                    <Text size="caption" tone="faint" style={{ display: 'block' }}>git repo detected</Text>
                   </span>
                   <Switch on={useWorktree} />
                 </button>
@@ -283,7 +283,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
           )}
 
           {error && (
-            <div style={{ marginTop: 'var(--s-3)', color: 'var(--danger)', fontSize: 'var(--t-sm)', fontFamily: 'var(--font-mono)' }}>{error}</div>
+            <Text as="div" mono size="body" tone="danger" style={{ marginTop: 'var(--s-3)' }}>{error}</Text>
           )}
         </div>
 
@@ -312,8 +312,8 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             onClose={() => setBrowsing(false)}
           />
         )}
-      </div>
-    </div>
+      </Stack>
+    </Stack>
   );
 }
 

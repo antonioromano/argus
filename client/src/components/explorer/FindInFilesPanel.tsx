@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FindInFilesResponse } from '@argus/shared';
 import { Search, X, CaseSensitive, WholeWord, Regex, MoreHorizontal, ChevronRight, ChevronDown } from 'lucide-react';
 import { api, ApiError, type FindInFilesQuery } from '../../services/api.js';
-import { Icon, IconButton, InlineErrorState, scaledPx } from '../primitives/index.js';
+import { Icon, IconButton, InlineErrorState, Row, Stack, Text, scaledPx } from '../primitives/index.js';
 import { relativeTo } from '../../utils/pathFormat.js';
 import { ResultIcon } from './FileSearchPanel.js';
-import { splitHighlights, flattenRows, type Row } from './findInFilesRows.js';
+import { splitHighlights, flattenRows, type Row as FindRow } from './findInFilesRows.js';
 
 interface FindInFilesPanelProps {
   folderPath: string;
@@ -121,7 +121,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
       return next;
     });
 
-  const activate = (row: Row | undefined) => {
+  const activate = (row: FindRow | undefined) => {
     if (!row) return;
     const file = files[row.fi];
     if (row.kind === 'file') toggleFile(file.path);
@@ -189,11 +189,11 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', padding: 'var(--s-1-5) var(--s-2)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-0-5)' }}>
-          <span style={{ flex: 1, fontSize: 'var(--t-tiny)', letterSpacing: 'var(--tracking-eye)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+      <Stack gap={1} style={{ padding: 'var(--s-1-5) var(--s-2)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
+        <Row gap={0.5}>
+          <Text mono size="caption" tone="faint" style={{ flex: 1, letterSpacing: 'var(--tracking-eye)' }}>
             FIND IN FILES
-          </span>
+          </Text>
           <IconButton icon={MoreHorizontal} label="Toggle include/exclude filters" size="sm" active={options.showFilters} pressed={options.showFilters} onClick={() => patch({ showFilters: !options.showFilters })} />
           <button
             type="button"
@@ -203,7 +203,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
           >
             <Icon icon={X} size="md" />
           </button>
-        </div>
+        </Row>
         <div style={{ ...fieldBox, gap: 'var(--s-0-5)' }}>
           <Icon icon={Search} size="md" color="var(--fg-3)" style={{ flexShrink: 0, marginRight: 'var(--s-1)' }} />
           <input
@@ -241,14 +241,18 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
           </>
         )}
         {status && (
-          <div
+          <Text
+            as="div"
+            mono
+            size="caption"
+            tone={error ? 'danger' : 'faint'}
             role={error ? 'alert' : 'status'}
-            style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: error ? 'var(--danger)' : 'var(--fg-3)', overflowWrap: 'anywhere' }}
+            style={{ overflowWrap: 'anywhere' }}
           >
             {status}
-          </div>
+          </Text>
         )}
-      </div>
+      </Stack>
 
       <div
         ref={listRef}
@@ -266,9 +270,6 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
           const file = files[row.fi];
           const isSel = ri === selected;
           const base: React.CSSProperties = {
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--s-1-5)',
             minHeight: scaledPx(22),
             cursor: 'pointer',
             background: isSel ? 'var(--bg-3)' : 'transparent',
@@ -282,7 +283,8 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
             const rel = relPath(file.path);
             const slash = rel.lastIndexOf('/');
             return (
-              <div
+              <Row
+                gap={1.5}
                 key={`f:${file.path}`}
                 data-row={ri}
                 role="treeitem"
@@ -295,18 +297,19 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
                 <Icon icon={open ? ChevronDown : ChevronRight} size="sm" color="var(--fg-3)" style={{ flexShrink: 0 }} />
                 <ResultIcon ext={rel.slice(rel.lastIndexOf('.')).toLowerCase()} />
                 <span style={{ color: 'var(--fg-0)', whiteSpace: 'nowrap', flexShrink: 0 }}>{rel.slice(slash + 1)}</span>
-                <span style={{ color: 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                <Text tone="faint" truncate style={{ flex: 1 }}>
                   {slash >= 0 ? rel.slice(0, slash) : ''}
-                </span>
+                </Text>
                 <span style={{ color: 'var(--fg-2)', background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: '0 var(--s-1-5)', flexShrink: 0, fontSize: 'var(--t-tiny)' }}>
                   {file.matches.length}
                 </span>
-              </div>
+              </Row>
             );
           }
           const m = file.matches[row.mi];
           return (
-            <div
+            <Row
+              gap={1.5}
               key={`m:${file.path}:${m.line}`}
               data-row={ri}
               role="treeitem"
@@ -315,7 +318,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
               style={{ ...base, padding: '0 var(--s-2) 0 var(--s-6)' }}
               title={`${relPath(file.path)}:${m.line}`}
             >
-              <span style={{ color: 'var(--fg-3)', flexShrink: 0, minWidth: '3ch', textAlign: 'right' }}>{m.line}</span>
+              <Text tone="faint" style={{ flexShrink: 0, minWidth: '3ch', textAlign: 'right' }}>{m.line}</Text>
               <span style={{ color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'pre', flex: 1, minWidth: 0 }}>
                 {splitHighlights(m.preview, m.ranges).map((seg, si) =>
                   seg.hit
@@ -323,16 +326,16 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
                     : <span key={si}>{seg.text}</span>,
                 )}
               </span>
-            </div>
+            </Row>
           );
         })}
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--s-3)', padding: 'var(--s-1) var(--s-3)', borderTop: '1px solid var(--line-2)', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+      <Row align="stretch" gap={3} style={{ padding: 'var(--s-1) var(--s-3)', borderTop: '1px solid var(--line-2)', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
         <span>↑↓ navigate</span>
         <span>↵ open</span>
         <span>Esc close</span>
-      </div>
+      </Row>
     </div>
   );
 }

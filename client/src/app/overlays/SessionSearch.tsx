@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchHit, SearchResponse } from '@argus/shared';
 import { Search } from 'lucide-react';
-import { Kbd, Icon, ErrorState, Stack, Row, Spinner } from '../../components/primitives/index.js';
+import { Kbd, Icon, ErrorState, Stack, Row, Spinner, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 export const SEARCH_DEBOUNCE_MS = 250;
@@ -141,21 +141,25 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
       <div id="session-search-results" role="listbox" aria-label="Search results" className="argus-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {error != null && <ErrorState error={error} fallbackTitle="Search failed" onRetry={() => setAttempt((n) => n + 1)} />}
         {error == null && ((settled && data && flat.length === 0) || !active) && (
-          <div
+          <Text
+            as="div"
+            mono
+            size="body"
+            tone="faint"
             className="empty-hint"
-            style={{ padding: 'var(--s-6)', textAlign: 'center', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}
+            style={{ padding: 'var(--s-6)', textAlign: 'center' }}
           >
             {!active ? 'Type at least two characters.' : `No matches for “${data?.query}”.`}
-          </div>
+          </Text>
         )}
         {error == null && data?.results.map((r) => (
           <div key={r.sessionId} role="group" aria-label={r.sessionName}>
             <Row gap={2} style={{ padding: 'var(--s-2) var(--s-4) var(--s-1)', background: 'var(--bg-1)' }}>
               <AgentGlyph agent={r.agentType} size={14} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--fg-0)' }}>{r.sessionName}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
+              <Text mono size="body" weight={500} style={{ color: 'var(--fg-0)' }}>{r.sessionName}</Text>
+              <Text mono size="eyebrow" tone="faint">
                 {r.hits.length}{r.scrollback === 'frozen' ? ' · asleep' : ''}
-              </span>
+              </Text>
             </Row>
             {r.hits.map((hit, i) => {
               index++;
@@ -181,11 +185,11 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
                   <span className="eyebrow" style={{ flexShrink: 0, width: 72, color: 'var(--fg-3)' }}>
                     {hit.source === 'transcript' ? (hit.role === 'user' ? 'you' : 'agent') : 'terminal'}
                   </span>
-                  <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Text mono size="small" tone="default" truncate style={{ flex: 1 }}>
                     {hit.snippet.slice(0, hit.matchStart)}
                     <mark style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}>{hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength)}</mark>
                     {hit.snippet.slice(hit.matchStart + hit.matchLength)}
-                  </span>
+                  </Text>
                 </Row>
               );
             })}
@@ -208,10 +212,10 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
           { key: '↵', label: 'JUMP' },
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
-          <span key={label} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)' }}>
+          <Row as="span" key={label} gap={1.5} className="eyebrow">
             <Kbd>{key}</Kbd>
             {label}
-          </span>
+          </Row>
         ))}
         <span style={{ flex: 1 }} />
         {data?.truncated && <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>MORE RESULTS NOT SHOWN</span>}

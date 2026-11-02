@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Activity, Archive, Bell, Bot, CircleStop, MessageSquare, Wrench } from 'lucide-react';
 import { api } from '../../services/api.js';
 import { ACTIVITY_CLIENT_CAP, relativeTime } from './activityFormat.js';
-import { Icon, SkeletonRows, SurfaceStates, deriveSurfaceState } from '../../components/primitives/index.js';
+import { Icon, Row, SkeletonRows, SurfaceStates, deriveSurfaceState, Text } from '../../components/primitives/index.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -111,11 +111,9 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
         minWidth: 0,
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-3) 0 var(--s-4)',
@@ -124,7 +122,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
         }}
       >
         <Icon icon={Activity} size="md" color="var(--fg-2)" />
-        <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-1)', flex: 1, minWidth: 0 }}>Activity</span>
+        <Text size="body" tone="default" style={{ flex: 1, minWidth: 0 }}>Activity</Text>
         <select
           aria-label="Filter activity by type"
           value={filter}
@@ -143,7 +141,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
             <option key={t} value={t}>{TYPE_META[t].label}</option>
           ))}
         </select>
-      </div>
+      </Row>
       <div role="list" aria-label="Agent activity" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         <SurfaceStates
           state={deriveSurfaceState({ data: loaded || events.length > 0 ? events : undefined, error, loading: !loaded && !error })}
@@ -174,7 +172,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
               >
                 <Icon icon={Glyph} size="md" color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 'var(--s-0-5)' }} aria-label={meta.label} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', fontWeight: 500 }}>{title}</div>
+                  <Text as="div" size="caption" tone="default" weight={500}>{title}</Text>
                   {e.summary && (
                     <div
                       style={{

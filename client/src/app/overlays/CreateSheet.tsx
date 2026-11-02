@@ -17,6 +17,7 @@ import {
   Icon,
   Stack,
   Row,
+  Text,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
@@ -462,18 +463,14 @@ export function CreateSheet({
                     }}
                   >
                     <Icon icon={Folder} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
-                    <span style={{
-                      flex: 1,
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--t-sm)',
-                      color: picking ? 'var(--fg-2)' : folderPath ? 'var(--fg-0)' : 'var(--fg-3)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      pointerEvents: 'none',
-                    }}>
+                    <Text
+                      mono
+                      size="body"
+                      truncate
+                      style={{ flex: 1, color: picking ? 'var(--fg-2)' : folderPath ? 'var(--fg-0)' : 'var(--fg-3)', pointerEvents: 'none' }}
+                    >
                       {picking ? 'opening…' : folderPath || '~/work/project'}
-                    </span>
+                    </Text>
                   </button>
 
                   {/* Right: recents toggle — only when history exists */}
@@ -526,17 +523,20 @@ export function CreateSheet({
                     overflow: 'hidden',
                     boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
                   }}>
-                    <div style={{
-                      padding: 'var(--s-1-5) var(--s-3) var(--s-1-5)',
-                      fontSize: 'var(--t-eyebrow)',
-                      fontWeight: 700,
-                      letterSpacing: '0.09em',
-                      textTransform: 'uppercase' as const,
-                      color: 'var(--fg-3)',
-                      borderBottom: '1px solid var(--line-2)',
-                    }}>
+                    <Text
+                      as="div"
+                      size="eyebrow"
+                      tone="faint"
+                      style={{
+                        padding: 'var(--s-1-5) var(--s-3) var(--s-1-5)',
+                        fontWeight: 700,
+                        letterSpacing: '0.09em',
+                        textTransform: 'uppercase',
+                        borderBottom: '1px solid var(--line-2)',
+                      }}
+                    >
                       Recent folders
-                    </div>
+                    </Text>
                     <div style={{ maxHeight: 220, overflowY: 'auto' as const }}>
                       {localRecents.map((entry, index) => {
                         const isActive = entry.path === folderPath;
@@ -567,32 +567,17 @@ export function CreateSheet({
                               style={{ flexShrink: 0 }}
                             />
                             <div style={{ flex: 1, overflow: 'hidden', minWidth: 0 }}>
-                              <div style={{
-                                fontSize: 'var(--t-xs)',
-                                fontWeight: 600,
-                                color: isActive ? 'var(--accent-hover)' : 'var(--fg-0)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}>
+                              <Text as="div" size="small" weight={600} truncate style={{ color: isActive ? 'var(--accent-hover)' : 'var(--fg-0)' }}>
                                 {basename}
-                              </div>
-                              <div style={{
-                                fontFamily: 'var(--font-mono)',
-                                fontSize: 'var(--t-eyebrow)',
-                                color: 'var(--fg-3)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                marginTop: 'var(--s-px)',
-                              }}>
+                              </Text>
+                              <Text as="div" mono size="eyebrow" tone="faint" truncate style={{ marginTop: 'var(--s-px)' }}>
                                 {entry.path}
-                              </div>
+                              </Text>
                             </div>
                             <Row gap={1.5} style={{ flexShrink: 0 }}>
-                              <span style={{ fontSize: 'var(--t-eyebrow)', color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                              <Text size="eyebrow" style={{ color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                                 {relativeTime(entry.lastOpened)}
-                              </span>
+                              </Text>
                               {isActive && <Icon icon={Check} size="sm" strokeWidth={2} color="var(--accent)" />}
                               <button
                                 type="button"
@@ -629,15 +614,14 @@ export function CreateSheet({
                         );
                       })}
                     </div>
-                    <div style={{
-                      padding: 'var(--s-1-5) var(--s-3)',
-                      fontSize: 'var(--t-eyebrow)',
-                      color: 'var(--fg-3)',
-                      textAlign: 'center' as const,
-                      borderTop: '1px solid var(--line-2)',
-                    }}>
+                    <Text
+                      as="div"
+                      size="eyebrow"
+                      tone="faint"
+                      style={{ padding: 'var(--s-1-5) var(--s-3)', textAlign: 'center', borderTop: '1px solid var(--line-2)' }}
+                    >
                       {localRecents.length} of 100 · ordered by last opened
-                    </div>
+                    </Text>
                   </div>
                 )}
               </div>
@@ -659,25 +643,21 @@ export function CreateSheet({
             <Field label="Flags" hint={currentFlags.length === 0 ? 'no flags configured' : undefined}>
               <Stack gap={1}>
                 {currentFlags.map((flag) => (
-                  <label
+                  <Row
+                    as="label"
                     key={flag.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--s-2)',
-                      cursor: 'pointer',
-                      padding: 'var(--s-1) 0',
-                    }}
+                    gap={2}
+                    style={{ cursor: 'pointer', padding: 'var(--s-1) 0' }}
                   >
                     <Checkbox
                       checked={!!flagStates[flag.id]}
                       onChange={(v) => setFlagStates((p) => ({ ...p, [flag.id]: v }))}
                       size={14}
                     />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
+                    <Text mono size="body" style={{ color: 'var(--fg-0)' }}>
                       {flag.value}
-                    </span>
-                  </label>
+                    </Text>
+                  </Row>
                 ))}
                 {onSaveFlag && (
                   <Row align="stretch" gap={2} style={{ marginTop: 'var(--s-2)' }}>
@@ -723,16 +703,16 @@ export function CreateSheet({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
+                  <Text as="div" size="body" weight={500} style={{ color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
                     Agent isolation
-                  </div>
-                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 'var(--s-0-5)' }}>
+                  </Text>
+                  <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-0-5)' }}>
                     {isGitRepo === false
                       ? 'Requires a git repository'
                       : useWorktree
                         ? 'This session works in its own branch — no conflicts with other agents'
                         : 'Prevent file conflicts when running multiple agents on the same repo'}
-                  </div>
+                  </Text>
                 </div>
                 <Toggle
                   checked={useWorktree && isGitRepo === true}
@@ -742,16 +722,16 @@ export function CreateSheet({
               </Row>
               {useWorktree && isGitRepo === true && (
                 <Stack gap={1.5} style={{ padding: 'var(--s-3)', background: 'var(--bg-2)' }}>
-                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <Text as="div" size="small" weight={600} tone="muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Branch name
-                  </div>
+                  </Text>
                   <Row gap={2}>
                     <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
                   </Row>
-                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 'var(--s-1)' }}>
+                  <Text as="div" size="small" weight={600} tone="muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 'var(--s-1)' }}>
                     Base branch
-                  </div>
+                  </Text>
                   <Row gap={2}>
                     <Icon icon={GitBranch} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
                     <TextInput value={worktreeBase} onChange={setWorktreeBase} placeholder="HEAD" mono list="create-base-branches" />
@@ -759,9 +739,9 @@ export function CreateSheet({
                       {repoBranches.map((b) => <option key={b} value={b} />)}
                     </datalist>
                   </Row>
-                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+                  <Text as="div" size="small" tone="faint">
                     New branch starts from here · defaults to the current branch
-                  </div>
+                  </Text>
                 </Stack>
               )}
               {isGitRepo === false && (
@@ -773,9 +753,9 @@ export function CreateSheet({
                     borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
                   }}
                 >
-                  <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
+                  <Text size="small" tone="warn" style={{ flex: 1 }}>
                     ⚠ Not a git repository
-                  </span>
+                  </Text>
                   <button
                     type="button"
                     onClick={handleGitInit}

@@ -7,7 +7,7 @@ import {
   type LaunchTemplateResponse,
   type SessionTemplate,
 } from '@argus/shared';
-import { Button, Section, TextInput, pushToast, Row, Stack } from '../../../../components/primitives/index.js';
+import { Button, Section, TextInput, pushToast, Row, Stack, Text } from '../../../../components/primitives/index.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import { api, TemplateApiError } from '../../../../services/api.js';
 import { toastError } from '../../../../errors/toastError.js';
@@ -132,7 +132,7 @@ function TemplateEditor({ draft, agents, onCancel, onSaved }: {
           {s.prompt.length > TEMPLATE_PROMPT_MAX * 0.9 && (
             <div className="setting-row-hint">{s.prompt.length} / {TEMPLATE_PROMPT_MAX} characters</div>
           )}
-          {specErrors[i] && <div role="alert" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)' }}>{specErrors[i]}</div>}
+          {specErrors[i] && <Text as="div" role="alert" size="small" tone="danger">{specErrors[i]}</Text>}
         </Stack>
       ))}
       <Row gap={1.5}>
@@ -141,7 +141,7 @@ function TemplateEditor({ draft, agents, onCancel, onSaved }: {
         <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
         <span data-testid="template-save"><Button size="sm" variant="primary" disabled={!canSave} loading={saving} onClick={() => void save()}>Save template</Button></span>
       </Row>
-      {error && <div role="alert" data-testid="template-error" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)' }}>{error}</div>}
+      {error && <Text as="div" role="alert" data-testid="template-error" size="small" tone="danger">{error}</Text>}
     </div>
   );
 }
@@ -235,7 +235,7 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
                 <span data-testid="template-launch-go"><Button size="sm" variant="primary" loading={launching} onClick={() => void launch(t)}>Launch {t.specs.length}</Button></span>
                 <Button size="sm" variant="ghost" disabled={launching} onClick={() => setConfirmLaunch(null)}>Cancel</Button>
               </Row>
-              {launchError && <div role="alert" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)', marginTop: 'var(--s-1-5)' }}>{launchError}</div>}
+              {launchError && <Text as="div" role="alert" size="small" tone="danger" style={{ marginTop: 'var(--s-1-5)' }}>{launchError}</Text>}
             </div>
           )}
 

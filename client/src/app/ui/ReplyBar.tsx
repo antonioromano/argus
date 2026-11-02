@@ -1,5 +1,5 @@
 import type { SessionInfo } from '@argus/shared';
-import { Button, Kbd } from '../../components/primitives/index.js';
+import { Button, Kbd, Row, Spacer } from '../../components/primitives/index.js';
 
 interface ReplyBarProps {
   session: SessionInfo;
@@ -8,11 +8,9 @@ interface ReplyBarProps {
 
 export function ReplyBar({ session, onSend }: ReplyBarProps) {
   return (
-    <div
+    <Row
+      gap={2}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--s-2)',
         padding: 'var(--s-2) var(--s-3)',
         background: 'var(--bg-1)',
         borderTop: '1px solid var(--line-2)',
@@ -32,12 +30,12 @@ export function ReplyBar({ session, onSend }: ReplyBarProps) {
             : `Session is ${session.status} — type in the terminal above.`}
         </span>
       )}
-      <div style={{ flex: 1 }} />
+      <Spacer />
       {session.status === 'waiting' && (
         <div className="eyebrow" style={{ color: 'var(--fg-3)' }}>
           or type a reply in terminal <Kbd>↵</Kbd>
         </div>
       )}
-    </div>
+    </Row>
   );
 }

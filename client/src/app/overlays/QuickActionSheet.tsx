@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { TileQuickAction } from '@argus/shared';
 import { Info, Minus, Maximize2, MoreHorizontal, CircleX } from 'lucide-react';
-import { Sheet, Button, Kbd, StatusDot, Icon, Row } from '../../components/primitives/index.js';
+import { Sheet, Button, Kbd, StatusDot, Icon, Row, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
   DEFAULT_TILE_QUICK_ACTION,
@@ -37,9 +37,9 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
       onClose={() => onConfirm(DEFAULT_TILE_QUICK_ACTION, version)}
       footer={
         <>
-          <span style={{ marginRight: 'auto', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', maxWidth: 230, lineHeight: 1.4 }}>
+          <Text size="eyebrow" tone="faint" style={{ marginRight: 'auto', maxWidth: 230, lineHeight: 1.4 }}>
             Asked once. Skipping keeps <b>{tileActionMeta(DEFAULT_TILE_QUICK_ACTION).label}</b>.
-          </span>
+          </Text>
           <Button variant="outline" onClick={() => onConfirm(DEFAULT_TILE_QUICK_ACTION, version)}>
             Skip <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>esc</Kbd></span>
           </Button>
@@ -110,9 +110,9 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
                 <b style={{ display: 'block', color: 'var(--fg-0)', fontSize: 'var(--t-sm)', fontWeight: 'var(--fw-semibold)' }}>
                   {meta.label}
                 </b>
-                <span style={{ display: 'block', color: 'var(--fg-2)', fontSize: 'var(--t-micro)', lineHeight: 1.45, marginTop: 'var(--s-0-5)' }}>
+                <Text size="eyebrow" tone="muted" style={{ display: 'block', lineHeight: 1.45, marginTop: 'var(--s-0-5)' }}>
                   {meta.hint}
-                </span>
+                </Text>
               </span>
             </button>
           );
@@ -183,9 +183,9 @@ export function QuickActionPreview({
       >
         <AgentGlyph agent={agent} size={14} />
         <StatusDot status="running" size={7} />
-        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Text mono size="caption" truncate style={{ flex: 1, color: 'var(--fg-0)' }}>
           {name}
-        </span>
+        </Text>
         {chip}
         <span className="argus-tile-status argus-status" data-status="running">{STATUS_LABELS.running}</span>
         <span style={{ display: 'flex', alignItems: 'center', color: 'var(--fg-2)' }}>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { BROADCAST_MAX_TARGETS, type BroadcastRequest, type BroadcastResult, type SessionInfo } from '@argus/shared';
 import { Send } from 'lucide-react';
-import { Button, Checkbox, Sheet, StatusPill, TextInput, Toggle, Stack, Row } from '../../components/primitives/index.js';
+import { Button, Checkbox, Sheet, StatusPill, TextInput, Toggle, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { broadcastTargets, broadcastTextError } from './broadcastInput.js';
 
@@ -100,15 +100,15 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
             <Row gap={2} style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
               <Toggle size="sm" checked={enter} onChange={setEnter} />
               <span>Press Enter after the text</span>
-              <span style={{ flex: 1 }} />
-              {text && textError && <span style={{ color: 'var(--danger)' }}>{textError}</span>}
+              <Spacer />
+              {text && textError && <Text tone="danger">{textError}</Text>}
             </Row>
           </Stack>
 
           <div>
             <Row style={{ marginBottom: 'var(--s-2)' }}>
               <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>SHELLS · {chosen.length} OF {targets.length}</span>
-              <span style={{ flex: 1 }} />
+              <Spacer />
               {targets.length > 0 && (
                 <button
                   type="button"
@@ -120,7 +120,7 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               )}
             </Row>
             {targets.length === 0 && (
-              <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', padding: 'var(--s-3) 0' }}>No running sessions.</div>
+              <Text as="div" size="body" tone="faint" style={{ padding: 'var(--s-3) 0' }}>No running sessions.</Text>
             )}
             <Stack gap={0.5} role="group" aria-label="Target sessions">
               {targets.map((s) => (
@@ -140,9 +140,9 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               ))}
             </Stack>
             {tooMany && (
-              <div style={{ marginTop: 'var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>
+              <Text as="div" size="small" tone="danger" style={{ marginTop: 'var(--s-2)' }}>
                 At most {BROADCAST_MAX_TARGETS} sessions per broadcast.
-              </div>
+              </Text>
             )}
           </div>
         </Stack>
@@ -162,8 +162,8 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               whiteSpace: 'pre-wrap',
             }}
           >
-            {text || <span style={{ color: 'var(--fg-3)' }}>(no text)</span>}
-            {enter && <span style={{ color: 'var(--accent)' }}> ⏎ Enter</span>}
+            {text || <Text tone="faint">(no text)</Text>}
+            {enter && <Text tone="accent"> ⏎ Enter</Text>}
           </div>
           <div>
             <div className="eyebrow" style={{ color: 'var(--fg-3)', marginBottom: 'var(--s-2)' }}>
@@ -173,13 +173,13 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               {chosen.map((s) => (
                 <li key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)' }}>
                   <AgentGlyph agent={s.agentType} size={14} />
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-0)' }}>{s.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{s.folderPath}</span>
+                  <Text mono style={{ color: 'var(--fg-0)' }}>{s.name}</Text>
+                  <Text mono size="eyebrow" tone="faint">{s.folderPath}</Text>
                 </li>
               ))}
             </ul>
           </div>
-          {error && <div role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{error}</div>}
+          {error && <Text as="div" role="alert" size="body" tone="danger">{error}</Text>}
         </Stack>
       )}
     </Sheet>

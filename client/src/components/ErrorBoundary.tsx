@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
+import { Text } from './primitives/index.js';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -59,9 +60,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           fontFamily: 'var(--font-mono)',
         }}
       >
-        <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500 }}>
+        <Text size="body" weight={500}>
           {label ? `"${label}" crashed` : 'Session crashed'}
-        </span>
+        </Text>
         <span style={{
           fontSize: 'var(--t-sm)',
           opacity: 0.8,

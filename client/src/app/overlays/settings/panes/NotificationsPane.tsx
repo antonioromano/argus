@@ -1,5 +1,5 @@
 import { Bell, ExternalLink, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Toggle, Button, Row } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Toggle, Button, Row, Text } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
 import { normalizeDiscovery, resetTips } from '../../../discovery/discoveryState.js';
@@ -93,9 +93,9 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
               )}
             </Row>
           ) : (
-            <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+            <Text size="body" tone="faint">
               This surface can't show desktop notifications.
-            </span>
+            </Text>
           )}
         </SettingRow>
       </Section>

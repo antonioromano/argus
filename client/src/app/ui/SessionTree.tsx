@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import type { SessionInfo, SessionGroup, FavoriteEntryMeta } from '@argus/shared';
 import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { ChevronRight, Plus, Trash2, CircleX, Check, X, Eye, EyeOff, Star, RotateCcw, MoreHorizontal } from 'lucide-react';
-import { StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
+import { StatusDot, Tooltip, Icon, Row, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { GROUP_COLORS, resolveGroupColor } from '../../constants/groupColors.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
@@ -236,7 +236,8 @@ function FavoritesNode({
       onDragLeave={onDragLeaveGroup}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
     >
-      <div
+      <Row
+        gap={1.5}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onClick={headerClick(onChevron)}
@@ -260,10 +261,10 @@ function FavoritesNode({
 
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-1)' }}>Favourites</span>
 
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
+        <Text mono size="eyebrow" tone="faint">
           {totalCount}
-        </span>
-      </div>
+        </Text>
+      </Row>
 
       {!favorites.collapsed && favorites.items.map((item) => {
         if ('ghost' in item) {
@@ -343,7 +344,8 @@ function GroupNode({
       onDragLeave={onDragLeaveGroup}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
     >
-      <div
+      <Row
+        gap={1.5}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onClick={headerClick(onChevron)}
@@ -382,9 +384,9 @@ function GroupNode({
           </Tooltip>
         )}
 
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
-          {sessions.length}{waiting > 0 && <span style={{ color: 'var(--accent)' }}>{` ·${waiting}`}</span>}
-        </span>
+        <Text mono size="eyebrow" tone="faint">
+          {sessions.length}{waiting > 0 && <Text tone="accent">{` ·${waiting}`}</Text>}
+        </Text>
 
         {/* always-visible filter toggle */}
         <Tooltip content={active ? 'Clear filter' : 'Filter to this group'}>
@@ -403,10 +405,10 @@ function GroupNode({
           <Act title="Kill all in group" onClick={onKill}><Icon icon={CircleX} size="sm" /></Act>
           <Act title="Delete group" onClick={onDelete}><Icon icon={Trash2} size="sm" /></Act>
         </span>
-      </div>
+      </Row>
 
       {picking && (
-        <div style={swatchRowStyle}>
+        <Row align="stretch" gap={1.5} style={swatchRowStyle}>
           {GROUP_COLORS.map((c) => (
             <Tooltip key={c.key} content={c.label}>
               <button
@@ -418,7 +420,7 @@ function GroupNode({
               />
             </Tooltip>
           ))}
-        </div>
+        </Row>
       )}
 
       {!group.collapsed && sessions.map((s) => (
@@ -482,7 +484,8 @@ function OthersNode({
       onDragLeave={onDragLeaveGroup}
       onDrop={(e) => { e.preventDefault(); onDrop(); }}
     >
-      <div
+      <Row
+        gap={1.5}
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onClick={headerClick(onChevron)}
@@ -505,7 +508,7 @@ function OthersNode({
           </button>
         </Tooltip>
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-2)' }}>{name}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{sessions.length}</span>
+        <Text mono size="eyebrow" tone="faint">{sessions.length}</Text>
 
         {/* always-visible filter toggle */}
         <Tooltip content={active ? 'Clear filter' : 'Filter to Others'}>
@@ -523,10 +526,10 @@ function OthersNode({
         <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
           <Act title="Kill all in Others" onClick={onKill}><Icon icon={CircleX} size="sm" /></Act>
         </span>
-      </div>
+      </Row>
 
       {picking && (
-        <div style={swatchRowStyle}>
+        <Row align="stretch" gap={1.5} style={swatchRowStyle}>
           {GROUP_COLORS.map((c) => (
             <Tooltip key={c.key} content={c.label}>
               <button
@@ -538,7 +541,7 @@ function OthersNode({
               />
             </Tooltip>
           ))}
-        </div>
+        </Row>
       )}
 
       {!collapsed && sessions.map((s) => (
@@ -595,7 +598,8 @@ function Leaf({
   const identityEdge = resolveIdentityColor(session.color, isDark);
   return (
     <Tooltip content={session.folderPath}>
-      <div
+      <Row
+        gap={2}
         draggable={!renaming}
         role="button"
         tabIndex={0}
@@ -619,7 +623,6 @@ function Leaf({
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
         style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) var(--tree-indent)', borderRadius: 'var(--r-2)',
           cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: dimmed ? 0.55 : 1,
@@ -692,7 +695,7 @@ function Leaf({
           </button>
           </Tooltip>
         </span>
-      </div>
+      </Row>
     </Tooltip>
   );
 }
@@ -703,7 +706,8 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
   const label = ghost.meta.name || ghost.meta.folderPath.split('/').pop() || ghost.meta.folderPath;
   return (
     <Tooltip content={`${ghost.meta.folderPath} — click to respawn`}>
-      <div
+      <Row
+        gap={2}
         role="button"
         tabIndex={0}
         aria-label={`Respawn ${label}`}
@@ -714,7 +718,6 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
         style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) var(--tree-indent)', borderRadius: 'var(--r-2)',
           cursor: 'pointer', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: 0.45,
@@ -723,17 +726,15 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         {/* Placeholder dot + glyph area to match Leaf layout */}
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--fg-4)', flexShrink: 0 }} />
         <span style={{ width: 12, flexShrink: 0 }} />
-        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
-          color: 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          fontStyle: 'italic' }}>
+        <Text mono size="caption" tone="faint" truncate style={{ flex: 1, fontStyle: 'italic' }}>
           {label}
-        </span>
+        </Text>
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
           <Icon icon={RotateCcw} size="sm" style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
         {/* Matches Leaf's session-actions slot so ghost and live rows align. */}
         <span aria-hidden style={{ width: 18, flexShrink: 0 }} />
-      </div>
+      </Row>
     </Tooltip>
   );
 }
@@ -790,7 +791,7 @@ function headerClick(toggle: () => void) {
 }
 
 const headStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)', cursor: 'pointer',
+  cursor: 'pointer',
   padding: 'var(--s-1) var(--s-2) var(--s-1) var(--s-1)', borderRadius: 'var(--r-2)',
   fontSize: 'var(--t-sm)', color: 'var(--fg-1)', minHeight: 'var(--group-h)', boxSizing: 'border-box',
 };
@@ -800,7 +801,7 @@ const nameBtnStyle: React.CSSProperties = {
   textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg-1)',
 };
 const actionsStyle: React.CSSProperties = { display: 'inline-flex', gap: 'var(--s-px)', marginLeft: 'var(--s-0-5)', transition: 'opacity var(--dur-fast) var(--ease)' };
-const swatchRowStyle: React.CSSProperties = { display: 'flex', gap: 'var(--s-1-5)', padding: 'var(--s-1) var(--s-2) var(--s-1-5) var(--tree-indent)' };
+const swatchRowStyle: React.CSSProperties = { padding: 'var(--s-1) var(--s-2) var(--s-1-5) var(--tree-indent)' };
 const createBtnStyle: React.CSSProperties = {
   all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)',
   padding: 'var(--s-1-5) var(--s-2) var(--s-1-5) var(--s-1-5)', marginTop: 'var(--s-0-5)', color: 'var(--fg-3)', fontSize: 'var(--t-tiny)', borderRadius: 'var(--r-2)',

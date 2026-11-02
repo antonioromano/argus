@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Copy, GitBranch } from 'lucide-react';
 import { api } from '../../services/api.js';
-import { Toggle, Icon, Stack, Row } from '../../components/primitives/index.js';
+import { Toggle, Icon, Stack, Row, Text } from '../../components/primitives/index.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
 import {
   Sheet,
@@ -207,16 +207,16 @@ export function CloneSheet({
             <Field label="Flags">
               <Stack gap={1}>
                 {currentFlags.map((flag) => (
-                  <label key={flag.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', cursor: 'pointer' }}>
+                  <Row as="label" key={flag.id} gap={2} style={{ cursor: 'pointer' }}>
                     <Checkbox
                       checked={!!flagStates[flag.id]}
                       onChange={(v) => setFlagStates((p) => ({ ...p, [flag.id]: v }))}
                       size={14}
                     />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
+                    <Text mono size="body" style={{ color: 'var(--fg-0)' }}>
                       {flag.value}
-                    </span>
-                  </label>
+                    </Text>
+                  </Row>
                 ))}
                 {onSaveFlag && (
                   <Row align="stretch" gap={2} style={{ marginTop: 'var(--s-2)' }}>
@@ -260,16 +260,16 @@ export function CloneSheet({
                 }}
               >
                 <div>
-                  <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
+                  <Text as="div" size="body" weight={500} style={{ color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
                     Agent isolation
-                  </div>
-                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 'var(--s-0-5)' }}>
+                  </Text>
+                  <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-0-5)' }}>
                     {isGitRepo === false
                       ? 'Requires a git repository'
                       : useWorktree
                         ? 'This session works in its own branch — no conflicts with other agents'
                         : 'Prevent file conflicts when running multiple agents on the same repo'}
-                  </div>
+                  </Text>
                 </div>
                 <Toggle
                   checked={useWorktree && isGitRepo === true}
@@ -279,9 +279,9 @@ export function CloneSheet({
               </Row>
               {useWorktree && isGitRepo === true && (
                 <Stack gap={1.5} style={{ padding: 'var(--s-3)', background: 'var(--bg-2)' }}>
-                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <Text as="div" size="small" weight={600} tone="muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Branch name
-                  </div>
+                  </Text>
                   <Row gap={2}>
                     <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
@@ -297,9 +297,9 @@ export function CloneSheet({
                     borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
                   }}
                 >
-                  <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
+                  <Text size="small" tone="warn" style={{ flex: 1 }}>
                     ⚠ Not a git repository
-                  </span>
+                  </Text>
                   <button
                     type="button"
                     onClick={handleGitInit}

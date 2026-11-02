@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { File as DiffFile } from 'parse-diff';
 import { CheckCircle2, Circle, CircleX, ExternalLink, Flag, MinusCircle, Trash2 } from 'lucide-react';
 import type { AppConfig, SessionInfo, WorktreeFinishInfo, WorktreeFinishStep } from '@argus/shared';
-import { Button, Checkbox, LoadingState, Sheet, Icon, Row, Stack, Spinner } from '../../components/primitives/index.js';
+import { Button, Checkbox, LoadingState, Sheet, Icon, Row, Stack, Spinner, Text } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { SplitDiff } from './SplitDiff.js';
@@ -170,7 +170,7 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
               UNCOMMITTED · {files.length}
             </div>
             {files.length === 0 ? (
-              <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Working tree clean.</div>
+              <Text as="div" size="small" tone="faint">Working tree clean.</Text>
             ) : (
               <Row
                 align="stretch"
@@ -244,18 +244,18 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
           </section>
 
           {info.merged && !info.removable && info.removeBlockedReason && (
-            <div data-testid="finish-remove-blocked" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+            <Text as="div" data-testid="finish-remove-blocked" size="small" tone="faint">
               Can't remove the worktree yet: {info.removeBlockedReason}
-            </div>
+            </Text>
           )}
 
           {confirmRemove && (
             <div role="alertdialog" aria-label="Remove worktree" data-testid="finish-remove-confirm" style={{ padding: 'var(--s-3)', border: '1px solid color-mix(in srgb, var(--danger) 40%, transparent)', borderRadius: 'var(--r-3)', background: 'var(--danger-bg)' }}>
-              <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)', marginBottom: 'var(--s-2)' }}>
+              <Text as="div" size="body" style={{ color: 'var(--fg-0)', marginBottom: 'var(--s-2)' }}>
                 This ends the session and runs <code>git worktree remove</code> on
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', wordBreak: 'break-all' }}>{info.worktreePath}</div>
+                <Text as="div" mono size="small" tone="default" style={{ wordBreak: 'break-all' }}>{info.worktreePath}</Text>
                 The branch itself is kept.
-              </div>
+              </Text>
               {removeError && <ErrorBox title="Remove failed" text={removeError} />}
               <Row align="stretch" justify="end" gap={2}>
                 <Button variant="ghost" size="sm" onClick={() => { setConfirmRemove(false); setRemoveError(null); }} disabled={removing}>Keep it</Button>
@@ -301,8 +301,8 @@ function StepRow({ step, checked, disabled, hint, state, onChange }: {
     <Stack gap={1} data-testid={`finish-step-${step}`} data-status={state?.status ?? 'idle'}>
       <Row gap={2}>
         <Checkbox checked={checked} onChange={onChange} disabled={disabled} />
-        <span style={{ fontSize: 'var(--t-sm)', color: disabled && !checked ? 'var(--fg-3)' : 'var(--fg-0)' }}>{STEP_LABEL[step]}</span>
-        <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)', flex: 1, minWidth: 0 }}>{hint}</span>
+        <Text size="body" style={{ color: disabled && !checked ? 'var(--fg-3)' : 'var(--fg-0)' }}>{STEP_LABEL[step]}</Text>
+        <Text size="caption" tone="faint" style={{ flex: 1, minWidth: 0 }}>{hint}</Text>
         {state?.status === 'running' && <Spinner color={STATUS_COLOR.running} aria-label="running" />}
         {Glyph && <Icon icon={Glyph} size="md" color={STATUS_COLOR[state!.status]} aria-label={state!.status} />}
       </Row>
@@ -324,7 +324,7 @@ function StepRow({ step, checked, disabled, hint, state, onChange }: {
 function ErrorBox({ title, text }: { title: string; text: string }) {
   return (
     <div role="alert" style={{ padding: 'var(--s-2) var(--s-3)', background: 'var(--danger-bg)', border: '1px solid color-mix(in srgb, var(--danger) 33%, transparent)', borderRadius: 'var(--r-2)', marginBottom: 'var(--s-2)' }}>
-      <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--danger)' }}>{title}</div>
+      <Text as="div" size="small" weight={600} tone="danger">{title}</Text>
       <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 120, overflow: 'auto' }}>{text}</pre>
     </div>
   );

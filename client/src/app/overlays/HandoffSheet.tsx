@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Forward } from 'lucide-react';
 import { SHELL_AGENT_ID, type AppConfig, type HandoffPreviewResponse, type SessionInfo } from '@argus/shared';
-import { Button, Checkbox, Field, Sheet, TextInput, Row, Stack } from '../../components/primitives/index.js';
+import { Button, Checkbox, Field, Sheet, TextInput, Row, Stack, Text } from '../../components/primitives/index.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
 import { api } from '../../services/api.js';
@@ -85,13 +85,13 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
 
   const footer = (
     <Row gap={3} style={{ width: '100%' }}>
-      <span data-testid="handoff-preview" style={{ fontSize: 'var(--t-xs)', color: previewError ? 'var(--danger)' : 'var(--fg-3)', flex: 1, minWidth: 0 }}>
+      <Text data-testid="handoff-preview" size="small" style={{ color: previewError ? 'var(--danger)' : 'var(--fg-3)', flex: 1, minWidth: 0 }}>
         {previewError
           ? previewError
           : preview
             ? `Brief ≈ ${formatBytes(preview.bytes)}${isClaudeSource ? ` · ${preview.messages} message${preview.messages === 1 ? '' : 's'}` : ''}${!preview.isGitRepo ? ' · not a git repo' : ''}${preview.diffTruncated ? ' · diff truncated' : ''}`
             : 'Measuring the brief…'}
-      </span>
+      </Text>
       <Button variant="ghost" size="md" onClick={onClose} disabled={submitting}>Cancel</Button>
       <Button variant="primary" size="md" icon={Forward} onClick={() => { void submit(); }} disabled={!canSubmit} loading={submitting}>
         Hand off
@@ -102,10 +102,10 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
   return (
     <Sheet eyebrow="HAND OFF" title={session.name} width={560} onClose={submitting ? undefined : onClose} footer={footer}>
       <Stack gap={4} data-testid="handoff-sheet">
-        <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
+        <Text as="div" size="small" tone="muted">
           Starts a new session that reads a brief of this one: git status, diff stat
           {includeDiff ? ' and diff' : ''}{isClaudeSource ? ', the recent conversation' : ''} and your note. No model call, no extra tokens.
-        </div>
+        </Text>
 
         <Field label="Agent">
           <AgentTabs agents={agents} value={agentId} onChange={setAgentId} />
@@ -116,7 +116,7 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
         </Field>
 
         <Row gap={4} wrap>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)', color: isClaudeSource ? 'var(--fg-0)' : 'var(--fg-3)' }}>
+          <Row as="label" gap={2} style={{ fontSize: 'var(--t-sm)', color: isClaudeSource ? 'var(--fg-0)' : 'var(--fg-3)' }}>
             Last
             <input
               data-testid="handoff-count"
@@ -135,11 +135,11 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
               }}
             />
             messages{!isClaudeSource && ' (Claude sessions only)'}
-          </label>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)' }} data-testid="handoff-diff">
+          </Row>
+          <Row as="span" gap={2} style={{ fontSize: 'var(--t-sm)' }} data-testid="handoff-diff">
             <Checkbox checked={includeDiff} onChange={setIncludeDiff} />
             Include diff (up to 30 KB)
-          </span>
+          </Row>
         </Row>
 
         <label style={{ display: 'block' }}>
@@ -160,9 +160,9 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
         </label>
 
         {error && (
-          <div role="alert" style={{ padding: 'var(--s-2) var(--s-3)', background: 'var(--danger-bg)', borderRadius: 'var(--r-2)', fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>
+          <Text as="div" role="alert" size="small" tone="danger" style={{ padding: 'var(--s-2) var(--s-3)', background: 'var(--danger-bg)', borderRadius: 'var(--r-2)' }}>
             {error}
-          </div>
+          </Text>
         )}
       </Stack>
     </Sheet>

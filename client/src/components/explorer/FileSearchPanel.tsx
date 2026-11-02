@@ -4,7 +4,7 @@ import { Search, FileText, FileCode, FileJson, X } from 'lucide-react';
 import { isMac } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
 import { relativeTo } from '../../utils/pathFormat.js';
-import { Icon } from '../primitives/index.js';
+import { Icon, Row, Text } from '../primitives/index.js';
 
 interface FileSearchPanelProps {
   folderPath: string;
@@ -122,11 +122,9 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
       }}
     >
       {/* Header */}
-      <div
+      <Row
+        gap={1.5}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-1-5)',
           padding: 'var(--s-1-5) var(--s-3)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
@@ -178,7 +176,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         >
           <Icon icon={X} size="md" />
         </button>
-      </div>
+      </Row>
 
       {/* Results */}
       <div
@@ -197,7 +195,8 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         {results.map((r, i) => {
           const selected = i === selectedIndex;
           return (
-            <div
+            <Row
+              gap={1.5}
               key={r.path + (r.lineNumber ?? '')}
               id={`file-search-opt-${i}`}
               data-idx={i}
@@ -206,9 +205,6 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
               onClick={() => { onSelectFile(r.path, r.lineNumber); onClose(); }}
               onMouseEnter={() => setSelectedIndex(i)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--s-1-5)',
                 padding: 'var(--s-1-5) var(--s-3)',
                 cursor: 'pointer',
                 background: selected ? 'var(--bg-3)' : 'transparent',
@@ -218,30 +214,12 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
             >
               <ResultIcon ext={r.ext} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-sm)',
-                    color: 'var(--fg-0)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <Text as="div" mono size="body" truncate style={{ color: 'var(--fg-0)' }}>
                   {r.name}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-tiny)',
-                    color: 'var(--fg-3)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                </Text>
+                <Text as="div" mono size="caption" tone="faint" truncate>
                   {relPath(r.path)}{r.lineNumber ? `:${r.lineNumber}` : ''}
-                </div>
+                </Text>
               </div>
               <span
                 style={{
@@ -254,16 +232,16 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
               >
                 {r.matchType === 'filename' ? 'NAME' : 'CONTENT'}
               </span>
-            </div>
+            </Row>
           );
         })}
       </div>
 
       {/* Footer */}
-      <div
+      <Row
+        align="stretch"
+        gap={3}
         style={{
-          display: 'flex',
-          gap: 'var(--s-3)',
           padding: 'var(--s-1) var(--s-3)',
           borderTop: '1px solid var(--line-2)',
           flexShrink: 0,
@@ -275,7 +253,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         <span>↑↓ navigate</span>
         <span>↵ open</span>
         <span>Esc close</span>
-      </div>
+      </Row>
     </div>
   );
 }

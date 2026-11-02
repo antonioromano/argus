@@ -1,5 +1,5 @@
 import type { SessionStatus } from '@argus/shared';
-import { StatusPill } from '../../components/primitives/index.js';
+import { Row, StatusPill } from '../../components/primitives/index.js';
 
 /**
  * Covers a tile's terminal while a full-screen sheet or modal is open. An
@@ -11,21 +11,19 @@ import { StatusPill } from '../../components/primitives/index.js';
  */
 export function ModalPlaceholder({ status }: { status: SessionStatus }) {
   return (
-    <div
+    <Row
+      justify="center"
       data-testid="modal-placeholder"
       aria-hidden
       style={{
         position: 'absolute',
         inset: 0,
         zIndex: 3,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         background:
           'repeating-linear-gradient(135deg, var(--bg-2) 0 10px, color-mix(in srgb, var(--bg-2) 70%, var(--bg-3)) 10px 20px)',
       }}
     >
       <StatusPill status={status} />
-    </div>
+    </Row>
   );
 }

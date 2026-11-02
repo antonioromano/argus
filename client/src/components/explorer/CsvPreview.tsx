@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import Papa from 'papaparse';
-import { Icon } from '../primitives/index.js';
+import { Icon, Row } from '../primitives/index.js';
 import { useDensity } from '../../context/density-context.js';
 
 interface CsvPreviewProps {
@@ -210,7 +210,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
 
   return (
     <div style={wrapperStyle}>
-      <div style={toolbarStyle}>
+      <Row justify="between" gap={2} style={toolbarStyle}>
         <label style={checkboxLabelStyle}>
           <input
             type="checkbox"
@@ -262,7 +262,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             <Icon icon={ChevronDown} size="sm" />
           </button>
         </div>
-      </div>
+      </Row>
       {error && <div style={errorBannerStyle}>{error} · showing parsed rows</div>}
       <div ref={parentRef} className="argus-scroll argus-csv-preview" style={scrollStyle}>
         <table style={tableStyle}>
@@ -358,10 +358,6 @@ const scrollStyle: React.CSSProperties = {
 
 const toolbarStyle: React.CSSProperties = {
   flexShrink: 0,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 'var(--s-2)',
   padding: 'var(--s-1) var(--s-3)',
   background: 'var(--bg-1)',
   borderBottom: '1px solid var(--line-2)',

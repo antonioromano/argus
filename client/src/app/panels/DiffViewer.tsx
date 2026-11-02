@@ -7,6 +7,7 @@ import { isNavModifier, onDiffCodeClick, useNavModifierHeld } from '../overlays/
 import { useDiffSyntax } from '../../syntax/diffSyntax.js';
 import { useSynRanges } from '../../syntax/useSyntax.js';
 import type { SynToken } from '../../syntax/highlighter.js';
+import { Row, Text } from '../../components/primitives/index.js';
 
 export interface DiffViewerSelectionProps {
   isChecked: (filePath: string, hash: string) => boolean;
@@ -70,13 +71,14 @@ export function DiffViewer({
   return (
     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, var(--t-body))' }}>
       {editStatus && (editStatus.saving || editStatus.error) && (
-        <div
+        <Row
           className="eyebrow"
-          style={{ color: 'var(--accent)', marginBottom: 'var(--s-3)', display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}
+          gap={2}
+          style={{ color: 'var(--accent)', marginBottom: 'var(--s-3)' }}
         >
           {editStatus.saving && <span style={{ color: 'var(--dirty)' }}>SAVING…</span>}
-          {editStatus.error && <span style={{ color: 'var(--danger)' }}>· {editStatus.error}</span>}
-        </div>
+          {editStatus.error && <Text tone="danger">· {editStatus.error}</Text>}
+        </Row>
       )}
       {mode === 'split' ? (
         <SplitDiff
@@ -144,11 +146,11 @@ export function DiffViewer({
                 : null;
               const navCursor = nav?.held ? { cursor: 'pointer' as const } : null;
               return (
-                <div
+                <Row
                   key={j}
+                  align="stretch"
+                  gap={2}
                   style={{
-                    display: 'flex',
-                    gap: 'var(--s-2)',
                     padding: '0 var(--s-2)',
                     background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
                     color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-1)',
@@ -190,7 +192,7 @@ export function DiffViewer({
                       {lineText(c)}
                     </SynSpan>
                   )}
-                </div>
+                </Row>
               );
             })}
           </div>

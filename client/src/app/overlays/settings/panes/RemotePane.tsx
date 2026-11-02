@@ -13,6 +13,7 @@ import {
   Icon,
   Row,
   Stack,
+  Text,
 } from '../../../../components/primitives/index.js';
 
 interface RemotePaneProps {
@@ -114,12 +115,9 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
         <Section title="Public URL">
           <SettingRow trailing>
             <Row gap={2} style={{ width: '100%' }}>
-              <span
-                className="mono"
-                style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--accent)', wordBreak: 'break-all' }}
-              >
+              <Text className="mono" size="body" tone="accent" style={{ flex: 1, wordBreak: 'break-all' }}>
                 {publicUrl}
-              </span>
+              </Text>
               <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => copy(publicUrl)}>
                 {copied ? 'Copied' : 'Copy'}
               </Button>

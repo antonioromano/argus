@@ -26,6 +26,10 @@ import {
   StaleNotice,
   Tooltip,
   Icon,
+  Row,
+  Spacer,
+  Stack,
+  Text,
 } from '../../components/primitives/index.js';
 
 const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
@@ -305,11 +309,9 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
         position: 'relative',
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-4)',
@@ -320,11 +322,11 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
       >
         <Icon icon={GitBranch} size="md" color="var(--dirty)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · DIFF</div>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
+        <Text mono size="body" tone="default">
           {session.name}
-        </span>
+        </Text>
         {total > 0 && <Chip dot="var(--dirty)">{total} {total === 1 ? 'file' : 'files'}</Chip>}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         <div style={{ display: 'inline-flex', borderRadius: 'var(--r-2)', overflow: 'hidden', border: '1px solid var(--line-2)' }}>
           <button
             onClick={() => setViewMode('split')}
@@ -353,15 +355,13 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           Commit
         </Button>
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
-      </div>
+      </Row>
 
       {discardError && (
-        <div
+        <Row
+          gap={2}
           role="alert"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--s-2)',
             padding: 'var(--s-1-5) var(--s-4)',
             fontSize: 'var(--t-tiny)',
             color: 'var(--danger)',
@@ -370,11 +370,11 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
             flexShrink: 0,
           }}
         >
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={discardError}>
+          <Text truncate style={{ flex: 1 }} title={discardError}>
             {discardError}
-          </span>
+          </Text>
           <IconButton icon={X} label="Dismiss" size="sm" onClick={() => setDiscardError(null)} />
-        </div>
+        </Row>
       )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -392,21 +392,22 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           {error && total === 0 && <ErrorState error={failure} fallbackTitle="Couldn’t read the changes" onRetry={() => { void refresh(); }} />}
           {error && total > 0 && <StaleNotice error={failure} subject="the last diff" onRetry={() => { void refresh(); }} />}
           {!error && !!diff?.oversized?.length && (
-            <div
+            <Text
+              as="div"
+              size="caption"
+              tone="warn"
               role="note"
               title={diff.oversized.join('\n')}
               style={{
                 margin: 'var(--s-2)',
                 padding: 'var(--s-1-5) var(--s-2)',
-                fontSize: 'var(--t-tiny)',
-                color: 'var(--warn)',
                 background: 'var(--warn-bg)',
                 borderRadius: 'var(--r-2)',
               }}
             >
               {diff.oversized.length === 1 ? '1 file is' : `${diff.oversized.length} files are`} too large to preview —
               listed without content, still stageable as a whole.
-            </div>
+            </Text>
           )}
           {!isLoading && !error && total === 0 && (
             <EmptyState icon={GitCommit} title="No changes" hint="Working tree clean." />
@@ -472,26 +473,16 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                             }
                           }}
                         />
-                        <span
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--t-tiny)',
-                            color: sel ? 'var(--accent)' : 'var(--fg-1)',
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
+                        <Text mono size="caption" tone={sel ? 'accent' : 'default'} truncate style={{ flex: 1 }}>
                           {f.path}
-                        </span>
+                        </Text>
                         {f.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
                         {f.source !== 'untracked' && f.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
                         {f.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
                         {f.source !== 'untracked' && !isHovered && (
                           <>
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{f.add}</span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{f.del}</span>
+                            <Text mono size="eyebrow" tone="danger">−{f.del}</Text>
                           </>
                         )}
                         {f.source === 'unstaged' && isHovered && (
@@ -743,7 +734,8 @@ interface CommitPopoverProps {
 function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitAndPush, committing, pushing, error, fileCount, blockCount }: CommitPopoverProps) {
   const busy = committing || pushing;
   return (
-    <div
+    <Stack
+      gap={2}
       style={{
         position: 'absolute',
         top: 56,
@@ -755,9 +747,6 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-sheet)',
         padding: 'var(--s-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--s-2)',
       }}
     >
       <div className="eyebrow" style={{ color: 'var(--accent)' }}>
@@ -787,9 +776,9 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         }}
       />
       {error && (
-        <div style={{ color: 'var(--danger)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)' }}>{error}</div>
+        <Text as="div" mono size="caption" tone="danger">{error}</Text>
       )}
-      <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
+      <Row align="stretch" justify="end" gap={2}>
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>Cancel</Button>
         <Button variant="secondary" size="sm" icon={GitCommit} onClick={onSubmit} disabled={busy || !message.trim()}>
           {committing ? 'Committing…' : 'Commit'}
@@ -797,8 +786,8 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         <Button variant="primary" size="sm" icon={Upload} onClick={onSubmitAndPush} disabled={busy || !message.trim()}>
           {pushing ? 'Pushing…' : 'Commit & Push'}
         </Button>
-      </div>
-    </div>
+      </Row>
+    </Stack>
   );
 }
 

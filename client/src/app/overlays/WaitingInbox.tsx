@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { Inbox } from 'lucide-react';
-import { Checkbox, Kbd, Icon, Stack, Row } from '../../components/primitives/index.js';
+import { Checkbox, Kbd, Icon, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
 import { displayLabel } from '../../utils/sessionLabel.js';
@@ -101,11 +101,11 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
     >
       <Row gap={3} style={{ padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
         <Icon icon={Inbox} size="md" style={{ color: 'var(--accent)', flexShrink: 0 }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-md)', color: 'var(--fg-0)' }}>Waiting on you</span>
-        <span
+        <Text mono size="title" style={{ color: 'var(--fg-0)' }}>Waiting on you</Text>
+        <Text
+          mono
+          size="eyebrow"
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-micro)',
             color: items.length ? 'var(--accent)' : 'var(--fg-3)',
             background: items.length ? 'var(--accent-bg)' : 'var(--bg-3)',
             borderRadius: 'var(--r-4)',
@@ -113,8 +113,8 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
           }}
         >
           {items.length}
-        </span>
-        <span style={{ flex: 1 }} />
+        </Text>
+        <Spacer />
         {shortcutLabel && <Kbd>{shortcutLabel}</Kbd>}
       </Row>
 
@@ -164,32 +164,22 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
               </div>
               <Stack gap={1} grow>
                 <Row align="baseline" gap={3}>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--t-sm)',
-                      fontWeight: 500,
-                      color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
+                  <Text mono size="body" weight={500} truncate style={{ color: isSelected ? 'var(--accent)' : 'var(--fg-0)' }}>
                     {displayLabel(s)}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                  </Text>
+                  <Text mono size="eyebrow" tone="faint" style={{ whiteSpace: 'nowrap' }}>
                     {s.agentType} · {s.folderPath.split('/').slice(-2).join('/')}
-                  </span>
-                  <span style={{ flex: 1 }} />
+                  </Text>
+                  <Spacer />
                   {s.waitingSince !== undefined && (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--warn)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    <Text mono size="eyebrow" tone="warn" style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                       {formatWaiting(now - s.waitingSince)}
-                    </span>
+                    </Text>
                   )}
                 </Row>
-                <div style={{ fontSize: 'var(--t-xs)', lineHeight: 1.45, color: s.lastPrompt ? 'var(--fg-1)' : 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <Text as="div" size="small" truncate style={{ lineHeight: 1.45, color: s.lastPrompt ? 'var(--fg-1)' : 'var(--fg-3)' }}>
                   {s.lastPrompt ?? 'Waiting for input'}
-                </div>
+                </Text>
                 {s.promptOptions && s.promptOptions.length > 0 && (
                   <Row align="stretch" gap={1.5} wrap>
                     {s.promptOptions.map((o) => (
@@ -232,10 +222,10 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
           ] : []),
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
-          <span key={label} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)' }}>
+          <Row as="span" key={label} gap={1.5} className="eyebrow">
             <Kbd>{key}</Kbd>
             {label}
-          </span>
+          </Row>
         ))}
       </Row>
     </Stack>

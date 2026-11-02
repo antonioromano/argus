@@ -3,7 +3,7 @@ import parseDiff from 'parse-diff';
 import type { File as DiffFile } from 'parse-diff';
 import { X, GitMerge, CheckCircle2, CircleX, ChevronDown } from 'lucide-react';
 import type { WorktreeMergePreviewResponse, MergePreviewFile, SessionInfo } from '@argus/shared';
-import { LoadingState, EmptyState, Button, IconButton, Icon, Row } from '../../components/primitives/index.js';
+import { LoadingState, EmptyState, Button, IconButton, Icon, Row, Text } from '../../components/primitives/index.js';
 import { SplitDiff } from './SplitDiff.js';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
@@ -36,16 +36,16 @@ function MergeDiffViewer({ file }: { file: MergePreviewFile }) {
 
   if (!parsed || parsed.chunks.length === 0) {
     return (
-      <div style={{ padding: 'var(--s-6)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)' }}>
+      <Text as="div" mono size="small" tone="faint" style={{ padding: 'var(--s-6)' }}>
         No diff available.
-      </div>
+      </Text>
     );
   }
 
   return (
-    <div style={{ padding: 'var(--s-4)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)' }}>
+    <Text as="div" mono size="small" style={{ padding: 'var(--s-4)' }}>
       <SplitDiff target={parsed} />
-    </div>
+    </Text>
   );
 }
 
@@ -148,27 +148,28 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
 
           {/* Branch flow */}
           <Row gap={2} grow style={{ overflow: 'hidden' }}>
-            <span style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-xs)',
-              color: 'var(--fg-1)',
-              background: 'var(--bg-3)',
-              border: '1px solid var(--line-2)',
-              borderRadius: 'var(--r-2)',
-              padding: 'var(--s-0-5) var(--s-2)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: 220,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-1-5)',
-            }}>
+            <Row
+              as="span"
+              gap={1.5}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--t-xs)',
+                color: 'var(--fg-1)',
+                background: 'var(--bg-3)',
+                border: '1px solid var(--line-2)',
+                borderRadius: 'var(--r-2)',
+                padding: 'var(--s-0-5) var(--s-2)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 220,
+              }}
+            >
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--status-waiting)', flexShrink: 0, display: 'inline-block' }} />
               {sourceBranch || mergeFlow.session.name}
-            </span>
+            </Row>
 
-            <span style={{ color: 'var(--fg-3)', fontSize: 'var(--t-small)' }}>→</span>
+            <Text size="small" tone="faint">→</Text>
 
             {/* Target branch selector */}
             {availableBranches.length > 1 ? (
@@ -197,18 +198,20 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
                 <Icon icon={ChevronDown} size="xs" style={{ position: 'absolute', right: 6, pointerEvents: 'none', color: 'var(--accent)' }} />
               </Row>
             ) : (
-              <span style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-xs)',
-                color: 'var(--accent)',
-                background: 'var(--accent-bg)',
-                border: '1px solid var(--accent-edge)',
-                borderRadius: 'var(--r-2)',
-                padding: 'var(--s-0-5) var(--s-2)',
-                whiteSpace: 'nowrap',
-              }}>
+              <Text
+                mono
+                size="small"
+                tone="accent"
+                style={{
+                  background: 'var(--accent-bg)',
+                  border: '1px solid var(--accent-edge)',
+                  borderRadius: 'var(--r-2)',
+                  padding: 'var(--s-0-5) var(--s-2)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {targetBranch}
-              </span>
+              </Text>
             )}
           </Row>
 
@@ -216,18 +219,18 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
           {preview && (
             <Row align="stretch" gap={2} style={{ flexShrink: 0 }}>
               {preview.totalAdditions > 0 && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--diff-add-fg)', background: 'var(--diff-add)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)', fontWeight: 600 }}>
+                <Text mono size="small" weight={600} style={{ color: 'var(--diff-add-fg)', background: 'var(--diff-add)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)' }}>
                   +{preview.totalAdditions}
-                </span>
+                </Text>
               )}
               {preview.totalDeletions > 0 && (
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--diff-del-fg)', background: 'var(--diff-del)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)', fontWeight: 600 }}>
+                <Text mono size="small" weight={600} style={{ color: 'var(--diff-del-fg)', background: 'var(--diff-del)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)' }}>
                   −{preview.totalDeletions}
-                </span>
+                </Text>
               )}
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)', background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)' }}>
+              <Text mono size="small" tone="faint" style={{ background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: 'var(--s-0-5) var(--s-1-5)' }}>
                 {preview.files.length} {preview.files.length === 1 ? 'file' : 'files'}
-              </span>
+              </Text>
             </Row>
           )}
         </Row>
@@ -244,9 +247,9 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
             }}
           >
             <Icon icon={CheckCircle2} size="lg" color="var(--ok)" />
-            <span style={{ fontSize: 'var(--t-sm)', color: 'var(--ok)', fontWeight: 500 }}>
+            <Text size="body" weight={500} style={{ color: 'var(--ok)' }}>
               {mergeFlow.mergedBranch} merged into <strong>{mergeFlow.targetBranch}</strong>
-            </span>
+            </Text>
           </Row>
         )}
 
@@ -300,29 +303,20 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
                     onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                   >
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: fileDot(f), flexShrink: 0 }} />
-                    <span style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--t-xs)',
-                      color: isActive ? 'var(--fg-0)' : 'var(--fg-1)',
-                      flex: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      minWidth: 0,
-                    }}>
+                    <Text mono size="small" truncate style={{ color: isActive ? 'var(--fg-0)' : 'var(--fg-1)', flex: 1 }}>
                       {f.path.includes('/') ? (
                         <>
-                          <span style={{ color: 'var(--fg-3)' }}>{f.path.slice(0, f.path.lastIndexOf('/') + 1)}</span>
+                          <Text tone="faint">{f.path.slice(0, f.path.lastIndexOf('/') + 1)}</Text>
                           {f.path.slice(f.path.lastIndexOf('/') + 1)}
                         </>
                       ) : f.path}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-eyebrow)', color: 'var(--diff-add-fg)', fontWeight: 600, flexShrink: 0 }}>
+                    </Text>
+                    <Text mono size="eyebrow" weight={600} style={{ color: 'var(--diff-add-fg)', flexShrink: 0 }}>
                       {f.additions > 0 ? `+${f.additions}` : ''}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-eyebrow)', color: 'var(--diff-del-fg)', fontWeight: 600, flexShrink: 0 }}>
+                    </Text>
+                    <Text mono size="eyebrow" weight={600} style={{ color: 'var(--diff-del-fg)', flexShrink: 0 }}>
                       {f.deletions > 0 ? `−${f.deletions}` : ''}
-                    </span>
+                    </Text>
                   </button>
                 );
               })}
@@ -349,7 +343,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
           }}>
             <Row gap={2} style={{ marginBottom: 'var(--s-2)' }}>
               <Icon icon={CircleX} size="md" color="var(--danger)" />
-              <span style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--danger)' }}>Merge failed</span>
+              <Text size="small" weight={600} tone="danger">Merge failed</Text>
             </Row>
             <pre style={{
               fontFamily: 'var(--font-mono)',

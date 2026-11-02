@@ -26,7 +26,7 @@ import { resolveGroupColor } from '../constants/groupColors.js';
 import { WifiOff, Plus } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { focusPendingLaunch, hasPendingLaunch } from './ui/launchFocus.js';
-import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon, Spinner } from '../components/primitives/index.js';
+import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon, Spinner, Row } from '../components/primitives/index.js';
 import { registerErrorActionHost } from '../errors/errorActions.js';
 import { toastError } from '../errors/toastError.js';
 import { deferUndoable, offerUndo } from '../utils/undoable.js';
@@ -190,17 +190,9 @@ function DesktopRoot() {
 
   if (!authChecked) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          background: 'var(--bg-0)',
-        }}
-      >
+      <Row justify="center" style={{ height: '100vh', background: 'var(--bg-0)' }}>
         <Spinner size={24} color="var(--fg-3)" />
-      </div>
+      </Row>
     );
   }
 
@@ -1215,14 +1207,12 @@ function DesktopInner() {
     >
       <a href="#main" className="skip-link">Skip to main content</a>
       {!socketConnected && (
-        <div
+        <Row
+          justify="center"
+          gap={2}
           role="alert"
           className="eyebrow"
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 'var(--s-2)',
             padding: 'var(--s-1-5) var(--s-4)',
             // Opaque base: the shell behind it is transparent while translucent.
             background: 'linear-gradient(var(--warn-bg), var(--warn-bg)) var(--bg-1)',
@@ -1234,7 +1224,7 @@ function DesktopInner() {
         >
           <Icon icon={WifiOff} size="md" />
           CONNECTION LOST — RECONNECTING…
-        </div>
+        </Row>
       )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>

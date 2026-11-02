@@ -11,6 +11,7 @@ import {
   Icon,
   Stack,
   Row,
+  Text,
 } from '../../../../components/primitives/index.js';
 import { offerUndo } from '../../../../utils/undoable.js';
 import { toastError } from '../../../../errors/toastError.js';
@@ -137,7 +138,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                     }}
                   >
                     <AgentGlyph agent={a.id} size={28} />
-                    <span style={{ fontSize: 'var(--t-xs)', color: sel ? 'var(--accent)' : 'var(--fg-1)' }}>{a.id}</span>
+                    <Text size="small" style={{ color: sel ? 'var(--accent)' : 'var(--fg-1)' }}>{a.id}</Text>
                   </button>
                 );
               })}
@@ -162,9 +163,9 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                 borderBottom: '1px solid var(--accent-edge)',
               }}
             >
-              <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
+              <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
                 {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
-              </div>
+              </Text>
               <Field label="Name" required>
                 <TextInput value={editingAgent.name} onChange={(v) => setEditingAgent((s) => s && { ...s, name: v })} placeholder="e.g. Aider" />
               </Field>
@@ -175,7 +176,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                 <TextInput value={editingAgent.installUrl} onChange={(v) => setEditingAgent((s) => s && { ...s, installUrl: v })} placeholder="https://…" mono />
               </Field>
               {agentFormError && (
-                <div style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{agentFormError}</div>
+                <Text as="div" size="small" tone="danger">{agentFormError}</Text>
               )}
               <Row align="stretch" justify="end" gap={2}>
                 <Button variant="ghost" size="sm" onClick={() => setEditingAgent(null)}>Cancel</Button>
@@ -202,10 +203,10 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                 >
                   <AgentGlyph agent={a.id} size={28} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>{a.name}</div>
-                    <div className="mono" style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+                    <Text as="div" size="body" style={{ color: 'var(--fg-0)' }}>{a.name}</Text>
+                    <Text as="div" className="mono" size="caption" tone="faint">
                       $ {a.command} {a.builtin ? '' : '· custom'}
-                    </div>
+                    </Text>
                   </div>
                   <Chip>{agentFlags.length} flags</Chip>
                   {!a.builtin && (
@@ -227,16 +228,16 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                     borderTop: '1px solid var(--line-1)',
                   }}>
                     {agentFlags.length === 0 ? (
-                      <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', marginBottom: 'var(--s-3)' }}>
+                      <Text as="div" size="body" tone="faint" style={{ marginBottom: 'var(--s-3)' }}>
                         No flags yet
-                      </div>
+                      </Text>
                     ) : (
                       <Stack gap={1} style={{ marginBottom: 'var(--s-3)' }}>
                         {agentFlags.map((f) => (
                           <Row gap={2} key={f.id}>
-                            <span className="mono" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
+                            <Text className="mono" size="body" tone="default" style={{ flex: 1 }}>
                               {f.value}
-                            </span>
+                            </Text>
                             <IconButton
                               icon={Trash2}
                               label="Delete flag"
@@ -258,9 +259,9 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                           error={!!flagError}
                         />
                         {flagError && (
-                          <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>
+                          <Text as="div" size="caption" tone="danger" style={{ marginTop: 'var(--s-1)' }}>
                             {flagError}
-                          </div>
+                          </Text>
                         )}
                       </div>
                       <Button

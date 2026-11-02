@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ListChecks, Search } from 'lucide-react';
 import { GROUP_ORDER, type PaneDef, type PaneId } from './registry.js';
 import { visiblePanes, type SettingHit } from './search.js';
-import { Icon } from '../../../components/primitives/index.js';
+import { Icon, Text } from '../../../components/primitives/index.js';
 
 /** Hits listed under one pane; the rest are a refinement of the query away. */
 const MAX_HITS_PER_PANE = 4;
@@ -112,15 +112,15 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, 
           >
             <Icon icon={ListChecks} size="md" style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>Modified</span>
-            <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
+            <Text size="small" tone="faint" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {modifiedCount}
-            </span>
+            </Text>
           </button>
         )}
         {visible.length === 0 && (
-          <div style={{ padding: 'var(--s-3) var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+          <Text as="div" size="small" tone="faint" style={{ padding: 'var(--s-3) var(--s-2)' }}>
             Nothing matches “{query.trim()}”.
-          </div>
+          </Text>
         )}
         {GROUP_ORDER.map((group) => {
           const panes = byGroup(group);

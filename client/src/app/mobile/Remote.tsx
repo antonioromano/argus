@@ -3,7 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { ChevronLeft, Wifi, WifiOff, AlertTriangle, Copy, Check } from 'lucide-react';
 import { useNgrok } from '../../hooks/useNgrok.js';
 import { useSocket } from '../../hooks/useSocket.js';
-import { Button, StatusDot, TextInput, Field, Icon } from '../../components/primitives/index.js';
+import { Button, StatusDot, TextInput, Field, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 interface RemoteProps {
   onBack: () => void;
@@ -27,18 +27,16 @@ export function Remote({ onBack }: RemoteProps) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
-      <div
+    <Stack style={{ height: '100%', background: 'var(--bg-0)' }}>
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
           padding: '0 var(--s-3)',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           minHeight: 52,
           background: 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
-          gap: 'var(--s-2)',
         }}
       >
         <button
@@ -65,7 +63,7 @@ export function Remote({ onBack }: RemoteProps) {
           REMOTE ACCESS
         </div>
         <div style={{ width: 64 }} />
-      </div>
+      </Row>
 
       <div
         style={{
@@ -84,7 +82,7 @@ export function Remote({ onBack }: RemoteProps) {
             border: '1px solid var(--line-2)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+          <Row gap={2}>
             {connected ? (
               <>
                 <StatusDot status="running" size={8} />
@@ -97,28 +95,18 @@ export function Remote({ onBack }: RemoteProps) {
                 <span className="eyebrow">NO TUNNEL</span>
               </>
             )}
-          </div>
+          </Row>
           {mobileUrl && (
-            <div
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-tiny)',
-                color: 'var(--fg-2)',
-                wordBreak: 'break-all',
-                marginTop: 'var(--s-2)',
-              }}
-            >
+            <Text as="div" mono size="caption" tone="muted" style={{ wordBreak: 'break-all', marginTop: 'var(--s-2)' }}>
               {mobileUrl}
-            </div>
+            </Text>
           )}
         </div>
 
         {error && (
-          <div
+          <Row
+            gap={1.5}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-1-5)',
               background: 'var(--danger-bg)',
               border: '1px solid color-mix(in srgb, var(--danger) 33%, transparent)',
               borderRadius: 'var(--r-2)',
@@ -131,16 +119,16 @@ export function Remote({ onBack }: RemoteProps) {
           >
             <Icon icon={AlertTriangle} size="sm" />
             {error}
-          </div>
+          </Row>
         )}
 
         {connected && mobileUrl && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 'var(--s-4)' }}>
+            <Row align="stretch" justify="center" style={{ marginBottom: 'var(--s-4)' }}>
               <div style={{ background: '#fff', padding: 'var(--s-4)', borderRadius: 'var(--r-3)', boxShadow: 'var(--shadow-pop)' }}>
                 <QRCodeSVG value={mobileUrl} size={160} bgColor="#fff" fgColor="#000" />
               </div>
-            </div>
+            </Row>
             <Button variant={copied ? 'primary' : 'outline'} full icon={copied ? Check : Copy} onClick={copyLink}>
               {copied ? 'Copied' : 'Copy Link'}
             </Button>
@@ -206,6 +194,6 @@ export function Remote({ onBack }: RemoteProps) {
           </div>
         )}
       </div>
-    </div>
+    </Stack>
   );
 }

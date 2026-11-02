@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
-import { Kbd, StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
+import { Kbd, StatusDot, Tooltip, Icon, Spacer } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { SIDEBAR_COLLAPSE_KEY as COLLAPSE_KEY, readSidebarCollapsed } from './sidebarState.js';
 import { useDensity } from '../../context/density-context.js';
@@ -330,7 +330,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       {checklist}
       {inspector && !collapsed
         ? <div className="argus-sidebar-inspector">{inspector}</div>
-        : <div style={{ flex: 1 }} />}
+        : <Spacer />}
 
       <div className="eyebrow" style={{ padding: '0 var(--s-2)', margin: 'var(--s-4) 0 var(--s-2)' }}>System</div>
       {tools.map((it) => (

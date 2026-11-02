@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Badge, Section, Toggle, Row } from '../../../../components/primitives/index.js';
+import { Badge, Section, Toggle, Row, Text } from '../../../../components/primitives/index.js';
 import { BETA_FEATURES, isBetaEnabled } from '../../../../utils/betaFlags.js';
 import type { PaneProps } from '../types.js';
 import { ChainsSection } from './ChainsSection.js';
@@ -47,7 +47,7 @@ export function BetaPane({ config, onSave }: PaneProps) {
                   color: 'var(--fg-1)',
                 }}
               >
-                <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', fontWeight: 600, letterSpacing: '.06em', color: 'var(--fg-3)' }}>HOW</span>
+                <Text mono size="eyebrow" weight={600} tone="faint" style={{ flexShrink: 0, letterSpacing: '.06em' }}>HOW</Text>
                 <span>{f.how}</span>
               </Row>
               {f.caveats.length > 0 && (

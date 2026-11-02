@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../services/api.js';
-import { LoadingState, ErrorState } from '../primitives/index.js';
+import { LoadingState, ErrorState, Stack, Text } from '../primitives/index.js';
 
 interface ImagePreviewProps {
   filePath: string;
@@ -43,18 +43,16 @@ export function ImagePreview({ filePath }: ImagePreviewProps) {
   if (!url) return <LoadingState label="Loading image" />;
 
   return (
-    <div
+    <Stack
+      align="center"
+      justify="center"
+      gap={3}
       className="argus-scroll"
       style={{
         flex: 1,
         minWidth: 0,
         minHeight: 0,
         overflow: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 'var(--s-3)',
         padding: 'var(--s-5)',
         background: 'var(--bg-0)',
       }}
@@ -76,10 +74,10 @@ export function ImagePreview({ filePath }: ImagePreviewProps) {
         }}
       />
       {size && (
-        <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
+        <Text as="div" mono size="small" tone="faint">
           {size.w} × {size.h}
-        </div>
+        </Text>
       )}
-    </div>
+    </Stack>
   );
 }

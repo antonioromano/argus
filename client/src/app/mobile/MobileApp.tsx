@@ -8,7 +8,7 @@ import { useNotificationPref, useDoneNotificationPref } from '../../hooks/useNot
 import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
 import { api, setToken } from '../../services/api.js';
 import { reconnectSocket } from '../../hooks/useSocket.js';
-import { AlertSheet } from '../../components/primitives/index.js';
+import { AlertSheet, Stack } from '../../components/primitives/index.js';
 import { PasswordGate } from '../PasswordGate.js';
 import { Sessions } from './Sessions.js';
 import { Focus } from './Focus.js';
@@ -183,7 +183,7 @@ function Inner() {
           onActions={() => setActionTarget(focused)}
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh' }}>
+        <Stack style={{ height: '100dvh' }}>
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {tab === 'sessions' && (
               <Sessions
@@ -205,7 +205,7 @@ function Inner() {
             doneCount={sessions.filter((s) => s.status === 'done').length}
             waitingCount={sessions.filter((s) => s.status === 'waiting').length}
           />
-        </div>
+        </Stack>
       )}
 
       <ActionSheet

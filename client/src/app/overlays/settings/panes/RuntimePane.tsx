@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { AlertSheet, Section, Segmented, Icon, Toggle, Row, Stack } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Segmented, Icon, Toggle, Row, Stack, Text } from '../../../../components/primitives/index.js';
 import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import type { PaneProps } from '../types.js';
@@ -76,9 +76,9 @@ export function RuntimePane({ config, onSave }: PaneProps) {
                 onSave({ defaultRunMode: next.runMode, defaultTerminalEngine: next.terminalEngine });
               }}
             />
-            <p style={{ margin: 0, fontSize: 'var(--t-xs)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
+            <Text as="p" size="small" tone="faint" style={{ lineHeight: 1.5 }}>
               {settingHint(SETTINGS_BY_ID.defaultTerminal)}
-            </p>
+            </Text>
           </Stack>
         </SettingAnchor>
       </Section>

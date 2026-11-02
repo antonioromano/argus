@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Eye, EyeOff, Lock, AlertTriangle } from 'lucide-react';
 import { api, setToken } from '../services/api.js';
 import { reconnectSocket } from '../hooks/useSocket.js';
-import { Button, Field, TextInput, Icon } from '../components/primitives/index.js';
+import { Button, Field, TextInput, Icon, Row } from '../components/primitives/index.js';
 import { useOverlaySuppression } from '../hooks/useOverlaySuppression.js';
 
 interface PasswordGateProps {
@@ -138,11 +138,9 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
         </div>
 
         {error && (
-          <div
+          <Row
+            gap={1.5}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-1-5)',
               background: 'var(--danger-bg)',
               border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
               borderRadius: 'var(--r-2)',
@@ -155,7 +153,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
           >
             <Icon icon={AlertTriangle} size="sm" />
             {error}
-          </div>
+          </Row>
         )}
 
         <Button type="submit" variant="primary" size="lg" full disabled={loading || !password} loading={loading}>

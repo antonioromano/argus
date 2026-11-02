@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { SessionRenameInput } from './SessionRenameInput.js';
+import { Spacer } from '../../components/primitives/index.js';
 
 interface WindowChromeProps {
   title?: string;
@@ -92,7 +93,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
             {leading}
           </div>
         )}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         {toolbar && (
           <div
             className="argus-titlebar-slot"
