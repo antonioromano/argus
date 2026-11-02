@@ -151,6 +151,8 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
+  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15). */
+  initialPrompt?: { text: string; clipped?: boolean };
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -252,6 +254,18 @@ const CHAT_ENTER_RETRIES = 2;
 const CLEAR_INPUT_KEY = '\x03';
 /** Longest Chat view message accepted (characters). */
 const MAX_CHAT_INPUT = 100_000;
+/** How much of a launch prompt SessionInfo carries for Chat's first echo (F15). */
+export const INITIAL_PROMPT_MAX = 2000;
+
+/** The launch prompt as SessionInfo carries it: clipped, so a huge prompt never rides every session list. */
+export function clipInitialPrompt(text: string): { text: string; clipped?: boolean } | undefined {
+  if (!text.trim()) return undefined;
+  if (text.length <= INITIAL_PROMPT_MAX) return { text };
+  // Never cut a surrogate pair in half (an emoji at the cut).
+  const hi = text.charCodeAt(INITIAL_PROMPT_MAX - 1);
+  const end = hi >= 0xd800 && hi <= 0xdbff ? INITIAL_PROMPT_MAX - 1 : INITIAL_PROMPT_MAX;
+  return { text: text.slice(0, end), clipped: true };
+}
 
 /** A pty write through the socket input queue; `pauseAfter` holds later writes back (ms). */
 export type ChatWrite = (data: string, pauseAfter?: number) => void;
@@ -1367,6 +1381,8 @@ export class SessionManager {
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       launcherId: opts.launcherId,
+      // Chat (Claude only) shows it at once; the agent got it on its command line.
+      initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1518,6 +1534,8 @@ export class SessionManager {
     // Reset state
     session.rawTail?.clear();
     this.setSuggestion(id, session, undefined);
+    // A restart never replays the launch prompt (see createSession).
+    session.initialPrompt = undefined;
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -3040,6 +3058,7 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      initialPrompt: session.initialPrompt,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),

@@ -386,6 +386,13 @@ export interface SessionInfo {
   /** Beta F8: days since the worktree branch's last commit, set only once it
    *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
   worktreeStaleDays?: number;
+  /**
+   * Claude only, fresh sessions: the prompt the agent was started with (a
+   * launch, template or handoff), so Chat can show it before the transcript
+   * records it (F15). In memory only, never persisted; `clipped` when longer
+   * than the server's cap (the text is then a prefix of the prompt).
+   */
+  initialPrompt?: { text: string; clipped?: boolean };
 }
 
 // ── Beta F8: worktree lifecycle ────────────────────────────────────────────

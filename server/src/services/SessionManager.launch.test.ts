@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
-import { SessionManager } from './SessionManager.js';
+import { INITIAL_PROMPT_MAX, SessionManager } from './SessionManager.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -78,6 +78,23 @@ test('restart does not replay the prompt', async () => {
   await sm.restartSession(s.id);
   assert.equal(spawns.length, 2);
   assert.ok(!spawns[1].flags.includes('hello'));
+  // Nor does Chat show it again (F15).
+  assert.equal(sm.getSessionInfo(s.id)?.initialPrompt, undefined);
+});
+
+test('SessionInfo carries the launch prompt for Chat, clipped (F15)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'fix the bug' });
+  assert.deepEqual(s.initialPrompt, { text: 'fix the bug' });
+  assert.deepEqual(sm.getSessionInfo(s.id)?.initialPrompt, { text: 'fix the bug' });
+  const long = 'x'.repeat(INITIAL_PROMPT_MAX + 50);
+  const big = await create(sm, [], { initialPrompt: long });
+  assert.deepEqual(big.initialPrompt, { text: long.slice(0, INITIAL_PROMPT_MAX), clipped: true });
+  // An emoji across the cut is dropped whole, never split into a lone surrogate.
+  const emoji = await create(sm, [], { initialPrompt: 'x'.repeat(INITIAL_PROMPT_MAX - 1) + '😀 tail' });
+  assert.equal(emoji.initialPrompt?.text, 'x'.repeat(INITIAL_PROMPT_MAX - 1));
+  const none = await create(sm, [], {});
+  assert.equal(none.initialPrompt, undefined);
 });
 
 test('restore does not replay the prompt and keeps launcherId', async () => {
@@ -87,6 +104,7 @@ test('restore does not replay the prompt and keeps launcherId', async () => {
   await sm.restoreSessions();
   const last = spawns.at(-1);
   assert.ok(!last.flags.includes('hello'));
+  assert.equal(sm.getSessionInfo(s.id)?.initialPrompt, undefined);
   assert.equal(sm.findLiveByLauncher('l1')?.id, s.id);
 });
 

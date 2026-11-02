@@ -42,3 +42,15 @@ export function openPending(pending: Pending[], userCount: number, queueSeq: num
   const open = pending.filter((p) => p.at > userCount && (p.queueAt === undefined || queueSeq < p.queueAt));
   return open.length === pending.length ? pending : open;
 }
+
+/**
+ * The prompt a new session was started with (F15), shown until the transcript
+ * records its first prompt: Claude Code writes its first entry only once it
+ * has started. Nothing once a prompt is recorded (the conversation moved past
+ * it).
+ */
+export function launchPending(id: string, prompt: { text: string; clipped?: boolean }, userCount: number): Pending | null {
+  if (userCount > 0 || !prompt.text.trim()) return null;
+  const text = prompt.clipped ? `${prompt.text.trimEnd()}…` : prompt.text;
+  return { id, blocks: [{ kind: 'text', text }], at: 1 };
+}

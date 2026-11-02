@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
+import { launchPending, newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
 
 const text = (t: string) => [{ kind: 'text' as const, text: t }];
 const queue = (seq: number, n = 0) => ({ items: Array.from({ length: n }, (_, i) => ({ id: `queued-${seq - n + i + 1}`, blocks: text('q') })), seq });
@@ -61,5 +61,25 @@ describe('openPending', () => {
     expect(openPending(pending, 1, 0)).toBe(pending);
     const none: Pending[] = [];
     expect(openPending(none, 9, 9)).toBe(none);
+  });
+});
+
+describe('launchPending (F15)', () => {
+  it('is the launch prompt, shown until the first user message is recorded', () => {
+    const lp = launchPending('l1', { text: 'fix the bug' }, 0)!;
+    expect(lp).toEqual({ id: 'l1', blocks: text('fix the bug'), at: 1 });
+    expect(openPending([lp], 0, 0)).toEqual([lp]);
+    expect(openPending([lp], 1, 0)).toEqual([]);
+  });
+  it('is nothing once a prompt is recorded, or for an empty prompt', () => {
+    expect(launchPending('l1', { text: 'hi' }, 1)).toBeNull();
+    expect(launchPending('l1', { text: '  ' }, 0)).toBeNull();
+  });
+  it('a clipped prompt says so', () => {
+    expect(launchPending('l1', { text: 'a long prompt ', clipped: true }, 0)!.blocks).toEqual(text('a long prompt…'));
+  });
+  it('a prompt sent from the composer next is recorded after it', () => {
+    const lp = launchPending('l1', { text: 'first' }, 0)!;
+    expect(newPending('p1', text('second'), [lp], 0, 0, undefined, false).at).toBe(2);
   });
 });

@@ -719,6 +719,92 @@ describe('ChatView', () => {
     });
   });
 
+  describe('first prompt of a new session (F15)', () => {
+    const typeAndSend = (text: string) => {
+      const box = container.querySelector('textarea')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    };
+    const users = () => Array.from(container.querySelectorAll('.argus-chat-msg.is-user'));
+    const pendingCount = () => container.querySelectorAll('.argus-chat-msg.is-pending').length;
+    const starting = () => container.querySelector('[data-testid="chat-starting"]');
+
+    it('a prompt sent before the transcript exists shows at once, with "Starting Claude…" and the terminal at hand', () => {
+      vi.useFakeTimers();
+      const { socket, fire } = fakeSocket();
+      const { onShowTerminal } = render(session(), socket);
+      fire('session:chat', update({ available: false }));
+      typeAndSend('hello there');
+      expect(container.textContent).not.toContain('Chat not available yet');
+      expect(users().map((m) => m.textContent)).toEqual(['Youhello there']);
+      expect(pendingCount()).toBe(1);
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      act(() => (starting()!.querySelector('button') as HTMLButtonElement).click());
+      expect(onShowTerminal).toHaveBeenCalledTimes(1);
+      // Idle while it starts is no dropped prompt: Claude records it once it has started.
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(container.textContent).not.toContain('it is not in the conversation');
+
+      fire('session:chat', update({ messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'hello there' }] }] }));
+      expect(users()).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+      expect(starting()).toBeNull();
+    });
+
+    it('the prompt a session was launched with shows at once and is replaced exactly once', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'launch-1', status: 'running', initialPrompt: { text: 'fix  the bug' } });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-1', available: false }));
+      expect(users()).toHaveLength(1);
+      expect(users()[0].textContent).toContain('fix');
+      expect(pendingCount()).toBe(1);
+      expect(starting()).not.toBeNull();
+
+      const recorded = [{ id: 'u1', role: 'user' as const, blocks: [{ kind: 'text' as const, text: 'fix the bug' }] }];
+      fire('session:chat', update({ sessionId: 'launch-1', messages: recorded }));
+      expect(users()).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+
+      // A later Chat view of the same session never shows it again, not even on an empty transcript (/clear).
+      act(() => root.unmount());
+      act(() => { root = createRoot(container); });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'launch-1', messages: [] }));
+      expect(pendingCount()).toBe(0);
+      expect(container.textContent).not.toContain('fix');
+    });
+
+    it('a launch prompt the transcript already has is not shown twice', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ id: 'launch-2', initialPrompt: { text: 'do it' } }), socket);
+      fire('session:chat', update({ sessionId: 'launch-2', messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'do it' }] }] }));
+      expect(users()).toHaveLength(1);
+      expect(pendingCount()).toBe(0);
+    });
+
+    it('a slash-command launch prompt is not echoed by the client', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ id: 'launch-4', initialPrompt: { text: '/review 42' } }), socket);
+      fire('session:chat', update({ sessionId: 'launch-4', available: false }));
+      expect(pendingCount()).toBe(0);
+    });
+
+    it('a session that ends before Claude records the prompt marks it instead of leaving it pending', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ id: 'launch-3', status: 'running', initialPrompt: { text: 'never recorded' } }), socket);
+      fire('session:chat', update({ sessionId: 'launch-3', available: false }));
+      render(session({ id: 'launch-3', status: 'exited', initialPrompt: { text: 'never recorded' } }), socket);
+      expect(starting()?.textContent).toContain('The session ended');
+      const last = users().at(-1)!;
+      expect(last.textContent).toContain('never recorded');
+      expect(last.textContent).toContain('The session ended before Claude recorded it');
+    });
+  });
+
   describe('terminal sheet for interactive commands (F6)', () => {
     const type = (text: string) => {
       const box = container.querySelector('textarea')!;
