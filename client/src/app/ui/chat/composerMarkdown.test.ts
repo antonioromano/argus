@@ -158,13 +158,16 @@ describe('highlight lines', () => {
     expect(inlineSpans('__init__')[1]).toEqual({ text: 'init', bold: true });
   });
 
-  it('groups fenced code with its language, also while unclosed', () => {
+  it('groups fenced code with its language; an unclosed fence stays text', () => {
     expect(composerLines('```py\nx\ny\n```')).toEqual([
       { kind: 'fence', text: '```py' },
       { kind: 'code', lang: 'py', lines: ['x', 'y'] },
       { kind: 'fence', text: '```' },
     ]);
-    expect(composerLines('```\nx')).toEqual([{ kind: 'fence', text: '```' }, { kind: 'code', lang: null, lines: ['x'] }]);
+    expect(composerLines('```\nx').map((l) => l.kind)).toEqual(['text', 'text']);
+    expect(composerLines('```ts').map((l) => l.kind)).toEqual(['text']);
+    expect(composerLines('```\n\n```').map((l) => l.kind)).toEqual(['fence', 'code', 'fence']);
+    expect(composerLines('```\n- a\n```\n- b').map((l) => l.kind)).toEqual(['fence', 'code', 'fence', 'text']);
     expect(inCodeFence('```\nx\n```\ny', 12)).toBe(false);
     // Inline code at the start of a line is not a fence (CommonMark).
     expect(inCodeFence('```bash``` is the syntax', 24)).toBe(false);

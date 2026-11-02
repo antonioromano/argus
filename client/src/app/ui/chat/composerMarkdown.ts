@@ -367,25 +367,26 @@ export function inlineSpans(text: string, style: Pick<Span, 'bold' | 'italic'> =
   return out;
 }
 
-/** The composer text as highlight lines; joining every line's text with `\n` gives the input back. */
+/**
+ * The composer text as highlight lines; joining every line's text with `\n`
+ * gives the input back. Only a closed fence is a code block: an opening fence
+ * on its own (just typed, before the new line that closes it) stays text.
+ */
 export function composerLines(value: string): Line[] {
   const out: Line[] = [];
-  let fence: { open: string; lang: string | null; lines: string[] } | null = null;
-  for (const line of value.split('\n')) {
+  const lines = value.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const f = FENCE_RE.exec(line);
-    if (fence) {
-      if (closesFence(line, fence.open)) {
-        out.push({ kind: 'code', lang: fence.lang, lines: fence.lines }, { kind: 'fence', text: line });
-        fence = null;
-      } else {
-        fence.lines.push(line);
-      }
-      continue;
-    }
     if (f) {
-      fence = { open: f[1], lang: line.slice(f[0].length).trim().split(/\s/)[0] || null, lines: [] };
-      out.push({ kind: 'fence', text: line });
-      continue;
+      let j = i + 1;
+      while (j < lines.length && !closesFence(lines[j], f[1])) j++;
+      if (j < lines.length) {
+        const lang = line.slice(f[0].length).trim().split(/\s/)[0] || null;
+        out.push({ kind: 'fence', text: line }, { kind: 'code', lang, lines: lines.slice(i + 1, j) }, { kind: 'fence', text: lines[j] });
+        i = j;
+        continue;
+      }
     }
     const heading = /^ {0,3}#{1,6} /.exec(line);
     if (heading) {
@@ -408,7 +409,5 @@ export function composerLines(value: string): Line[] {
     }
     out.push({ kind: 'text', spans: inlineSpans(line) });
   }
-  // An unclosed fence still shows its code.
-  if (fence) out.push({ kind: 'code', lang: fence.lang, lines: fence.lines });
   return out;
 }

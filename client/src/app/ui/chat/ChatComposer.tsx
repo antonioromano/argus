@@ -138,6 +138,8 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   const layerRef = useRef<HTMLDivElement>(null);
   // Enter adds an item / line here instead of sending (drives the hint).
   const [continues, setContinues] = useState(false);
+  // The line the caret is on: a code box shows its hidden fence there.
+  const [caretLine, setCaretLine] = useState(-1);
   const fileRef = useRef<HTMLInputElement>(null);
   const exited = status === 'exited';
   // Shift+Tab and slash commands only make sense at Claude's prompt.
@@ -181,6 +183,9 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   const trackCaret = () => {
     const box = ref.current;
     if (!box) return;
+    let line = 0;
+    for (let i = box.value.indexOf('\n'); i >= 0 && i < box.selectionStart; i = box.value.indexOf('\n', i + 1)) line++;
+    setCaretLine(line);
     // Always set: two calls in one event would compare against a stale `continues`.
     setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
   };
@@ -344,7 +349,7 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           </div>
         )}
         <div className="argus-cmp-field">
-        <ComposerHighlight ref={layerRef} text={text} />
+        <ComposerHighlight ref={layerRef} text={text} caretLine={caretLine} />
         <textarea
           ref={ref}
           className="argus-cmp-input"
@@ -368,6 +373,8 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           }}
           onScroll={syncLayer}
           onSelect={trackCaret}
+          onFocus={trackCaret}
+          onBlur={() => setCaretLine(-1)}
           onPaste={(e) => {
             // A screenshot on the clipboard is only bytes: upload it to get a path.
             const images = Array.from(e.clipboardData.files).filter(isImageFile);

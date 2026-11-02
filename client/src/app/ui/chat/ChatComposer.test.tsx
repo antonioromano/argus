@@ -438,6 +438,31 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(box().value).toBe('```ts');
   });
 
+  it('a typed ``` stays plain text until the new line opens the box, whose fences are hidden', () => {
+    render();
+    type('code block\n```');
+    expect(container.querySelector('[data-testid="composer-codebox"]')).toBeNull();
+    expect(layerText()).toBe('code block\n```');
+    key('Enter', { shiftKey: true });
+    const codebox = container.querySelector('[data-testid="composer-codebox"]')!;
+    expect(codebox).not.toBeNull();
+    // The caret is on the code row: both fences are drawn invisible.
+    expect(codebox.querySelectorAll('.is-fence-mark')).toHaveLength(2);
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+    // On a fence row, that fence shows.
+    act(() => {
+      box().blur();
+      box().setSelectionRange(14, 14);
+      box().focus();
+    });
+    const rows = codebox.querySelectorAll('.argus-cmp-line.is-fence');
+    expect(rows[0].classList.contains('is-active')).toBe(true);
+    expect(rows[1].classList.contains('is-active')).toBe(false);
+    // Out of the composer, both hide again.
+    act(() => { box().blur(); });
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+  });
+
   it('Shift+Enter after an opening fence opens the code box, caret inside', () => {
     const onSubmit = render();
     type('```ts');
