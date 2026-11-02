@@ -9,14 +9,13 @@ import {
   FileJson,
   Folder,
   FolderOpen,
-  Loader2,
   Table,
-  TriangleAlert,
+  AlertTriangle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatusCode } from '@argus/shared';
 import type { VisibleNode, TreeEdit } from '../../hooks/useFileTree.js';
-import { Tooltip, Icon } from '../primitives/index.js';
+import { Tooltip, Icon, Spinner } from '../primitives/index.js';
 import { useFontSettings, DEFAULT_UI_FONT_SIZE } from '../../context/font-settings-context.js';
 import { useDensity } from '../../context/density-context.js';
 
@@ -151,9 +150,9 @@ export function FileTreeView({
             height: rowHeight,
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
+            gap: 'var(--s-1)',
             paddingLeft: 8 + node.depth * INDENT_PX,
-            paddingRight: 8,
+            paddingRight: 'var(--s-2)',
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-tiny)',
           };
@@ -312,31 +311,26 @@ function ChevronCell({ node }: { node: VisibleNode }) {
   if (node.entry.isFile) return <span style={{ width: 12, flexShrink: 0 }} />;
   if (node.loading) {
     return (
-      <Icon icon={Loader2}
-        size={12}
-        strokeWidth={1.6}
-        color="var(--fg-3)"
-        style={{ flexShrink: 0, animation: 'argus-spin 0.9s linear infinite' }}
-      />
+      <Spinner size="sm" color="var(--fg-3)" />
     );
   }
   if (node.error && !node.expanded) {
     // Same 12px cell as the chevron, so the row never changes size.
     return (
       <span title="Couldn't load this folder — click to retry" style={{ display: 'inline-flex', flexShrink: 0 }}>
-        <Icon icon={TriangleAlert} size={12} strokeWidth={1.8} color="var(--danger)" />
+        <Icon icon={AlertTriangle} size="sm" color="var(--danger)" />
       </span>
     );
   }
   const Glyph = node.expanded ? ChevronDown : ChevronRight;
-  return <Icon icon={Glyph} size={12} strokeWidth={1.8} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
+  return <Icon icon={Glyph} size="sm" color="var(--fg-3)" style={{ flexShrink: 0 }} />;
 }
 
 function IconCell({ node }: { node: VisibleNode }) {
   if (!node.entry.isFile) {
-    return <Icon icon={node.expanded ? FolderOpen : Folder} size={12} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />;
+    return <Icon icon={node.expanded ? FolderOpen : Folder} size="sm" color="var(--accent)" style={{ flexShrink: 0 }} />;
   }
-  return <Icon icon={fileIcon(node.entry.ext)} size={12} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />;
+  return <Icon icon={fileIcon(node.entry.ext)} size="sm" color="var(--fg-3)" style={{ flexShrink: 0 }} />;
 }
 
 function fileIcon(ext: string): LucideIcon {
@@ -390,7 +384,7 @@ function StatusDot({ status }: { status?: GitFileStatusCode }) {
           borderRadius: '50%',
           background: color,
           flexShrink: 0,
-          marginLeft: 4,
+          marginLeft: 'var(--s-1)',
         }}
       />
     </Tooltip>

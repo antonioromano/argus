@@ -44,7 +44,7 @@ export function EmptyState({ icon: Glyph, title, hint, action }: EmptyStateProps
         justifyContent: 'center',
         color: 'var(--fg-3)',
       }}>
-        <Icon icon={Glyph} size={24} strokeWidth={1.6} />
+        <Icon icon={Glyph} size={24} />
       </div>
       <div style={{ fontSize: 'var(--t-md)', color: 'var(--fg-0)', fontWeight: 500 }}>{title}</div>
       {hint && <div style={{ fontSize: 'var(--t-sm)', maxWidth: 280 }}>{hint}</div>}
@@ -68,7 +68,7 @@ export function LoadingState({ label = 'Connecting' }: LoadingStateProps) {
       gap: 'var(--s-3)',
       color: 'var(--fg-2)',
     }}>
-      <div style={{ display: 'inline-flex', gap: 4 }}>
+      <div style={{ display: 'inline-flex', gap: 'var(--s-1)' }}>
         {[0, 1, 2, 3].map((i) => (
           <span
             key={i}
@@ -157,7 +157,7 @@ export function ErrorState({ title, detail, error, described, fallbackTitle, onR
       textAlign: 'center',
     }}>
       <div style={{
-        padding: '6px var(--s-3)',
+        padding: 'var(--s-1-5) var(--s-3)',
         background: 'var(--danger-bg)',
         color: 'var(--danger)',
         border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
@@ -167,9 +167,9 @@ export function ErrorState({ title, detail, error, described, fallbackTitle, onR
         letterSpacing: 'var(--tracking-eye)',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 6,
+        gap: 'var(--s-1-5)',
       }}>
-        <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} /> ERROR
+        <Icon icon={AlertTriangle} size="sm" /> ERROR
       </div>
       <div style={{ fontSize: 'var(--t-md)', color: 'var(--fg-0)', fontWeight: 500 }}>{headline}</div>
       {d && <div className="argus-error-cause">{d.cause}</div>}
@@ -250,7 +250,7 @@ export function StaleNotice({ error, subject = 'the last reading', onRetry }: St
   const message = `${reason}. Showing ${subject}.`;
   return (
     <div className="argus-stale-notice" role="status" title={message}>
-      <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+      <Icon icon={AlertTriangle} size="sm" />
       <span className="argus-stale-notice-text">{message}</span>
       {onRetry && (
         <button type="button" className="argus-stale-notice-retry" onClick={onRetry}>Retry</button>

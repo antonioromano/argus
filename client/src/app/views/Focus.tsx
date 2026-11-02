@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation, type AgentDefinition } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, MoreHorizontal } from 'lucide-react';
+import { Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -413,21 +413,21 @@ export function Focus({
               />
             )}
             <IconButton
-              icon={Terminal}
+              icon={SquareTerminal}
               label="Shell"
               size="sm"
               active={!maximized && sidePanel?.kind === 'terminal'}
               pressed={!maximized && sidePanel?.kind === 'terminal'}
               onClick={onShellClick}
             />
-            <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
+            <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 'var(--r-1)', flexShrink: 0, margin: '0 var(--s-0-5)' }} />
             <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
-            <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
+            <IconButton icon={Copy} label="Start a new session from the same folder" size="sm" onClick={onClone} />
             {showDiagnostics && (
               <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm" onClick={onDumpDiagnostics} />
             )}
-            <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
-            <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+            <IconButton icon={RotateCcw} label="Restart session" size="sm" onClick={onRestart} />
+            <IconButton icon={CircleX} label="Close session" size="sm" onClick={onKill} />
             <IconButton
               icon={MoreHorizontal}
               label="Session actions"
@@ -556,7 +556,7 @@ export function Focus({
                 </div>
                 <button
                   onClick={restoreToShell}
-                  title="Return to shell"
+                  title="Return to session"
                   style={{
                     all: 'unset',
                     cursor: 'pointer',
@@ -576,11 +576,11 @@ export function Focus({
                     fontSize: 'var(--t-tiny)',
                   }}
                 >
-                  <Icon icon={Terminal} size={12} strokeWidth={1.6} />
+                  <Icon icon={SquareTerminal} size="sm" />
                   <span>Shell · collapsed</span>
                   <div style={{ flex: 1 }} />
-                  <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <Icon icon={ChevronUp} size={12} strokeWidth={1.8} /> RETURN
+                  <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <Icon icon={ChevronUp} size="sm" /> RETURN
                   </span>
                 </button>
               </>

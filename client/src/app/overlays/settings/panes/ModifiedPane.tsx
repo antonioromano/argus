@@ -1,6 +1,6 @@
 import { CheckCircle2, RotateCcw } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig } from '@argus/shared';
-import { Button, EmptyState, Section, SettingRow } from '../../../../components/primitives/index.js';
+import { Button, EmptyState, Section, SettingRow, Row } from '../../../../components/primitives/index.js';
 import { settingValueLabel, type SettingDescriptor } from '../catalog.js';
 import { PANES_BY_ID, modifiedSettings } from '../registry.js';
 
@@ -35,7 +35,7 @@ export function ModifiedPane({ config, onReset, onGoTo }: ModifiedPaneProps) {
               label={s.label}
               hint={`${PANES_BY_ID[s.pane].label} › ${s.section}${now && was ? ` · ${now} → ${was}` : ''}`}
             >
-              <div style={{ display: 'flex', gap: 'var(--s-1)' }}>
+              <Row align="stretch" gap={1}>
                 <Button variant="ghost" size="sm" onClick={() => onGoTo(s.id)}>Go to</Button>
                 <Button
                   variant="ghost"
@@ -46,7 +46,7 @@ export function ModifiedPane({ config, onReset, onGoTo }: ModifiedPaneProps) {
                 >
                   Reset
                 </Button>
-              </div>
+              </Row>
             </SettingRow>
           </div>
         );

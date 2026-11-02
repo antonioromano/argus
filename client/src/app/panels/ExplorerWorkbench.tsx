@@ -391,7 +391,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           flexShrink: 0,
         }}
       >
-        <Icon icon={FolderOpen} size={14} strokeWidth={1.6} color="var(--accent)" />
+        <Icon icon={FolderOpen} size="md" color="var(--accent)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · EXPLORER</div>
         <span
           style={{
@@ -589,7 +589,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                     background: 'var(--bg-1)',
                     border: '1px solid var(--accent-edge)',
                     borderRadius: 'var(--r-2)',
-                    padding: '6px 12px',
+                    padding: 'var(--s-1-5) var(--s-3)',
                     fontSize: 'var(--t-tiny)',
                   }}
                 >
@@ -610,8 +610,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             zIndex: 1000,
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 8,
-            padding: '5px 11px',
+            gap: 'var(--s-2)',
+            padding: 'var(--s-1-5) var(--s-3)',
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-xs)',
             color: 'var(--fg-0)',
@@ -690,8 +690,8 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
-              padding: '4px var(--s-2)',
+              gap: 'var(--s-1)',
+              padding: 'var(--s-1) var(--s-2)',
               background: active ? 'var(--bg-3)' : 'var(--bg-2)',
               color: active ? 'var(--accent)' : 'var(--fg-2)',
               fontFamily: 'var(--font-mono)',
@@ -699,7 +699,7 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
               letterSpacing: 'var(--tracking-eye)',
             }}
           >
-            <Icon icon={Glyph} size={11} strokeWidth={1.6} /> {it.label}
+            <Icon icon={Glyph} size="sm" /> {it.label}
           </button>
         );
       })}
@@ -715,8 +715,8 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '6px 16px',
+        gap: 'var(--s-2)',
+        padding: 'var(--s-1-5) var(--s-4)',
         background: 'var(--warn-bg)',
         borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
         color: 'var(--warn)',
@@ -724,7 +724,7 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
         flexShrink: 0,
       }}
     >
-      <Icon icon={AlertTriangle} size={13} strokeWidth={1.6} />
+      <Icon icon={AlertTriangle} size="md" />
       File changed on disk
       <div style={{ flex: 1 }} />
       <Button variant="ghost" size="sm" onClick={onReload}>Reload from disk</Button>

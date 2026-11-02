@@ -105,7 +105,7 @@ describe('ChainSheet', () => {
 
   it('says so when there is no agent shell to chain to', async () => {
     await render(vi.fn(), vi.fn(), [SOURCE, S('sh', 'zsh', { agentType: 'shell' })]);
-    expect(q('chain-summary')!.textContent).toBe('No agent shell to chain to.');
+    expect(q('chain-summary')!.textContent).toBe('No agent session to chain to.');
     expect(button('Create chain')!.disabled).toBe(true);
   });
 });

@@ -64,8 +64,8 @@ afterEach(() => {
 
 function submitButton(): HTMLButtonElement {
   const btn = Array.from(container.querySelectorAll('button'))
-    .find((b) => b.textContent?.startsWith('Spawn shell'));
-  if (!btn) throw new Error('Spawn shell button not rendered');
+    .find((b) => b.textContent?.startsWith('Start session'));
+  if (!btn) throw new Error('Start session button not rendered');
   return btn as HTMLButtonElement;
 }
 

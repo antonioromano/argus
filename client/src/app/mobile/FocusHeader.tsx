@@ -29,7 +29,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
     >
       <button
         onClick={onBack}
-        aria-label="Back to shells"
+        aria-label="Back to sessions"
         className="eyebrow"
         style={{
           background: 'transparent',
@@ -37,19 +37,19 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           cursor: 'pointer',
           color: 'var(--accent)',
           borderRadius: 'var(--r-2)',
-          padding: '0 12px',
-          minHeight: 44,
+          padding: '0 var(--s-3)',
+          minHeight: 'var(--row-h-touch)',
           display: 'flex',
           alignItems: 'center',
-          gap: 4,
+          gap: 'var(--s-1)',
           flexShrink: 0,
           fontSize: 'var(--t-tiny)',
         }}
       >
-        <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} />
+        <Icon icon={ChevronLeft} size="md" />
         <span className="mobile-back-label">BACK</span>
       </button>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, justifyContent: 'center' }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)', minWidth: 0, justifyContent: 'center' }}>
         <AgentGlyph agent={session.agentType} size={16} />
         <SessionIdentity session={session} />
         <span
@@ -84,14 +84,14 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           color: session.hasGitChanges ? 'var(--accent)' : 'var(--fg-2)',
           borderRadius: 'var(--r-2)',
           width: 44,
-          minHeight: 44,
+          minHeight: 'var(--row-h-touch)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
         }}
       >
-        <Icon icon={GitBranch} size={16} strokeWidth={1.6} />
+        <Icon icon={GitBranch} size="lg" />
       </button>
       <button
         onClick={onActions}
@@ -103,14 +103,14 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           color: 'var(--fg-2)',
           borderRadius: 'var(--r-2)',
           width: 44,
-          minHeight: 44,
+          minHeight: 'var(--row-h-touch)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
         }}
       >
-        <Icon icon={MoreVertical} size={16} strokeWidth={1.6} />
+        <Icon icon={MoreVertical} size="lg" />
       </button>
     </div>
   );

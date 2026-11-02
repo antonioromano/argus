@@ -82,6 +82,6 @@ describe('density and state rules never reflow rows (hover-no-reflow)', () => {
     expect(rule('.argus-titlebar')).toMatch(/height:\s*var\(--h-titlebar, 44px\);/);
     const tree = read('./SessionTree.tsx');
     // Both leaf styles (hovered or not) share the one density padding.
-    expect(tree.match(/padding: 'var\(--leaf-pad-y\) var\(--s-2\) var\(--leaf-pad-y\) 28px'/g)).toHaveLength(2);
+    expect(tree.match(/padding: 'var\(--leaf-pad-y\) var\(--s-2\) var\(--leaf-pad-y\) var\(--tree-indent\)'/g)).toHaveLength(2);
   });
 });

@@ -48,7 +48,7 @@ describe('Sidebar — Session Inspector (stacked layout)', () => {
       .filter((el) => !el.closest('.argus-sidebar-inspector') || el.classList.contains('argus-sidebar-inspector'))
       .map((el) => el.classList.contains('argus-sidebar-inspector') ? 'inspector'
         : el.getAttribute('data-testid') ?? el.textContent);
-    expect(order).toEqual(['Pilot', 'Shells', 'tree', 'Find & Jump⌘K', 'inspector', 'System', 'Settings']);
+    expect(order).toEqual(['Pilot', 'Sessions', 'tree', 'Find & Jump⌘K', 'inspector', 'System', 'Settings']);
   });
 
   it('is not rendered while the sidebar is collapsed, and reports the state', () => {

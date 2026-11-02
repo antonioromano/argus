@@ -21,7 +21,7 @@ function SuppressUnder({ stack }: { stack: RefObject<HTMLDivElement | null> }) {
 }
 
 const SR_ONLY: CSSProperties = {
-  position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden',
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: 'calc(-1 * var(--s-px))', overflow: 'hidden',
   clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0,
 };
 
@@ -43,7 +43,7 @@ export function LaunchCardStack() {
     <div
       ref={ref}
       aria-label="Pending launches"
-      style={{ position: 'fixed', top: STACK_TOP, right: 16, zIndex: 'var(--z-pop)' as unknown as number, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: `calc(100vh - ${STACK_TOP}px - 16px)`, overflowY: 'auto' }}
+      style={{ position: 'fixed', top: STACK_TOP, right: 16, zIndex: 'var(--z-pop)' as unknown as number, display: 'flex', flexDirection: 'column', gap: 'var(--s-2)', maxHeight: `calc(100vh - ${STACK_TOP}px - 16px)`, overflowY: 'auto' }}
     >
       <SuppressUnder stack={ref} />
       {/* Announce the new request in one sentence, not the whole stack's content. */}

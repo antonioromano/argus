@@ -23,10 +23,10 @@ import { useShortcuts } from '../keyboard/useShortcuts.js';
 import type { AgentFlag, InspectorSide, SessionInfo, BroadcastRequest, BroadcastResult, AppConfig, SessionGroup, FavoriteEntryMeta, WorktreeMergePreviewResponse, TerminalEngine, RunMode } from '@argus/shared';
 import { FAVORITES_GROUP_ID, MAIN_WINDOW_ID } from '@argus/shared';
 import { resolveGroupColor } from '../constants/groupColors.js';
-import { WifiOff, Loader2, Plus } from 'lucide-react';
+import { WifiOff, Plus } from 'lucide-react';
 import { LaunchCardStack } from './ui/LaunchCardStack.js';
 import { focusPendingLaunch, hasPendingLaunch } from './ui/launchFocus.js';
-import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon } from '../components/primitives/index.js';
+import { AlertSheet, Button, ToastProvider, pushToast, Tooltip, Icon, Spinner } from '../components/primitives/index.js';
 import { registerErrorActionHost } from '../errors/errorActions.js';
 import { toastError } from '../errors/toastError.js';
 import { deferUndoable, offerUndo } from '../utils/undoable.js';
@@ -199,10 +199,7 @@ function DesktopRoot() {
           background: 'var(--bg-0)',
         }}
       >
-        <Icon icon={Loader2}
-          size={24}
-          style={{ color: 'var(--fg-3)', animation: 'argus-spin 0.9s linear infinite' }}
-        />
+        <Spinner size={24} color="var(--fg-3)" />
       </div>
     );
   }
@@ -1225,8 +1222,8 @@ function DesktopInner() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 8,
-            padding: '6px 16px',
+            gap: 'var(--s-2)',
+            padding: 'var(--s-1-5) var(--s-4)',
             // Opaque base: the shell behind it is transparent while translucent.
             background: 'linear-gradient(var(--warn-bg), var(--warn-bg)) var(--bg-1)',
             borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
@@ -1235,7 +1232,7 @@ function DesktopInner() {
             flexShrink: 0,
           }}
         >
-          <Icon icon={WifiOff} size={13} strokeWidth={1.6} />
+          <Icon icon={WifiOff} size="md" />
           CONNECTION LOST — RECONNECTING…
         </div>
       )}
@@ -1513,7 +1510,7 @@ function DesktopInner() {
           initialSelected={app.overlay.sessionIds}
           onSend={sendBroadcast}
           onSent={({ sent, skipped }) => {
-            pushToast(`Sent to ${sent} shell${sent === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped (exited)` : ''}`, 'ok');
+            pushToast(`Sent to ${sent} session${sent === 1 ? '' : 's'}${skipped ? ` · ${skipped} skipped (exited)` : ''}`, 'ok');
             app.closeOverlay();
           }}
           onClose={app.closeOverlay}
@@ -1567,7 +1564,7 @@ function DesktopInner() {
 
       <AlertSheet
         isOpen={!!pendingKill}
-        title="Close shell?"
+        title="Close session?"
         message={
           pendingKill?.worktreePath
             ? `This session has work that hasn't been applied to your project yet. Close anyway?`
@@ -1586,7 +1583,7 @@ function DesktopInner() {
 
       <AlertSheet
         isOpen={!!pendingRestart}
-        title="Restart shell?"
+        title="Restart session?"
         message={`This relaunches the "${pendingRestart?.name}" agent process and clears the terminal. Files on disk and git history are not touched.`}
         confirmLabel="Restart"
         confirmDestructive
@@ -1686,7 +1683,7 @@ function DesktopInner() {
 
       <AlertSheet
         isOpen={!!pendingKillGroup}
-        title="Close all shells in group?"
+        title="Close all sessions in group?"
         message={`This ends every agent process in "${pendingKillGroup?.name}" (${pendingKillGroup?.sessionIds.length ?? 0}). Files on disk and git history are not touched.`}
         confirmLabel="Close all"
         confirmDestructive

@@ -17,7 +17,7 @@ const cellStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 2,
+  gap: 'var(--s-0-5)',
   background: 'var(--bg-1)',
   borderRight: '1px solid var(--line-2)',
   position: 'relative',
@@ -62,7 +62,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
             color: isChecked ? 'var(--bg-0)' : 'var(--fg-3)',
           }}
         >
-          {isChecked && <Icon icon={Check} size={12} strokeWidth={2.5} />}
+          {isChecked && <Icon icon={Check} size="sm" strokeWidth={2} />}
         </button>
       </Tooltip>
       <Tooltip content="Revert change">
@@ -71,7 +71,7 @@ export function BlockGutterCell({ block, isChecked, onToggle, onRevert }: BlockG
           disabled={busy}
           style={{ ...btnStyle, color: busy ? 'var(--fg-4)' : 'var(--fg-3)' }}
         >
-          <Icon icon={RotateCcw} size={12} strokeWidth={1.8} />
+          <Icon icon={RotateCcw} size="sm" />
         </button>
       </Tooltip>
     </div>

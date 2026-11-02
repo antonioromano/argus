@@ -1,4 +1,4 @@
-import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, Terminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2, EyeOff, Palette, type LucideIcon } from 'lucide-react';
+import { CircleX, History, Minus, Maximize2, ArrowDownToLine, Copy, GitBranch, FolderOpen, SquareTerminal, RotateCcw, CheckCircle2, Bug, Pencil, AppWindow, Combine, Flag, Forward, Link2, EyeOff, Palette, type LucideIcon } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import type { ContextMenuEntry } from '../../components/primitives/index.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
@@ -65,7 +65,7 @@ export interface SessionMenuPromo {
 }
 
 /**
- * Build the shell action menu. Shortcut labels come from the live bindings, so a
+ * Build the session action menu. Shortcut labels come from the live bindings, so a
  * rebind in settings cannot leave the menu advertising a key that no longer does
  * anything.
  */
@@ -81,19 +81,19 @@ export function buildSessionMenuItems(
     { header: 'Navigate' },
     {
       id: 'diff',
-      label: session.hasGitChanges ? 'Diff — has changes' : 'Diff',
+      label: session.hasGitChanges ? 'Diff (Changed)' : 'Diff',
       icon: GitBranch,
       shortcut: comboLabel('open-diff'),
       disabled: !a.onFocusDiff && !a.onOpenDiff,
       onClick: () => { if (a.onFocusDiff) a.onFocusDiff(session.id); else a.onOpenDiff?.(session.id); },
     },
     ...(a.onFocusExplorer ? [{ id: 'files', label: 'Files', icon: FolderOpen, shortcut: comboLabel('open-files'), onClick: () => a.onFocusExplorer!(session.id) }] : []),
-    ...(a.onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: Terminal, shortcut: comboLabel('open-shell'), onClick: () => a.onFocusTerminal!(session.id) }] : []),
-    { id: 'focus', label: 'Expand to focus', icon: Maximize2, onClick: () => a.onOpen(session.id) },
+    ...(a.onFocusTerminal ? [{ id: 'shell', label: 'Shell', icon: SquareTerminal, shortcut: comboLabel('open-shell'), onClick: () => a.onFocusTerminal!(session.id) }] : []),
+    { id: 'focus', label: 'Open in Focus', icon: Maximize2, onClick: () => a.onOpen(session.id) },
     { separator: true },
     { header: 'Session' },
-    { id: 'rename', label: 'Rename shell', icon: Pencil, onClick: () => a.onRename(session) },
-    ...(a.onEditIdentity ? [{ id: 'identity', label: 'Color & emoji…', icon: Palette, onClick: () => a.onEditIdentity!(session) }] : []),
+    { id: 'rename', label: 'Rename Session…', icon: Pencil, onClick: () => a.onRename(session) },
+    ...(a.onEditIdentity ? [{ id: 'identity', label: 'Color & Emoji…', icon: Palette, onClick: () => a.onEditIdentity!(session) }] : []),
     ...(a.onToggleMinimize ? [{ id: 'minimize', label: 'Minimize', icon: Minus, onClick: () => a.onToggleMinimize!(session.id) }] : []),
     ...(a.onMoveToNewWindow ? [{ id: 'move-new-window', label: 'Move to New Window', icon: AppWindow, onClick: () => a.onMoveToNewWindow!(session) }] : []),
     ...(a.onMoveToWindow
@@ -105,19 +105,19 @@ export function buildSessionMenuItems(
         }))
       : []),
     ...(a.onMergeAllHere && a.canMergeAllHere ? [{ id: 'merge-all-windows', label: 'Merge All Windows Here', icon: Combine, onClick: () => a.onMergeAllHere!() }] : []),
-    ...(a.onClone ? [{ id: 'clone', label: 'Clone shell', icon: Copy, onClick: () => a.onClone!(session) }] : []),
-    ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply to project', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
-    ...(a.onHandoff ? [{ id: 'handoff', label: 'Hand off…', icon: Forward, onClick: () => a.onHandoff!(session) }] : []),
+    ...(a.onClone ? [{ id: 'clone', label: 'Clone Session…', icon: Copy, onClick: () => a.onClone!(session) }] : []),
+    ...(a.onMerge && a.canMerge?.(session) ? [{ id: 'apply', label: 'Apply Changes to Project…', icon: ArrowDownToLine, onClick: () => a.onMerge!(session) }] : []),
+    ...(a.onHandoff ? [{ id: 'handoff', label: 'Hand Off…', icon: Forward, onClick: () => a.onHandoff!(session) }] : []),
     ...(a.onChain && session.status !== 'exited' ? [{ id: 'chain', label: 'Chain to…', icon: Link2, onClick: () => a.onChain!(session) }] : []),
     ...(a.onFinish && a.canFinish?.(session) ? [{ id: 'finish', label: 'Finish…', icon: Flag, onClick: () => a.onFinish!(session) }] : []),
-    ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
-    ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume conversation', icon: History, onClick: () => a.onResume!(session) }] : []),
-    { id: 'restart', label: 'Restart shell', icon: RotateCcw, onClick: () => a.onRestart(session) },
-    ...(a.showDiagnostics && a.onDumpDiagnostics ? [{ id: 'diag', label: 'Dump diagnostics', icon: Bug, onClick: () => a.onDumpDiagnostics!(session) }] : []),
+    ...(a.onMarkDone && a.canMarkDone?.(session) ? [{ id: 'done', label: 'Mark as Done', icon: CheckCircle2, onClick: () => a.onMarkDone!(session) }] : []),
+    ...(a.onResume && a.canResume?.(session) ? [{ id: 'resume', label: 'Resume Conversation', icon: History, onClick: () => a.onResume!(session) }] : []),
+    { id: 'restart', label: 'Restart Session', icon: RotateCcw, onClick: () => a.onRestart(session) },
+    ...(a.showDiagnostics && a.onDumpDiagnostics ? [{ id: 'diag', label: 'Save Diagnostics', icon: Bug, onClick: () => a.onDumpDiagnostics!(session) }] : []),
     ...promoEntries(session, a),
     { separator: true },
     { header: 'Danger' },
-    { id: 'close', label: 'Close shell', icon: CircleX, shortcut: comboLabel('close-shell'), danger: true, onClick: () => a.onKill(session) },
+    { id: 'close', label: 'Close Session', icon: CircleX, shortcut: comboLabel('close-shell'), danger: true, onClick: () => a.onKill(session) },
   ];
 }
 
@@ -127,8 +127,8 @@ function promoEntries(session: SessionInfo, a: SessionMenuActions): ContextMenuE
   if (promos.length === 0) return [];
   return [
     { separator: true },
-    { header: 'Try (beta)' },
+    { header: 'Try (Beta)' },
     ...promos.map((p) => ({ id: p.id, label: p.label, hint: p.hint, icon: p.icon, onClick: () => p.onTry(session) })),
-    ...(a.onHideBetaPromos ? [{ id: 'hide-beta-promos', label: 'Hide beta suggestions', icon: EyeOff, onClick: a.onHideBetaPromos }] : []),
+    ...(a.onHideBetaPromos ? [{ id: 'hide-beta-promos', label: 'Hide Beta Suggestions', icon: EyeOff, onClick: a.onHideBetaPromos }] : []),
   ];
 }

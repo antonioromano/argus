@@ -146,7 +146,7 @@ describe('TemplatesSection', () => {
     await render();
     await click(btn('template-launch'));
     const confirm = $('[data-testid="template-launch-confirm"]');
-    expect(confirm.textContent).toContain('Start 2 shells into a new group “Trio”');
+    expect(confirm.textContent).toContain('Start 2 sessions into a new group “Trio”');
     expect(confirm.textContent).toContain('api — claude @ /Users/me/api · new worktree feat/api · prompt “build the endpoint”');
     expect(confirm.textContent).toContain('web — codex @ /Users/me/web');
     expect(apiMock.launchTemplate).not.toHaveBeenCalled();

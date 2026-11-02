@@ -48,7 +48,7 @@ describe('buildSessionMenuItems', () => {
     const order = ids(entries);
     expect(order[order.indexOf('rename') + 1]).toBe('identity');
     const item = entries.find((e) => 'id' in e && e.id === 'identity') as { label: string; onClick: () => void };
-    expect(item.label).toBe('Color & emoji…');
+    expect(item.label).toBe('Color & Emoji…');
     item.onClick();
     expect(onEditIdentity).toHaveBeenCalledWith(session);
   });
@@ -87,7 +87,7 @@ describe('buildSessionMenuItems', () => {
   it('flags a dirty session in the diff label', () => {
     const dirty = buildSessionMenuItems({ ...session, hasGitChanges: true }, actions({ onFocusDiff: vi.fn() }));
     const diff = dirty.find((e) => 'id' in e && e.id === 'diff') as { label: string };
-    expect(diff.label).toMatch(/has changes/);
+    expect(diff.label).toMatch(/Changed/);
   });
 
   it('keeps close last and marked as danger', () => {

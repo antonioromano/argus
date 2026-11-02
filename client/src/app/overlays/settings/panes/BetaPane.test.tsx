@@ -46,9 +46,9 @@ describe('BetaPane', () => {
       expect(chips.map((c) => c.textContent)).toEqual(f.caveats.map((c) => c.text));
       expect(chips.map((c) => c.getAttribute('data-warn') === 'true')).toEqual(f.caveats.map((c) => !!c.warn));
     }
-    expect(row('betaSessionChains').textContent).toContain('Right-click a shell → Chain to…');
+    expect(row('betaSessionChains').textContent).toContain('Right-click a session → Chain to…');
     const warn = row('betaSessionChains').querySelector('[data-warn="true"]');
-    expect(warn?.textContent).toBe('Types into the target shell');
+    expect(warn?.textContent).toBe('Types into the target session');
   });
 
   it('each feature links to its page on the docs site', () => {

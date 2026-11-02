@@ -37,7 +37,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
           <img
             src="/spartan.png"
             alt=""
-            style={{ height: 22, width: 22, verticalAlign: 'middle', marginRight: 8, borderRadius: 4 }}
+            style={{ height: 22, width: 22, verticalAlign: 'middle', marginRight: 'var(--s-2)', borderRadius: 'var(--r-2)' }}
           />
           {title}
           {subtitle && <span className="argus-titlebar-title-sub"> / {subtitle}</span>}
@@ -47,7 +47,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
             // The chip sits inside the draggable title bar — no-drag so the
             // click reaches it instead of starting a window drag.
             // @ts-expect-error Electron WebkitAppRegion
-            style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center', marginLeft: 10 }}
+            style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center', marginLeft: 'var(--s-3)' }}
           >
             {renaming && onRenameWindow ? (
               <SessionRenameInput
@@ -73,7 +73,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
                   color: 'var(--fg-1)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: 'var(--t-tiny)',
-                  padding: '2px 8px',
+                  padding: 'var(--s-0-5) var(--s-2)',
                   cursor: onRenameWindow ? 'pointer' : 'default',
                   whiteSpace: 'nowrap',
                 }}

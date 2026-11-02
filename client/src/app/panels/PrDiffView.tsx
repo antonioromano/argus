@@ -57,7 +57,7 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
   return (
     <div className="argus-prdiff">
       <div className="argus-prdiff-head">
-        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={1.6} color={pr ? PR_TONE_COLOR[prTone(pr)] : 'var(--fg-3)'} />
+        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size="md" color={pr ? PR_TONE_COLOR[prTone(pr)] : 'var(--fg-3)'} />
         <div className="eyebrow argus-prdiff-eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · PULL REQUEST</div>
         <span className="argus-prdiff-title" title={pr?.title || ref}>{pr?.title || ref}</span>
         {pr?.title && <span className="argus-prdiff-ref">{ref}</span>}
@@ -66,10 +66,10 @@ export function PrDiffView({ session, entry, onClose }: PrDiffViewProps) {
         <span className="argus-prdiff-readonly" title="Changes as GitHub has them; nothing here edits the pull request">read-only</span>
         <div className="argus-prdiff-mode" role="group" aria-label="Diff layout">
           <button type="button" aria-pressed={mode === 'split'} onClick={() => setMode('split')}>
-            <Icon icon={SplitSquareHorizontal} size={11} strokeWidth={1.6} /> SPLIT
+            <Icon icon={SplitSquareHorizontal} size="sm" /> SPLIT
           </button>
           <button type="button" aria-pressed={mode === 'unified'} onClick={() => setMode('unified')}>
-            <Icon icon={AlignLeft} size={11} strokeWidth={1.6} /> UNIFIED
+            <Icon icon={AlignLeft} size="sm" /> UNIFIED
           </button>
         </div>
         <IconButton icon={ExternalLink} label="Open on GitHub" size="sm" onClick={() => openExternal(entry.url)} />

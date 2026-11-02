@@ -43,9 +43,9 @@ export function Diff({ session, onBack }: DiffProps) {
           onClick={onBack}
           aria-label="Back"
           className="eyebrow"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '0 12px', minHeight: 44, display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--t-tiny)' }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '0 var(--s-3)', minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', gap: 'var(--s-1)', fontSize: 'var(--t-tiny)' }}
         >
-          <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} /> BACK
+          <Icon icon={ChevronLeft} size="md" /> BACK
         </button>
         <span className="eyebrow" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-0)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {session.name} — changes
@@ -74,7 +74,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
         onClick={onToggle}
         style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', width: '100%', padding: 'var(--s-3) var(--s-4)', background: open ? 'var(--bg-2)' : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
       >
-        <Icon icon={ChevronRight} size={12} strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease', color: 'var(--fg-3)', flexShrink: 0 }} />
+        <Icon icon={ChevronRight} size="sm" strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)', flexShrink: 0 }} />
         <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {file.to ?? file.from}
         </span>
@@ -86,7 +86,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
         <div style={{ background: 'var(--bg-inset)', overflowX: 'auto' }}>
           {file.chunks.map((chunk, ci) => (
             <div key={ci}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10.5px', color: 'var(--syn-fn)', padding: '4px var(--s-3)', background: 'var(--info-bg)' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-caption)', color: 'var(--syn-fn)', padding: 'var(--s-1) var(--s-3)', background: 'var(--info-bg)' }}>
                 {chunk.content}
               </div>
               {chunk.changes.map((change, li) => {
@@ -96,7 +96,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
                   <div
                     key={li}
                     style={{
-                      fontFamily: 'var(--font-mono)', fontSize: '10.5px', lineHeight: 1.6, whiteSpace: 'pre',
+                      fontFamily: 'var(--font-mono)', fontSize: 'var(--t-caption)', lineHeight: 1.6, whiteSpace: 'pre',
                       padding: '0 var(--s-3)',
                       background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
                       color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-2)',

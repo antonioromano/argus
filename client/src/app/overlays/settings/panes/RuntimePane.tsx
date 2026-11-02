@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { AlertSheet, Section, Segmented, Icon, Toggle } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Segmented, Icon, Toggle, Row, Stack } from '../../../../components/primitives/index.js';
 import { TerminalChoice } from '../../../ui/TerminalChoice.js';
 import { kindOf, settingsFor } from '../../../ui/terminalKind.js';
 import type { PaneProps } from '../types.js';
@@ -35,11 +35,11 @@ export function RuntimePane({ config, onSave }: PaneProps) {
 
   return (
     <>
-      <div
+      <Row
+        align="stretch"
+        gap={2}
         style={{
-          display: 'flex',
-          gap: 8,
-          padding: '9px 11px',
+          padding: 'var(--s-2) var(--s-3)',
           marginBottom: 'var(--s-5)',
           borderRadius: 'var(--r-2)',
           background: 'var(--warn-bg)',
@@ -48,17 +48,17 @@ export function RuntimePane({ config, onSave }: PaneProps) {
           lineHeight: 1.5,
         }}
       >
-        <Icon icon={AlertTriangle} size={14} strokeWidth={1.8} color="var(--warn)" style={{ flexShrink: 0, marginTop: 1 }} />
+        <Icon icon={AlertTriangle} size="md" color="var(--warn)" style={{ flexShrink: 0, marginTop: 'var(--s-px)' }} />
         <span>
-          Backend and default terminal changes apply to shells hosted after the next app launch.
-          Running shells keep the backend and engine they were created with.
+          Session host and default terminal changes apply to sessions started after the next app launch.
+          Running sessions keep the host and terminal they were created with.
         </span>
-      </div>
+      </Row>
 
-      <Section title="Process backend">
+      <Section title="Session host">
         <SettingField id="ptyBackend">
           <Segmented
-            label="Process backend"
+            label="Session host"
             value={backend}
             options={BACKEND_OPTIONS}
             onChange={changeBackend}
@@ -68,7 +68,7 @@ export function RuntimePane({ config, onSave }: PaneProps) {
 
       <Section title="Default terminal">
         <SettingAnchor id="defaultTerminal">
-          <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+          <Stack gap={3} className="settings-card-pad">
             <TerminalChoice
               value={kindOf(config.defaultRunMode, config.defaultTerminalEngine)}
               onChange={(k) => {
@@ -79,7 +79,7 @@ export function RuntimePane({ config, onSave }: PaneProps) {
             <p style={{ margin: 0, fontSize: 'var(--t-xs)', color: 'var(--fg-3)', lineHeight: 1.5 }}>
               {settingHint(SETTINGS_BY_ID.defaultTerminal)}
             </p>
-          </div>
+          </Stack>
         </SettingAnchor>
       </Section>
 

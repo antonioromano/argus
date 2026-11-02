@@ -11,6 +11,8 @@ import {
   NGROK_PW_MIN,
   isNgrokPasswordValid,
   Icon,
+  Row,
+  Stack,
 } from '../../../../components/primitives/index.js';
 
 interface RemotePaneProps {
@@ -54,11 +56,9 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
 
   return (
     <>
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           padding: 'var(--s-3) var(--s-4)',
           marginBottom: 'var(--s-4)',
           background: 'var(--bg-1)',
@@ -69,12 +69,12 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
         {connected ? (
           <>
             <StatusDot status="running" size={8} />
-            <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
+            <Icon icon={Wifi} size="md" color="var(--accent)" />
             <span className="eyebrow" style={{ color: 'var(--accent)' }}>ACTIVE</span>
           </>
         ) : (
           <>
-            <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
+            <Icon icon={WifiOff} size="md" color="var(--fg-3)" />
             <span className="eyebrow">OFFLINE</span>
           </>
         )}
@@ -89,15 +89,13 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
             </Button>
           </>
         )}
-      </div>
+      </Row>
 
       {ngrokError && (
-        <div
+        <Row
+          gap={1.5}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '10px var(--s-3)',
+            padding: 'var(--s-3)',
             marginBottom: 'var(--s-4)',
             background: 'var(--danger-bg)',
             border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
@@ -107,15 +105,15 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
             fontSize: 'var(--t-sm)',
           }}
         >
-          <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+          <Icon icon={AlertTriangle} size="sm" />
           {ngrokError}
-        </div>
+        </Row>
       )}
 
       {connected && publicUrl && (
         <Section title="Public URL">
           <SettingRow trailing>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', width: '100%' }}>
+            <Row gap={2} style={{ width: '100%' }}>
               <span
                 className="mono"
                 style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--accent)', wordBreak: 'break-all' }}
@@ -130,11 +128,11 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
                 target="_blank"
                 rel="noreferrer"
                 className="eyebrow"
-                style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1)' }}
               >
-                <Icon icon={ExternalLink} size={11} strokeWidth={1.6} /> OPEN
+                <Icon icon={ExternalLink} size="sm" /> OPEN
               </a>
-            </div>
+            </Row>
           </SettingRow>
           <SettingRow label="Mobile companion" hint="Scan to open the read-only companion on your phone">
             <div
@@ -154,7 +152,7 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
 
       {!connected && (
         <Section title="Start a tunnel">
-          <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+          <Stack gap={4} className="settings-card-pad">
             <PasswordFields
               password={password}
               confirmPassword={confirmPassword}
@@ -163,7 +161,7 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
               onSubmit={handleStart}
               error={pwErr ?? undefined}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Row align="stretch" justify="end">
               <Button
                 variant="primary"
                 onClick={handleStart}
@@ -172,8 +170,8 @@ export function RemotePane({ ngrokStatus, ngrokLoading, ngrokError, onNgrokStart
               >
                 Start tunnel
               </Button>
-            </div>
-          </div>
+            </Row>
+          </Stack>
         </Section>
       )}
     </>

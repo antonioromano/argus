@@ -142,7 +142,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
               cursor: entry.disabled ? 'default' : 'pointer',
             }}
           >
-            {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />}
+            {Glyph && <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />}
             {entry.hint ? (
               <span style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ whiteSpace: 'nowrap' }}>{entry.label}</span>

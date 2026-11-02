@@ -67,7 +67,7 @@ describe('Mosaic tile ⋯', () => {
     expect(document.querySelectorAll('[role="menu"]').length).toBe(1);
     const fromButton = menuIds();
     expect(fromButton.some((t) => t?.includes('Minimize'))).toBe(true);
-    expect(fromButton.some((t) => t?.includes('Mark as done'))).toBe(true);
+    expect(fromButton.some((t) => t?.includes('Mark as Done'))).toBe(true);
 
     act(() => more.click()); // toggles closed
     expect(document.querySelectorAll('[role="menu"]').length).toBe(0);

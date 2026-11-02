@@ -404,10 +404,10 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
       <div className="grid-bg argus-mosaic-empty">
         <EmptyState
           icon={SquareIcon}
-          title="No matching shells"
+          title="No matching sessions"
           hint={filter.trim()
             ? `Nothing matches "${filter.trim()}".`
-            : 'No shells to display.'}
+            : 'No sessions to display.'}
           action={filter.trim() && onClearFilter
             ? <Button size="sm" variant="outline" onClick={onClearFilter}>Clear filter</Button>
             : undefined}
@@ -561,7 +561,7 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
             borderTop: '1px solid var(--line-1)',
           }}
         >
-          + {filtered.length - MAX_TILES} more {filtered.length - MAX_TILES === 1 ? 'shell' : 'shells'} hidden — refine the filter or open from the sidebar
+          + {filtered.length - MAX_TILES} more {filtered.length - MAX_TILES === 1 ? 'session' : 'sessions'} hidden — refine the filter or open from the sidebar
         </div>
       )}
     </div>
@@ -882,7 +882,7 @@ function MosaicTileInner({
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
               style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
             >
-              {copied && <Icon icon={Check} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />}
+              {copied && <Icon icon={Check} size="sm" strokeWidth={2} style={{ flexShrink: 0 }} />}
               {copied ? 'Copied path' : shellLabel(session)}
             </span>
           </Tooltip>

@@ -8,7 +8,7 @@ import { Tooltip } from '../../components/primitives/index.js';
 export function ChainChip({ count }: { count?: number }) {
   if (!count) return null;
   return (
-    <Tooltip content={`${count} chain${count === 1 ? '' : 's'} from this shell (Settings → Beta features)`}>
+    <Tooltip content={`${count} chain${count === 1 ? '' : 's'} from this session (Settings → Beta features)`}>
       <span className="argus-tile-chain" data-testid="chain-chip" aria-label={`${count} chain${count === 1 ? '' : 's'}`}>
         ⛓ {count}
       </span>

@@ -1,5 +1,5 @@
 import type { SessionInfo } from '@argus/shared';
-import { Sheet, StatusPill } from '../../components/primitives/index.js';
+import { Sheet, StatusPill, Stack } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 interface SessionPickerSheetProps {
@@ -13,13 +13,13 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
   const title = target === 'diff' ? 'Open Diff' : 'Open Files';
   return (
     <Sheet
-      eyebrow="Pick a shell"
+      eyebrow="Pick a session"
       title={title}
-      subtitle="No shell is open — choose which one to inspect."
+      subtitle="No session is open — choose which one to inspect."
       onClose={onClose}
       width={460}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+      <Stack gap={2}>
         {sessions.map((s) => (
           <button
             key={s.id}
@@ -53,14 +53,14 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
               >
                 {s.folderPath}
               </div>
-              <div className="eyebrow" style={{ marginTop: 2 }}>
+              <div className="eyebrow" style={{ marginTop: 'var(--s-0-5)' }}>
                 {s.agentType}
               </div>
             </div>
             <StatusPill status={s.status} size="sm" />
           </button>
         ))}
-      </div>
+      </Stack>
     </Sheet>
   );
 }

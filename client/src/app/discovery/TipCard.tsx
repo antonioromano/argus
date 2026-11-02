@@ -63,10 +63,10 @@ export function TipCard({ title, body, combo, primary, dismissLabel = 'Got it', 
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose('dismiss'); } }}
     >
       <div className="argus-tipcard-head">
-        <Icon icon={Lightbulb} size={13} strokeWidth={1.8} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <Icon icon={Lightbulb} size="md" style={{ color: 'var(--accent)', flexShrink: 0 }} />
         <span className="argus-tipcard-title">{title}</span>
         <button type="button" aria-label="Dismiss" className="argus-tipcard-x hover-bg-3" onClick={() => onClose('dismiss')}>
-          <Icon icon={X} size={12} strokeWidth={1.8} />
+          <Icon icon={X} size="sm" />
         </button>
       </div>
       <div className="argus-tipcard-body">

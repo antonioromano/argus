@@ -95,15 +95,15 @@ export async function runErrorAction(action: ErrorAction, ctx?: ErrorActionConte
  *  registry's labels by errorActions.test.ts. */
 export const SETTINGS_PANE_LABEL: Readonly<Record<PaneId, string>> = {
   theme: 'Theme & layout',
-  'shell-header': 'Shell header',
+  'shell-header': 'Session header',
   agents: 'Agents',
-  isolation: 'Isolation',
+  isolation: 'Worktrees',
   launchers: 'Launchers',
   general: 'General',
   'auto-approval': 'Auto-approval',
   notifications: 'Notifications',
   keyboard: 'Keyboard',
-  runtime: 'Runtime',
+  runtime: 'Sessions & processes',
   remote: 'Remote access',
   beta: 'Beta features',
 };

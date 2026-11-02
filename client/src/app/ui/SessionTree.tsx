@@ -95,7 +95,7 @@ export function SessionTree({
   const starColor = 'var(--accent)';
 
   return (
-    <div style={{ margin: '2px 0 var(--s-2)' }}>
+    <div style={{ margin: 'var(--s-0-5) 0 var(--s-2)' }}>
       {/* Favourites section — pinned at top, shown only when non-empty */}
       {grouped.favorites && (
         <FavoritesNode
@@ -193,7 +193,7 @@ export function SessionTree({
         />
       ) : (
         <button type="button" onClick={() => setCreating(true)} style={createBtnStyle}>
-          <Icon icon={Plus} size={12} strokeWidth={1.8} />
+          <Icon icon={Plus} size="sm" />
           <span>New group</span>
         </button>
       )}
@@ -249,14 +249,14 @@ function FavoritesNode({
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
             <Icon icon={ChevronRight}
-              size={12}
+              size="sm"
               strokeWidth={2}
-              style={{ transform: favorites.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
+              style={{ transform: favorites.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)' }}
             />
           </button>
         </Tooltip>
 
-        <Icon icon={Star} size={10} strokeWidth={2} fill="currentColor" style={{ color: starColor, flexShrink: 0 }} />
+        <Icon icon={Star} size="xs" strokeWidth={2} fill="currentColor" style={{ color: starColor, flexShrink: 0 }} />
 
         <span style={{ ...nameBtnStyle, cursor: 'default', color: 'var(--fg-1)' }}>Favourites</span>
 
@@ -356,9 +356,9 @@ function GroupNode({
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
             <Icon icon={ChevronRight}
-              size={12}
+              size="sm"
               strokeWidth={2}
-              style={{ transform: group.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }}
+              style={{ transform: group.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)' }}
             />
           </button>
         </Tooltip>
@@ -391,17 +391,17 @@ function GroupNode({
           <button
             type="button"
             onClick={onFilter}
-            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 'var(--s-0-5)', borderRadius: 'var(--r-2)',
               color: active ? 'var(--accent)' : 'var(--fg-3)' }}
           >
-            {active ? <Icon icon={EyeOff} size={13} strokeWidth={1.8} /> : <Icon icon={Eye} size={13} strokeWidth={1.8} />}
+            {active ? <Icon icon={EyeOff} size="md" /> : <Icon icon={Eye} size="md" />}
           </button>
         </Tooltip>
 
         {/* hover actions — always rendered, opacity toggled so the row never reflows */}
         <span style={{ ...actionsStyle, opacity: hover && !editing ? 1 : 0, pointerEvents: hover && !editing ? 'auto' : 'none' }}>
-          <Act title="Kill all in group" onClick={onKill}><Icon icon={CircleX} size={11} strokeWidth={1.8} /></Act>
-          <Act title="Delete group" onClick={onDelete}><Icon icon={Trash2} size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in group" onClick={onKill}><Icon icon={CircleX} size="sm" /></Act>
+          <Act title="Delete group" onClick={onDelete}><Icon icon={Trash2} size="sm" /></Act>
         </span>
       </div>
 
@@ -491,8 +491,8 @@ function OthersNode({
       >
         <Tooltip content="Collapse / expand">
           <button type="button" onClick={onChevron} style={chevBtnStyle}>
-            <Icon icon={ChevronRight} size={12} strokeWidth={2}
-              style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms var(--ease-std)', color: 'var(--fg-3)' }} />
+            <Icon icon={ChevronRight} size="sm" strokeWidth={2}
+              style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)' }} />
           </button>
         </Tooltip>
         <Tooltip content="Set color">
@@ -512,16 +512,16 @@ function OthersNode({
           <button
             type="button"
             onClick={onFilter}
-            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+            style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 'var(--s-0-5)', borderRadius: 'var(--r-2)',
               color: active ? 'var(--accent)' : 'var(--fg-3)' }}
           >
-            {active ? <Icon icon={EyeOff} size={13} strokeWidth={1.8} /> : <Icon icon={Eye} size={13} strokeWidth={1.8} />}
+            {active ? <Icon icon={EyeOff} size="md" /> : <Icon icon={Eye} size="md" />}
           </button>
         </Tooltip>
 
         {/* hover-revealed kill */}
         <span style={{ ...actionsStyle, opacity: hover ? 1 : 0, pointerEvents: hover ? 'auto' : 'none' }}>
-          <Act title="Kill all in Others" onClick={onKill}><Icon icon={CircleX} size={11} strokeWidth={1.8} /></Act>
+          <Act title="Kill all in Others" onClick={onKill}><Icon icon={CircleX} size="sm" /></Act>
         </span>
       </div>
 
@@ -620,7 +620,7 @@ function Leaf({
         onBlur={() => setHover(false)}
         style={{
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
-          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) 28px', borderRadius: 'var(--r-2)',
+          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) var(--tree-indent)', borderRadius: 'var(--r-2)',
           cursor: 'grab', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: dimmed ? 0.55 : 1,
           // Inset rather than a real border: a border would resize the row and
@@ -654,16 +654,15 @@ function Leaf({
               type="button"
               onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
               style={{
-                all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 2, borderRadius: 3,
+                all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 'var(--s-0-5)', borderRadius: 'var(--r-2)',
                 opacity: isFavorite ? 1 : hover ? 0.7 : 0,
-                transition: 'opacity 120ms var(--ease-std)',
+                transition: 'opacity var(--dur-fast) var(--ease)',
                 color: isFavorite ? starColor : 'var(--fg-3)',
                 pointerEvents: isFavorite || hover ? 'auto' : 'none',
               }}
             >
               <Icon icon={Star}
-                size={11}
-                strokeWidth={1.8}
+                size="sm"
                 fill={isFavorite ? 'currentColor' : 'none'}
                 style={{ color: isFavorite ? starColor : 'var(--fg-3)' }}
               />
@@ -685,11 +684,11 @@ function Leaf({
             style={{
               all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 'var(--s-0-5)', borderRadius: 'var(--r-1)',
               opacity: hover ? 0.9 : 0.35,
-              transition: 'opacity 120ms var(--ease-std)',
+              transition: 'opacity var(--dur-fast) var(--ease)',
               color: 'var(--fg-2)',
             }}
           >
-            <Icon icon={MoreHorizontal} size={11} strokeWidth={1.8} />
+            <Icon icon={MoreHorizontal} size="sm" />
           </button>
           </Tooltip>
         </span>
@@ -716,7 +715,7 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         onBlur={() => setHover(false)}
         style={{
           display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
-          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) 28px', borderRadius: 'var(--r-2)',
+          padding: 'var(--leaf-pad-y) var(--s-2) var(--leaf-pad-y) var(--tree-indent)', borderRadius: 'var(--r-2)',
           cursor: 'pointer', background: hover ? 'var(--bg-2)' : 'transparent',
           opacity: 0.45,
         }}
@@ -730,7 +729,7 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
           {label}
         </span>
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
-          <Icon icon={RotateCcw} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
+          <Icon icon={RotateCcw} size="sm" style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
         {/* Matches Leaf's session-actions slot so ghost and live rows align. */}
         <span aria-hidden style={{ width: 18, flexShrink: 0 }} />
@@ -745,7 +744,7 @@ function NameInput({ initial = '', placeholder, onCommit, onCancel, inline }: {
 }) {
   const [val, setVal] = useState(initial);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: inline ? 0 : '4px var(--s-2)', flex: inline ? 1 : undefined }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-1)', padding: inline ? 0 : 'var(--s-1) var(--s-2)', flex: inline ? 1 : undefined }}>
       <input
         autoFocus
         value={val}
@@ -753,10 +752,10 @@ function NameInput({ initial = '', placeholder, onCommit, onCancel, inline }: {
         onChange={(e) => setVal(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') onCommit(val); if (e.key === 'Escape') onCancel(); }}
         style={{ flex: 1, minWidth: 0, background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)',
-          color: 'var(--fg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: '3px 6px' }}
+          color: 'var(--fg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: 'var(--s-1) var(--s-1-5)' }}
       />
-      <Act title="Save" onClick={() => onCommit(val)}><Icon icon={Check} size={11} strokeWidth={2} /></Act>
-      <Act onClick={onCancel}><Icon icon={X} size={11} strokeWidth={2} /></Act>
+      <Act title="Save" onClick={() => onCommit(val)}><Icon icon={Check} size="sm" strokeWidth={2} /></Act>
+      <Act onClick={onCancel}><Icon icon={X} size="sm" strokeWidth={2} /></Act>
     </div>
   );
 }
@@ -769,7 +768,7 @@ function Act({ title, onClick, children }: { title?: string; onClick: () => void
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 3, borderRadius: 4,
+      style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', padding: 'var(--s-0-5)', borderRadius: 'var(--r-2)',
         color: h ? 'var(--fg-0)' : 'var(--fg-3)', background: h ? 'var(--bg-3)' : 'transparent' }}
     >
       {children}
@@ -791,8 +790,8 @@ function headerClick(toggle: () => void) {
 }
 
 const headStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
-  padding: '4px var(--s-2) 4px 4px', borderRadius: 'var(--r-2)',
+  display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)', cursor: 'pointer',
+  padding: 'var(--s-1) var(--s-2) var(--s-1) var(--s-1)', borderRadius: 'var(--r-2)',
   fontSize: 'var(--t-sm)', color: 'var(--fg-1)', minHeight: 'var(--group-h)', boxSizing: 'border-box',
 };
 const chevBtnStyle: React.CSSProperties = { all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 };
@@ -800,9 +799,9 @@ const nameBtnStyle: React.CSSProperties = {
   all: 'unset', cursor: 'pointer', flex: 1, minWidth: 0, overflow: 'hidden',
   textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg-1)',
 };
-const actionsStyle: React.CSSProperties = { display: 'inline-flex', gap: 1, marginLeft: 2, transition: 'opacity 120ms var(--ease-std)' };
-const swatchRowStyle: React.CSSProperties = { display: 'flex', gap: 6, padding: '4px var(--s-2) 6px 28px' };
+const actionsStyle: React.CSSProperties = { display: 'inline-flex', gap: 'var(--s-px)', marginLeft: 'var(--s-0-5)', transition: 'opacity var(--dur-fast) var(--ease)' };
+const swatchRowStyle: React.CSSProperties = { display: 'flex', gap: 'var(--s-1-5)', padding: 'var(--s-1) var(--s-2) var(--s-1-5) var(--tree-indent)' };
 const createBtnStyle: React.CSSProperties = {
-  all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
-  padding: '5px var(--s-2) 5px 6px', marginTop: 2, color: 'var(--fg-3)', fontSize: 'var(--t-tiny)', borderRadius: 'var(--r-2)',
+  all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 'var(--s-1-5)',
+  padding: 'var(--s-1-5) var(--s-2) var(--s-1-5) var(--s-1-5)', marginTop: 'var(--s-0-5)', color: 'var(--fg-3)', fontSize: 'var(--t-tiny)', borderRadius: 'var(--r-2)',
 };

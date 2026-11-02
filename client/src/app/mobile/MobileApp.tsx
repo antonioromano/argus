@@ -227,7 +227,7 @@ function Inner() {
             ? 'This stops the agent process. The worktree and any uncommitted changes are left on disk — remove it from Argus on your Mac.'
             : 'This stops the agent process. Terminal scrollback is lost.'
         }
-        confirmLabel="Kill shell"
+        confirmLabel="Close session"
         confirmDestructive
         confirmLoading={killBusy}
         onConfirm={confirmKill}

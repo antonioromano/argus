@@ -319,12 +319,12 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                   <img src={a.preview} alt={a.name} />
                 ) : (
                   <div className="argus-chat-attachment-file">
-                    <Icon icon={FileText} size={20} aria-hidden />
+                    <Icon icon={FileText} size="xl" aria-hidden />
                     <span>{a.name}</span>
                   </div>
                 )}
                 <button type="button" className="argus-chat-attachment-remove" aria-label={`Remove ${a.name}`} onClick={() => remove(a.key)}>
-                  <Icon icon={X} size={10} aria-hidden />
+                  <Icon icon={X} size="xs" aria-hidden />
                 </button>
               </div>
             ))}
@@ -440,7 +440,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             onClick={(e) => openMenu('mode', e)}
           >
             {switchingMode ? 'Switching…' : permissionModeLabel(permissionMode)}
-            <Icon icon={ChevronDown} size={10} aria-hidden />
+            <Icon icon={ChevronDown} size="xs" aria-hidden />
           </button>
         )}
         <div style={{ flex: 1 }} />
@@ -452,7 +452,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           onClick={(e) => openMenu('model', e)}
         >
           {currentLabel ?? 'Model'}
-          <Icon icon={ChevronDown} size={10} aria-hidden />
+          <Icon icon={ChevronDown} size="xs" aria-hidden />
         </button>
       </div>
       {menu && (

@@ -6,21 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 import argus from './eslint-rules/index.js'
 
-// argus/no-raw-style-scale ratchet (plan 005): `error` in the directories that
-// have been migrated onto the locked scales, `warn` everywhere else so editors
-// show the debt without failing `npm run verify`. Each migration PR adds its
-// directory here; the last one drops the `warn` block and makes it global.
-const STYLE_SCALE_ENFORCED = [
-  'src/components/primitives/**/*.tsx',
-]
-// Files inside an enforced directory that are still mid-migration (warn only).
-// Form, States and Toast were being changed by parallel work when the rule
-// landed; migrate them and delete them from this list.
-const STYLE_SCALE_PENDING = [
-  'src/components/primitives/Form.tsx',
-  'src/components/primitives/States.tsx',
-  'src/components/primitives/Toast.tsx',
-]
+// argus/no-raw-style-scale (plan 005): every directory is on the locked
+// scales, so the rule is an error everywhere. A value that must stay exact
+// (e.g. an inset that feeds terminal fit) takes an eslint-disable with a reason.
 
 export default defineConfig([
   globalIgnores(['dist']),
@@ -44,13 +32,6 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
-    rules: {
-      'argus/no-raw-style-scale': 'warn',
-    },
-  },
-  {
-    files: STYLE_SCALE_ENFORCED,
-    ignores: STYLE_SCALE_PENDING,
     rules: {
       'argus/no-raw-style-scale': 'error',
     },

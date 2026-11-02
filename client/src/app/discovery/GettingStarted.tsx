@@ -30,11 +30,11 @@ export function GettingStartedCard({ done, finished = false, onAction, onDismiss
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
         >
-          <Icon icon={open ? ChevronDown : ChevronRight} size={11} strokeWidth={1.8} />
+          <Icon icon={open ? ChevronDown : ChevronRight} size="sm" />
           <span className="eyebrow">Getting started · {count} of {CHECKLIST_ITEMS.length}</span>
         </button>
         <button type="button" aria-label="Hide checklist" className="argus-checklist-x hover-bg-3" onClick={onDismiss}>
-          <Icon icon={X} size={11} strokeWidth={1.8} />
+          <Icon icon={X} size="sm" />
         </button>
       </div>
       {finished ? (
@@ -45,7 +45,7 @@ export function GettingStartedCard({ done, finished = false, onAction, onDismiss
             const ticked = done.includes(item.id);
             return (
               <li key={item.id} className="argus-checklist-row" data-done={ticked ? '' : undefined}>
-                <Icon icon={ticked ? Check : Circle} size={11} strokeWidth={ticked ? 2.2 : 1.6} className="argus-checklist-glyph" />
+                <Icon icon={ticked ? Check : Circle} size="sm" strokeWidth={ticked ? 2 : undefined} className="argus-checklist-glyph" />
                 <span className="argus-checklist-label">{item.label}</span>
                 {/* Always rendered (hidden once ticked) so a tick never reflows the row. */}
                 <button
@@ -87,7 +87,7 @@ export function GettingStartedRail({ done, onExpand }: { done: readonly string[]
   return (
     <Tooltip content={label}>
       <button type="button" className="argus-sidebar-row argus-checklist-rail" aria-label={label} onClick={onExpand}>
-        <Icon icon={ListChecks} size={20} strokeWidth={1.6} />
+        <Icon icon={ListChecks} size="xl" />
       </button>
     </Tooltip>
   );

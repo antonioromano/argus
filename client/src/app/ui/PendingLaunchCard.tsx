@@ -77,7 +77,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
       }}
       style={{
         width: 460, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
-        background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 8,
+        background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)',
         boxShadow: '0 8px 24px rgba(0,0,0,.35)', opacity: expired ? 0.6 : 1,
       }}
     >
@@ -94,17 +94,17 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
             data-testid="launch-risky-warning"
             role="alert"
             style={{
-              display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, padding: '6px 8px', borderRadius: 6,
+              display: 'flex', gap: 'var(--s-1-5)', alignItems: 'flex-start', marginTop: 'var(--s-2)', padding: 'var(--s-1-5) var(--s-2)', borderRadius: 'var(--r-3)',
               border: '1px solid var(--danger, red)', color: 'var(--danger, red)', fontWeight: 600,
             }}
           >
-            <Icon icon={AlertTriangle} size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+            <Icon icon={AlertTriangle} size="lg" aria-hidden="true" style={{ flexShrink: 0, marginTop: 'var(--s-px)' }} />
             <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
           </div>
         ))}
         {otherWarnings.map((w) => (
-          <div key={w.kind} data-testid="launch-warning" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, color: 'var(--warn, var(--fg-0))' }}>
-            <Icon icon={AlertTriangle} size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div key={w.kind} data-testid="launch-warning" style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'flex-start', marginTop: 'var(--s-1-5)', color: 'var(--warn, var(--fg-0))' }}>
+            <Icon icon={AlertTriangle} size="md" aria-hidden="true" style={{ flexShrink: 0, marginTop: 'var(--s-0-5)' }} />
             <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
           </div>
         ))}
@@ -118,7 +118,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
             data-risky={riskyArgs.has(a) || undefined}
             className="mono"
             style={{
-              fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '2px 0', borderBottom: '1px solid var(--line-1)',
+              fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: 'var(--s-0-5) 0', borderBottom: '1px solid var(--line-1)',
               ...(riskyArgs.has(a) ? { color: 'var(--danger, red)', fontWeight: 600 } : {}),
             }}
           >{a}</div>
@@ -133,7 +133,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               data-testid="launch-prompt"
               tabIndex={0}
               className="mono"
-              style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: showAll ? 'none' : '7.5em', overflowY: 'auto', background: 'var(--bg-1)', padding: 6, borderRadius: 4 }}
+              style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: showAll ? 'none' : '7.5em', overflowY: 'auto', background: 'var(--bg-1)', padding: 'var(--s-1-5)', borderRadius: 'var(--r-2)' }}
             >
               {promptLines.map((l, i) => (<span key={i}>{l}{i < promptLines.length - 1 ? '⏎\n' : ''}</span>))}
             </div>
@@ -150,21 +150,21 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           <div className="mono" style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{view.command}</div>
         </details>
 
-        {view.state === 'error' && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
-        {view.state === 'pending' && view.error && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
-        {actionError && <div role="alert" data-testid="launch-action-error" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{actionError}</div>}
+        {view.state === 'error' && <div role="alert" style={{ marginTop: 'var(--s-1-5)', color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
+        {view.state === 'pending' && view.error && <div role="alert" style={{ marginTop: 'var(--s-1-5)', color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
+        {actionError && <div role="alert" data-testid="launch-action-error" style={{ marginTop: 'var(--s-1-5)', color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{actionError}</div>}
       </div>
 
-      <div style={{ borderTop: '1px solid var(--line-2)', padding: 'var(--s-3) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ borderTop: '1px solid var(--line-2)', padding: 'var(--s-3) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
         {view.source === 'new' && !expired && (
           <div style={{ fontSize: 'var(--t-xs)' }}>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <label style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
               <input data-testid="launch-save-toggle" type="checkbox" checked={save} disabled={!view.canSaveAsLauncher} onChange={(e) => setSave(e.target.checked)} />
               Save as launcher (one-click <span className="mono">run/&lt;id&gt;</span> link)
             </label>
             {!view.canSaveAsLauncher && <div style={{ color: 'var(--fg-3)' }}>Not available: a launcher would create the same branch every run.</div>}
             {save && view.canSaveAsLauncher && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <div style={{ display: 'flex', gap: 'var(--s-1-5)', marginTop: 'var(--s-1)' }}>
                 <input data-testid="launch-save-id" className="mono" value={saveId} onChange={(e) => setSaveId(e.target.value)} aria-label="Launcher id" style={{ flex: 1 }} />
                 <input data-testid="launch-save-label" value={saveLabel} onChange={(e) => setSaveLabel(e.target.value)} aria-label="Launcher label" style={{ flex: 1 }} />
               </div>
@@ -172,12 +172,12 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           </div>
         )}
         {canUpdate && !expired && (
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--t-xs)' }}>
+          <label style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'center', fontSize: 'var(--t-xs)' }}>
             <input data-testid="launch-update-toggle" type="checkbox" checked={update} onChange={(e) => setUpdate(e.target.checked)} />
             Update launcher {view.launcherId} to this command (stops asking next time)
           </label>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--s-2)' }}>
           <Button variant="ghost" disabled={busy} onClick={() => void onDiscard(view.id)}>{expired ? 'Dismiss' : 'Discard'}</Button>
           {expired ? (
             <span style={{ alignSelf: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Expired</span>
@@ -188,7 +188,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               aria-disabled={!armed || busy}
               onClick={start}
               style={{
-                position: 'relative', overflow: 'hidden', padding: '4px 14px', borderRadius: 6,
+                position: 'relative', overflow: 'hidden', padding: 'var(--s-1) var(--s-4)', borderRadius: 'var(--r-3)',
                 border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)',
                 cursor: armed && !busy ? 'pointer' : 'not-allowed', opacity: armed && !busy ? 1 : 0.6,
               }}

@@ -74,8 +74,8 @@ export const INDICATOR_OPTIONS: readonly { value: TileRunningIndicator; label: s
 export type Backend = 'auto' | 'tmux';
 
 export const BACKEND_OPTIONS: readonly { value: Backend; label: string; title: string }[] = [
-  { value: 'auto', label: 'argusd', title: 'The Argus daemon — sessions survive app quit without tmux' },
-  { value: 'tmux', label: 'tmux', title: 'The legacy backend — sessions live in a tmux server' },
+  { value: 'auto', label: 'Argus host', title: 'Recommended. Sessions keep running after you quit Argus, without tmux' },
+  { value: 'tmux', label: 'tmux (legacy)', title: 'Sessions live in a tmux server' },
 ];
 
 export const RENDERER_OPTIONS: readonly { value: ClaudeRenderer; label: string; title: string }[] = [
@@ -91,6 +91,6 @@ export const RENDERER_HINT: Record<ClaudeRenderer, string> = {
 };
 
 export const VIEW_OPTIONS: readonly { value: SessionViewMode; label: string; title: string }[] = [
-  { value: 'terminal', label: 'Terminal', title: 'Open Claude shells in the terminal' },
-  { value: 'chat', label: 'Chat', title: 'Open Claude shells in the Chat view' },
+  { value: 'terminal', label: 'Terminal', title: 'Open Claude sessions in the terminal' },
+  { value: 'chat', label: 'Chat', title: 'Open Claude sessions in the Chat view' },
 ];

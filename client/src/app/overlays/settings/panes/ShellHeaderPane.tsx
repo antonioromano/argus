@@ -1,6 +1,6 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { PlanUsage, SessionUsage, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
-import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Toggle, Row } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
 import { UsageChip } from '../../../ui/UsageChip.js';
@@ -85,10 +85,10 @@ function Stepper({ label, value, onStep, min, max }: { label: string; value: num
 
 function ThresholdSteppers({ value, onChange, name }: { value: UsageWarnThresholds; onChange: (t: UsageWarnThresholds) => void; name: string }) {
   return (
-    <span style={{ display: 'inline-flex', gap: 'var(--s-3)' }} role="group" aria-label={`${name} warning`}>
+    <Row as="span" align="stretch" gap={3} role="group" aria-label={`${name} warning`}>
       <Stepper label="amber" value={value.amber} min={5} max={98} onStep={(d) => onChange(stepThreshold(value, 'amber', d))} />
       <Stepper label="red" value={value.red} min={6} max={99} onStep={(d) => onChange(stepThreshold(value, 'red', d))} />
-    </span>
+    </Row>
   );
 }
 
@@ -214,23 +214,23 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
           <Segmented label="Preview as" value={previewAgent} options={PREVIEW_AGENTS} onChange={setPreviewAgent} compact />
         </SettingRow>
         {previewAgent === 'gemini' ? (
-          <SettingRow hint="Gemini doesn’t report context or plan usage, so its shells show no usage chip.">
+          <SettingRow hint="Gemini doesn’t report context or plan usage, so its sessions show no usage chip.">
             <span data-testid="usage-preview-gemini-note" />
           </SettingRow>
         ) : (
           <SettingRow label="Simulate" hint="Preview only — try the warning colors">
-            <span style={{ display: 'inline-flex', gap: 'var(--s-3)', alignItems: 'center', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <Row as="span" gap={3} style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+              <label style={{ display: 'inline-flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
                 Context
                 <input type="range" min={1} max={100} value={simCtx} aria-label="Simulated context %" onChange={(e) => setSimCtx(Number(e.target.value))} />
                 <span style={{ minWidth: 32, fontFamily: 'var(--font-mono)' }}>{simCtx}%</span>
               </label>
-              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+              <label style={{ display: 'inline-flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
                 Plan
                 <input type="range" min={1} max={100} value={simPlan} aria-label="Simulated plan usage %" onChange={(e) => setSimPlan(Number(e.target.value))} />
                 <span style={{ minWidth: 32, fontFamily: 'var(--font-mono)' }}>{simPlan}%</span>
               </label>
-            </span>
+            </Row>
           </SettingRow>
         )}
         <SettingRow trailing>
@@ -250,7 +250,7 @@ export function ShellHeaderPane({ config, onSave }: PaneProps) {
               textDecoration: 'underline',
             }}
           >
-            Reset shell header to defaults
+            Reset session header to defaults
           </button>
         </SettingRow>
       </Section>

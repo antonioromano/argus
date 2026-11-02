@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Badge, Button, Checkbox, Sheet } from '../../../components/primitives/index.js';
+import { Badge, Button, Checkbox, Sheet, Row, Stack } from '../../../components/primitives/index.js';
 import { SECTION_ORDER, type ImportItem, type ImportPlan, type ImportSection } from '../../../settings-backup/diffImport.js';
 
 const SECTION_TITLE: Record<ImportSection, string> = {
@@ -52,7 +52,7 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
       width={640}
       onClose={applying ? undefined : onCancel}
       footer={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
+        <Row gap={3} style={{ width: '100%' }}>
           <span style={{ flex: 1, fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
             Your current settings are backed up first.
           </span>
@@ -60,10 +60,10 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
           <Button variant="primary" onClick={() => onApply(selected)} disabled={count === 0} loading={applying}>
             Import {count} item{count === 1 ? '' : 's'}
           </Button>
-        </div>
+        </Row>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+      <Stack gap={5}>
         {sections.length === 0 && (
           <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)' }}>
             Everything in this file already matches your settings.
@@ -75,7 +75,7 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
           const someOn = pickable.some((k) => selected.has(k));
           return (
             <section key={id} data-import-section={id}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', marginBottom: 'var(--s-2)' }}>
+              <Row gap={2} style={{ marginBottom: 'var(--s-2)' }}>
                 <Checkbox
                   checked={allOn}
                   indeterminate={someOn && !allOn}
@@ -83,7 +83,7 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
                   onChange={(on) => toggle(pickable, on)}
                 />
                 <span className="settings-group-title" style={{ flex: 1 }}>{SECTION_TITLE[id]}</span>
-              </div>
+              </Row>
               {sectionNotes[id] && (
                 <div style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', marginBottom: 'var(--s-2)' }}>
                   {sectionNotes[id]}
@@ -106,7 +106,7 @@ export function ImportPreviewSheet({ plan, sectionNotes = {}, applying, onApply,
             </ul>
           </section>
         )}
-      </div>
+      </Stack>
     </Sheet>
   );
 }
@@ -115,25 +115,30 @@ function ImportRow({ item, checked, onToggle }: { item: ImportItem; checked: boo
   const identical = item.status === 'identical';
   const valueStyle = item.mono ? { fontFamily: 'var(--font-mono)' } : undefined;
   return (
-    <div
+    <Row
+      align="start"
+      gap={3}
       data-import-item={item.key}
-      style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--s-3)', padding: 'var(--s-2-5) var(--s-3)', opacity: identical ? 0.6 : 1 }}
+      style={{
+        padding: 'var(--s-2-5) var(--s-3)',
+        opacity: identical ? 0.6 : 1,
+      }}
     >
       <span style={{ paddingTop: 'var(--s-0-5)' }}>
         <Checkbox checked={checked && !identical} disabled={identical} onChange={onToggle} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
+        <Row gap={2} style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
           <span>{item.label}</span>
           {item.status === 'new' && <Badge label="New" />}
           {item.sensitive && <Badge label="Review" color="var(--warn)" />}
-        </div>
+        </Row>
         <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', overflowWrap: 'anywhere' }}>
           {item.before !== undefined && <><span style={valueStyle}>{item.before}</span>{' → '}</>}
           <span style={valueStyle}>{item.after}</span>
         </div>
         {item.note && <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>{item.note}</div>}
       </div>
-    </div>
+    </Row>
   );
 }

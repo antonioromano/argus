@@ -35,7 +35,7 @@ function RevealButton({ shown, onToggle }: { shown: boolean; onToggle: () => voi
         display: 'flex',
       }}
     >
-      {shown ? <Icon icon={EyeOff} size={14} strokeWidth={1.6} /> : <Icon icon={Eye} size={14} strokeWidth={1.6} />}
+      {shown ? <Icon icon={EyeOff} size="md" /> : <Icon icon={Eye} size="md" />}
     </button>
   );
 }
@@ -54,7 +54,7 @@ function Requirement({ met, label }: { met: boolean; label: string }) {
         transition: 'color var(--dur-fast)',
       }}
     >
-      {met ? <Icon icon={Check} size={12} strokeWidth={2} /> : <Icon icon={Minus} size={12} strokeWidth={1.6} />}
+      {met ? <Icon icon={Check} size="sm" strokeWidth={2} /> : <Icon icon={Minus} size="sm" />}
       {label}
     </div>
   );

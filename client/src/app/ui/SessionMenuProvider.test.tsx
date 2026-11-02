@@ -94,7 +94,7 @@ describe('SessionMenuProvider rename', () => {
   it('opens exactly one editor, on the surface the menu came from', () => {
     mount();
     openMenuOn('tile');
-    clickMenuItem('Rename shell');
+    clickMenuItem('Rename Session…');
 
     const inputs = container.querySelectorAll('input');
     expect(inputs.length, 'one editor, not one per surface').toBe(1);
@@ -107,7 +107,7 @@ describe('SessionMenuProvider rename', () => {
   it('editor started from the sidebar row stays on the sidebar row', () => {
     mount();
     openMenuOn('tree');
-    clickMenuItem('Rename shell');
+    clickMenuItem('Rename Session…');
 
     expect(container.querySelectorAll('input').length).toBe(1);
     expect(container.querySelector('[data-testid="tree"] input')).toBeTruthy();
@@ -116,7 +116,7 @@ describe('SessionMenuProvider rename', () => {
   it('commits the edited name once', () => {
     const { onRename } = mount();
     openMenuOn('tile');
-    clickMenuItem('Rename shell');
+    clickMenuItem('Rename Session…');
 
     const input = container.querySelector('input')!;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -174,7 +174,7 @@ describe('SessionMenuProvider ⋯ anchor', () => {
   it('rename from a ⋯-opened menu edits on that surface only', () => {
     mount();
     clickMore('tree');
-    clickMenuItem('Rename shell');
+    clickMenuItem('Rename Session…');
     expect(container.querySelectorAll('input').length).toBe(1);
     expect(container.querySelector('[data-testid="tree"] input')).toBeTruthy();
   });

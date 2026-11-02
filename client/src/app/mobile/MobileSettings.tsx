@@ -71,13 +71,13 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   className="eyebrow"
                   style={{
                     fontSize: 'var(--t-tiny)',
-                    padding: '7px 13px',
+                    padding: 'var(--s-2) var(--s-3)',
                     border: 'none',
                     cursor: 'pointer',
                     background: on ? 'var(--accent)' : 'transparent',
                     color: on ? 'var(--fg-on-accent)' : 'var(--fg-2)',
                     fontWeight: on ? 700 : 400,
-                    transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
+                    transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast)',
                   }}
                 >
                   {opt.label}
@@ -96,9 +96,9 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotify(!notify)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a shell needs you</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a session needs you</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → waiting transition while this tab is in the background.</span>
                 </span>
                 <Switch on={notify} />
@@ -109,9 +109,9 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotifyDone(!notifyDone)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a session finishes</span>
                   <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → done transition while this tab is in the background.</span>
                 </span>
                 <Switch on={notifyDone} />
@@ -139,7 +139,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   cursor: 'pointer',
                   background: selected ? 'var(--accent-bg)' : 'var(--bg-1)',
                   border: `1px solid ${selected ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                  transition: 'background var(--dur-fast) var(--ease-std), border-color var(--dur-fast)',
+                  transition: 'background var(--dur-fast) var(--ease), border-color var(--dur-fast)',
                 }}
               >
                 <div
@@ -148,7 +148,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     height: 20,
                     borderRadius: '50%',
                     flexShrink: 0,
-                    marginTop: 1,
+                    marginTop: 'var(--s-px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -157,11 +157,11 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     color: 'var(--fg-on-accent)',
                   }}
                 >
-                  {selected && <Icon icon={Check} size={12} strokeWidth={3} />}
+                  {selected && <Icon icon={Check} size="sm" strokeWidth={2} />}
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', fontWeight: 600, color: 'var(--fg-0)' }}>{opt.title}</div>
-                  <div style={{ marginTop: 2, fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', lineHeight: 1.45 }}>{opt.desc}</div>
+                  <div style={{ marginTop: 'var(--s-0-5)', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', lineHeight: 1.45 }}>{opt.desc}</div>
                 </div>
               </button>
             );
@@ -173,7 +173,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
         <div style={{ padding: '0 var(--s-3) var(--s-6)' }}>
           <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', background: 'var(--bg-1)', padding: 'var(--s-3)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
-              <Icon icon={Wifi} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+              <Icon icon={Wifi} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>
                   {publicUrl ? 'Tunnel connected' : 'Tunnel not active'}

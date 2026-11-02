@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { GitBranch, Trash2 } from 'lucide-react';
-import { Section, Button, AlertSheet, Icon } from '../../../../components/primitives/index.js';
+import { Section, Button, AlertSheet, Icon, Row } from '../../../../components/primitives/index.js';
 import { api } from '../../../../services/api.js';
 
 /** Not a preferences pane — a janitor. It lists the worktrees Argus created and
@@ -72,26 +72,24 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
             const isLive = s.status !== 'exited';
             const last = i === worktreeSessions.length - 1;
             return (
-              <div
+              <Row
+                gap={3}
                 key={s.id}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-3)',
                   padding: 'var(--s-3) var(--s-4)',
                   borderBottom: last ? 'none' : '1px solid var(--line-1)',
                 }}
               >
-                <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', fontWeight: 500 }}>
                     {s.worktreeBranch}
                   </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginTop: 'var(--s-0-5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {s.folderPath}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}>
+                <Row gap={2} style={{ flexShrink: 0 }}>
                   <span style={{
                     fontSize: 'var(--t-micro)',
                     fontFamily: 'var(--font-mono)',
@@ -107,10 +105,10 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
                     onClick={() => void handleDeleteClick(s)}
                     title={isLive ? 'Close session first' : 'Delete worktree'}
                   >
-                    <Icon icon={Trash2} size={12} />
+                    <Icon icon={Trash2} size="sm" />
                   </Button>
-                </div>
-              </div>
+                </Row>
+              </Row>
             );
           })
         )}

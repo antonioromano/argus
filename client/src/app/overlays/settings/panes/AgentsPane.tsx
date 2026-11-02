@@ -9,6 +9,8 @@ import {
   Button,
   TextInput,
   Icon,
+  Stack,
+  Row,
 } from '../../../../components/primitives/index.js';
 import { offerUndo } from '../../../../utils/undoable.js';
 import { toastError } from '../../../../errors/toastError.js';
@@ -127,7 +129,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: 6,
+                      gap: 'var(--s-1-5)',
                       padding: 'var(--s-3) var(--s-2)',
                       background: sel ? 'var(--accent-bg)' : 'var(--bg-1)',
                       border: `1px solid ${sel ? 'var(--accent-edge)' : 'var(--line-2)'}`,
@@ -152,12 +154,14 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
           action={<Button variant="outline" size="sm" icon={Plus} onClick={startAddAgent}>Add custom</Button>}
         >
           {editingAgent && (
-            <div style={{
-              display: 'flex', flexDirection: 'column', gap: 'var(--s-3)',
-              padding: 'var(--s-4)',
-              background: 'var(--bg-1)',
-              borderBottom: '1px solid var(--accent-edge)',
-            }}>
+            <Stack
+              gap={3}
+              style={{
+                padding: 'var(--s-4)',
+                background: 'var(--bg-1)',
+                borderBottom: '1px solid var(--accent-edge)',
+              }}
+            >
               <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
                 {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
               </div>
@@ -173,25 +177,23 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
               {agentFormError && (
                 <div style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{agentFormError}</div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--s-2)' }}>
+              <Row align="stretch" justify="end" gap={2}>
                 <Button variant="ghost" size="sm" onClick={() => setEditingAgent(null)}>Cancel</Button>
                 <Button variant="primary" size="sm" loading={savingAgent} onClick={() => void saveAgent()}>
                   {editingAgent.id === null ? 'Add agent' : 'Save'}
                 </Button>
-              </div>
-            </div>
+              </Row>
+            </Stack>
           )}
           {agents.map((a) => {
             const expanded = expandedAgent === a.id;
             const agentFlags = config.agentFlags[a.id] ?? [];
             return (
               <Fragment key={a.id}>
-                <div
+                <Row
+                  gap={3}
                   onClick={() => toggleAgent(a.id)}
                   style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--s-3)',
                     padding: 'var(--s-3) var(--s-4)',
                     borderBottom: expanded ? 'none' : '1px solid var(--line-1)',
                     cursor: 'pointer',
@@ -213,10 +215,10 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                     </>
                   )}
                   {expanded
-                    ? <Icon icon={ChevronDown} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
-                    : <Icon icon={ChevronRight} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                    ? <Icon icon={ChevronDown} size="md" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                    : <Icon icon={ChevronRight} size="md" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
                   }
-                </div>
+                </Row>
                 {expanded && (
                   <div style={{
                     padding: 'var(--s-3) var(--s-4)',
@@ -229,9 +231,9 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                         No flags yet
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', marginBottom: 'var(--s-3)' }}>
+                      <Stack gap={1} style={{ marginBottom: 'var(--s-3)' }}>
                         {agentFlags.map((f) => (
-                          <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                          <Row gap={2} key={f.id}>
                             <span className="mono" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
                               {f.value}
                             </span>
@@ -241,11 +243,11 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                               size="sm"
                               onClick={(e) => { e.stopPropagation(); onDeleteFlag(a.id, f.id); }}
                             />
-                          </div>
+                          </Row>
                         ))}
-                      </div>
+                      </Stack>
                     )}
-                    <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'flex-start' }}>
+                    <Row align="start" gap={2}>
                       <div style={{ flex: 1 }}>
                         <TextInput
                           value={flagInput}
@@ -256,7 +258,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                           error={!!flagError}
                         />
                         {flagError && (
-                          <div style={{ marginTop: 4, fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>
+                          <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>
                             {flagError}
                           </div>
                         )}
@@ -270,7 +272,7 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
                       >
                         Add
                       </Button>
-                    </div>
+                    </Row>
                   </div>
                 )}
               </Fragment>

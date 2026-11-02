@@ -106,9 +106,9 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
           fontSize: 'var(--t-sm)',
         }}
       >
-        <Icon icon={CurrentIcon} size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-2)' }} />
+        <Icon icon={CurrentIcon} size="md" style={{ flexShrink: 0, color: 'var(--fg-2)' }} />
         <span style={{ flex: 1, minWidth: 0 }}>{label(value)}</span>
-        <Icon icon={ChevronDown} size={13} strokeWidth={1.7} style={{ flexShrink: 0, color: 'var(--fg-3)' }} />
+        <Icon icon={ChevronDown} size="md" style={{ flexShrink: 0, color: 'var(--fg-3)' }} />
       </button>
 
       {open && createPortal(
@@ -135,7 +135,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
             border: '1px solid var(--line-3)',
             borderRadius: 'var(--r-3)',
             boxShadow: 'var(--shadow-pop)',
-            padding: 4,
+            padding: 'var(--s-1)',
             animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
           }}
         >
@@ -157,23 +157,23 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
                   boxSizing: 'border-box',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 9,
+                  gap: 'var(--s-2)',
                   width: '100%',
-                  padding: '6px var(--s-2)',
+                  padding: 'var(--s-1-5) var(--s-2)',
                   borderRadius: 'var(--r-2)',
                   cursor: 'pointer',
                   color: selected ? 'var(--accent)' : 'var(--fg-1)',
                 }}
               >
-                <Icon icon={Glyph} size={13} strokeWidth={1.7} style={{ flexShrink: 0 }} />
+                <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: 'block', fontSize: 'var(--t-sm)' }}>{label(id)}</span>
-                  <span style={{ display: 'block', fontSize: 'var(--t-micro)', color: 'var(--fg-4)', marginTop: 1 }}>
+                  <span style={{ display: 'block', fontSize: 'var(--t-micro)', color: 'var(--fg-4)', marginTop: 'var(--s-px)' }}>
                     {meta.hint}
                   </span>
                 </span>
                 <Icon icon={Check}
-                  size={12}
+                  size="sm"
                   strokeWidth={2}
                   style={{ flexShrink: 0, opacity: selected ? 1 : 0, color: 'var(--accent)' }}
                 />

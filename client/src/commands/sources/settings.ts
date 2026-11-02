@@ -18,7 +18,7 @@ export const PALETTE_CHOICES: Readonly<Record<string, string>> = {
   density: 'Density',
   codeFontSize: 'Code font size',
   uiFontSize: 'Interface font size',
-  mosaicOrientation: 'Shell layout',
+  mosaicOrientation: 'Session layout',
   mosaicWaitingStyle: 'Waiting style',
   inspectorSide: 'Inspector position',
   tileRunningIndicator: 'Running indicator',

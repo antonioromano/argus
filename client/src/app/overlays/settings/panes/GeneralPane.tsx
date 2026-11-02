@@ -23,7 +23,7 @@ export function GeneralPane({ config, onSave }: PaneProps) {
         </SettingField>
       </Section>
 
-      <Section title="On Quit">
+      <Section title="When quitting">
         <SettingField id="exitSessionsOnQuit">
           <Toggle checked={exitOnQuit} onChange={(v) => onSave({ exitSessionsOnQuit: v })} />
         </SettingField>

@@ -1,6 +1,6 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Icon } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Icon, Row } from '../../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
@@ -42,7 +42,7 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
   const comboPill = (danger = false): React.CSSProperties => ({
     minWidth: 56,
     textAlign: 'center',
-    padding: '3px 8px',
+    padding: 'var(--s-1) var(--s-2)',
     border: `1px solid ${danger ? 'var(--danger)' : 'var(--line-2)'}`,
     background: 'var(--bg-2)',
     borderRadius: 'var(--r-1)',
@@ -54,7 +54,7 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
   const actionBtn: React.CSSProperties = {
     all: 'unset',
     cursor: 'pointer',
-    padding: '4px 10px',
+    padding: 'var(--s-1) var(--s-3)',
     border: '1px solid var(--line-2)',
     borderRadius: 'var(--r-1)',
     fontSize: 'var(--t-sm)',
@@ -83,10 +83,10 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                   anchorId={`shortcut:${a.id}`}
                   className={target === `shortcut:${a.id}` ? 'is-target' : undefined}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                  <Row gap={2}>
                     {conflict && (
                       <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>
-                        <Icon icon={AlertTriangle} size={14} />
+                        <Icon icon={AlertTriangle} size="md" />
                       </span>
                     )}
                     <span style={comboPill(conflict)}>
@@ -103,16 +103,16 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                           {isRecording ? 'Cancel' : 'Record'}
                         </button>
                         <button
-                          style={{ ...actionBtn, opacity: overridden ? 1 : 0.35, cursor: overridden ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 4 }}
+                          style={{ ...actionBtn, opacity: overridden ? 1 : 0.35, cursor: overridden ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}
                           disabled={!overridden}
                           title="Reset to default"
                           onClick={() => overridden && resetOne(a.id)}
                         >
-                          <Icon icon={RotateCcw} size={13} />
+                          <Icon icon={RotateCcw} size="md" />
                         </button>
                       </>
                     )}
-                  </div>
+                  </Row>
                 </SettingRow>
               );
             })}

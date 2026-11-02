@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, AlertTriangle, AlertOctagon, X } from 'lucide-react';
+import { Check, AlertTriangle, CircleX, X } from 'lucide-react';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
 import { Icon } from './Icon.js';
 
@@ -143,7 +143,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
-          gap: 8,
+          gap: 'var(--s-2)',
           zIndex: 'var(--z-toast)',
           pointerEvents: 'none',
         }}
@@ -169,7 +169,7 @@ const STACK: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'flex-end',
-  gap: 8,
+  gap: 'var(--s-2)',
 };
 
 function ToastView({
@@ -235,8 +235,8 @@ function ToastView({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '6px 12px',
+        gap: 'var(--s-2)',
+        padding: 'var(--s-1-5) var(--s-3)',
         minHeight: 32,
         background: palette.bg,
         color: palette.fg,
@@ -246,7 +246,7 @@ function ToastView({
         boxShadow: 'var(--shadow-sheet)',
         opacity: shown ? 1 : 0,
         transform: shown ? 'translateY(0)' : 'translateY(4px)',
-        transition: 'opacity 200ms var(--ease-std), transform 200ms var(--ease-std)',
+        transition: 'opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease)',
         pointerEvents: 'auto',
       }}
       onMouseEnter={dismissible ? () => setPaused(true) : undefined}
@@ -254,7 +254,7 @@ function ToastView({
       onFocus={dismissible ? () => setPaused(true) : undefined}
       onBlur={dismissible ? () => setPaused(false) : undefined}
     >
-      <Icon icon={Glyph} size={12} strokeWidth={1.8} />
+      <Icon icon={Glyph} size="sm" />
       <span>{item.message}</span>
       {action && (
         // Always rendered (never hover-revealed) so the toast never changes size.
@@ -293,7 +293,7 @@ function ToastView({
             justifyContent: 'center',
             width: 20,
             height: 20,
-            marginRight: -6,
+            marginRight: 'calc(-1 * var(--s-1-5))',
             padding: 0,
             border: 'none',
             borderRadius: 'var(--r-1)',
@@ -303,7 +303,7 @@ function ToastView({
             flexShrink: 0,
           }}
         >
-          <Icon icon={X} size={12} strokeWidth={1.8} />
+          <Icon icon={X} size="sm" />
         </button>
       )}
     </div>
@@ -327,6 +327,6 @@ const TONE: Record<ToastTone, { bg: string; fg: string; border: string; icon: ty
     bg: 'var(--bg-2)',
     fg: 'var(--danger)',
     border: 'color-mix(in srgb, var(--danger) 33%, transparent)',
-    icon: AlertOctagon,
+    icon: CircleX,
   },
 };

@@ -81,13 +81,13 @@ export function WaitingStylePreview({ style }: { style: WaitingStyle }) {
             {STATUS_LABELS.waiting}
           </span>
           <span className="argus-tile-actions" style={{ color: 'var(--fg-2)' }}>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={GitBranch} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={GitBranch} size="md" /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size="md" /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size="md" /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size="md" /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size="md" /></span>
           </span>
         </div>
         {/* Stand-in for the terminal fill: the breathing style's ::after sits

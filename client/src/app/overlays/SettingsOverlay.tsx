@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AppConfig, AgentFlag, NgrokStatus, SessionInfo } from '@argus/shared';
-import { Sheet, Button } from '../../components/primitives/index.js';
+import { Sheet, Button, Row } from '../../components/primitives/index.js';
 import { SettingsNav } from './settings/SettingsNav.js';
 import {
   PANES_BY_ID,
@@ -228,7 +228,7 @@ export function SettingsOverlay({
         width={920}
         onClose={onClose}
         footer={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
+          <Row gap={3} style={{ width: '100%' }}>
             <span className="eyebrow" style={{ flex: 1 }}>
               {changedCount === 0 ? 'ALL SETTINGS AT DEFAULTS' : (
                 <button
@@ -253,10 +253,10 @@ export function SettingsOverlay({
             <Button variant="ghost" disabled={changedCount === 0} onClick={resetAll}>
               Reset all
             </Button>
-          </div>
+          </Row>
         }
       >
-        <div style={{ display: 'flex', height: 560, margin: 'calc(-1 * var(--s-5)) calc(-1 * var(--s-6))' }}>
+        <Row align="stretch" style={{ height: 560, margin: 'calc(-1 * var(--s-5)) calc(-1 * var(--s-6))' }}>
           <SettingsNav
             active={pane}
             onSelect={setPane}
@@ -278,10 +278,10 @@ export function SettingsOverlay({
                 made content jump sideways on each tab switch. */}
             <div style={{ width: 640, maxWidth: '100%' }}>
               <div className="eyebrow" style={{ color: 'var(--accent)' }}>{def ? def.group : 'Overview'}</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--s-3)', margin: 'var(--s-1-5) 0 var(--s-5)' }}>
+              <Row align="baseline" gap={3} style={{ margin: 'var(--s-1-5) 0 var(--s-5)' }}>
                 <h2 style={{
                   flex: 1,
-                  fontSize: 'var(--t-2xl)',
+                  fontSize: 'var(--t-display)',
                   margin: 0,
                   letterSpacing: 'var(--tracking-tight)',
                   fontWeight: 600,
@@ -299,14 +299,14 @@ export function SettingsOverlay({
                     Reset pane
                   </Button>
                 )}
-              </div>
+              </Row>
 
               <SettingTargetContext.Provider value={target?.id ?? null}>
                 {renderPane()}
               </SettingTargetContext.Provider>
             </div>
           </main>
-        </div>
+        </Row>
       </Sheet>
 
       {transfer.sheet}

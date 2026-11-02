@@ -1,5 +1,5 @@
 import { Bell, ExternalLink, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Toggle, Button } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Toggle, Button, Row } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
 import { normalizeDiscovery, resetTips } from '../../../discovery/discoveryState.js';
@@ -80,7 +80,7 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
       <Section title="Permissions">
         <SettingRow hint="Delivery is granted in macOS System Settings → Notifications.">
           {bridgeAvailable ? (
-            <span style={{ display: 'inline-flex', gap: 'var(--s-2)', flexWrap: 'wrap' }}>
+            <Row as="span" align="stretch" gap={2} wrap>
               <Button variant="outline" icon={Bell} onClick={sendTest}>Send test notification</Button>
               {window.electronNotifications?.openSystemSettings && (
                 <Button
@@ -91,7 +91,7 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
                   Open System Settings
                 </Button>
               )}
-            </span>
+            </Row>
           ) : (
             <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
               This surface can't show desktop notifications.

@@ -89,8 +89,8 @@ function HeaderChip({
         cursor: busy ? 'wait' : 'pointer',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 3,
-        padding: '2px 6px',
+        gap: 'var(--s-1)',
+        padding: 'var(--s-0-5) var(--s-1-5)',
         borderRadius: 'var(--r-2)',
         border: `1px solid ${active ? 'var(--accent)' : 'var(--line-3)'}`,
         background: active ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent',
@@ -99,7 +99,7 @@ function HeaderChip({
         fontSize: 'var(--t-micro)',
       }}
     >
-      {partial ? <Icon icon={Minus} size={10} strokeWidth={2.5} /> : <Icon icon={Glyph} size={10} strokeWidth={2} />}
+      {partial ? <Icon icon={Minus} size="xs" strokeWidth={2} /> : <Icon icon={Glyph} size="xs" strokeWidth={2} />}
       {label}
     </span>
   );
@@ -171,7 +171,7 @@ export function FileSection({
           display: 'flex',
           alignItems: 'center',
           gap: 'var(--s-2)',
-          padding: '6px var(--s-4)',
+          padding: 'var(--s-1-5) var(--s-4)',
           background: active ? 'var(--bg-2)' : 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
           borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
@@ -181,11 +181,11 @@ export function FileSection({
         onClick={toggleCollapsed}
       >
         <Icon icon={ChevronRight}
-          size={14}
+          size="md"
           strokeWidth={2}
           style={{
             transform: collapsed ? 'none' : 'rotate(90deg)',
-            transition: 'transform 150ms var(--ease-std)',
+            transition: 'transform var(--dur-fast) var(--ease)',
             color: 'var(--fg-3)',
             flexShrink: 0,
           }}

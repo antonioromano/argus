@@ -39,7 +39,7 @@ export function KeyCap({ label, sub, tone = 'default', onPress, ariaLabel, grow,
       style={{
         flex: grow != null ? `${grow} 1 0` : undefined,
         minWidth: 40,
-        minHeight: 44,
+        minHeight: 'var(--row-h-touch)',
         height: fill ? '100%' : undefined,
         padding: '0 var(--s-2)',
         borderRadius: 'var(--r-2)',
@@ -51,7 +51,7 @@ export function KeyCap({ label, sub, tone = 'default', onPress, ariaLabel, grow,
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 1,
+        gap: 'var(--s-px)',
         opacity: disabled ? 0.4 : 1,
         ...toneStyle(tone),
       }}
@@ -59,6 +59,7 @@ export function KeyCap({ label, sub, tone = 'default', onPress, ariaLabel, grow,
       <span>{label}</span>
       {/* On the accent fill --fg-2 drops to ~1.5:1; take the key's on-accent ink. */}
       {sub && (
+        // eslint-disable-next-line argus/no-raw-style-scale -- sub-legend under the key glyph; eyebrow (10px) widens 40px keys like "resume"
         <span style={{ fontSize: '8px', fontWeight: 500, color: tone === 'accent' ? 'inherit' : 'var(--fg-2)', fontFamily: 'var(--font-sans)', letterSpacing: 'var(--tracking-eye)' }}>
           {sub}
         </span>

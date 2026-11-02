@@ -20,14 +20,14 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
-          marginBottom: 6,
+          marginBottom: 'var(--s-1-5)',
         }}>
           <span className="eyebrow" style={{ color: error ? 'var(--danger)' : 'var(--fg-2)' }}>
             {label}
             {required && (
               <>
-                <span aria-hidden="true" style={{ color: 'var(--accent)', marginLeft: 4 }}>*</span>
-                <span style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>required</span>
+                <span aria-hidden="true" style={{ color: 'var(--accent)', marginLeft: 'var(--s-1)' }}>*</span>
+                <span style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: 'calc(-1 * var(--s-px))', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>required</span>
               </>
             )}
           </span>
@@ -35,7 +35,7 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
         </div>
       )}
       {children}
-      {error && <div style={{ marginTop: 4, fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>{error}</div>}
+      {error && <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>{error}</div>}
     </label>
   );
 }
@@ -133,7 +133,7 @@ export function TextInput({
       opacity: disabled ? 0.5 : 1,
       ...style,
     }}>
-      {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-3)" />}
+      {Glyph && <Icon icon={Glyph} size="md" color="var(--fg-3)" />}
       <input
         type={type}
         autoFocus={autoFocus}

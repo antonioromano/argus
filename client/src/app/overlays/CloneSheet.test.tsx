@@ -56,8 +56,8 @@ afterEach(() => {
 
 function submitButton(): HTMLButtonElement {
   const btn = Array.from(container.querySelectorAll('button'))
-    .find((b) => b.textContent?.startsWith('Clone shell'));
-  if (!btn) throw new Error('Clone shell button not rendered');
+    .find((b) => b.textContent?.startsWith('Clone session'));
+  if (!btn) throw new Error('Clone session button not rendered');
   return btn as HTMLButtonElement;
 }
 
@@ -99,7 +99,7 @@ function typeInto(input: HTMLInputElement, value: string) {
 describe('CloneSheet shell name', () => {
   function nameInput(): HTMLInputElement {
     const input = container.querySelector<HTMLInputElement>('input[placeholder="e.g. refactor-event-bus"]');
-    if (!input) throw new Error('Shell name input not rendered');
+    if (!input) throw new Error('Session name input not rendered');
     return input;
   }
 

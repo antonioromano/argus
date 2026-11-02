@@ -119,7 +119,7 @@ export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefO
                 {check.url ? (
                   <button type="button" className="argus-ci-popover-link" title={`Open ${check.name}`} onClick={() => openExternal(check.url!)}>
                     <span className="argus-ci-popover-name">{check.name}</span>
-                    <Icon icon={ExternalLink} size={11} strokeWidth={1.8} />
+                    <Icon icon={ExternalLink} size="sm" />
                   </button>
                 ) : (
                   <span className="argus-ci-popover-name">{check.name}</span>
@@ -133,7 +133,7 @@ export function CiPopover({ pr, anchor, onClose }: { pr: SessionPr; anchor: RefO
         </>
       )}
       <button type="button" className="argus-ci-popover-open" onClick={() => { onClose(); openExternal(prChecksUrl(pr.url)); }}>
-        <Icon icon={ExternalLink} size={12} strokeWidth={1.8} />
+        <Icon icon={ExternalLink} size="sm" />
         Open checks on GitHub
       </button>
     </div>,

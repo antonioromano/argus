@@ -111,12 +111,12 @@ export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarPro
   const toggleBtn = (active: boolean): React.CSSProperties => ({
     height: 22,
     minWidth: 24,
-    padding: '0 5px',
+    padding: '0 var(--s-1-5)',
     border: `1px solid ${active ? 'var(--accent)' : 'var(--line-3)'}`,
     background: active ? 'var(--accent)' : 'transparent',
     color: active ? 'var(--bg-0)' : 'var(--fg-2)',
     borderRadius: 'var(--r-1)',
-    fontSize: 11,
+    fontSize: 'var(--t-caption)',
     fontFamily: 'var(--font-mono)',
     cursor: 'pointer',
     lineHeight: 1,
@@ -148,7 +148,7 @@ export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarPro
         display: 'flex',
         alignItems: 'center',
         gap: 'var(--s-2)',
-        padding: '5px 6px',
+        padding: 'var(--s-1-5)',
         background: 'var(--bg-2)',
         border: '1px solid var(--line-2)',
         borderRadius: 'var(--r-2)',
@@ -167,7 +167,7 @@ export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarPro
         style={{
           width: 180,
           height: 22,
-          padding: '0 6px',
+          padding: '0 var(--s-1-5)',
           border: `1px solid ${error ? 'var(--danger)' : 'var(--line-3)'}`,
           background: 'var(--bg-1)',
           color: 'var(--fg-0)',
@@ -177,14 +177,14 @@ export const TerminalSearchBar = forwardRef<HTMLDivElement, TerminalSearchBarPro
           outline: 'none',
         }}
       />
-      <span style={{ minWidth: 44, textAlign: 'center', fontSize: 11, fontFamily: 'var(--font-mono)', color: error ? 'var(--danger)' : 'var(--fg-2)' }}>
+      <span style={{ minWidth: 44, textAlign: 'center', fontSize: 'var(--t-caption)', fontFamily: 'var(--font-mono)', color: error ? 'var(--danger)' : 'var(--fg-2)' }}>
         {countLabel}
       </span>
       <button type="button" title="Match case" aria-pressed={caseSensitive} onClick={toggleCase} style={toggleBtn(caseSensitive)}>Aa</button>
       <button type="button" title="Use regular expression" aria-pressed={regex} onClick={toggleRegex} style={toggleBtn(regex)}>.*</button>
-      <button type="button" title="Previous match (Shift+Enter)" onClick={() => find('prev')} style={iconBtn}><Icon icon={ChevronUp} size={14} /></button>
-      <button type="button" title="Next match (Enter)" onClick={() => find('next')} style={iconBtn}><Icon icon={ChevronDown} size={14} /></button>
-      <button type="button" title="Close (Esc)" onClick={close} style={iconBtn}><Icon icon={X} size={14} /></button>
+      <button type="button" title="Previous match (Shift+Enter)" onClick={() => find('prev')} style={iconBtn}><Icon icon={ChevronUp} size="md" /></button>
+      <button type="button" title="Next match (Enter)" onClick={() => find('next')} style={iconBtn}><Icon icon={ChevronDown} size="md" /></button>
+      <button type="button" title="Close (Esc)" onClick={close} style={iconBtn}><Icon icon={X} size="md" /></button>
     </div>
   );
 });

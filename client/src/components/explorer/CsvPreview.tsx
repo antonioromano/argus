@@ -221,7 +221,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
           Fit to screen
         </label>
         <div style={findGroupStyle}>
-          <Icon icon={Search} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)' }} />
+          <Icon icon={Search} size="sm" style={{ color: 'var(--fg-3)' }} />
           <input
             ref={inputRef}
             value={query}
@@ -250,7 +250,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(-1)}
             style={navBtnStyle(!matches.length)}
           >
-            <Icon icon={ChevronUp} size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronUp} size="sm" />
           </button>
           <button
             type="button"
@@ -259,7 +259,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(1)}
             style={navBtnStyle(!matches.length)}
           >
-            <Icon icon={ChevronDown} size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronDown} size="sm" />
           </button>
         </div>
       </div>
@@ -362,7 +362,7 @@ const toolbarStyle: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 'var(--s-2)',
-  padding: '4px var(--s-3)',
+  padding: 'var(--s-1) var(--s-3)',
   background: 'var(--bg-1)',
   borderBottom: '1px solid var(--line-2)',
   height: 32,
@@ -372,7 +372,7 @@ const toolbarStyle: React.CSSProperties = {
 const checkboxLabelStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 'var(--s-1-5)',
   cursor: 'pointer',
   color: 'var(--fg-2)',
   fontFamily: 'var(--font-mono)',
@@ -384,8 +384,8 @@ const checkboxLabelStyle: React.CSSProperties = {
 const findGroupStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '2px 6px',
+  gap: 'var(--s-1)',
+  padding: 'var(--s-0-5) var(--s-1-5)',
   borderRadius: 'var(--r-2)',
   border: '1px solid var(--line-2)',
   background: 'var(--bg-2)',
@@ -431,7 +431,7 @@ const emptyStyle: React.CSSProperties = {
 
 const errorBannerStyle: React.CSSProperties = {
   flexShrink: 0,
-  padding: '4px 10px',
+  padding: 'var(--s-1) var(--s-3)',
   fontSize: 'var(--t-xs)',
   color: 'var(--fg-3)',
   background: 'var(--bg-2)',
@@ -456,7 +456,7 @@ const thStyle: React.CSSProperties = {
   top: 0,
   zIndex: 1,
   textAlign: 'left',
-  padding: '5px 10px',
+  padding: 'var(--s-1-5) var(--s-3)',
   background: 'var(--bg-2)',
   color: 'var(--fg-0)',
   fontWeight: 600,
@@ -465,7 +465,7 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: '4px 10px',
+  padding: 'var(--s-1) var(--s-3)',
   borderBottom: '1px solid var(--line-2)',
   borderRight: '1px solid var(--line-2)',
 };
@@ -494,11 +494,11 @@ const rowNumCellStyle: React.CSSProperties = {
 const markStyle: React.CSSProperties = {
   background: 'color-mix(in srgb, var(--accent) 32%, transparent)',
   color: 'inherit',
-  borderRadius: 2,
+  borderRadius: 'var(--r-1)',
 };
 
 const activeMarkStyle: React.CSSProperties = {
   background: 'var(--accent)',
   color: 'var(--bg-0)',
-  borderRadius: 2,
+  borderRadius: 'var(--r-1)',
 };

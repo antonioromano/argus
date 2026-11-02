@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FindInFilesResponse } from '@argus/shared';
-import { Search, X, CaseSensitive, WholeWord, Regex, Ellipsis, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, X, CaseSensitive, WholeWord, Regex, MoreHorizontal, ChevronRight, ChevronDown } from 'lucide-react';
 import { api, ApiError, type FindInFilesQuery } from '../../services/api.js';
 import { Icon, IconButton, InlineErrorState, scaledPx } from '../primitives/index.js';
 import { relativeTo } from '../../utils/pathFormat.js';
@@ -189,23 +189,23 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 8px', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', padding: 'var(--s-1-5) var(--s-2)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-0-5)' }}>
           <span style={{ flex: 1, fontSize: 'var(--t-tiny)', letterSpacing: 'var(--tracking-eye)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)' }}>
             FIND IN FILES
           </span>
-          <IconButton icon={Ellipsis} label="Toggle include/exclude filters" size="sm" active={options.showFilters} pressed={options.showFilters} onClick={() => patch({ showFilters: !options.showFilters })} />
+          <IconButton icon={MoreHorizontal} label="Toggle include/exclude filters" size="sm" active={options.showFilters} pressed={options.showFilters} onClick={() => patch({ showFilters: !options.showFilters })} />
           <button
             type="button"
             onClick={onClose}
             aria-label="Close find in files"
             style={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 'var(--ctl-h-xs)', height: 'var(--ctl-h-xs)', color: 'var(--fg-3)' }}
           >
-            <Icon icon={X} size={13} strokeWidth={1.6} />
+            <Icon icon={X} size="md" />
           </button>
         </div>
-        <div style={{ ...fieldBox, gap: 2 }}>
-          <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0, marginRight: 4 }} />
+        <div style={{ ...fieldBox, gap: 'var(--s-0-5)' }}>
+          <Icon icon={Search} size="md" color="var(--fg-3)" style={{ flexShrink: 0, marginRight: 'var(--s-1)' }} />
           <input
             ref={inputRef}
             value={query}
@@ -268,7 +268,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
           const base: React.CSSProperties = {
             display: 'flex',
             alignItems: 'center',
-            gap: 6,
+            gap: 'var(--s-1-5)',
             minHeight: scaledPx(22),
             cursor: 'pointer',
             background: isSel ? 'var(--bg-3)' : 'transparent',
@@ -289,16 +289,16 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
                 aria-expanded={open}
                 aria-selected={isSel}
                 onClick={() => { setSelected(ri); toggleFile(file.path); }}
-                style={{ ...base, padding: '0 8px 0 4px' }}
+                style={{ ...base, padding: '0 var(--s-2) 0 var(--s-1)' }}
                 title={rel}
               >
-                <Icon icon={open ? ChevronDown : ChevronRight} size={12} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                <Icon icon={open ? ChevronDown : ChevronRight} size="sm" color="var(--fg-3)" style={{ flexShrink: 0 }} />
                 <ResultIcon ext={rel.slice(rel.lastIndexOf('.')).toLowerCase()} />
                 <span style={{ color: 'var(--fg-0)', whiteSpace: 'nowrap', flexShrink: 0 }}>{rel.slice(slash + 1)}</span>
                 <span style={{ color: 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                   {slash >= 0 ? rel.slice(0, slash) : ''}
                 </span>
-                <span style={{ color: 'var(--fg-2)', background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: '0 5px', flexShrink: 0, fontSize: 'var(--t-tiny)' }}>
+                <span style={{ color: 'var(--fg-2)', background: 'var(--bg-3)', borderRadius: 'var(--r-1)', padding: '0 var(--s-1-5)', flexShrink: 0, fontSize: 'var(--t-tiny)' }}>
                   {file.matches.length}
                 </span>
               </div>
@@ -312,14 +312,14 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
               role="treeitem"
               aria-selected={isSel}
               onClick={() => { setSelected(ri); onOpenMatch(file.path, m.line); }}
-              style={{ ...base, padding: '0 8px 0 26px' }}
+              style={{ ...base, padding: '0 var(--s-2) 0 var(--s-6)' }}
               title={`${relPath(file.path)}:${m.line}`}
             >
               <span style={{ color: 'var(--fg-3)', flexShrink: 0, minWidth: '3ch', textAlign: 'right' }}>{m.line}</span>
               <span style={{ color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'pre', flex: 1, minWidth: 0 }}>
                 {splitHighlights(m.preview, m.ranges).map((seg, si) =>
                   seg.hit
-                    ? <mark key={si} style={{ background: 'var(--accent-bg)', color: 'var(--accent)', outline: '1px solid var(--accent-edge)', borderRadius: 2 }}>{seg.text}</mark>
+                    ? <mark key={si} style={{ background: 'var(--accent-bg)', color: 'var(--accent)', outline: '1px solid var(--accent-edge)', borderRadius: 'var(--r-1)' }}>{seg.text}</mark>
                     : <span key={si}>{seg.text}</span>,
                 )}
               </span>
@@ -328,7 +328,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         })}
       </div>
 
-      <div style={{ display: 'flex', gap: 12, padding: '4px 10px', borderTop: '1px solid var(--line-2)', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+      <div style={{ display: 'flex', gap: 'var(--s-3)', padding: 'var(--s-1) var(--s-3)', borderTop: '1px solid var(--line-2)', flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
         <span>↑↓ navigate</span>
         <span>↵ open</span>
         <span>Esc close</span>
@@ -341,7 +341,7 @@ const fieldBox: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   height: 'var(--ctl-h-md)',
-  padding: '0 2px 0 6px',
+  padding: '0 var(--s-0-5) 0 var(--s-1-5)',
   background: 'var(--bg-2)',
   border: '1px solid var(--line-2)',
   borderRadius: 'var(--r-1)',

@@ -86,7 +86,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, 
     >
       <div style={{ padding: 'var(--s-3) var(--s-3) var(--s-2)' }}>
         <div className="settings-nav-search">
-          <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" />
+          <Icon icon={Search} size="md" color="var(--fg-3)" />
           <input
             type="search"
             value={query}
@@ -110,7 +110,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, 
             className={`settings-nav-item${active === 'modified' ? ' is-active' : ''}`}
             style={{ marginTop: 'var(--s-1)' }}
           >
-            <Icon icon={ListChecks} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+            <Icon icon={ListChecks} size="md" style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>Modified</span>
             <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', fontVariantNumeric: 'tabular-nums' }}>
               {modifiedCount}
@@ -140,7 +140,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, 
                       onClick={() => { setCursorHit(null); onSelect(p.id); }}
                       className={`settings-nav-item${on ? ' is-active' : ''}`}
                     >
-                      <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
+                      <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
                       {modified.has(p.id) && (
                         <span

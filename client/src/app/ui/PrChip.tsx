@@ -22,7 +22,7 @@ export function PrChip({ pr }: { pr: SessionPr }) {
         aria-label={describePr(pr)}
         onClick={(e) => { e.stopPropagation(); openExternal(pr.url); }}
       >
-        <Icon icon={Glyph} size={10} strokeWidth={2} className="argus-pr-icon" style={{ flexShrink: 0 }} />
+        <Icon icon={Glyph} size="xs" strokeWidth={2} className="argus-pr-icon" style={{ flexShrink: 0 }} />
         <span>#{pr.number}</span>
         {showCi && <span className="argus-pr-ci" data-ci={pr.ci} aria-hidden />}
       </button>

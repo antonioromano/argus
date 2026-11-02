@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
-import { MessagesSquare, ArrowDown, Terminal } from 'lucide-react';
+import { MessagesSquare, ArrowDown, SquareTerminal } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
@@ -82,7 +82,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         icon={MessagesSquare}
         title="Chat not available yet"
         hint="The chat is read from Claude's transcript, which appears once this session has started a conversation. The terminal always works."
-        action={<Button variant="outline" size="sm" icon={Terminal} onClick={onShowTerminal}>Back to terminal</Button>}
+        action={<Button variant="outline" size="sm" icon={SquareTerminal} onClick={onShowTerminal}>Back to terminal</Button>}
       />
     );
   } else if (messages.length === 0) {
@@ -124,7 +124,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
               virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
             }}
           >
-            <Icon icon={ArrowDown} size={12} aria-hidden /> Latest
+            <Icon icon={ArrowDown} size="sm" aria-hidden /> Latest
           </button>
         )}
       </div>

@@ -67,7 +67,7 @@ export function ShortcutsSheet({ resolved, conflicts, overrides, onClose, onCust
                   {r.overridden && <Text size="caption" tone="faint" title="You changed this binding in Settings">edited</Text>}
                   {r.conflict && (
                     <Text tone="danger" title="This combo is bound to more than one action" style={{ display: 'flex' }}>
-                      <Icon icon={AlertTriangle} size={14} />
+                      <Icon icon={AlertTriangle} size="md" />
                     </Text>
                   )}
                   <Kbd>{r.keys}</Kbd>

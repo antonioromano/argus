@@ -15,9 +15,9 @@ interface FileSearchPanelProps {
 
 export function ResultIcon({ ext }: { ext: string }) {
   const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
-  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={13} style={style} />;
-  if (ext === '.json') return <Icon icon={FileJson} size={13} style={style} />;
-  return <Icon icon={FileText} size={13} style={style} />;
+  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size="md" style={style} />;
+  if (ext === '.json') return <Icon icon={FileJson} size="md" style={style} />;
+  return <Icon icon={FileText} size="md" style={style} />;
 }
 
 export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClose }: FileSearchPanelProps) {
@@ -126,13 +126,13 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
-          padding: '6px 10px',
+          gap: 'var(--s-1-5)',
+          padding: 'var(--s-1-5) var(--s-3)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
         }}
       >
-        <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+        <Icon icon={Search} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
         <input
           ref={inputRef}
           value={query}
@@ -176,7 +176,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
             flexShrink: 0,
           }}
         >
-          <Icon icon={X} size={13} strokeWidth={1.6} />
+          <Icon icon={X} size="md" />
         </button>
       </div>
 
@@ -208,8 +208,8 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '5px 10px',
+                gap: 'var(--s-1-5)',
+                padding: 'var(--s-1-5) var(--s-3)',
                 cursor: 'pointer',
                 background: selected ? 'var(--bg-3)' : 'transparent',
                 borderLeft: selected ? '2px solid var(--accent)' : '2px solid transparent',
@@ -263,8 +263,8 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
       <div
         style={{
           display: 'flex',
-          gap: 12,
-          padding: '4px 10px',
+          gap: 'var(--s-3)',
+          padding: 'var(--s-1) var(--s-3)',
           borderTop: '1px solid var(--line-2)',
           flexShrink: 0,
           fontFamily: 'var(--font-mono)',
@@ -281,7 +281,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
 }
 
 const emptyStyle: React.CSSProperties = {
-  padding: '20px 10px',
+  padding: 'var(--s-5) var(--s-3)',
   textAlign: 'center',
   fontFamily: 'var(--font-mono)',
   fontSize: 'var(--t-sm)',

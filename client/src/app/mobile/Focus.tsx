@@ -192,7 +192,7 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
             fontWeight: 600,
           }}
         >
-          <Icon icon={Keyboard} size={18} />
+          <Icon icon={Keyboard} size="xl" />
         </button>
       )}
       {showChanges && (

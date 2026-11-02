@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentFlag, AppConfig, RunMode, TerminalEngine } from '@argus/shared';
 import { Copy, GitBranch } from 'lucide-react';
 import { api } from '../../services/api.js';
-import { Toggle, Icon } from '../../components/primitives/index.js';
+import { Toggle, Icon, Stack, Row } from '../../components/primitives/index.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
 import {
   Sheet,
@@ -160,9 +160,9 @@ export function CloneSheet({
   return (
     <>
     <Sheet
-      title="Clone shell"
+      title="Clone session"
       eyebrow="ARGUS · CLONE"
-      subtitle={`New shell in ${folderPath}`}
+      subtitle={`New session in ${folderPath}`}
       width={880}
       onClose={handleClose}
       dirty={isDirty}
@@ -170,7 +170,7 @@ export function CloneSheet({
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
-            Cancel <span style={{ marginLeft: 6 }}><Kbd>esc</Kbd></span>
+            Cancel <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>esc</Kbd></span>
           </Button>
           <Button
             variant="primary"
@@ -179,19 +179,19 @@ export function CloneSheet({
             disabled={submitting}
             loading={submitting}
           >
-            Clone shell <span style={{ marginLeft: 6 }}><Kbd>⌘↵</Kbd></span>
+            Clone session <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>⌘↵</Kbd></span>
           </Button>
         </>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+      <Stack gap={5}>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 'var(--s-5)', alignItems: 'start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+          <Stack gap={5}>
             <Field label="Folder" hint="locked — clones inherit folder">
               <TextInput value={folderPath} mono disabled />
             </Field>
 
-            <Field label="Shell name" hint="optional · auto from folder otherwise">
+            <Field label="Session name" hint="optional · auto from folder otherwise">
               <TextInput
                 value={name}
                 onChange={setName}
@@ -205,7 +205,7 @@ export function CloneSheet({
             </Field>
 
             <Field label="Flags">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Stack gap={1}>
                 {currentFlags.map((flag) => (
                   <label key={flag.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', cursor: 'pointer' }}>
                     <Checkbox
@@ -219,7 +219,7 @@ export function CloneSheet({
                   </label>
                 ))}
                 {onSaveFlag && (
-                  <div style={{ display: 'flex', gap: 'var(--s-2)', marginTop: 'var(--s-2)' }}>
+                  <Row align="stretch" gap={2} style={{ marginTop: 'var(--s-2)' }}>
                     <div style={{ flex: 1 }}>
                       <TextInput
                         value={newFlag}
@@ -230,14 +230,14 @@ export function CloneSheet({
                       />
                     </div>
                     <Button variant="outline" size="md" disabled={!newFlag.trim()} onClick={handleAddFlag}>+ Add</Button>
-                  </div>
+                  </Row>
                 )}
-              </div>
+              </Stack>
             </Field>
 
-          </div>
+          </Stack>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+          <Stack gap={5}>
             <Field label="Terminal">
               <TerminalChoice
                 value={kindOf(runMode, terminalEngine)}
@@ -250,17 +250,20 @@ export function CloneSheet({
             </Field>
 
             <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--s-3)',
-                padding: '10px 12px',
-                background: 'var(--bg-1)',
-                borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
-              }}>
+              <Row
+                justify="between"
+                gap={3}
+                style={{
+                  padding: 'var(--s-3)',
+                  background: 'var(--bg-1)',
+                  borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
+                }}
+              >
                 <div>
                   <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
                     Agent isolation
                   </div>
-                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 'var(--s-0-5)' }}>
                     {isGitRepo === false
                       ? 'Requires a git repository'
                       : useWorktree
@@ -273,27 +276,27 @@ export function CloneSheet({
                   onChange={(v) => setUseWorktree(v)}
                   disabled={isGitRepo !== true}
                 />
-              </div>
+              </Row>
               {useWorktree && isGitRepo === true && (
-                <div style={{ padding: '10px 12px', background: 'var(--bg-2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Stack gap={1.5} style={{ padding: 'var(--s-3)', background: 'var(--bg-2)' }}>
                   <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Branch name
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                  <Row gap={2}>
+                    <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
-                  </div>
-                </div>
+                  </Row>
+                </Stack>
               )}
               {isGitRepo === false && (
-                <div style={{
-                  padding: '7px 12px',
-                  background: 'var(--warn-bg)',
-                  borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-3)',
-                }}>
+                <Row
+                  gap={3}
+                  style={{
+                    padding: 'var(--s-2) var(--s-3)',
+                    background: 'var(--warn-bg)',
+                    borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
+                  }}
+                >
                   <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
                     ⚠ Not a git repository
                   </span>
@@ -308,7 +311,7 @@ export function CloneSheet({
                       border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
                       borderRadius: 'var(--r-1)',
                       cursor: initializingGit ? 'default' : 'pointer',
-                      padding: '2px 8px',
+                      padding: 'var(--s-0-5) var(--s-2)',
                       fontFamily: 'var(--font-sans)',
                       opacity: initializingGit ? 0.6 : 1,
                       flexShrink: 0,
@@ -316,15 +319,15 @@ export function CloneSheet({
                   >
                     {initializingGit ? 'Initializing…' : 'Initialize'}
                   </button>
-                </div>
+                </Row>
               )}
             </div>
 
-          </div>
+          </Stack>
         </div>
 
         {error && <ErrorState title="Cannot clone" detail={error} />}
-      </div>
+      </Stack>
     </Sheet>
     <AlertSheet
       isOpen={confirmDiscard}

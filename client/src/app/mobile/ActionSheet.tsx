@@ -56,7 +56,7 @@ export function ActionSheet({
         flexDirection: 'column',
         justifyContent: 'flex-end',
         background: 'var(--bg-overlay)',
-        animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
       <div
@@ -69,10 +69,10 @@ export function ActionSheet({
           borderRadius: 'var(--r-4) var(--r-4) 0 0',
           boxShadow: 'var(--shadow-sheet)',
           padding: 'var(--s-2) 0 calc(var(--s-3) + env(safe-area-inset-bottom, 0px))',
-          animation: 'argus-sheet-up var(--dur-base) var(--ease-out)',
+          animation: 'argus-sheet-up var(--dur-base) var(--ease)',
         }}
       >
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--line-3)', margin: '4px auto var(--s-2)' }} />
+        <div style={{ width: 36, height: 4, borderRadius: 'var(--r-1)', background: 'var(--line-3)', margin: 'var(--s-1) auto var(--s-2)' }} />
         <div
           style={{
             display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
@@ -87,9 +87,9 @@ export function ActionSheet({
 
         <Row icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
         {session.status === 'idle' && onMarkDone && (
-          <Row icon={CheckCircle2} label="Mark as done" sub="Move this shell to done" done onClick={close(() => onMarkDone(session.id))} />
+          <Row icon={CheckCircle2} label="Mark as done" sub="Move this session to done" done onClick={close(() => onMarkDone(session.id))} />
         )}
-        <Row icon={RotateCcw} label="Restart shell" sub="Relaunch the agent process" onClick={close(() => onRestart(session.id))} />
+        <Row icon={RotateCcw} label="Restart session" sub="Relaunch the agent process" onClick={close(() => onRestart(session.id))} />
         <Row
           icon={Star}
           label={isFavorite ? 'Unfavourite' : 'Favourite'}
@@ -97,7 +97,7 @@ export function ActionSheet({
           onClick={close(() => onToggleFavorite(session))}
         />
         <div style={{ height: '1px', background: 'var(--line-1)', margin: 'var(--s-1) 0' }} />
-        <Row icon={Trash2} label="Kill shell" danger onClick={close(() => onKill(session))} />
+        <Row icon={Trash2} label="Close session" danger onClick={close(() => onKill(session))} />
       </div>
     </div>
   );
@@ -118,7 +118,7 @@ function Row({
         textAlign: 'left', color, minHeight: 48,
       }}
     >
-      <Icon icon={Glyph} size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
+      <Icon icon={Glyph} size="xl" fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
       <span style={{ fontSize: 'var(--t-md)', fontFamily: 'var(--font-sans)' }}>
         {label}
         {sub && <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>{sub}</span>}

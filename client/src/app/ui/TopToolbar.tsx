@@ -27,13 +27,13 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
       <div style={{ width: 260 }} onKeyDown={onKeyDown}>
         <TextInput
           icon={Search}
-          placeholder="Filter shells"
+          placeholder="Filter sessions"
           value={filter}
           onChange={onFilter}
         />
       </div>
       {matches.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-px)' }}>
           {matches.map((s) => {
             const isActive = s.id === activeSessionId;
             return (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
-import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
+import { Button, Section, SettingRow, pushToast, Row } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
 import { PaneLoadState } from '../PaneLoadState.js';
@@ -73,14 +73,14 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
         )}
         {list?.filter((l) => !hidden.has(l.id)).map((l) => (
           <div key={l.id} className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Row gap={2}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {editing?.id === l.id ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <Row align="stretch" gap={1.5}>
                     <input data-testid="launcher-rename-input" value={editing.draft} onChange={(e) => setEditing({ id: l.id, draft: e.target.value })} aria-label="Launcher label" />
                     <span data-testid="launcher-rename-save" onClick={() => void saveRename()}><Button size="sm" disabled={!editing.draft.trim()}>Save</Button></span>
                     <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
-                  </div>
+                  </Row>
                 ) : (
                   <div className="setting-row-label">{l.label}</div>
                 )}
@@ -91,9 +91,9 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
               <span data-testid="launcher-rename" onClick={() => setEditing({ id: l.id, draft: l.label })}><Button size="sm" variant="ghost">Rename</Button></span>
               <span data-testid="launcher-delete" onClick={() => remove(l)}><Button size="sm" variant="ghost" danger>Delete</Button></span>
               <span data-testid="launcher-expand" onClick={() => setOpen(open === l.id ? null : l.id)}><Button size="sm" variant="ghost">{open === l.id ? 'Hide' : 'Details'}</Button></span>
-            </div>
+            </Row>
             {open === l.id && (
-              <div className="mono" style={{ fontSize: 'var(--t-xs)', marginTop: 6, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              <div className="mono" style={{ fontSize: 'var(--t-xs)', marginTop: 'var(--s-1-5)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                 <div>folder: {l.request.folder}</div>
                 <div>command: {l.agentCommand}</div>
                 {l.request.flags.map((f, i) => <div key={i}>arg: {f}</div>)}

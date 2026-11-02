@@ -131,7 +131,7 @@ function UsageDetails({ usage }: { usage: SessionUsage }) {
         aria-controls={bodyId}
         onClick={() => setOpen((o) => !o)}
       >
-        <Icon icon={ChevronRight} size={11} strokeWidth={2} className="argus-inspector-disclosure-chevron" />
+        <Icon icon={ChevronRight} size="sm" strokeWidth={2} className="argus-inspector-disclosure-chevron" />
         <span>Details</span>
         <span className="argus-inspector-disclosure-meta">{formatTokens(usage.totalTokens)} tokens</span>
       </button>

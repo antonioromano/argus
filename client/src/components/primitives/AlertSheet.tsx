@@ -175,7 +175,7 @@ export function AlertSheet({
                 color: rememberChoice.checked ? 'var(--bg-0)' : 'transparent',
               }}
             >
-              {rememberChoice.checked && <Icon icon={Check} size={11} strokeWidth={2.5} />}
+              {rememberChoice.checked && <Icon icon={Check} size="sm" strokeWidth={2} />}
             </span>
             {rememberChoice.label}
           </button>

@@ -15,6 +15,8 @@ import {
   LoadingState,
   AlertSheet,
   Icon,
+  Stack,
+  Row,
 } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { TerminalChoice } from '../ui/TerminalChoice.js';
@@ -388,7 +390,7 @@ export function CreateSheet({
 
   if (!config) {
     return (
-      <Sheet title="New shell" eyebrow="ARGUS · CREATE" onClose={onClose} width={880}>
+      <Sheet title="New session" eyebrow="ARGUS · CREATE" onClose={onClose} width={880}>
         <LoadingState label="Loading config" />
       </Sheet>
     );
@@ -397,7 +399,7 @@ export function CreateSheet({
   return (
     <>
     <Sheet
-      title="New shell"
+      title="New session"
       eyebrow="ARGUS · CREATE"
       subtitle="Spin up an agent. Pick a folder, configure flags, hit Spawn."
       width={880}
@@ -407,7 +409,7 @@ export function CreateSheet({
       footer={
         <>
           <Button variant="ghost" onClick={handleClose}>
-            Cancel <span style={{ marginLeft: 6 }}><Kbd>esc</Kbd></span>
+            Cancel <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>esc</Kbd></span>
           </Button>
           <Button
             variant="primary"
@@ -416,7 +418,7 @@ export function CreateSheet({
             disabled={creating || !folderPath.trim()}
             loading={creating}
           >
-            Spawn shell <span style={{ marginLeft: 6 }}><Kbd>⌘↵</Kbd></span>
+            Start session <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>⌘↵</Kbd></span>
           </Button>
         </>
       }
@@ -426,18 +428,20 @@ export function CreateSheet({
         style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)', gap: 'var(--s-5)', alignItems: 'start' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+          <Stack gap={5}>
             <Field label="Working folder" required hint="click path or ⌘O to browse">
               <div ref={recentsRef} style={{ position: 'relative' }}>
                 {/* Split button: left = native picker, right = recents dropdown */}
-                <div style={{
-                  display: 'flex',
-                  height: 36,
-                  background: 'var(--bg-1)',
-                  border: '1px solid var(--line-2)',
-                  borderRadius: 'var(--r-2)',
-                  overflow: 'hidden',
-                }}>
+                <Row
+                  align="stretch"
+                  style={{
+                    height: 36,
+                    background: 'var(--bg-1)',
+                    border: '1px solid var(--line-2)',
+                    borderRadius: 'var(--r-2)',
+                    overflow: 'hidden',
+                  }}
+                >
                   {/* Left: native OS picker — a real button so it's keyboard-focusable
                       (Tab + Enter/Space) and excluded from the global Enter→submit. */}
                   <button
@@ -457,7 +461,7 @@ export function CreateSheet({
                       boxSizing: 'border-box',
                     }}
                   >
-                    <Icon icon={Folder} size={13} strokeWidth={1.5} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                    <Icon icon={Folder} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
                     <span style={{
                       flex: 1,
                       fontFamily: 'var(--font-mono)',
@@ -480,8 +484,8 @@ export function CreateSheet({
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 4,
-                        padding: '0 10px',
+                        gap: 'var(--s-1)',
+                        padding: '0 var(--s-3)',
                         flexShrink: 0,
                         background: recentsOpen ? 'var(--accent-bg)' : 'transparent',
                         border: 'none',
@@ -491,18 +495,18 @@ export function CreateSheet({
                         fontFamily: 'var(--font-sans)',
                         fontWeight: 600,
                         whiteSpace: 'nowrap',
-                        transition: 'background 0.12s, color 0.12s',
+                        transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease)',
                       }}
                     >
                       Recents
                       <Icon icon={ChevronDown}
-                        size={11}
-                        strokeWidth={2.5}
-                        style={{ transition: 'transform 0.15s', transform: recentsOpen ? 'rotate(180deg)' : 'none' }}
+                        size="sm"
+                        strokeWidth={2}
+                        style={{ transition: 'transform var(--dur-fast) var(--ease)', transform: recentsOpen ? 'rotate(180deg)' : 'none' }}
                       />
                     </button>
                   )}
-                </div>
+                </Row>
 
                 {/* Recents dropdown. onClick preventDefault: this dropdown lives inside
                     Field's <label>, so clicking a non-interactive row would forward a
@@ -523,8 +527,8 @@ export function CreateSheet({
                     boxShadow: '0 8px 28px rgba(0,0,0,0.45)',
                   }}>
                     <div style={{
-                      padding: '6px 10px 5px',
-                      fontSize: 10,
+                      padding: 'var(--s-1-5) var(--s-3) var(--s-1-5)',
+                      fontSize: 'var(--t-eyebrow)',
                       fontWeight: 700,
                       letterSpacing: '0.09em',
                       textTransform: 'uppercase' as const,
@@ -549,17 +553,16 @@ export function CreateSheet({
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 9,
-                              padding: '7px 10px',
+                              gap: 'var(--s-2)',
+                              padding: 'var(--s-2) var(--s-3)',
                               cursor: 'pointer',
                               borderBottom: '1px solid var(--line-1)',
                               background: isActive ? 'var(--accent-bg)' : (isHovered || isHighlighted) ? 'var(--bg-3)' : 'transparent',
-                              transition: 'background 0.08s',
+                              transition: 'background var(--dur-fast) var(--ease)',
                             }}
                           >
                             <Icon icon={Folder}
-                              size={12}
-                              strokeWidth={1.5}
+                              size="sm"
                               color={isActive ? 'var(--accent)' : 'var(--fg-3)'}
                               style={{ flexShrink: 0 }}
                             />
@@ -576,21 +579,21 @@ export function CreateSheet({
                               </div>
                               <div style={{
                                 fontFamily: 'var(--font-mono)',
-                                fontSize: 10,
+                                fontSize: 'var(--t-eyebrow)',
                                 color: 'var(--fg-3)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
-                                marginTop: 1,
+                                marginTop: 'var(--s-px)',
                               }}>
                                 {entry.path}
                               </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                              <span style={{ fontSize: 10, color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                            <Row gap={1.5} style={{ flexShrink: 0 }}>
+                              <span style={{ fontSize: 'var(--t-eyebrow)', color: isActive ? 'color-mix(in srgb, var(--accent) 60%, transparent)' : 'var(--fg-3)', whiteSpace: 'nowrap' }}>
                                 {relativeTime(entry.lastOpened)}
                               </span>
-                              {isActive && <Icon icon={Check} size={11} strokeWidth={2.5} color="var(--accent)" />}
+                              {isActive && <Icon icon={Check} size="sm" strokeWidth={2} color="var(--accent)" />}
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); handleRemoveRecent(entry.path); }}
@@ -601,14 +604,14 @@ export function CreateSheet({
                                   justifyContent: 'center',
                                   width: 18,
                                   height: 18,
-                                  borderRadius: 3,
+                                  borderRadius: 'var(--r-2)',
                                   border: 'none',
                                   background: 'transparent',
                                   cursor: 'pointer',
                                   color: 'var(--fg-3)',
                                   padding: 0,
                                   opacity: isHovered ? 1 : 0,
-                                  transition: 'opacity 0.1s, color 0.1s, background 0.1s',
+                                  transition: 'opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease)',
                                 }}
                                 onMouseEnter={(e) => {
                                   (e.currentTarget as HTMLButtonElement).style.background = 'var(--danger-bg)';
@@ -619,16 +622,16 @@ export function CreateSheet({
                                   (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)';
                                 }}
                               >
-                                <Icon icon={X} size={11} strokeWidth={2.5} />
+                                <Icon icon={X} size="sm" strokeWidth={2} />
                               </button>
-                            </div>
+                            </Row>
                           </div>
                         );
                       })}
                     </div>
                     <div style={{
-                      padding: '5px 10px',
-                      fontSize: 10,
+                      padding: 'var(--s-1-5) var(--s-3)',
+                      fontSize: 'var(--t-eyebrow)',
                       color: 'var(--fg-3)',
                       textAlign: 'center' as const,
                       borderTop: '1px solid var(--line-2)',
@@ -640,7 +643,7 @@ export function CreateSheet({
               </div>
             </Field>
 
-            <Field label="Shell name" hint="optional · auto from folder otherwise">
+            <Field label="Session name" hint="optional · auto from folder otherwise">
               <TextInput
                 value={name}
                 onChange={setName}
@@ -654,7 +657,7 @@ export function CreateSheet({
             </Field>
 
             <Field label="Flags" hint={currentFlags.length === 0 ? 'no flags configured' : undefined}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <Stack gap={1}>
                 {currentFlags.map((flag) => (
                   <label
                     key={flag.id}
@@ -663,7 +666,7 @@ export function CreateSheet({
                       alignItems: 'center',
                       gap: 'var(--s-2)',
                       cursor: 'pointer',
-                      padding: '3px 0',
+                      padding: 'var(--s-1) 0',
                     }}
                   >
                     <Checkbox
@@ -677,7 +680,7 @@ export function CreateSheet({
                   </label>
                 ))}
                 {onSaveFlag && (
-                  <div style={{ display: 'flex', gap: 'var(--s-2)', marginTop: 'var(--s-2)' }}>
+                  <Row align="stretch" gap={2} style={{ marginTop: 'var(--s-2)' }}>
                     <div style={{ flex: 1 }}>
                       <TextInput
                         value={newFlag}
@@ -690,14 +693,14 @@ export function CreateSheet({
                     <Button variant="outline" size="md" disabled={!newFlag.trim()} onClick={handleAddFlag}>
                       + Add
                     </Button>
-                  </div>
+                  </Row>
                 )}
-              </div>
+              </Stack>
             </Field>
 
-          </div>
+          </Stack>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-5)' }}>
+          <Stack gap={5}>
             <Field label="Terminal">
               <TerminalChoice
                 value={kindOf(runMode, terminalEngine)}
@@ -710,17 +713,20 @@ export function CreateSheet({
             </Field>
 
             <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--s-3)',
-                padding: '10px 12px',
-                background: 'var(--bg-1)',
-                borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
-              }}>
+              <Row
+                justify="between"
+                gap={3}
+                style={{
+                  padding: 'var(--s-3)',
+                  background: 'var(--bg-1)',
+                  borderBottom: (useWorktree && isGitRepo) ? '1px solid var(--line-2)' : 'none',
+                }}
+              >
                 <div>
                   <div style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: isGitRepo === false ? 'var(--fg-3)' : 'var(--fg-0)' }}>
                     Agent isolation
                   </div>
-                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 2 }}>
+                  <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)', marginTop: 'var(--s-0-5)' }}>
                     {isGitRepo === false
                       ? 'Requires a git repository'
                       : useWorktree
@@ -733,40 +739,40 @@ export function CreateSheet({
                   onChange={(v) => setUseWorktree(v)}
                   disabled={isGitRepo !== true}
                 />
-              </div>
+              </Row>
               {useWorktree && isGitRepo === true && (
-                <div style={{ padding: '10px 12px', background: 'var(--bg-2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Stack gap={1.5} style={{ padding: 'var(--s-3)', background: 'var(--bg-2)' }}>
                   <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     Branch name
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                  <Row gap={2}>
+                    <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                     <TextInput value={branchName} onChange={setBranchName} placeholder="argus/my-feature" mono />
-                  </div>
-                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
+                  </Row>
+                  <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--fg-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 'var(--s-1)' }}>
                     Base branch
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                    <Icon icon={GitBranch} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+                  <Row gap={2}>
+                    <Icon icon={GitBranch} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
                     <TextInput value={worktreeBase} onChange={setWorktreeBase} placeholder="HEAD" mono list="create-base-branches" />
                     <datalist id="create-base-branches">
                       {repoBranches.map((b) => <option key={b} value={b} />)}
                     </datalist>
-                  </div>
+                  </Row>
                   <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
                     New branch starts from here · defaults to the current branch
                   </div>
-                </div>
+                </Stack>
               )}
               {isGitRepo === false && (
-                <div style={{
-                  padding: '7px 12px',
-                  background: 'var(--warn-bg)',
-                  borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-3)',
-                }}>
+                <Row
+                  gap={3}
+                  style={{
+                    padding: 'var(--s-2) var(--s-3)',
+                    background: 'var(--warn-bg)',
+                    borderTop: '1px solid color-mix(in srgb, var(--warn) 25%, transparent)',
+                  }}
+                >
                   <span style={{ fontSize: 'var(--t-xs)', color: 'var(--warn)', flex: 1 }}>
                     ⚠ Not a git repository
                   </span>
@@ -781,7 +787,7 @@ export function CreateSheet({
                       border: '1px solid color-mix(in srgb, var(--warn) 45%, transparent)',
                       borderRadius: 'var(--r-1)',
                       cursor: initializingGit ? 'default' : 'pointer',
-                      padding: '2px 8px',
+                      padding: 'var(--s-0-5) var(--s-2)',
                       fontFamily: 'var(--font-sans)',
                       opacity: initializingGit ? 0.6 : 1,
                       flexShrink: 0,
@@ -789,11 +795,11 @@ export function CreateSheet({
                   >
                     {initializingGit ? 'Initializing…' : 'Initialize'}
                   </button>
-                </div>
+                </Row>
               )}
             </div>
 
-          </div>
+          </Stack>
         </div>
 
         {selectedAgent && selectedStatus?.installed === false && selectedAgent.id !== SHELL_AGENT_ID && (
@@ -805,7 +811,7 @@ export function CreateSheet({
     </Sheet>
     <AlertSheet
       isOpen={confirmDiscard}
-      title="Discard new shell?"
+      title="Discard new session?"
       message="You'll lose the folder, name, and flag changes."
       confirmLabel="Discard"
       confirmDestructive

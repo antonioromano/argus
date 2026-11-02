@@ -7,7 +7,7 @@ import {
   type LaunchTemplateResponse,
   type SessionTemplate,
 } from '@argus/shared';
-import { Button, Section, TextInput, pushToast } from '../../../../components/primitives/index.js';
+import { Button, Section, TextInput, pushToast, Row, Stack } from '../../../../components/primitives/index.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import { api, TemplateApiError } from '../../../../services/api.js';
 import { toastError } from '../../../../errors/toastError.js';
@@ -48,11 +48,11 @@ function FolderInput({ value, onChange, error }: { value: string; onChange: (v: 
     } catch (e) { toastError(e, 'Couldn’t open the folder picker'); }
   };
   return (
-    <div style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0 }}>
+    <Row align="stretch" gap={1.5} grow>
       <TextInput value={value} onChange={onChange} placeholder="/absolute/path/to/repo" mono list={listId} error={error} style={{ flex: 1 }} />
       <datalist id={listId}>{completions.slice(0, 20).map((c) => <option key={c} value={c} />)}</datalist>
       <Button size="sm" variant="ghost" onClick={() => void browse()}>Browse…</Button>
-    </div>
+    </Row>
   );
 }
 
@@ -95,11 +95,20 @@ function TemplateEditor({ draft, agents, onCancel, onSaved }: {
   };
 
   return (
-    <div data-testid="template-editor" className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+    <div data-testid="template-editor" className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--s-3)' }}>
       <TextInput value={d.name} onChange={(name) => setD({ ...d, name: name.slice(0, TEMPLATE_NAME_MAX) })} placeholder="Template name, e.g. API + client + reviewer" />
       {d.specs.map((s, i) => (
-        <div key={i} data-testid="template-spec" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: 8, border: `1px solid ${specErrors[i] ? 'var(--danger)' : 'var(--line-2)'}`, borderRadius: 'var(--r-2)' }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <Stack
+          gap={1.5}
+          key={i}
+          data-testid="template-spec"
+          style={{
+            padding: 'var(--s-2)',
+            border: `1px solid ${specErrors[i] ? 'var(--danger)' : 'var(--line-2)'}`,
+            borderRadius: 'var(--r-2)',
+          }}
+        >
+          <Row gap={1.5}>
             <span className="setting-row-hint mono" style={{ width: 16 }}>{i + 1}</span>
             <select aria-label="Agent" value={s.agent} onChange={(e) => setSpec(i, { agent: e.target.value })} style={selectStyle}>
               {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -107,31 +116,31 @@ function TemplateEditor({ draft, agents, onCancel, onSaved }: {
             </select>
             <FolderInput value={s.folder} onChange={(folder) => setSpec(i, { folder })} error={!!specErrors[i]} />
             <span data-testid="template-spec-remove"><Button size="sm" variant="ghost" danger disabled={d.specs.length <= 1} onClick={() => removeSpec(i)}>Remove</Button></span>
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          </Row>
+          <Row align="stretch" gap={1.5}>
             <TextInput value={s.name} onChange={(name) => setSpec(i, { name })} placeholder="Name (optional)" style={{ flex: 1 }} />
             <TextInput value={s.worktreeBranch} onChange={(worktreeBranch) => setSpec(i, { worktreeBranch })} placeholder="New worktree branch (optional)" mono style={{ flex: 1 }} />
-          </div>
+          </Row>
           <textarea
             aria-label="Initial prompt"
             rows={2}
             value={s.prompt}
             onChange={(e) => setSpec(i, { prompt: e.target.value })}
             placeholder="Initial prompt (optional)"
-            style={{ background: 'var(--bg-3)', color: 'var(--fg-0)', border: `1px solid ${s.prompt.length > TEMPLATE_PROMPT_MAX ? 'var(--danger)' : 'var(--line-3)'}`, borderRadius: 'var(--r-2)', padding: 6, fontFamily: 'var(--font-sans)', resize: 'vertical' }}
+            style={{ background: 'var(--bg-3)', color: 'var(--fg-0)', border: `1px solid ${s.prompt.length > TEMPLATE_PROMPT_MAX ? 'var(--danger)' : 'var(--line-3)'}`, borderRadius: 'var(--r-2)', padding: 'var(--s-1-5)', fontFamily: 'var(--font-sans)', resize: 'vertical' }}
           />
           {s.prompt.length > TEMPLATE_PROMPT_MAX * 0.9 && (
             <div className="setting-row-hint">{s.prompt.length} / {TEMPLATE_PROMPT_MAX} characters</div>
           )}
           {specErrors[i] && <div role="alert" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)' }}>{specErrors[i]}</div>}
-        </div>
+        </Stack>
       ))}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <Row gap={1.5}>
         <span data-testid="template-spec-add"><Button size="sm" variant="ghost" disabled={d.specs.length >= TEMPLATE_MAX_SPECS} onClick={addSpec}>Add session</Button></span>
         <span className="setting-row-hint" style={{ flex: 1 }}>{d.specs.length} / {TEMPLATE_MAX_SPECS}</span>
         <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
         <span data-testid="template-save"><Button size="sm" variant="primary" disabled={!canSave} loading={saving} onClick={() => void save()}>Save template</Button></span>
-      </div>
+      </Row>
       {error && <div role="alert" data-testid="template-error" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)' }}>{error}</div>}
     </div>
   );
@@ -188,7 +197,7 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
       )}
     >
       <div className="setting-row"><div className="setting-row-hint">
-        Start up to {TEMPLATE_MAX_SPECS} shells at once into a new group — each in its own folder, optionally on a new worktree branch with a first prompt.
+        Start up to {TEMPLATE_MAX_SPECS} sessions at once into a new group — each in its own folder, optionally on a new worktree branch with a first prompt.
       </div></div>
       <PaneLoadState loaded={list !== null} error={loadError} errorTitle="Couldn’t load templates" onRetry={refresh} testId="templates-error" />
       {editing && (
@@ -205,7 +214,7 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
       )}
       {visible?.map((t) => (
         <div key={t.id} data-testid="template-row" className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Row gap={2}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="setting-row-label">{t.name}</div>
               <div className="setting-row-hint">{t.specs.length} session{t.specs.length === 1 ? '' : 's'} · {t.specs.map((s) => s.name ?? base(s.folder)).join(', ')}</div>
@@ -213,29 +222,29 @@ export function TemplatesSection({ config }: { config: AppConfig }) {
             <span data-testid="template-launch"><Button size="sm" variant="primary" disabled={launching} onClick={() => { setResult(null); setLaunchError(null); setConfirmLaunch(t.id); }}>Launch</Button></span>
             <span data-testid="template-edit"><Button size="sm" variant="ghost" onClick={() => { setResult(null); setEditing(fromTemplate(t)); }}>Edit</Button></span>
             <span data-testid="template-delete"><Button size="sm" variant="ghost" danger onClick={() => remove(t)}>Delete</Button></span>
-          </div>
+          </Row>
 
           {confirmLaunch === t.id && (
-            <div data-testid="template-launch-confirm" style={{ marginTop: 8, padding: 8, border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)' }}>
-              <div className="setting-row-label">Start {t.specs.length} shell{t.specs.length === 1 ? '' : 's'} into a new group “{t.name}”?</div>
-              <ul style={{ margin: '6px 0', paddingLeft: 18, fontSize: 'var(--t-xs)' }}>
+            <div data-testid="template-launch-confirm" style={{ marginTop: 'var(--s-2)', padding: 'var(--s-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)' }}>
+              <div className="setting-row-label">Start {t.specs.length} session{t.specs.length === 1 ? '' : 's'} into a new group “{t.name}”?</div>
+              <ul style={{ margin: 'var(--s-1-5) 0', paddingLeft: 'var(--s-4)', fontSize: 'var(--t-xs)' }}>
                 {t.specs.map((s, i) => <li key={i} className="mono" style={{ wordBreak: 'break-all' }}>{describeSpec(s)}</li>)}
               </ul>
               <div className="setting-row-hint">Each one is started on its own; one that fails does not stop or undo the others.</div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <Row align="stretch" gap={1.5} style={{ marginTop: 'var(--s-1-5)' }}>
                 <span data-testid="template-launch-go"><Button size="sm" variant="primary" loading={launching} onClick={() => void launch(t)}>Launch {t.specs.length}</Button></span>
                 <Button size="sm" variant="ghost" disabled={launching} onClick={() => setConfirmLaunch(null)}>Cancel</Button>
-              </div>
-              {launchError && <div role="alert" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)', marginTop: 6 }}>{launchError}</div>}
+              </Row>
+              {launchError && <div role="alert" style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)', marginTop: 'var(--s-1-5)' }}>{launchError}</div>}
             </div>
           )}
 
           {result?.template.id === t.id && (
-            <div data-testid="template-results" style={{ marginTop: 8, fontSize: 'var(--t-xs)' }}>
+            <div data-testid="template-results" style={{ marginTop: 'var(--s-2)', fontSize: 'var(--t-xs)' }}>
               <div className="setting-row-hint">
                 {result.response.group ? `Started into group “${result.response.group.name}”.` : 'Nothing was started.'}
               </div>
-              <ul style={{ margin: '4px 0', paddingLeft: 18 }}>
+              <ul style={{ margin: 'var(--s-1) 0', paddingLeft: 'var(--s-4)' }}>
                 {result.response.results.map((r) => (
                   <li key={r.index} data-testid={r.ok ? 'template-result-ok' : 'template-result-error'} style={{ color: r.ok ? 'var(--ok)' : 'var(--danger)' }}>
                     {r.ok

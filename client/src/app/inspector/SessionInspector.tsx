@@ -43,9 +43,9 @@ function Section({ def, session, ctx, open, onToggle }: {
         aria-controls={bodyId}
         onClick={onToggle}
       >
-        <Icon icon={def.icon} size={12} strokeWidth={1.8} />
+        <Icon icon={def.icon} size="sm" />
         <span className="argus-inspector-section-title">{def.title}</span>
-        <Icon icon={ChevronDown} size={11} strokeWidth={2} className="argus-inspector-chevron" />
+        <Icon icon={ChevronDown} size="sm" strokeWidth={2} className="argus-inspector-chevron" />
         {!open && def.Glance && <span className="argus-inspector-section-summary"><def.Glance session={session} ctx={ctx} /></span>}
       </button>
       {open && (
@@ -71,7 +71,7 @@ export function SessionInspector({
   onToggleSection,
   side,
   onSwitchSide,
-  placeholder = 'Select a shell to inspect it.',
+  placeholder = 'Select a session to inspect it.',
   ctx,
   sections = INSPECTOR_SECTIONS,
 }: SessionInspectorProps) {

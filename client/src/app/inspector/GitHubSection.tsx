@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { MouseEvent as RMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleCheck, ExternalLink, Eye, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MessageSquareWarning, MoreHorizontal, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Eye, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MessageSquareWarning, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { PrReviewDecision, SessionPrEntry } from '@argus/shared';
 import { AlertSheet, ContextMenu, Icon, IconButton, Tooltip, pushToast } from '../../components/primitives/index.js';
@@ -27,7 +27,7 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
 
 /** Review decisions shown as an icon in the row's right column (none → nothing). */
 const REVIEW_ICON: Record<Exclude<PrReviewDecision, 'none'>, LucideIcon> = {
-  approved: CircleCheck,
+  approved: CheckCircle2,
   changes_requested: MessageSquareWarning,
   review_required: Eye,
 };
@@ -106,27 +106,27 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   return (
     <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined} onContextMenu={openMenuAt}>
       <span className="argus-inspector-pr-glyph" role="img" aria-label={pr ? `${PR_STATE_LABEL[pr.state]} pull request` : 'Pull request'} title={pr ? PR_STATE_LABEL[pr.state] : undefined}>
-        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} />
+        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size="md" strokeWidth={2} />
       </span>
       {/* Under the state glyph, one per line: the review icon (in line with
           the second line), then the conflict icon. */}
       {review && (
         <Tooltip content={PR_REVIEW_LABEL[review]}>
           <span className="argus-inspector-pr-flag argus-inspector-pr-review" data-review={review} role="img" aria-label={PR_REVIEW_LABEL[review]} tabIndex={0}>
-            <Icon icon={REVIEW_ICON[review]} size={12} strokeWidth={1.8} />
+            <Icon icon={REVIEW_ICON[review]} size="sm" />
           </span>
         </Tooltip>
       )}
       {conflicting && (
         <Tooltip content="merge conflicts">
           <span className="argus-inspector-pr-flag argus-inspector-pr-conflict" data-row={review ? 3 : 2} role="img" aria-label="merge conflicts" tabIndex={0}>
-            <Icon icon={TriangleAlert} size={12} strokeWidth={1.8} />
+            <Icon icon={AlertTriangle} size="sm" />
           </span>
         </Tooltip>
       )}
       <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`${pr?.title ? `${pr.title}\n` : ''}Open ${ref} on GitHub`}>
         <span className="argus-inspector-pr-title">{pr?.title || shortRef}</span>
-        <Icon icon={ExternalLink} size={11} strokeWidth={1.8} className="argus-inspector-pr-ext" />
+        <Icon icon={ExternalLink} size="sm" className="argus-inspector-pr-ext" />
       </button>
       {(pr?.title || ctx.onOpenPrDiff) && (
         <div className="argus-inspector-pr-line">
@@ -140,7 +140,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
                 </span>
               ) : (
                 <>
-                  <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
+                  <Icon icon={FileDiff} size="sm" />
                   Changed files
                 </>
               )}
@@ -163,7 +163,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
               title={`Mark ${ref} ready for review`}
               onClick={() => { void setReady(true); }}
             >
-              <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
+              <Icon icon={GitPullRequestArrow} size="sm" />
               {busy ? 'Marking ready…' : 'Mark ready'}
             </button>
           )}

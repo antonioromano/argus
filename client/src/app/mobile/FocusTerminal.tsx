@@ -16,7 +16,7 @@ export function FocusTerminal({ containerRef }: FocusTerminalProps) {
         flex: 1,
         minHeight: 0,
         overflow: 'hidden',
-        padding: '6px 8px',
+        padding: 'var(--s-1-5) var(--s-2)',
         background: 'var(--bg-inset)',
         touchAction: 'none',
       }}

@@ -59,13 +59,13 @@ function Block({ block }: { block: ChatBlock }) {
     case 'tool':
       return (
         <span className="argus-chat-chip" title="Tool call">
-          <Icon icon={Wrench} size={12} aria-hidden /> {block.name}
+          <Icon icon={Wrench} size="sm" aria-hidden /> {block.name}
         </span>
       );
     case 'image':
       return (
         <span className="argus-chat-chip">
-          <Icon icon={ImageIcon} size={12} aria-hidden /> image
+          <Icon icon={ImageIcon} size="sm" aria-hidden /> image
         </span>
       );
     case 'command':
@@ -80,7 +80,7 @@ function Block({ block }: { block: ChatBlock }) {
       return (
         <details className={`argus-chat-output${block.stream === 'stderr' ? ' is-stderr' : ''}`} data-testid="chat-output">
           <summary>
-            <Icon icon={ChevronRight} size={12} className="argus-chat-output-caret" aria-hidden />
+            <Icon icon={ChevronRight} size="sm" className="argus-chat-output-caret" aria-hidden />
             <span className="argus-chat-output-label">{block.stream === 'stderr' ? 'Error output' : 'Output'}</span>
             <span className="argus-chat-output-preview">{firstLine(block.text)}</span>
           </summary>
@@ -90,13 +90,13 @@ function Block({ block }: { block: ChatBlock }) {
     case 'notice':
       return (
         <span className="argus-chat-notice">
-          <Icon icon={Info} size={12} aria-hidden /> {block.text}
+          <Icon icon={Info} size="sm" aria-hidden /> {block.text}
         </span>
       );
     default:
       return (
         <span className="argus-chat-chip argus-chat-chip-muted" title="Not shown in the Chat view — see the terminal">
-          <Icon icon={HelpCircle} size={12} aria-hidden /> {block.type}
+          <Icon icon={HelpCircle} size="sm" aria-hidden /> {block.type}
         </span>
       );
   }

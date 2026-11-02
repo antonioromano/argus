@@ -3,7 +3,7 @@ import type { ShortcutActionId } from '../keyboard/registry.js';
 import {
   GitBranch,
   FolderOpen,
-  Terminal,
+  SquareTerminal,
   Copy,
   RotateCcw,
   CheckCircle2,
@@ -31,10 +31,10 @@ export interface TileActionMeta {
 }
 
 export const TILE_ACTION_META: Record<Exclude<TileQuickAction, 'none'>, TileActionMeta> = {
-  diff:    { id: 'diff',    label: 'Diff',      hint: 'Open the diff workbench for this shell', icon: GitBranch,       shortcutId: 'open-diff' },
+  diff:    { id: 'diff',    label: 'Diff',      hint: 'Open the diff workbench for this session', icon: GitBranch,       shortcutId: 'open-diff' },
   files:   { id: 'files',   label: 'Files',     hint: 'Open the file explorer at this folder',  icon: FolderOpen,      shortcutId: 'open-files' },
-  shell:   { id: 'shell',   label: 'Shell',     hint: 'Open a plain terminal in this folder',   icon: Terminal,        shortcutId: 'open-shell' },
-  clone:   { id: 'clone',   label: 'Clone',     hint: 'Start a new shell in the same folder',   icon: Copy },
+  shell:   { id: 'shell',   label: 'Shell',     hint: 'Open a plain terminal in this folder',   icon: SquareTerminal,        shortcutId: 'open-shell' },
+  clone:   { id: 'clone',   label: 'Clone',     hint: 'Start a new session in the same folder',   icon: Copy },
   restart: { id: 'restart', label: 'Restart',   hint: 'Restart the agent process',              icon: RotateCcw },
   done:    { id: 'done',    label: 'Mark done', hint: 'Flag the run as finished',               icon: CheckCircle2 },
   apply:   { id: 'apply',   label: 'Apply',     hint: 'Apply this worktree to the project',     icon: ArrowDownToLine },

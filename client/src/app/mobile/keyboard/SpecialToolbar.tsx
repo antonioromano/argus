@@ -33,16 +33,16 @@ export function SpecialToolbar({ onKey, onBackToKeys, onComposeNewline }: Specia
         WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'],
       }}
     >
-      <KeyCap label={<Icon icon={Keyboard} size={16} />} tone="accent" ariaLabel="Back to keys" onPress={onBackToKeys} />
+      <KeyCap label={<Icon icon={Keyboard} size="lg" />} tone="accent" ariaLabel="Back to keys" onPress={onBackToKeys} />
       <KeyCap label="⇧↵" sub="line" ariaLabel="Insert newline in message" onPress={onComposeNewline} />
       <KeyCap label="tab" ariaLabel="Tab" onPress={() => onKey('tab')} />
       <KeyCap label="⇧⇥" ariaLabel="Shift Tab" onPress={() => onKey('shifttab')} />
       <KeyCap label="esc" ariaLabel="Escape" onPress={() => onKey('esc')} />
       <KeyCap label="^C" tone="danger" ariaLabel="Ctrl C" onPress={() => onKey('ctrlc')} />
-      <KeyCap label={<Icon icon={ChevronUp} size={16} />} ariaLabel="Up" onPress={() => onKey('up')} />
-      <KeyCap label={<Icon icon={ChevronDown} size={16} />} ariaLabel="Down" onPress={() => onKey('down')} />
-      <KeyCap label={<Icon icon={ChevronLeft} size={16} />} ariaLabel="Left" onPress={() => onKey('left')} />
-      <KeyCap label={<Icon icon={ChevronRight} size={16} />} ariaLabel="Right" onPress={() => onKey('right')} />
+      <KeyCap label={<Icon icon={ChevronUp} size="lg" />} ariaLabel="Up" onPress={() => onKey('up')} />
+      <KeyCap label={<Icon icon={ChevronDown} size="lg" />} ariaLabel="Down" onPress={() => onKey('down')} />
+      <KeyCap label={<Icon icon={ChevronLeft} size="lg" />} ariaLabel="Left" onPress={() => onKey('left')} />
+      <KeyCap label={<Icon icon={ChevronRight} size="lg" />} ariaLabel="Right" onPress={() => onKey('right')} />
       <KeyCap label="^R" ariaLabel="Ctrl R" onPress={() => onKey('ctrlr')} />
       <KeyCap label="↵" tone="accent" ariaLabel="Enter" onPress={() => onKey('enter')} />
       <KeyCap label="⤒" ariaLabel="Scroll to top" onPress={() => onKey('top')} />

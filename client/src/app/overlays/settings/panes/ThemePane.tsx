@@ -64,10 +64,10 @@ export function ThemePane({ config, onSave }: PaneProps) {
         </SettingField>
       </Section>
 
-      <Section title="Shell layout">
+      <Section title="Session layout">
         <SettingField id="mosaicOrientation">
           <Segmented
-            label="Shell layout"
+            label="Session layout"
             value={config.mosaicOrientation ?? 'horizontal'}
             options={LAYOUT_OPTIONS}
             onChange={(mosaicOrientation) => { void onSave({ mosaicOrientation }); }}
@@ -86,7 +86,7 @@ export function ThemePane({ config, onSave }: PaneProps) {
         </SettingField>
         {/* "Breathing halo" vs "Pulse bar + flag" is unreadable as text — the
             difference is the motion, so show it moving. */}
-        <SettingRow label="Preview" hint="A waiting shell in the mosaic, animating">
+        <SettingRow label="Preview" hint="A waiting session in the mosaic, animating">
           <WaitingStylePreview style={config.mosaicWaitingStyle ?? 'breathing'} />
         </SettingRow>
       </Section>

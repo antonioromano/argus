@@ -39,7 +39,7 @@ describe('OrphanAgentsSection', () => {
   it('empty state', async () => {
     mocks.getOrphans.mockResolvedValue({ daemons: [], agents: [], totalRssKb: 0 });
     await render();
-    expect(container.textContent).toContain('No orphan daemons');
+    expect(container.textContent).toContain('No stray agents');
     expect(button('Kill selected…')).toBeUndefined();
   });
 
@@ -63,7 +63,7 @@ describe('OrphanAgentsSection', () => {
     await act(async () => { button('Kill')!.click(); await Promise.resolve(); });
     expect(mocks.killOrphans).toHaveBeenCalledWith([200]);
     expect(mocks.push).toHaveBeenCalledWith('Stopped 1 daemon(s)', 'ok');
-    expect(container.textContent).toContain('No orphan daemons');
+    expect(container.textContent).toContain('No stray agents');
   });
 
   it('cancel leaves everything running', async () => {

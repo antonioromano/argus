@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Forward } from 'lucide-react';
 import { SHELL_AGENT_ID, type AppConfig, type HandoffPreviewResponse, type SessionInfo } from '@argus/shared';
-import { Button, Checkbox, Field, Sheet, TextInput } from '../../components/primitives/index.js';
+import { Button, Checkbox, Field, Sheet, TextInput, Row, Stack } from '../../components/primitives/index.js';
 import { BUILTIN_AGENTS } from '../../constants/builtinAgents.js';
 import { AgentTabs } from '../ui/AgentTabs.js';
 import { api } from '../../services/api.js';
@@ -84,7 +84,7 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
   };
 
   const footer = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
+    <Row gap={3} style={{ width: '100%' }}>
       <span data-testid="handoff-preview" style={{ fontSize: 'var(--t-xs)', color: previewError ? 'var(--danger)' : 'var(--fg-3)', flex: 1, minWidth: 0 }}>
         {previewError
           ? previewError
@@ -96,14 +96,14 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
       <Button variant="primary" size="md" icon={Forward} onClick={() => { void submit(); }} disabled={!canSubmit} loading={submitting}>
         Hand off
       </Button>
-    </div>
+    </Row>
   );
 
   return (
     <Sheet eyebrow="HAND OFF" title={session.name} width={560} onClose={submitting ? undefined : onClose} footer={footer}>
-      <div data-testid="handoff-sheet" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+      <Stack gap={4} data-testid="handoff-sheet">
         <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
-          Starts a new shell that reads a brief of this one: git status, diff stat
+          Starts a new session that reads a brief of this one: git status, diff stat
           {includeDiff ? ' and diff' : ''}{isClaudeSource ? ', the recent conversation' : ''} and your note. No model call, no extra tokens.
         </div>
 
@@ -115,7 +115,7 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
           <TextInput mono value={folderPath} onChange={setFolderPath} error={folderMissing} spellCheck={false} />
         </Field>
 
-        <div style={{ display: 'flex', gap: 'var(--s-4)', alignItems: 'center', flexWrap: 'wrap' }}>
+        <Row gap={4} wrap>
           <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)', color: isClaudeSource ? 'var(--fg-0)' : 'var(--fg-3)' }}>
             Last
             <input
@@ -131,16 +131,16 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
               }}
               style={{
                 width: 56, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-0)',
-                background: 'var(--bg-inset)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)', padding: '2px 6px',
+                background: 'var(--bg-inset)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)', padding: 'var(--s-0-5) var(--s-1-5)',
               }}
             />
-            messages{!isClaudeSource && ' (Claude shells only)'}
+            messages{!isClaudeSource && ' (Claude sessions only)'}
           </label>
           <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)' }} data-testid="handoff-diff">
             <Checkbox checked={includeDiff} onChange={setIncludeDiff} />
             Include diff (up to 30 KB)
           </span>
-        </div>
+        </Row>
 
         <label style={{ display: 'block' }}>
           <span className="eyebrow" style={{ color: 'var(--fg-2)' }}>Note</span>
@@ -150,9 +150,9 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
             onChange={(e) => setNote(e.target.value)}
             rows={3}
             maxLength={4000}
-            placeholder="What should the new shell do next?"
+            placeholder="What should the new session do next?"
             style={{
-              display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 4, resize: 'vertical',
+              display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 'var(--s-1)', resize: 'vertical',
               fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-0)',
               background: 'var(--bg-inset)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)', padding: 'var(--s-2)',
             }}
@@ -164,7 +164,7 @@ export function HandoffSheet({ session, config, onClose, onCreated }: HandoffShe
             {error}
           </div>
         )}
-      </div>
+      </Stack>
     </Sheet>
   );
 }

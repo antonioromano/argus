@@ -38,9 +38,9 @@ const idleBtn: React.CSSProperties = {
 const armedPill: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 5,
+  gap: 'var(--s-1-5)',
   height: 28,
-  padding: '0 8px 0 7px',
+  padding: '0 var(--s-2) 0 var(--s-2)',
   border: '1px solid var(--accent-edge)',
   borderRadius: 'var(--r-2)',
   background: 'var(--accent-bg)',
@@ -158,7 +158,7 @@ function KeepAwakeButtonInner({ status, onArm, onDisarm, compact = false }: Keep
           aria-label={tooltip}
           data-compact={compact || undefined}
         >
-          <Icon icon={Coffee} size={compact ? 11 : 13} strokeWidth={1.6} />
+          <Icon icon={Coffee} size={compact ? 11 : 13} />
           {compact
             ? active && <span>Awake {countdown}</span>
             : active && <span style={{ minWidth: 44, textAlign: 'right' }}>{countdown}</span>}

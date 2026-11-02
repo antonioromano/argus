@@ -39,8 +39,8 @@ export function TerminalChoice({
               style={{
                 all: 'unset',
                 cursor: 'pointer',
-                padding: '7px 12px',
-                marginBottom: -1,
+                padding: 'var(--s-2) var(--s-3)',
+                marginBottom: 'calc(-1 * var(--s-px))',
                 fontSize: 'var(--t-sm)',
                 fontWeight: on ? 600 : 400,
                 color: on ? 'var(--fg-0)' : 'var(--fg-2)',
@@ -51,13 +51,13 @@ export function TerminalChoice({
               {KIND_BADGE[k] && (
                 <span
                   style={{
-                    marginLeft: 5,
-                    padding: '0 4px',
-                    fontSize: 9,
+                    marginLeft: 'var(--s-1-5)',
+                    padding: '0 var(--s-1)',
+                    fontSize: 'var(--t-eyebrow)',
                     fontWeight: 500,
                     textTransform: 'uppercase',
                     border: '1px solid currentColor',
-                    borderRadius: 3,
+                    borderRadius: 'var(--r-2)',
                     opacity: 0.65,
                     verticalAlign: 1,
                   }}
@@ -72,7 +72,7 @@ export function TerminalChoice({
 
       <div
         style={{
-          padding: '10px 12px',
+          padding: 'var(--s-3)',
           background: 'var(--bg-1)',
           border: '1px solid var(--line-2)',
           borderRadius: 'var(--r-2)',
@@ -84,12 +84,12 @@ export function TerminalChoice({
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          style={{ all: 'unset', cursor: 'pointer', marginTop: 6, color: 'var(--fg-2)', fontSize: 'var(--t-xs)' }}
+          style={{ all: 'unset', cursor: 'pointer', marginTop: 'var(--s-1-5)', color: 'var(--fg-2)', fontSize: 'var(--t-xs)' }}
         >
           {open ? '▾ Hide details' : '▸ Show details'}
         </button>
         {open && (
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 'var(--s-2)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
@@ -102,7 +102,7 @@ export function TerminalChoice({
               <tbody>
                 {KIND_COMPARISON.map((row) => (
                   <tr key={row.label}>
-                    <td style={{ padding: '4px 4px', borderTop: '1px solid var(--line-1)', color: 'var(--fg-1)' }}>{row.label}</td>
+                    <td style={{ padding: 'var(--s-1)', borderTop: '1px solid var(--line-1)', color: 'var(--fg-1)' }}>{row.label}</td>
                     {TERMINAL_KINDS.map((k) => (
                       <td key={k} style={{ ...colStyle(k === value, false), borderTop: '1px solid var(--line-1)' }}>
                         <Cell v={row.cells[k]} />
@@ -112,10 +112,10 @@ export function TerminalChoice({
                 ))}
               </tbody>
             </table>
-            <div style={{ marginTop: 8, color: 'var(--fg-2)' }}>
+            <div style={{ marginTop: 'var(--s-2)', color: 'var(--fg-2)' }}>
               Best for: <b style={{ color: 'var(--fg-0)', fontWeight: 600 }}>{KIND_BEST_FOR[value]}</b>
             </div>
-            <div style={{ marginTop: 4, color: 'var(--fg-3)' }}>{KIND_SHARED_NOTE}</div>
+            <div style={{ marginTop: 'var(--s-1)', color: 'var(--fg-3)' }}>{KIND_SHARED_NOTE}</div>
           </div>
         )}
       </div>
@@ -126,7 +126,7 @@ export function TerminalChoice({
 function colStyle(selected: boolean, header: boolean): CSSProperties {
   return {
     width: '22%',
-    padding: '4px 4px',
+    padding: 'var(--s-1)',
     textAlign: 'center',
     fontWeight: header && selected ? 600 : header ? 500 : 400,
     color: header ? (selected ? 'var(--fg-0)' : 'var(--fg-2)') : undefined,

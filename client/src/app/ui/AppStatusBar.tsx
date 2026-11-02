@@ -78,7 +78,7 @@ export function AppStatusBar(props: AppStatusBarProps) {
             data-tone="warn"
             onClick={onOpenUpdate}
           >
-            <Icon icon={ArrowUp} size={10} strokeWidth={2} />
+            <Icon icon={ArrowUp} size="xs" strokeWidth={2} />
             v{updateVersion} available
           </button>
         )}
@@ -90,7 +90,7 @@ export function AppStatusBar(props: AppStatusBarProps) {
             data-tone={remoteOn ? 'accent' : undefined}
             onClick={onOpenRemote}
           >
-            <Icon icon={Globe} size={11} strokeWidth={1.6} />
+            <Icon icon={Globe} size="sm" />
             Remote: {remoteOn ? 'on' : 'off'}
           </button>
         </Tooltip>

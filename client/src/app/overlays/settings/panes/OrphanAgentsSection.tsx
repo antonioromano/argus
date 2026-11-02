@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OrphanReport } from '@argus/shared';
-import { AlertSheet, Section, Button, Checkbox, pushToast } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Button, Checkbox, pushToast, Stack, Row } from '../../../../components/primitives/index.js';
 import { toastError } from '../../../../errors/toastError.js';
 import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
@@ -63,13 +63,13 @@ export function OrphanAgentsSection() {
 
   return (
     <Section
-      title="Orphan agents"
+      title="Agents without a session"
       action={<Button size="sm" variant="ghost" onClick={() => { void refresh(); }}>Rescan</Button>}
     >
-      <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', fontSize: 'var(--t-xs)' }}>
-        <PaneLoadState loaded={report !== null} error={error} errorTitle="Couldn’t scan for orphaned agents" onRetry={() => { void refresh(); }} />
+      <Stack gap={3} className="settings-card-pad" style={{ fontSize: 'var(--t-xs)' }}>
+        <PaneLoadState loaded={report !== null} error={error} errorTitle="Couldn’t scan for agents without a session" onRetry={() => { void refresh(); }} />
         {report && !error && daemons.length === 0 && (
-          <p style={{ margin: 0, color: 'var(--fg-3)' }}>No orphan daemons or agents. Only the active backend is running.</p>
+          <p style={{ margin: 0, color: 'var(--fg-3)' }}>No stray agents or session hosts. Only the active session host is running.</p>
         )}
         {daemons.length > 0 && (
           <>
@@ -80,7 +80,7 @@ export function OrphanAgentsSection() {
             {daemons.map((d) => {
               const agents = report!.agents.filter((a) => a.daemonPid === d.pid);
               return (
-                <div key={d.pid} data-testid="orphan-daemon" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <Row align="start" gap={2} key={d.pid} data-testid="orphan-daemon">
                   <Checkbox checked={selected.has(d.pid)} onChange={(v) => toggle(d.pid, v)} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ color: 'var(--fg-0)' }}>
@@ -93,17 +93,17 @@ export function OrphanAgentsSection() {
                       </div>
                     ))}
                   </div>
-                </div>
+                </Row>
               );
             })}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
+            <Row justify="end" gap={2}>
               <Button size="sm" variant="danger" disabled={selected.size === 0} onClick={() => setConfirming(true)}>
                 Kill selected…
               </Button>
-            </div>
+            </Row>
           </>
         )}
-      </div>
+      </Stack>
       {/* Killing processes is irreversible: a decision sheet, not an inline row
           (docs/design/feedback-surfaces.md). */}
       <AlertSheet

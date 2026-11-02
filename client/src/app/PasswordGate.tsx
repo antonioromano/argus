@@ -72,8 +72,8 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 6,
-            padding: '3px var(--s-2)',
+            gap: 'var(--s-1-5)',
+            padding: 'var(--s-1) var(--s-2)',
             background: 'var(--accent-bg)',
             color: 'var(--accent)',
             border: '1px solid var(--accent-edge)',
@@ -84,7 +84,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
             marginBottom: 'var(--s-4)',
           }}
         >
-          <Icon icon={Lock} size={11} strokeWidth={1.6} /> REMOTE ACCESS
+          <Icon icon={Lock} size="sm" /> REMOTE ACCESS
         </div>
         <h1
           style={{
@@ -112,7 +112,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
                 autoComplete="current-password"
                 mono
                 autoFocus
-                style={{ paddingRight: 36, height: 36 }}
+                style={{ paddingRight: 'var(--s-7)', height: 36 }}
               />
               <button
                 type="button"
@@ -126,12 +126,12 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
-                  padding: 2,
+                  padding: 'var(--s-0-5)',
                   color: 'var(--fg-3)',
                   display: 'flex',
                 }}
               >
-                {showPassword ? <Icon icon={EyeOff} size={14} strokeWidth={1.6} /> : <Icon icon={Eye} size={14} strokeWidth={1.6} />}
+                {showPassword ? <Icon icon={EyeOff} size="md" /> : <Icon icon={Eye} size="md" />}
               </button>
             </div>
           </Field>
@@ -142,18 +142,18 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 'var(--s-1-5)',
               background: 'var(--danger-bg)',
               border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
               borderRadius: 'var(--r-2)',
-              padding: '8px var(--s-3)',
+              padding: 'var(--s-2) var(--s-3)',
               marginBottom: 'var(--s-4)',
               fontSize: 'var(--t-sm)',
               fontFamily: 'var(--font-mono)',
               color: 'var(--danger)',
             }}
           >
-            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size="sm" />
             {error}
           </div>
         )}

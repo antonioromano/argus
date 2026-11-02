@@ -68,7 +68,7 @@ export function DiffViewer({
       ? { filePath: navFilePath, held: navHeld, open: onOpenInEditor }
       : null;
   return (
-    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
+    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, var(--t-body))' }}>
       {editStatus && (editStatus.saving || editStatus.error) && (
         <div
           className="eyebrow"
@@ -116,7 +116,7 @@ export function DiffViewer({
           }
           return (
           <div key={i} style={{ marginBottom: 'var(--s-4)' }}>
-            <div style={{ color: 'var(--fg-3)', padding: '2px var(--s-2)', background: 'var(--bg-1)', borderRadius: 'var(--r-1)', marginBottom: 4 }}>
+            <div style={{ color: 'var(--fg-3)', padding: 'var(--s-0-5) var(--s-2)', background: 'var(--bg-1)', borderRadius: 'var(--r-1)', marginBottom: 'var(--s-1)' }}>
               {chunk.content}
             </div>
             {chunk.changes.map((c, j) => {

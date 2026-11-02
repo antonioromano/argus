@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link2 } from 'lucide-react';
 import { CHAIN_PROMPT_MAX, type AppConfig, type ChainMode, type ChainTrigger, type SessionChain, type SessionInfo } from '@argus/shared';
-import { Button, Field, Segmented, Sheet } from '../../components/primitives/index.js';
+import { Button, Field, Segmented, Sheet, Row, Stack } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { isBetaEnabled } from '../../utils/betaFlags.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
@@ -69,28 +69,28 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
   };
 
   const footer = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
+    <Row gap={3} style={{ width: '100%' }}>
       <span data-testid="chain-summary" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', flex: 1, minWidth: 0 }}>
         {target
           ? `When ${shellLabel(session)} goes ${trigger}, type the prompt into ${shellLabel(target)}${mode === 'once' ? ' (once)' : ' (every time)'}.`
-          : 'No agent shell to chain to.'}
+          : 'No agent session to chain to.'}
       </span>
       <Button variant="ghost" size="md" onClick={onClose} disabled={submitting}>Cancel</Button>
       <Button variant="primary" size="md" icon={Link2} onClick={() => { void submit(); }} disabled={!canSubmit} loading={submitting}>
         Create chain
       </Button>
-    </div>
+    </Row>
   );
 
   return (
     <Sheet eyebrow="CHAIN TO" title={shellLabel(session)} width={560} onClose={submitting ? undefined : onClose} footer={footer}>
-      <div data-testid="chain-sheet" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+      <Stack gap={4} data-testid="chain-sheet">
         <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
-          When this shell enters the state below, Argus types the prompt into the target and presses Enter.
+          When this session enters the state below, Argus types the prompt into the target and presses Enter.
           A busy target gets it once it settles (or never, after 10 minutes).
         </div>
 
-        <Field label="Target" error={targets.length === 0 ? 'Start another agent shell first' : undefined}>
+        <Field label="Target" error={targets.length === 0 ? 'Start another agent session first' : undefined}>
           <select
             data-testid="chain-target"
             aria-label="Target"
@@ -103,7 +103,7 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
           </select>
         </Field>
 
-        <Field label="When this shell goes">
+        <Field label="When this session goes">
           <Segmented label="Trigger" value={trigger} options={TRIGGERS} onChange={setTrigger} compact />
         </Field>
 
@@ -120,7 +120,7 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
             rows={3}
             placeholder="e.g. The API is done — run the client tests against it"
             style={{
-              display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 4, resize: 'vertical',
+              display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 'var(--s-1)', resize: 'vertical',
               fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-0)',
               background: 'var(--bg-inset)', border: `1px solid ${tooLong ? 'var(--danger)' : 'var(--line-3)'}`, borderRadius: 'var(--r-2)', padding: 'var(--s-2)',
             }}
@@ -135,7 +135,7 @@ export function ChainSheet({ session, sessions, onClose, onCreated }: ChainSheet
             {error}
           </div>
         )}
-      </div>
+      </Stack>
     </Sheet>
   );
 }

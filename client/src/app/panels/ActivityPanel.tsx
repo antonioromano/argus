@@ -123,7 +123,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
           flexShrink: 0,
         }}
       >
-        <Icon icon={Activity} size={13} strokeWidth={1.6} color="var(--fg-2)" />
+        <Icon icon={Activity} size="md" color="var(--fg-2)" />
         <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-1)', flex: 1, minWidth: 0 }}>Activity</span>
         <select
           aria-label="Filter activity by type"
@@ -133,9 +133,9 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
             background: 'var(--bg-2)',
             color: 'var(--fg-1)',
             border: '1px solid var(--line-2)',
-            borderRadius: 4,
+            borderRadius: 'var(--r-2)',
             fontSize: 'var(--t-tiny)',
-            padding: '1px 4px',
+            padding: 'var(--s-px) var(--s-1)',
           }}
         >
           <option value="all">All</option>
@@ -172,7 +172,7 @@ export function ActivityPanel({ session, socket, placement = 'side', size = 320,
                 onClick={open}
                 onKeyDown={open ? (ev) => { if (ev.key === 'Enter') open(); } : undefined}
               >
-                <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 2 }} aria-label={meta.label} />
+                <Icon icon={Glyph} size="md" color="var(--fg-2)" style={{ flexShrink: 0, marginTop: 'var(--s-0-5)' }} aria-label={meta.label} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-1)', fontWeight: 500 }}>{title}</div>
                   {e.summary && (

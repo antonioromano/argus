@@ -25,7 +25,7 @@ export function AgentPreflightNotice({ agent, installUrl }: AgentPreflightNotice
   return (
     <div className="argus-preflight-notice" role="status" data-testid="agent-preflight">
       <div className="argus-preflight-notice-title">
-        <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+        <Icon icon={AlertTriangle} size="sm" />
         <span>{agent.command} isn’t on your PATH</span>
       </div>
       <div>Argus couldn’t find {agent.name}. Install it, or set its command in Settings → Agents. You can still start the session.</div>

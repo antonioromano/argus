@@ -56,7 +56,7 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
       style={{
         position: 'fixed', inset: 0, zIndex: 'var(--z-tooltip)',
         display: 'flex', flexDirection: 'column', background: 'var(--bg-0)',
-        animation: 'argus-sheet-up var(--dur-base) var(--ease-out)',
+        animation: 'argus-sheet-up var(--dur-base) var(--ease)',
       }}
     >
       {/* Header */}
@@ -70,25 +70,25 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
         <button
           onClick={onClose}
           aria-label="Cancel"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--fg-2)', borderRadius: 'var(--r-2)', width: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--fg-2)', borderRadius: 'var(--r-2)', width: 44, minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
-          <Icon icon={X} size={16} strokeWidth={1.8} />
+          <Icon icon={X} size="lg" />
         </button>
         <span className="eyebrow" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>CHOOSE FOLDER</span>
         <button
           onClick={goUp}
           disabled={atRoot}
           aria-label="Up one level"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: atRoot ? 'default' : 'pointer', color: atRoot ? 'var(--fg-4)' : 'var(--accent)', borderRadius: 'var(--r-2)', width: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: atRoot ? 'default' : 'pointer', color: atRoot ? 'var(--fg-4)' : 'var(--accent)', borderRadius: 'var(--r-2)', width: 44, minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
-          <Icon icon={ArrowUp} size={16} strokeWidth={1.8} />
+          <Icon icon={ArrowUp} size="lg" />
         </button>
       </div>
 
       {/* Current path */}
       <div
         style={{
-          padding: '8px var(--s-4)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)',
+          padding: 'var(--s-2) var(--s-4)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)',
           fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', flexShrink: 0,
           direction: 'rtl', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
@@ -115,11 +115,11 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
               borderBottom: '1px solid var(--line-1)', cursor: entry.hasChildren ? 'pointer' : 'default', minHeight: 52,
             }}
           >
-            <Icon icon={Folder} size={18} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <Icon icon={Folder} size="xl" style={{ color: 'var(--accent)', flexShrink: 0 }} />
             <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-body)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {entry.name}
             </span>
-            {entry.hasChildren && <Icon icon={ChevronRight} size={16} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />}
+            {entry.hasChildren && <Icon icon={ChevronRight} size="lg" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />}
           </button>
         ))}
       </div>
@@ -130,15 +130,15 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
           onClick={() => current && onSelect(current)}
           disabled={!current}
           style={{
-            width: '100%', padding: 13, borderRadius: 'var(--r-2)', border: 'none',
+            width: '100%', padding: 'var(--s-3)', borderRadius: 'var(--r-2)', border: 'none',
             background: current ? 'var(--accent)' : 'var(--bg-3)',
             color: current ? 'var(--fg-on-accent)' : 'var(--fg-4)',
             fontFamily: 'var(--font-sans)', fontSize: 'var(--t-md)', fontWeight: 700,
             cursor: current ? 'pointer' : 'default',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--s-1-5)',
           }}
         >
-          <Icon icon={Check} size={16} strokeWidth={2} />
+          <Icon icon={Check} size="lg" strokeWidth={2} />
           Use {current ? current.split('/').filter(Boolean).pop() || '/' : 'this folder'}
         </button>
       </div>

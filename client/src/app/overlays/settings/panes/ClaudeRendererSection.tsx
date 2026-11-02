@@ -25,7 +25,7 @@ export function ClaudeRendererSection({ config, onSave }: Pick<PaneProps, 'confi
       </SettingField>
       <SettingField id="defaultSessionView">
         <Segmented
-          label="Default view for Claude shells"
+          label="Default view for Claude sessions"
           value={view}
           options={VIEW_OPTIONS}
           compact

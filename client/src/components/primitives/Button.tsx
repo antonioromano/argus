@@ -94,9 +94,9 @@ export function Button({
         ...style,
       }}
     >
-      {loading ? <Spinner size={iconSize} /> : (Glyph && <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />)}
+      {loading ? <Spinner size={iconSize} /> : (Glyph && <Icon icon={Glyph} size={iconSize} />)}
       {children}
-      {IconRight && <Icon icon={IconRight} size={iconSize} strokeWidth={1.6} />}
+      {IconRight && <Icon icon={IconRight} size={iconSize} />}
     </button>
   );
   return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;

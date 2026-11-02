@@ -163,14 +163,14 @@ export function Chip({ children, icon: Glyph, dot, onRemove, active, onClick, st
       style={style}
     >
       {dot && <span className="ds-chip-dot" style={{ background: dot }} />}
-      {Glyph && <Icon icon={Glyph} size="xs" strokeWidth={1.6} />}
+      {Glyph && <Icon icon={Glyph} size="xs" />}
       {children}
       {onRemove && (
         <span
           className="ds-chip-remove"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
         >
-          <Icon icon={X} size="xs" strokeWidth={1.6} />
+          <Icon icon={X} size="xs" />
         </span>
       )}
     </span>

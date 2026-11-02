@@ -98,7 +98,7 @@ export function IdentityPopover({ session, x, y, onSave, onClose }: IdentityPopo
           aria-pressed={!color}
           onClick={() => save({ color: null })}
         >
-          <Icon icon={Ban} size={12} strokeWidth={1.8} />
+          <Icon icon={Ban} size="sm" />
         </button>
         {GROUP_COLORS.map((c) => (
           <button

@@ -28,7 +28,7 @@ export function SessionRenameInput({
       autoFocus
       value={val}
       maxLength={SESSION_NAME_MAX}
-      aria-label="Shell name"
+      aria-label="Session name"
       onChange={(e) => setVal(e.target.value)}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}   // don't start a tile/row drag
@@ -43,7 +43,7 @@ export function SessionRenameInput({
         flex: 1, minWidth: 0, boxSizing: 'border-box',
         background: 'var(--bg-2)', border: '1px solid var(--accent)', borderRadius: 'var(--r-2)',
         color: 'var(--fg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)',
-        padding: '2px 6px', outline: 'none',
+        padding: 'var(--s-0-5) var(--s-1-5)', outline: 'none',
         ...style,
       }}
     />

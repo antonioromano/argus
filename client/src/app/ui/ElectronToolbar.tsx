@@ -59,7 +59,7 @@ export function ElectronToolbar({
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 4,
+        gap: 'var(--s-1)',
         // @ts-expect-error Electron-only
         WebkitAppRegion: 'no-drag',
       }}
@@ -70,8 +70,8 @@ export function ElectronToolbar({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
-              padding: '3px 8px',
+              gap: 'var(--s-1)',
+              padding: 'var(--s-1) var(--s-2)',
               borderRadius: 'var(--r-2)',
               background: 'var(--warn-bg)',
               border: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
@@ -85,17 +85,17 @@ export function ElectronToolbar({
               WebkitAppRegion: 'no-drag',
             }}
           >
-            <Icon icon={ArrowUp} size={10} strokeWidth={2} /> v{updateVersion}
+            <Icon icon={ArrowUp} size="xs" strokeWidth={2} /> v{updateVersion}
           </button>
         )}
 
         {mosaicOrientation && onToggleMosaicOrientation && (
-          <Tooltip content={mosaicOrientation === 'vertical' ? 'Arrange shells side by side' : 'Stack shells vertically'}>
+          <Tooltip content={mosaicOrientation === 'vertical' ? 'Arrange sessions side by side' : 'Stack sessions vertically'}>
             <button onClick={onToggleMosaicOrientation} style={iconBtn()}>
               {/* The icon shows the layout you switch TO, like the theme toggle. */}
               {mosaicOrientation === 'vertical'
-                ? <Icon icon={Columns2} size={13} strokeWidth={1.6} />
-                : <Icon icon={Rows2} size={13} strokeWidth={1.6} />}
+                ? <Icon icon={Columns2} size="md" />
+                : <Icon icon={Rows2} size="md" />}
             </button>
           </Tooltip>
         )}
@@ -117,13 +117,13 @@ export function ElectronToolbar({
 
         <Tooltip content={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
           <button onClick={onToggleTheme} style={iconBtn()}>
-            {isDark ? <Icon icon={Sun} size={13} strokeWidth={1.6} /> : <Icon icon={Moon} size={13} strokeWidth={1.6} />}
+            {isDark ? <Icon icon={Sun} size="md" /> : <Icon icon={Moon} size="md" />}
           </button>
         </Tooltip>
 
         <Tooltip content="Settings">
           <button onClick={onOpenSettings} style={iconBtn()}>
-            <Icon icon={Settings} size={13} strokeWidth={1.6} />
+            <Icon icon={Settings} size="md" />
           </button>
         </Tooltip>
     </div>

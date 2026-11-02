@@ -119,7 +119,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
         useWorktree ? (worktreeBase || 'HEAD') : undefined,
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create shell');
+      setError(e instanceof Error ? e.message : 'Couldn’t create the session');
       setCreating(false);
     }
   };
@@ -131,27 +131,27 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
       style={{
         position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)',
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        background: 'var(--bg-overlay)', animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+        background: 'var(--bg-overlay)', animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="New shell"
+        aria-label="New session"
         onClick={(e) => e.stopPropagation()}
         style={{
           display: 'flex', flexDirection: 'column', maxHeight: '92%',
           background: 'var(--bg-1)', borderTop: '1px solid var(--line-3)',
           borderRadius: 'var(--r-4) var(--r-4) 0 0', boxShadow: 'var(--shadow-sheet)',
-          animation: 'argus-sheet-up var(--dur-base) var(--ease-out)',
+          animation: 'argus-sheet-up var(--dur-base) var(--ease)',
           paddingBottom: 'env(safe-area-inset-bottom, 0px)',
         }}
       >
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--line-3)', margin: '8px auto 4px' }} />
+        <div style={{ width: 36, height: 4, borderRadius: 'var(--r-1)', background: 'var(--line-3)', margin: 'var(--s-2) auto var(--s-1)' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--s-2) var(--s-4) var(--s-3)', borderBottom: '1px solid var(--line-1)' }}>
-          <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>NEW SHELL</span>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--fg-2)', cursor: 'pointer', padding: 4 }}>
-            <Icon icon={X} size={18} strokeWidth={1.8} />
+          <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>NEW SESSION</span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--fg-2)', cursor: 'pointer', padding: 'var(--s-1)' }}>
+            <Icon icon={X} size="xl" />
           </button>
         </div>
 
@@ -173,16 +173,16 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
               aria-label="Browse folders"
               style={{ flexShrink: 0, width: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', color: 'var(--accent)', cursor: 'pointer' }}
             >
-              <Icon icon={FolderSearch} size={18} strokeWidth={1.6} />
+              <Icon icon={FolderSearch} size="xl" />
             </button>
           </div>
           {completions.length > 0 && folderTrimmed && completions[0] !== folderTrimmed && (
-            <div style={{ marginTop: 4, border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-2)' }}>
+            <div style={{ marginTop: 'var(--s-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-2)' }}>
               {completions.slice(0, 4).map((c) => (
                 <button
                   key={c}
                   onClick={() => setFolderPath(c)}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px var(--s-3)', background: 'none', border: 'none', borderBottom: '1px solid var(--line-1)', color: 'var(--fg-1)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: 'var(--s-2) var(--s-3)', background: 'none', border: 'none', borderBottom: '1px solid var(--line-1)', color: 'var(--fg-1)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >
                   {c}
                 </button>
@@ -190,13 +190,13 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             </div>
           )}
           {recents.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-1-5)', marginTop: 'var(--s-2)' }}>
               {recents.map((r) => (
                 <button
                   key={r}
                   onClick={() => setFolderPath(r)}
                   title={r}
-                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: '5px 9px', borderRadius: 'var(--r-pill)', border: '1px solid var(--line-2)', background: 'var(--bg-2)', color: 'var(--fg-2)', cursor: 'pointer', maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', padding: 'var(--s-1-5) var(--s-2)', borderRadius: 'var(--r-pill)', border: '1px solid var(--line-2)', background: 'var(--bg-2)', color: 'var(--fg-2)', cursor: 'pointer', maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >
                   {r.split('/').filter(Boolean).pop()}
                 </button>
@@ -218,7 +218,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
 
           {/* Agent */}
           <Label style={{ marginTop: 'var(--s-4)' }}>Agent</Label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-1-5)' }}>
             {agents.map((a) => {
               const sel = agentId === a.id;
               return (
@@ -226,7 +226,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
                   key={a.id}
                   onClick={() => setAgentId(a.id)}
                   style={{
-                    flex: '1 1 30%', minWidth: 80, textAlign: 'center', padding: '10px 4px',
+                    flex: '1 1 30%', minWidth: 80, textAlign: 'center', padding: 'var(--s-3) var(--s-1)',
                     borderRadius: 'var(--r-2)', cursor: 'pointer',
                     border: `1px solid ${sel ? 'var(--accent-edge)' : 'var(--line-2)'}`,
                     background: sel ? 'var(--accent-bg)' : 'var(--bg-2)',
@@ -292,16 +292,16 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
             onClick={submit}
             disabled={!canCreate}
             style={{
-              width: '100%', padding: 13, borderRadius: 'var(--r-2)', border: 'none',
+              width: '100%', padding: 'var(--s-3)', borderRadius: 'var(--r-2)', border: 'none',
               background: canCreate ? 'var(--accent)' : 'var(--bg-3)',
               color: canCreate ? 'var(--fg-on-accent)' : 'var(--fg-4)',
               fontFamily: 'var(--font-sans)', fontSize: 'var(--t-md)', fontWeight: 700,
               cursor: canCreate ? 'pointer' : 'default',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--s-1-5)',
             }}
           >
-            <Icon icon={CornerDownLeft} size={16} strokeWidth={2} />
-            {creating ? 'Creating…' : 'Create shell'}
+            <Icon icon={CornerDownLeft} size="lg" strokeWidth={2} />
+            {creating ? 'Creating…' : 'Create session'}
           </button>
         </div>
 
@@ -318,7 +318,7 @@ export function CreateSheet({ sessions, onCreate, onClose }: CreateSheetProps) {
 }
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '11px var(--s-3)', background: 'var(--bg-2)',
+  width: '100%', padding: 'var(--s-3) var(--s-3)', background: 'var(--bg-2)',
   border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', color: 'var(--fg-0)',
   fontFamily: 'var(--font-mono)', fontSize: 16, // 16px avoids iOS input-zoom
 };

@@ -26,8 +26,8 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll, promo }:
   const minimized = mode === 'all-minimized';
   const title = minimized ? 'Nothing on the grid' : 'Ready when you are';
   const hint = minimized
-    ? `Bring your ${minimizedCount} ${minimizedCount === 1 ? 'shell' : 'shells'} back — or start another.`
-    : 'No shells running. Spin one up and Argus takes it from there.';
+    ? `Bring your ${minimizedCount} ${minimizedCount === 1 ? 'session' : 'sessions'} back — or start another.`
+    : 'No sessions running. Start one and Argus takes it from there.';
   const CoreIcon = minimized ? RotateCcw : Play;
 
   return (
@@ -36,7 +36,7 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll, promo }:
       <div className="argus-landing-inner">
         <div className="argus-landing-ring" aria-hidden>
           <div className="argus-landing-core">
-            <Icon icon={CoreIcon} size={28} strokeWidth={1.8} />
+            <Icon icon={CoreIcon} size={28} />
           </div>
         </div>
         <h2 className="argus-landing-title">{title}</h2>
@@ -48,12 +48,12 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll, promo }:
                 Restore all ({minimizedCount})
               </Button>
               <Button variant="ghost" size="lg" icon={Plus} onClick={onCreate}>
-                New shell
+                New session
               </Button>
             </>
           ) : (
             <Button variant="primary" size="lg" icon={Plus} onClick={onCreate}>
-              New shell
+              New session
             </Button>
           )}
         </div>
@@ -64,7 +64,7 @@ export function Landing({ mode, minimizedCount, onCreate, onRestoreAll, promo }:
               Try session templates (beta)
             </button>
             <button type="button" aria-label="Hide this suggestion" className="argus-landing-promo-x hover-bg-3" onClick={promo.onDismiss}>
-              <Icon icon={X} size={11} strokeWidth={1.8} />
+              <Icon icon={X} size="sm" />
             </button>
           </p>
         )}

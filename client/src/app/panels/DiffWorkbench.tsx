@@ -318,7 +318,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           flexShrink: 0,
         }}
       >
-        <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--dirty)" />
+        <Icon icon={GitBranch} size="md" color="var(--dirty)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · DIFF</div>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
           {session.name}
@@ -330,13 +330,13 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
             onClick={() => setViewMode('split')}
             style={modeBtn(viewMode === 'split')}
           >
-            <Icon icon={SplitSquareHorizontal} size={11} strokeWidth={1.6} /> SPLIT
+            <Icon icon={SplitSquareHorizontal} size="sm" /> SPLIT
           </button>
           <button
             onClick={() => setViewMode('unified')}
             style={modeBtn(viewMode === 'unified')}
           >
-            <Icon icon={AlignLeft} size={11} strokeWidth={1.6} /> UNIFIED
+            <Icon icon={AlignLeft} size="sm" /> UNIFIED
           </button>
         </div>
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
@@ -397,7 +397,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
               title={diff.oversized.join('\n')}
               style={{
                 margin: 'var(--s-2)',
-                padding: '6px var(--s-2)',
+                padding: 'var(--s-1-5) var(--s-2)',
                 fontSize: 'var(--t-tiny)',
                 color: 'var(--warn)',
                 background: 'var(--warn-bg)',
@@ -658,14 +658,14 @@ function FileCheckbox({ visible, state, disabled, onClick }: FileCheckboxProps) 
           opacity: disabled ? 0.4 : 1,
         }}
       >
-        {state === 'all' && <Icon icon={Check} size={10} strokeWidth={2.5} />}
+        {state === 'all' && <Icon icon={Check} size="xs" strokeWidth={2} />}
         {state === 'partial' && (
           <span
             style={{
               width: 7,
               height: 2,
               background: 'var(--bg-0)',
-              borderRadius: 1,
+              borderRadius: 'var(--r-1)',
               display: 'inline-block',
             }}
           />
@@ -711,8 +711,8 @@ function SidebarChipButton({ label, icon: Glyph, tone, busy, title, onActivate }
           cursor: busy ? 'wait' : 'pointer',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 3,
-          padding: '2px 6px',
+          gap: 'var(--s-1)',
+          padding: 'var(--s-0-5) var(--s-1-5)',
           borderRadius: 'var(--r-2)',
           border: '1px solid var(--line-3)',
           color,
@@ -720,7 +720,7 @@ function SidebarChipButton({ label, icon: Glyph, tone, busy, title, onActivate }
           fontSize: 'var(--t-micro)',
         }}
       >
-        <Icon icon={Glyph} size={10} strokeWidth={2} />
+        <Icon icon={Glyph} size="xs" strokeWidth={2} />
         {label}
       </span>
     </Tooltip>
@@ -807,8 +807,8 @@ const modeBtn = (active: boolean): React.CSSProperties => ({
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '4px var(--s-2)',
+  gap: 'var(--s-1)',
+  padding: 'var(--s-1) var(--s-2)',
   background: active ? 'var(--bg-3)' : 'var(--bg-2)',
   color: active ? 'var(--accent)' : 'var(--fg-2)',
   fontFamily: 'var(--font-mono)',

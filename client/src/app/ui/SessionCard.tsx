@@ -39,7 +39,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           onClick?.();
         }
       }}
-      aria-label={`Open shell ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
+      aria-label={`Open session ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
       className="terminal-card"
       data-status={s.status}
       style={{
@@ -115,7 +115,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
                     color: 'var(--accent)',
                     border: '1px solid var(--accent-edge)',
                     borderRadius: 'var(--r-1)',
-                    padding: '1px var(--s-1)',
+                    padding: 'var(--s-px) var(--s-1)',
                     maxWidth: 120,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -205,7 +205,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         {onMore && (
           <IconButton
             icon={MoreHorizontal}
-            label="Shell menu"
+            label="Session menu"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onMore(e); }}
           />
@@ -213,7 +213,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         {onKill && (
           <IconButton
             icon={CircleX}
-            label="Close shell"
+            label="Close session"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onKill(); }}
           />

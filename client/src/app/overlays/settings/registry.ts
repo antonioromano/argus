@@ -87,10 +87,10 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
   },
   {
     id: 'shell-header',
-    label: 'Shell header',
+    label: 'Session header',
     group: 'Appearance',
     icon: PanelTop,
-    keywords: ['quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'limit', 'reset', 'model', 'warning', 'threshold', 'codex', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh', 'inspector', 'session inspector', 'side panel', 'left', 'right', 'position', 'show', 'hide', 'git', 'branch'],
+    keywords: ['shell header', 'quick action', 'tile', 'header', 'running indicator', 'hairline', 'progress', 'window controls', 'usage', 'tokens', 'context', 'meter', 'plan usage', 'rate limit', 'limit', 'reset', 'model', 'warning', 'threshold', 'codex', 'pr', 'pull request', 'ci', 'checks', 'github', 'gh', 'inspector', 'session inspector', 'side panel', 'left', 'right', 'position', 'show', 'hide', 'git', 'branch'],
   },
   {
     id: 'agents',
@@ -101,7 +101,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
   },
   {
     id: 'isolation',
-    label: 'Isolation',
+    label: 'Worktrees',
     group: 'Workspace',
     icon: GitBranch,
     keywords: ['worktree', 'isolation', 'branch', 'sandbox', 'git', 'parallel'],
@@ -153,7 +153,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
   },
   {
     id: 'runtime',
-    label: 'Runtime',
+    label: 'Sessions & processes',
     group: 'System',
     icon: Server,
     keywords: [

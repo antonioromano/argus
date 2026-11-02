@@ -49,13 +49,13 @@ export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
             background: 'var(--bg-2)',
             border: '1px solid var(--line-2)',
             borderRadius: 'var(--r-2)',
-            padding: '10px var(--s-3)',
+            padding: 'var(--s-3) var(--s-3)',
             fontSize: 16,
             lineHeight: 1.4,
             fontFamily: 'var(--font-mono)',
             color: 'var(--fg-0)',
             outline: 'none',
-            minHeight: 44,
+            minHeight: 'var(--row-h-touch)',
             maxHeight: COMPOSE_MAX_H,
             resize: 'none',
             boxSizing: 'border-box',
@@ -79,7 +79,7 @@ export const ComposeBar = forwardRef<HTMLTextAreaElement, ComposeBarProps>(
             flexShrink: 0,
           }}
         >
-          <Icon icon={ArrowUp} size={16} strokeWidth={2} />
+          <Icon icon={ArrowUp} size="lg" strokeWidth={2} />
         </button>
       </form>
     );

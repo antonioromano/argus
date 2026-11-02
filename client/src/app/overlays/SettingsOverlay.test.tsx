@@ -137,23 +137,23 @@ describe('settings shell', () => {
 
   it('honours a legacy tab id as a deep link', () => {
     render({ ...DEFAULT_CONFIG }, 'worktrees');
-    expect(paneTitle()).toBe('Isolation');
+    expect(paneTitle()).toBe('Worktrees');
   });
 
   it('switches pane on click', () => {
     render({ ...DEFAULT_CONFIG });
-    const runtime = navItems().find((b) => b.textContent?.includes('Runtime'));
+    const runtime = navItems().find((b) => b.textContent?.includes('Sessions & processes'));
     act(() => { runtime?.click(); });
-    expect(paneTitle()).toBe('Runtime');
+    expect(paneTitle()).toBe('Sessions & processes');
   });
 
   it('reopens on the last pane shown', () => {
     render({ ...DEFAULT_CONFIG });
-    act(() => { navItems().find((b) => b.textContent?.includes('Runtime'))?.click(); });
+    act(() => { navItems().find((b) => b.textContent?.includes('Sessions & processes'))?.click(); });
     act(() => root.unmount());
     act(() => { root = createRoot(container); });
     render({ ...DEFAULT_CONFIG });
-    expect(paneTitle()).toBe('Runtime');
+    expect(paneTitle()).toBe('Sessions & processes');
   });
 
   it('an explicit tab wins over the remembered pane', () => {
@@ -173,7 +173,7 @@ describe('sidebar filter', () => {
   it('narrows the list to matching panes', () => {
     render({ ...DEFAULT_CONFIG });
     type('tmux');
-    expect(navLabels()).toEqual(['Runtime']);
+    expect(navLabels()).toEqual(['Sessions & processes']);
   });
 
   it('jumps to the first match when the open pane is filtered out', () => {
@@ -239,8 +239,8 @@ describe('pane content', () => {
     expect(paneTitle()).toBe('General');
     const text = container.querySelector('main')?.textContent ?? '';
     expect(text).toContain('Closing a running session');
-    expect(text).toContain('Exit all sessions on Quit');
-    expect(text).toContain('Confirm before exiting');
+    expect(text).toContain('Stop all sessions when quitting');
+    expect(text).toContain('Ask before stopping sessions');
   });
 
   it('General also holds sleep and the Others folder name', () => {
@@ -263,7 +263,7 @@ describe('pane content', () => {
 
   it('Runtime holds the developer tools under Diagnostics', () => {
     render({ ...DEFAULT_CONFIG }, 'developer');
-    expect(paneTitle()).toBe('Runtime');
+    expect(paneTitle()).toBe('Sessions & processes');
     const text = container.querySelector('main')?.textContent ?? '';
     expect(text).toContain('Diagnostics');
     expect(text).toContain('Enable developer tools');
@@ -272,8 +272,8 @@ describe('pane content', () => {
   it('hides the quit confirmation while Quit only detaches', () => {
     render({ ...DEFAULT_CONFIG, exitSessionsOnQuit: false }, 'general');
     const text = container.querySelector('main')?.textContent ?? '';
-    expect(text).toContain('Exit all sessions on Quit');
-    expect(text).not.toContain('Confirm before exiting');
+    expect(text).toContain('Stop all sessions when quitting');
+    expect(text).not.toContain('Ask before stopping sessions');
   });
 
   it('no longer offers a row for the non-configurable window controls', () => {

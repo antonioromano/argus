@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Badge, Section, Toggle } from '../../../../components/primitives/index.js';
+import { Badge, Section, Toggle, Row } from '../../../../components/primitives/index.js';
 import { BETA_FEATURES, isBetaEnabled } from '../../../../utils/betaFlags.js';
 import type { PaneProps } from '../types.js';
 import { ChainsSection } from './ChainsSection.js';
@@ -24,7 +24,7 @@ export function BetaPane({ config, onSave }: PaneProps) {
             data-testid={`beta-${f.flag}`}
           >
             <div className="setting-row-meta">
-              <div className="setting-row-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+              <Row gap={2} className="setting-row-label">
                 <span>{f.label}</span>
                 <Badge label="Beta" />
                 <button
@@ -35,16 +35,25 @@ export function BetaPane({ config, onSave }: PaneProps) {
                 >
                   Learn more
                 </button>
-              </div>
+              </Row>
               <div className="setting-row-hint">{f.description}</div>
-              <div data-testid={`beta-how-${f.flag}`} style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6, fontSize: 'var(--t-tiny)', color: 'var(--fg-1)' }}>
+              <Row
+                align="baseline"
+                gap={1.5}
+                data-testid={`beta-how-${f.flag}`}
+                style={{
+                  marginTop: 'var(--s-1-5)',
+                  fontSize: 'var(--t-tiny)',
+                  color: 'var(--fg-1)',
+                }}
+              >
                 <span style={{ flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', fontWeight: 600, letterSpacing: '.06em', color: 'var(--fg-3)' }}>HOW</span>
                 <span>{f.how}</span>
-              </div>
+              </Row>
               {f.caveats.length > 0 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 6 }}>
+                <Row align="stretch" gap={1.5} wrap style={{ marginTop: 'var(--s-1-5)' }}>
                   {f.caveats.map((c) => <CaveatChip key={c.text} text={c.text} warn={c.warn} />)}
-                </div>
+                </Row>
               )}
             </div>
             <div style={{ flexShrink: 0 }}>
@@ -67,8 +76,8 @@ function CaveatChip({ text, warn }: { text: string; warn?: boolean }) {
       style={{
         fontSize: 'var(--t-micro)',
         lineHeight: 1.5,
-        padding: '0 7px',
-        borderRadius: 10,
+        padding: '0 var(--s-2)',
+        borderRadius: 'var(--r-4)',
         whiteSpace: 'nowrap',
         background: warn ? 'var(--warn-bg)' : 'var(--bg-3)',
         color: warn ? 'var(--warn)' : 'var(--fg-2)',

@@ -60,7 +60,7 @@ export function IconButton({
       className={btnClass}
       style={base}
     >
-      <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />
+      <Icon icon={Glyph} size={iconSize} />
     </button>
   );
   return tooltip ? <Tooltip content={label} position="top">{button}</Tooltip> : button;

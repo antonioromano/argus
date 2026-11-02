@@ -80,7 +80,7 @@ export function EditorTabStrip({
         onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--fg-0)')}
         onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-3)')}
       >
-        <Icon icon={Plus} size={14} strokeWidth={1.6} />
+        <Icon icon={Plus} size="md" />
       </button>
     </div>
   );
@@ -111,8 +111,8 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 7,
-        padding: '0 8px 0 11px',
+        gap: 'var(--s-2)',
+        padding: '0 var(--s-2) 0 var(--s-3)',
         fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-xs)',
         whiteSpace: 'nowrap',
@@ -147,7 +147,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
           height: 16,
           display: 'grid',
           placeItems: 'center',
-          borderRadius: 3,
+          borderRadius: 'var(--r-2)',
           flexShrink: 0,
           background: closeHover ? 'var(--bg-3)' : 'transparent',
           color: dirty && !closeHover ? 'var(--dirty)' : 'var(--fg-3)',
@@ -156,7 +156,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
         {dirty && !closeHover ? (
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--dirty)' }} />
         ) : hover || active || closeHover ? (
-          <Icon icon={X} size={12} strokeWidth={2} />
+          <Icon icon={X} size="sm" strokeWidth={2} />
         ) : null}
       </span>
     </div>

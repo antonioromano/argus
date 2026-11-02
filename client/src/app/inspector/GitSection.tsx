@@ -59,7 +59,7 @@ export function GitBody({ session, ctx }: InspectorSectionProps) {
       {error && <InspectorError error={failure ?? error} fallbackTitle="Couldn’t refresh git status" onRetry={retry} stale />}
       <InspectorRow label="Branch" title={summary.root}>
         <span className="argus-inspector-branch">
-          <Icon icon={GitBranch} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <Icon icon={GitBranch} size="sm" strokeWidth={2} style={{ flexShrink: 0 }} />
           <span className="argus-inspector-ellipsis">{summary.branch ?? 'empty'}</span>
           {summary.detached && <span className="argus-inspector-tag">detached</span>}
         </span>

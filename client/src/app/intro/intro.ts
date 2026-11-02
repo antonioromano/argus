@@ -46,7 +46,7 @@ export function introConfigPatch(
     ...(result.defaults
       ? { defaultRunMode: result.defaults.runMode, defaultTerminalEngine: result.defaults.terminalEngine }
       : {}),
-    // What's new: "Open Claude shells in Chat by default".
+    // What's new: "Open Claude sessions in Chat by default".
     ...(result.defaultSessionView ? { defaultSessionView: result.defaultSessionView } : {}),
   };
 }

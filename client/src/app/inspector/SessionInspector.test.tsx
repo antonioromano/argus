@@ -559,7 +559,7 @@ describe('GitHub section', () => {
       expect(gh.textContent).toContain('GitHub CLI isn’t signed in');
       expect([...gh.querySelectorAll('button')].map((b) => b.textContent)).toContain('Copy “gh auth login”');
       await render({ ctx: ctx({ prStatusEnabled: false }) });
-      const link = [...sectionEl('github').querySelectorAll('button')].find((b) => b.textContent?.includes('Shell header'))!;
+      const link = [...sectionEl('github').querySelectorAll('button')].find((b) => b.textContent?.includes('Session header'))!;
       await act(async () => { link.click(); });
       expect(openSettings).toHaveBeenCalledWith({ kind: 'open-settings', pane: 'shell-header' });
     } finally {

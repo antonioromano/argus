@@ -50,16 +50,16 @@ export function Remote({ onBack }: RemoteProps) {
             cursor: 'pointer',
             color: 'var(--accent)',
             borderRadius: 'var(--r-2)',
-            padding: '0 12px',
-            minHeight: 44,
+            padding: '0 var(--s-3)',
+            minHeight: 'var(--row-h-touch)',
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
+            gap: 'var(--s-1)',
             flexShrink: 0,
             fontSize: 'var(--t-tiny)',
           }}
         >
-          <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} /> BACK
+          <Icon icon={ChevronLeft} size="md" /> BACK
         </button>
         <div className="eyebrow" style={{ flex: 1, textAlign: 'center', fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>
           REMOTE ACCESS
@@ -88,12 +88,12 @@ export function Remote({ onBack }: RemoteProps) {
             {connected ? (
               <>
                 <StatusDot status="running" size={8} />
-                <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
+                <Icon icon={Wifi} size="md" color="var(--accent)" />
                 <span className="eyebrow" style={{ color: 'var(--accent)' }}>TUNNEL ACTIVE</span>
               </>
             ) : (
               <>
-                <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
+                <Icon icon={WifiOff} size="md" color="var(--fg-3)" />
                 <span className="eyebrow">NO TUNNEL</span>
               </>
             )}
@@ -118,18 +118,18 @@ export function Remote({ onBack }: RemoteProps) {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 'var(--s-1-5)',
               background: 'var(--danger-bg)',
               border: '1px solid color-mix(in srgb, var(--danger) 33%, transparent)',
               borderRadius: 'var(--r-2)',
-              padding: '10px var(--s-3)',
+              padding: 'var(--s-3) var(--s-3)',
               marginBottom: 'var(--s-4)',
               fontSize: 'var(--t-sm)',
               fontFamily: 'var(--font-mono)',
               color: 'var(--danger)',
             }}
           >
-            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size="sm" />
             {error}
           </div>
         )}
@@ -164,7 +164,7 @@ export function Remote({ onBack }: RemoteProps) {
               <TextInput
                 value={password}
                 onChange={setPassword}
-                placeholder="Set access password..."
+                placeholder="Set access password…"
                 type="password"
                 mono
               />
