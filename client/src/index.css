@@ -2460,9 +2460,8 @@ body {
 }
 .argus-cmp-line.is-fence { color: var(--fg-3); }
 .argus-cmp-codebox > .argus-cmp-line.is-fence { margin: 0 calc(-1 * var(--s-2)); padding: 0 var(--s-2); }
-.argus-cmp-codebox > .argus-cmp-line.is-fence:first-child { box-shadow: inset 0 -1px 0 var(--line-1); }
+.argus-cmp-codebox > .argus-cmp-line.is-fence:first-child:not(:last-child) { box-shadow: inset 0 -1px 0 var(--line-1); }
 .argus-cmp-codebox > .argus-cmp-line.is-fence:last-child:not(:first-child) { box-shadow: inset 0 1px 0 var(--line-1); }
-.argus-cmp-codebox > .argus-cmp-line.is-code { color: var(--fg-0); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-hint.is-stopping { color: var(--fg-1); }

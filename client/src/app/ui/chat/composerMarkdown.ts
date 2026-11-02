@@ -161,16 +161,10 @@ export function enterEdit(value: string, selStart: number, selEnd: number): Edit
   if (selStart !== selEnd) {
     return enterContinues(value, selStart) ? enterEdit(value.slice(0, selStart) + value.slice(selEnd), selStart, selStart) : undefined;
   }
+  const fenced = fenceEnterEdit(value, selStart, selEnd);
+  if (fenced) return fenced;
   const { start, end } = lineBounds(value, selStart);
   const line = value.slice(start, end);
-  if (inCodeFence(value, selStart)) {
-    const open = fenceOpenEdit(value, selStart, selEnd);
-    if (open) return open;
-    const indent = /^ */.exec(line)![0];
-    const v = value.slice(0, selStart) + '\n' + indent + value.slice(selEnd);
-    const at = selStart + 1 + indent.length;
-    return { value: v, selStart: at, selEnd: at };
-  }
   const item = itemOf(line);
   if (!item || selStart < start + item.contentAt) return undefined;
   if (!line.slice(item.contentAt).trim()) {
@@ -256,24 +250,37 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
 }
 
 /**
- * A new line typed at the end of a line that is just an opening fence
- * (```` ``` ```` or ```` ```lang ````) opens a code block: the closing fence
+ * A new line (Enter or Shift+Enter) inside a code block, its opening fence
+ * included: the fenceOpenEdit() box on an opening fence, else a new line
+ * keeping the indent. A selection is replaced. Undefined outside code blocks.
+ */
+export function fenceEnterEdit(value: string, selStart: number, selEnd: number): Edit | undefined {
+  if (!inCodeFence(value, selStart)) return undefined;
+  const v = value.slice(0, selStart) + value.slice(selEnd);
+  const open = fenceOpenEdit(v, selStart);
+  if (open) return open;
+  const { start } = lineBounds(v, selStart);
+  const indent = /^ */.exec(v.slice(start))![0];
+  const at = selStart + 1 + indent.length;
+  return { value: v.slice(0, selStart) + '\n' + indent + v.slice(selStart), selStart: at, selEnd: at };
+}
+
+/**
+ * A new line typed at the end of an opening fence line (```` ``` ````,
+ * ```` ```lang ````, any info string) opens a code block: the closing fence
  * is added below and the caret goes on the empty line between. Undefined when
  * the caret is anywhere else, or the fence would close a block or already has
  * a closing fence further down (then it is a plain new line).
  */
-export function fenceOpenEdit(value: string, selStart: number, selEnd: number): Edit | undefined {
-  if (selStart !== selEnd) return fenceOpenEdit(value.slice(0, selStart) + value.slice(selEnd), selStart, selStart);
-  const { start, end } = lineBounds(value, selStart);
-  if (selStart !== end) return undefined;
-  // The fence, then at most a language (spaces around it allowed); a backtick
-  // fence's info string has no backtick, a tilde fence's may.
-  const m = /^( *)(`{3,}(?=\s*[^\s`]*\s*$)|~{3,}(?=\s*\S*\s*$))/.exec(value.slice(start, end));
+export function fenceOpenEdit(value: string, caret: number): Edit | undefined {
+  const { start, end } = lineBounds(value, caret);
+  if (caret !== end) return undefined;
+  const m = FENCE_RE.exec(value.slice(start, end));
   // It opens a block only when no block is open on the line above (else it is code, or closes it).
   if (!m || (start > 0 && inCodeFence(value, start - 1))) return undefined;
-  const fence = m[2];
+  const fence = m[1];
   if (value.slice(end + 1).split('\n').some((l) => closesFence(l, fence))) return undefined;
-  const indent = m[1];
+  const indent = m[0].slice(0, m[0].length - fence.length);
   const v = value.slice(0, end) + '\n' + indent + '\n' + indent + fence + value.slice(end);
   const at = end + 1 + indent.length;
   return { value: v, selStart: at, selEnd: at };

@@ -181,7 +181,10 @@ describe('highlight lines', () => {
 });
 
 describe('fenceOpenEdit', () => {
-  const open = (src: string) => show(fenceOpenEdit(...at(src)));
+  const open = (src: string) => {
+    const [v, caret] = at(src);
+    return show(fenceOpenEdit(v, caret));
+  };
 
   it('a new line after an opening fence opens a block with its closing fence', () => {
     expect(open('intro\n```|')).toBe('intro\n```\n|\n```');
@@ -190,7 +193,8 @@ describe('fenceOpenEdit', () => {
     expect(open('````|')).toBe('````\n|\n````');
     expect(open('~~~|')).toBe('~~~\n|\n~~~');
     expect(open('```|\n\nafter')).toBe('```\n|\n```\n\nafter');
-    expect(open('```ts|sel|')).toBe('```ts\n|\n```');
+    expect(enter('```ts|sel|')).toBe('```ts\n|\n```');
+    expect(open('```js title=a.js|')).toBe('```js title=a.js\n|\n```'); // any info string
     expect(open('``` python|')).toBe('``` python\n|\n```'); // space before the language
     expect(open('```ts |')).toBe('```ts \n|\n```'); // trailing space
     expect(open('~~~js`x|')).toBe('~~~js`x\n|\n~~~'); // a tilde info string may hold backticks
@@ -200,7 +204,6 @@ describe('fenceOpenEdit', () => {
   it('is a plain new line everywhere else', () => {
     expect(open('```|ts')).toBeUndefined(); // caret not at the end
     expect(open('a ```|')).toBeUndefined(); // not alone on its line
-    expect(open('```ts x|')).toBeUndefined(); // more than a language after it
     expect(open('``|')).toBeUndefined();
     expect(open('```\ncode\n```|')).toBeUndefined(); // closes the open block
     expect(open('```|\ncode\n```')).toBeUndefined(); // already closed below
