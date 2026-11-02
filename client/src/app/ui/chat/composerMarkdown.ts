@@ -161,6 +161,8 @@ export function enterEdit(value: string, selStart: number, selEnd: number): Edit
   const { start, end } = lineBounds(value, selStart);
   const line = value.slice(start, end);
   if (inCodeFence(value, selStart)) {
+    const open = fenceOpenEdit(value, selStart, selEnd);
+    if (open) return open;
     const indent = /^ */.exec(line)![0];
     const v = value.slice(0, selStart) + '\n' + indent + value.slice(selEnd);
     const at = selStart + 1 + indent.length;
@@ -251,24 +253,22 @@ export function indentEdit(value: string, selStart: number, selEnd: number, outd
 }
 
 /**
- * Typing the third backtick of a fence at the end of an otherwise empty line
- * (`data` replacing the selection) opens a code block: the closing fence is
- * added below and the caret goes on the empty line between. Undefined when the
- * typing is anything else, or the fence would close a block or already has a
- * closing fence further down.
+ * A new line typed at the end of a line that is just an opening fence
+ * (```` ``` ```` or ```` ```lang ````) opens a code block: the closing fence
+ * is added below and the caret goes on the empty line between. Undefined when
+ * the caret is anywhere else, or the fence would close a block or already has
+ * a closing fence further down (then it is a plain new line).
  */
-export function fenceEdit(value: string, selStart: number, selEnd: number, data: string): Edit | undefined {
-  if (data !== '`') return undefined;
-  const next = value.slice(0, selStart) + data + value.slice(selEnd);
-  const caret = selStart + data.length;
-  const { start, end } = lineBounds(next, caret);
-  const line = next.slice(start, end);
-  const m = /^( *)```$/.exec(line);
-  if (!m || caret !== end || !inCodeFence(next, caret)) return undefined;
-  if (next.slice(end + 1).split('\n').some((l) => closesFence(l, '`'))) return undefined;
+export function fenceOpenEdit(value: string, selStart: number, selEnd: number): Edit | undefined {
+  if (selStart !== selEnd) return fenceOpenEdit(value.slice(0, selStart) + value.slice(selEnd), selStart, selStart);
+  const { start, end } = lineBounds(value, selStart);
+  const m = /^( *)(`{3,}|~{3,})[^\s`]*$/.exec(value.slice(start, end));
+  if (!m || selStart !== end || !inCodeFence(value, selStart)) return undefined;
+  const fence = m[2];
+  if (value.slice(end + 1).split('\n').some((l) => closesFence(l, fence[0]))) return undefined;
   const indent = m[1];
-  const v = next.slice(0, caret) + '\n' + indent + '\n' + indent + '```' + next.slice(caret);
-  const at = caret + 1 + indent.length;
+  const v = value.slice(0, end) + '\n' + indent + '\n' + indent + fence + value.slice(end);
+  const at = end + 1 + indent.length;
   return { value: v, selStart: at, selEnd: at };
 }
 

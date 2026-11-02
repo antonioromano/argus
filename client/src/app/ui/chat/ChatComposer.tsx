@@ -13,7 +13,7 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, fenceOpenEdit, indentEdit, type Edit } from './composerMarkdown.js';
 import { newAttachmentKey as newKey, revokePreviews as revoke, useChatDraft, type DraftAttachment as Attachment } from './chatDrafts.js';
 
 interface ChatComposerProps {
@@ -146,22 +146,6 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
-
-  // A typed ``` opens a code block with its closing fence. Native beforeinput:
-  // it carries the typed text and can be cancelled before the textarea changes.
-  useEffect(() => {
-    const box = ref.current;
-    if (!box) return;
-    const onBeforeInput = (e: InputEvent) => {
-      if (e.inputType !== 'insertText' || e.isComposing || !e.data) return;
-      const edit = fenceEdit(box.value, box.selectionStart, box.selectionEnd, e.data);
-      if (!edit) return;
-      e.preventDefault();
-      applyEdit(box, edit);
-    };
-    box.addEventListener('beforeinput', onBeforeInput);
-    return () => box.removeEventListener('beforeinput', onBeforeInput);
-  }, []);
 
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
@@ -433,6 +417,13 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
               }
               applyEdit(box, edit);
               // The caret is final only now: the input event saw the end of the replaced span.
+              trackCaret();
+            } else if (e.key === 'Enter' && e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
+              // Shift+Enter is a plain new line, except after an opening fence: that opens the block.
+              const edit = fenceOpenEdit(box.value, box.selectionStart, box.selectionEnd);
+              if (!edit) return;
+              e.preventDefault();
+              applyEdit(box, edit);
               trackCaret();
             } else if (e.key === 'Tab' && !e.altKey && !e.metaKey && !e.ctrlKey) {
               const edit = indentEdit(box.value, box.selectionStart, box.selectionEnd, e.shiftKey);

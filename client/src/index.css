@@ -2445,17 +2445,23 @@ body {
 .argus-cmp-content .is-bullet { position: relative; color: transparent; }
 .argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
 .argus-cmp-line.is-quote { color: var(--fg-2); }
-/* A fenced block is one box, like the Chat's code blocks. The matching
-   padding keeps the text where it was; an inset shadow draws the edge without
-   taking height, so the rows still line up with the textarea's. */
+/* A fenced block is one box, drawn like the sent message's (.argus-chat-code):
+   same surface, edge and radius, the fence lines set off like its language
+   header. The matching padding keeps the text where it was; inset shadows
+   draw the edge and rules without taking height, so the rows still line up
+   with the textarea's. */
 .argus-cmp-codebox {
   margin: 0 calc(-1 * var(--s-2));
   padding: 0 var(--s-2);
   border-radius: var(--r-2);
-  background: var(--bg-inset);
+  background: var(--bg-1);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
 .argus-cmp-line.is-fence { color: var(--fg-3); }
+.argus-cmp-codebox > .argus-cmp-line.is-fence { margin: 0 calc(-1 * var(--s-2)); padding: 0 var(--s-2); }
+.argus-cmp-codebox > .argus-cmp-line.is-fence:first-child { box-shadow: inset 0 -1px 0 var(--line-1); }
+.argus-cmp-codebox > .argus-cmp-line.is-fence:last-child:not(:first-child) { box-shadow: inset 0 1px 0 var(--line-1); }
+.argus-cmp-codebox > .argus-cmp-line.is-code { color: var(--fg-0); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-hint.is-stopping { color: var(--fg-1); }
