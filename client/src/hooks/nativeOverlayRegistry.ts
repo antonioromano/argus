@@ -76,6 +76,13 @@ const onWindowResize = () => scheduleLiveReevaluation();
 const hiddenListeners = new Set<() => void>();
 function notifyHidden(): void { for (const fn of hiddenListeners) fn(); }
 
+/** Would a surface at `rect` land on any native terminal on screen? A tooltip
+ *  asks this to pick a placement that hides nothing (see Tooltip). */
+export function coversNativeOverlay(rect: Rect): boolean {
+  for (const r of rects.values()) if (intersects(r, rect)) return true;
+  return false;
+}
+
 export function isOverlayHidden(sessionId: string): boolean { return (holders.get(sessionId) ?? 0) > 0; }
 
 export function subscribeOverlayHidden(fn: () => void): () => void {
