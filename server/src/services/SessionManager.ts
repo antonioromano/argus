@@ -22,6 +22,7 @@ import type {
   PromptTab,
   SessionStatusPayload,
   SessionPr,
+  SessionPrSummary,
   SessionPrEntry,
   SessionPrsResponse,
   SessionPrDiffResponse,
@@ -41,6 +42,7 @@ import { TerminalMirror } from './TerminalMirror.js';
 import { RawTail } from './RawTail.js';
 import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
+import { writeMcpConfig } from './mcp/injection.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
@@ -76,6 +78,7 @@ import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
+import { prSummaryItem, summarizePrItems } from './prSummary.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
@@ -90,6 +93,7 @@ import {
   type RolloutCandidate,
 } from './usage/codexRollout.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
+import { frameToRows } from './search/scrollbackSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
@@ -98,6 +102,8 @@ export interface CreateSessionOpts {
   initialPrompt?: string;
   /** The saved launcher this session was started from (metadata). */
   launcherId?: string;
+  /** F10: the orchestrating session that asked for this one over MCP. */
+  spawnedBy?: string;
   /** Skip the per-create sessions.json write. restoreSessions sets it and
    *  persists once at the end, instead of rewriting the file per session. */
   skipPersist?: boolean;
@@ -168,6 +174,8 @@ interface ManagedSession {
    *   (`fallback`), since before the first hook a startup paint can settle.
    */
   startup?: { last: SessionStatus; prompted: boolean; heuristicOk: boolean; nativeRan?: boolean; heldSettle?: boolean; fallback?: NodeJS.Timeout };
+  /** Orchestrator (MCP start_session caller); it may write to this session. */
+  spawnedBy?: string;
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -318,6 +326,9 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const PR_POLL_INTERVAL_MS = 30_000;
 /** Parallel `gh pr view` runs per sweep. */
 const PR_POLL_CONCURRENCY = 2;
+/** F5: re-read a session's linked PRs for the shell-tab summary at most this
+ *  often (sooner when its header PR changes). The header chip keeps the sweep cadence. */
+export const PR_SUMMARY_INTERVAL_MS = 5 * 60_000;
 /** B3: most PRs one Inspector list request reads (the newest win). */
 export const SESSION_PRS_MAX = 20;
 /** Beta F8: re-read a worktree's last-commit time at most this often. Staleness
@@ -550,6 +561,10 @@ export class SessionManager {
   private prService: PrStatusService | null = null;
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
+  /** F5: every non-closed PR of a session, for the shell tabs. */
+  private prSummaryMap = new Map<string, SessionPrSummary>();
+  /** F5: when each session's summary was last rebuilt (see PR_SUMMARY_INTERVAL_MS). */
+  private prSummaryAt = new Map<string, number>();
   private prPollRunning = false;
   /** A sweep was asked for while one was running (see pollPrStatus). */
   private prPollAgain = false;
@@ -589,6 +604,8 @@ export class SessionManager {
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
   private signalSecret?: string;
   private signalBinPath?: string;
+  /** F10: hand the Argus MCP server to new Claude sessions (AppConfig.mcpServerEnabled). */
+  private mcpServerEnabled = false;
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
@@ -767,6 +784,9 @@ export class SessionManager {
       this.prService?.clear();
       for (const id of this.prMap.keys()) this.io?.emit('session:pr', { sessionId: id, pr: null });
       this.prMap.clear();
+      for (const id of this.prSummaryMap.keys()) this.io?.emit('session:prSummary', { sessionId: id, summary: null });
+      this.prSummaryMap.clear();
+      this.prSummaryAt.clear();
     }
     this.restartPrPoll();
   }
@@ -947,6 +967,8 @@ export class SessionManager {
    * have read the PR before the write, so it is followed by one more.
    */
   private sweepPrsAfterWrite(): void {
+    // The written PR may be a linked one: rebuild every summary now.
+    this.prSummaryAt.clear();
     if (this.prPollRunning) this.prPollAgain = true;
     else void this.pollPrStatus();
   }
@@ -963,6 +985,8 @@ export class SessionManager {
     try {
       const byFolder = new Map<string, Promise<SessionPr | null>>();
       const live = Array.from(this.sessions.values()).filter((s) => s.status !== 'exited');
+      // F5: summaries are rebuilt after every chip is out, so their extra reads never delay one.
+      const summaryJobs: Array<() => Promise<void>> = [];
       await runBounded(live, PR_POLL_CONCURRENCY, async (session) => {
         // `gh` runs only inside a folder Argus manages (path-scope containment).
         const folder = this.resolveWithinAnySession(workRootOf(session));
@@ -972,22 +996,36 @@ export class SessionManager {
           p = service.forFolder(folder);
           byFolder.set(folder, p);
         }
-        let pr = await p;
+        const folderPr = await p;
+        // One read per URL per session per sweep: the chip's fallback below and
+        // the summary share it.
+        const reads = new Map<string, Promise<SessionPr | null>>();
+        const read = (url: string): Promise<SessionPr | null> => {
+          let r = reads.get(url);
+          if (!r) { r = service.forUrl(url, folder); reads.set(url, r); }
+          return r;
+        };
         // No PR on the folder's branch: fall back to the PR the conversation
         // itself created or pushed to — e.g. a hub session on `main` that works
         // in other repos. Several sessions on one PR share the service cache.
-        const linked = pr ? undefined : session.usage?.linkedPrUrl();
-        if (linked) pr = await service.forUrl(linked, folder);
+        const linked = folderPr ? undefined : session.usage?.linkedPrUrl();
+        const pr = linked ? await read(linked) : folderPr;
         if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
         const prev = this.prMap.get(session.id) ?? null;
-        if (JSON.stringify(prev) === JSON.stringify(pr)) return;
-        if (pr) this.prMap.set(session.id, pr);
-        else this.prMap.delete(session.id);
-        // Broadcast only what the chip shows: a title edit or GitHub recomputing
-        // mergeability after a push is not worth a re-render in every window.
-        if (chipKey(prev) === chipKey(pr)) return;
-        this.io?.emit('session:pr', { sessionId: session.id, pr });
+        const changed = JSON.stringify(prev) !== JSON.stringify(pr);
+        if (changed) {
+          if (pr) this.prMap.set(session.id, pr);
+          else this.prMap.delete(session.id);
+          // Broadcast only what the chip shows: a title edit or GitHub recomputing
+          // mergeability after a push is not worth a re-render in every window.
+          if (chipKey(prev) !== chipKey(pr)) this.io?.emit('session:pr', { sessionId: session.id, pr });
+        }
+        const at = this.prSummaryAt.get(session.id);
+        if (changed || at === undefined || Date.now() - at >= PR_SUMMARY_INTERVAL_MS) {
+          summaryJobs.push(() => this.refreshPrSummary(session, folder, service, folderPr, read));
+        }
       });
+      await runBounded(summaryJobs, PR_POLL_CONCURRENCY, (job) => job());
     } finally {
       this.prPollRunning = false;
     }
@@ -995,6 +1033,47 @@ export class SessionManager {
       this.prPollAgain = false;
       await this.pollPrStatus();
     }
+  }
+
+  /**
+   * F5: rebuild the shell tab's summary over the same PRs as the Inspector
+   * list, each once (URLs compared case-insensitively). A PR gh could not read
+   * this time keeps its last reading rather than dropping out of the count.
+   */
+  private async refreshPrSummary(
+    session: ManagedSession, folder: string, service: PrStatusService,
+    folderPr: SessionPr | null, read: (url: string) => Promise<SessionPr | null>,
+  ): Promise<void> {
+    const seen = new Set<string>();
+    const entries = (await this.sessionPrEntries(session, folder, service, folderPr)).filter((e) => {
+      const key = e.url.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const listed: (SessionPr | null)[] = entries.map((e) => (e.folderBranch ? e.pr : null));
+    await runBounded(entries.map((e, i) => [e, i] as const).filter(([e]) => !e.folderBranch), PR_POLL_CONCURRENCY, async ([e, i]) => {
+      listed[i] = await read(e.url);
+    });
+    if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
+    const last = this.prSummaryMap.get(session.id)?.prs ?? [];
+    const items = entries.flatMap((e, i) => {
+      const pr = listed[i];
+      if (pr) return [prSummaryItem(pr)];
+      return last.filter((p) => samePrUrl(p.url, e.url));
+    });
+    this.prSummaryAt.set(session.id, Date.now());
+    this.applyPrSummary(session.id, summarizePrItems(items));
+  }
+
+  /** F5: store a session's PR summary; broadcast it only when more than a title changed. */
+  private applyPrSummary(id: string, summary: SessionPrSummary | null): void {
+    const prev = this.prSummaryMap.get(id) ?? null;
+    if (JSON.stringify(prev) === JSON.stringify(summary)) return;
+    if (summary) this.prSummaryMap.set(id, summary);
+    else this.prSummaryMap.delete(id);
+    const shown = (x: SessionPrSummary | null) => JSON.stringify(x && { ...x, prs: x.prs.map(({ title: _t, ...rest }) => rest) });
+    if (shown(prev) !== shown(summary)) this.io?.emit('session:prSummary', { sessionId: id, summary });
   }
 
   /**
@@ -1025,8 +1104,11 @@ export class SessionManager {
    * folder PR (one cached lookup) carries `pr`. Also the allow-list of PRs
    * whose diff may be read (sessionPrDiff).
    */
-  private async sessionPrEntries(session: ManagedSession, folder: string, service: PrStatusService): Promise<SessionPrEntry[]> {
-    const folderPr = await service.forFolder(folder);
+  private async sessionPrEntries(
+    session: ManagedSession, folder: string, service: PrStatusService,
+    known?: SessionPr | null,
+  ): Promise<SessionPrEntry[]> {
+    const folderPr = known !== undefined ? known : await service.forFolder(folder);
     const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
     const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
     // The newest SESSION_PRS_MAX, the folder PR always among them (in its own
@@ -1106,6 +1188,28 @@ export class SessionManager {
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
+  /** F10: whether sessions spawned from now on get the Argus MCP server. */
+  setMcpServerEnabled(enabled: boolean): void {
+    this.mcpServerEnabled = enabled;
+  }
+
+  /**
+   * `--mcp-config` flags pointing a Claude session at the Argus MCP server,
+   * with a token bound to this session id (so the server knows who asks).
+   * Empty when the setting is off, signals are unconfigured, or the agent is
+   * not Claude. Spawn-only, like signal injection: never stored in flags.
+   */
+  private mcpInjection(sessionId: string, agentType: string): string[] {
+    if (!this.mcpServerEnabled || !this.signalSecret || agentType !== 'claude') return [];
+    const port = process.env.ARGUS_PORT || process.env.PORT || '5401';
+    try {
+      return writeMcpConfig(this.dataDir, port, this.signalSecret, sessionId);
+    } catch (e) {
+      console.warn('[mcp] failed to write session MCP config:', e);
+      return [];
+    }
+  }
+
   setPreventSleepWhileRunning(enabled: boolean): void {
     this.preventSleepWhileRunning = enabled;
     this.refreshSleepPrevention();
@@ -1340,7 +1444,8 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
+    const mcpFlags = (attachExisting || restoreExited) ? [] : this.mcpInjection(id, resolvedAgentType);
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags), ...mcpFlags];
     const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -1411,6 +1516,7 @@ export class SessionManager {
       startup: resolvedAgentType === 'claude' && !attachExisting && !restoreExited && existingId == null
         ? { last: initialStatus, prompted: promptTail.length > 0, heuristicOk: promptTail.length === 0 }
         : undefined,
+      spawnedBy: opts.spawnedBy,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1491,6 +1597,7 @@ export class SessionManager {
     // Remove the generated native-signal settings file (best-effort).
     try {
       rmSync(path.join(this.dataDir, 'signals', `${id}.json`), { force: true });
+      rmSync(path.join(this.dataDir, 'mcp', `${id}.json`), { force: true });
     } catch {
       /* ignore */
     }
@@ -1507,6 +1614,8 @@ export class SessionManager {
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     this.prMap.delete(id);
+    this.prSummaryMap.delete(id);
+    this.prSummaryAt.delete(id);
     this.staleMap.delete(id);
     this.activity.drop(id);
     this.refreshCodexPoll();
@@ -1621,7 +1730,7 @@ export class SessionManager {
     session.nativeState = undefined;
     // Spawn-only: the resume flags are never written back to session.flags, so
     // the next plain Restart is still a fresh start.
-    const spawnFlags = inj?.flags ?? userFlags;
+    const spawnFlags = [...(inj?.flags ?? userFlags), ...this.mcpInjection(id, session.agentType)];
     const spawnEnv = this.agentSpawnEnv(session.agentType, command, config, inj);
     await backend.ready?.();
     const ptyProcess = backend.spawn({
@@ -2296,17 +2405,39 @@ export class SessionManager {
       sessionId: session.id,
       sessionName: session.name,
       agentType: session.agentType,
-      scrollback: () => {
-        if (session.exitedFrame) return { kind: 'frozen' as const, frame: session.exitedFrame.full };
-        const mirror = session.mirror;
-        if (!mirror || mirror.disposed) return null;
-        const frame = mirror.frozenFrame();
-        if (frame !== null) return { kind: 'frozen' as const, frame };
-        const rows = mirror.searchableRows();
-        return rows ? { kind: 'live' as const, rows } : null;
-      },
+      scrollback: () => this.scrollbackOf(session),
       transcripts: () => session.usage?.transcriptPaths() ?? [],
     }));
+  }
+
+  /**
+   * F10 read_session: the last `lines` logical lines (soft wraps joined) of a
+   * session's screen as plain text, trailing blank rows dropped. Never wakes a
+   * hibernated mirror: a sleeping or exited session is read from its stored frame.
+   */
+  tailLines(id: string, lines: number): string[] {
+    const session = this.sessions.get(id);
+    const sb = session ? this.scrollbackOf(session) : null;
+    if (!sb) return [];
+    const rows = sb.kind === 'live' ? sb.rows : frameToRows(sb.frame);
+    const logical: string[] = [];
+    for (const r of rows) {
+      if (r.wrapped && logical.length > 0) logical[logical.length - 1] += r.text;
+      else logical.push(r.text);
+    }
+    while (logical.length > 0 && !logical[logical.length - 1]!.trim()) logical.pop();
+    return logical.slice(-lines).map((l) => l.trimEnd());
+  }
+
+  /** A session's screen without waking its mirror: the stored frame when asleep or exited. */
+  private scrollbackOf(session: ManagedSession): ReturnType<SearchTarget['scrollback']> {
+    if (session.exitedFrame) return { kind: 'frozen', frame: session.exitedFrame.full };
+    const mirror = session.mirror;
+    if (!mirror || mirror.disposed) return null;
+    const frame = mirror.frozenFrame();
+    if (frame !== null) return { kind: 'frozen', frame };
+    const rows = mirror.searchableRows();
+    return rows ? { kind: 'live', rows } : null;
   }
 
   /** Validated transcripts of a session, the current one last (F12 handoff). */
@@ -3076,7 +3207,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -3096,7 +3227,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -3146,6 +3277,7 @@ export class SessionManager {
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
       pr: this.prMap.get(session.id),
+      prSummary: this.prSummaryMap.get(session.id),
       worktreeStaleDays: this.staleMap.get(session.id),
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
@@ -3155,6 +3287,7 @@ export class SessionManager {
       launcherId: session.launcherId,
       initialPrompt: session.initialPrompt,
       starting: session.startup ? true : undefined,
+      spawnedBy: session.spawnedBy,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
@@ -3305,6 +3438,7 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        spawnedBy: s.spawnedBy,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
         codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,

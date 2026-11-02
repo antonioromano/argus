@@ -198,7 +198,7 @@ contextBridge.exposeInMainWorld('electronLaunch', {
   // Read once at preload time; main answers synchronously with its SCHEME const.
   scheme: (() => { try { const s = ipcRenderer.sendSync('launch:scheme'); return typeof s === 'string' ? s : undefined; } catch { return undefined; } })(),
   list: () => ipcRenderer.invoke('launch:list'),
-  approve: (id: string, saveAs?: { id: string; label: string; overwrite?: boolean }) => ipcRenderer.invoke('launch:approve', { id, saveAs }),
+  approve: (id: string, saveAs?: { id: string; label: string; overwrite?: boolean }, trust?: boolean) => ipcRenderer.invoke('launch:approve', { id, saveAs, trust }),
   discard: (id: string) => ipcRenderer.invoke('launch:discard', id),
   onChanged: (cb: () => void) => {
     const l = () => cb();

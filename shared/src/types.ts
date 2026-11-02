@@ -151,6 +151,9 @@ export interface AppConfig {
   inspectorCollapsed?: string[];
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
   autoApprovalEnabled?: boolean;
+  // F10: expose the Argus MCP server (/mcp) and hand it to new Claude sessions
+  // via --mcp-config, so one session can start and drive others (default: false).
+  mcpServerEnabled?: boolean;
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
   // so it reaches new and restarted sessions only.
   claudeRenderer?: ClaudeRenderer;
@@ -248,6 +251,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
+  mcpServerEnabled: false,
   claudeRenderer: 'fullscreen',
   defaultSessionView: 'terminal',
   betaActivityTimeline: false,
@@ -315,8 +319,11 @@ export type PendingLaunchState = 'pending' | 'starting' | 'error' | 'expired';
 
 export interface PendingLaunchView {
   id: string;
-  source: 'new' | 'run';
+  /** 'mcp' = an Argus session asked for it with the MCP start_session tool (F10). */
+  source: 'new' | 'run' | 'mcp';
   launcherId?: string;
+  /** source 'mcp': name of the session that asked. */
+  requestedBy?: string;
   label: string;
   agent: string;
   folder: string;
@@ -366,6 +373,8 @@ export interface SessionInfo {
   runMode?: RunMode;
   /** Deep-link launcher that started this session. */
   launcherId?: string;
+  /** F10: the Argus session whose MCP start_session call created this one. */
+  spawnedBy?: string;
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
@@ -383,6 +392,8 @@ export interface SessionInfo {
   promptTabs?: PromptTab[];
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
+  /** F5: every non-closed PR of the session at a glance (shell tabs); absent when none. */
+  prSummary?: SessionPrSummary;
   /** Beta F8: days since the worktree branch's last commit, set only once it
    *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
   worktreeStaleDays?: number;
@@ -697,6 +708,29 @@ export interface PrChecks {
   counts: PrCheckCounts;
   /** Bounded list (see the server's PR_FAILED_CHECKS_MAX). */
   failed: PrFailedCheck[];
+}
+
+/**
+ * The colour a PR is shown in (see the client's prTone): merged, closed, draft,
+ * or for an open PR blocked (conflicts / failing checks), ready or pending.
+ */
+export type PrTone = 'ready' | 'pending' | 'blocked' | 'draft' | 'merged' | 'closed';
+
+/** F5: one PR of a session's summary, as the shell tab's tooltip lists it. */
+export interface SessionPrSummaryItem {
+  url: string;
+  number: number;
+  state: PrState;
+  tone: PrTone;
+  title?: string;
+}
+
+/** F5: the session's PRs for the shell tab — closed ones left out. `tone` is
+ *  the most action-needing one (blocked → pending → ready → draft → merged). */
+export interface SessionPrSummary {
+  count: number;
+  tone: PrTone;
+  prs: SessionPrSummaryItem[];
 }
 
 /** One PR of a session in the Inspector's GitHub card (B3). */
@@ -1184,6 +1218,8 @@ export interface ServerToClientEvents {
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** The session's PR / CI state changed; null = no PR (or the feature is off). */
   'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
+  /** F5: the session's PR summary changed; null = no non-closed PR (or the feature is off). */
+  'session:prSummary': (payload: { sessionId: string; summary: SessionPrSummary | null }) => void;
   /** Beta F8: the worktree's stale marker changed; null = not stale (or the feature is off). */
   'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
   /** Beta F6: one new activity entry, emitted only to the session's room. */

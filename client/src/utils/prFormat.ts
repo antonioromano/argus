@@ -1,5 +1,7 @@
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
-import type { PrCiStatus, PrReviewDecision, PrState, SessionPr } from '@argus/shared';
+import type { PrCiStatus, PrReviewDecision, PrState, PrTone, SessionPr } from '@argus/shared';
+
+export type { PrTone };
 
 /** Glyph per PR state, shared by the header chip and the Session Inspector. */
 export const PR_STATE_ICON = {
@@ -55,15 +57,6 @@ export const PR_REVIEW_LABEL: Record<PrReviewDecision, string> = {
 
 export const isLivePr = (pr: SessionPr): boolean => pr.state === 'open' || pr.state === 'draft';
 
-/**
- * The color a PR is shown in: merged purple, closed red, draft grey. An open
- * PR is amber when it can't be merged (conflicts or failing checks), green
- * when it is ready (checks passed or none, mergeable, no review outstanding)
- * and grey-blue while it is still on its way (checks running, review asked
- * for, mergeability not computed yet). A draft stays grey whatever its checks say.
- */
-export type PrTone = 'ready' | 'pending' | 'blocked' | 'draft' | 'merged' | 'closed';
-
 /** prTone as a color token, for glyphs styled inline (the CSS rules use data-tone). */
 export const PR_TONE_COLOR: Record<PrTone, string> = {
   ready: 'var(--ok)',
@@ -74,6 +67,14 @@ export const PR_TONE_COLOR: Record<PrTone, string> = {
   closed: 'var(--danger)',
 };
 
+/**
+ * The color a PR is shown in: merged purple, closed red, draft grey. An open
+ * PR is amber when it can't be merged (conflicts or failing checks), green
+ * when it is ready (checks passed or none, mergeable, no review outstanding)
+ * and grey-blue while it is still on its way (checks running, review asked
+ * for, mergeability not computed yet). A draft stays grey whatever its checks say.
+ * The server mirrors this for the shell tabs' summary (server/src/services/prSummary.ts).
+ */
 export function prTone(pr: SessionPr): PrTone {
   if (pr.state !== 'open') return pr.state;
   if (pr.mergeable === 'conflicting' || pr.ci === 'failure') return 'blocked';
