@@ -895,6 +895,27 @@ export interface ChatUpdate {
    * (Tab accepts it there). Sent on a reset; changes come as `session:chatSuggestion`.
    */
   suggestion?: string;
+  /** Claude Code's input queue (F8). Sent on a reset and whenever it changes. */
+  queue?: ChatQueue;
+}
+
+/**
+ * Prompts typed while Claude was running, still waiting in Claude Code's queue
+ * (read from its `queue-operation` transcript entries). Only the user's own
+ * prompts are listed: task notifications, messages from other sessions and
+ * slash commands (they get an echo) are left out.
+ */
+export interface ChatQueue {
+  /** In the order Claude Code will read them. */
+  items: ChatQueuedPrompt[];
+  /** Listed prompts ever enqueued in this transcript: grows by one per prompt, never shrinks. */
+  seq: number;
+}
+
+export interface ChatQueuedPrompt {
+  /** `queued-<n>`, n being its place in `seq`. */
+  id: string;
+  blocks: ChatBlock[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */

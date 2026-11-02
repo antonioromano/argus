@@ -1,4 +1,4 @@
-import type { AgentType, ChatCommand, ChatMessage, ChatUpdate } from '@argus/shared';
+import type { AgentType, ChatCommand, ChatMessage, ChatQueue, ChatUpdate } from '@argus/shared';
 
 /** Client-side cap, matching the server's per-transcript window. */
 export const MAX_CLIENT_CHAT_MESSAGES = 2000;
@@ -17,6 +17,8 @@ export interface ChatState {
   commands?: ChatCommand[];
   /** The next prompt Claude Code suggests (ghost text in its empty input box). */
   suggestion?: string;
+  /** Claude Code's input queue (F8), when the transcript has queue entries. */
+  queue?: ChatQueue;
   /**
    * The last settled screen (F6): whether it showed Claude's empty input box, or a picker,
    * dialog or typed text instead. `seq` grows with every settle, so an unchanged value still
@@ -35,7 +37,7 @@ export const EMPTY_CHAT: ChatState = { loaded: false, available: false, messages
  */
 export function applyChatUpdate(
   prev: ChatState,
-  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed' | 'commands' | 'suggestion'>,
+  update: Pick<ChatUpdate, 'reset' | 'available' | 'messages' | 'permissionMode' | 'modelSet' | 'removed' | 'commands' | 'suggestion' | 'queue'>,
 ): ChatState {
   if (update.reset) {
     return {
@@ -46,6 +48,7 @@ export function applyChatUpdate(
       modelSet: update.modelSet,
       commands: update.commands,
       suggestion: update.suggestion,
+      queue: update.queue,
       // The screen comes by session:chatAtPrompt only; a transcript reset leaves it be.
       screen: prev.screen,
     };
@@ -54,6 +57,7 @@ export function applyChatUpdate(
   const permissionMode = update.permissionMode ?? prev.permissionMode;
   const modelSet = update.modelSet ?? prev.modelSet;
   const commands = update.commands ?? prev.commands;
+  const queue = update.queue ?? prev.queue;
   // Echoes the transcript caught up with (see ChatMessage.echo).
   const removed = update.removed?.length ? new Set(update.removed) : undefined;
   const filtered = removed ? prev.messages.filter((m) => !removed.has(m.id)) : prev.messages;
@@ -79,13 +83,14 @@ export function applyChatUpdate(
     prev.available === update.available &&
     prev.permissionMode === permissionMode &&
     prev.modelSet === modelSet &&
-    prev.commands === commands
+    prev.commands === commands &&
+    prev.queue === queue
   ) {
     return prev;
   }
   const messages = fresh.length ? next.concat(fresh).slice(-MAX_CLIENT_CHAT_MESSAGES) : next;
   // The suggestion comes on a reset, then by session:chatSuggestion.
-  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, suggestion: prev.suggestion, screen: prev.screen };
+  return { loaded: true, available: update.available, messages, permissionMode, modelSet, commands, queue, suggestion: prev.suggestion, screen: prev.screen };
 }
 
 const MODE_LABELS: Record<string, string> = {

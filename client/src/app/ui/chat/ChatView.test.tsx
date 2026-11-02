@@ -448,9 +448,11 @@ describe('ChatView', () => {
 
     it('Stop says "Stopping…" until the turn ends, and a prompt stopped unrecorded stays visible', () => {
       const { socket, fire, emitted } = fakeSocket();
-      render(session({ status: 'running' }), socket);
+      render(session(), socket);
       fire('session:chat', update({ messages: history }));
       typeAndSend('do the thing');
+      // Claude starts on it before the transcript records it.
+      render(session({ status: 'running' }), socket);
       act(() => stopButton().click());
       expect(stopButton().disabled).toBe(true);
       expect(container.querySelector('.argus-chat-hint')?.textContent).toBe('Stopping…');
@@ -524,7 +526,6 @@ describe('ChatView', () => {
       typeAndSend('one');
       typeAndSend('two');
       typeAndSend('one');
-      const queuedTexts = () => Array.from(container.querySelectorAll('.argus-chat-msg.is-queued .argus-chat-body')).map((b) => b.textContent);
       expect(queuedTexts()).toEqual(['one', 'two', 'one']);
       fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'one' }] }] }));
       expect(queuedTexts()).toEqual(['two', 'one']);
@@ -533,24 +534,49 @@ describe('ChatView', () => {
       expect(userBodies()).toEqual(['Youbefore', 'one', 'two', 'one']);
     });
 
-    it('a queue Claude finished without reading is marked, then dropped once the conversation moves on', () => {
-      vi.useFakeTimers();
+    const queued = (seq: number, ...texts: string[]) => ({
+      items: texts.map((t, i) => ({ id: `queued-${seq - texts.length + i + 1}`, blocks: [{ kind: 'text' as const, text: t }] })),
+      seq,
+    });
+    const queuedTexts = () => Array.from(container.querySelectorAll('.argus-chat-msg.is-queued .argus-chat-body')).map((b) => b.textContent);
+
+    it("shows Claude Code's queue from the transcript, prompts typed in the terminal too", () => {
       const { socket, fire } = fakeSocket();
       render(session({ status: 'running' }), socket);
-      fire('session:chat', update({ messages: history }));
-      typeAndSend('lost one');
-      // The turn ends and the queue was dropped (Esc in the terminal): nothing is recorded.
-      render(session({ status: 'idle' }), socket);
-      act(() => { vi.advanceTimersByTime(4000); });
-      expect(container.querySelector('[data-testid="chat-queued"]')).not.toBeNull();
-      act(() => { vi.advanceTimersByTime(1000); });
-      expect(container.querySelector('[data-testid="chat-queued"]')).toBeNull();
-      const last = container.querySelectorAll('.argus-chat-msg.is-user');
-      expect(last[last.length - 1].textContent).toContain('lost one');
-      expect(last[last.length - 1].textContent).toContain('Claude finished without reading it');
+      fire('session:chat', update({ messages: history, queue: queued(2, 'from the terminal', 'and this') }));
+      expect(queuedTexts()).toEqual(['from the terminal', 'and this']);
+      // Claude takes the first: it leaves the queue and is recorded.
+      fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'from the terminal' }] }], queue: queued(2, 'and this') }));
+      expect(queuedTexts()).toEqual(['and this']);
+      expect(userBodies()).toEqual(['Youbefore', 'from the terminal', expect.stringContaining('and this')]);
+    });
 
-      fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'something new' }] }] }));
-      expect(container.textContent).not.toContain('lost one');
+    it('a sent prompt hands over to the queue entry Claude Code writes for it, never shown twice', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history, queue: queued(4) }));
+      typeAndSend('fix it');
+      expect(queuedTexts()).toEqual(['fix it']);
+      // An unrelated change to the queue (no new prompt) keeps the echo.
+      fire('session:chat', update({ reset: false, messages: [], queue: queued(4) }));
+      expect(queuedTexts()).toEqual(['fix it']);
+      fire('session:chat', update({ reset: false, messages: [], queue: queued(5, 'fix it') }));
+      expect(queuedTexts()).toEqual(['fix it']);
+      expect(container.querySelectorAll('.argus-chat-msg.is-pending')).toHaveLength(1);
+    });
+
+    it('a queue left over from an earlier run is not shown while Claude is at its prompt', () => {
+      const { socket, fire } = fakeSocket();
+      render(session(), socket);
+      fire('session:chat', update({ messages: history, queue: queued(1, 'stale') }));
+      expect(container.textContent).not.toContain('stale');
+    });
+
+    it("a queued `!` command shows as the user's command", () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history, queue: { items: [{ id: 'queued-1', blocks: [{ kind: 'command', name: '!', args: 'git status' }] }], seq: 1 } }));
+      expect(container.querySelector('.argus-chat-msg.is-queued')?.textContent).toContain('git status');
     });
 
     it('a queued prompt Claude reads as soon as the turn ends is never marked dropped', () => {
@@ -566,15 +592,24 @@ describe('ChatView', () => {
       expect(userBodies()).toEqual(['Youbefore', 'next']);
     });
 
-    it('Stop marks queued prompts stopped, not queued', () => {
+    it('Stop leaves queued prompts queued: Esc sends Claude Code\'s queue on', () => {
       const { socket, fire } = fakeSocket();
       render(session({ status: 'running' }), socket);
-      fire('session:chat', update({ messages: history }));
-      typeAndSend('queued then stopped');
+      fire('session:chat', update({ messages: history, queue: queued(1, 'already queued') }));
+      typeAndSend('just sent');
       act(() => stopButton().click());
-      expect(container.querySelector('[data-testid="chat-queued"]')).toBeNull();
+      expect(queuedTexts()).toEqual(['already queued', 'just sent']);
+      expect(container.textContent).not.toContain('Stopped before Claude recorded it');
+    });
+
+    it('Stop marks the running prompt even with prompts queued', () => {
+      const { socket, fire } = fakeSocket();
+      render(session({ status: 'running' }), socket);
+      fire('session:chat', update({ messages: history, queue: queued(1, 'later') }));
+      act(() => stopButton().click());
       render(session({ status: 'idle' }), socket);
-      expect(container.textContent).toContain('Stopped before Claude recorded it');
+      const mine = container.querySelectorAll('.argus-chat-msg.is-user');
+      expect(mine[0].querySelector('.argus-chat-notice')?.textContent).toContain('Stopped');
     });
 
     describe('Send now on a queued prompt (F8)', () => {
@@ -620,6 +655,17 @@ describe('ChatView', () => {
         expect(sendNowButtons()).toHaveLength(1);
         // The turn ended: Claude reads the queue by itself.
         render(session({ status: 'idle' }), socket);
+        expect(sendNowButtons()).toHaveLength(0);
+      });
+
+      it("on a prompt Claude Code queued from the terminal too, until it reads it", () => {
+        const { socket, fire, emitted } = fakeSocket();
+        render(session({ status: 'running' }), socket);
+        const item = { id: 'queued-1', blocks: [{ kind: 'text' as const, text: 'typed in the terminal' }] };
+        fire('session:chat', update({ messages: history, queue: { items: [item], seq: 1 } }));
+        act(() => sendNowButtons()[0].click());
+        expect(inputs(emitted)).toEqual(['\x18\x13']);
+        fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: item.blocks }], queue: { items: [], seq: 1 } }));
         expect(sendNowButtons()).toHaveLength(0);
       });
 

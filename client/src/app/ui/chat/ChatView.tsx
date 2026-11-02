@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
-import type { ChatBlock, ChatMessage, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
+import type { ChatBlock, ChatMessage, ChatQueuedPrompt, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import { MessagesSquare, ArrowDown, Terminal, X } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
@@ -14,7 +14,7 @@ import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
 import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
-import { keyOf, lastUserId, openPending, type Pending } from './pendingEchoes.js';
+import { newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -22,14 +22,12 @@ type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 const STICK_THRESHOLD = 48;
 /** A stop that hasn't ended the turn by then gives the Stop button back. */
 const STOP_RETRY_MS = 8000;
-/** Claude idle that long with a prompt still unrecorded: it dropped the prompt (or its queue). */
-const DISCARD_MS = 5000;
 /** Matches the notice ChatTail makes of Claude Code's "[Request interrupted by user]". */
 const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
-const DISCARDED_NOTICE: ChatBlock = { kind: 'notice', text: 'Claude finished without reading it — it is not in the conversation.' };
 /** Ctrl+X Ctrl+S: Claude Code's "send now" for its queue (verified on 2.1.316). */
 const SEND_NOW_KEY = '\x18\x13';
+const NO_QUEUE: ChatQueuedPrompt[] = [];
 let pendingSeq = 0;
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
@@ -49,6 +47,33 @@ interface ChatViewProps {
    * its bar: the host insets the terminal by TERMINAL_SHEET_BAR_PX and gives it the keyboard.
    */
   onTerminalSheet?: (open: boolean) => void;
+}
+
+/**
+ * A one-shot request typed into the pty (Stop, Send now): on until `active`
+ * (Claude running) ends or `retryMs` passes, so it can be asked again.
+ */
+function useRequest(active: boolean, retryMs: number) {
+  const [asked, setAsked] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  // The turn ended: the next one starts fresh.
+  const [wasActive, setWasActive] = useState(active);
+  if (active !== wasActive) {
+    setWasActive(active);
+    if (!active) setAsked(false);
+  }
+  const ask = () => {
+    setAsked(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setAsked(false), retryMs);
+  };
+  return { on: asked && active, ask, reset: () => setAsked(false) };
+}
+
+/** The id of the last recorded user message. */
+function lastUserId(messages: ChatMessage[]): string | null {
+  return messages.findLast((m) => m.role === 'user' && !m.echo)?.id ?? null;
 }
 
 /** Hides a native terminal overlay under the chat while it is shown. */
@@ -90,41 +115,35 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const [pending, setPending] = useState<Pending[]>([]);
   /** The recorded prompt whose turn Stop ended (marked unless Claude Code marks it itself). */
   const [stoppedId, setStoppedId] = useState<string | null>(null);
-  const [stopAsked, setStopAsked] = useState(false);
-  const stopTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const running = session.status === 'running';
-  const stopping = stopAsked && running;
+  const stopRequest = useRequest(running, STOP_RETRY_MS);
+  const stopping = stopRequest.on;
   // Esc in the pty is how Claude Code interrupts a turn.
   const stop = () => {
     if (stopping) return;
     socket.emit('session:input', { sessionId: session.id, data: '\x1b' });
-    setStopAsked(true);
-    const lastUser = lastUserId(chat.messages);
-    setPending((cur) => cur.map((p) => (p.stopped ? p : { ...p, stopped: true, markedAfter: lastUser })));
-    setStoppedId(shown.length > 0 ? null : lastUser);
-    clearTimeout(stopTimer.current);
-    stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
+    stopRequest.ask();
+    // Esc also sends Claude Code's queue on (verified on 2.1.316): only a prompt
+    // sent at its prompt can be stopped before it is recorded.
+    setPending((cur) => cur.map((p) => (p.stopped || p.queueAt !== undefined ? p : { ...p, stopped: true })));
+    // Such a prompt is the turn's own; otherwise the last recorded one is.
+    setStoppedId(shown.some((p) => p.queueAt === undefined) ? null : lastUserId(chat.messages));
   };
-  useEffect(() => () => clearTimeout(stopTimer.current), []);
   /**
    * "Send now" on a queued prompt: Claude Code's own send-now key interrupts the
    * step and submits its whole queue in order, each prompt once. Nothing is typed
    * again; with an empty queue (already read) the key does nothing.
    */
-  const [sendNowAsked, setSendNowAsked] = useState(false);
-  const sendNowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const sendingNow = sendNowAsked && running;
+  const sendNowRequest = useRequest(running, STOP_RETRY_MS);
+  const sendingNow = sendNowRequest.on;
   const sendNow = () => {
     if (!running || stopping || sendingNow) return;
     socket.emit('session:input', { sessionId: session.id, data: SEND_NOW_KEY });
-    setSendNowAsked(true);
-    clearTimeout(sendNowTimer.current);
-    sendNowTimer.current = setTimeout(() => setSendNowAsked(false), STOP_RETRY_MS);
+    sendNowRequest.ask();
   };
   const sendNowRef = useRef(sendNow);
   sendNowRef.current = sendNow;
   const onSendNow = useCallback(() => sendNowRef.current(), []);
-  useEffect(() => () => clearTimeout(sendNowTimer.current), []);
   const onStopKey = useRef<() => void>(undefined);
   onStopKey.current = () => {
     if (running) stop();
@@ -157,13 +176,6 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       if (lastChat === root) lastChat = null;
     };
   }, []);
-  useEffect(() => {
-    // The turn ended: the next Stop starts fresh.
-    if (!running) {
-      setStopAsked(false);
-      setSendNowAsked(false);
-    }
-  }, [running]);
 
   const status = session.status;
   useEffect(() => {
@@ -204,26 +216,18 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     return () => onSheetRef.current?.(false);
   }, [sheetOpen]);
 
-  // A prompt drops out once the transcript records it.
-  const shown = useMemo(() => openPending(pending, chat.messages), [pending, chat.messages]);
+  const userCount = useMemo(() => userCountOf(chat.messages), [chat.messages]);
+  const queueSeq = chat.queue?.seq ?? 0;
+  // A prompt drops out once the transcript records it or Claude Code queues it.
+  const shown = useMemo(() => openPending(pending, userCount, queueSeq), [pending, userCount, queueSeq]);
   useEffect(() => {
     // Prune what the transcript has caught up with.
     if (shown !== pending) setPending(shown);
   }, [shown, pending]);
-  const latestMessages = useRef(chat.messages);
-  latestMessages.current = chat.messages;
-  const idle = session.status === 'idle' || session.status === 'exited';
-  const unread = shown.some((p) => !p.stopped && !p.discarded);
-  useEffect(() => {
-    // Claude stayed idle with prompts unread: the queue was dropped (Esc in
-    // the terminal, an interrupt). Marked, not removed: a late record still replaces them.
-    if (!idle || !unread) return;
-    const t = setTimeout(() => {
-      const lastUser = lastUserId(latestMessages.current);
-      setPending((cur) => cur.map((p) => (p.stopped || p.discarded ? p : { ...p, discarded: true, markedAfter: lastUser })));
-    }, DISCARD_MS);
-    return () => clearTimeout(t);
-  }, [idle, unread]);
+  // Claude Code holds a queue only while it works (at its prompt it reads it at
+  // once), so one left over from an earlier run is not shown.
+  const busy = running || session.status === 'waiting';
+  const queue = busy ? (chat.queue?.items ?? NO_QUEUE) : NO_QUEUE;
   const recorded = useMemo(() => {
     const i = stoppedId && !stopping ? chat.messages.findIndex((m) => m.id === stoppedId) : -1;
     if (i < 0) return chat.messages;
@@ -234,29 +238,30 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     out[i] = { ...out[i], blocks: [...out[i].blocks, STOPPED_MARK] };
     return out;
   }, [chat.messages, stoppedId, stopping]);
+  // Claude Code's queue, then what was just sent and is not recorded or queued yet.
   const messages = useMemo<ChatMessage[]>(
     () =>
-      shown.length === 0
+      queue.length === 0 && shown.length === 0
         ? recorded
         : recorded.concat(
-            shown.map((p) => ({
-              id: p.id,
-              role: 'user',
-              blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.discarded ? [...p.blocks, DISCARDED_NOTICE] : p.blocks,
-            })),
+            queue.map((q) => ({ id: q.id, role: 'user', blocks: q.blocks })),
+            shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
           ),
-    [recorded, shown, stopping],
+    [recorded, queue, shown, stopping],
   );
-  const pendingIds = new Set(shown.map((p) => p.id));
+  const { pendingIds, queuedIds } = useMemo(() => {
+    const queued = busy ? queue.map((q) => q.id).concat(shown.filter((p) => p.queueAt !== undefined).map((p) => p.id)) : [];
+    return { pendingIds: new Set([...queue.map((q) => q.id), ...shown.map((p) => p.id)]), queuedIds: new Set(queued) };
+  }, [busy, queue, shown]);
   // Runs of tool calls fold into one row (F7).
   const rows = useMemo(() => chatRows(messages), [messages]);
   const [toolStore] = useState<ToolOpenState>(() => new Set());
-  // Still waiting in Claude Code's queue (not stopped, not dropped).
-  const queuedIds = new Set(shown.filter((p) => p.queued && !p.stopped && !p.discarded).map((p) => p.id));
   const hasQueued = queuedIds.size > 0;
+  const resetSendNow = sendNowRequest.reset;
   useEffect(() => {
     // Claude read the queue: a prompt queued after it gets a fresh "Send now".
-    if (!hasQueued) setSendNowAsked(false);
+    if (!hasQueued) resetSendNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset is a fresh closure each render
   }, [hasQueued]);
   // Only mid-step: at Claude's prompt the queue goes out by itself.
   const canSendNow = running && !stopping;
@@ -266,8 +271,8 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
    */
   const echo = (text: string, preview: ChatBlock[]) => {
     if (preview.length === 0 || slashCommandName(text) !== null || session.status === 'waiting') return;
-    const p: Pending = { id: `pending-${++pendingSeq}`, blocks: preview, key: keyOf(text, preview), queued: running, after: lastUserId(chat.messages) };
-    setPending((cur) => [...cur, p]);
+    const id = `pending-${++pendingSeq}`;
+    setPending((cur) => [...cur, newPending(id, preview, cur, userCount, queue.length, chat.queue, running)]);
     setFollowing(true);
   };
 
