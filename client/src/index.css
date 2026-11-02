@@ -2457,17 +2457,24 @@ body {
 .argus-cmp-content .is-bullet { position: relative; color: transparent; }
 .argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
 .argus-cmp-line.is-quote { color: var(--fg-2); }
-/* A fenced block is one box, like the Chat's code blocks. The matching
-   padding keeps the text where it was; an inset shadow draws the edge without
-   taking height, so the rows still line up with the textarea's. */
+/* A closed fenced block is one box, drawn like the sent message's
+   (.argus-chat-code): one surface step above what it sits on (that is --bg-1
+   on the --bg-0 list, so --bg-2 on the --bg-1 composer), the same edge and
+   radius. The matching padding keeps the text where it was; an inset shadow
+   draws the edge without taking height, so the rows still line up with the
+   textarea's. */
 .argus-cmp-codebox {
   margin: 0 calc(-1 * var(--s-2));
   padding: 0 var(--s-2);
   border-radius: var(--r-2);
-  background: var(--bg-inset);
+  background: var(--bg-2);
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
+/* The fence rows are the box's top and bottom padding: the fence is hidden
+   until the caret is on its row; a language stays as a dim label. */
 .argus-cmp-line.is-fence { color: var(--fg-3); }
+.argus-cmp-line.is-fence .is-fence-mark { color: transparent; }
+.argus-cmp-line.is-fence.is-active .is-fence-mark { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-hint.is-stopping { color: var(--fg-1); }

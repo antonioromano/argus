@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { composerLines, enterContinues, enterEdit, fenceEdit, inCodeFence, indentEdit, inlineSpans, renumber, type Edit, type Line } from './composerMarkdown.js';
+import { composerLines, enterContinues, enterEdit, fenceOpenEdit, inCodeFence, indentEdit, inlineSpans, renumber, type Edit, type Line } from './composerMarkdown.js';
 
 /** `|` marks the caret (or `|…|` a selection) in a test string. */
 function at(src: string): [string, number, number] {
@@ -64,9 +64,13 @@ describe('Enter in lists', () => {
   });
 
   it('adds a line inside an open code fence, keeping the indent', () => {
-    expect(enter('```ts|')).toBe('```ts\n|');
+    expect(enter('```ts|')).toBe('```ts\n|\n```');
+    expect(enter('```ts|\nx\n```')).toBe('```ts\n|\nx\n```');
     expect(enter('```\n  x = 1|')).toBe('```\n  x = 1\n  |');
-    expect(enter('```\nx\n```|')).toBeUndefined();
+    expect(enter('```\nx\n```|')).toBe('```\nx\n```\n|'); // past the closing fence: a line below (⌘Enter sends)
+    expect(enter('```\nx\n```|\nmore')).toBe('```\nx\n```\n|\nmore');
+    expect(enter('```\nx\n``|`')).toBeUndefined(); // not at the end of the fence
+    expect(enterContinues('```\nx\n```', 9)).toBe(true);
   });
 
   it('enterContinues mirrors enterEdit for the hint', () => {
@@ -154,19 +158,24 @@ describe('highlight lines', () => {
     expect(inlineSpans('__init__')[1]).toEqual({ text: 'init', bold: true });
   });
 
-  it('groups fenced code with its language, also while unclosed', () => {
+  it('groups fenced code with its language; an unclosed fence stays text', () => {
     expect(composerLines('```py\nx\ny\n```')).toEqual([
       { kind: 'fence', text: '```py' },
       { kind: 'code', lang: 'py', lines: ['x', 'y'] },
       { kind: 'fence', text: '```' },
     ]);
-    expect(composerLines('```\nx')).toEqual([{ kind: 'fence', text: '```' }, { kind: 'code', lang: null, lines: ['x'] }]);
+    expect(composerLines('```\nx').map((l) => l.kind)).toEqual(['text', 'text']);
+    expect(composerLines('```ts').map((l) => l.kind)).toEqual(['text']);
+    expect(composerLines('```\n\n```').map((l) => l.kind)).toEqual(['fence', 'code', 'fence']);
+    expect(composerLines('```\n- a\n```\n- b').map((l) => l.kind)).toEqual(['fence', 'code', 'fence', 'text']);
     expect(inCodeFence('```\nx\n```\ny', 12)).toBe(false);
     // Inline code at the start of a line is not a fence (CommonMark).
     expect(inCodeFence('```bash``` is the syntax', 24)).toBe(false);
     expect(enter('```bash``` is the syntax|')).toBeUndefined();
     expect(composerLines('```bash``` here')[0].kind).toBe('text');
     expect(inCodeFence('````\nx', 6)).toBe(true);
+    expect(inCodeFence('````\n```\nx', 10)).toBe(true); // a shorter fence doesn't close it
+    expect(inCodeFence('````\n```\n`````\nx', 16)).toBe(false);
   });
 
   it('marks list bullets and numbers', () => {
@@ -177,18 +186,44 @@ describe('highlight lines', () => {
   });
 });
 
-describe('fenceEdit', () => {
-  it('the third backtick on an empty line opens a block with its closing fence', () => {
-    expect(fenceEdit('intro\n``', 8, 8, '`')).toEqual({ value: 'intro\n```\n\n```', selStart: 10, selEnd: 10 });
-    expect(fenceEdit('  ``', 4, 4, '`')).toEqual({ value: '  ```\n  \n  ```', selStart: 8, selEnd: 8 });
+describe('fenceOpenEdit', () => {
+  const open = (src: string) => {
+    const [v, caret] = at(src);
+    return show(fenceOpenEdit(v, caret));
+  };
+
+  it('a new line after an opening fence opens a block with its closing fence', () => {
+    expect(open('intro\n```|')).toBe('intro\n```\n|\n```');
+    expect(open('```ts|')).toBe('```ts\n|\n```');
+    expect(open('  ```py|')).toBe('  ```py\n  |\n  ```');
+    expect(open('````|')).toBe('````\n|\n````');
+    expect(open('~~~|')).toBe('~~~\n|\n~~~');
+    expect(open('```|\n\nafter')).toBe('```\n|\n```\n\nafter');
+    expect(enter('```ts|sel|')).toBe('```ts\n|\n```');
+    expect(open('```js title=a.js|')).toBe('```js title=a.js\n|\n```'); // any info string
+    expect(open('``` python|')).toBe('``` python\n|\n```'); // space before the language
+    expect(open('```ts |')).toBe('```ts \n|\n```'); // trailing space
+    expect(open('~~~js`x|')).toBe('~~~js`x\n|\n~~~'); // a tilde info string may hold backticks
+    expect(open('````md|\nsee ```\n```')).toBe('````md\n|\n````\nsee ```\n```'); // ``` can't close ````
   });
 
-  it('leaves every other backtick alone', () => {
-    expect(fenceEdit('a ``', 4, 4, '`')).toBeUndefined(); // not alone on its line
-    expect(fenceEdit('``x', 2, 2, '`')).toBeUndefined(); // caret not at the end
-    expect(fenceEdit('```\ncode\n``', 11, 11, '`')).toBeUndefined(); // closes the open block
-    expect(fenceEdit('``\ncode\n```', 2, 2, '`')).toBeUndefined(); // already closed below
-    expect(fenceEdit('``', 2, 2, 'x')).toBeUndefined();
+  it('is a plain new line everywhere else', () => {
+    expect(open('```|ts')).toBeUndefined(); // caret not at the end
+    expect(open('a ```|')).toBeUndefined(); // not alone on its line
+    expect(open('``|')).toBeUndefined();
+    expect(open('```\ncode\n```|')).toBeUndefined(); // closes the open block
+    expect(open('```|\ncode\n```')).toBeUndefined(); // wraps code whose closing fence is already below
+    expect(open('```ts|\ncode\n  ```')).toBeUndefined();
+  });
+
+  it('adds the closing fence when a block is opened above existing code, which keeps its own fences', () => {
+    expect(open('intro\n```|\n\nmore\n```py\ncode\n```')).toBe('intro\n```\n|\n```\n\nmore\n```py\ncode\n```');
+    expect(open('```|\n\n```\nx\n```')).toBe('```\n|\n```\n\n```\nx\n```');
+    // A block still being typed below (no closer of its own) is not this one's closer.
+    expect(open('```|\n\n```py\nx')).toBe('```\n|\n```\n\n```py\nx');
+    expect(open('```bash``` x|')).toBeUndefined(); // inline code
+    expect(open('```\ncode\n```ts|')).toBeUndefined(); // code inside an open block
+    expect(enter('```\ncode\n```ts|')).toBe('```\ncode\n```ts\n|');
   });
 });
 

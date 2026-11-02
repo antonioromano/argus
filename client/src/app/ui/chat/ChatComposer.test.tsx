@@ -381,9 +381,9 @@ describe('ChatComposer — live Markdown (D2)', () => {
 
   it('Enter inside a code fence adds a line', () => {
     const onSubmit = render();
-    type('```ts');
+    type('```ts\nconst x = 1;\n```', 18);
     key('Enter');
-    expect(box().value).toBe('```ts\n');
+    expect(box().value).toBe('```ts\nconst x = 1;\n\n```');
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -428,15 +428,109 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it('typing ``` opens a code block with its closing fence, caret inside', () => {
+  it('typing the third backtick changes nothing: ``` and a language stay as typed', () => {
     render();
     type('``');
     const event = new InputEvent('beforeinput', { data: '`', inputType: 'insertText', bubbles: true, cancelable: true });
     act(() => { box().dispatchEvent(event); });
-    expect(event.defaultPrevented).toBe(true);
-    expect(box().value).toBe('```\n\n```');
-    expect(box().selectionStart).toBe(4);
-    expect(container.querySelector('[data-testid="composer-codebox"]')).not.toBeNull();
+    expect(event.defaultPrevented).toBe(false);
+    type('```ts');
+    expect(box().value).toBe('```ts');
+  });
+
+  it('a typed ``` stays plain text until the new line opens the box, whose fences are hidden', () => {
+    render();
+    type('code block\n```');
+    expect(container.querySelector('[data-testid="composer-codebox"]')).toBeNull();
+    expect(layerText()).toBe('code block\n```');
+    key('Enter', { shiftKey: true });
+    const codebox = container.querySelector('[data-testid="composer-codebox"]')!;
+    expect(codebox).not.toBeNull();
+    // The caret is on the code row: both fences are drawn invisible.
+    expect(codebox.querySelectorAll('.is-fence-mark')).toHaveLength(2);
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+    // On a fence row, that fence shows.
+    act(() => {
+      box().blur();
+      box().setSelectionRange(14, 14);
+      box().focus();
+    });
+    const rows = codebox.querySelectorAll('.argus-cmp-line.is-fence');
+    expect(rows[0].classList.contains('is-active')).toBe(true);
+    expect(rows[1].classList.contains('is-active')).toBe(false);
+    // Out of the composer, both hide again.
+    act(() => { box().blur(); });
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+  });
+
+  it('Shift+Enter after an opening fence opens the code box, caret inside', () => {
+    const onSubmit = render();
+    type('```ts');
+    const e = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(true);
+    expect(box().value).toBe('```ts\n\n```');
+    expect(box().selectionStart).toBe(6);
+    expect(onSubmit).not.toHaveBeenCalled();
+    const codebox = container.querySelector('[data-testid="composer-codebox"]')!;
+    expect(codebox.querySelectorAll('.argus-cmp-line.is-fence')).toHaveLength(2);
+    expect(codebox.querySelectorAll('.argus-cmp-line.is-code')).toHaveLength(1);
+    expect(layerText()).toBe('```ts\n\n```');
+  });
+
+  it('plain Enter (⌘Enter sends inside a fence) opens the box the same way', () => {
+    const onSubmit = render();
+    type('see:\n```');
+    key('Enter');
+    expect(box().value).toBe('see:\n```\n\n```');
+    expect(box().selectionStart).toBe(9);
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Inside the box, new lines are plain lines (no second box).
+    type('see:\n```\n- a\n```', 12);
+    key('Enter');
+    expect(box().value).toBe('see:\n```\n- a\n\n```');
+  });
+
+  it('Shift+Enter outside a code block stays the textarea\'s own new line, inside it is Enter\'s', () => {
+    render();
+    for (const [src, caret] of [['hello', 5], ['```\nx\n```', 9], ['- item', 6]] as const) {
+      type(src, caret);
+      const e = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+      act(() => { box().dispatchEvent(e); });
+      expect(e.defaultPrevented).toBe(false);
+    }
+    type('```\n  x = 1\n```', 11);
+    key('Enter', { shiftKey: true });
+    expect(box().value).toBe('```\n  x = 1\n  \n```');
+  });
+
+  it('Enter at the end of the closing fence adds a line below the box; ⌘Enter sends', () => {
+    const onSubmit = render();
+    type('```\nx\n```');
+    key('Enter');
+    expect(box().value).toBe('```\nx\n```\n');
+    expect(box().selectionStart).toBe(10);
+    expect(onSubmit).not.toHaveBeenCalled();
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith('```\nx\n```', expect.any(Array));
+  });
+
+  it('opens the box with one insertText on the changed span (one undo step)', () => {
+    render();
+    type('```ts');
+    const calls: unknown[][] = [];
+    const real = document.execCommand;
+    document.execCommand = ((cmd: string, _ui: boolean, value: string) => {
+      calls.push([cmd, value, box().selectionStart, box().selectionEnd]);
+      return false;
+    }) as typeof document.execCommand;
+    try {
+      key('Enter', { shiftKey: true });
+    } finally {
+      document.execCommand = real;
+    }
+    expect(calls).toEqual([['insertText', '\n\n```', 5, 5]]);
+    expect(box().value).toBe('```ts\n\n```');
   });
 
   it('draws a styled copy of exactly the typed text, and sends plain Markdown', () => {

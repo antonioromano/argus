@@ -13,7 +13,7 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, fenceEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, fenceEnterEdit, indentEdit, type Edit } from './composerMarkdown.js';
 import { newAttachmentKey as newKey, revokePreviews as revoke, useChatDraft, type DraftAttachment as Attachment } from './chatDrafts.js';
 
 interface ChatComposerProps {
@@ -138,6 +138,8 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   const layerRef = useRef<HTMLDivElement>(null);
   // Enter adds an item / line here instead of sending (drives the hint).
   const [continues, setContinues] = useState(false);
+  // The line the caret is on: a code box shows its hidden fence there.
+  const [caretLine, setCaretLine] = useState(-1);
   const fileRef = useRef<HTMLInputElement>(null);
   const exited = status === 'exited';
   // Shift+Tab and slash commands only make sense at Claude's prompt.
@@ -146,22 +148,6 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
-
-  // A typed ``` opens a code block with its closing fence. Native beforeinput:
-  // it carries the typed text and can be cancelled before the textarea changes.
-  useEffect(() => {
-    const box = ref.current;
-    if (!box) return;
-    const onBeforeInput = (e: InputEvent) => {
-      if (e.inputType !== 'insertText' || e.isComposing || !e.data) return;
-      const edit = fenceEdit(box.value, box.selectionStart, box.selectionEnd, e.data);
-      if (!edit) return;
-      e.preventDefault();
-      applyEdit(box, edit);
-    };
-    box.addEventListener('beforeinput', onBeforeInput);
-    return () => box.removeEventListener('beforeinput', onBeforeInput);
-  }, []);
 
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
@@ -197,6 +183,9 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   const trackCaret = () => {
     const box = ref.current;
     if (!box) return;
+    let line = 0;
+    for (let i = box.value.indexOf('\n'); i >= 0 && i < box.selectionStart; i = box.value.indexOf('\n', i + 1)) line++;
+    setCaretLine(line);
     // Always set: two calls in one event would compare against a stale `continues`.
     setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
   };
@@ -360,7 +349,7 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           </div>
         )}
         <div className="argus-cmp-field">
-        <ComposerHighlight ref={layerRef} text={text} />
+        <ComposerHighlight ref={layerRef} text={text} caretLine={caretLine} />
         <textarea
           ref={ref}
           className="argus-cmp-input"
@@ -384,6 +373,8 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           }}
           onScroll={syncLayer}
           onSelect={trackCaret}
+          onFocus={trackCaret}
+          onBlur={() => setCaretLine(-1)}
           onPaste={(e) => {
             // A screenshot on the clipboard is only bytes: upload it to get a path.
             const images = Array.from(e.clipboardData.files).filter(isImageFile);
@@ -423,10 +414,14 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
               return;
             }
             const box = e.currentTarget;
-            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-              e.preventDefault();
+            if (e.key === 'Enter' && !e.altKey) {
               // In a list or code block Enter edits; Cmd/Ctrl+Enter always sends.
-              const edit = e.metaKey || e.ctrlKey ? undefined : enterEdit(box.value, box.selectionStart, box.selectionEnd);
+              // Shift+Enter is the textarea's own new line, except in a code block
+              // (its opening fence included), where it edits like Enter.
+              const edit =
+                e.metaKey || e.ctrlKey ? undefined : (e.shiftKey ? fenceEnterEdit : enterEdit)(box.value, box.selectionStart, box.selectionEnd);
+              if (!edit && e.shiftKey) return;
+              e.preventDefault();
               if (!edit) {
                 send();
                 return;

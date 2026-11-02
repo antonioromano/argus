@@ -56,32 +56,55 @@ function CodeLines({ lines, lang }: { lines: string[]; lang: string | null }) {
 }
 
 /**
+ * A code box's fence row. The fence is drawn invisible, so the row is just the
+ * box's top / bottom padding (the code reads as a box, not as Markdown), and
+ * shows only while the caret is on it, so nothing is typed blind. The language
+ * after an opening fence stays, dimmed, as the box's label.
+ */
+function FenceRow({ text, active }: { text: string; active: boolean }) {
+  const m = /^ *(?:`{3,}|~{3,})/.exec(text);
+  const fence = m ? m[0] : text;
+  const info = text.slice(fence.length);
+  return (
+    <div className={`argus-cmp-line is-fence${active ? ' is-active' : ''}`}>
+      {!text ? EMPTY : <><span className="is-fence-mark">{fence}</span>{info && <span className="is-fence-info">{info}</span>}</>}
+    </div>
+  );
+}
+
+/**
  * The styled copy of the composer text drawn under its transparent textarea
  * (D2). Every character is the textarea's own, in the same font, so wrapping
  * and the caret line up; styles never change a glyph's width (bold is drawn
  * with a text shadow, code with a background, list markers over themselves).
  */
 export const ComposerHighlight = memo(
-  forwardRef<HTMLDivElement, { text: string }>(function ComposerHighlight({ text }, ref) {
+  forwardRef<HTMLDivElement, { text: string; caretLine?: number }>(function ComposerHighlight({ text, caretLine }, ref) {
     const lines = useMemo(
       () => (text.length > MAX_STYLED_CHARS ? text.split('\n').map((t): Line => ({ kind: 'text', spans: t ? [{ text: t }] : [] })) : composerLines(text)),
       [text],
     );
+    // The source line each highlight line starts at (a code line spans several).
+    const rows = useMemo(() => {
+      const at = [0];
+      for (const l of lines) at.push(at[at.length - 1] + (l.kind === 'code' ? l.lines.length : 1));
+      return at;
+    }, [lines]);
     return (
       <div className="argus-cmp-layer" aria-hidden>
         <div ref={ref} className="argus-cmp-content" data-testid="composer-highlight">
           {lines.map((l, i) => {
             if (l.kind === 'code') return null;
             if (l.kind === 'fence') {
-              // An opening fence: one box for it, its code and its closing fence (when typed).
+              // An opening fence: one box for it, its code and its closing fence.
               const code = lines[i + 1];
-              if (code?.kind !== 'code') return null;
               const close = lines[i + 2];
+              if (code?.kind !== 'code' || close?.kind !== 'fence') return null;
               return (
                 <div key={i} className="argus-cmp-codebox" data-testid="composer-codebox">
-                  <div className="argus-cmp-line is-fence">{l.text || EMPTY}</div>
+                  <FenceRow text={l.text} active={caretLine === rows[i]} />
                   <CodeLines lines={code.lines} lang={code.lang} />
-                  {close?.kind === 'fence' && <div className="argus-cmp-line is-fence">{close.text || EMPTY}</div>}
+                  <FenceRow text={close.text} active={caretLine === rows[i + 2]} />
                 </div>
               );
             }
