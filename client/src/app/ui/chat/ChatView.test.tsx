@@ -849,6 +849,19 @@ describe('ChatView', () => {
       expect(pendingCount()).toBe(0);
     });
 
+    it('a session with no startup info (restored) says "Starting Claude…" until a turn ends unrecorded (F15b)', () => {
+      const { socket, fire } = fakeSocket();
+      const s = session({ id: 'restored-1', status: 'idle' });
+      render(s, socket);
+      fire('session:chat', update({ sessionId: 'restored-1', available: false }));
+      typeAndSend('first one');
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      render({ ...s, status: 'running' }, socket);
+      expect(starting()?.textContent).toContain('Starting Claude…');
+      render({ ...s, status: 'idle' }, socket);
+      expect(starting()?.textContent).toContain("Chat can't read this session's transcript");
+    });
+
     it('once the first turn ended with no transcript, the line says Chat cannot read it (F15b)', () => {
       const { socket, fire } = fakeSocket();
       const s = session({ id: 'launch-8', status: 'running', starting: true, initialPrompt: { text: 'lost' } });

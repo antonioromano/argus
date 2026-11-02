@@ -124,6 +124,12 @@ test('prompt on an agent without prompt support throws', async () => {
   );
 });
 
+/** A heuristic settle to idle, with no done promotion (and so no grace timer). */
+function settle(sm: SessionManager, id: string) {
+  (sm as any).sessions.get(id).hasUserInputSinceIdle = false;
+  (sm as any).applyDetectedStatus(id, 'idle');
+}
+
 /** Captures every session:status payload the manager broadcasts. */
 function capture(sm: SessionManager): any[] {
   const out: any[] = [];
@@ -154,19 +160,71 @@ test('the launch prompt and starting last until the first turn ends, then clear 
   assert.equal(sent.at(-1).initialPrompt, undefined);
 });
 
-test('with no launch prompt, startup ends at the first turn after input, not at the welcome screen (F15b)', async () => {
+test('with no launch prompt, raw input (the trust-dialog Enter) is no first prompt; a Chat send is (F15b)', async () => {
   const { sm } = harness();
   const s = await create(sm, [], {});
   const sent = capture(sm);
-  // Claude settles at its welcome screen: no prompt yet, so still starting.
+  // The folder-trust dialog, answered with Enter in the terminal: no prompt yet.
+  (sm as any).applyDetectedStatus(s.id, 'waiting');
+  sm.writeToSession(s.id, '\r');
+  (sm as any).applyDetectedStatus(s.id, 'running');
+  // Claude settles at its welcome screen.
   sm.applyNativeSignal(s.id, { state: 'idle' });
-  assert.equal(sent.at(-1).status, 'done');
   assert.equal(sent.at(-1).starting, true);
-  sm.writeToSession(s.id, 'hello\r');
-  sm.applyNativeSignal(s.id, { state: 'running' });
+  // The first message, sent from an empty Chat (not awaited: it waits for screen settles).
+  void sm.submitChatInput(s.id, 'hello', () => {});
+  sm.writeToSession(s.id, 'hello\r'); // what the input queue then writes
+  (sm as any).applyDetectedStatus(s.id, 'running');
   assert.equal(sent.at(-1).starting, true);
   sm.applyNativeSignal(s.id, { state: 'idle' });
   assert.equal(sent.at(-1).starting, undefined);
+});
+
+test('a prompt submitted in the terminal counts through the native running signal (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], {});
+  const sent = capture(sm);
+  sm.writeToSession(s.id, 'hello\r');
+  sm.applyNativeSignal(s.id, { state: 'running' }); // UserPromptSubmit
+  assert.equal(sent.at(-1).starting, true);
+  sm.applyNativeSignal(s.id, { state: 'idle' });
+  assert.equal(sent.at(-1).starting, undefined);
+});
+
+test('with a launch prompt, a heuristic settle before any hook does not end startup (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'fix it' });
+  const sent = capture(sm);
+  // Claude paints, then loads MCP servers before reading the prompt: the screen settles.
+  settle(sm, s.id);
+  assert.equal(sent.at(-1).status, 'idle');
+  assert.equal(sent.at(-1).starting, true);
+  assert.deepEqual(sent.at(-1).initialPrompt, { text: 'fix it' });
+  // Then the prompt is submitted and its turn ends.
+  sm.applyNativeSignal(s.id, { state: 'running' });
+  sm.applyNativeSignal(s.id, { state: 'idle' });
+  assert.equal(sent.at(-1).starting, undefined);
+  assert.equal(sent.at(-1).initialPrompt, undefined);
+});
+
+test('with a launch prompt and no hooks, the heuristic ends startup after the fallback wait (F15b)', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'fix it' });
+  const sent = capture(sm);
+  const subscribed: string[] = [];
+  sm.onStatus((_id, st) => subscribed.push(st));
+  settle(sm, s.id); // the turn ended; no hook ever came
+  assert.equal(sent.at(-1).starting, true);
+  t.mock.timers.tick(29_000);
+  assert.equal(sm.getSessionInfo(s.id)?.starting, true);
+  t.mock.timers.tick(1_000);
+  assert.equal(sm.getSessionInfo(s.id)?.starting, undefined);
+  assert.equal(sm.getSessionInfo(s.id)?.initialPrompt, undefined);
+  assert.equal(sent.at(-1).status, 'idle');
+  assert.equal(sent.at(-1).starting, undefined);
+  // Announced to sockets only: the status did not change, so no repeat for in-process subscribers.
+  assert.deepEqual(subscribed, ['idle']);
 });
 
 test('an exit keeps the launch prompt; a restart starts over without it (F15b)', async () => {

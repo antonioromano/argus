@@ -236,6 +236,17 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const exited = session.status === 'exited';
   // A prompt drops out once the transcript records it or Claude Code queues it.
   const shown = useMemo(() => openPending(pending, userCount, queueSeq), [pending, userCount, queueSeq]);
+  // F15b: the transcript is unreadable once a turn ended (running → idle/done) while a prompt
+  // was still unrecorded and no transcript was found, and the server no longer calls the session
+  // starting. Seen by this mount only: a restored session has no startup info on the server.
+  const [unreadable, setUnreadable] = useState(false);
+  const prevStatus = useRef(session.status);
+  const hasShown = shown.length > 0;
+  useEffect(() => {
+    const prev = prevStatus.current;
+    prevStatus.current = status;
+    if (prev === 'running' && (status === 'idle' || status === 'done') && hasShown && chat.loaded && !chat.available) setUnreadable(true);
+  }, [status, hasShown, chat.loaded, chat.available]);
   useEffect(() => {
     // Prune what the transcript has caught up with.
     if (shown !== pending) setPending(shown);
@@ -398,9 +409,9 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
             <span>
               {exited
                 ? 'The session ended before Claude started the conversation.'
-                : session.starting
+                : session.starting || !unreadable
                   ? 'Starting Claude…'
-                  // Its first turn ended with no transcript found (F15b): it is not coming.
+                  // A turn ended with no transcript found (F15b): it is not coming.
                   : "Chat can't read this session's transcript — use the terminal"}
             </span>
             <Button variant="ghost" size="sm" icon={Terminal} onClick={onShowTerminal}>Terminal</Button>
