@@ -428,7 +428,7 @@ export function Focus({
               overlays the region, with a clickable peek strip to return. */}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
             <div style={{ flex: maximized ? '0 0 0px' : 1, minHeight: 0, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-              <ErrorBoundary key={active.id} label={active.name}>
+              <ErrorBoundary key={`term-${active.id}`} label={active.name}>
                 <TerminalShell
                   session={active}
                   socket={socket}
