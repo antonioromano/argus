@@ -1391,8 +1391,10 @@ export class SessionManager {
       launcherId: opts.launcherId,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
-      // A fresh spawn only: a restored or re-attached agent started long ago.
-      startup: !attachExisting && !restoreExited && existingId == null ? { last: initialStatus, prompted: promptTail.length > 0 } : undefined,
+      // A fresh Claude spawn only (Chat is its sole reader): a restored or re-attached agent started long ago.
+      startup: resolvedAgentType === 'claude' && !attachExisting && !restoreExited && existingId == null
+        ? { last: initialStatus, prompted: promptTail.length > 0 }
+        : undefined,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1546,7 +1548,7 @@ export class SessionManager {
     this.setSuggestion(id, session, undefined);
     // A restart never replays the launch prompt (see createSession).
     session.initialPrompt = undefined;
-    session.startup = { last: 'running', prompted: false };
+    session.startup = session.agentType === 'claude' ? { last: 'running', prompted: false } : undefined;
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);

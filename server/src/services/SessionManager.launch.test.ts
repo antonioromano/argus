@@ -188,3 +188,10 @@ test('a restored session is not starting (F15b)', async () => {
   await sm.restoreSessions();
   assert.equal(sm.getSessionInfo(s.id)?.starting, undefined);
 });
+
+test('only Claude sessions track startup (F15b)', async () => {
+  const { sm } = harness();
+  (sm as any).configStore = { load: async () => ({ defaultAgent: 'claude', customAgents: [{ id: 'x', name: 'X', command: 'x', builtin: false }], agentFlags: {} }) };
+  const s = await sm.createSession(os.tmpdir(), 'n', 'x', [], undefined, undefined, undefined, undefined, false, undefined, 'persistent', false, {});
+  assert.equal(s.starting, undefined);
+});

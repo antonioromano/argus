@@ -395,9 +395,10 @@ export interface SessionInfo {
    */
   initialPrompt?: { text: string; clipped?: boolean };
   /**
-   * Fresh spawn (create or restart) until the first turn ends: the first
-   * running → idle/done once the agent has a prompt (F15b). While set, Chat
-   * reads a missing transcript as "Claude is starting"; after, as unreadable.
+   * Claude only, fresh spawn (create or restart) until the first turn ends:
+   * the first running → idle/done once the agent has a prompt (F15b). An exit
+   * before that keeps it (until a restart), with `initialPrompt`. While set,
+   * Chat reads a missing transcript as "Claude is starting"; after, as unreadable.
    */
   starting?: boolean;
 }
