@@ -209,6 +209,7 @@ export function setupSocketHandler(
             ...(snap?.permissionMode ? { permissionMode: snap.permissionMode } : {}),
             ...(snap?.modelSet ? { modelSet: snap.modelSet } : {}),
             ...(snap?.commands ? { commands: snap.commands } : {}),
+            ...(snap?.queue ? { queue: snap.queue } : {}),
             ...(snap?.suggestion ? { suggestion: snap.suggestion } : {}),
           });
         })

@@ -2,8 +2,8 @@ import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatBlock, ChatMessage, ChatToolBlock } from '@argus/shared';
-import { Image as ImageIcon, HelpCircle, ChevronRight, Info, CircleStop } from 'lucide-react';
-import { Icon } from '../../../components/primitives/index.js';
+import { Image as ImageIcon, HelpCircle, ChevronRight, Info, CircleStop, Clock, Send } from 'lucide-react';
+import { Button, Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
 import { api } from '../../../services/api.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
@@ -143,6 +143,12 @@ interface ChatMessageItemProps {
   showRole: boolean;
   /** Sent from the composer, not in the transcript yet. */
   pending?: boolean;
+  /** Pending and sent while Claude was running: Claude Code holds it in its queue. */
+  queued?: boolean;
+  /** Queued mid-step: offers "Send now", which interrupts the step. */
+  onSendNow?: () => void;
+  /** "Send now" was pressed and Claude has not read the queue yet. */
+  sendingNow?: boolean;
   /** Open tool groups and steps (see ToolOpenState). */
   toolStore?: ToolOpenState;
 }
@@ -161,7 +167,7 @@ function partsOf(blocks: ChatBlock[]): Part[] {
   return out;
 }
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending, toolStore }: ChatMessageItemProps) {
+export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending, queued, onSendNow, sendingNow, toolStore }: ChatMessageItemProps) {
   const user = message.role === 'user';
   const system = message.role === 'system';
   const command = user && message.blocks[0]?.kind === 'command';
@@ -169,6 +175,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
   if (command) cls.push('is-command');
   if (message.echo) cls.push('is-echo');
   if (pending) cls.push('is-pending');
+  if (queued) cls.push('is-queued');
   return (
     <div
       className={cls.join(' ')}
@@ -181,6 +188,25 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
           'tools' in p ? <ChatToolGroup key={i} steps={p.tools} store={toolStore} /> : <Block key={i} block={p.block} user={user} />,
         )}
       </div>
+      {queued && (
+        <div className="argus-chat-queued-row">
+          <span className="argus-chat-queued" title="Claude will read this when it finishes the current step" data-testid="chat-queued">
+            <Icon icon={Clock} size={12} aria-hidden /> Queued
+          </span>
+          {onSendNow && (
+            <Button
+              size="sm"
+              icon={Send}
+              loading={sendingNow}
+              onClick={onSendNow}
+              title="Stop the current step and send this now"
+              className="argus-chat-send-now"
+            >
+              {sendingNow ? 'Sending…' : 'Send now'}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 });

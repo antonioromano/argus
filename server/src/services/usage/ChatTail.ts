@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatCommand, ChatMessage } from '@argus/shared';
+import type { ChatBlock, ChatCommand, ChatMessage, ChatQueue, ChatQueuedPrompt } from '@argus/shared';
 import { JsonlTailer, nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.js';
 import { toolBlockOf, toolResultsOf, withResult, type ToolResult } from './chatTools.js';
 
@@ -8,9 +8,11 @@ import { toolBlockOf, toolResultsOf, withResult, type ToolResult } from './chatT
  * The transcript format is not a public API, so the parser is deliberately
  * tolerant: a malformed line, an unknown entry type or an unexpected shape is
  * skipped (or rendered as an `unknown` block), never thrown. Only main-thread
- * user, assistant and local-command entries become messages; tool results are
- * folded into the tool call they answer (F7); attachments, subagent (sidechain)
- * turns and harness-injected meta prompts are dropped.
+ * user, assistant and local-command entries become messages, plus the
+ * prompts the user queued that Claude read mid-turn (queuedPromptMessage);
+ * tool results are folded into the tool call they answer (F7); other
+ * attachments, subagent (sidechain) turns and harness-injected meta prompts
+ * are dropped. `queue-operation` entries keep Claude Code's input queue (F8).
  */
 
 /** Messages kept per transcript; older ones fall off the front. */
@@ -189,7 +191,25 @@ export interface ChatLine {
   skillsReplace?: boolean;
   /** Results of earlier tool calls, to fold into the steps they answer. */
   toolResults?: ToolResult[];
+  /** A change to Claude Code's input queue. */
+  queueOp?: QueueOp;
+  /** The exact text of a main-thread user entry (a prompt Claude Code took from its queue records it so). */
+  userText?: string;
 }
+
+/**
+ * One `queue-operation` entry. Claude Code writes `enqueue` (with the text)
+ * when input arrives while it is busy, `dequeue` (no text) when it takes the
+ * oldest one, `remove` (with the text) when it reads one mid-turn, and
+ * `popAll` (one per prompt, with the text) when Up pulls the queue back into
+ * its input box to edit it. A `remove` without text takes the oldest one.
+ */
+export interface QueueOp {
+  op: 'enqueue' | 'dequeue' | 'remove' | 'popAll';
+  content?: string;
+}
+
+const QUEUE_OPS: ReadonlySet<string> = new Set(['enqueue', 'dequeue', 'remove', 'popAll']);
 
 /**
  * One transcript line → its chat message and/or permission mode, or undefined
@@ -198,7 +218,9 @@ export interface ChatLine {
 export function parseChatLine(text: string): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
   const listing = text.includes('"skill_listing"');
-  if (!listing && !text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
+  const queued = text.includes('"queued_command"');
+  const queueOp = text.includes('"queue-operation"');
+  if (!listing && !queued && !queueOp && !text.includes('"user"') && !text.includes('"assistant"') && !text.includes('"system"')) return undefined;
   let entry: any;
   try {
     entry = JSON.parse(text);
@@ -210,6 +232,16 @@ export function parseChatLine(text: string): ChatLine | undefined {
     const a = entry.attachment;
     if (entry.isSidechain || a?.type !== 'skill_listing' || typeof a.content !== 'string') return undefined;
     return { skills: parseSkillListing(a.content), skillsReplace: a.isInitial !== false };
+  }
+  if (queueOp && entry.type === 'queue-operation') {
+    if (entry.isSidechain || !QUEUE_OPS.has(entry.operation)) return undefined;
+    const op: QueueOp = { op: entry.operation };
+    if (typeof entry.content === 'string') op.content = entry.content;
+    return { queueOp: op };
+  }
+  if (queued && entry.type === 'attachment') {
+    const message = queuedPromptMessage(entry);
+    return message ? { message } : undefined;
   }
   const type = entry.type;
   if (type !== 'user' && type !== 'assistant' && type !== 'system') return undefined;
@@ -223,9 +255,11 @@ export function parseChatLine(text: string): ChatLine | undefined {
   const modelSet = type !== 'assistant' && typeof content === 'string' ? MODEL_SET_RE.exec(content)?.[1]?.trim() : undefined;
   const message = type === 'system' ? systemMessage(entry) : toMessage(entry, type);
   const toolResults = type === 'user' && !entry.isSidechain ? toolResultsOf(content, entry.toolUseResult) : [];
-  if (!message && !permissionMode && !modelSet && toolResults.length === 0) return undefined;
+  const userText = type === 'user' && !entry.isMeta && typeof content === 'string' ? content : undefined;
+  if (!message && !permissionMode && !modelSet && toolResults.length === 0 && userText === undefined) return undefined;
   const out: ChatLine = { message, permissionMode };
   if (modelSet) out.modelSet = modelSet;
+  if (userText !== undefined) out.userText = userText;
   if (toolResults.length) out.toolResults = toolResults;
   return out;
 }
@@ -256,6 +290,24 @@ function toMessage(entry: any, type: 'user' | 'assistant'): ChatMessage | undefi
   const blocks = blocksOf(type, msg.content, typeof entry.cwd === 'string' ? entry.cwd : undefined);
   if (blocks.length === 0) return undefined;
   return withMeta(entry, roleOf(type, blocks), blocks);
+}
+
+/**
+ * A prompt typed while Claude was running is queued (a `queue-operation`
+ * enqueue entry). Claude Code delivers it either as a normal user entry when
+ * the turn ends, or, when it reads it mid-turn (alongside a tool result), only
+ * as a `queued_command` attachment: no user entry follows. Background-task
+ * notifications and messages from other sessions use the same attachment;
+ * only the user's own prompts become messages.
+ */
+function queuedPromptMessage(entry: any): ChatMessage | undefined {
+  const a = entry.attachment;
+  if (entry.isSidechain || entry.isMeta || a?.type !== 'queued_command' || a.commandMode !== 'prompt') return undefined;
+  if (a.origin?.kind !== undefined && a.origin.kind !== 'human') return undefined;
+  if (typeof entry.uuid !== 'string' || !entry.uuid) return undefined;
+  const blocks = blocksOf('user', a.prompt);
+  if (blocks.length === 0) return undefined;
+  return withMeta(entry, roleOf('user', blocks), blocks);
 }
 
 /**
@@ -291,6 +343,8 @@ export interface ChatDelta {
   commands?: ChatCommand[];
   /** Ids of echoes sent earlier that the transcript has now recorded (appends only). */
   removed?: string[];
+  /** Claude Code's input queue: on a reset, and when it changed since the last drain. */
+  queue?: ChatQueue;
 }
 
 function lastIndexOfId(list: ChatMessage[], id: string): number {
@@ -343,6 +397,28 @@ function answersEcho(name: string, at: number, echoName: string, sentAt: number)
   return a.startsWith(b) && at >= sentAt && at - sentAt <= ECHO_PREFIX_MS;
 }
 
+/** Prompts kept in the queue per transcript; the oldest are forgotten. */
+const MAX_QUEUE = 100;
+/** Dequeued texts remembered until their user entry comes. */
+const MAX_TAKEN = 20;
+/**
+ * Queued input that is not the user's typing: harness tags (`<task-notification>`,
+ * `<agent-message …>`, `<ci-monitor-event>`, `<cross-session-message>`, …; all
+ * hyphenated) and hook prompts opening with an HTML comment. `<bash-input>` is
+ * the user's own `!` command.
+ */
+const FOREIGN_QUEUED_RE = /^\s*(?:<!--|<(?!bash-input[\s>])[a-z]+(?:-[a-z]+)+[\s>])/;
+
+/**
+ * How a queued prompt shows in the Chat, or undefined when it is not listed:
+ * not the user's, or a single-line slash command (the Chat echoes those itself).
+ */
+export function queuedBlocksOf(content: string | undefined): ChatBlock[] | undefined {
+  if (content === undefined || FOREIGN_QUEUED_RE.test(content) || echoCommandOf(content)) return undefined;
+  const blocks = userStringBlocks(content);
+  return blocks.length > 0 ? blocks : undefined;
+}
+
 /**
  * Incremental chat reader of one transcript. Shares the byte-level tailing
  * with the usage tailer (JsonlTailer) but reads from byte 0, since the chat
@@ -368,6 +444,15 @@ export class ChatTail extends JsonlTailer {
   private removedIds: string[] = [];
   /** tool_use id → id of the message holding that call, until its result arrives. */
   private openTools = new Map<string, string>();
+  /**
+   * Claude Code's whole queue, oldest first: what it dequeues is the head, so
+   * entries that are not listed (`prompt` undefined) are kept too.
+   */
+  private queued: { content?: string; prompt?: ChatQueuedPrompt }[] = [];
+  private queueSeq = 0;
+  private queueChanged = false;
+  /** Texts dequeued whose user entry has not come yet (see settleTaken). */
+  private taken: (string | undefined)[] = [];
 
   constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
     super(path, fs);
@@ -390,9 +475,11 @@ export class ChatTail extends JsonlTailer {
       this.commands = keep.concat(parsed.skills).slice(0, MAX_CHAT_COMMANDS);
       this.modeChanged = true;
     }
+    if (parsed.queueOp) return this.applyQueueOp(parsed.queueOp);
+    const settled = parsed.userText !== undefined && this.settleTaken(parsed.userText);
     const joined = parsed.toolResults ? this.joinResults(parsed.toolResults) : false;
     const m = parsed.message;
-    if (!m) return this.modeChanged || joined;
+    if (!m) return this.modeChanged || joined || settled;
     if (m.blocks[0]?.kind === 'command') this.settleEcho(m.blocks[0].name, m.ts ?? Date.now());
     for (const b of m.blocks) if (b.kind === 'tool' && b.id) this.openTool(b.id, m.id);
     this.messages.push(m);
@@ -402,6 +489,58 @@ export class ChatTail extends JsonlTailer {
       if (this.fresh.length > MAX_CHAT_MESSAGES) this.fresh.splice(0, this.fresh.length - MAX_CHAT_MESSAGES);
     }
     return true;
+  }
+
+  /** Follow one queue change; true when the listed prompts changed. */
+  private applyQueueOp({ op, content }: QueueOp): boolean {
+    let changed: boolean;
+    if (op === 'enqueue') {
+      const blocks = queuedBlocksOf(content);
+      const prompt = blocks ? { id: `queued-${++this.queueSeq}`, blocks } : undefined;
+      this.queued.push({ content, prompt });
+      if (this.queued.length > MAX_QUEUE) this.queued.shift();
+      // A new prompt also moves `seq`, which the client counts on.
+      changed = !!prompt;
+    } else if (op === 'dequeue') {
+      const head = this.queued.shift();
+      if (head) {
+        this.taken.push(head.content);
+        if (this.taken.length > MAX_TAKEN) this.taken.shift();
+      }
+      changed = !!head?.prompt;
+    } else {
+      // Taken by its text: the oldest copy, as Claude Code reads them in order.
+      const i = content === undefined ? 0 : this.queued.findIndex((q) => q.content === content);
+      changed = i >= 0 && i < this.queued.length && !!this.queued.splice(i, 1)[0].prompt;
+    }
+    if (changed) this.queueChanged = true;
+    return changed;
+  }
+
+  /**
+   * A user entry arrived. A dequeued prompt comes back as one with its exact
+   * text; when that text is still queued instead, the dequeue took a stale
+   * head (an entry Claude Code had dropped without a record), so the queued
+   * copy is the one it took. True when the listed prompts changed.
+   */
+  private settleTaken(text: string): boolean {
+    const i = this.taken.indexOf(text);
+    if (i >= 0) {
+      this.taken.splice(i, 1);
+      return false;
+    }
+    if (this.taken.length === 0) return false;
+    const j = this.queued.findIndex((q) => q.content === text);
+    if (j < 0) return false;
+    this.taken.shift();
+    const listed = !!this.queued.splice(j, 1)[0].prompt;
+    if (listed) this.queueChanged = true;
+    return listed;
+  }
+
+  /** The listed prompts still queued. */
+  get queue(): ChatQueue {
+    return { items: this.queued.flatMap((q) => (q.prompt ? [q.prompt] : [])), seq: this.queueSeq };
   }
 
   private openTool(toolId: string, messageId: string): void {
@@ -473,6 +612,10 @@ export class ChatTail extends JsonlTailer {
     this.echoes = [];
     this.removedIds = [];
     this.openTools.clear();
+    this.queued = [];
+    this.taken = [];
+    this.queueSeq = 0;
+    this.queueChanged = false;
     this.permissionMode = undefined;
     this.modelSet = undefined;
     this.commands = undefined;
@@ -491,6 +634,8 @@ export class ChatTail extends JsonlTailer {
       if (this.commands) delta.commands = this.commands;
     }
     if (!this.wasReset && this.removedIds.length) delta.removed = this.removedIds;
+    if (this.wasReset || this.queueChanged) delta.queue = this.queue;
+    this.queueChanged = false;
     this.fresh = [];
     this.removedIds = [];
     this.wasReset = false;
