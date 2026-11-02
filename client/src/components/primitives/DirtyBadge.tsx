@@ -27,7 +27,7 @@ export function DirtyBadge({ size = 'md', onClick }: DirtyBadgeProps) {
           cursor: interactive ? 'pointer' : 'default',
         }}
       >
-        <Icon icon={GitBranch} size={px} strokeWidth={1.8} />
+        <Icon icon={GitBranch} size={px} />
       </span>
     </Tooltip>
   );

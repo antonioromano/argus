@@ -91,3 +91,26 @@ describe('KeepAwakeButton countdown', () => {
     expect(pillText()).toBeNull();
   });
 });
+
+describe('KeepAwakeButton compact (status bar)', () => {
+  function renderCompact(status: KeepAwakeStatus | null) {
+    act(() => {
+      root.render(<KeepAwakeButton compact status={status} onArm={() => {}} onDisarm={() => {}} />);
+    });
+  }
+
+  it('idle is just the icon; armed reads "Awake" with the countdown', () => {
+    renderCompact({ active: false, expiresAt: null, indefinite: false });
+    expect(container.querySelector('button[data-compact]')).not.toBeNull();
+    expect(container.querySelector('button span')).toBeNull();
+    renderCompact({ active: true, expiresAt: MOUNT_AT + 5 * 60_000, indefinite: false });
+    expect(pillText()).toBe('Awake 5:00');
+  });
+
+  it('opens its menu upward, above the bar', () => {
+    renderCompact({ active: false, expiresAt: null, indefinite: false });
+    act(() => { container.querySelector('button')!.click(); });
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+  });
+});

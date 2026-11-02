@@ -1,6 +1,8 @@
 import { execFile } from 'child_process';
 import { execSync } from 'child_process';
 import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
+import { classifyError } from '../errors/ArgusError.js';
 import { appendFile, readFile } from 'fs/promises';
 import path from 'path';
 import type { ShellGitContext, GitSummary, GitSummaryFile, GitDiffResponse, GitFileStatusCode, GitFileStatusResponse, PatchSelectionRequest, PatchOperationResponse, CommitResponse, GitLogResponse, GitBranchesResponse, DiffFileResponse, StructuredDiffResponse, StructuredHunk, SideBySideLine, DiffToken, BlameResponse, BlameLineEntry, WorktreeMergePreviewResponse, MergePreviewFile } from '@argus/shared';
@@ -29,11 +31,27 @@ interface UndoEntry {
   timer: ReturnType<typeof setTimeout>;
 }
 
+/**
+ * Tag a git rejection for classifyError (errors/ArgusError.ts): which tool
+ * failed, its stderr, and — because Node reports a missing *cwd* as
+ * `spawn git ENOENT` too — whether the folder was the thing missing, so that
+ * never reads as "git is not installed".
+ */
+function tagGitError<T extends object>(err: T, stderr: string | undefined, cwd: string): T & { tool: 'git'; stderr?: string; cwdMissing?: true } {
+  const e = err as { code?: unknown; syscall?: unknown };
+  const cwdMissing = e.code === 'ENOENT' && String(e.syscall ?? '').startsWith('spawn') && !existsSync(cwd);
+  return Object.assign(err, {
+    tool: 'git' as const,
+    ...(stderr ? { stderr } : {}),
+    ...(cwdMissing ? { cwdMissing: true as const } : {}),
+  });
+}
+
 function execGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(GIT_PATH, args, { cwd, timeout: TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
+    execFile(GIT_PATH, args, { cwd, timeout: TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
-        reject(err);
+        reject(tagGitError(err, stderr, cwd));
         return;
       }
       resolve(stdout);
@@ -125,7 +143,9 @@ function execGitWithStderr(args: string[], cwd: string, stdinData?: string): Pro
   return new Promise((resolve, reject) => {
     const child = execFile(GIT_PATH, args, { cwd, timeout: TIMEOUT_MS, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) {
-        reject({ message: err.message, stderr });
+        // A plain object (callers read .message/.stderr); errno fields kept for classifyError.
+        const { code, syscall, path: errPath, killed, signal } = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
+        reject(tagGitError({ message: err.message, stderr, code, syscall, path: errPath, killed, signal }, stderr, cwd));
         return;
       }
       resolve({ stdout, stderr });
@@ -691,9 +711,16 @@ export class GitService {
   }
 
   async getDiff(folderPath: string): Promise<GitDiffResponse> {
-    const isRepo = await this.isGitRepo(folderPath);
-    if (!isRepo) {
-      return { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '', error: 'Not a git repository' };
+    const empty = { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '' };
+    try {
+      await execGit(['rev-parse', '--is-inside-work-tree'], folderPath);
+    } catch (err) {
+      // git missing, the folder gone, or git too slow are not "not a repo".
+      const e = classifyError(err, { tool: 'git' });
+      if (e.code === 'GIT_NOT_INSTALLED' || e.code === 'FOLDER_NOT_FOUND' || e.code === 'TIMEOUT' || e.code === 'PERMISSION_DENIED') {
+        return { ...empty, error: e.message, code: e.code, ...(e.detail ? { detail: e.detail } : {}) };
+      }
+      return { ...empty, error: 'Not a git repository', code: 'NOT_A_GIT_REPO' };
     }
 
     try {
@@ -707,8 +734,8 @@ export class GitService {
       const untrackedDiff = await this.getUntrackedDiff(folderPath, untracked);
       return { unstaged, staged, branch, untracked, untrackedDiff, ...(oversized.size ? { oversized: [...oversized].sort() } : {}) };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to get diff';
-      return { unstaged: '', staged: '', branch: '', untracked: [], untrackedDiff: '', error: message };
+      const e = classifyError(err, { tool: 'git' });
+      return { ...empty, error: e.message || 'Failed to get diff', ...(e.code ? { code: e.code } : {}), ...(e.detail ? { detail: e.detail } : {}) };
     }
   }
 
@@ -822,9 +849,12 @@ export class GitService {
     }
   }
 
-  async undoDiscard(undoId: string): Promise<PatchOperationResponse> {
+  /** Re-applies a discarded patch. `folderPath` is the caller's work root: an
+   *  undo id only redeems in the work root its discard came from, so one
+   *  session can't replay another session's patch. */
+  async undoDiscard(undoId: string, folderPath: string): Promise<PatchOperationResponse> {
     const entry = this.undoBuffer.get(undoId);
-    if (!entry) {
+    if (!entry || entry.folderPath !== folderPath) {
       return { success: false, error: 'Undo window expired or not found' };
     }
 
@@ -1223,16 +1253,6 @@ export class GitService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to get blame';
       return { lines: [], error: message };
-    }
-  }
-
-  async revertFileToHead(folderPath: string, filePath: string): Promise<PatchOperationResponse> {
-    try {
-      await execGitWithStderr(['restore', '--source=HEAD', '--', filePath], folderPath);
-      return { success: true };
-    } catch (err) {
-      const e = err as { message?: string; stderr?: string };
-      return { success: false, error: e.stderr || e.message || 'Failed to revert file' };
     }
   }
 

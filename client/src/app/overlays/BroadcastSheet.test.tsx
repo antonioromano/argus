@@ -67,7 +67,7 @@ describe('BroadcastSheet', () => {
     expect(targets).toContain('shell-b');
     expect(onSend).not.toHaveBeenCalled();
 
-    await act(async () => { button('Send to 2 shells')!.click(); });
+    await act(async () => { button('Send to 2 sessions')!.click(); });
     expect(onSend).toHaveBeenCalledWith({ sessionIds: ['a', 'b'], text: '/compact', enter: true });
     expect(onSent).toHaveBeenCalledWith({ ok: true, sent: 2, skipped: 0 });
   });
@@ -80,7 +80,7 @@ describe('BroadcastSheet', () => {
     ));
     type('y');
     act(() => button('Review (1)')!.click());
-    await act(async () => { button('Send to 1 shell')!.click(); });
+    await act(async () => { button('Send to 1 session')!.click(); });
     expect(document.querySelector('[role="alert"]')!.textContent).toContain('Too many broadcasts');
     expect(onSent).not.toHaveBeenCalled();
   });

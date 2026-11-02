@@ -57,9 +57,9 @@ describe('ChainSheet', () => {
     expect(q('chain-sheet')).toBeTruthy();
     const options = [...(q('chain-target') as HTMLSelectElement).options].map((o) => o.value);
     expect(options).toEqual(['b', 'c']);
-    expect(button('Create chain')!.disabled).toBe(true);
+    expect(button('Add follow-up prompt')!.disabled).toBe(true);
     await type(q('chain-prompt') as HTMLTextAreaElement, '   ');
-    expect(button('Create chain')!.disabled).toBe(true);
+    expect(button('Add follow-up prompt')!.disabled).toBe(true);
   });
 
   it('creates the chain with the chosen target, trigger, mode and prompt (newlines flattened)', async () => {
@@ -73,7 +73,7 @@ describe('ChainSheet', () => {
     await act(async () => { radio('Repeat').click(); });
     await type(q('chain-prompt') as HTMLTextAreaElement, 'review the diff\nand report');
     expect(q('chain-summary')!.textContent).toBe('When api goes waiting, type the prompt into reviewer (every time).');
-    await act(async () => { button('Create chain')!.click(); });
+    await act(async () => { button('Add follow-up prompt')!.click(); });
     expect(mocks.create).toHaveBeenCalledWith({ sourceId: 'a', targetId: 'c', trigger: 'waiting', mode: 'repeat', prompt: 'review the diff and report' });
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
     expect(onClose).toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe('ChainSheet', () => {
   it('defaults to idle + once', async () => {
     await render();
     await type(q('chain-prompt') as HTMLTextAreaElement, 'go');
-    await act(async () => { button('Create chain')!.click(); });
+    await act(async () => { button('Add follow-up prompt')!.click(); });
     expect(mocks.create).toHaveBeenCalledWith({ sourceId: 'a', targetId: 'b', trigger: 'idle', mode: 'once', prompt: 'go' });
   });
 
@@ -90,14 +90,14 @@ describe('ChainSheet', () => {
     await render();
     await type(q('chain-prompt') as HTMLTextAreaElement, 'x'.repeat(4001));
     expect(q('chain-count')!.textContent).toBe('4001 / 4000');
-    expect(button('Create chain')!.disabled).toBe(true);
+    expect(button('Add follow-up prompt')!.disabled).toBe(true);
   });
 
   it('shows the server error (e.g. a repeat loop) and stays open', async () => {
     mocks.create.mockRejectedValue(new Error('This would close a loop of repeat chains'));
     const { onCreated, onClose } = await render();
     await type(q('chain-prompt') as HTMLTextAreaElement, 'go');
-    await act(async () => { button('Create chain')!.click(); });
+    await act(async () => { button('Add follow-up prompt')!.click(); });
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('loop');
     expect(onCreated).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
@@ -105,8 +105,8 @@ describe('ChainSheet', () => {
 
   it('says so when there is no agent shell to chain to', async () => {
     await render(vi.fn(), vi.fn(), [SOURCE, S('sh', 'zsh', { agentType: 'shell' })]);
-    expect(q('chain-summary')!.textContent).toBe('No agent shell to chain to.');
-    expect(button('Create chain')!.disabled).toBe(true);
+    expect(q('chain-summary')!.textContent).toBe('No agent session to send a follow-up prompt to.');
+    expect(button('Add follow-up prompt')!.disabled).toBe(true);
   });
 });
 

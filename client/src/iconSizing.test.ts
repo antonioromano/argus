@@ -93,6 +93,52 @@ describe('icon sizing', () => {
     expect(offenders, 'size inline svgs with scaledPx() in style').toEqual([]);
   });
 
+  it('sizes <Icon> with a token (numbers only for illustrations)', () => {
+    // xs 10 · sm 12 · md 14 · lg 16 · xl 20. Illustrative glyphs (≥ 22px: empty
+    // states, the intro, the landing mark, the mobile tab bar) may use a number.
+    const ILLUSTRATIVE = [/^components\/primitives\/States\.tsx$/, /^app\/intro\//, /^app\/views\/Landing\.tsx$/, /^app\/mobile\/BottomNav\.tsx$/];
+    const offenders: string[] = [];
+    for (const { rel, src } of files) {
+      const illus = ILLUSTRATIVE.some((r) => r.test(rel.replace(/\\/g, '/')));
+      for (const { name, tag, line } of jsxTags(src)) {
+        if (name !== 'Icon') continue;
+        const n = tag.match(/\bsize=\{\s*(\d+(?:\.\d+)?)\s*\}/);
+        if (n && !(illus && Number(n[1]) >= 22)) offenders.push(`${rel}:${line} size={${n[1]}}`);
+      }
+    }
+    expect(offenders, "use size=\"xs|sm|md|lg|xl\"").toEqual([]);
+  });
+
+  it('uses two stroke weights: the default token, or 2 for emphasis', () => {
+    const offenders: string[] = [];
+    for (const { rel, src } of files) {
+      for (const { name, tag, line } of jsxTags(src)) {
+        if (name !== 'Icon') continue;
+        const sw = tag.match(/\bstrokeWidth=\{([^}]*)\}/);
+        if (!sw) continue;
+        const nums = sw[1].match(/\d+(\.\d+)?/g) ?? [];
+        if (nums.some((v) => v !== '2')) offenders.push(`${rel}:${line} strokeWidth={${sw[1]}}`);
+      }
+    }
+    expect(offenders, 'drop strokeWidth (token default) or use {2}').toEqual([]);
+  });
+
+  it('uses one glyph per concept (components/primitives/iconConcepts.ts)', () => {
+    const BANNED: Record<string, string> = {
+      TriangleAlert: 'AlertTriangle', AlertCircle: 'AlertTriangle or CircleX', AlertOctagon: 'CircleX',
+      CheckCircle: 'CheckCircle2', CircleCheck: 'CheckCircle2', Ellipsis: 'MoreHorizontal',
+      Terminal: 'SquareTerminal', MessageCircleQuestion: 'HelpCircle', Loader2: '<Spinner>',
+    };
+    const offenders: string[] = [];
+    for (const { rel, src } of files) {
+      for (const name of lucideImports(src)) {
+        if (name === 'Loader2' && rel.replace(/\\/g, '/') === 'components/primitives/Spinner.tsx') continue;
+        if (BANNED[name]) offenders.push(`${rel} ${name} → ${BANNED[name]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('gives <Icon> no pixel-string or fixed style size', () => {
     // `size` takes a token or a design number that <Icon> scales; a CSS length
     // string ("14px") or a numeric style width/height would bypass the scale.

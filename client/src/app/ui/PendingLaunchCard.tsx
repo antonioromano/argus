@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { LaunchActionResult, PendingLaunchView, SaveAsLauncher } from '@argus/shared';
-import { Button, Icon } from '../../components/primitives/index.js';
+import { Button, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 export const START_DELAY_MS = 1000;
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'launcher';
@@ -78,7 +78,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
       }}
       style={{
         width: 460, maxHeight: '70vh', display: 'flex', flexDirection: 'column',
-        background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 8,
+        background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)',
         boxShadow: '0 8px 24px rgba(0,0,0,.35)', opacity: expired ? 0.6 : 1,
       }}
     >
@@ -90,33 +90,35 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           </div>
         )}
         <div className="mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)', wordBreak: 'break-all' }}>{view.folder}</div>
-        <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+        <Text as="div" size="small" tone="faint">
           {[view.engine && `engine ${view.engine}`, view.mode && `mode ${view.mode}`, view.name && `name ${view.name}`].filter(Boolean).join(' · ')}
-        </div>
+        </Text>
 
         {riskyWarnings.map((w) => (
-          <div
+          <Row
             key={w.kind}
+            align="start"
+            gap={1.5}
             data-testid="launch-risky-warning"
             role="alert"
             style={{
-              display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 8, padding: '6px 8px', borderRadius: 6,
+              marginTop: 'var(--s-2)', padding: 'var(--s-1-5) var(--s-2)', borderRadius: 'var(--r-3)',
               border: '1px solid var(--danger, red)', color: 'var(--danger, red)', fontWeight: 600,
             }}
           >
-            <Icon icon={AlertTriangle} size={16} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
-            <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
-          </div>
+            <Icon icon={AlertTriangle} size="lg" aria-hidden="true" style={{ flexShrink: 0, marginTop: 'var(--s-px)' }} />
+            <Text size="small">{w.detail}</Text>
+          </Row>
         ))}
         {otherWarnings.map((w) => (
-          <div key={w.kind} data-testid="launch-warning" style={{ display: 'flex', gap: 6, alignItems: 'flex-start', marginTop: 6, color: 'var(--warn, var(--fg-0))' }}>
-            <Icon icon={AlertTriangle} size={14} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />
-            <span style={{ fontSize: 'var(--t-xs)' }}>{w.detail}</span>
-          </div>
+          <Row key={w.kind} align="start" gap={1.5} data-testid="launch-warning" style={{ marginTop: 'var(--s-1-5)', color: 'var(--warn, var(--fg-0))' }}>
+            <Icon icon={AlertTriangle} size="md" aria-hidden="true" style={{ flexShrink: 0, marginTop: 'var(--s-0-5)' }} />
+            <Text size="small">{w.detail}</Text>
+          </Row>
         ))}
 
-        <div style={{ marginTop: 'var(--s-3)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Arguments (every one listed; you decide)</div>
-        {view.args.length === 0 && <div style={{ fontSize: 'var(--t-xs)' }}>none</div>}
+        <Text as="div" size="small" tone="faint" style={{ marginTop: 'var(--s-3)' }}>Arguments (every one listed; you decide)</Text>
+        {view.args.length === 0 && <Text as="div" size="small">none</Text>}
         {view.args.map((a, i) => (
           <div
             key={i}
@@ -124,7 +126,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
             data-risky={riskyArgs.has(a) || undefined}
             className="mono"
             style={{
-              fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: '2px 0', borderBottom: '1px solid var(--line-1)',
+              fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all', padding: 'var(--s-0-5) 0', borderBottom: '1px solid var(--line-1)',
               ...(riskyArgs.has(a) ? { color: 'var(--danger, red)', fontWeight: 600 } : {}),
             }}
           >{a}</div>
@@ -132,14 +134,14 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
 
         {view.prompt !== undefined && (
           <>
-            <div style={{ marginTop: 'var(--s-3)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+            <Text as="div" size="small" tone="faint" style={{ marginTop: 'var(--s-3)' }}>
               Prompt <span data-testid="launch-prompt-count">({view.prompt.length} chars)</span>
-            </div>
+            </Text>
             <div
               data-testid="launch-prompt"
               tabIndex={0}
               className="mono"
-              style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: showAll ? 'none' : '7.5em', overflowY: 'auto', background: 'var(--bg-1)', padding: 6, borderRadius: 4 }}
+              style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: showAll ? 'none' : '7.5em', overflowY: 'auto', background: 'var(--bg-1)', padding: 'var(--s-1-5)', borderRadius: 'var(--r-2)' }}
             >
               {promptLines.map((l, i) => (<span key={i}>{l}{i < promptLines.length - 1 ? '⏎\n' : ''}</span>))}
             </div>
@@ -156,43 +158,43 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
           <div className="mono" style={{ fontSize: 'var(--t-xs)', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{view.command}</div>
         </details>
 
-        {view.state === 'error' && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
-        {view.state === 'pending' && view.error && <div role="alert" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{view.error}</div>}
-        {actionError && <div role="alert" data-testid="launch-action-error" style={{ marginTop: 6, color: 'var(--danger, red)', fontSize: 'var(--t-xs)' }}>{actionError}</div>}
+        {view.state === 'error' && <Text as="div" role="alert" size="small" tone="danger" style={{ marginTop: 'var(--s-1-5)' }}>{view.error}</Text>}
+        {view.state === 'pending' && view.error && <Text as="div" role="alert" size="small" tone="danger" style={{ marginTop: 'var(--s-1-5)' }}>{view.error}</Text>}
+        {actionError && <Text as="div" role="alert" data-testid="launch-action-error" size="small" tone="danger" style={{ marginTop: 'var(--s-1-5)' }}>{actionError}</Text>}
       </div>
 
-      <div style={{ borderTop: '1px solid var(--line-2)', padding: 'var(--s-3) var(--s-4)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Stack gap={2} style={{ borderTop: '1px solid var(--line-2)', padding: 'var(--s-3) var(--s-4)' }}>
         {view.source === 'new' && !expired && (
-          <div style={{ fontSize: 'var(--t-xs)' }}>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <Text as="div" size="small">
+            <label style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'center' }}>
               <input data-testid="launch-save-toggle" type="checkbox" checked={save} disabled={!view.canSaveAsLauncher} onChange={(e) => setSave(e.target.checked)} />
               Save as launcher (one-click <span className="mono">run/&lt;id&gt;</span> link)
             </label>
-            {!view.canSaveAsLauncher && <div style={{ color: 'var(--fg-3)' }}>Not available: a launcher would create the same branch every run.</div>}
+            {!view.canSaveAsLauncher && <Text as="div" tone="faint">Not available: a launcher would create the same branch every run.</Text>}
             {save && view.canSaveAsLauncher && (
-              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <Row align="stretch" gap={1.5} style={{ marginTop: 'var(--s-1)' }}>
                 <input data-testid="launch-save-id" className="mono" value={saveId} onChange={(e) => setSaveId(e.target.value)} aria-label="Launcher id" style={{ flex: 1 }} />
                 <input data-testid="launch-save-label" value={saveLabel} onChange={(e) => setSaveLabel(e.target.value)} aria-label="Launcher label" style={{ flex: 1 }} />
-              </div>
+              </Row>
             )}
-          </div>
+          </Text>
         )}
         {view.source === 'mcp' && !expired && (
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--t-xs)' }}>
+          <label style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'center', fontSize: 'var(--t-xs)' }}>
             <input data-testid="launch-trust-toggle" type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} />
             Allow {view.requestedBy ?? 'this session'} to start sessions without asking (until Argus restarts)
           </label>
         )}
         {canUpdate && !expired && (
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 'var(--t-xs)' }}>
+          <label style={{ display: 'flex', gap: 'var(--s-1-5)', alignItems: 'center', fontSize: 'var(--t-xs)' }}>
             <input data-testid="launch-update-toggle" type="checkbox" checked={update} onChange={(e) => setUpdate(e.target.checked)} />
             Update launcher {view.launcherId} to this command (stops asking next time)
           </label>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <Row align="stretch" justify="end" gap={2}>
           <Button variant="ghost" disabled={busy} onClick={() => void onDiscard(view.id)}>{expired ? 'Dismiss' : 'Discard'}</Button>
           {expired ? (
-            <span style={{ alignSelf: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Expired</span>
+            <Text size="small" tone="faint" style={{ alignSelf: 'center' }}>Expired</Text>
           ) : (
             <button
               data-testid="launch-start"
@@ -200,7 +202,7 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               aria-disabled={!armed || busy}
               onClick={start}
               style={{
-                position: 'relative', overflow: 'hidden', padding: '4px 14px', borderRadius: 6,
+                position: 'relative', overflow: 'hidden', padding: 'var(--s-1) var(--s-4)', borderRadius: 'var(--r-3)',
                 border: '1px solid var(--accent)', background: 'transparent', color: 'var(--accent)',
                 cursor: armed && !busy ? 'pointer' : 'not-allowed', opacity: armed && !busy ? 1 : 0.6,
               }}
@@ -211,8 +213,8 @@ export function PendingLaunchCard({ view, index, onApprove, onDiscard }: Props) 
               )}
             </button>
           )}
-        </div>
-      </div>
+        </Row>
+      </Stack>
       <style>{'@keyframes launch-arm { from { width: 0 } to { width: 100% } }'}</style>
     </div>
   );

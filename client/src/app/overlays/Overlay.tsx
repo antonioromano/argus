@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { useRef } from 'react';
 import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { useOverlaySuppression } from '../../hooks/useOverlaySuppression.js';
+import { Row } from '../../components/primitives/index.js';
 
 interface OverlayProps {
   onClose: () => void;
@@ -25,19 +26,18 @@ export function Overlay({ onClose, children, align = 'center', label = 'Dialog',
   useOverlaySuppression('all');
 
   return (
-    <div
+    <Row
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       className="glass-overlay"
+      align={align === 'top' ? 'start' : 'center'}
+      justify="center"
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 'var(--z-sheet)',
-        display: 'flex',
-        alignItems: align === 'top' ? 'flex-start' : 'center',
-        justifyContent: 'center',
         paddingTop: align === 'top' ? '10vh' : 'var(--s-6)',
         paddingBottom: 'var(--s-6)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       <div
@@ -51,6 +51,6 @@ export function Overlay({ onClose, children, align = 'center', label = 'Dialog',
       >
         {children}
       </div>
-    </div>
+    </Row>
   );
 }

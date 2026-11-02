@@ -1,9 +1,13 @@
+import { useState } from 'react';
 import { GitBranch } from 'lucide-react';
 import type { GitSummaryFile } from '@argus/shared';
 import { Icon } from '../../components/primitives/index.js';
 import { useGitSummary } from '../../hooks/useGitSummary.js';
 import type { InspectorSectionProps } from './types.js';
-import { InspectorEmpty, InspectorRow } from './InspectorRow.js';
+import { InspectorEmpty, InspectorError, InspectorRow } from './InspectorRow.js';
+import { api } from '../../services/api.js';
+import { workRoot } from '../../utils/workRoot.js';
+import { toastError } from '../../errors/toastError.js';
 
 const STATUS_TITLE: Record<GitSummaryFile['status'], string> = {
   M: 'Modified',
@@ -24,20 +28,38 @@ function splitPath(p: string): { dir: string; base: string } {
 export function GitBody({ session, ctx }: InspectorSectionProps) {
   // Refetch at once when the server reports a git change, instead of on the next tick.
   const refreshKey = `${session.hasGitChanges}|${session.cwd}|${session.shellGit?.branch}|${session.shellGit?.changes}`;
-  const { summary, error } = useGitSummary(session.id, true, refreshKey);
+  const { summary, error, failure, retry } = useGitSummary(session.id, true, refreshKey);
+  const [initializing, setInitializing] = useState(false);
+  const initGit = () => {
+    setInitializing(true);
+    api.gitInit(workRoot(session))
+      .then(() => retry?.())
+      .catch((err: unknown) => toastError(err, 'Couldn’t initialize git'))
+      .finally(() => setInitializing(false));
+  };
 
   if (summary === undefined) {
-    return <InspectorEmpty>{error ? `Couldn’t read git status: ${error}` : 'Reading git status…'}</InspectorEmpty>;
+    return error
+      ? <InspectorError error={failure ?? error} fallbackTitle="Couldn’t read git status" onRetry={retry} />
+      : <InspectorEmpty>Reading git status…</InspectorEmpty>;
   }
-  if (summary === null) return <InspectorEmpty>Not a git repository.</InspectorEmpty>;
+  if (summary === null) {
+    return (
+      <InspectorEmpty
+        action={<button type="button" className="argus-inspector-link" disabled={initializing} onClick={initGit}>Initialize git</button>}
+      >
+        Not a git repository.
+      </InspectorEmpty>
+    );
+  }
 
   const tracked = summary.ahead !== null;
   return (
     <>
-      {error && <InspectorEmpty>Couldn’t refresh git status ({error}); showing the last reading.</InspectorEmpty>}
+      {error && <InspectorError error={failure ?? error} fallbackTitle="Couldn’t refresh git status" onRetry={retry} stale />}
       <InspectorRow label="Branch" title={summary.root}>
         <span className="argus-inspector-branch">
-          <Icon icon={GitBranch} size={11} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <Icon icon={GitBranch} size="sm" strokeWidth={2} style={{ flexShrink: 0 }} />
           <span className="argus-inspector-ellipsis">{summary.branch ?? 'empty'}</span>
           {summary.detached && <span className="argus-inspector-tag">detached</span>}
         </span>

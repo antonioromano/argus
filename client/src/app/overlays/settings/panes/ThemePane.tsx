@@ -1,62 +1,108 @@
-import type { MosaicOrientation, MosaicWaitingStyle } from '@argus/shared';
-import { Section, SettingRow, Segmented } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { useTheme } from '../../../../context/theme-context.js';
-import type { ThemeMode } from '../../../../context/theme-context.js';
 import { WaitingStylePreview } from '../../../ui/WaitingStylePreview.js';
+import { SettingField } from '../SettingField.js';
+import {
+  CODE_FONT_PRESETS,
+  DENSITY_OPTIONS,
+  DEFAULT_CODE_FONT_PX,
+  DEFAULT_UI_FONT_PX,
+  LAYOUT_OPTIONS,
+  THEME_OPTIONS,
+  UI_FONT_PRESETS,
+  WAITING_OPTIONS,
+  fontPreset,
+} from '../options.js';
 import type { PaneProps } from '../types.js';
 
-const THEME_OPTIONS: readonly { value: ThemeMode; label: string }[] = [
-  { value: 'system', label: 'System' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
-];
-
-const LAYOUT_OPTIONS: readonly { value: MosaicOrientation; label: string }[] = [
-  { value: 'horizontal', label: 'Side by side' },
-  { value: 'vertical', label: 'Stacked' },
-];
-
-const WAITING_OPTIONS: readonly { value: MosaicWaitingStyle; label: string }[] = [
-  { value: 'breathing', label: 'Breathing halo' },
-  { value: 'flag', label: 'Pulse bar + flag' },
-];
-
+/**
+ * How Argus looks: theme and window material, density, font sizes, mosaic
+ * layout, the waiting cue and the status bar (with its clock). Typography and Toolbar were their own panes (two keys each);
+ * they are the same subject, and together still fit a screen.
+ */
 export function ThemePane({ config, onSave }: PaneProps) {
   const { mode, setMode } = useTheme();
+  const showClock = config.showClock ?? false;
 
   return (
     <>
       <Section title="Theme">
-        <SettingRow label="Appearance" hint="Match the system or pick a fixed appearance">
+        <SettingField id="device:themeMode">
           <Segmented label="Theme" value={mode} options={THEME_OPTIONS} onChange={setMode} />
-        </SettingRow>
+        </SettingField>
       </Section>
 
-      <Section title="Shell layout">
-        <SettingRow label="Arrangement" hint="Arrange mosaic shells side by side or stacked one under another">
+      <Section title="Density">
+        <SettingField id="density">
           <Segmented
-            label="Shell layout"
+            label="Density"
+            value={config.density ?? 'default'}
+            options={DENSITY_OPTIONS}
+            onChange={(density) => { void onSave({ density }); }}
+          />
+        </SettingField>
+      </Section>
+
+      <Section title="Font sizes">
+        <SettingField id="codeFontSize">
+          <Segmented
+            label="Code font size"
+            compact
+            value={fontPreset(CODE_FONT_PRESETS, config.codeFontSize, DEFAULT_CODE_FONT_PX)}
+            options={CODE_FONT_PRESETS}
+            onChange={(px) => { void onSave({ codeFontSize: Number(px) }); }}
+          />
+        </SettingField>
+        <SettingField id="uiFontSize">
+          <Segmented
+            label="Interface font size"
+            compact
+            value={fontPreset(UI_FONT_PRESETS, config.uiFontSize, DEFAULT_UI_FONT_PX)}
+            options={UI_FONT_PRESETS}
+            onChange={(px) => { void onSave({ uiFontSize: Number(px) }); }}
+          />
+        </SettingField>
+      </Section>
+
+      <Section title="Session layout">
+        <SettingField id="mosaicOrientation">
+          <Segmented
+            label="Session layout"
             value={config.mosaicOrientation ?? 'horizontal'}
             options={LAYOUT_OPTIONS}
             onChange={(mosaicOrientation) => { void onSave({ mosaicOrientation }); }}
           />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       <Section title="Waiting attention">
-        <SettingRow label="Style" hint="How a shell waiting for input stands out in the mosaic">
+        <SettingField id="mosaicWaitingStyle">
           <Segmented
             label="Waiting attention style"
             value={config.mosaicWaitingStyle ?? 'breathing'}
             options={WAITING_OPTIONS}
             onChange={(mosaicWaitingStyle) => { void onSave({ mosaicWaitingStyle }); }}
           />
-        </SettingRow>
+        </SettingField>
         {/* "Breathing halo" vs "Pulse bar + flag" is unreadable as text — the
             difference is the motion, so show it moving. */}
-        <SettingRow label="Preview" hint="A waiting shell in the mosaic, animating">
+        <SettingRow label="Preview" hint="A waiting session in the mosaic, animating">
           <WaitingStylePreview style={config.mosaicWaitingStyle ?? 'breathing'} />
         </SettingRow>
+      </Section>
+
+      <Section title="Status bar">
+        <SettingField id="showStatusBar">
+          <Toggle checked={config.showStatusBar ?? true} onChange={(v) => onSave({ showStatusBar: v })} />
+        </SettingField>
+        <SettingField id="showClock">
+          <Toggle checked={showClock} onChange={(v) => onSave({ showClock: v })} />
+        </SettingField>
+        {showClock && (
+          <SettingField id="clockShowSeconds">
+            <Toggle checked={config.clockShowSeconds ?? false} onChange={(v) => onSave({ clockShowSeconds: v })} />
+          </SettingField>
+        )}
       </Section>
     </>
   );

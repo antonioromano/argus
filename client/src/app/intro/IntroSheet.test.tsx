@@ -27,7 +27,7 @@ const button = (label: string) => {
 const tab = (label: string) => [...document.querySelectorAll('[role="radio"]')].find((x) => x.textContent?.startsWith(label)) as HTMLButtonElement;
 
 const chatBox = () => {
-  const label = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Open Claude shells in Chat by default'));
+  const label = [...document.querySelectorAll('label')].find((l) => l.textContent?.includes('Open Claude sessions in Chat by default'));
   if (!label) throw new Error('no Chat by default checkbox');
   return label.querySelector('input[type="checkbox"]') as HTMLInputElement;
 };
@@ -37,8 +37,8 @@ const next = (n = 1) => { for (let i = 0; i < n; i++) act(() => button('Next').c
 describe('IntroSheet — What’s new', () => {
   it('walks the five release slides, without the terminal step or beta opt-ins', () => {
     render('whatsNew');
-    expect(title()).toContain('Chat view for Claude shells');
-    expect(document.querySelector('img[alt^="A Claude shell in Focus"]')).toBeTruthy();
+    expect(title()).toContain('Chat view for Claude sessions');
+    expect(document.querySelector('img[alt^="A Claude session in Focus"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Step 1 of 5"]')).toBeTruthy();
     expect(chatBox().checked).toBe(false);
     next();
@@ -115,7 +115,7 @@ describe('IntroSheet — Welcome', () => {
     expect(title()).toContain('Pick your terminal');
     act(() => tab('Native').click());
     next();
-    act(() => button('New shell').click());
+    act(() => button('New session').click());
     expect(onDone).toHaveBeenCalledWith({ defaults: { runMode: 'direct', terminalEngine: 'web' }, openCreate: true });
   });
 
@@ -124,14 +124,14 @@ describe('IntroSheet — Welcome', () => {
     next();
     act(() => (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     next();
-    act(() => button('New shell').click());
+    act(() => button('New session').click());
     expect(onDone).toHaveBeenCalledWith({ defaults: undefined, openCreate: true });
   });
 
-  it('ends on New shell, which asks to open the create sheet', () => {
+  it('ends on New session, which asks to open the create sheet', () => {
     const onDone = render('welcome');
     next(2);
-    act(() => button('New shell').click());
+    act(() => button('New session').click());
     expect(onDone).toHaveBeenCalledWith({ defaults: { runMode: 'persistent', terminalEngine: 'web' }, openCreate: true });
   });
 });

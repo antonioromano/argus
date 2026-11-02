@@ -157,10 +157,10 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
             right: 4,
             background: 'var(--bg-overlay)',
             color: 'var(--ok)',
-            fontFamily: 'monospace',
-            fontSize: 11,
-            padding: '3px 6px',
-            borderRadius: 4,
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--t-tiny)',
+            padding: 'var(--s-0-5) var(--s-1-5)',
+            borderRadius: 'var(--r-1)',
             pointerEvents: 'none',
             zIndex: 100,
           }}>
@@ -192,7 +192,7 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
             fontWeight: 600,
           }}
         >
-          <Icon icon={Keyboard} size={18} />
+          <Icon icon={Keyboard} size="xl" />
         </button>
       )}
       {showChanges && (

@@ -42,19 +42,7 @@ export function ChipStrip({ sessions, activeId, filter, onSelect, onReorder, isF
   };
 
   return (
-    <div
-      className="argus-scroll"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--s-2)',
-        padding: 'var(--s-1) var(--s-4)',
-        background: 'var(--bg-1)',
-        borderBottom: '1px solid var(--line-2)',
-        overflowX: 'auto',
-        flexShrink: 0,
-      }}
-    >
+    <div className="argus-scroll argus-chip-strip">
       <span className="eyebrow" style={{ marginRight: 'var(--s-2)', flexShrink: 0 }}>
         OTHERS · {others.length}
       </span>

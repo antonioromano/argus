@@ -3,7 +3,9 @@ import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { Icon } from '../../components/primitives/index.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
+import { Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 interface ActionSheetProps {
   session: SessionInfo | null;
@@ -43,18 +45,16 @@ export function ActionSheet({
   const close = (fn: () => void) => () => { fn(); onClose(); };
 
   return (
-    <div
+    <Stack
       onClick={onClose}
       className="glass-overlay"
+      justify="end"
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 'var(--z-sheet)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'flex-end',
         background: 'var(--bg-overlay)',
-        animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
       <div
@@ -67,40 +67,41 @@ export function ActionSheet({
           borderRadius: 'var(--r-4) var(--r-4) 0 0',
           boxShadow: 'var(--shadow-sheet)',
           padding: 'var(--s-2) 0 calc(var(--s-3) + env(safe-area-inset-bottom, 0px))',
-          animation: 'argus-sheet-up var(--dur-base) var(--ease-out)',
+          animation: 'argus-sheet-up var(--dur-base) var(--ease)',
         }}
       >
-        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--line-3)', margin: '4px auto var(--s-2)' }} />
-        <div
+        <div style={{ width: 36, height: 4, borderRadius: 'var(--r-1)', background: 'var(--line-3)', margin: 'var(--s-1) auto var(--s-2)' }} />
+        <Row
+          gap={2}
           style={{
-            display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
             padding: 'var(--s-2) var(--s-4) var(--s-3)',
             fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)',
           }}
         >
           <AgentGlyph agent={session.agentType} size={20} />
-          {session.name}
-        </div>
+          <SessionIdentity session={session} />
+          {shellLabel(session)}
+        </Row>
 
-        <Row icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
+        <ActionRow icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
         {session.status === 'idle' && onMarkDone && (
-          <Row icon={CheckCircle2} label="Mark as done" sub="Move this shell to done" done onClick={close(() => onMarkDone(session.id))} />
+          <ActionRow icon={CheckCircle2} label="Mark as done" sub="Move this session to done" done onClick={close(() => onMarkDone(session.id))} />
         )}
-        <Row icon={RotateCcw} label="Restart shell" sub="Relaunch the agent process" onClick={close(() => onRestart(session.id))} />
-        <Row
+        <ActionRow icon={RotateCcw} label="Restart session" sub="Relaunch the agent process" onClick={close(() => onRestart(session.id))} />
+        <ActionRow
           icon={Star}
           label={isFavorite ? 'Unfavourite' : 'Favourite'}
           iconFill={isFavorite}
           onClick={close(() => onToggleFavorite(session))}
         />
         <div style={{ height: '1px', background: 'var(--line-1)', margin: 'var(--s-1) 0' }} />
-        <Row icon={Trash2} label="Kill shell" danger onClick={close(() => onKill(session))} />
+        <ActionRow icon={Trash2} label="Close session" danger onClick={close(() => onKill(session))} />
       </div>
-    </div>
+    </Stack>
   );
 }
 
-function Row({
+function ActionRow({
   icon: Glyph, label, sub, danger, done, iconFill, onClick,
 }: { icon: LucideIcon; label: string; sub?: string; danger?: boolean; done?: boolean; iconFill?: boolean; onClick: () => void }) {
   const color = danger ? 'var(--danger)' : done ? 'var(--status-done)' : 'var(--fg-0)';
@@ -115,11 +116,11 @@ function Row({
         textAlign: 'left', color, minHeight: 48,
       }}
     >
-      <Icon icon={Glyph} size={18} strokeWidth={1.7} fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
-      <span style={{ fontSize: 'var(--t-md)', fontFamily: 'var(--font-sans)' }}>
+      <Icon icon={Glyph} size="xl" fill={iconFill ? 'currentColor' : 'none'} style={{ color: iconColor, flexShrink: 0 }} />
+      <Text size="title" style={{ fontFamily: 'var(--font-sans)' }}>
         {label}
-        {sub && <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>{sub}</span>}
-      </span>
+        {sub && <Text size="caption" tone="faint" style={{ display: 'block' }}>{sub}</Text>}
+      </Text>
     </button>
   );
 }

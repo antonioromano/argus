@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { SessionGroup } from '@argus/shared';
+import type { SessionGroup, SessionInfo } from '@argus/shared';
 import { SessionTree } from './SessionTree.js';
+import { SessionMenuContext, type SessionMenuApi } from './sessionMenuContext.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -15,7 +16,7 @@ const group: SessionGroup = { id: 'g1', name: 'billing', color: 'blue', collapse
 
 /** Renders the tree inside an ancestor that mimics the sidebar's
  *  click-anywhere-to-collapse handler, so propagation is observable. */
-function render() {
+function render(extra: { onCreateSession?: () => void } = {}) {
   const onToggleCollapsed = vi.fn();
   const onAncestorClick = vi.fn();
   act(() => {
@@ -41,6 +42,7 @@ function render() {
           onSpawnFromFavorite={vi.fn()}
           isFavorite={() => false}
           onToggleFavoritesCollapsed={vi.fn()}
+          {...extra}
         />
       </div>,
     );
@@ -48,9 +50,9 @@ function render() {
   return { onToggleCollapsed, onAncestorClick };
 }
 
-/** The group header row — the flex row carrying headStyle's 26px min-height. */
+/** The group header row — the flex row carrying headStyle's density min-height (--group-h). */
 function groupHeader(): HTMLElement {
-  const row = [...container.querySelectorAll('div')].find((d) => d.style.minHeight === '26px');
+  const row = [...container.querySelectorAll('div')].find((d) => d.style.minHeight === 'var(--group-h)');
   if (!row) throw new Error('group header row not found');
   return row;
 }
@@ -72,6 +74,17 @@ afterEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
 });
 
+describe('SessionTree with zero sessions', () => {
+  it('says so and offers New session', () => {
+    const onCreateSession = vi.fn();
+    render({ onCreateSession });
+    const row = container.querySelector('[data-testid="session-tree-empty"]')!;
+    expect(row.textContent).toContain('No sessions yet.');
+    click([...row.querySelectorAll('button')].find((b) => b.textContent === 'New session')!);
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('SessionTree group header', () => {
   it('toggles the group when the row itself is clicked', () => {
     const { onToggleCollapsed } = render();
@@ -91,5 +104,61 @@ describe('SessionTree group header', () => {
     click(chevron);
     expect(onToggleCollapsed).toHaveBeenCalledTimes(1);
     expect(onToggleCollapsed).toHaveBeenCalledWith('g1');
+  });
+});
+
+describe('SessionTree row — session actions ⋯', () => {
+  const s1 = { id: 's1', name: 'alpha', folderPath: '/tmp/alpha', status: 'idle', agentType: 'claude' } as unknown as SessionInfo;
+
+  function renderRow() {
+    const openMenuAt = vi.fn();
+    const onOpenSession = vi.fn();
+    const api: SessionMenuApi = {
+      openMenu: vi.fn(), openMenuAt, beginRename: vi.fn(), isRenaming: () => false, commitRename: vi.fn(), cancelRename: vi.fn(), editIdentity: vi.fn(),
+    };
+    act(() => {
+      root.render(
+        <SessionMenuContext.Provider value={api}>
+          <SessionTree
+            grouped={{ favorites: null, groups: [], others: [s1], othersColor: null }}
+            activeGroupId={null}
+            isDark
+            onAssign={vi.fn()} onReorderOthers={vi.fn()} onToggleCollapsed={vi.fn()} onFilterGroup={vi.fn()}
+            onCreateGroup={vi.fn()} onRenameGroup={vi.fn()} onSetColor={vi.fn()} onSetOthersColor={vi.fn()}
+            onDeleteGroup={vi.fn()} onKillGroup={vi.fn()} onKillOthers={vi.fn()}
+            onOpenSession={onOpenSession} onToggleFavorite={vi.fn()} onSpawnFromFavorite={vi.fn()}
+            isFavorite={() => false} onToggleFavoritesCollapsed={vi.fn()}
+          />
+        </SessionMenuContext.Provider>,
+      );
+    });
+    const row = container.querySelector('[aria-label="Open alpha"]') as HTMLElement;
+    const more = row.querySelector('[aria-label="Session actions"]') as HTMLElement;
+    return { openMenuAt, onOpenSession, row, more };
+  }
+
+  it('is in the DOM, in its own fixed slot, whether or not the row is hovered', () => {
+    const { row, more } = renderRow();
+    expect(more).toBeTruthy();
+    const slotWidth = () => (more.closest('span') as HTMLElement).style.width;
+    expect(slotWidth()).toBe('18px');
+    const childCount = row.children.length;
+    act(() => { row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(row.children.length).toBe(childCount);
+    expect(row.querySelector('[aria-label="Session actions"]')).toBe(more);
+    expect(slotWidth()).toBe('18px');
+  });
+
+  it('opens the shared menu for the tree surface without opening the session', () => {
+    const { more, openMenuAt, onOpenSession } = renderRow();
+    click(more);
+    expect(openMenuAt).toHaveBeenCalledWith(s1, more, 'tree');
+    expect(onOpenSession).not.toHaveBeenCalled();
+  });
+
+  it('Enter on the focused ⋯ does not open the session', () => {
+    const { more, onOpenSession } = renderRow();
+    act(() => { more.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(onOpenSession).not.toHaveBeenCalled();
   });
 });

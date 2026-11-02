@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
-import { EmptyState, LoadingState, ErrorState, Icon } from '../../components/primitives/index.js';
+import { EmptyState, LoadingState, ErrorState, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 import { GitBranch, ChevronLeft, ChevronRight } from 'lucide-react';
 import parseDiff from 'parse-diff';
 
@@ -31,10 +31,10 @@ export function Diff({ session, onBack }: DiffProps) {
     : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: 'var(--bg-0)' }}>
-      <div
+    <Stack style={{ height: '100dvh', background: 'var(--bg-0)' }}>
+      <Row
+        gap={2}
         style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: '0 var(--s-3)', paddingTop: 'env(safe-area-inset-top, 0px)', minHeight: 52,
           background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)', flexShrink: 0,
         }}
@@ -43,15 +43,15 @@ export function Diff({ session, onBack }: DiffProps) {
           onClick={onBack}
           aria-label="Back"
           className="eyebrow"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '0 12px', minHeight: 44, display: 'flex', alignItems: 'center', gap: 4, fontSize: 'var(--t-tiny)' }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '0 var(--s-3)', minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', gap: 'var(--s-1)', fontSize: 'var(--t-tiny)' }}
         >
-          <Icon icon={ChevronLeft} size={14} strokeWidth={1.6} /> BACK
+          <Icon icon={ChevronLeft} size="md" /> BACK
         </button>
         <span className="eyebrow" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-0)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {session.name} — changes
         </span>
         {files.length > 0 && <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{files.length} {files.length === 1 ? 'file' : 'files'}</span>}
-      </div>
+      </Row>
 
       <div className="argus-scroll" style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
         {isLoading && files.length === 0 && <LoadingState label="Loading changes" />}
@@ -63,7 +63,7 @@ export function Diff({ session, onBack }: DiffProps) {
           <FileRow key={`${f.src}-${f.to ?? f.from}-${i}`} file={f} open={open === i} onToggle={() => setOpen(open === i ? null : i)} />
         ))}
       </div>
-    </div>
+    </Stack>
   );
 }
 
@@ -74,21 +74,21 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
         onClick={onToggle}
         style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', width: '100%', padding: 'var(--s-3) var(--s-4)', background: open ? 'var(--bg-2)' : 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
       >
-        <Icon icon={ChevronRight} size={12} strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms ease', color: 'var(--fg-3)', flexShrink: 0 }} />
-        <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Icon icon={ChevronRight} size="sm" strokeWidth={2} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)', flexShrink: 0 }} />
+        <Text mono size="body" tone="default" truncate style={{ flex: 1 }}>
           {file.to ?? file.from}
-        </span>
+        </Text>
         <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{file.src}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--ok)' }}>+{file.additions}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>−{file.deletions}</span>
+        <Text mono size="caption" style={{ color: 'var(--ok)' }}>+{file.additions}</Text>
+        <Text mono size="caption" tone="danger">−{file.deletions}</Text>
       </button>
       {open && (
         <div style={{ background: 'var(--bg-inset)', overflowX: 'auto' }}>
           {file.chunks.map((chunk, ci) => (
             <div key={ci}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10.5px', color: 'var(--syn-fn)', padding: '4px var(--s-3)', background: 'var(--info-bg)' }}>
+              <Text as="div" mono size="caption" style={{ color: 'var(--syn-fn)', padding: 'var(--s-1) var(--s-3)', background: 'var(--info-bg)' }}>
                 {chunk.content}
-              </div>
+              </Text>
               {chunk.changes.map((change, li) => {
                 const isAdd = change.type === 'add';
                 const isDel = change.type === 'del';
@@ -96,7 +96,7 @@ function FileRow({ file, open, onToggle }: { file: ParsedFile; open: boolean; on
                   <div
                     key={li}
                     style={{
-                      fontFamily: 'var(--font-mono)', fontSize: '10.5px', lineHeight: 1.6, whiteSpace: 'pre',
+                      fontFamily: 'var(--font-mono)', fontSize: 'var(--t-caption)', lineHeight: 1.6, whiteSpace: 'pre',
                       padding: '0 var(--s-3)',
                       background: isAdd ? 'var(--diff-add)' : isDel ? 'var(--diff-del)' : 'transparent',
                       color: isAdd ? 'var(--diff-add-fg)' : isDel ? 'var(--diff-del-fg)' : 'var(--fg-2)',

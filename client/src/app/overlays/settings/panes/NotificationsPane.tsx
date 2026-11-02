@@ -1,6 +1,8 @@
-import { Bell } from 'lucide-react';
-import { Section, SettingRow, Toggle, Button } from '../../../../components/primitives/index.js';
+import { Bell, ExternalLink, RotateCcw } from 'lucide-react';
+import { Section, SettingRow, Toggle, Button, Row, Text } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
+import { SettingField } from '../SettingField.js';
+import { normalizeDiscovery, resetTips } from '../../../discovery/discoveryState.js';
 
 /**
  * Rebuilt on Section/SettingRow. This pane used to hand-roll its own card,
@@ -30,12 +32,9 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
   return (
     <>
       <Section title="Delivery">
-        <SettingRow
-          label="Native desktop notifications"
-          hint="Fire only while Argus is in the background"
-        >
+        <SettingField id="notificationsEnabled">
           <Toggle checked={enabled} onChange={(v) => { void onSave({ notificationsEnabled: v }); }} />
-        </SettingRow>
+        </SettingField>
       </Section>
 
       {/* Always rendered, dimmed when the master switch is off: the triggers stay
@@ -49,30 +48,30 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
         }}
       >
         <Section title="When to notify">
-          <SettingRow label="A shell needs your input">
+          <SettingField id="notifyOnWaiting">
             <Toggle
               checked={config.notifyOnWaiting ?? true}
               onChange={(v) => { void onSave({ notifyOnWaiting: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="A shell finishes a run">
+          </SettingField>
+          <SettingField id="notifyOnDone">
             <Toggle
               checked={config.notifyOnDone ?? false}
               onChange={(v) => { void onSave({ notifyOnDone: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="A pull request's checks finish" hint="Passed or failed, for the PR shown in a shell's header">
+          </SettingField>
+          <SettingField id="notifyOnPrChecks">
             <Toggle
               checked={config.notifyOnPrChecks ?? true}
               onChange={(v) => { void onSave({ notifyOnPrChecks: v }); }}
             />
-          </SettingRow>
-          <SettingRow label="Play a sound" hint="Plays the default system sound with each notification">
+          </SettingField>
+          <SettingField id="notificationSound">
             <Toggle
               checked={config.notificationSound ?? false}
               onChange={(v) => { void onSave({ notificationSound: v }); }}
             />
-          </SettingRow>
+          </SettingField>
         </Section>
       </div>
 
@@ -81,12 +80,38 @@ export function NotificationsPane({ config, onSave }: PaneProps) {
       <Section title="Permissions">
         <SettingRow hint="Delivery is granted in macOS System Settings → Notifications.">
           {bridgeAvailable ? (
-            <Button variant="outline" icon={Bell} onClick={sendTest}>Send test notification</Button>
+            <Row as="span" align="stretch" gap={2} wrap>
+              <Button variant="outline" icon={Bell} onClick={sendTest}>Send test notification</Button>
+              {window.electronNotifications?.openSystemSettings && (
+                <Button
+                  variant="ghost"
+                  icon={ExternalLink}
+                  onClick={() => window.electronNotifications?.openSystemSettings?.('notifications')}
+                >
+                  Open System Settings
+                </Button>
+              )}
+            </Row>
           ) : (
-            <span style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+            <Text size="body" tone="faint">
               This surface can't show desktop notifications.
-            </span>
+            </Text>
           )}
+        </SettingRow>
+      </Section>
+
+      <Section title="In-app tips">
+        <SettingField id="showTips">
+          <Toggle checked={config.showTips ?? true} onChange={(v) => { void onSave({ showTips: v }); }} />
+        </SettingField>
+        <SettingRow hint="Each tip shows once. This lets every tip show one more time.">
+          <Button
+            variant="outline"
+            icon={RotateCcw}
+            onClick={() => { void onSave({ discovery: resetTips(normalizeDiscovery(config.discovery)) }); }}
+          >
+            Show tips again
+          </Button>
         </SettingRow>
       </Section>
     </>

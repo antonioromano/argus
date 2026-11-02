@@ -44,3 +44,26 @@ export function createMenuEchoGuard(windowMs = 300, now: () => number = () => pe
     isEcho: () => now() - claimedAt < windowMs,
   };
 }
+
+/**
+ * For a toggle reachable both from the renderer keydown handler and from its
+ * app-menu accelerator (⌘K Find & Jump, ⌘⇧L theme). One keystroke can reach
+ * both paths, in either order, and two toggles cancel out. Whichever arrives
+ * first runs; the other within `windowMs` is dropped. A lone mouse click on the
+ * menu item has no partner and always runs.
+ */
+export function createDedupeGate(windowMs = 300, now: () => number = () => performance.now()) {
+  const guard = createMenuEchoGuard(windowMs, now);
+  return {
+    /** Runs `fn` unless the other path ran it within the window; true when it ran. */
+    run(fn: () => void): boolean {
+      if (guard.isEcho()) return false;
+      guard.claim();
+      fn();
+      return true;
+    },
+  };
+}
+
+export type MenuEchoGuard = ReturnType<typeof createMenuEchoGuard>;
+export type DedupeGate = ReturnType<typeof createDedupeGate>;

@@ -21,7 +21,7 @@ export function Switch({ on }: { on: boolean }) {
           top: 3,
           left: 3,
           transform: on ? 'translateX(18px)' : 'translateX(0)',
-          transition: 'transform var(--dur-fast) var(--ease-out)',
+          transition: 'transform var(--dur-fast) var(--ease)',
         }}
       />
     </span>

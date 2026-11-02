@@ -1,16 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, FileSearchResult } from '@argus/shared';
-import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, Terminal, ChevronRight } from 'lucide-react';
-import { filterCommands, type PaletteCommand } from './paletteCommands.js';
+import { Search, FileText, FileCode, FileJson, GitCommit, FolderOpen, SquareTerminal, ChevronRight } from 'lucide-react';
+import type { Command } from '../../commands/types.js';
+import { frecency as appFrecency, type Frecency } from '../../commands/frecency.js';
+import { browseCommands, rankCommands, recentCommands, suggestedCommands } from '../../commands/rank.js';
+import { formatCombo } from '../../keyboard/combo.js';
 import { isMac, isPrimaryModifier } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
-import { Kbd, Tooltip, StatusPill, Icon } from '../../components/primitives/index.js';
+import { Kbd, Tooltip, StatusPill, Icon, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { displayLabel } from '../../utils/sessionLabel.js';
 
 const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
-type Scope = 'all' | 'files' | 'sessions';
-const SCOPES: Scope[] = ['all', 'files', 'sessions'];
+type Scope = 'all' | 'commands' | 'files' | 'sessions';
+const SCOPES: Scope[] = ['all', 'commands', 'files', 'sessions'];
+
+/** A leading character narrows the scope while it is there (VS Code, Raycast). */
+const PREFIX_SCOPE: Readonly<Record<string, Scope>> = { '>': 'commands', '@': 'sessions', '#': 'files' };
+
+/** A titled run of command rows (RECENT, SUGGESTED, or a category). */
+interface CommandGroup {
+  label: string;
+  commands: readonly Command[];
+}
 
 interface CommandPaletteProps {
   sessions: SessionInfo[];
@@ -20,15 +33,17 @@ interface CommandPaletteProps {
   onJumpSession: (id: string) => void;
   onOpenInExplorer: (sessionId: string, filePath: string, lineNumber?: number, query?: string) => void;
   onOpenInDiff: (sessionId: string, fileName: string) => void;
-  /** Runnable actions, listed under COMMANDS after the sessions. */
-  commands?: readonly PaletteCommand[];
+  /** Runnable actions (the command registry), listed after the sessions. */
+  commands?: readonly Command[];
+  /** Run history behind Recent and the ranking boost. Defaults to the app's. */
+  frecency?: Frecency;
 }
 
 function ResultIcon({ ext }: { ext: string }) {
   const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
-  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={14} style={style} />;
-  if (ext === '.json') return <Icon icon={FileJson} size={14} style={style} />;
-  return <Icon icon={FileText} size={14} style={style} />;
+  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size="md" style={style} />;
+  if (ext === '.json') return <Icon icon={FileJson} size="md" style={style} />;
+  return <Icon icon={FileText} size="md" style={style} />;
 }
 
 export function CommandPalette({
@@ -39,9 +54,16 @@ export function CommandPalette({
   onOpenInExplorer,
   onOpenInDiff,
   commands = [],
+  frecency = appFrecency,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<Scope>('all');
+  // A prefix overrides the tab and is not part of what is matched.
+  const prefixScope: Scope | undefined = PREFIX_SCOPE[query[0]];
+  const activeScope = prefixScope ?? scope;
+  const q = prefixScope ? query.slice(1).trimStart() : query;
+  // Read once per open: a run closes the palette anyway.
+  const [frecencyScores] = useState(() => frecency.scores());
   const [scopedSessionId, setScopedSessionId] = useState<string | null>(initialScopeSessionId);
   const [results, setResults] = useState<FileSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -73,12 +95,12 @@ export function CommandPalette({
   const sessionItems = useMemo(
     () => sessions
       .filter((s) =>
-        !query.trim() ||
-        s.name.toLowerCase().includes(query.toLowerCase()) ||
-        s.folderPath.toLowerCase().includes(query.toLowerCase()),
+        !q.trim() ||
+        s.name.toLowerCase().includes(q.toLowerCase()) ||
+        s.folderPath.toLowerCase().includes(q.toLowerCase()),
       )
       .slice(0, 5),
-    [sessions, query],
+    [sessions, q],
   );
 
   useEffect(() => {
@@ -87,7 +109,8 @@ export function CommandPalette({
 
   // Clear results when the query is emptied (adjust-during-render); the effect
   // below only runs the debounced search for an active query.
-  const queryActive = !!query.trim() && !!scopedSession;
+  const fileQuery = activeScope === 'all' || activeScope === 'files' ? q.trim() : '';
+  const queryActive = !!fileQuery && !!scopedSession;
   const [searchActive, setSearchActive] = useState(false);
   if (searchActive !== queryActive) {
     setSearchActive(queryActive);
@@ -98,11 +121,11 @@ export function CommandPalette({
   }
 
   useEffect(() => {
-    if (!query.trim() || !scopedSession) return;
+    if (!fileQuery || !scopedSession) return;
     const t = setTimeout(async () => {
       setSearching(true);
       try {
-        const resp = await api.searchFiles(scopedSession.folderPath, query.trim());
+        const resp = await api.searchFiles(scopedSession.folderPath, fileQuery);
         const sorted = [...resp.results].sort((a, b) => {
           if (a.matchType === 'filename' && b.matchType !== 'filename') return -1;
           if (b.matchType === 'filename' && a.matchType !== 'filename') return 1;
@@ -117,14 +140,38 @@ export function CommandPalette({
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [query, scopedSession]);
+  }, [fileQuery, scopedSession]);
 
   // Scope tabs filter which groups are visible/navigable. Files requires a scoped
   // session to search within (otherwise empty + a hint).
-  const visibleSessions = useMemo(() => (scope === 'files' ? [] : sessionItems), [scope, sessionItems]);
-  const commandItems = useMemo(() => filterCommands(commands, query), [commands, query]);
-  const visibleCommands = useMemo(() => (scope === 'files' ? [] : commandItems), [scope, commandItems]);
-  const visibleResults = useMemo(() => (scope === 'sessions' ? [] : results), [scope, results]);
+  const visibleSessions = useMemo(
+    () => (activeScope === 'all' || activeScope === 'sessions' ? sessionItems : []),
+    [activeScope, sessionItems],
+  );
+  // Empty query: Recent, then Suggested (or, in the Commands scope, everything
+  // by category). Typed: ranked matches grouped by category, best group first.
+  const commandGroups = useMemo((): CommandGroup[] => {
+    if (q.trim()) {
+      return rankCommands(commands, q, frecencyScores)
+        .map((g) => ({ label: g.category.toUpperCase(), commands: g.commands }));
+    }
+    const recent = recentCommands(commands, frecencyScores);
+    const rest = activeScope === 'commands'
+      ? browseCommands(commands).map((g) => ({ label: g.category.toUpperCase(), commands: g.commands }))
+      : [{ label: 'SUGGESTED', commands: suggestedCommands(commands, recent) }];
+    return [{ label: 'RECENT', commands: recent }, ...rest].filter((g) => g.commands.length > 0);
+  }, [commands, q, frecencyScores, activeScope]);
+  const visibleGroups = activeScope === 'all' || activeScope === 'commands' ? commandGroups : NO_GROUPS;
+  const commandItems = useMemo(() => commandGroups.flatMap((g) => g.commands), [commandGroups]);
+  const visibleCommands = useMemo(() => visibleGroups.flatMap((g) => g.commands), [visibleGroups]);
+  const visibleResults = useMemo(
+    () => (activeScope === 'all' || activeScope === 'files' ? results : []),
+    [activeScope, results],
+  );
+  const runCommand = (c: Command) => {
+    frecency.record(c.id);
+    c.run();
+  };
   // Row order: sessions, then commands, then files — indices are contiguous.
   const commandsStart = visibleSessions.length;
   const filesStart = commandsStart + visibleCommands.length;
@@ -136,7 +183,9 @@ export function CommandPalette({
   }
 
   const cycleScope = (dir: 1 | -1) => {
-    setScope((cur) => SCOPES[(SCOPES.indexOf(cur) + dir + SCOPES.length) % SCOPES.length]);
+    // Tab moves on from what is showing; a typed prefix gives way to the tab.
+    setScope(SCOPES[(SCOPES.indexOf(activeScope) + dir + SCOPES.length) % SCOPES.length]);
+    if (prefixScope) setQuery(q);
     setSelectedIndex(0);
   };
 
@@ -177,18 +226,21 @@ export function CommandPalette({
             scopeToSession(id);
           }
         } else if (selectedIndex < filesStart) {
-          visibleCommands[selectedIndex - commandsStart]?.run();
+          const c = visibleCommands[selectedIndex - commandsStart];
+          if (c) runCommand(c);
         } else {
           const r = visibleResults[selectedIndex - filesStart];
           if (r && scopedSession) {
-            onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query);
+            onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, fileQuery);
           }
         }
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [selectedIndex, total, visibleSessions, visibleCommands, visibleResults, commandsStart, filesStart, query, scopedSession, onClose, onJumpSession, onOpenInExplorer]);
+    // runCommand/cycleScope/scopeToSession only read values listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIndex, total, visibleSessions, visibleCommands, visibleResults, commandsStart, filesStart, query, q, fileQuery, activeScope, prefixScope, frecency, scopedSession, onClose, onJumpSession, onOpenInExplorer]);
 
   useEffect(() => {
     const item = document.getElementById(optionId(selectedIndex));
@@ -235,17 +287,18 @@ export function CommandPalette({
   const rootPath = scopedSession?.folderPath ?? '';
   const showResultsRegion = total > 0 || searching;
 
-  const selectedCommand: PaletteCommand | null =
+  const selectedCommand: Command | null =
     selectedIndex >= commandsStart && selectedIndex < filesStart ? visibleCommands[selectedIndex - commandsStart] ?? null : null;
 
   const scopeCounts: Record<Scope, number> = {
     all: sessionItems.length + commandItems.length + results.length,
+    commands: commandItems.length,
     files: results.length,
     sessions: sessionItems.length,
   };
 
   return (
-    <div
+    <Stack
       style={{
         background: 'var(--bg-2)',
         border: '1px solid var(--line-3)',
@@ -253,28 +306,17 @@ export function CommandPalette({
         boxShadow: 'var(--shadow-pop)',
         width: 'min(92vw, 900px)',
         height: '66vh',
-        display: 'flex',
-        flexDirection: 'column',
         overflow: 'hidden',
       }}
     >
       {/* Search row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          padding: 'var(--s-3) var(--s-4)',
-          borderBottom: '1px solid var(--line-2)',
-        }}
-      >
-        <Icon icon={Search} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+      <Row gap={3} style={{ padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
+        <Icon icon={Search} size="md" style={{ color: 'var(--accent)', flexShrink: 0 }} />
         {scopedSession && (
-          <span
+          <Row
+            as="span"
+            gap={1.5}
             style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
               flexShrink: 0,
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-tiny)',
@@ -282,11 +324,11 @@ export function CommandPalette({
               background: 'var(--accent-bg)',
               border: '1px solid var(--accent-edge)',
               borderRadius: 'var(--r-1)',
-              padding: '2px 7px',
+              padding: 'var(--s-0-5) var(--s-2)',
               whiteSpace: 'nowrap',
             }}
           >
-            <Icon icon={FolderOpen} size={11} strokeWidth={1.6} />
+            <Icon icon={FolderOpen} size="sm" />
             {scopedSession.name}
             <button
               aria-label="Clear scope"
@@ -296,16 +338,16 @@ export function CommandPalette({
                 border: 'none',
                 cursor: 'pointer',
                 padding: 0,
-                marginLeft: 2,
+                marginLeft: 'var(--s-0-5)',
                 color: 'var(--accent)',
                 opacity: 0.55,
-                fontSize: 11,
+                fontSize: 'var(--t-caption)',
                 lineHeight: 1,
               }}
             >
               ×
             </button>
-          </span>
+          </Row>
         )}
         <input
           ref={inputRef}
@@ -317,7 +359,7 @@ export function CommandPalette({
           aria-activedescendant={total > 0 ? optionId(selectedIndex) : undefined}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={scopedSession ? `Search in ${scopedSession.name}…` : 'Search everywhere — jump to a session…'}
+          placeholder={scopedSession ? `Search in ${scopedSession.name}…` : 'Search everywhere — > commands · @ sessions · # files'}
           style={{
             flex: 1,
             background: 'none',
@@ -329,29 +371,36 @@ export function CommandPalette({
           }}
         />
         <Kbd>{SHORTCUT}</Kbd>
-      </div>
+      </Row>
 
       {/* Scope tabs */}
-      <div
+      <Row
+        align="stretch"
+        gap={0.5}
         role="tablist"
         aria-label="Search scope"
-        style={{ display: 'flex', gap: 2, padding: '0 var(--s-3)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}
+        style={{
+          padding: '0 var(--s-3)',
+          background: 'var(--bg-1)',
+          borderBottom: '1px solid var(--line-2)',
+          flexShrink: 0,
+        }}
       >
         {SCOPES.map((sc) => {
-          const on = scope === sc;
+          const on = activeScope === sc;
           return (
             <button
               key={sc}
               role="tab"
               aria-selected={on}
-              onClick={() => { setScope(sc); setSelectedIndex(0); inputRef.current?.focus(); }}
+              onClick={() => { setScope(sc); if (prefixScope) setQuery(q); setSelectedIndex(0); inputRef.current?.focus(); }}
               style={{
                 all: 'unset',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
-                padding: '8px 14px',
+                gap: 'var(--s-1-5)',
+                padding: 'var(--s-2) var(--s-4)',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--t-xs)',
                 color: on ? 'var(--accent)' : 'var(--fg-2)',
@@ -364,8 +413,8 @@ export function CommandPalette({
                   fontSize: 'var(--t-micro)',
                   color: on ? 'var(--accent)' : 'var(--fg-3)',
                   background: on ? 'var(--accent-bg)' : 'var(--bg-3)',
-                  borderRadius: 10,
-                  padding: '0 6px',
+                  borderRadius: 'var(--r-4)',
+                  padding: '0 var(--s-1-5)',
                 }}
               >
                 {scopeCounts[sc]}
@@ -373,10 +422,10 @@ export function CommandPalette({
             </button>
           );
         })}
-      </div>
+      </Row>
 
       {/* Two-pane body: results | preview */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+      <Row align="stretch" style={{ flex: 1, minHeight: 0 }}>
         <div
           ref={listRef}
           id={listboxId}
@@ -390,7 +439,8 @@ export function CommandPalette({
               {visibleSessions.map((s, i) => {
                 const isSelected = selectedIndex === i;
                 return (
-                  <div
+                  <Row
+                    gap={3}
                     key={s.id}
                     id={optionId(i)}
                     role="option"
@@ -398,97 +448,63 @@ export function CommandPalette({
                     onClick={(e) => (e.metaKey || e.ctrlKey ? onJumpSession(s.id) : scopeToSession(s.id))}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '8px var(--s-4)',
+                      padding: 'var(--s-2) var(--s-4)',
                       cursor: 'pointer',
                       background: isSelected ? 'var(--bg-3)' : 'transparent',
                       borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
                     }}
                   >
-                    <Icon icon={Terminal} size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--t-sm)',
-                        fontWeight: 500,
-                        color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
-                        flex: '0 1 auto',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
+                    <Icon icon={SquareTerminal} size="md" style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
+                    <Text
+                      mono
+                      size="body"
+                      weight={500}
+                      truncate
+                      style={{ color: isSelected ? 'var(--accent)' : 'var(--fg-0)', flex: '0 1 auto' }}
                     >
-                      {s.name}
-                    </span>
-                    <span style={{ flex: 1 }} />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--t-micro)',
-                        color: 'var(--fg-3)',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
+                      {displayLabel(s)}
+                    </Text>
+                    <Spacer />
+                    <Text mono size="eyebrow" tone="faint" style={{ whiteSpace: 'nowrap' }}>
                       {s.folderPath.split('/').slice(-2).join('/')}
-                    </span>
-                  </div>
+                    </Text>
+                  </Row>
                 );
               })}
             </div>
           )}
 
-          {visibleCommands.length > 0 && (
-            <div>
-              <div className="eyebrow" style={{ padding: 'var(--s-2) var(--s-4)', color: 'var(--fg-3)' }}>COMMANDS</div>
-              {visibleCommands.map((c, idx) => {
-                const i = idx + commandsStart;
-                const isSelected = selectedIndex === i;
-                const Glyph = c.icon ?? ChevronRight;
-                return (
-                  <div
-                    key={c.id}
-                    id={optionId(i)}
-                    role="option"
-                    aria-selected={isSelected}
-                    onClick={() => c.run()}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '8px var(--s-4)',
-                      cursor: 'pointer',
-                      background: isSelected ? 'var(--bg-3)' : 'transparent',
-                      borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
-                    }}
-                  >
-                    <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0, color: isSelected ? 'var(--accent)' : 'var(--fg-3)' }} />
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--t-sm)',
-                        color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
-                        flex: '0 1 auto',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
+          {visibleGroups.map((g, gi) => {
+            const groupStart = commandsStart + visibleGroups.slice(0, gi).reduce((n, x) => n + x.commands.length, 0);
+            return (
+              <div key={g.label} role="group" aria-label={g.label}>
+                <div className="eyebrow argus-cmd-eyebrow">{g.label}</div>
+                {g.commands.map((c, idx) => {
+                  const i = groupStart + idx;
+                  const Glyph = c.icon ?? ChevronRight;
+                  return (
+                    <div
+                      key={c.id}
+                      id={optionId(i)}
+                      role="option"
+                      aria-selected={selectedIndex === i}
+                      data-destructive={c.destructive || undefined}
+                      className="argus-cmd-row"
+                      onClick={() => runCommand(c)}
+                      onMouseEnter={() => setSelectedIndex(i)}
                     >
-                      {c.label}
-                    </span>
-                    <span style={{ flex: 1 }} />
-                    {c.hint && (
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
-                        {c.hint}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                      <span className="argus-cmd-check" aria-label={c.checked ? 'on' : undefined}>{c.checked ? '✓' : ''}</span>
+                      <Icon icon={Glyph} size="md" className="argus-cmd-icon" />
+                      <span className="argus-cmd-title">{c.title}</span>
+                      <span className="argus-cmd-fill" />
+                      {c.hint && <span className="argus-cmd-hint">{c.hint}</span>}
+                      {c.shortcut && <Kbd>{formatCombo(c.shortcut)}</Kbd>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
 
           {visibleResults.length > 0 && (
             <div>
@@ -499,18 +515,16 @@ export function CommandPalette({
                 const rel = r.path.startsWith(rootPath) ? r.path.slice(rootPath.length + 1) : r.path;
                 const dir = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
                 return (
-                  <div
+                  <Row
+                    gap={3}
                     key={r.path}
                     id={optionId(i)}
                     role="option"
                     aria-selected={isSelected}
-                    onClick={() => { if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, query); } }}
+                    onClick={() => { if (scopedSession) { onOpenInExplorer(scopedSession.id, r.path, r.lineNumber, fileQuery); } }}
                     onMouseEnter={() => setSelectedIndex(i)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '8px var(--s-4)',
+                      padding: 'var(--s-2) var(--s-4)',
                       cursor: 'pointer',
                       background: isSelected ? 'var(--bg-3)' : 'transparent',
                       borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
@@ -518,20 +532,10 @@ export function CommandPalette({
                   >
                     <ResultIcon ext={r.ext} />
                     {/* Single-line (IntelliJ): name left, path right-aligned. */}
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--t-sm)',
-                        color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
-                        flex: '0 1 auto',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
+                    <Text mono size="body" truncate style={{ color: isSelected ? 'var(--accent)' : 'var(--fg-0)', flex: '0 1 auto' }}>
                       {r.name}
-                    </span>
-                    <span style={{ flex: 1 }} />
+                    </Text>
+                    <Spacer />
                     {dir && (
                       <span
                         className="eyebrow"
@@ -546,7 +550,7 @@ export function CommandPalette({
                         color: r.matchType === 'filename' ? 'var(--accent)' : 'var(--fg-3)',
                         background: r.matchType === 'filename' ? 'var(--accent-bg)' : 'var(--bg-1)',
                         border: `1px solid ${r.matchType === 'filename' ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                        padding: '1px 5px',
+                        padding: 'var(--s-px) var(--s-1-5)',
                         borderRadius: 'var(--r-1)',
                         flexShrink: 0,
                       }}
@@ -560,31 +564,31 @@ export function CommandPalette({
                           background: 'none',
                           border: 'none',
                           cursor: 'pointer',
-                          padding: 2,
+                          padding: 'var(--s-0-5)',
                           color: isSelected ? 'var(--accent)' : 'var(--fg-3)',
                           opacity: isSelected ? 1 : 0,
                           transition: 'opacity var(--dur-fast)',
                           flexShrink: 0,
                         }}
                       >
-                        <Icon icon={GitCommit} size={12} strokeWidth={1.6} />
+                        <Icon icon={GitCommit} size="sm" />
                       </button>
                     </Tooltip>
-                  </div>
+                  </Row>
                 );
               })}
             </div>
           )}
 
-          {!showResultsRegion && scope === 'files' && !scopedSession && (
+          {!showResultsRegion && activeScope === 'files' && !scopedSession && (
             <div className="empty-hint" style={emptyHintStyle}>
-              <Icon icon={FolderOpen} size={22} strokeWidth={1.2} />
+              <Icon icon={FolderOpen} size="xl" />
               <span>Pick a session first to search its files.</span>
             </div>
           )}
-          {!searching && query.trim() && total === 0 && !(scope === 'files' && !scopedSession) && (
+          {!searching && q.trim() && total === 0 && !(activeScope === 'files' && !scopedSession) && (
             <div className="empty-hint" style={emptyHintStyle}>
-              <Icon icon={Search} size={22} strokeWidth={1.2} />
+              <Icon icon={Search} size="xl" />
               <span>No results</span>
             </div>
           )}
@@ -603,13 +607,13 @@ export function CommandPalette({
           content={previewContent}
           loading={previewLoading}
         />
-      </div>
+      </Row>
 
       {/* Footer hints */}
-      <div
+      <Row
+        align="stretch"
+        gap={4}
         style={{
-          display: 'flex',
-          gap: 'var(--s-4)',
           padding: 'var(--s-2) var(--s-4)',
           background: 'var(--bg-1)',
           borderTop: '1px solid var(--line-2)',
@@ -628,15 +632,17 @@ export function CommandPalette({
           ...(scopedSession && query === '' ? [{ key: '⌫', label: 'CLEAR SCOPE' }] : []),
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
-          <span key={`${key}-${label}`} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Row as="span" key={`${key}-${label}`} gap={1.5} className="eyebrow">
             <Kbd>{key}</Kbd>
             {label}
-          </span>
+          </Row>
         ))}
-      </div>
-    </div>
+      </Row>
+    </Stack>
   );
 }
+
+const NO_GROUPS: readonly CommandGroup[] = [];
 
 const emptyHintStyle: React.CSSProperties = {
   display: 'flex',
@@ -653,7 +659,7 @@ const emptyHintStyle: React.CSSProperties = {
 };
 
 interface PalettePreviewPaneProps {
-  command: PaletteCommand | null;
+  command: Command | null;
   fileResult: FileSearchResult | null;
   session: SessionInfo | null;
   content: string | null;
@@ -664,39 +670,42 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
   if (command) {
     const Glyph = command.icon ?? ChevronRight;
     return (
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', padding: 'var(--s-5)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-          <Icon icon={Glyph} size={16} strokeWidth={1.6} style={{ color: 'var(--accent)' }} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-lg)', fontWeight: 600, color: 'var(--fg-0)' }}>
-            {command.label}
-          </span>
-        </div>
+      <Stack gap={3} grow style={{ background: 'var(--bg-1)', padding: 'var(--s-5)' }}>
+        <Row gap={2}>
+          <Icon icon={Glyph} size="lg" style={{ color: 'var(--accent)' }} />
+          <Text mono size="title" weight={600} style={{ color: 'var(--fg-0)' }}>
+            {command.title}
+          </Text>
+        </Row>
         {command.hint && <DetailRow k="DETAIL" v={command.hint} mono />}
-        <div style={{ marginTop: 'auto', display: 'flex', gap: 'var(--s-3)', color: 'var(--fg-3)' }}>
-          <span className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Kbd>↵</Kbd>RUN</span>
-        </div>
-      </div>
+        <DetailRow k="CATEGORY" v={command.category} />
+        {command.shortcut && <DetailRow k="SHORTCUT" v={formatCombo(command.shortcut)} mono />}
+        <DetailRow k="SOURCE" v={command.source} />
+        <Row align="stretch" gap={3} style={{ marginTop: 'auto', color: 'var(--fg-3)' }}>
+          <Row as="span" gap={1.5} className="eyebrow"><Kbd>↵</Kbd>RUN</Row>
+        </Row>
+      </Stack>
     );
   }
 
   if (session) {
     return (
-      <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', padding: 'var(--s-5)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+      <Stack gap={3} grow style={{ background: 'var(--bg-1)', padding: 'var(--s-5)' }}>
+        <Row gap={2}>
           <AgentGlyph agent={session.agentType} size={18} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-lg)', fontWeight: 600, color: 'var(--fg-0)' }}>
-            {session.name}
-          </span>
-        </div>
+          <Text mono size="title" weight={600} style={{ color: 'var(--fg-0)' }}>
+            {displayLabel(session)}
+          </Text>
+        </Row>
         <StatusPill status={session.status} />
         <DetailRow k="PATH" v={session.folderPath} mono />
         <DetailRow k="AGENT" v={session.agentType ?? 'shell'} />
         {session.hasGitChanges && <DetailRow k="GIT" v="uncommitted changes" />}
-        <div style={{ marginTop: 'auto', display: 'flex', gap: 'var(--s-3)', color: 'var(--fg-3)' }}>
-          <span className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Kbd>↵</Kbd>SCOPE SEARCH</span>
-          <span className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}><Kbd>{isMac ? '⌘↵' : 'Ctrl+↵'}</Kbd>JUMP TO FOCUS</span>
-        </div>
-      </div>
+        <Row align="stretch" gap={3} style={{ marginTop: 'auto', color: 'var(--fg-3)' }}>
+          <Row as="span" gap={1.5} className="eyebrow"><Kbd>↵</Kbd>SCOPE SEARCH</Row>
+          <Row as="span" gap={1.5} className="eyebrow"><Kbd>{isMac ? '⌘↵' : 'Ctrl+↵'}</Kbd>JUMP TO FOCUS</Row>
+        </Row>
+      </Stack>
     );
   }
 
@@ -719,33 +728,32 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
   })();
 
   return (
-    <div style={{ flex: 1, minWidth: 0, background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
-        <Icon icon={FileText} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <Stack grow style={{ background: 'var(--bg-1)', overflow: 'hidden' }}>
+      <Row gap={2} style={{ padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>
+        <Icon icon={FileText} size="md" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+        <Text mono size="body" truncate style={{ color: 'var(--fg-0)' }}>
           {fileResult.name}
-        </span>
-        <span style={{ flex: 1 }} />
+        </Text>
+        <Spacer />
         {fileResult.matchType === 'content' && lineNumber != null && (
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--accent)' }}>line {lineNumber}</span>
+          <Text mono size="eyebrow" tone="accent">line {lineNumber}</Text>
         )}
-      </div>
+      </Row>
       <div className="argus-scroll" style={{ flex: 1, overflow: 'auto', padding: 'var(--s-2) 0' }}>
-        {loading && <div style={{ padding: '0 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>Loading…</div>}
-        {!loading && codeLines.length === 0 && <div style={{ padding: '0 14px', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>No preview</div>}
+        {loading && <Text as="div" mono size="body" tone="faint" style={{ padding: '0 var(--s-4)' }}>Loading…</Text>}
+        {!loading && codeLines.length === 0 && <Text as="div" mono size="body" tone="faint" style={{ padding: '0 var(--s-4)' }}>No preview</Text>}
         {!loading && codeLines.map(({ text, num }) => {
           const isMatch = num === lineNumber;
           return (
-            <div
+            <Row
+              align="baseline"
               key={num}
               style={{
-                display: 'flex',
-                alignItems: 'baseline',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--t-tiny)',
                 lineHeight: '1.65',
-                paddingLeft: isMatch ? 12 : 14,
-                paddingRight: 14,
+                paddingLeft: isMatch ? 'var(--s-3)' : 'var(--s-4)',
+                paddingRight: 'var(--s-4)',
                 borderLeft: `2px solid ${isMatch ? 'var(--accent)' : 'transparent'}`,
                 background: isMatch ? 'var(--accent-bg)' : 'transparent',
                 whiteSpace: 'pre',
@@ -757,9 +765,9 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
                   color: isMatch ? 'color-mix(in srgb, var(--accent) 65%, transparent)' : 'var(--fg-4)',
                   minWidth: 34,
                   textAlign: 'right',
-                  marginRight: 14,
+                  marginRight: 'var(--s-4)',
                   flexShrink: 0,
-                  fontSize: 10,
+                  fontSize: 'var(--t-eyebrow)',
                 }}
               >
                 {num}
@@ -767,19 +775,19 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
               <span style={{ color: isMatch ? 'var(--fg-0)' : 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {text || ' '}
               </span>
-            </div>
+            </Row>
           );
         })}
       </div>
-    </div>
+    </Stack>
   );
 }
 
 function DetailRow({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
-    <div style={{ display: 'flex', gap: 'var(--s-3)', fontSize: 'var(--t-xs)' }}>
+    <Row align="stretch" gap={3} style={{ fontSize: 'var(--t-xs)' }}>
       <span className="eyebrow" style={{ color: 'var(--fg-3)', width: 56, flexShrink: 0 }}>{k}</span>
       <span style={{ color: 'var(--fg-1)', fontFamily: mono ? 'var(--font-mono)' : 'inherit', wordBreak: 'break-all' }}>{v}</span>
-    </div>
+    </Row>
   );
 }

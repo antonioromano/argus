@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
 import { GitService } from './GitService.js';
@@ -159,4 +159,77 @@ test('GitService.summary: reads a real repo, null outside one', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The undo buffer is keyed by an unguessable id, but the route is scoped to a
+// session: an undo id from one session's discard must not re-apply the patch
+// when redeemed through another session (different work root).
+test('undoDiscard only restores a discard made in the same work root', async () => {
+  const repoA = makeTempRepo();
+  const repoB = makeTempRepo();
+  try {
+    const git = new GitService();
+    writeFileSync(path.join(repoA, 'file.txt'), 'hello\nworld\n');
+    const discard = await git.discardPatch(repoA, {
+      filePath: 'file.txt',
+      source: 'unstaged',
+      chunks: [{ chunkIndex: 0, selectedChangeIndices: [0] }],
+    } as Parameters<GitService['discardPatch']>[1]);
+    assert.equal(discard.success, true, discard.error);
+    assert.ok(discard.undoId);
+
+    const foreign = await git.undoDiscard(discard.undoId!, repoB);
+    assert.equal(foreign.success, false);
+
+    const own = await git.undoDiscard(discard.undoId!, repoA);
+    assert.equal(own.success, true, own.error);
+    assert.equal(execFileSync('git', ['diff', '--name-only'], { cwd: repoA, encoding: 'utf8' }).trim(), 'file.txt');
+  } finally {
+    rmSync(repoA, { recursive: true, force: true });
+    rmSync(repoB, { recursive: true, force: true });
+  }
+});
+
+// The agent may edit the same lines inside the undo window; re-applying the
+// discarded patch then fails, and the client shows git's reason.
+test('undoDiscard after an overlapping edit fails with git stderr and keeps the edit', async () => {
+  const repo = makeTempRepo();
+  try {
+    const git = new GitService();
+    writeFileSync(path.join(repo, 'file.txt'), 'hello\nworld\n');
+    const discard = await git.discardPatch(repo, {
+      filePath: 'file.txt',
+      source: 'unstaged',
+      chunks: [{ chunkIndex: 0, selectedChangeIndices: [0] }],
+    } as Parameters<GitService['discardPatch']>[1]);
+    assert.equal(discard.success, true, discard.error);
+
+    const edited = readFileSync(path.join(repo, 'file.txt'), 'utf8').replace(/^.*$/m, 'agent edit');
+    writeFileSync(path.join(repo, 'file.txt'), edited);
+
+    const undo = await git.undoDiscard(discard.undoId!, repo);
+    assert.equal(undo.success, false);
+    assert.match(undo.error ?? '', /patch|apply/i);
+    assert.equal(readFileSync(path.join(repo, 'file.txt'), 'utf8'), edited);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+// Typed error codes (plan 2026-10-29-003, Unit 2): getDiff says *why* it failed.
+test('getDiff: a folder outside any repo answers NOT_A_GIT_REPO', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'argus-nogit-'));
+  try {
+    const d = await new GitService().getDiff(dir);
+    assert.equal(d.error, 'Not a git repository');
+    assert.equal(d.code, 'NOT_A_GIT_REPO');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('getDiff: a folder that no longer exists is FOLDER_NOT_FOUND, never "git not installed"', async () => {
+  const d = await new GitService().getDiff(path.join(tmpdir(), `argus-gone-${Date.now()}`));
+  assert.equal(d.code, 'FOLDER_NOT_FOUND');
+  assert.ok(d.error);
 });

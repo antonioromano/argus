@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ClaudeConversation } from '@argus/shared';
-import { History, Terminal, X } from 'lucide-react';
+import { History, SquareTerminal, X } from 'lucide-react';
 import { Button, Icon, IconButton } from '../../../components/primitives/index.js';
 import { relativeTime } from '../../panels/activityFormat.js';
 
@@ -50,7 +50,7 @@ export function ChatResumePicker({ load, onPick, onUseTerminal, onClose }: ChatR
   return (
     <div className="argus-chat-resume" role="dialog" aria-label="Resume a conversation" data-testid="chat-resume">
       <div className="argus-chat-resume-head">
-        <Icon icon={History} size={14} aria-hidden />
+        <Icon icon={History} size="md" aria-hidden />
         <input
           ref={inputRef}
           className="argus-chat-resume-filter"
@@ -74,7 +74,7 @@ export function ChatResumePicker({ load, onPick, onUseTerminal, onClose }: ChatR
             }
           }}
         />
-        <Button variant="ghost" size="sm" icon={Terminal} onClick={onUseTerminal}>In terminal</Button>
+        <Button variant="ghost" size="sm" icon={SquareTerminal} onClick={onUseTerminal}>In terminal</Button>
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
       </div>
       <div className="argus-chat-resume-list" role="listbox" aria-label="Conversations">

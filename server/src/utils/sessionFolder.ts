@@ -1,5 +1,6 @@
 import { realpath, stat } from 'fs/promises';
 import path from 'path';
+import { ArgusError } from '../errors/ArgusError.js';
 
 /**
  * Canonical folder for a NEW session. The folder is the root of the session's
@@ -18,8 +19,8 @@ export async function resolveSessionFolder(folderPath: unknown): Promise<string>
   let real: string;
   try {
     real = await realpath(path.resolve(folderPath));
-  } catch {
-    throw new Error(`Folder does not exist: ${folderPath}`);
+  } catch (err) {
+    throw new ArgusError('FOLDER_NOT_FOUND', 404, `Folder does not exist: ${folderPath}`, err instanceof Error ? err.message : undefined, { path: folderPath });
   }
   if (!(await stat(real)).isDirectory()) throw new Error(`Not a directory: ${folderPath}`);
   return real;

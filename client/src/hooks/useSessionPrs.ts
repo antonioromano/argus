@@ -42,6 +42,8 @@ export interface SessionPrsState {
   /** false when the server says PR status is switched off. */
   enabled: boolean;
   error: string | null;
+  /** The thrown value behind `error` (typed code: gh missing vs signed out). */
+  failure?: unknown;
   /** Ask again now (C3: after Mark ready, so the row shows the new state). */
   reload: () => void;
 }
@@ -63,11 +65,11 @@ export function useSessionPrs(sessionId: string, enabled: boolean, refreshKey?: 
       api.getSessionPrs(sessionId)
         .then((res) => {
           if (!alive) return;
-          setState({ id: sessionId, prs: res.prs, enabled: res.enabled, error: null });
+          setState({ id: sessionId, prs: res.prs, enabled: res.enabled, error: null, failure: null });
           remember(sessionId, res.prs);
         })
         .catch((err: unknown) => {
-          if (alive) setState((prev) => ({ ...prev, id: sessionId, error: err instanceof Error ? err.message : String(err) }));
+          if (alive) setState((prev) => ({ ...prev, id: sessionId, error: err instanceof Error ? err.message : String(err), failure: err }));
         });
     };
     load();
@@ -80,5 +82,5 @@ export function useSessionPrs(sessionId: string, enabled: boolean, refreshKey?: 
 
   // Another session's answer must never show under this one while it loads.
   if (state.id !== sessionId) return { prs: undefined, enabled: true, error: null, reload };
-  return { prs: state.prs, enabled: state.enabled, error: state.error, reload };
+  return { prs: state.prs, enabled: state.enabled, error: state.error, failure: state.failure ?? null, reload };
 }

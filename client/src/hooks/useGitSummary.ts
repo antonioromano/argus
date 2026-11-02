@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { GitSummary } from '@argus/shared';
 import { api } from '../services/api.js';
 
@@ -8,6 +8,10 @@ export interface GitSummaryState {
   /** undefined until the first answer; null when the work root isn't a repo. */
   summary: GitSummary | null | undefined;
   error: string | null;
+  /** The thrown value behind `error` (typed code, raw detail). */
+  failure?: unknown;
+  /** Ask again now (Retry, or after `git init`). */
+  retry?: () => void;
 }
 
 /**
@@ -19,15 +23,17 @@ export interface GitSummaryState {
  */
 export function useGitSummary(sessionId: string | null, enabled: boolean, refreshKey?: unknown): GitSummaryState {
   const [state, setState] = useState<GitSummaryState & { id: string | null }>({ id: null, summary: undefined, error: null });
+  const [nonce, setNonce] = useState(0);
+  const retry = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (!sessionId || !enabled) return;
     let alive = true;
     const load = () => {
       api.getGitSummary(sessionId)
-        .then(({ summary }) => { if (alive) setState({ id: sessionId, summary, error: null }); })
+        .then(({ summary }) => { if (alive) setState({ id: sessionId, summary, error: null, failure: null }); })
         .catch((err: unknown) => {
-          if (alive) setState((prev) => ({ ...prev, id: sessionId, error: err instanceof Error ? err.message : String(err) }));
+          if (alive) setState((prev) => ({ ...prev, id: sessionId, error: err instanceof Error ? err.message : String(err), failure: err }));
         });
     };
     load();
@@ -36,9 +42,9 @@ export function useGitSummary(sessionId: string | null, enabled: boolean, refres
       alive = false;
       clearInterval(t);
     };
-  }, [sessionId, enabled, refreshKey]);
+  }, [sessionId, enabled, refreshKey, nonce]);
 
   // Another session's answer must never show under this one while it loads.
-  if (state.id !== sessionId) return { summary: undefined, error: null };
-  return { summary: state.summary, error: state.error };
+  if (state.id !== sessionId) return { summary: undefined, error: null, failure: null, retry };
+  return { summary: state.summary, error: state.error, failure: state.failure ?? null, retry };
 }

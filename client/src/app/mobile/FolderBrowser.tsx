@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { DirectoryChildrenResponse } from '@argus/shared';
 import { Folder, ChevronRight, ArrowUp, X, Check } from 'lucide-react';
 import { api } from '../../services/api.js';
-import { LoadingState, ErrorState, Icon } from '../../components/primitives/index.js';
+import { LoadingState, ErrorState, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 interface FolderBrowserProps {
   initialPath?: string;
@@ -51,18 +51,18 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
   const goUp = () => { if (current && !atRoot) setPath(current.replace(/\/[^/]+$/, '') || '/'); };
 
   return (
-    <div
+    <Stack
       className="glass-overlay"
       style={{
         position: 'fixed', inset: 0, zIndex: 'var(--z-tooltip)',
-        display: 'flex', flexDirection: 'column', background: 'var(--bg-0)',
-        animation: 'argus-sheet-up var(--dur-base) var(--ease-out)',
+        background: 'var(--bg-0)',
+        animation: 'argus-sheet-up var(--dur-base) var(--ease)',
       }}
     >
       {/* Header */}
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex', alignItems: 'center', gap: 'var(--s-2)',
           padding: '0 var(--s-3)', paddingTop: 'env(safe-area-inset-top, 0px)', minHeight: 52,
           background: 'var(--bg-1)', borderBottom: '1px solid var(--line-2)', flexShrink: 0,
         }}
@@ -70,25 +70,25 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
         <button
           onClick={onClose}
           aria-label="Cancel"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--fg-2)', borderRadius: 'var(--r-2)', width: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: 'pointer', color: 'var(--fg-2)', borderRadius: 'var(--r-2)', width: 44, minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
-          <Icon icon={X} size={16} strokeWidth={1.8} />
+          <Icon icon={X} size="lg" />
         </button>
         <span className="eyebrow" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>CHOOSE FOLDER</span>
         <button
           onClick={goUp}
           disabled={atRoot}
           aria-label="Up one level"
-          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: atRoot ? 'default' : 'pointer', color: atRoot ? 'var(--fg-4)' : 'var(--accent)', borderRadius: 'var(--r-2)', width: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          style={{ background: 'transparent', border: '1px solid var(--line-2)', cursor: atRoot ? 'default' : 'pointer', color: atRoot ? 'var(--fg-4)' : 'var(--accent)', borderRadius: 'var(--r-2)', width: 44, minHeight: 'var(--row-h-touch)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
-          <Icon icon={ArrowUp} size={16} strokeWidth={1.8} />
+          <Icon icon={ArrowUp} size="lg" />
         </button>
-      </div>
+      </Row>
 
       {/* Current path */}
       <div
         style={{
-          padding: '8px var(--s-4)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)',
+          padding: 'var(--s-2) var(--s-4)', background: 'var(--bg-1)', borderBottom: '1px solid var(--line-1)',
           fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', flexShrink: 0,
           direction: 'rtl', textAlign: 'left', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         }}
@@ -101,9 +101,9 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
         {error && <ErrorState title="Folder error" detail={error} onRetry={() => { setError(null); setTick((t) => t + 1); }} />}
         {!error && !data && <LoadingState label="Reading folder" />}
         {!error && data && folders.length === 0 && (
-          <div style={{ padding: 'var(--s-6) var(--s-4)', textAlign: 'center', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
+          <Text as="div" mono size="body" tone="faint" style={{ padding: 'var(--s-6) var(--s-4)', textAlign: 'center' }}>
             No subfolders here.
-          </div>
+          </Text>
         )}
         {folders.map((entry) => (
           <button
@@ -115,11 +115,11 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
               borderBottom: '1px solid var(--line-1)', cursor: entry.hasChildren ? 'pointer' : 'default', minHeight: 52,
             }}
           >
-            <Icon icon={Folder} size={18} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-            <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-base)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Icon icon={Folder} size="xl" style={{ color: 'var(--accent)', flexShrink: 0 }} />
+            <Text mono size="body" truncate style={{ flex: 1, color: 'var(--fg-0)' }}>
               {entry.name}
-            </span>
-            {entry.hasChildren && <Icon icon={ChevronRight} size={16} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />}
+            </Text>
+            {entry.hasChildren && <Icon icon={ChevronRight} size="lg" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />}
           </button>
         ))}
       </div>
@@ -130,18 +130,18 @@ export function FolderBrowser({ initialPath, onSelect, onClose }: FolderBrowserP
           onClick={() => current && onSelect(current)}
           disabled={!current}
           style={{
-            width: '100%', padding: 13, borderRadius: 'var(--r-2)', border: 'none',
+            width: '100%', padding: 'var(--s-3)', borderRadius: 'var(--r-2)', border: 'none',
             background: current ? 'var(--accent)' : 'var(--bg-3)',
             color: current ? 'var(--fg-on-accent)' : 'var(--fg-4)',
             fontFamily: 'var(--font-sans)', fontSize: 'var(--t-md)', fontWeight: 700,
             cursor: current ? 'pointer' : 'default',
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 'var(--s-1-5)',
           }}
         >
-          <Icon icon={Check} size={16} strokeWidth={2} />
+          <Icon icon={Check} size="lg" strokeWidth={2} />
           Use {current ? current.split('/').filter(Boolean).pop() || '/' : 'this folder'}
         </button>
       </div>
-    </div>
+    </Stack>
   );
 }

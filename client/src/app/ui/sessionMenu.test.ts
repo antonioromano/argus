@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { CircleX } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { buildSessionMenuItems, type SessionMenuActions } from './sessionMenu.js';
 
@@ -40,6 +41,18 @@ describe('buildSessionMenuItems', () => {
     expect(a.onRename).toHaveBeenCalledWith(session);
   });
 
+  it('offers Color & emoji… right after rename, only when the surface wires the editor', () => {
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('identity');
+    const onEditIdentity = vi.fn();
+    const entries = buildSessionMenuItems(session, actions({ onEditIdentity }));
+    const order = ids(entries);
+    expect(order[order.indexOf('rename') + 1]).toBe('identity');
+    const item = entries.find((e) => 'id' in e && e.id === 'identity') as { label: string; onClick: () => void };
+    expect(item.label).toBe('Color & Emoji…');
+    item.onClick();
+    expect(onEditIdentity).toHaveBeenCalledWith(session);
+  });
+
   it('omits minimize on surfaces that cannot minimize', () => {
     expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('minimize');
     expect(ids(buildSessionMenuItems(session, actions({ onToggleMinimize: vi.fn() })))).toContain('minimize');
@@ -74,7 +87,7 @@ describe('buildSessionMenuItems', () => {
   it('flags a dirty session in the diff label', () => {
     const dirty = buildSessionMenuItems({ ...session, hasGitChanges: true }, actions({ onFocusDiff: vi.fn() }));
     const diff = dirty.find((e) => 'id' in e && e.id === 'diff') as { label: string };
-    expect(diff.label).toMatch(/has changes/);
+    expect(diff.label).toMatch(/Changed/);
   });
 
   it('keeps close last and marked as danger', () => {
@@ -119,13 +132,36 @@ describe('buildSessionMenuItems', () => {
     expect(onHandoff).toHaveBeenCalledWith(session);
   });
 
-  it('offers Chain to… (beta F13) only when a handler is passed, and not for an exited shell', () => {
+  it('offers Add Follow-up Prompt… (beta F13) only when a handler is passed, and not for an exited session', () => {
     expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('chain');
     const onChain = vi.fn();
     const item = buildSessionMenuItems(session, actions({ onChain })).find((e) => 'id' in e && e.id === 'chain');
-    expect(item).toBeTruthy();
+    expect(item).toMatchObject({ label: 'Add Follow-up Prompt…' });
     (item as { onClick: () => void }).onClick();
     expect(onChain).toHaveBeenCalledWith(session);
     expect(ids(buildSessionMenuItems({ ...session, status: 'exited' }, actions({ onChain })))).not.toContain('chain');
+  });
+});
+
+describe('buildSessionMenuItems — Try (beta)', () => {
+  const promo = (id: string) => ({ id: `try-${id}`, label: id, hint: 'Beta', icon: CircleX, onTry: vi.fn() });
+
+  it('adds no block when there are no promos or no provider', () => {
+    expect(ids(buildSessionMenuItems(session, actions()))).not.toContain('hide-beta-promos');
+    const entries = buildSessionMenuItems(session, actions({ betaPromos: () => [], onHideBetaPromos: vi.fn() }));
+    expect(entries.some((e) => 'header' in e && e.header === 'Try (beta)')).toBe(false);
+  });
+
+  it('lists the promos before Danger, then "Hide beta suggestions"', () => {
+    const p = promo('handoff');
+    const onHide = vi.fn();
+    const entries = buildSessionMenuItems(session, actions({ betaPromos: () => [p], onHideBetaPromos: onHide }));
+    const list = ids(entries);
+    expect(list.indexOf('try-handoff')).toBeLessThan(list.indexOf('close'));
+    expect(list.indexOf('hide-beta-promos')).toBe(list.indexOf('try-handoff') + 1);
+    const item = entries.find((e) => 'id' in e && e.id === 'try-handoff') as { hint?: string; onClick: () => void };
+    expect(item.hint).toBe('Beta');
+    item.onClick();
+    expect(p.onTry).toHaveBeenCalledWith(session);
   });
 });

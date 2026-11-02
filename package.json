@@ -1,6 +1,6 @@
 {
   "name": "argus",
-  "version": "0.30.3",
+  "version": "0.31.0",
   "description": "Dashboard for managing multiple Claude Code CLI sessions",
   "author": "Antonio Romano <antonio@rebrandly.com>",
   "private": true,
@@ -15,7 +15,8 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js && node scripts/register-dev-scheme.mjs",
     "sync-versions": "node scripts/sync-versions.mjs",
-    "check:deps": "node scripts/check-dep-sync.mjs",
+    "check:deps": "node scripts/check-dep-sync.mjs && node scripts/check-docs-links.mjs",
+    "audit:styles": "node scripts/audit-inline-styles.mjs",
     "lint": "npm run lint -w client",
     "test": "npm test -w server && npm test -w client && npm run test:electron",
     "verify": "npm run lint && npm run build:all && npm test",
@@ -23,7 +24,7 @@
     "dev": "npm run electron:dev",
     "dev:web": "PORT=5401 DATA_DIR=data-dev ARGUS_TMUX_SOCKET=argus-dev concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
-    "build:electron": "tsc -p electron/tsconfig.json",
+    "build:electron": "tsc -p electron/tsconfig.json && node scripts/write-build-info.mjs",
     "build:native": "node scripts/build-native.mjs",
     "build:icon": "node scripts/build-icon.mjs",
     "build:all": "npm run check:deps && npm run build -w shared && npm run build -w server && npm run build -w client && npm run build:electron",

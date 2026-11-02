@@ -4,10 +4,8 @@ import type { LucideIcon } from 'lucide-react';
 import { useDiffInlineEdit } from '../../hooks/useDiffInlineEdit.js';
 import type { ChangeBlock } from '../overlays/diff/changeBlocks.js';
 import type { FileModel } from '../overlays/diff/diffModel.js';
-import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
-import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { DiffViewer } from './DiffViewer.js';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, Row, Text } from '../../components/primitives/index.js';
 
 export interface FileSectionProps {
   file: FileModel;
@@ -91,8 +89,8 @@ function HeaderChip({
         cursor: busy ? 'wait' : 'pointer',
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 3,
-        padding: '2px 6px',
+        gap: 'var(--s-1)',
+        padding: 'var(--s-0-5) var(--s-1-5)',
         borderRadius: 'var(--r-2)',
         border: `1px solid ${active ? 'var(--accent)' : 'var(--line-3)'}`,
         background: active ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'transparent',
@@ -101,7 +99,7 @@ function HeaderChip({
         fontSize: 'var(--t-micro)',
       }}
     >
-      {partial ? <Icon icon={Minus} size={10} strokeWidth={2.5} /> : <Icon icon={Glyph} size={10} strokeWidth={2} />}
+      {partial ? <Icon icon={Minus} size="xs" strokeWidth={2} /> : <Icon icon={Glyph} size="xs" strokeWidth={2} />}
       {label}
     </span>
   );
@@ -134,8 +132,6 @@ export function FileSection({
   unstageBusy = false,
 }: FileSectionProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
-  const [pendingRollback, setPendingRollback] = useState(false);
-  const { skip: skipConfirm, toggle: toggleSkipConfirm } = useSkipRevertConfirm();
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -159,16 +155,6 @@ export function FileSection({
 
   const toggleCollapsed = useCallback(() => setCollapsed((c) => !c), []);
 
-  const requestRollback = useCallback(() => {
-    if (skipConfirm) void onRollback?.();
-    else setPendingRollback(true);
-  }, [skipConfirm, onRollback]);
-
-  const confirmRollback = useCallback(async () => {
-    await onRollback?.();
-    setPendingRollback(false);
-  }, [onRollback]);
-
   const selection = isUnstaged
     ? { isChecked, toggle: onToggleBlock, revert: onRevertBlock }
     : undefined;
@@ -177,15 +163,13 @@ export function FileSection({
 
   return (
     <div ref={rootRef} data-file-id={file.id} style={{ borderBottom: '1px solid var(--line-2)' }}>
-      <div
+      <Row
+        gap={2}
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
-          padding: '6px var(--s-4)',
+          padding: 'var(--s-1-5) var(--s-4)',
           background: active ? 'var(--bg-2)' : 'var(--bg-1)',
           borderBottom: '1px solid var(--line-2)',
           borderLeft: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
@@ -195,40 +179,31 @@ export function FileSection({
         onClick={toggleCollapsed}
       >
         <Icon icon={ChevronRight}
-          size={14}
+          size="md"
           strokeWidth={2}
           style={{
             transform: collapsed ? 'none' : 'rotate(90deg)',
-            transition: 'transform 150ms var(--ease-std)',
+            transition: 'transform var(--dur-fast) var(--ease)',
             color: 'var(--fg-3)',
             flexShrink: 0,
           }}
         />
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-xs)',
-            color: active ? 'var(--accent)' : 'var(--fg-1)',
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <Text mono size="small" tone={active ? 'accent' : 'default'} truncate style={{ flex: 1 }}>
           {file.path}
-        </span>
+        </Text>
         {file.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
         {file.source !== 'untracked' && file.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
         {file.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{file.add}</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{file.del}</span>
+        <Text mono size="eyebrow" tone="danger">−{file.del}</Text>
         {collapsed && (
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-4)' }}>
             {file.parsed.chunks.length} {file.parsed.chunks.length === 1 ? 'hunk' : 'hunks'} · collapsed
           </span>
         )}
-        <div
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}
+        <Row
+          gap={2}
+          style={{ flexShrink: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
           {isUnstaged && onAccept && (
@@ -249,7 +224,7 @@ export function FileSection({
               tone="danger"
               busy={rollbackBusy}
               title="Discard all changes in this file"
-              onClick={requestRollback}
+              onClick={() => void onRollback()}
             />
           )}
           {file.source === 'staged' && onUnstage && (
@@ -280,29 +255,8 @@ export function FileSection({
               onClick={onIgnore}
             />
           )}
-        </div>
-      </div>
-
-      {pendingRollback && (
-        <div
-          style={{
-            padding: '10px var(--s-4)',
-            background: 'color-mix(in srgb, var(--danger) 7%, transparent)',
-            borderBottom: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
-          }}
-        >
-          <RevertConfirmCard
-            title="Roll back all changes?"
-            subtitle="Cannot be undone."
-            confirmLabel={rollbackBusy ? 'Rolling back' : 'Roll back'}
-            busy={rollbackBusy}
-            skip={skipConfirm}
-            onToggleSkip={toggleSkipConfirm}
-            onCancel={() => setPendingRollback(false)}
-            onConfirm={() => void confirmRollback()}
-          />
-        </div>
-      )}
+        </Row>
+      </Row>
 
       {!collapsed && (
         bodyMounted ? (

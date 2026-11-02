@@ -45,7 +45,7 @@ export function IconButton({
     color: active ? 'var(--accent)' : 'var(--fg-2)',
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.45 : 1,
-    transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
+    transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast)',
     flexShrink: 0,
     padding: 0,
     ...style,
@@ -60,7 +60,7 @@ export function IconButton({
       className={btnClass}
       style={base}
     >
-      <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />
+      <Icon icon={Glyph} size={iconSize} />
     </button>
   );
   return tooltip ? <Tooltip content={label} position="top">{button}</Tooltip> : button;

@@ -380,6 +380,7 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
         // border-radius cannot clip, so without an inset it sits on the bottom
         // border and pokes into the rounded corners. 8px matches the top and
         // keeps the overlay clear of both.
+        // eslint-disable-next-line argus/no-raw-style-scale -- terminal inset feeds fit(); must match the xterm path below
         padding: '8px 14px 8px 14px',
         overflow: 'hidden',
         position: 'relative',
@@ -527,6 +528,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
         boxShadow: isDragOver
           ? `0 0 0 1px var(--accent), 0 0 18px var(--accent-glow)`
           : (framed && st === 'waiting' ? `0 0 0 1px ${edge}, 0 0 18px var(--accent-glow)` : 'none'),
+        // eslint-disable-next-line argus/no-raw-style-scale -- terminal inset feeds fit() cols/rows; keep exact
         padding: '8px 14px 0px 14px',
         position: 'relative',
         transition: 'border-color var(--dur-fast), box-shadow var(--dur-fast)',

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { File as DiffFile } from 'parse-diff';
-import { AlertCircle, CheckCircle, Circle, ExternalLink, Flag, Loader2, MinusCircle, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, CircleX, ExternalLink, Flag, MinusCircle, Trash2 } from 'lucide-react';
 import type { AppConfig, SessionInfo, WorktreeFinishInfo, WorktreeFinishStep } from '@argus/shared';
-import { Button, Checkbox, LoadingState, Sheet, Icon } from '../../components/primitives/index.js';
+import { Button, Checkbox, LoadingState, Sheet, Icon, Row, Stack, Spinner, Text } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { openExternal } from '../../utils/openExternal.js';
 import { SplitDiff } from './SplitDiff.js';
@@ -132,7 +132,7 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
   );
 
   const footer = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%' }}>
+    <Row gap={3} style={{ width: '100%' }}>
       {info?.removable && !confirmRemove && (
         <Button variant="ghost" size="md" icon={Trash2} onClick={() => setConfirmRemove(true)} disabled={running}>
           Remove worktree…
@@ -143,7 +143,7 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
       <Button variant="primary" size="md" icon={Flag} onClick={() => { void execute(); }} disabled={!canRun} loading={running}>
         {selected.length === 0 ? 'Nothing selected' : `Run ${selected.map((s) => STEP_LABEL[s]).join(' → ')}`}
       </Button>
-    </div>
+    </Row>
   );
 
   return (
@@ -151,8 +151,8 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
       {loadError && <ErrorBox title="Could not read the worktree" text={loadError} />}
       {!info && !loadError && <LoadingState label="Reading the worktree…" />}
       {info && (
-        <div data-testid="finish-sheet" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-2)', alignItems: 'center', fontSize: 'var(--t-xs)' }}>
+        <Stack gap={4} data-testid="finish-sheet">
+          <Row gap={2} wrap style={{ fontSize: 'var(--t-xs)' }}>
             <span className="argus-tile-branch" style={{ maxWidth: 'none' }}>{info.branch}</span>
             <span style={{ color: 'var(--fg-3)' }}>→</span>
             <span data-testid="finish-upstream" style={{ fontFamily: 'var(--font-mono)', color: info.upstream ? 'var(--fg-1)' : 'var(--fg-3)' }}>
@@ -163,16 +163,24 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
                 PR #{info.pr.number} · {info.pr.state}
               </button>
             )}
-          </div>
+          </Row>
 
           <section>
             <div className="eyebrow" style={{ color: 'var(--fg-3)', marginBottom: 'var(--s-2)' }}>
               UNCOMMITTED · {files.length}
             </div>
             {files.length === 0 ? (
-              <div style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>Working tree clean.</div>
+              <Text as="div" size="small" tone="faint">Working tree clean.</Text>
             ) : (
-              <div style={{ display: 'flex', border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', height: 240, overflow: 'hidden' }}>
+              <Row
+                align="stretch"
+                style={{
+                  border: '1px solid var(--line-2)',
+                  borderRadius: 'var(--r-2)',
+                  height: 240,
+                  overflow: 'hidden',
+                }}
+              >
                 <aside className="argus-scroll" style={{ width: 220, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid var(--line-2)', background: 'var(--bg-1)' }}>
                   {files.map((f) => {
                     const name = fileName(f);
@@ -198,7 +206,7 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
                 <main className="argus-scroll" style={{ flex: 1, overflow: 'auto', background: 'var(--bg-0)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', padding: 'var(--s-2)' }}>
                   {activeFile && activeFile.chunks.length > 0 ? <SplitDiff target={activeFile} /> : <span style={{ color: 'var(--fg-3)' }}>No diff preview.</span>}
                 </main>
-              </div>
+              </Row>
             )}
           </section>
 
@@ -225,7 +233,7 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
                   disabled={running || finished}
                   rows={3}
                   style={{
-                    display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 4, resize: 'vertical',
+                    display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 'var(--s-1)', resize: 'vertical',
                     fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-0)',
                     background: 'var(--bg-inset)', border: `1px solid ${messageMissing ? 'var(--danger)' : 'var(--line-3)'}`,
                     borderRadius: 'var(--r-2)', padding: 'var(--s-2)',
@@ -236,26 +244,26 @@ export function FinishWorktreeSheet({ session, onClose, onRemoved }: FinishWorkt
           </section>
 
           {info.merged && !info.removable && info.removeBlockedReason && (
-            <div data-testid="finish-remove-blocked" style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+            <Text as="div" data-testid="finish-remove-blocked" size="small" tone="faint">
               Can't remove the worktree yet: {info.removeBlockedReason}
-            </div>
+            </Text>
           )}
 
           {confirmRemove && (
             <div role="alertdialog" aria-label="Remove worktree" data-testid="finish-remove-confirm" style={{ padding: 'var(--s-3)', border: '1px solid color-mix(in srgb, var(--danger) 40%, transparent)', borderRadius: 'var(--r-3)', background: 'var(--danger-bg)' }}>
-              <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)', marginBottom: 'var(--s-2)' }}>
-                This ends the shell and runs <code>git worktree remove</code> on
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', wordBreak: 'break-all' }}>{info.worktreePath}</div>
+              <Text as="div" size="body" style={{ color: 'var(--fg-0)', marginBottom: 'var(--s-2)' }}>
+                This ends the session and runs <code>git worktree remove</code> on
+                <Text as="div" mono size="small" tone="default" style={{ wordBreak: 'break-all' }}>{info.worktreePath}</Text>
                 The branch itself is kept.
-              </div>
+              </Text>
               {removeError && <ErrorBox title="Remove failed" text={removeError} />}
-              <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
+              <Row align="stretch" justify="end" gap={2}>
                 <Button variant="ghost" size="sm" onClick={() => { setConfirmRemove(false); setRemoveError(null); }} disabled={removing}>Keep it</Button>
                 <Button variant="danger" size="sm" icon={Trash2} onClick={() => { void remove(); }} loading={removing}>Remove worktree</Button>
-              </div>
+              </Row>
             </div>
           )}
-        </div>
+        </Stack>
       )}
     </Sheet>
   );
@@ -274,7 +282,8 @@ function stepHint(step: WorktreeFinishStep, info: WorktreeFinishInfo): string {
   return info.compareUrl ? 'gh is not available — opens the GitHub compare page' : 'gh is not available and origin is not on GitHub';
 }
 
-const STATUS_ICON = { pending: Circle, running: Loader2, ok: CheckCircle, failed: AlertCircle, skipped: MinusCircle } as const;
+// `running` renders <Spinner> instead of a static glyph.
+const STATUS_ICON = { pending: Circle, running: null, ok: CheckCircle2, failed: CircleX, skipped: MinusCircle } as const;
 const STATUS_COLOR: Record<StepStatus, string> = {
   pending: 'var(--fg-3)', running: 'var(--accent)', ok: 'var(--ok)', failed: 'var(--danger)', skipped: 'var(--fg-3)',
 };
@@ -289,32 +298,33 @@ function StepRow({ step, checked, disabled, hint, state, onChange }: {
 }) {
   const Glyph = state ? STATUS_ICON[state.status] : null;
   return (
-    <div data-testid={`finish-step-${step}`} data-status={state?.status ?? 'idle'} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+    <Stack gap={1} data-testid={`finish-step-${step}`} data-status={state?.status ?? 'idle'}>
+      <Row gap={2}>
         <Checkbox checked={checked} onChange={onChange} disabled={disabled} />
-        <span style={{ fontSize: 'var(--t-sm)', color: disabled && !checked ? 'var(--fg-3)' : 'var(--fg-0)' }}>{STEP_LABEL[step]}</span>
-        <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)', flex: 1, minWidth: 0 }}>{hint}</span>
-        {Glyph && <Icon icon={Glyph} size={14} color={STATUS_COLOR[state!.status]} strokeWidth={1.8} aria-label={state!.status} />}
-      </div>
+        <Text size="body" style={{ color: disabled && !checked ? 'var(--fg-3)' : 'var(--fg-0)' }}>{STEP_LABEL[step]}</Text>
+        <Text size="caption" tone="faint" style={{ flex: 1, minWidth: 0 }}>{hint}</Text>
+        {state?.status === 'running' && <Spinner color={STATUS_COLOR.running} aria-label="running" />}
+        {Glyph && <Icon icon={Glyph} size="md" color={STATUS_COLOR[state!.status]} aria-label={state!.status} />}
+      </Row>
       {state?.status === 'ok' && (state.detail || state.url) && (
-        <div style={{ marginLeft: 24, fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', display: 'flex', gap: 'var(--s-2)', alignItems: 'center' }}>
+        <Row gap={2} style={{ marginLeft: 'var(--s-6)', fontSize: 'var(--t-tiny)', color: 'var(--fg-2)' }}>
           {state.detail && <span>{state.detail}</span>}
           {state.url && (
             <Button variant="ghost" size="sm" icon={ExternalLink} onClick={() => openExternal(state.url!)}>
               {state.url.includes('/compare/') ? 'Open compare page' : 'Open PR'}
             </Button>
           )}
-        </div>
+        </Row>
       )}
-      {state?.status === 'failed' && <div style={{ marginLeft: 24 }}><ErrorBox title={`${STEP_LABEL[step]} failed`} text={state.detail ?? 'Unknown error'} /></div>}
-    </div>
+      {state?.status === 'failed' && <div style={{ marginLeft: 'var(--s-6)' }}><ErrorBox title={`${STEP_LABEL[step]} failed`} text={state.detail ?? 'Unknown error'} /></div>}
+    </Stack>
   );
 }
 
 function ErrorBox({ title, text }: { title: string; text: string }) {
   return (
     <div role="alert" style={{ padding: 'var(--s-2) var(--s-3)', background: 'var(--danger-bg)', border: '1px solid color-mix(in srgb, var(--danger) 33%, transparent)', borderRadius: 'var(--r-2)', marginBottom: 'var(--s-2)' }}>
-      <div style={{ fontSize: 'var(--t-xs)', fontWeight: 600, color: 'var(--danger)' }}>{title}</div>
+      <Text as="div" size="small" weight={600} tone="danger">{title}</Text>
       <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 120, overflow: 'auto' }}>{text}</pre>
     </div>
   );

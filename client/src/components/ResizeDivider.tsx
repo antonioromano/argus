@@ -13,7 +13,7 @@ export function ResizeDivider({ isDragging, onMouseDown, onDoubleClick, orientat
   const baseStyle: React.CSSProperties = {
     flexShrink: 0,
     background: isActive ? 'var(--accent-edge)' : 'var(--line-2)',
-    transition: isDragging ? 'none' : 'background var(--dur-fast) var(--ease-std)',
+    transition: isDragging ? 'none' : 'background var(--dur-fast) var(--ease)',
     userSelect: 'none',
   };
   if (orientation === 'vertical') {

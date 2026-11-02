@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PromptOption, PromptTab } from '@argus/shared';
-import { ArrowLeft, ArrowRight, Check, MessageCircleQuestion, Send, Square, SquareCheck, Terminal } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, HelpCircle, Send, Square, SquareCheck, SquareTerminal } from 'lucide-react';
 import { Button, Icon, TextInput } from '../../../components/primitives/index.js';
 
 interface ChatPromptCardProps {
@@ -75,7 +75,7 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
     if (multi && o.freeText) {
       // Its field needs the cursor on it, which a digit does not move: terminal only.
       return (
-        <Button key={o.key} variant="ghost" size="sm" full icon={Terminal} style={ROW_STYLE} onClick={onShowTerminal}>
+        <Button key={o.key} variant="ghost" size="sm" full icon={SquareTerminal} style={ROW_STYLE} onClick={onShowTerminal}>
           <span className="argus-chat-prompt-label">{o.label} — in the terminal</span>
         </Button>
       );
@@ -113,7 +113,7 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
   return (
     <div className="argus-chat-prompt" role="group" aria-label="Claude is waiting" data-testid="chat-prompt">
       <div className="argus-chat-prompt-head">
-        <Icon icon={MessageCircleQuestion} size={14} aria-hidden />
+        <Icon icon={HelpCircle} size="md" aria-hidden />
         <span className="argus-chat-prompt-text">
           {prompt || (options ? 'Claude is waiting for your choice' : 'Claude Code is showing a menu in the terminal')}
         </span>
@@ -124,7 +124,7 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
           <div className="argus-chat-prompt-tablist">
             {tabs.map((t) => (
               <span key={t.label} className="argus-chat-prompt-tab" data-answered={t.answered || undefined}>
-                {t.answered ? <Icon icon={Check} size={12} aria-label="answered" /> : null}
+                {t.answered ? <Icon icon={Check} size="sm" aria-label="answered" /> : null}
                 {t.label}
               </span>
             ))}
@@ -148,7 +148,7 @@ export function ChatPromptCard({ prompt, options, tabs, onAnswer, onCancel, onSh
         </>
       ) : (
         <div className="argus-chat-prompt-actions">
-          <Button variant="primary" size="sm" icon={Terminal} onClick={onShowTerminal}>Open terminal</Button>
+          <Button variant="primary" size="sm" icon={SquareTerminal} onClick={onShowTerminal}>Open terminal</Button>
           <Button variant="ghost" size="sm" onClick={onCancel}>Cancel (Esc)</Button>
           {error && <span className="argus-chat-prompt-error">{error}</span>}
         </div>

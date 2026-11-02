@@ -69,7 +69,7 @@ const lnStyle: React.CSSProperties = {
   width: 46,
   flex: 'none',
   textAlign: 'right',
-  padding: '0 8px',
+  padding: '0 var(--s-2)',
   color: 'var(--fg-3)',
   userSelect: 'none',
   background: 'var(--bg-1)',
@@ -80,7 +80,7 @@ const codeStyle: React.CSSProperties = {
   minWidth: 0,
   whiteSpace: 'pre',
   overflow: 'visible',
-  paddingRight: 8,
+  paddingRight: 'var(--s-2)',
 };
 
 function DelRow({ c, nav, tokens }: { c: Change; nav?: DiffNav | null; tokens?: SynToken[] }) {
@@ -312,8 +312,8 @@ function ChunkSplit({
   }
 
   return (
-    <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 6, overflow: 'hidden', fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, 13px)' }}>
-      <div style={{ color: 'var(--fg-3)', padding: '3px 10px', background: 'var(--bg-1)' }}>{chunk.content}</div>
+    <div style={{ marginBottom: 'var(--s-4)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', overflow: 'hidden', fontFamily: 'var(--font-mono)', fontSize: 'var(--code-font-size, var(--t-body))' }}>
+      <div style={{ color: 'var(--fg-3)', padding: 'var(--s-1) var(--s-3)', background: 'var(--bg-1)' }}>{chunk.content}</div>
       <div
         ref={gridRef}
         style={{

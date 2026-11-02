@@ -45,7 +45,7 @@ const markdownComponents: Components = {
 
 const imageChip = (
   <span className="argus-chat-chip">
-    <Icon icon={ImageIcon} size={12} aria-hidden /> image
+    <Icon icon={ImageIcon} size="sm" aria-hidden /> image
   </span>
 );
 
@@ -112,7 +112,7 @@ function Block({ block, user }: { block: ChatBlock; user: boolean }) {
       return (
         <details className={`argus-chat-output${block.stream === 'stderr' ? ' is-stderr' : ''}`} data-testid="chat-output">
           <summary>
-            <Icon icon={ChevronRight} size={12} className="argus-chat-output-caret" aria-hidden />
+            <Icon icon={ChevronRight} size="sm" className="argus-chat-output-caret" aria-hidden />
             <span className="argus-chat-output-label">{block.stream === 'stderr' ? 'Error output' : 'Output'}</span>
             <span className="argus-chat-output-preview">{firstLine(block.text)}</span>
           </summary>
@@ -124,14 +124,14 @@ function Block({ block, user }: { block: ChatBlock; user: boolean }) {
       const stopped = block.text.startsWith('Stopped');
       return (
         <span className={`argus-chat-notice${stopped ? ' is-stopped' : ''}`}>
-          <Icon icon={stopped ? CircleStop : Info} size={12} aria-hidden /> {block.text}
+          <Icon icon={stopped ? CircleStop : Info} size="sm" aria-hidden /> {block.text}
         </span>
       );
     }
     default:
       return (
         <span className="argus-chat-chip argus-chat-chip-muted" title="Not shown in the Chat view — see the terminal">
-          <Icon icon={HelpCircle} size={12} aria-hidden /> {block.type}
+          <Icon icon={HelpCircle} size="sm" aria-hidden /> {block.type}
         </span>
       );
   }
@@ -191,7 +191,7 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
       {queued && (
         <div className="argus-chat-queued-row">
           <span className="argus-chat-queued" title="Claude will read this when it finishes the current step" data-testid="chat-queued">
-            <Icon icon={Clock} size={12} aria-hidden /> Queued
+            <Icon icon={Clock} size="sm" aria-hidden /> Queued
           </span>
           {onSendNow && (
             <Button

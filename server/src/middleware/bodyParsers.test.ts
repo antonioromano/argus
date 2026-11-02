@@ -72,3 +72,31 @@ test('parsesOwnBody matches exactly, method-aware', () => {
   assert.equal(parsesOwnBody({ method: 'POST', path: '/api/agent-signalsX' }), false);
   assert.equal(parsesOwnBody({ method: 'POST', path: '/api/sessions' }), false);
 });
+
+// The typed-error errorHandler must keep body-parser's own 4xx statuses and
+// their plain bodies (no `code`: they are not a fixable failure class).
+test('malformed JSON stays a code-less 400 and too-large a code-less 413', async () => {
+  const { send, close } = await serve();
+  try {
+    const big = await send('POST', '/api/echo', 2 * MB);
+    assert.equal(big.status, 413);
+    assert.deepEqual(await big.json(), { error: 'Request body too large' });
+  } finally {
+    await close();
+  }
+  const app = express();
+  app.use(createJsonBodyParser());
+  app.post('/api/echo', (_req, res) => { res.json({ ok: true }); });
+  app.use(errorHandler);
+  const server = await new Promise<Server>((r) => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
+  try {
+    const { port } = server.address() as AddressInfo;
+    const res = await fetch(`http://127.0.0.1:${port}/api/echo`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json',
+    });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'Bad request' });
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});

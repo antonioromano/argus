@@ -6,6 +6,7 @@ import os from 'os';
 import type { IPty } from 'node-pty';
 import type { Server } from 'socket.io';
 import type {
+  ArgusErrorCode,
   ClaudeConversation,
   SessionInfo,
   SessionStatus,
@@ -28,6 +29,7 @@ import type {
   SessionPrDiffResponse,
   AppConfig,
   ActivityEvent,
+  BackendHealth,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { ActivityStore } from './activity/ActivityStore.js';
@@ -95,6 +97,9 @@ import {
 import type { SearchTarget } from './search/crossSessionSearch.js';
 import { frameToRows } from './search/scrollbackSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
+import { ArgusError } from '../errors/ArgusError.js';
+import type { SessionIdentityPatch } from '../constants/sessionIdentity.js';
+import { BackendHealthTracker } from './backendHealth.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
 export interface CreateSessionOpts {
@@ -113,6 +118,14 @@ export interface CreateSessionOpts {
   usage?: SessionUsageTrackerState;
   /** Restore only: a Codex shell's spawn time and matched rollout log. */
   codexUsage?: CodexUsageState;
+  /** Restore only: the persisted identity (colour key, emoji). */
+  color?: string;
+  emoji?: string;
+  /** Restore only: the last run's exit (see ManagedSession.lastExit). */
+  lastExit?: { exitCode: number; exitedAfterMs?: number };
+  /** Reopen after a close: spawn `claude --resume <id>` on a FRESH create. The
+   *  resume argv is spawn-only (never stored in `flags`), like restartSession's. */
+  resumeClaudeSessionId?: string;
 }
 
 interface ManagedSession {
@@ -157,6 +170,9 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
+  /** Identity: palette key and emoji, validated by setSessionIdentity. */
+  color?: string;
+  emoji?: string;
   /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15).
    *  Cleared when startup ends (see `startup`), so it never outlives the first turn. */
   initialPrompt?: { text: string; clipped?: boolean };
@@ -265,6 +281,11 @@ interface ManagedSession {
   interruptedAt?: number;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
+  /** When the current pty was spawned (ms); measures exitedAfterMs. */
+  spawnedAt?: number;
+  /** The last run's exit, persisted so a restored exited session keeps it
+   *  (the "couldn't find <cmd>" card needs code 127 + how soon it exited). */
+  lastExit?: { exitCode: number; exitedAfterMs?: number };
 }
 
 /** How long one Shift+Tab may take to show a new mode in the footer (output settle is 500ms). */
@@ -508,12 +529,12 @@ const samePrUrl = (a: string, b: string | undefined): boolean => !!b && a.toLowe
 /** sessionPrDiff's answer: the diff, or the HTTP status and message to reply with. */
 export type PrDiffOutcome =
   | { ok: true; diff: SessionPrDiffResponse }
-  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string; code?: ArgusErrorCode };
 
 /** setSessionPrReady's answer (C3): the PR read again, or the HTTP status and message. */
 export type PrReadyOutcome =
   | { ok: true; pr: SessionPr | null }
-  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string };
+  | { ok: false; status: 404 | 409 | 502 | 503 | 504; error: string; code?: ArgusErrorCode };
 
 /** gh failure kind → HTTP status. */
 const GH_ERROR_STATUS = { unavailable: 503, timeout: 504, failed: 502 } as const;
@@ -609,6 +630,8 @@ export class SessionManager {
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
+  /** Set by wireBackend, alongside the backend it watches. */
+  private health!: BackendHealthTracker;
   /** Direct run mode: plain node-pty, no daemon/tmux, nothing survives a quit. */
   private directBackend: PtyBackend;
 
@@ -633,6 +656,18 @@ export class SessionManager {
   /** Subscribe to backend-level events that outlive an individual session. */
   private wireBackend(): void {
     this.backend.onSessionResync?.((id) => this.beginResync(id));
+    this.health?.dispose();
+    this.health = new BackendHealthTracker(
+      this.backend.kind === 'daemon' ? 'daemon' : 'tmux',
+      (h) => this.io?.emit('backend:health', h),
+    );
+    const health = this.health;
+    this.backend.onHealthEvent?.((e) => health.handle(e));
+  }
+
+  /** argusd/tmux health for the status bar (GET /api/backend/health). */
+  backendHealth(): BackendHealth {
+    return this.health.current();
   }
 
   /**
@@ -647,10 +682,12 @@ export class SessionManager {
     this.wireBackend();
   }
 
-  /** The persistent backend in use: its kind, and the argusd socket when it is the daemon. */
-  activeBackend(): { kind: PtyBackend['kind']; socketPath: string | null } {
+  /** The persistent backend in use: its kind, and the argusd socket (and whether it is up) when it is the daemon. */
+  activeBackend(): { kind: PtyBackend['kind']; socketPath: string | null; connected: boolean | null } {
     const b = this.backend;
-    return { kind: b.kind, socketPath: b instanceof DaemonBackend ? b.socketPath : null };
+    return b instanceof DaemonBackend
+      ? { kind: b.kind, socketPath: b.socketPath, connected: b.isConnected() }
+      : { kind: b.kind, socketPath: null, connected: null };
   }
 
   /** Wire the native agent-signal secret + resolved argus-signal binary path. */
@@ -1137,7 +1174,7 @@ export class SessionManager {
       return { ok: true, diff: await found.service.prDiff(found.url, found.folder) };
     } catch (err) {
       if (!(err instanceof PrDiffError)) throw err;
-      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message, ...(err.code ? { code: err.code } : {}) };
     }
   }
 
@@ -1155,7 +1192,7 @@ export class SessionManager {
       await found.service.setReady(found.url, found.folder, ready);
     } catch (err) {
       if (!(err instanceof PrWriteError)) throw err;
-      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message };
+      return { ok: false, status: GH_ERROR_STATUS[err.kind], error: err.message, ...(err.code ? { code: err.code } : {}) };
     }
     const pr = await found.service.forUrl(found.url, found.folder);
     this.sweepPrsAfterWrite();
@@ -1385,7 +1422,7 @@ export class SessionManager {
     // `command = agentDef?.command ?? resolvedAgentType` turns an arbitrary string
     // into a raw shell word (PtyManager interpolates it into `sh -l -c`).
     if (!this.agentRegistry.isRegistered(resolvedAgentType, config.customAgents)) {
-      throw new Error(`Unknown agent type: "${resolvedAgentType}"`);
+      throw new ArgusError('AGENT_UNKNOWN', 400, `Unknown agent type: "${resolvedAgentType}"`, undefined, { agent: resolvedAgentType });
     }
 
     // Resolve the CLI command for this agent
@@ -1434,7 +1471,13 @@ export class SessionManager {
       if (!pa) throw new Error(`Agent "${resolvedAgentType}" does not accept an initial prompt`);
       promptTail = pa;
     }
-    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, resolvedFlags, effectiveFolderPath);
+    const freshCreate = !attachExisting && !restoreExited && existingId == null;
+    const resumeId = freshCreate ? opts.resumeClaudeSessionId : undefined;
+    if (resumeId !== undefined && resolvedAgentType !== 'claude') {
+      throw new Error('Only Claude sessions can resume a conversation');
+    }
+    const spawnUserFlags = resumeId !== undefined ? buildResumeFlags(resolvedFlags, resumeId) : resolvedFlags;
+    const inj = (attachExisting || restoreExited) ? null : this.buildSignalInjection(id, resolvedAgentType, spawnUserFlags, effectiveFolderPath);
     if (inj) {
       for (const f of inj.files) {
         try {
@@ -1445,7 +1488,7 @@ export class SessionManager {
       }
     }
     const mcpFlags = (attachExisting || restoreExited) ? [] : this.mcpInjection(id, resolvedAgentType);
-    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags), ...mcpFlags];
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? spawnUserFlags), ...mcpFlags];
     const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -1510,6 +1553,10 @@ export class SessionManager {
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       launcherId: opts.launcherId,
+      color: opts.color,
+      emoji: opts.emoji,
+      spawnedAt: Date.now(),
+      lastExit: restoreExited ? opts.lastExit : undefined,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
       // A fresh Claude spawn only (Chat is its sole reader): a restored or re-attached agent started long ago.
@@ -1547,12 +1594,15 @@ export class SessionManager {
       stateDetector.setExited();
       this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
+      this.recordExit(session, exitCode);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
       this.nudgeUsage(session, true);
     });
 
     this.applyRestoredInsights(session, opts);
+    // A reopened conversation is the same Claude session: Resume works at once.
+    if (resumeId !== undefined) session.claudeSessionId = resumeId;
     this.sessions.set(id, session);
     if (!attachExisting && !restoreExited && !session.codex) this.startCodexUsage(session);
     else this.refreshCodexPoll();
@@ -1580,6 +1630,22 @@ export class SessionManager {
     session.name = trimmed;
     await this.persistSessions();
     this.io?.emit('session:renamed', { sessionId: id, name: trimmed });
+    return this.toSessionInfo(session);
+  }
+
+  /**
+   * Set or clear a session's identity colour and emoji. Cosmetic, like rename.
+   * The patch is validated by the route (validateIdentity); a field left
+   * undefined keeps its value, `null` clears it.
+   */
+  async setSessionIdentity(id: string, patch: SessionIdentityPatch): Promise<SessionInfo> {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found`);
+
+    if (patch.color !== undefined) session.color = patch.color ?? undefined;
+    if (patch.emoji !== undefined) session.emoji = patch.emoji ?? undefined;
+    await this.persistSessions();
+    this.io?.emit('session:identity', { sessionId: id, color: session.color ?? null, emoji: session.emoji ?? null });
     return this.toSessionInfo(session);
   }
 
@@ -1757,6 +1823,8 @@ export class SessionManager {
     session.pty = ptyProcess;
     session.stateDetector = stateDetector;
     session.mirror = mirror;
+    session.spawnedAt = Date.now();
+    session.lastExit = undefined;
     if (wasTiered) this.fileWatcher.watch(id, workRootOf(session));
 
     ptyProcess.onData((data) => {
@@ -1772,6 +1840,7 @@ export class SessionManager {
       stateDetector.setExited();
       this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
+      this.recordExit(session, exitCode);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
       this.nudgeUsage(session, true);
@@ -3207,7 +3276,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji, lastExit: p.lastExit });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -3227,7 +3296,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage, color: p.color, emoji: p.emoji, lastExit: p.lastExit });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -3285,6 +3354,10 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      color: session.color,
+      emoji: session.emoji,
+      exitCode: session.status === 'exited' ? session.lastExit?.exitCode : undefined,
+      exitedAfterMs: session.status === 'exited' ? session.lastExit?.exitedAfterMs : undefined,
       initialPrompt: session.initialPrompt,
       starting: session.startup ? true : undefined,
       spawnedBy: session.spawnedBy,
@@ -3424,6 +3497,15 @@ export class SessionManager {
   // Queued so concurrent create/destroy calls can't race two store.save()
   // writes and let a stale snapshot win. Each queued job reads `this.sessions`
   // only once it's its turn, so it always persists the latest state.
+  /** Keeps the exit for SessionInfo and the next restore; persisted best-effort. */
+  private recordExit(session: ManagedSession, exitCode: number): void {
+    session.lastExit = {
+      exitCode,
+      exitedAfterMs: session.spawnedAt !== undefined ? Date.now() - session.spawnedAt : undefined,
+    };
+    this.persistSessions().catch(console.error);
+  }
+
   private persistSessions(): Promise<void> {
     const run = this.persistQueue.then(async () => {
       const data: PersistedSession[] = Array.from(this.sessions.values()).map((s) => ({
@@ -3438,6 +3520,9 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        color: s.color,
+        emoji: s.emoji,
+        lastExit: s.lastExit,
         spawnedBy: s.spawnedBy,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),

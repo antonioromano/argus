@@ -18,11 +18,13 @@ export type ShortcutActionId =
   | 'open-files'
   | 'open-shell'
   | 'toggle-inspector'
+  | 'toggle-theme'
   | 'terminal-search'
   | 'clear-terminal'
-  | 'terminal-newline';
+  | 'terminal-newline'
+  | 'show-shortcuts';
 
-export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Explorer' | 'Terminal';
+export type ShortcutCategory = 'Sessions' | 'Navigation' | 'Explorer' | 'Terminal' | 'Help';
 
 /** Where an action is live. Global actions go through the app-wide keydown
  *  handler; an `explorer` action only while a file explorer is open, where it
@@ -45,34 +47,44 @@ export interface ShortcutAction {
 
 export const SHORTCUTS: readonly ShortcutAction[] = [
   { id: 'new-session', label: 'New session', category: 'Sessions', defaultCombo: 'mod+n' },
-  { id: 'close-shell', label: 'Close active shell', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
+  { id: 'close-shell', label: 'Close active session', category: 'Sessions', defaultCombo: 'mod+w', fixed: true, note: 'Set by the app menu' },
   { id: 'command-palette', label: 'Toggle Find & Jump', category: 'Navigation', defaultCombo: 'mod+k' },
-  { id: 'waiting-inbox', label: 'Waiting inbox (every shell that needs you)', category: 'Navigation', defaultCombo: 'mod+shift+j' },
+  { id: 'waiting-inbox', label: 'Waiting Inbox (every session that needs you)', category: 'Navigation', defaultCombo: 'mod+shift+j' },
   // ⌘⇧F: Monaco binds ⌘F, ⌥⌘F and ⇧⌥F but not ⌘⇧F, so the menu accelerator
   // never fires over a focused editor's own command.
   { id: 'session-search', label: 'Search all sessions (scrollback + transcripts)', category: 'Navigation', defaultCombo: 'mod+shift+f' },
   { id: 'open-settings', label: 'Open settings', category: 'Navigation', defaultCombo: 'mod+,' },
   // Act on the focused shell — the tile whose terminal has focus in the mosaic,
   // or the open one in focus view. The ⋯ menu labels these from the same bindings.
-  { id: 'open-diff', label: 'Diff for the focused shell', category: 'Navigation', defaultCombo: 'mod+d' },
-  { id: 'open-files', label: 'Files for the focused shell', category: 'Navigation', defaultCombo: 'mod+e' },
-  { id: 'open-shell', label: 'Terminal for the focused shell', category: 'Navigation', defaultCombo: 'mod+t' },
+  { id: 'open-diff', label: 'Diff for the focused session', category: 'Navigation', defaultCombo: 'mod+d' },
+  { id: 'open-files', label: 'Files for the focused session', category: 'Navigation', defaultCombo: 'mod+e' },
+  { id: 'open-shell', label: 'Shell for the focused session', category: 'Navigation', defaultCombo: 'mod+t' },
   // Renderer keydown only, no app-menu twin: a toggle fired by both paths for
   // one keystroke would cancel itself out. Inside a Monaco editor ⌘I stays
   // Monaco's own (trigger suggest).
   { id: 'toggle-inspector', label: 'Show or hide the Session Inspector', category: 'Navigation', defaultCombo: 'mod+i' },
+  // Has an app-menu twin (View → Toggle Theme). The keydown handler and the
+  // menu accelerator can both fire for one press, so both go through one
+  // dedupe gate (see useMenuCommandHandlers). Monaco binds ⌘⇧L (Select All
+  // Occurrences): the menu item is gated while an editor has focus.
+  { id: 'toggle-theme', label: 'Toggle light and dark theme', category: 'Navigation', defaultCombo: 'mod+shift+l' },
   // Shares ⌘⇧F with session-search on purpose (VS Code's Find in Files key): while
   // the explorer scope is active its action wins (see keyboard/scopes).
   { id: 'find-in-files', label: 'Find in files', category: 'Explorer', defaultCombo: 'mod+shift+f', scope: 'explorer', note: 'While the file explorer is open' },
   { id: 'terminal-search', label: 'Search in active terminal', category: 'Terminal', defaultCombo: 'mod+f' },
   { id: 'clear-terminal', label: 'Clear scrollback (keeps the current screen)', category: 'Terminal', defaultCombo: 'mod+l' },
   { id: 'terminal-newline', label: 'Insert newline (multi-line prompt)', category: 'Terminal', defaultCombo: 'shift+enter', fixed: true },
+  // Has an app-menu twin (Help → Keyboard Shortcuts), gated while an editor has
+  // focus: ⌘/ is Monaco's Toggle Line Comment. Open-only on both paths, so a
+  // press that reaches both never cancels itself. Matched on the character
+  // typed (see comboMatches), so ⌘⇧7 on an Italian or German layout fires it.
+  { id: 'show-shortcuts', label: 'Keyboard shortcuts', category: 'Help', defaultCombo: 'mod+/' },
 ];
 
 export const SHORTCUTS_BY_ID: Record<ShortcutActionId, ShortcutAction> = Object.fromEntries(
   SHORTCUTS.map((s) => [s.id, s]),
 ) as Record<ShortcutActionId, ShortcutAction>;
 
-export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Explorer', 'Terminal'];
+export const CATEGORY_ORDER: ShortcutCategory[] = ['Sessions', 'Navigation', 'Explorer', 'Terminal', 'Help'];
 
 export const scopeOf = (a: ShortcutAction): ShortcutScope => a.scope ?? 'global';

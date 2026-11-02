@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import type {
   AppConfig,
+  AppEnvironment,
   ClientToServerEvents,
   ServerToClientEvents,
   SessionInfo,
@@ -15,6 +16,8 @@ import type {
   WindowRegistryState,
 } from '@argus/shared';
 import { SessionManager } from './services/SessionManager.js';
+import { agentLabel, buildAppDiagnostics, redactConfig, type AppDiagnostics, type ServerFacts } from './services/AppDiagnostics.js';
+import { findDuplicateDaemons } from './services/ptyBackend/index.js';
 import { GitService } from './services/GitService.js';
 import { PrStatusService } from './services/PrStatusService.js';
 import { isBetaEnabled } from './utils/betaFlags.js';
@@ -41,6 +44,7 @@ import { LaunchService } from './services/launch/LaunchService.js';
 import { AuthService } from './services/AuthService.js';
 import { createSessionRoutes } from './routes/sessions.js';
 import { createFilesystemRoutes } from './routes/filesystem.js';
+import { StagedTrash } from './services/StagedTrash.js';
 import { createSymbolRoutes } from './routes/symbols.js';
 import { createGitRoutes } from './routes/git.js';
 import { createSessionPrRoutes } from './routes/sessionPrs.js';
@@ -90,7 +94,7 @@ const HOST = process.env.ARGUS_HOST || '127.0.0.1';
 // Injected folder picker — set by Electron host before startServer() is called.
 // We keep a mutable options object so the filesystem route reads the current fn
 // at request time rather than at module-evaluation time.
-const _filesystemOptions: { pickFolder?: () => Promise<string | null> } = {};
+const _filesystemOptions: { pickFolder?: () => Promise<string | null>; trash?: StagedTrash } = {};
 
 export function setPickFolderFn(fn: () => Promise<string | null>): void {
   _filesystemOptions.pickFolder = fn;
@@ -201,6 +205,61 @@ export function getActiveSessionSummaries(): { name: string; status: string; ter
     .filter((s) => s.status !== 'exited')
     .map((s) => ({ name: s.name, status: s.status, terminalEngine: s.terminalEngine, runMode: s.runMode ?? 'persistent' }));
 }
+
+// Help → Copy Diagnostics / Report an Issue (plan 002). In-process only, read
+// by electron/src/main.ts: there is deliberately no REST route, since the API
+// is reachable over ngrok. Counts and booleans, never names or paths.
+export function collectServerFacts(): ServerFacts {
+  const backend = sessionManager.activeBackend();
+  const sessions = sessionManager.getAllSessions();
+  const tally = (key: (s: SessionInfo) => string) => {
+    const out: Record<string, number> = {};
+    for (const s of sessions) out[key(s)] = (out[key(s)] ?? 0) + 1;
+    return out;
+  };
+  const ngrok = ngrokService.getStatus();
+  const cfg = currentConfig ?? ({} as Partial<AppConfig>);
+  return {
+    backend: {
+      configured: cfg.ptyBackend ?? 'auto',
+      active: backend.kind,
+      socket: backend.socketPath ? path.basename(backend.socketPath) : null,
+      daemonConnected: backend.connected,
+      duplicateDaemons: backend.socketPath ? findDuplicateDaemons(dataDir, backend.socketPath).length : 0,
+    },
+    sessions: {
+      total: sessions.length,
+      byStatus: tally((s) => s.status),
+      byAgent: tally((s) => agentLabel(s.agentType)),
+      byRunMode: tally((s) => s.runMode ?? 'persistent'),
+      byEngine: tally((s) => s.terminalEngine ?? 'default'),
+    },
+    windows: windowRegistry.getState().windows.length,
+    remote: {
+      exposed: authService.exposed,
+      authEnabled: authService.enabled,
+      ngrokInstalled: ngrok.installed,
+      ngrokTunnel: ngrok.tunnelStatus,
+    },
+    betaFlags: Object.entries(cfg).filter(([k, v]) => k.startsWith('beta') && v === true).map(([k]) => k),
+    uptimeSec: Math.round(process.uptime()),
+    config: redactConfig(cfg),
+  };
+}
+
+export function hostBuildDiagnostics(
+  environment: AppEnvironment,
+  logs: { recent: string[]; update: string[] },
+): AppDiagnostics {
+  return buildAppDiagnostics({
+    environment,
+    server: collectServerFacts(),
+    logs,
+    home: os.homedir(),
+    generatedAt: new Date().toISOString(),
+  });
+}
+
 const agentRegistry = new AgentRegistry();
 
 // One OS-level sleep blocker for the whole process, arbitrated by reason so a
@@ -482,6 +541,10 @@ app.use('/api/chains', createChainRoutes({
 // Pass the mutable options object directly so the filesystem route reads the current
 // pickFolder fn at request time — Electron sets it via setPickFolderFn() before the
 // first request arrives, and the CLI path leaves it undefined (falling through to osascript).
+// Explorer delete goes through an in-app trash so it can be undone (plan 004
+// U7). Items from a previous run are unrestorable: sweep them at startup.
+_filesystemOptions.trash = new StagedTrash(path.join(dataDir, 'trash'));
+void _filesystemOptions.trash.sweep();
 app.use('/api/fs', createFilesystemRoutes(sessionManager, _filesystemOptions));
 app.use('/api/symbols', createSymbolRoutes(sessionManager));
 app.use('/api', createGitRoutes(sessionManager, gitService, changelistStore, commitSelectionStore));
@@ -489,6 +552,11 @@ app.use('/api', createSessionPrRoutes(sessionManager));
 app.use('/api/ngrok', createNgrokRoutes(ngrokService, authService));
 app.use('/api/keep-awake', createKeepAwakeRoutes(keepAwakeService));
 // Plan usage per agent account (the usage meter); live updates ride `usage:plan`.
+// Plan 009 S1: argusd/tmux health for the status bar; changes also go out as
+// `backend:health`, this covers a client that connects after the last change.
+app.get('/api/backend/health', (_req, res) => {
+  res.json(sessionManager.backendHealth());
+});
 app.get('/api/usage/plan', (_req, res) => {
   res.json(sessionManager.getPlanUsage());
 });

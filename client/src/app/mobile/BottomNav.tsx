@@ -13,7 +13,7 @@ interface BottomNavProps {
 }
 
 const tabs: { id: MobileTab; icon: LucideIcon; label: string }[] = [
-  { id: 'sessions', icon: SquareTerminal, label: 'Shells' },
+  { id: 'sessions', icon: SquareTerminal, label: 'Sessions' },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -43,14 +43,14 @@ export function BottomNav({ active, onChange, onCreate, doneCount = 0, waitingCo
 
       <button
         onClick={onCreate}
-        aria-label="New shell"
+        aria-label="New session"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           width: 48,
           height: 48,
-          marginTop: 6,
+          marginTop: 'var(--s-1-5)',
           flexShrink: 0,
           borderRadius: '50%',
           border: 'none',
@@ -60,7 +60,7 @@ export function BottomNav({ active, onChange, onCreate, doneCount = 0, waitingCo
           cursor: 'pointer',
         }}
       >
-        <Icon icon={Plus} size={24} strokeWidth={2.2} />
+        <Icon icon={Plus} size={24} strokeWidth={2} />
       </button>
 
       <TabButton tab={tabs[1]} active={active === tabs[1].id} onClick={() => onChange(tabs[1].id)} />
@@ -83,19 +83,19 @@ function NavBadge({ count, type, shiftLeft }: { count: number; type: 'done' | 'w
         right: shiftLeft ? 8 : -4,
         minWidth: 16,
         height: 16,
-        borderRadius: 999,
+        borderRadius: 'var(--r-pill)',
         background: bg,
         color: textColor,
         fontFamily: 'var(--font-mono)',
-        fontSize: 9,
+        fontSize: 'var(--t-micro)',
         fontWeight: 700,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '0 3px',
+        padding: '0 var(--s-1)',
         border: '1.5px solid var(--bg-1)',
         lineHeight: 1,
-        animation: type === 'waiting' ? 'argus-pulse-dot 2400ms ease-in-out infinite' : undefined,
+        animation: type === 'waiting' ? 'argus-pulse-dot var(--dur-ambient) ease-in-out infinite' : undefined,
       }}
     >
       {count > 99 ? '99+' : count}
@@ -117,7 +117,7 @@ function TabButton({ tab, active, onClick, doneCount = 0, waitingCount = 0 }: { 
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 3,
+        gap: 'var(--s-1)',
         width: 72,
         height: 64,
         border: 'none',
@@ -128,7 +128,7 @@ function TabButton({ tab, active, onClick, doneCount = 0, waitingCount = 0 }: { 
       }}
     >
       <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Icon icon={Glyph} size={20} strokeWidth={active ? 2 : 1.6} />
+        <Icon icon={Glyph} size="xl" strokeWidth={active ? 2 : undefined} />
         {showBadges && (
           <>
             <NavBadge count={doneCount} type="done" shiftLeft={waitingCount > 0} />

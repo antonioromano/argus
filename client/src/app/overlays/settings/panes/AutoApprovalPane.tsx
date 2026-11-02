@@ -6,9 +6,12 @@ import {
   type AutoApprovalRule,
   type AutoApprovalTool,
 } from '@argus/shared';
-import { Button, Section, SettingRow, Segmented, TextInput, Toggle, pushToast } from '../../../../components/primitives/index.js';
+import { AlertSheet, Button, Section, Segmented, TextInput, Toggle, Stack, Row, Text } from '../../../../components/primitives/index.js';
+import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
+import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
 import type { PaneProps } from '../types.js';
+import { SettingField } from '../SettingField.js';
 
 const TOOLS = Object.keys(AUTO_APPROVAL_TOOLS) as AutoApprovalTool[];
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -38,12 +41,12 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
   const [folders, setFolders] = useState<AutoApprovalFolder[] | null>(null);
   const [folder, setFolder] = useState<string>('');
   const [state, setState] = useState<AutoApprovalFolderState | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [tool, setTool] = useState<AutoApprovalTool>('Bash');
   const [pattern, setPattern] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const { hidden, remove: deferRemove } = useDeferredRemove();
   const [claudeMode, setClaudeMode] = useState<string | null>(null);
 
   const loadFolders = useCallback(() => api.getAutoApprovalFolders().then(
@@ -52,14 +55,14 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
       setLoadError(null);
       setFolder((cur) => (cur && list.some((f) => f.folder === cur) ? cur : list[0]?.folder ?? ''));
     },
-    (e: unknown) => setLoadError(errMsg(e)),
+    (e: unknown) => setLoadError(e ?? new Error('Couldn’t load auto-approval folders')),
   ), []);
 
   const loadRules = useCallback((f: string) => {
     if (!f) return Promise.resolve().then(() => setState(null));
     return api.getAutoApprovalRules(f).then(
       (s) => { setState(s); setLoadError(null); },
-      (e: unknown) => setLoadError(errMsg(e)),
+      (e: unknown) => setLoadError(e ?? new Error('Couldn’t load the rules')),
     );
   }, []);
 
@@ -85,23 +88,20 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
     }
   };
 
-  const remove = async (id: string) => {
-    setConfirmRemove(null);
-    try {
-      await api.removeAutoApprovalRule(folder, id);
-    } catch (e) {
-      pushToast(errMsg(e), 'danger');
-    }
-    await Promise.all([loadRules(folder), loadFolders()]);
+  // Deferred: re-creating a rule would give it a new id.
+  const remove = (r: AutoApprovalRule) => {
+    const from = folder;
+    deferRemove(r.id, {
+      message: `Removed rule ${describeRule(r)}`,
+      commit: () => api.removeAutoApprovalRule(from, r.id),
+      onCommitted: () => { void Promise.all([loadRules(from), loadFolders()]); },
+    });
   };
 
   return (
     <>
       <Section title="Auto-approval">
-        <SettingRow
-          label="Auto-approve matching tool calls"
-          hint="Claude sessions only. A rule can only allow; anything it does not match still asks, and your own Claude deny and ask rules still apply."
-        >
+        <SettingField id="autoApprovalEnabled">
           <Toggle
             checked={enabled}
             onChange={(v) => {
@@ -109,41 +109,44 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
               else { setConfirmEnable(false); void onSave({ autoApprovalEnabled: false }); }
             }}
           />
-        </SettingRow>
-        {confirmEnable && !enabled && (
-          <div className="settings-card-pad" role="alertdialog" aria-label="Confirm auto-approval"
-            style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 'var(--t-xs)', color: 'var(--fg-1)' }}>
-            <span style={{ flex: 1 }}>Tool calls matching your rules will run without asking. Turn on?</span>
-            <Button size="sm" variant="ghost" onClick={() => setConfirmEnable(false)}>Cancel</Button>
-            <Button size="sm" variant="primary" onClick={() => { setConfirmEnable(false); void onSave({ autoApprovalEnabled: true }); }}>
-              Turn on
-            </Button>
-          </div>
-        )}
+        </SettingField>
+        <AlertSheet
+          isOpen={confirmEnable && !enabled}
+          title="Turn on auto-approval?"
+          message="Tool calls matching your rules will run without asking."
+          confirmLabel="Turn on"
+          onConfirm={() => { setConfirmEnable(false); void onSave({ autoApprovalEnabled: true }); }}
+          onCancel={() => setConfirmEnable(false)}
+        />
       </Section>
 
       <Section
         title="Rules"
         action={<Button size="sm" variant="ghost" onClick={() => { void loadFolders(); void loadRules(folder); }}>Refresh</Button>}
       >
-        <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', fontSize: 'var(--t-xs)' }}>
+        <Stack gap={3} className="settings-card-pad" style={{ fontSize: 'var(--t-xs)' }}>
           {enabled && claudeMode && !RULE_MODES.includes(claudeMode) && (
             <p role="status" data-testid="auto-approval-inactive" style={{ margin: 0, color: 'var(--warning, var(--fg-2))' }}>
               Inactive for your sessions: your Claude default permission mode is <code>{claudeMode}</code>. Rules only act in
               <code> default</code> and <code>acceptEdits</code> modes, where an allow means skipping a prompt you would otherwise see.
             </p>
           )}
-          {loadError && <p role="alert" style={{ margin: 0, color: 'var(--danger)' }}>{loadError}</p>}
-          {folders && folders.length === 0 && (
-            <p style={{ margin: 0, color: 'var(--fg-3)' }}>No session folders yet. Open a session to add rules for its folder.</p>
+          <PaneLoadState
+            loaded={folders !== null}
+            error={loadError}
+            errorTitle="Couldn’t load auto-approval rules"
+            onRetry={() => { void loadFolders().then(() => loadRules(folder)); }}
+          />
+          {folders && folders.length === 0 && !loadError && (
+            <Text as="p" tone="faint">No session folders yet. Open a session to add rules for its folder.</Text>
           )}
           {folders && folders.length > 0 && (
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--fg-2)' }}>
+            <Row as="label" gap={2} style={{ color: 'var(--fg-2)' }}>
               Folder
               <select
                 aria-label="Folder"
                 value={folder}
-                onChange={(e) => { setConfirmRemove(null); setFolder(e.target.value); }}
+                onChange={(e) => setFolder(e.target.value)}
                 style={{ flex: 1, minWidth: 0, height: 28, background: 'var(--bg-3)', color: 'var(--fg-0)', border: '1px solid var(--line-3)', borderRadius: 'var(--r-2)' }}
               >
                 {folders.map((f) => (
@@ -152,32 +155,24 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
                   </option>
                 ))}
               </select>
-            </label>
+            </Row>
           )}
 
           {state && (
             <>
-              {state.rules.length === 0 && (
-                <p style={{ margin: 0, color: 'var(--fg-3)' }}>No rules for this folder. Nothing is auto-approved here.</p>
+              {state.rules.every((r) => hidden.has(r.id)) && (
+                <Text as="p" tone="faint">No rules for this folder. Nothing is auto-approved here.</Text>
               )}
-              {state.rules.map((r) => (
-                <div key={r.id} data-testid="aa-rule" style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 28 }}>
+              {state.rules.filter((r) => !hidden.has(r.id)).map((r) => (
+                <Row gap={2} key={r.id} data-testid="aa-rule" style={{ minHeight: 28 }}>
                   <code style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)', color: 'var(--fg-0)' }}>
                     {describeRule(r)}
                   </code>
-                  {confirmRemove === r.id ? (
-                    <>
-                      <span style={{ color: 'var(--fg-1)' }}>Remove?</span>
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(null)}>Cancel</Button>
-                      <Button size="sm" variant="danger" onClick={() => { void remove(r.id); }}>Remove</Button>
-                    </>
-                  ) : (
-                    <Button size="sm" variant="ghost" onClick={() => setConfirmRemove(r.id)}>Remove…</Button>
-                  )}
-                </div>
+                  <Button size="sm" variant="ghost" onClick={() => remove(r)}>Remove</Button>
+                </Row>
               ))}
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 'var(--s-2)', borderTop: '1px solid var(--line-2)' }}>
+              <Stack gap={2} style={{ paddingTop: 'var(--s-2)', borderTop: '1px solid var(--line-2)' }}>
                 <Segmented
                   label="Tool"
                   compact
@@ -185,7 +180,7 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
                   options={TOOLS.map((t) => ({ value: t, label: t }))}
                   onChange={(t) => { setTool(t); setAddError(null); }}
                 />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Row gap={2}>
                   <TextInput
                     mono
                     value={pattern}
@@ -200,33 +195,33 @@ export function AutoApprovalPane({ config, onSave }: PaneProps) {
                   <Button size="sm" onClick={() => { void add(); }} loading={busy} disabled={isCommand && !pattern.trim()}>
                     Add rule
                   </Button>
-                </div>
+                </Row>
                 {addError && <p role="alert" style={{ margin: 0, color: 'var(--danger)' }}>{addError}</p>}
                 <p style={{ margin: 0, color: 'var(--fg-3)', lineHeight: 1.5 }}>
                   {isCommand
                     ? 'Matches the command or the prefix followed by arguments. Commands with ; & | ` $ < > or a newline always ask. Keep prefixes narrow: "git" would allow any git command.'
                     : 'Matches paths inside this folder only (symlinks are resolved). Writes to .git, .claude and .mcp.json always ask.'}
                 </p>
-              </div>
+              </Stack>
             </>
           )}
-        </div>
+        </Stack>
       </Section>
 
       {state && (
         <Section title="Recent auto-approvals">
-          <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 'var(--t-xs)' }}>
-            {state.audit.length === 0 && <p style={{ margin: 0, color: 'var(--fg-3)' }}>None yet for this folder.</p>}
+          <Stack gap={1} className="settings-card-pad" style={{ fontSize: 'var(--t-xs)' }}>
+            {state.audit.length === 0 && <Text as="p" tone="faint">None yet for this folder.</Text>}
             {state.audit.map((a, i) => (
-              <div key={`${a.at}-${i}`} data-testid="aa-audit" style={{ display: 'flex', gap: 8, color: 'var(--fg-2)' }}>
-                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)' }}>{formatTime(a.at)}</span>
-                <span style={{ color: 'var(--fg-1)' }}>{a.tool}</span>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono)' }} title={a.summary}>
+              <Row align="stretch" gap={2} key={`${a.at}-${i}`} data-testid="aa-audit" style={{ color: 'var(--fg-2)' }}>
+                <Text mono tone="faint">{formatTime(a.at)}</Text>
+                <Text tone="default">{a.tool}</Text>
+                <Text mono truncate style={{ flex: 1 }} title={a.summary}>
                   {a.summary}
-                </span>
-              </div>
+                </Text>
+              </Row>
             ))}
-          </div>
+          </Stack>
         </Section>
       )}
     </>

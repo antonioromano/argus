@@ -37,38 +37,31 @@ contextBridge.exposeInMainWorld('electronFiles', {
   getPath: (name: string): string | undefined => pathMap.get(name),
 });
 
-contextBridge.exposeInMainWorld('electronDialog', {
-  showMessageBox: (opts: Electron.MessageBoxOptions) =>
-    ipcRenderer.invoke('dialog:showMessageBox', opts),
-});
-
-// App-level IPC bridge: menu events main → renderer; Dock badge renderer → main.
-const MENU_CHANNELS = [
-  'menu:new-session',
-  'menu:close-session',
-  'menu:open-settings',
-  'menu:toggle-palette',
-  'menu:waiting-inbox',
-  'menu:session-search',
-  'menu:toggle-theme',
-  'menu:open-diff',
-  'menu:open-files',
-  'menu:open-shell',
-  'menu:terminal-search',
-  'menu:clear-terminal',
-  'menu:whats-new',
-  'menu:review-launch',
-] as const;
-type MenuChannel = typeof MENU_CHANNELS[number];
+// App-level IPC bridge: menu commands main → renderer; Dock badge renderer → main.
+//
+// Every renderer-run menu item arrives as ONE `menu:command` message carrying
+// its id; the list of ids lives only in electron/src/menuModel.ts. This
+// sandboxed preload cannot import that module, so it checks the id's shape
+// only (the same pattern as isMenuCommandId in ipcGuards.ts) and the renderer
+// dispatches through its own typed handler map.
+const MENU_ID = /^menu:[a-z]+(-[a-z]+)*$/;
 
 contextBridge.exposeInMainWorld('electronApp', {
   setBadge: (count: number) => {
     ipcRenderer.send('dock:setBadge', count);
   },
-  onMenu: (channel: MenuChannel, cb: () => void): (() => void) => {
-    const listener = () => cb();
-    ipcRenderer.on(channel, listener);
-    return () => ipcRenderer.off(channel, listener);
+  onMenuCommand: (cb: (id: string) => void): (() => void) => {
+    const listener = (_e: unknown, id: unknown) => {
+      if (typeof id === 'string' && id.length <= 64 && MENU_ID.test(id)) cb(id);
+    };
+    ipcRenderer.on('menu:command', listener);
+    return () => ipcRenderer.off('menu:command', listener);
+  },
+  // The menu's commands with their live accelerators (menuModel.ts).
+  describeMenu: () => ipcRenderer.invoke('menu:describe'),
+  // Run a main-owned menu command; main drops anything off its allowlist.
+  invokeMenu: (id: string) => {
+    ipcRenderer.send('menu:invoke', id);
   },
   relaunch: () => {
     ipcRenderer.send('app:relaunch');
@@ -89,12 +82,50 @@ contextBridge.exposeInMainWorld('electronApp', {
   },
 });
 
+// macOS appearance (plan 008): material, contrast, active window, system
+// accent. `snapshot` is synchronous so the first paint already carries the
+// right attributes; main validates the sender and the theme value.
+contextBridge.exposeInMainWorld('electronAppearance', {
+  snapshot: (): unknown => {
+    try { return ipcRenderer.sendSync('appearance:snapshot') ?? undefined; } catch { return undefined; }
+  },
+  onChange: (cb: (snapshot: unknown) => void): (() => void) => {
+    const listener = (_e: unknown, snapshot: unknown) => cb(snapshot);
+    ipcRenderer.on('appearance:changed', listener);
+    return () => ipcRenderer.off('appearance:changed', listener);
+  },
+  setTheme: (mode: 'dark' | 'light' | 'system') => {
+    ipcRenderer.send('appearance:set-theme', mode);
+  },
+  // The toolbar height (density); main re-centres the traffic lights on it.
+  setTitlebarHeight: (px: number) => {
+    ipcRenderer.send('appearance:titlebar-height', px);
+  },
+});
+
 contextBridge.exposeInMainWorld('electronShell', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
 
+// Settings export / import (plan 007). The renderer hands over text only; main
+// owns every path (save/open dialogs, the userData backup folder).
+contextBridge.exposeInMainWorld('electronSettings', {
+  saveFile: (text: string) => ipcRenderer.invoke('settings:save-file', text),
+  openFile: () => ipcRenderer.invoke('settings:open-file'),
+  backup: (text: string) => ipcRenderer.invoke('settings:backup', text),
+  reveal: (which: 'export' | 'backup') => ipcRenderer.invoke('settings:reveal', which),
+});
+
+// Help surfaces (plan 002). The diagnostics text never crosses this bridge:
+// main writes it to the clipboard and answers { ok } only.
+contextBridge.exposeInMainWorld('electronHelp', {
+  appInfo: () => ipcRenderer.invoke('help:app-info'),
+  copyDiagnostics: () => ipcRenderer.invoke('help:copy-diagnostics'),
+  reportIssue: () => ipcRenderer.invoke('help:report-issue'),
+});
+
 // Native terminal overlay bridge. A
-// new flat namespace, matching the existing electronFiles / electronDialog /
+// new flat namespace, matching the existing electronFiles /
 // electronApp convention — there is no `window.argus` object in this codebase.
 interface NativeTerminalRect { x: number; y: number; width: number; height: number }
 interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
@@ -185,6 +216,10 @@ contextBridge.exposeInMainWorld('electronNotifications', {
   close: (id: string): void => {
     ipcRenderer.send('notif:close', id);
   },
+  /** Open a macOS System Settings pane by key; main maps it to a fixed URL. */
+  openSystemSettings: (pane: 'notifications'): void => {
+    ipcRenderer.send('system:openSettings', pane);
+  },
   onClick: (cb: (id: string) => void): (() => void) => {
     const listener = (_e: unknown, id: string) => cb(id);
     ipcRenderer.on('notif:click', listener);
@@ -214,5 +249,7 @@ contextBridge.exposeInMainWorld('electronLaunch', {
     list: () => ipcRenderer.invoke('launcher:list'),
     rename: (id: string, label: string) => ipcRenderer.invoke('launcher:rename', { id, label }),
     remove: (id: string) => ipcRenderer.invoke('launcher:delete', id),
+    // Settings import (plan 007): main re-validates each request on this Mac.
+    import: (items: unknown[]) => ipcRenderer.invoke('launcher:import', items),
   },
 });

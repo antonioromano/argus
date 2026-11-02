@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appOrigin, isTrustedSender, isSessionId, isRect, isFontPx,
-  sanitizeMessageBoxOptions, sanitizeShortcuts,
+  sanitizeShortcuts, isMenuCommandId, menuInvokeTarget,
 } from './ipcGuards.js';
 
 const ORIGIN = 'http://127.0.0.1:5757';
@@ -38,26 +38,31 @@ test('isSessionId / isRect / isFontPx shape guards', () => {
   assert.equal(isFontPx(Infinity), false);
 });
 
-test('sanitizeMessageBoxOptions keeps whitelisted fields only', () => {
-  const out = sanitizeMessageBoxOptions({
-    type: 'warning', message: 'Delete?', detail: 'd', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1,
-    icon: '/Users/x/evil.png', signal: {}, textWidth: 9999, noLink: true,
-  });
-  assert.deepEqual(out, { type: 'warning', message: 'Delete?', detail: 'd', buttons: ['Delete', 'Cancel'], defaultId: 1, cancelId: 1 });
-});
-
-test('sanitizeMessageBoxOptions rejects malformed input', () => {
-  for (const bad of [null, 'x', [], {}, { message: 42 }, { message: '' }, { message: 'm', buttons: [] }, { message: 'm', buttons: [1] }, { message: 'm', buttons: Array(9).fill('b') }]) {
-    assert.equal(sanitizeMessageBoxOptions(bad), null, JSON.stringify(bad));
-  }
-  // Out-of-range ids and bad types are dropped, not trusted.
-  assert.deepEqual(sanitizeMessageBoxOptions({ message: 'm', buttons: ['OK'], defaultId: 5, type: 'evil' }), { message: 'm', buttons: ['OK'] });
-});
-
 test('sanitizeShortcuts: small string map only', () => {
   assert.deepEqual(sanitizeShortcuts({ newSession: 'Cmd+N' }), { newSession: 'Cmd+N' });
   assert.equal(sanitizeShortcuts(null), null);
   assert.equal(sanitizeShortcuts(['Cmd+N']), null);
   assert.equal(sanitizeShortcuts({ a: 1 }), null);
   assert.equal(sanitizeShortcuts(Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`k${i}`, 'x']))), null);
+});
+
+test('isMenuCommandId: menu:-prefixed kebab ids only', () => {
+  assert.equal(isMenuCommandId('menu:new-window'), true);
+  assert.equal(isMenuCommandId('menu:toggle-theme'), true);
+  for (const bad of ['menu:../x', 'menu:', 'menu:New', 'new-window', 'menu:x y', `menu:${'a'.repeat(80)}`, 42, null, undefined, {}]) {
+    assert.equal(isMenuCommandId(bad), false, String(bad));
+  }
+});
+
+test('menuInvokeTarget: trusted sender + main-run allowlist', () => {
+  // A trusted main frame asking for a main-run command gets it.
+  assert.equal(menuInvokeTarget(ev(mainFrame), 'menu:new-window', ORIGIN), 'menu:new-window');
+  // An untrusted sender is refused even for an allowlisted id.
+  assert.equal(menuInvokeTarget(ev({ url: `${ORIGIN}/x` }), 'menu:new-window', ORIGIN), null);
+  const evil = { url: 'https://evil.example/' };
+  assert.equal(menuInvokeTarget(ev(evil, evil), 'menu:quit-stop-all', ORIGIN), null);
+  // Renderer-run, unknown and malformed ids are refused.
+  assert.equal(menuInvokeTarget(ev(mainFrame), 'menu:open-settings', ORIGIN), null);
+  assert.equal(menuInvokeTarget(ev(mainFrame), 'menu:nope', ORIGIN), null);
+  assert.equal(menuInvokeTarget(ev(mainFrame), { id: 'menu:new-window' }, ORIGIN), null);
 });

@@ -83,6 +83,29 @@ export type TileRunningIndicator = 'hairline' | 'off';
 /** Session Inspector placement: the left sidebar or a right-hand column. */
 export type InspectorSide = 'left' | 'right';
 
+/** Window background: native vibrancy behind the chrome, or opaque (plan 008). */
+export type WindowMaterial = 'translucent' | 'solid';
+
+/** Row rhythm: list rows, header padding, toolbar height (plan 008). Type size is untouched. */
+export type Density = 'compact' | 'default' | 'comfortable';
+
+/**
+ * What Electron main tells a window about the macOS appearance (plan 008).
+ * The renderer writes it to <html> as data-material / data-contrast /
+ * data-window-active and --sys-accent-color.
+ */
+export interface AppearanceSnapshot {
+  /** System accent as '#rrggbb', or null when the OS gives none. */
+  accent: string | null;
+  /** 'solid' under Reduce Transparency, Increase Contrast or fullscreen. */
+  material: WindowMaterial;
+  contrast: 'more' | 'normal';
+  /** App frontmost and this window focused (or hosting the key native terminal). */
+  active: boolean;
+  /** Toolbar left inset (px) that clears the traffic lights (titlebarMetrics.ts). */
+  titlebarInset: number;
+}
+
 export interface AppConfig {
   defaultAgent: AgentType;
   customAgents: AgentDefinition[];
@@ -94,6 +117,8 @@ export interface AppConfig {
   notificationSound: boolean; // play the default system sound with each notification
   showClock?: boolean;        // show HH:MM clock in the toolbar
   clockShowSeconds?: boolean; // extend clock to HH:MM:SS
+  showStatusBar?: boolean;    // bottom status bar: connection, sessions, remote, keep-awake, update, clock
+  restoreLayoutOnLaunch?: boolean; // reopen each window on its last view, panel and group filter
   othersFolderName?: string;  // display name for the ungrouped-sessions bucket
   preventSleepWhileRunning?: boolean; // keep macOS awake while ≥1 shell is running
   confirmCloseShell?: boolean; // show the confirm modal before closing a shell (Cmd+W / card button)
@@ -104,6 +129,7 @@ export interface AppConfig {
   codeFontSize?: number; // base font size (px) for code surfaces: terminals, file viewer, diffs (default: 13)
   mosaicWaitingStyle?: MosaicWaitingStyle; // how a waiting-for-input shell stands out in the mosaic (default: breathing)
   mosaicOrientation?: MosaicOrientation; // side by side ('horizontal') or stacked ('vertical') mosaic tiles (default: horizontal)
+  density?: Density; // row heights, header padding and toolbar height (default: 'default')
   debugToolsEnabled?: boolean; // reveal developer/debug CTAs (e.g. per-session diagnostics dump) (default: false)
   // Process-survival backend: 'auto' = argusd daemon when available (default),
   // 'tmux' = force the legacy tmux backend. Read once at startup — changing it
@@ -167,6 +193,32 @@ export interface AppConfig {
   betaSessionTemplates?: boolean; // F10
   betaHandoff?: boolean; // F12
   betaSessionChains?: boolean; // F13
+  // In-app tips: a one-time hint the first time a feature would help (default: true).
+  showTips?: boolean;
+  /** Tips, notification ask, beta promos and the getting-started checklist.
+   *  Bookkeeping, not a preference: no pane owns it and Reset all leaves it. */
+  discovery?: DiscoveryState;
+}
+
+/** What the contextual-discovery layer has already shown or seen the user do.
+ *  Always written whole: a partial object from an older build is normalized
+ *  client-side (`normalizeDiscovery`), since the server merge is shallow. */
+export interface DiscoveryState {
+  /** Tip ids already shown — shown is spent, acted on or not. */
+  tipsSeen: string[];
+  /** Epoch ms of the last tip (or notification ask); 0 = never. */
+  tipLastShownAt: number;
+  /** Epoch ms the notification ask was shown; 0 = never asked. */
+  notifAskedAt: number;
+  /** Features the user has reached on their own (e.g. 'inbox', 'broadcast'). */
+  used: string[];
+  /** Epoch ms the first-run checklist started; 0 = not a first-run user. */
+  checklistStartedAt: number;
+  /** Checklist item ids ticked (sticky). */
+  checklistDone: string[];
+  checklistDismissed: boolean;
+  /** Beta flags whose "Try (beta)" suggestion was dismissed; '*' hides them all. */
+  betaPromosHidden: string[];
 }
 
 /** A usage chip part: context %, plan usage (+ reset), session tokens, model. */
@@ -221,6 +273,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
+  showStatusBar: true,
+  restoreLayoutOnLaunch: true,
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
   confirmCloseShell: true,
@@ -231,6 +285,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
   mosaicOrientation: 'horizontal',
+  density: 'default',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',
@@ -259,6 +314,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   betaSessionTemplates: false,
   betaHandoff: false,
   betaSessionChains: false,
+  showTips: true,
+  discovery: { tipsSeen: [], tipLastShownAt: 0, notifAskedAt: 0, used: [], checklistStartedAt: 0, checklistDone: [], checklistDismissed: false, betaPromosHidden: [] },
 };
 
 export interface AgentStatus {
@@ -354,6 +411,42 @@ export interface AgentDetectionResponse {
   agents: AgentStatus[];
 }
 
+// ── Typed error contract ────────────────────────────────────────────────────
+
+/**
+ * Class of a failure the user can act on. The server attaches it to error
+ * bodies (`ApiErrorBody.code`); the client maps it to a title, a cause and
+ * next actions (client/src/errors/errorCopy.ts). TYPE-ONLY on purpose: the
+ * server and electron/ may only `import type` from here, and a literal union
+ * has no runtime value, so nothing crosses the app.asar boundary. If the
+ * server ever needs a runtime list of codes, put it in server/src/constants/
+ * and register it in scripts/check-dep-sync.mjs check 3.
+ */
+export type ArgusErrorCode =
+  | 'SERVER_UNREACHABLE'        // client-originated (fetch rejected)
+  | 'AUTH_REQUIRED'
+  | 'SESSION_NOT_FOUND'
+  | 'FOLDER_NOT_FOUND' | 'PERMISSION_DENIED'
+  | 'GIT_NOT_INSTALLED' | 'NOT_A_GIT_REPO' | 'GIT_FAILED'
+  | 'GH_NOT_INSTALLED' | 'GH_NOT_AUTHENTICATED' | 'GH_TIMEOUT'
+  | 'AGENT_NOT_INSTALLED' | 'AGENT_UNKNOWN'
+  | 'RIPGREP_UNAVAILABLE'
+  | 'NGROK_NOT_INSTALLED' | 'NGROK_AUTH_FAILED' | 'NGROK_TIMEOUT'
+  | 'DAEMON_UNAVAILABLE'
+  | 'TIMEOUT' | 'INTERNAL';
+
+/** Shape of every error response body. Only `error` is guaranteed: routes
+ *  that are not migrated yet send `{ error }` alone. */
+export interface ApiErrorBody {
+  /** Human message (kept for back-compat and as the fallback). */
+  error: string;
+  code?: ArgusErrorCode;
+  /** Raw tool output (stderr, errno) for the "Details" disclosure. Never shown as the headline. */
+  detail?: string;
+  /** Code-specific parameters the copy needs (e.g. { tool: 'gh' }, { agent: 'claude', installUrl }). */
+  params?: Record<string, string>;
+}
+
 export interface SessionInfo {
   id: string;
   name: string;
@@ -412,6 +505,24 @@ export interface SessionInfo {
    * Chat reads a missing transcript as "Claude is starting"; after, as unreadable.
    */
   starting?: boolean;
+  /** Exit code of the agent's last run while the session is exited; cleared when it
+   *  runs again. Persisted, so it survives a reload or app restart. */
+  exitCode?: number;
+  /** ms from the agent's latest spawn to its exit. Tells a missing
+   *  command (exit 127 right after spawn) apart from the agent itself exiting 127. */
+  exitedAfterMs?: number;
+  /** Identity: a `SESSION_COLOR_KEYS` key drawn as a leading edge bar. */
+  color?: string;
+  /** Identity: one emoji grapheme shown before the name. */
+  emoji?: string;
+}
+
+/** Health of the process backend that owns the ptys. tmux has no connection to
+ *  lose, so it is always `ok`. `drain`: argusd is a different version and is
+ *  being retired once its sessions end. */
+export interface BackendHealth {
+  kind: 'daemon' | 'tmux';
+  state: 'ok' | 'reconnecting' | 'down' | 'drain';
 }
 
 // ── Beta F8: worktree lifecycle ────────────────────────────────────────────
@@ -1019,6 +1130,9 @@ export interface CreateSessionRequest {
   worktreeBase?: string;    // base branch/commit for the new branch (default: HEAD)
   terminalEngine?: TerminalEngine;
   runMode?: RunMode;
+  /** Reopen a closed Claude session's conversation (`claude --resume <id>`).
+   *  Must be a Claude conversation UUID. Leaves sticky flag defaults alone. */
+  resumeClaudeSessionId?: string;
 }
 
 export interface CreateSessionResponse extends SessionInfo {}
@@ -1038,6 +1152,28 @@ export interface RenameSessionRequest {
 /** Longest accepted shell display name. Long enough for a descriptive label,
  *  short enough that the tile header still fits its status pill. */
 export const SESSION_NAME_MAX = 60;
+
+/** Colour keys a session's identity may carry — the group palette's keys
+ *  (client `GROUP_COLORS`), resolved per theme at render. The server keeps a
+ *  copy (server/src/constants/sessionIdentity.ts), pinned by check:deps. */
+export const SESSION_COLOR_KEYS = {
+  blue: true,
+  green: true,
+  purple: true,
+  amber: true,
+  pink: true,
+  teal: true,
+  grey: true,
+} as const;
+
+/** Longest accepted identity emoji, in UTF-16 units (a ZWJ family fits). */
+export const SESSION_EMOJI_MAX = 16;
+
+/** `PATCH /api/sessions/:id/identity`. Omitted field = unchanged, `null` = cleared. */
+export interface SetSessionIdentityRequest {
+  color?: string | null;
+  emoji?: string | null;
+}
 
 /** Session Inspector column width bounds (px); the server clamps `inspectorWidth` to them. */
 export const INSPECTOR_WIDTH_MIN = 220;
@@ -1204,6 +1340,9 @@ export interface ServerToClientEvents {
   'session:created': (session: SessionInfo) => void;
   'session:deleted': (payload: { sessionId: string }) => void;
   'session:renamed': (payload: { sessionId: string; name: string }) => void;
+  'session:identity': (payload: { sessionId: string; color: string | null; emoji: string | null }) => void;
+  /** argusd/tmux health; sent on change and to each socket on connect. */
+  'backend:health': (health: BackendHealth) => void;
   'ngrok:status': (status: NgrokStatus) => void;
   'keepawake:status': (status: KeepAwakeStatus) => void;
   /** Broadcast on every window-registry mutation (create/delete/assign/merge). */
@@ -1288,6 +1427,8 @@ export interface NgrokStatus {
   tunnelStatus: NgrokTunnelStatus;
   publicUrl: string | null;
   error: string | null;
+  /** Class of `error` (not installed / auth failed / timed out), when known. */
+  errorCode?: ArgusErrorCode;
   platform: string;
   authRequired: boolean;
 }
@@ -1330,6 +1471,10 @@ export interface GitDiffResponse {
    *  (e.g. a staged deletion of a huge JSON). Listed as header-only entries. */
   oversized?: string[];
   error?: string;
+  /** Class of `error`, when it is one the user can act on. */
+  code?: ArgusErrorCode;
+  /** Raw git output behind `error`. */
+  detail?: string;
 }
 
 export interface DiffFileRequest {
@@ -1653,6 +1798,11 @@ export interface CommitSelectionState {
 export interface FileCrudResponse {
   success: boolean;
   error?: string;
+  /** DELETE /fs/file: the staged-trash id that POST /fs/file/restore takes. */
+  undoId?: string;
+  /** DELETE /fs/file: the item can't be moved to the trash (another volume);
+   *  resend with `permanent: true` after the user confirms. */
+  needsPermanent?: boolean;
 }
 
 export interface CreateFileRequest {
@@ -1670,6 +1820,14 @@ export interface RenameFileRequest {
 export interface DeleteFileRequest {
   sessionId: string;
   path: string; // absolute path
+  /** Skip the staged trash and delete for good (after a confirm). */
+  permanent?: boolean;
+}
+
+/** POST /fs/file/restore: undo a DELETE /fs/file from the same session. */
+export interface RestoreFileRequest {
+  sessionId: string;
+  undoId: string;
 }
 
 export interface MoveFileRequest {
@@ -1821,3 +1979,60 @@ export interface AddAutoApprovalRuleRequest {
   bashPrefix?: string;
   pathGlob?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Native app menu, as the renderer learns it over IPC (`menu:describe`).
+// The values live in electron/src/menuModel.ts; only these types are shared
+// (electron may `import type` from here, never a value).
+
+/** Top-level menu a command sits under. `App` is the macOS application menu. */
+export type MenuSection = 'App' | 'File' | 'View' | 'Window' | 'Help';
+
+/** Where a menu command runs: sent to the renderer, or handled in main. */
+export type MenuCommandRunIn = 'renderer' | 'main';
+
+export interface MenuCommandWire {
+  id: string;
+  label: string;
+  section: MenuSection;
+  /** Electron accelerator string as currently installed (follows rebinds), or null. */
+  accelerator: string | null;
+  runIn: MenuCommandRunIn;
+  /** False when the model excludes it from the command palette. */
+  palette: boolean;
+  keywords?: string;
+  /** The renderer shortcut action it mirrors, when it has one (keyboard registry id). */
+  shortcut?: string;
+}
+
+// Help surfaces (plan 002): About, Copy Diagnostics, Report an Issue. Main
+// assembles these; there is deliberately no REST route (the API is reachable
+// over ngrok), so they only travel over the trusted `help:*` IPC.
+
+/** The build stamp scripts/write-build-info.mjs writes next to electron/dist. */
+export interface BuildStamp {
+  sha: string;
+  builtAt: string | null;
+  dirty: boolean;
+}
+
+/** What the running app is: version, build, runtimes. No paths, no user data. */
+export interface AppEnvironment {
+  appVersion: string;
+  /** null in a dev run with no stamp. */
+  build: BuildStamp | null;
+  packaged: boolean;
+  macos: string;
+  arch: string;
+  electron: string;
+  chrome: string;
+  node: string;
+}
+
+/** `help:app-info`: the environment plus the links the About sheet offers. */
+export interface AppInfo extends AppEnvironment {
+  links: { repo: string; license: string; releases: string; docs: string };
+}
+
+/** Outcome of a Help action; never carries the diagnostics text itself. */
+export type HelpActionResult = { ok: true } | { ok: false; error: string };

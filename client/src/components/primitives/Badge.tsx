@@ -12,7 +12,7 @@ export function Badge({ label, color, size = 'sm' }: BadgeProps) {
       className="eyebrow"
       style={{
         fontSize,
-        padding: size === 'sm' ? '1px 6px' : '2px 8px',
+        padding: size === 'sm' ? 'var(--s-px) var(--s-1-5)' : 'var(--s-0-5) var(--s-2)',
         borderRadius: 'var(--r-1)',
         background: 'var(--bg-3)',
         color: fgColor,

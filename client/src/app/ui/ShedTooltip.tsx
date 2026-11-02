@@ -5,7 +5,7 @@ import { UsageRows } from './UsageChip.js';
 export function ShedTooltip({ hint, rows }: { hint: string; rows: readonly UsageRow[] }) {
   if (rows.length === 0) return hint;
   return (
-    <span style={{ display: 'grid', gap: 4 }}>
+    <span style={{ display: 'grid', gap: 'var(--s-1)' }}>
       <span>{hint}</span>
       <UsageRows rows={rows} testId="shed-tooltip" />
     </span>

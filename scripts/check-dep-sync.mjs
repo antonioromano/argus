@@ -108,6 +108,7 @@ function constValue(file, name) {
 
 const DUPLICATED_CONSTS = [
   { name: 'SESSION_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/session.ts' },
+  { name: 'SESSION_EMOJI_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/sessionIdentity.ts' },
   { name: 'INSPECTOR_WIDTH_MIN', shared: 'shared/src/types.ts', server: 'server/src/constants/inspector.ts' },
   { name: 'INSPECTOR_WIDTH_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/inspector.ts' },
   { name: 'MAIN_WINDOW_ID', shared: 'shared/src/types.ts', server: 'server/src/constants/windows.ts' },
@@ -122,13 +123,35 @@ const DUPLICATED_CONSTS = [
   { name: 'CHAIN_GLOBAL_MAX_FIRES_PER_HOUR', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
   // Renderer ↔ Electron main: main cannot import renderer code either.
   { name: 'TERMINAL_SCROLLBACK', shared: 'client/src/constants/terminal.ts', server: 'electron/src/nativeTerminal/constants.ts' },
+  { name: 'DOCS_URL', shared: 'client/src/constants/docs.ts', server: 'electron/src/helpLinks.ts' },
 ];
 
-const drifted = DUPLICATED_CONSTS.filter((c) => {
+/** Read `[export ]const NAME = /…/flags;` out of a TS source file, as its literal text. */
+function regexLiteral(file, name) {
+  const src = readFileSync(path.join(repoRoot, file), 'utf8');
+  const m = src.match(new RegExp(`(?:export )?const ${name}\\s*=\\s*(/.+/[a-z]*);`));
+  return m ? m[1] : null;
+}
+
+// The settings import preview flags what the server will refuse with copies of
+// its validation patterns; the server stays the authority, but the preview must
+// not promise what the PUT then rejects (or block what it accepts).
+const DUPLICATED_REGEXES = [
+  { name: 'FLAG_PATTERN', shared: 'client/src/settings-backup/parseSettingsFile.ts', server: 'server/src/routes/config.ts' },
+  { name: 'COMMAND_PATTERN', shared: 'client/src/settings-backup/parseSettingsFile.ts', server: 'server/src/routes/config.ts' },
+];
+
+const regexDrift = DUPLICATED_REGEXES.filter((r) => {
+  const a = regexLiteral(r.shared, r.name);
+  const b = regexLiteral(r.server, r.name);
+  return a === null || b === null || a !== b;
+}).map((r) => `${r.name}: ${r.shared}=${regexLiteral(r.shared, r.name)} vs ${r.server}=${regexLiteral(r.server, r.name)}`);
+
+const drifted = [...regexDrift, ...DUPLICATED_CONSTS.filter((c) => {
   const a = constValue(c.shared, c.name);
   const b = constValue(c.server, c.name);
   return a === null || b === null || a !== b;
-}).map((c) => `${c.name}: ${c.shared}=${constValue(c.shared, c.name)} vs ${c.server}=${constValue(c.server, c.name)}`);
+}).map((c) => `${c.name}: ${c.shared}=${constValue(c.shared, c.name)} vs ${c.server}=${constValue(c.server, c.name)}`)];
 
 if (drifted.length > 0) {
   console.error('✖ dep-sync: constant duplicated across the server/shared boundary has drifted:');
@@ -137,7 +160,7 @@ if (drifted.length > 0) {
   process.exit(1);
 }
 
-console.log(`✔ dep-sync: ${DUPLICATED_CONSTS.length} cross-boundary constant(s) in sync`);
+console.log(`✔ dep-sync: ${DUPLICATED_CONSTS.length + DUPLICATED_REGEXES.length} cross-boundary constant(s) in sync`);
 
 /**
  * Read `export const NAME[: Type] = { … }` out of a TS source file and return
@@ -186,6 +209,7 @@ function objectEntries(file, name) {
 const DUPLICATED_OBJECTS = [
   { name: 'DEFAULT_CONFIG', shared: 'shared/src/types.ts', server: 'server/src/persistence/ConfigStore.ts' },
   { name: 'AUTO_APPROVAL_TOOLS', shared: 'shared/src/types.ts', server: 'server/src/constants/autoApproval.ts' },
+  { name: 'SESSION_COLOR_KEYS', shared: 'shared/src/types.ts', server: 'server/src/constants/sessionIdentity.ts' },
 ];
 
 const objectDrift = [];

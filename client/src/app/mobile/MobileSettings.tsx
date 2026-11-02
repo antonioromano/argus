@@ -1,7 +1,7 @@
 import { Check, Wifi, Bell } from 'lucide-react';
 import { useKeyboardMode, type KeyboardMode } from '../../hooks/useKeyboardMode.js';
 import { useTheme, type ThemeMode } from '../../context/theme-context.js';
-import { StatusDot, Switch, Icon } from '../../components/primitives/index.js';
+import { StatusDot, Switch, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 
 interface MobileSettingsProps {
   publicUrl: string | null;
@@ -37,11 +37,9 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
   const notifySupported = typeof Notification !== 'undefined';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
-      <div
+    <Stack style={{ height: '100%', background: 'var(--bg-0)' }}>
+      <Row
         style={{
-          display: 'flex',
-          alignItems: 'center',
           padding: '0 var(--s-4)',
           paddingTop: 'env(safe-area-inset-top, 0px)',
           minHeight: 52,
@@ -51,17 +49,17 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
         }}
       >
         <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>SETTINGS</span>
-      </div>
+      </Row>
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
         {/* Appearance */}
         <GroupLabel>Appearance</GroupLabel>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--s-3) var(--s-4) var(--s-4)' }}>
+        <Row justify="between" style={{ padding: 'var(--s-3) var(--s-4) var(--s-4)' }}>
           <div>
-            <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Theme</div>
-            <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Match your phone or pin one</div>
+            <Text as="div" size="body" style={{ fontFamily: 'var(--font-sans)', color: 'var(--fg-0)' }}>Theme</Text>
+            <Text as="div" size="caption" tone="faint">Match your phone or pin one</Text>
           </div>
-          <div style={{ display: 'inline-flex', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', overflow: 'hidden' }}>
+          <Row align="stretch" style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', overflow: 'hidden' }}>
             {THEME_OPTIONS.map((opt) => {
               const on = themeMode === opt.id;
               return (
@@ -71,21 +69,21 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   className="eyebrow"
                   style={{
                     fontSize: 'var(--t-tiny)',
-                    padding: '7px 13px',
+                    padding: 'var(--s-2) var(--s-3)',
                     border: 'none',
                     cursor: 'pointer',
                     background: on ? 'var(--accent)' : 'transparent',
                     color: on ? 'var(--fg-on-accent)' : 'var(--fg-2)',
                     fontWeight: on ? 700 : 400,
-                    transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
+                    transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast)',
                   }}
                 >
                   {opt.label}
                 </button>
               );
             })}
-          </div>
-        </div>
+          </Row>
+        </Row>
 
         {/* Notifications */}
         {notifySupported && (
@@ -96,10 +94,10 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotify(!notify)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell needs you</span>
-                  <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → waiting transition while this tab is in the background.</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a session needs you</span>
+                  <Text size="caption" tone="faint" style={{ display: 'block' }}>Notifies on the → waiting transition while this tab is in the background.</Text>
                 </span>
                 <Switch on={notify} />
               </button>
@@ -109,10 +107,10 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                 onClick={() => onSetNotifyDone(!notifyDone)}
                 style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)', width: '100%', textAlign: 'left', cursor: 'pointer', background: 'var(--bg-1)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', padding: 'var(--s-3)' }}
               >
-                <Icon icon={Bell} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+                <Icon icon={Bell} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>Alert when a shell finishes</span>
-                  <span style={{ display: 'block', fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>Notifies on the → done transition while this tab is in the background.</span>
+                  <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 'var(--t-body)', color: 'var(--fg-0)' }}>Alert when a session finishes</span>
+                  <Text size="caption" tone="faint" style={{ display: 'block' }}>Notifies on the → done transition while this tab is in the background.</Text>
                 </span>
                 <Switch on={notifyDone} />
               </button>
@@ -122,7 +120,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
 
         {/* Keyboard */}
         <GroupLabel>Keyboard</GroupLabel>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)', padding: '0 var(--s-3) var(--s-4)' }}>
+        <Stack gap={2} style={{ padding: '0 var(--s-3) var(--s-4)' }}>
           {KEYBOARD_OPTIONS.map((opt) => {
             const selected = mode === opt.id;
             return (
@@ -139,7 +137,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                   cursor: 'pointer',
                   background: selected ? 'var(--accent-bg)' : 'var(--bg-1)',
                   border: `1px solid ${selected ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                  transition: 'background var(--dur-fast) var(--ease-std), border-color var(--dur-fast)',
+                  transition: 'background var(--dur-fast) var(--ease), border-color var(--dur-fast)',
                 }}
               >
                 <div
@@ -148,7 +146,7 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     height: 20,
                     borderRadius: '50%',
                     flexShrink: 0,
-                    marginTop: 1,
+                    marginTop: 'var(--s-px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -157,37 +155,37 @@ export function MobileSettings({ publicUrl, notify, onSetNotify, notifyDone, onS
                     color: 'var(--fg-on-accent)',
                   }}
                 >
-                  {selected && <Icon icon={Check} size={12} strokeWidth={3} />}
+                  {selected && <Icon icon={Check} size="sm" strokeWidth={2} />}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', fontWeight: 600, color: 'var(--fg-0)' }}>{opt.title}</div>
-                  <div style={{ marginTop: 2, fontSize: 'var(--t-tiny)', color: 'var(--fg-2)', lineHeight: 1.45 }}>{opt.desc}</div>
+                  <Text as="div" size="body" weight={600} style={{ fontFamily: 'var(--font-sans)', color: 'var(--fg-0)' }}>{opt.title}</Text>
+                  <Text as="div" size="caption" tone="muted" style={{ marginTop: 'var(--s-0-5)', lineHeight: 1.45 }}>{opt.desc}</Text>
                 </div>
               </button>
             );
           })}
-        </div>
+        </Stack>
 
         {/* Remote access — read-only on mobile */}
         <GroupLabel>Remote access</GroupLabel>
         <div style={{ padding: '0 var(--s-3) var(--s-6)' }}>
           <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-3)', background: 'var(--bg-1)', padding: 'var(--s-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
-              <Icon icon={Wifi} size={18} strokeWidth={1.6} style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
+            <Row gap={3}>
+              <Icon icon={Wifi} size="xl" style={{ color: 'var(--fg-2)', flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--t-base)', color: 'var(--fg-0)' }}>
+                <Text as="div" size="body" style={{ fontFamily: 'var(--font-sans)', color: 'var(--fg-0)' }}>
                   {publicUrl ? 'Tunnel connected' : 'Tunnel not active'}
-                </div>
-                <div style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
+                </Text>
+                <Text as="div" size="caption" tone="faint">
                   {publicUrl ? "You're viewing through this link — manage it from Argus on your Mac." : 'Enable remote access from Argus on your Mac.'}
-                </div>
+                </Text>
               </div>
               {publicUrl && <StatusDot status="running" size={6} />}
-            </div>
+            </Row>
           </div>
         </div>
       </div>
-    </div>
+    </Stack>
   );
 }
 

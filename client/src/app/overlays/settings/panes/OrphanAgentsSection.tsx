@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { OrphanReport } from '@argus/shared';
-import { Section, Button, Checkbox, pushToast } from '../../../../components/primitives/index.js';
+import { AlertSheet, Section, Button, Checkbox, pushToast, Stack, Row, Text } from '../../../../components/primitives/index.js';
+import { toastError } from '../../../../errors/toastError.js';
+import { PaneLoadState } from '../PaneLoadState.js';
 import { api } from '../../../../services/api.js';
 
 function formatKb(kb: number): string {
@@ -15,7 +17,7 @@ function formatKb(kb: number): string {
  */
 export function OrphanAgentsSection() {
   const [report, setReport] = useState<OrphanReport | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -26,7 +28,7 @@ export function OrphanAgentsSection() {
       setError(null);
       setSelected((prev) => new Set([...prev].filter((p) => r.daemons.some((d) => d.pid === p))));
     },
-    (err: unknown) => setError(err instanceof Error ? err.message : 'Scan failed'),
+    (err: unknown) => setError(err ?? new Error('Scan failed')),
   ), []);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -48,7 +50,7 @@ export function OrphanAgentsSection() {
       pushToast(`Stopped ${res.accepted.length} daemon(s)`, 'ok');
       setSelected(new Set());
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : 'Kill failed', 'danger');
+      toastError(err, 'Couldn’t stop the daemons');
     } finally {
       setBusy(false);
       setConfirming(false);
@@ -61,14 +63,13 @@ export function OrphanAgentsSection() {
 
   return (
     <Section
-      title="Orphan agents"
+      title="Agents without a session"
       action={<Button size="sm" variant="ghost" onClick={() => { void refresh(); }}>Rescan</Button>}
     >
-      <div className="settings-card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-3)', fontSize: 'var(--t-xs)' }}>
-        {error && <p role="alert" style={{ margin: 0, color: 'var(--danger)' }}>{error}</p>}
-        {!error && !report && <p style={{ margin: 0, color: 'var(--fg-3)' }}>Scanning…</p>}
-        {report && daemons.length === 0 && (
-          <p style={{ margin: 0, color: 'var(--fg-3)' }}>No orphan daemons or agents. Only the active backend is running.</p>
+      <Stack gap={3} className="settings-card-pad" style={{ fontSize: 'var(--t-xs)' }}>
+        <PaneLoadState loaded={report !== null} error={error} errorTitle="Couldn’t scan for agents without a session" onRetry={() => { void refresh(); }} />
+        {report && !error && daemons.length === 0 && (
+          <p style={{ margin: 0, color: 'var(--fg-3)' }}>No stray agents or session hosts. Only the active session host is running.</p>
         )}
         {daemons.length > 0 && (
           <>
@@ -79,40 +80,42 @@ export function OrphanAgentsSection() {
             {daemons.map((d) => {
               const agents = report!.agents.filter((a) => a.daemonPid === d.pid);
               return (
-                <div key={d.pid} data-testid="orphan-daemon" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <Row align="start" gap={2} key={d.pid} data-testid="orphan-daemon">
                   <Checkbox checked={selected.has(d.pid)} onChange={(v) => toggle(d.pid, v)} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ color: 'var(--fg-0)' }}>
                       {d.kind === 'argusd' ? 'argusd' : 'tmux'} · {d.label} · pid {d.pid} · {formatKb(d.treeRssKb)}
                     </div>
-                    {agents.length === 0 && <div style={{ color: 'var(--fg-3)' }}>no agents (child pids: {d.childPids.join(', ') || 'none'})</div>}
+                    {agents.length === 0 && <Text as="div" tone="faint">no agents (child pids: {d.childPids.join(', ') || 'none'})</Text>}
                     {agents.map((a) => (
-                      <div key={a.pid} style={{ color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.command}>
+                      <Text as="div" key={a.pid} tone="muted" truncate title={a.command}>
                         {a.agent} · pid {a.pid} · {formatKb(a.rssKb)}{a.cwd ? ` · ${a.cwd}` : ''}
-                      </div>
+                      </Text>
                     ))}
                   </div>
-                </div>
+                </Row>
               );
             })}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end' }}>
-              {confirming ? (
-                <>
-                  <span style={{ color: 'var(--fg-1)' }}>
-                    Stop {selected.size} daemon(s) and their agents ({formatKb(selectedRss)})?
-                  </span>
-                  <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
-                  <Button size="sm" variant="danger" onClick={() => { void kill(); }} loading={busy}>Kill</Button>
-                </>
-              ) : (
-                <Button size="sm" variant="danger" disabled={selected.size === 0} onClick={() => setConfirming(true)}>
-                  Kill selected
-                </Button>
-              )}
-            </div>
+            <Row justify="end" gap={2}>
+              <Button size="sm" variant="danger" disabled={selected.size === 0} onClick={() => setConfirming(true)}>
+                Kill selected…
+              </Button>
+            </Row>
           </>
         )}
-      </div>
+      </Stack>
+      {/* Killing processes is irreversible: a decision sheet, not an inline row
+          (docs/design/feedback-surfaces.md). */}
+      <AlertSheet
+        isOpen={confirming}
+        title={`Stop ${selected.size} daemon(s) and their agents?`}
+        message={`This kills their whole process trees and frees about ${formatKb(selectedRss)}. Sessions in this app are not touched.`}
+        confirmLabel="Kill"
+        confirmDestructive
+        confirmLoading={busy}
+        onConfirm={() => { void kill(); }}
+        onCancel={() => setConfirming(false)}
+      />
     </Section>
   );
 }

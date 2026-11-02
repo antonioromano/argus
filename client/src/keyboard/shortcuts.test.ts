@@ -89,3 +89,32 @@ describe('session inspector shortcut', () => {
     expect(SHORTCUTS_BY_ID['toggle-inspector'].fixed).toBeUndefined();
   });
 });
+
+describe('keyboard shortcuts sheet', () => {
+  it('opens on the primary modifier + /, in its own Help group, and can be rebound', () => {
+    expect(resolveShortcuts()['show-shortcuts']).toBe('mod+/');
+    expect(SHORTCUTS_BY_ID['show-shortcuts'].category).toBe('Help');
+    expect(SHORTCUTS_BY_ID['show-shortcuts'].fixed).toBeUndefined();
+    expect(resolveShortcuts({ 'show-shortcuts': 'mod+alt+h' })['show-shortcuts']).toBe('mod+alt+h');
+  });
+
+  it('routes ⌘/ on a US layout', () => {
+    expect(matchEvent(press('/'), resolveShortcuts())).toBe('show-shortcuts');
+  });
+
+  // Italian / German: "/" is Shift+7, so the keystroke carries shiftKey.
+  it('routes the shifted ⌘/ of layouts where / needs Shift', () => {
+    expect(matchEvent(press('/', { shiftKey: true }), resolveShortcuts())).toBe('show-shortcuts');
+  });
+
+  it('keeps Shift strict for letters', () => {
+    // ⌘⇧L is the theme toggle, never clear-scrollback (⌘L).
+    expect(matchEvent(press('L', { shiftKey: true }), resolveShortcuts())).toBe('toggle-theme');
+    expect(matchEvent(press('l'), resolveShortcuts())).toBe('clear-terminal');
+  });
+
+  it('flags a rebind onto ⌘/ as a conflict', () => {
+    const clash = findConflicts(resolveShortcuts({ 'command-palette': 'mod+/' }));
+    expect(clash.has('command-palette') && clash.has('show-shortcuts')).toBe(true);
+  });
+});

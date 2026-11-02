@@ -37,11 +37,11 @@ function iconOf(name: string): LucideIcon {
 function StatusMark({ status }: { status: ChatToolBlock['status'] }) {
   switch (status) {
     case 'pending':
-      return <Icon icon={LoaderCircle} size={12} className="argus-chat-tool-spin" aria-label="Running" />;
+      return <Icon icon={LoaderCircle} size="sm" className="argus-chat-tool-spin" aria-label="Running" />;
     case 'error':
-      return <Icon icon={CircleX} size={12} className="argus-chat-tool-mark is-error" aria-label="Failed" />;
+      return <Icon icon={CircleX} size="sm" className="argus-chat-tool-mark is-error" aria-label="Failed" />;
     case 'blocked':
-      return <Icon icon={Ban} size={12} className="argus-chat-tool-mark is-blocked" aria-label="Blocked" />;
+      return <Icon icon={Ban} size="sm" className="argus-chat-tool-mark is-blocked" aria-label="Blocked" />;
     default:
       return null;
   }
@@ -124,8 +124,8 @@ function Step({ step, store, group }: { step: ChatToolBlock; store: ToolOpenStat
   return (
     <div className={`argus-chat-tool-step${open ? ' is-open' : ''}`} data-testid="chat-tool-step" data-status={step.status}>
       <button type="button" className="argus-chat-tool-head" aria-expanded={open} onClick={toggle} title={step.name}>
-        <Icon icon={ChevronRight} size={12} className="argus-chat-tool-caret" aria-hidden />
-        <Icon icon={iconOf(step.name)} size={12} className="argus-chat-tool-icon" aria-hidden />
+        <Icon icon={ChevronRight} size="sm" className="argus-chat-tool-caret" aria-hidden />
+        <Icon icon={iconOf(step.name)} size="sm" className="argus-chat-tool-icon" aria-hidden />
         {prefix && <span className="argus-chat-tool-verb">{prefix}</span>}
         <span className="argus-chat-tool-label">{step.label}</span>
         <StatusMark status={step.status} />
@@ -159,7 +159,7 @@ function GroupInner({ steps, store: given }: ChatToolGroupProps) {
       <button type="button" className="argus-chat-tool-head argus-chat-tool-summary" aria-expanded={open} onClick={toggle}>
         <span className="argus-chat-tool-label">{toolSummary(steps)}</span>
         {status && <StatusMark status={status} />}
-        <Icon icon={ChevronRight} size={12} className="argus-chat-tool-caret" aria-hidden />
+        <Icon icon={ChevronRight} size="sm" className="argus-chat-tool-caret" aria-hidden />
       </button>
       {open && (
         <div className="argus-chat-tool-steps">

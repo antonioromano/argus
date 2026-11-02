@@ -8,7 +8,8 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
 }
 
-vi.mock('../services/api.js', () => ({
+vi.mock('../services/api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/api.js')>()),
   api: { getDirectoryChildren: vi.fn() },
 }));
 vi.mock('../components/primitives/Toast.js', () => ({ pushToast: vi.fn() }));
@@ -103,12 +104,26 @@ describe('useFileTree fetch failures', () => {
   });
 
   it('a failed root fetch ends the loading state without an unhandled rejection', async () => {
-    vi.mocked(api.getDirectoryChildren).mockRejectedValueOnce(new Error('offline'));
+    const offline = new Error('offline');
+    vi.mocked(api.getDirectoryChildren).mockRejectedValueOnce(offline);
     await mount();
     expect(tree.isLoading).toBe(false);
     await new Promise((r) => setTimeout(r, 0));
     expect(unhandled).not.toHaveBeenCalled();
-    expect(pushToast).toHaveBeenCalledTimes(1);
+    // The root's failure is the explorer's inline error state, not a toast,
+    // and never reads as an empty folder.
+    expect(pushToast).not.toHaveBeenCalled();
+    expect(tree.rootError).toBe(offline);
+    expect(tree.rootLoaded).toBe(false);
+  });
+
+  it('a successful retry clears the root error', async () => {
+    vi.mocked(api.getDirectoryChildren).mockRejectedValueOnce(new Error('offline'));
+    await mount();
+    vi.mocked(api.getDirectoryChildren).mockResolvedValue({ entries: [dirEntry('/repo/a')] } as never);
+    await act(async () => { tree.refresh(); await flush(); });
+    expect(tree.rootError).toBeNull();
+    expect(tree.rootLoaded).toBe(true);
   });
 
   it('many folders failing in one refresh raise a single toast', async () => {

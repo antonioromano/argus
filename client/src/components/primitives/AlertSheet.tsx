@@ -106,19 +106,20 @@ export function AlertSheet({
         aria-modal="true"
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
+        className="material-float"
         style={{
           width: 320,
-          background: 'var(--bg-2)',
+          background: 'var(--material-sheet)',
           border: '1px solid var(--line-2)',
           borderRadius: 'var(--r-4)',
           boxShadow: 'var(--shadow-sheet)',
           padding: 'var(--s-5) var(--s-5) var(--s-4)',
-          animation: 'argus-fade-in var(--dur-base) var(--ease-out) both',
+          animation: 'argus-fade-in var(--dur-base) var(--ease) both',
         }}
       >
         <p
           style={{
-            margin: '0 0 6px',
+            margin: '0 0 var(--s-1-5)',
             fontSize: 'var(--t-md)',
             fontWeight: 600,
             fontFamily: 'var(--font-sans)',
@@ -174,7 +175,7 @@ export function AlertSheet({
                 color: rememberChoice.checked ? 'var(--bg-0)' : 'transparent',
               }}
             >
-              {rememberChoice.checked && <Icon icon={Check} size={11} strokeWidth={2.5} />}
+              {rememberChoice.checked && <Icon icon={Check} size="sm" strokeWidth={2} />}
             </span>
             {rememberChoice.label}
           </button>

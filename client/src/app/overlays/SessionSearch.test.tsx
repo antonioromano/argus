@@ -100,4 +100,18 @@ describe('SessionSearch', () => {
     key('Escape');
     expect(props.onClose).toHaveBeenCalled();
   });
+
+  it('a failed search shows a described error, and Retry runs the same query again', async () => {
+    const props = render();
+    props.search.mockRejectedValueOnce(new Error('socket hang up'));
+    await type('err');
+    expect(container.textContent).toContain('Search failed');
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(0);
+    const retry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;
+    await act(async () => { retry.click(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS); });
+    expect(props.search).toHaveBeenCalledTimes(2);
+    expect(props.search.mock.calls.at(-1)![0]).toBe('err');
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(3);
+  });
 });

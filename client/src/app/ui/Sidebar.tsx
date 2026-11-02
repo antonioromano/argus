@@ -3,9 +3,10 @@ import type { ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
-import { Kbd, StatusDot, Tooltip, Icon } from '../../components/primitives/index.js';
+import { Kbd, StatusDot, Tooltip, Icon, Spacer } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { SIDEBAR_COLLAPSE_KEY as COLLAPSE_KEY, readSidebarCollapsed } from './sidebarState.js';
+import { useDensity } from '../../context/density-context.js';
 
 const WIDTH_KEY = 'argus-sidebar-width';
 
@@ -15,19 +16,36 @@ const WIDTH_KEY = 'argus-sidebar-width';
 // space from the terminals it exists to navigate.
 const WIDTH_MIN = 190;
 const WIDTH_MAX = 460;
-const WIDTH_DEFAULT = 220;
+// Until the user drags it, the width is the density's (useDensity().sidebarW:
+// Compact is narrower). Builds before density persisted 220 for everyone on
+// first launch, so a stored 220 still means "never dragged".
+const LEGACY_DEFAULT = 220;
 
-function readStoredWidth(): number {
+/** The user's dragged width, or null to follow the density. */
+function readStoredWidth(): number | null {
   try {
     const n = Number(localStorage.getItem(WIDTH_KEY));
-    if (!Number.isFinite(n) || n === 0) return WIDTH_DEFAULT;
+    if (!Number.isFinite(n) || n === 0 || n === LEGACY_DEFAULT) return null;
     return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, n));
   } catch {
-    return WIDTH_DEFAULT;
+    return null;
   }
 }
-const EASE_IN  = 'cubic-bezier(.4,0,1,1)';   // expand: slow start so icons visibly travel
-const EASE_IO  = 'cubic-bezier(.4,0,.6,1)';   // collapse: symmetric, not too snappy
+// Collapse/expand is signature motion: its timings live in tokens.css
+// (--motion-sidebar-*, --ease-sidebar-*). Inline transitions name the tokens;
+// the phase timers read the same tokens so both stay in step.
+const COLLAPSE_T = 'var(--motion-sidebar-collapse) var(--ease-sidebar-collapse)';
+const EXPAND_T   = 'var(--motion-sidebar-expand) var(--ease-sidebar-expand)';
+
+/** A `--motion-*` token in milliseconds, or `fallback` when it can't be read. */
+function motionMs(name: string, fallback: number): number {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+  return Number.isFinite(v) ? v : fallback;
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 interface SidebarProps {
   active?: SidebarKey;
@@ -39,6 +57,8 @@ interface SidebarProps {
   sessionTree?: ReactNode;
   /** Session Inspector (stacked layout): fills the space between Pilot and System. Hidden while collapsed. */
   inspector?: ReactNode;
+  /** Getting-started checklist: top of the slot between Pilot and System. Rendered collapsed too (it shows a rail row then). */
+  checklist?: ReactNode;
   /** Reports the collapsed state, so the app knows whether `inspector` is actually on screen. */
   onCollapsedChange?: (collapsed: boolean) => void;
   /** Bump to expand a collapsed sidebar (e.g. to reveal the inspector it holds). */
@@ -54,10 +74,12 @@ interface Item {
   highlight?: boolean;
 }
 
-export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, onCollapsedChange, expandRequest }: SidebarProps) {
+export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, ngrokConnected, sessionTree, inspector, checklist, onCollapsedChange, expandRequest }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<boolean>(readSidebarCollapsed);
   const [animating, setAnimating] = useState<'collapsing' | 'collapsing-2' | 'expanding' | 'expanding-2' | null>(null);
-  const [width, setWidth] = useState<number>(readStoredWidth);
+  const { sidebarW } = useDensity();
+  const [customWidth, setWidth] = useState<number | null>(readStoredWidth);
+  const width = customWidth ?? sidebarW;
   const [resizing, setResizing] = useState(false);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -85,10 +107,18 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 
   const doCollapse = () => {
     clearTimers();
+    // Reduce motion: no choreography, so no phase timers to wait out.
+    if (prefersReducedMotion()) {
+      setCollapsed(true);
+      try { localStorage.setItem(COLLAPSE_KEY, '1'); } catch { /* ignore */ }
+      return;
+    }
+    const fade = motionMs('--motion-sidebar-fade', 420);
+    const shrink = motionMs('--motion-sidebar-collapse', 520);
     setAnimating('collapsing');
-    // Phase 1 (0–420ms): CSS fades tree, version-box, labels, eyebrows.
+    // Phase 1 (0 → fade): CSS fades tree, version-box, labels, eyebrows.
 
-    // Phase 2 (420ms): pin heights BEFORE adding class, then transition to 0.
+    // Phase 2 (fade): pin heights BEFORE adding class, then transition to 0.
     // Pinning prevents content-height growth from sidebar width-shrink causing cmd palette to jump.
     timers.current.push(setTimeout(() => {
       setAnimating('collapsing-2');
@@ -114,31 +144,38 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       void tree?.offsetHeight; // flush
 
       if (tree) {
-        tree.style.transition = `max-height 520ms ${EASE_IO}, margin-bottom 520ms ${EASE_IO}`;
+        tree.style.transition = `max-height ${COLLAPSE_T}, margin-bottom ${COLLAPSE_T}`;
         tree.style.maxHeight = '0px';
         tree.style.marginBottom = '0px';
       }
       if (vbox) {
-        vbox.style.transition = `max-height 520ms ${EASE_IO}, margin-top 520ms ${EASE_IO}, padding-top 520ms ${EASE_IO}, padding-bottom 520ms ${EASE_IO}`;
+        vbox.style.transition = `max-height ${COLLAPSE_T}, margin-top ${COLLAPSE_T}, padding-top ${COLLAPSE_T}, padding-bottom ${COLLAPSE_T}`;
         vbox.style.maxHeight = '0px';
         vbox.style.marginTop = '0px';
         vbox.style.paddingTop = '0px';
         vbox.style.paddingBottom = '0px';
       }
-    }, 420));
+    }, fade));
 
-    // Finalise (940ms): flip collapsed state, clean up.
+    // Finalise (fade + shrink): flip collapsed state, clean up.
     timers.current.push(setTimeout(() => {
       if (treeRef.current) treeRef.current.style.cssText = '';
       clearVboxAnim();
       setCollapsed(true);
       try { localStorage.setItem(COLLAPSE_KEY, '1'); } catch { /* ignore */ }
       setAnimating(null);
-    }, 940));
+    }, fade + shrink));
   };
 
   const doExpand = () => {
     clearTimers();
+    if (prefersReducedMotion()) {
+      setCollapsed(false);
+      try { localStorage.setItem(COLLAPSE_KEY, '0'); } catch { /* ignore */ }
+      return;
+    }
+    const grow = motionMs('--motion-sidebar-expand', 450);
+    const fade = motionMs('--motion-sidebar-fade', 420);
     const tree = treeRef.current;
     const vbox = vboxRef.current;
 
@@ -165,31 +202,31 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     // setTimeout(0): let browser paint the pinned-at-0 state, then start transitions.
     timers.current.push(setTimeout(() => {
       if (tree) {
-        tree.style.transition = `max-height 450ms ${EASE_IN}, margin-bottom 450ms ${EASE_IN}`;
+        tree.style.transition = `max-height ${EXPAND_T}, margin-bottom ${EXPAND_T}`;
         tree.style.maxHeight = tree.scrollHeight + 'px';
         tree.style.marginBottom = '8px'; // var(--s-2)
       }
       if (vbox) {
         vbox.style.borderTopWidth = '1px';
         vbox.style.borderBottomWidth = '1px';
-        vbox.style.transition = `max-height 450ms ${EASE_IN}, margin-top 450ms ${EASE_IN}, padding-top 450ms ${EASE_IN}, padding-bottom 450ms ${EASE_IN}`;
+        vbox.style.transition = `max-height ${EXPAND_T}, margin-top ${EXPAND_T}, padding-top ${EXPAND_T}, padding-bottom ${EXPAND_T}`;
         vbox.style.maxHeight = vbox.scrollHeight + 'px';
         vbox.style.marginTop = '12px';  // var(--s-3)
         vbox.style.paddingTop = '8px';  // var(--s-2)
         vbox.style.paddingBottom = '8px';
       }
 
-      // Phase 2 (470ms): content fades in.
+      // Phase 2 (grow + a 20 ms margin): content fades in.
       timers.current.push(setTimeout(() => {
         setAnimating('expanding-2');
         if (treeRef.current) treeRef.current.style.cssText = '';
         clearVboxAnim();
-      }, 470));
+      }, grow + 20));
 
-      // Finalise (890ms).
+      // Finalise (phase 2 + fade).
       timers.current.push(setTimeout(() => {
         setAnimating(null);
-      }, 890));
+      }, grow + 20 + fade));
     }, 0));
   };
 
@@ -227,8 +264,11 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
   }, [resizing]);
 
   useEffect(() => {
-    try { localStorage.setItem(WIDTH_KEY, String(width)); } catch { /* ignore */ }
-  }, [width]);
+    try {
+      if (customWidth === null) localStorage.removeItem(WIDTH_KEY);
+      else localStorage.setItem(WIDTH_KEY, String(customWidth));
+    } catch { /* ignore */ }
+  }, [customWidth]);
 
   useEffect(() => { onCollapsedChange?.(collapsed); }, [collapsed, onCollapsedChange]);
 
@@ -242,7 +282,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
   }, [expandRequest]);
 
   const pilot: Item[] = [
-    { id: 'sessions', icon: SquareTerminal, label: 'Shells', count: counts.total, highlight: !!counts.waiting },
+    { id: 'sessions', icon: SquareTerminal, label: 'Sessions', count: counts.total, highlight: !!counts.waiting },
     { id: 'palette',  icon: Search,         label: 'Find & Jump', kbd: '⌘K' },
   ];
 
@@ -261,14 +301,14 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       // cursor.
       style={collapsed ? undefined : { width, transition: resizing ? 'none' : undefined }}
     >
-      <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} position="right">
         <button
           type="button"
           className="argus-sidebar-collapse-btn"
           onClick={toggleCollapsed}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <Icon icon={PanelLeftOpen} size={20} strokeWidth={1.6} /> : <Icon icon={PanelLeftClose} size={20} strokeWidth={1.6} />}
+          {collapsed ? <Icon icon={PanelLeftOpen} size="xl" /> : <Icon icon={PanelLeftClose} size="xl" />}
         </button>
       </Tooltip>
 
@@ -287,9 +327,10 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         </Fragment>
       ))}
 
+      {checklist}
       {inspector && !collapsed
         ? <div className="argus-sidebar-inspector">{inspector}</div>
-        : <div style={{ flex: 1 }} />}
+        : <Spacer />}
 
       <div className="eyebrow" style={{ padding: '0 var(--s-2)', margin: 'var(--s-4) 0 var(--s-2)' }}>System</div>
       {tools.map((it) => (
@@ -327,7 +368,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
           and the handle disappears with the sidebar when it collapses. */}
       {!collapsed && (
         <div
-          onDoubleClick={() => setWidth(WIDTH_DEFAULT)}
+          onDoubleClick={() => setWidth(null)}
           title="Drag to resize · double-click to reset"
           style={{
             position: 'absolute',
@@ -356,7 +397,7 @@ function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean
       data-highlight={item.highlight || undefined}
       onClick={onClick}
     >
-      <Icon icon={Glyph} size={20} strokeWidth={1.6} color={item.highlight ? 'var(--accent)' : 'currentColor'} />
+      <Icon icon={Glyph} size="xl" color={item.highlight ? 'var(--accent)' : 'currentColor'} />
       <span className="argus-sidebar-label">{item.label}</span>
       {item.count !== undefined && item.count > 0 && (
         <span className="argus-sidebar-count">{item.count}</span>

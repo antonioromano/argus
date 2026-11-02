@@ -2,10 +2,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo, SessionStatus } from '@argus/shared';
 import { ChevronRight, MoreVertical, Plus, Play } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { StatusDot, StatusPill, DirtyBadge, Icon } from '../../components/primitives/index.js';
+import { StatusDot, StatusPill, DirtyBadge, Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 import { resolveGroupColor } from '../../constants/groupColors.js';
 import { useTheme } from '../../context/theme-context.js';
 import type { GroupedSessions, GhostFavorite } from '../../hooks/useGroups.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { PrChip } from '../ui/PrChip.js';
+import { UsageChip } from '../ui/UsageChip.js';
+import { StaleChip } from '../ui/StaleChip.js';
+import { shellLabel } from '../../utils/sessionLabel.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
+import { usageMeterView } from '../../utils/usageFormat.js';
+import { formatWaiting } from '../overlays/inboxItems.js';
+
+/** The phone has no settings of its own: the meter shows its default parts
+ *  (context), without the account-wide plan usage. */
+const MOBILE_METER = usageMeterView(null)!;
 
 interface SessionsProps {
   sessions: SessionInfo[];
@@ -68,14 +80,14 @@ function Section({ title, color, sessions, ghosts, filter, collidingKeys, onSele
           border: 'none', borderBottom: '1px solid var(--line-1)', cursor: 'pointer',
         }}
       >
-        <Icon icon={ChevronRight} size={12} strokeWidth={2}
-          style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 150ms ease', color: 'var(--fg-3)' }} />
+        <Icon icon={ChevronRight} size="sm" strokeWidth={2}
+          style={{ transform: collapsed ? 'none' : 'rotate(90deg)', transition: 'transform var(--dur-fast) var(--ease)', color: 'var(--fg-3)' }} />
         {color && <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'block' }} />}
         <span className="eyebrow" style={{ flex: 1 }}>{title}</span>
         <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>{visible.length + visibleGhosts.length}</span>
       </button>
       {!collapsed && sorted.map((s) => (
-        <Row
+        <SessionRow
           key={s.id}
           session={s}
           collides={collidingKeys.has(identityKey(s))}
@@ -93,7 +105,7 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
   const { meta } = ghost;
   const folder = meta.folderPath.split('/').filter(Boolean).pop() ?? meta.folderPath;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--line-1)' }}>
+    <Row style={{ borderBottom: '1px solid var(--line-1)' }}>
       <button
         onClick={onSpawn}
         className="mobile-list-row"
@@ -105,12 +117,12 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
       >
         <AgentGlyph agent={meta.agentType} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-base)', fontWeight: 500, color: 'var(--fg-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Text as="div" mono size="body" weight={500} tone="default" truncate>
             {meta.name || folder}
-          </div>
-          <div className="eyebrow" style={{ marginTop: 'var(--s-px)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          </Text>
+          <Text as="div" className="eyebrow" truncate style={{ marginTop: 'var(--s-px)' }}>
             {folder} · saved
-          </div>
+          </Text>
         </div>
       </button>
       <button
@@ -121,10 +133,15 @@ function GhostRow({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => voi
           background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--accent)', flexShrink: 0,
         }}
       >
-        <Icon icon={Play} size={18} strokeWidth={1.8} />
+        <Icon icon={Play} size="xl" />
       </button>
-    </div>
+    </Row>
   );
+}
+
+/** How long a waiting session has waited, in the inbox's format ("2m"). */
+function waitedFor(since: number): string {
+  return formatWaiting(Date.now() - since);
 }
 
 function timeAgo(d: string): string {
@@ -138,13 +155,16 @@ function timeAgo(d: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; collides: boolean; onSelect: () => void; onAction: () => void }) {
+function SessionRow({ session, collides, onSelect, onAction }: { session: SessionInfo; collides: boolean; onSelect: () => void; onAction: () => void }) {
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
+  const { isDark } = useTheme();
+  const edge = identityEdgeProps(session.color, isDark);
+  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage;
   return (
-    <div
+    <Row
+      data-identity-edge={edge['data-identity-edge']}
       style={{
-        display: 'flex',
-        alignItems: 'center',
+        ...edge.style,
         borderBottom: '1px solid var(--line-1)',
       }}
     >
@@ -167,13 +187,11 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
       >
         <AgentGlyph agent={session.agentType} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
+          <Row
+            gap={1.5}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-1-5)',
               fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-base)',
+              fontSize: 'var(--t-body)',
               fontWeight: 500,
               color: 'var(--fg-0)',
               whiteSpace: 'nowrap',
@@ -181,41 +199,31 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
               textOverflow: 'ellipsis',
             }}
           >
-            {session.name}
+            <SessionIdentity session={session} />
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{shellLabel(session)}</span>
             {session.hasGitChanges && <DirtyBadge size="sm" />}
-          </div>
-          <div
-            className="eyebrow"
-            style={{
-              marginTop: 'var(--s-px)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {folder} · {timeAgo(session.createdAt)}{collides ? discriminator(session) : ''}
-          </div>
-          {session.status === 'waiting' && session.lastPrompt && (
-            <div
-              style={{
-                marginTop: 'var(--s-1)',
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--t-tiny)',
-                color: 'var(--accent)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {session.lastPrompt}
+          </Row>
+          <Text as="div" className="eyebrow" truncate style={{ marginTop: 'var(--s-px)' }}>
+            {folder} · {session.status === 'waiting' && session.waitingSince !== undefined ? `waiting ${waitedFor(session.waitingSince)}` : timeAgo(session.createdAt)}{collides ? discriminator(session) : ''}
+          </Text>
+          {hasChips && (
+            <div className="mobile-row-chips">
+              {session.pr && <PrChip pr={session.pr} />}
+              <StaleChip staleDays={session.worktreeStaleDays} />
+              <UsageChip agentType={session.agentType} usage={session.usage} view={MOBILE_METER} />
             </div>
+          )}
+          {session.status === 'waiting' && session.lastPrompt && (
+            <Text as="div" mono size="caption" tone="accent" truncate style={{ marginTop: 'var(--s-1)' }}>
+              {session.lastPrompt}
+            </Text>
           )}
         </div>
         <StatusPill status={session.status} size="sm" />
       </button>
       <button
         onClick={onAction}
-        aria-label={`Actions for ${session.name}`}
+        aria-label={`Actions for ${shellLabel(session)}`}
         style={{
           width: 44,
           minHeight: 64,
@@ -229,9 +237,9 @@ function Row({ session, collides, onSelect, onAction }: { session: SessionInfo; 
           flexShrink: 0,
         }}
       >
-        <Icon icon={MoreVertical} size={18} strokeWidth={1.6} />
+        <Icon icon={MoreVertical} size="xl" />
       </button>
-    </div>
+    </Row>
   );
 }
 
@@ -302,12 +310,10 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
   const chipMask = `linear-gradient(to right, ${fadeStops})`;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-0)' }}>
-      <div
+    <Stack style={{ height: '100%', background: 'var(--bg-0)' }}>
+      <Row
+        justify="between"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
           padding: '0 var(--s-4)',
           minHeight: 52,
           paddingTop: 'env(safe-area-inset-top, 0px)',
@@ -317,39 +323,39 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
         }}
       >
         <span className="eyebrow" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>ARGUS</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
+        <Row gap={3}>
           {publicUrl && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Remote tunnel connected">
+            <Row as="span" gap={1} title="Remote tunnel connected">
               <StatusDot status="running" size={6} />
               <span className="eyebrow" style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>tunnel</span>
-            </span>
+            </Row>
           )}
           <span className="eyebrow" style={{ fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
-            {sessions.length} · {sessions.length === 1 ? 'shell' : 'shells'}
+            {sessions.length} · {sessions.length === 1 ? 'session' : 'sessions'}
           </span>
-        </div>
-      </div>
+        </Row>
+      </Row>
 
       {sessions.length > 0 && waiting.length > 0 && (
         <button
           onClick={() => onSelect(waiting[0].id)}
           style={{
             display: 'flex', alignItems: 'center', gap: 'var(--s-3)', textAlign: 'left',
-            margin: 'var(--s-3) var(--s-3) var(--s-1)', padding: '10px var(--s-3)', cursor: 'pointer',
+            margin: 'var(--s-3) var(--s-3) var(--s-1)', padding: 'var(--s-3) var(--s-3)', cursor: 'pointer',
             borderRadius: 'var(--r-3)', background: 'var(--status-waiting-bg)', border: '1px solid var(--accent-edge)',
             width: 'calc(100% - var(--s-3) * 2)',
           }}
         >
           <StatusDot status="waiting" size={8} pulse />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
-              {waiting.length} {waiting.length === 1 ? 'shell needs' : 'shells need'} you
-            </div>
-            <div className="eyebrow" style={{ color: 'var(--fg-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
+              {waiting.length} {waiting.length === 1 ? 'session needs' : 'sessions need'} you
+            </Text>
+            <Text as="div" className="eyebrow" truncate style={{ color: 'var(--fg-2)' }}>
               {waiting.map((s) => s.name).join(' · ')}
-            </div>
+            </Text>
           </div>
-          <span className="eyebrow" style={{ fontWeight: 700, color: 'var(--fg-on-accent)', background: 'var(--accent)', borderRadius: 'var(--r-2)', padding: '5px 9px' }}>
+          <span className="eyebrow" style={{ fontWeight: 700, color: 'var(--fg-on-accent)', background: 'var(--accent)', borderRadius: 'var(--r-2)', padding: 'var(--s-1-5) var(--s-2)' }}>
             Jump →
           </span>
         </button>
@@ -360,7 +366,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
           ref={chipsRef}
           onScroll={syncChipFade}
           style={{
-            display: 'flex', gap: 6, padding: 'var(--s-2) var(--s-3)', overflowX: 'auto',
+            display: 'flex', gap: 'var(--s-1-5)', padding: 'var(--s-2) var(--s-3)', overflowX: 'auto',
             borderBottom: '1px solid var(--line-1)', flexShrink: 0,
             maskImage: chipMask, WebkitMaskImage: chipMask,
           }}
@@ -374,15 +380,15 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
                 aria-pressed={on}
                 className="eyebrow"
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
-                  padding: '5px 11px', borderRadius: 'var(--r-pill)', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1-5)', whiteSpace: 'nowrap',
+                  padding: 'var(--s-1-5) var(--s-3)', borderRadius: 'var(--r-pill)', cursor: 'pointer',
                   border: `1px solid ${on ? 'var(--accent-edge)' : 'var(--line-2)'}`,
                   background: on ? 'var(--accent-bg)' : 'var(--bg-1)',
                   color: on ? 'var(--accent)' : 'var(--fg-2)',
                   fontSize: 'var(--t-tiny)',
                 }}
               >
-                {f.label}<span style={{ color: 'var(--fg-3)', fontSize: 'var(--t-micro)' }}>{counts[f.id]}</span>
+                {f.label}<Text size="eyebrow" tone="faint">{counts[f.id]}</Text>
               </button>
             );
           })}
@@ -391,41 +397,39 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
 
       <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
         {sessions.length === 0 ? (
-          <div
+          <Stack
+            align="center"
+            justify="center"
+            gap={4}
             style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
               height: '70%',
-              gap: 'var(--s-4)',
               padding: '0 var(--s-7)',
               textAlign: 'center',
             }}
           >
-            <div style={{ color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', lineHeight: 1.5 }}>
-              No shells yet.
-            </div>
+            <Text as="div" mono size="body" tone="faint" style={{ lineHeight: 1.5 }}>
+              No sessions yet.
+            </Text>
             <button
               onClick={onCreate}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 'var(--s-1-5)',
                 background: 'var(--accent)',
                 color: 'var(--fg-on-accent)',
                 border: 'none',
                 borderRadius: 'var(--r-2)',
-                padding: '10px var(--s-4)',
-                fontSize: 'var(--t-base)',
+                padding: 'var(--s-3) var(--s-4)',
+                fontSize: 'var(--t-body)',
                 fontFamily: 'var(--font-sans)',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
-              <Icon icon={Plus} size={16} strokeWidth={2} /> Create your first shell
+              <Icon icon={Plus} size="lg" strokeWidth={2} /> Create your first session
             </button>
-          </div>
+          </Stack>
         ) : (
           <>
             {grouped.favorites && (
@@ -455,45 +459,32 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
             ))}
             <Section title="Others" color={grouped.othersColor ? resolveGroupColor(grouped.othersColor, isDark) : null} sessions={grouped.others} filter={filter} collidingKeys={collidingKeys} onSelect={onSelect} onAction={onAction} />
             {filter !== 'all' && counts[filter] === 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--s-8) var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
-                No {filter} shells
-              </div>
+              <Row justify="center" style={{ padding: 'var(--s-8) var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
+                No {filter} sessions
+              </Row>
             )}
           </>
         )}
       </div>
 
       {publicUrl && (
-        <div
+        <Row
+          gap={2}
           style={{
             padding: 'var(--s-3) var(--s-4)',
             paddingBottom: 'calc(var(--s-3) + env(safe-area-inset-bottom, 0px))',
             background: 'var(--bg-1)',
             borderTop: '1px solid var(--line-2)',
             flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--s-2)',
           }}
         >
           <StatusDot status="running" size={6} />
-          <div
-            style={{
-              flex: 1,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-tiny)',
-              color: 'var(--accent)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              letterSpacing: 'var(--tracking-eye)',
-            }}
-          >
+          <Text as="div" mono size="caption" tone="accent" truncate style={{ flex: 1, letterSpacing: 'var(--tracking-eye)' }}>
             {truncatedUrl}
-          </div>
+          </Text>
           <span className="eyebrow" style={{ color: 'var(--fg-3)', fontSize: 'var(--t-micro)' }}>connected</span>
-        </div>
+        </Row>
       )}
-    </div>
+    </Stack>
   );
 }

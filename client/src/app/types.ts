@@ -11,9 +11,12 @@ export type Overlay =
   | { kind: 'search' }
   | { kind: 'broadcast'; sessionIds: string[] }
   | { kind: 'update' }
-  | { kind: 'settings'; initialTab?: string }
+  | { kind: 'settings'; initialTab?: string; focusSetting?: string; action?: { kind: 'export' | 'import' } }
   | { kind: 'sessionPicker'; target: 'diff' | 'explorer' }
   | { kind: 'intro'; flow: IntroFlow }
+  // Help surfaces (plan 002).
+  | { kind: 'shortcuts' }
+  | { kind: 'about' }
   | null;
 
 /**

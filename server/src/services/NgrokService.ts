@@ -5,8 +5,9 @@ import { promisify } from 'util';
 const execFile = promisify(execFileCb);
 import * as http from 'http';
 import type { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents, NgrokStatus, NgrokTunnelStatus } from '@argus/shared';
+import type { ArgusErrorCode, ClientToServerEvents, ServerToClientEvents, NgrokStatus, NgrokTunnelStatus } from '@argus/shared';
 import { SleepPreventionService } from './SleepPreventionService.js';
+import { ArgusError } from '../errors/ArgusError.js';
 
 function findNgrok(): string | null {
   try {
@@ -31,6 +32,7 @@ export class NgrokService {
   private tunnelStatus: NgrokTunnelStatus = 'disconnected';
   private publicUrl: string | null = null;
   private error: string | null = null;
+  private errorCode: ArgusErrorCode | undefined;
   private io: Server<ClientToServerEvents, ServerToClientEvents> | null = null;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private pollAttempts = 0;
@@ -61,6 +63,7 @@ export class NgrokService {
       tunnelStatus: this.tunnelStatus,
       publicUrl: this.publicUrl,
       error: this.error,
+      ...(this.error && this.errorCode ? { errorCode: this.errorCode } : {}),
       platform: process.platform,
       authRequired: this.getAuthRequired(),
     };
@@ -78,7 +81,7 @@ export class NgrokService {
       throw new Error('ngrok is already starting');
     }
     if (!this.ngrokPath) {
-      throw new Error('ngrok is not installed');
+      throw new ArgusError('NGROK_NOT_INSTALLED', 400, 'ngrok is not installed');
     }
 
     // Claim 'connecting' synchronously — BEFORE any await — so a second start()
@@ -86,6 +89,7 @@ export class NgrokService {
     // process (orphaning the first).
     this.tunnelStatus = 'connecting';
     this.error = null;
+    this.errorCode = undefined;
     this.publicUrl = null;
     this.broadcastStatus();
 
@@ -128,6 +132,7 @@ export class NgrokService {
           ? 'ngrok authentication required. Run: ngrok config add-authtoken <your-token>'
           : stderrBuffer.trim() ||
             `ngrok process exited unexpectedly (code ${code ?? 'null'}, signal ${signal ?? 'null'})`;
+        this.errorCode = authErr ? 'NGROK_AUTH_FAILED' : undefined;
         this.tunnelStatus = 'error';
         this.publicUrl = null;
         this.stopPolling();
@@ -142,7 +147,7 @@ export class NgrokService {
         // Mirror stop()'s pattern, nulling the reject so a later unrelated exit
         // can't double-settle it.
         if (this.pendingStartReject) {
-          this.pendingStartReject(new Error(this.error));
+          this.pendingStartReject(this.startError());
           this.pendingStartReject = null;
         }
       }
@@ -158,7 +163,7 @@ export class NgrokService {
         if (this.tunnelStatus === 'error') {
           this.stopPolling();
           this.pendingStartReject = null;
-          reject(new Error(this.error || 'ngrok failed to start'));
+          reject(this.startError());
           return;
         }
 
@@ -183,11 +188,20 @@ export class NgrokService {
           this.pendingStartReject = null;
           this.tunnelStatus = 'error';
           this.error = 'Timed out waiting for ngrok tunnel';
+          this.errorCode = 'NGROK_TIMEOUT';
           this.broadcastStatus();
-          reject(new Error(this.error));
+          reject(this.startError());
         }
       }, 1000);
     });
+  }
+
+  /** The current failure as the error start() rejects with: typed when its class is known. */
+  private startError(): Error {
+    const message = this.error || 'ngrok failed to start';
+    if (this.errorCode === 'NGROK_AUTH_FAILED') return new ArgusError('NGROK_AUTH_FAILED', 502, message);
+    if (this.errorCode === 'NGROK_TIMEOUT') return new ArgusError('NGROK_TIMEOUT', 504, message);
+    return new Error(message);
   }
 
   async stop(): Promise<void> {
@@ -204,6 +218,7 @@ export class NgrokService {
     this.tunnelStatus = 'disconnected';
     this.publicUrl = null;
     this.error = null;
+    this.errorCode = undefined;
     this.onExposureChange?.(false);
     this.onDisconnect?.();
     this.broadcastStatus();

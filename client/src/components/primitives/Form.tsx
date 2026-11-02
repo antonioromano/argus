@@ -20,14 +20,14 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'baseline',
-          marginBottom: 6,
+          marginBottom: 'var(--s-1-5)',
         }}>
           <span className="eyebrow" style={{ color: error ? 'var(--danger)' : 'var(--fg-2)' }}>
             {label}
             {required && (
               <>
-                <span aria-hidden="true" style={{ color: 'var(--accent)', marginLeft: 4 }}>*</span>
-                <span style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>required</span>
+                <span aria-hidden="true" style={{ color: 'var(--accent)', marginLeft: 'var(--s-1)' }}>*</span>
+                <span style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: 'calc(-1 * var(--s-px))', overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0 }}>required</span>
               </>
             )}
           </span>
@@ -35,7 +35,7 @@ export function Field({ label, hint, error, required, children }: FieldProps) {
         </div>
       )}
       {children}
-      {error && <div style={{ marginTop: 4, fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>{error}</div>}
+      {error && <div style={{ marginTop: 'var(--s-1)', fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>{error}</div>}
     </label>
   );
 }
@@ -46,12 +46,22 @@ interface SettingRowProps {
   hint?: string;
   /** Align the control to the right with no meta column (e.g. a trailing action button). */
   trailing?: boolean;
+  /** Stable id of the setting this row renders: becomes the DOM `id`
+   *  (`setting-<anchorId>`) and `data-setting-id`, so search can scroll to it. */
+  anchorId?: string;
+  /** Extra classes on the row (e.g. `is-target` while a jump flashes it). */
+  className?: string;
   children: ReactNode;
 }
 
-export function SettingRow({ label, hint, trailing, children }: SettingRowProps) {
+export function SettingRow({ label, hint, trailing, anchorId, className, children }: SettingRowProps) {
   return (
-    <div className="setting-row" style={trailing ? { justifyContent: 'flex-end' } : undefined}>
+    <div
+      className={className ? `setting-row ${className}` : 'setting-row'}
+      id={anchorId ? `setting-${anchorId}` : undefined}
+      data-setting-id={anchorId}
+      style={trailing ? { justifyContent: 'flex-end' } : undefined}
+    >
       {!trailing && (label || hint) && (
         <div className="setting-row-meta">
           {label && <div className="setting-row-label">{label}</div>}
@@ -123,7 +133,7 @@ export function TextInput({
       opacity: disabled ? 0.5 : 1,
       ...style,
     }}>
-      {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} color="var(--fg-3)" />}
+      {Glyph && <Icon icon={Glyph} size="md" color="var(--fg-3)" />}
       <input
         type={type}
         autoFocus={autoFocus}
@@ -203,7 +213,7 @@ export function Toggle({ checked, onChange, label, size = 'md', disabled }: Togg
           background: checked ? 'var(--fg-on-accent)' : 'var(--fg-2)',
           // translateX, not animated `left` — `left` reflows each frame; transform composites cheaper
           transform: checked ? `translateX(${w - k - 4}px)` : 'translateX(0)',
-          transition: 'transform var(--dur-base) var(--ease-std), background var(--dur-base)',
+          transition: 'transform var(--dur-base) var(--ease), background var(--dur-base)',
         }} />
       </span>
       {label && <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>}

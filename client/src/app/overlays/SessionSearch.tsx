@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SearchHit, SearchResponse } from '@argus/shared';
-import { Search, Loader2 } from 'lucide-react';
-import { Kbd, Icon } from '../../components/primitives/index.js';
+import { Search } from 'lucide-react';
+import { Kbd, Icon, ErrorState, Stack, Row, Spinner, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 export const SEARCH_DEBOUNCE_MS = 250;
@@ -31,7 +31,9 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
   const [query, setQuery] = useState('');
   // The last finished search, tagged with its query; everything shown is
   // derived from it, so the effect only ever sets state from async callbacks.
-  const [outcome, setOutcome] = useState<{ q: string; data?: SearchResponse; error?: string } | null>(null);
+  const [outcome, setOutcome] = useState<{ q: string; attempt: number; data?: SearchResponse; error?: unknown } | null>(null);
+  // Bumped by Retry: the same query runs again.
+  const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -39,11 +41,11 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
 
   const q = query.trim();
   const active = q.length >= MIN_QUERY;
-  const settled = outcome?.q === q;
+  const settled = outcome?.q === q && outcome.attempt === attempt;
   const loading = active && !settled;
   // While a new search runs, the previous results stay up.
   const data = active ? outcome?.data ?? null : null;
-  const error = active && settled ? outcome?.error ?? null : null;
+  const error = active && settled && outcome?.error != null ? outcome.error : null;
 
   useEffect(() => {
     if (q.length < MIN_QUERY) return;
@@ -52,19 +54,19 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
       search(q, ctrl.signal)
         .then((res) => {
           if (ctrl.signal.aborted) return;
-          setOutcome({ q, data: res });
+          setOutcome({ q, attempt, data: res });
           setSelected(0);
         })
         .catch((err: unknown) => {
           if (ctrl.signal.aborted) return;
-          setOutcome({ q, error: err instanceof Error ? err.message : 'Search failed' });
+          setOutcome({ q, attempt, error: err ?? new Error('Search failed') });
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [q, search]);
+  }, [q, search, attempt]);
 
   const flat = useMemo<FlatHit[]>(
     () => (data?.results ?? []).flatMap((r) => r.hits.map((hit) => ({ sessionId: r.sessionId, hit }))),
@@ -96,7 +98,7 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
 
   let index = -1;
   return (
-    <div
+    <Stack
       onKeyDown={onKeyDown}
       style={{
         background: 'var(--bg-2)',
@@ -105,15 +107,13 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
         boxShadow: 'var(--shadow-pop)',
         width: 'min(92vw, 760px)',
         maxHeight: '70vh',
-        display: 'flex',
-        flexDirection: 'column',
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
+      <Row gap={3} style={{ padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
         {loading
-          ? <Icon icon={Loader2} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0, animation: 'argus-spin 0.9s linear infinite' }} />
-          : <Icon icon={Search} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />}
+          ? <Spinner color="var(--accent)" />
+          : <Icon icon={Search} size="md" style={{ color: 'var(--accent)', flexShrink: 0 }} />}
         <input
           ref={inputRef}
           type="text"
@@ -136,32 +136,39 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
           }}
         />
         {shortcutLabel && <Kbd>{shortcutLabel}</Kbd>}
-      </div>
+      </Row>
 
       <div id="session-search-results" role="listbox" aria-label="Search results" className="argus-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {(error || (settled && data && flat.length === 0) || !active) && (
-          <div
+        {error != null && <ErrorState error={error} fallbackTitle="Search failed" onRetry={() => setAttempt((n) => n + 1)} />}
+        {error == null && ((settled && data && flat.length === 0) || !active) && (
+          <Text
+            as="div"
+            mono
+            size="body"
+            tone="faint"
             className="empty-hint"
-            style={{ padding: 'var(--s-6)', textAlign: 'center', color: error ? 'var(--warn)' : 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}
+            style={{ padding: 'var(--s-6)', textAlign: 'center' }}
           >
-            {error ?? (!active ? 'Type at least two characters.' : `No matches for “${data?.query}”.`)}
-          </div>
+            {!active ? 'Type at least two characters.' : `No matches for “${data?.query}”.`}
+          </Text>
         )}
-        {!error && data?.results.map((r) => (
+        {error == null && data?.results.map((r) => (
           <div key={r.sessionId} role="group" aria-label={r.sessionName}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px var(--s-4) 4px', background: 'var(--bg-1)' }}>
+            <Row gap={2} style={{ padding: 'var(--s-2) var(--s-4) var(--s-1)', background: 'var(--bg-1)' }}>
               <AgentGlyph agent={r.agentType} size={14} />
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--fg-0)' }}>{r.sessionName}</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>
+              <Text mono size="body" weight={500} style={{ color: 'var(--fg-0)' }}>{r.sessionName}</Text>
+              <Text mono size="eyebrow" tone="faint">
                 {r.hits.length}{r.scrollback === 'frozen' ? ' · asleep' : ''}
-              </span>
-            </div>
+              </Text>
+            </Row>
             {r.hits.map((hit, i) => {
               index++;
               const myIndex = index;
               const isSelected = current === flat[myIndex];
               return (
-                <div
+                <Row
+                  align="baseline"
+                  gap={3}
                   key={i}
                   id={searchRowId(myIndex)}
                   role="option"
@@ -169,10 +176,7 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
                   onClick={() => jump(flat[myIndex])}
                   onMouseEnter={() => setSelected(myIndex)}
                   style={{
-                    display: 'flex',
-                    gap: 10,
-                    alignItems: 'baseline',
-                    padding: '6px var(--s-4)',
+                    padding: 'var(--s-1-5) var(--s-4)',
                     cursor: 'pointer',
                     background: isSelected ? 'var(--bg-3)' : 'transparent',
                     borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
@@ -181,33 +185,42 @@ export function SessionSearch({ search, shortcutLabel, onClose, onJump }: Sessio
                   <span className="eyebrow" style={{ flexShrink: 0, width: 72, color: 'var(--fg-3)' }}>
                     {hit.source === 'transcript' ? (hit.role === 'user' ? 'you' : 'agent') : 'terminal'}
                   </span>
-                  <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-xs)', color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Text mono size="small" tone="default" truncate style={{ flex: 1 }}>
                     {hit.snippet.slice(0, hit.matchStart)}
                     <mark style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}>{hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength)}</mark>
                     {hit.snippet.slice(hit.matchStart + hit.matchLength)}
-                  </span>
-                </div>
+                  </Text>
+                </Row>
               );
             })}
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--s-4)', padding: 'var(--s-2) var(--s-4)', background: 'var(--bg-1)', borderTop: '1px solid var(--line-2)', flexShrink: 0 }}>
+      <Row
+        align="stretch"
+        gap={4}
+        style={{
+          padding: 'var(--s-2) var(--s-4)',
+          background: 'var(--bg-1)',
+          borderTop: '1px solid var(--line-2)',
+          flexShrink: 0,
+        }}
+      >
         {[
           { key: '↑↓', label: 'NAVIGATE' },
           { key: '↵', label: 'JUMP' },
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
-          <span key={label} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Row as="span" key={label} gap={1.5} className="eyebrow">
             <Kbd>{key}</Kbd>
             {label}
-          </span>
+          </Row>
         ))}
         <span style={{ flex: 1 }} />
         {data?.truncated && <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>MORE RESULTS NOT SHOWN</span>}
-      </div>
-    </div>
+      </Row>
+    </Stack>
   );
 }
 

@@ -12,6 +12,92 @@
   -webkit-user-drag: element !important;
 }
 
+/* === DS LAYOUT === Row / Stack / Text / Spacer / Kbd / Chip (primitives/Layout.tsx).
+   Static values only — the components add no inline style of their own, so an
+   inline `style` from the caller always wins. No :hover rules here: hover must
+   never change a row's size (it may only change its background, elsewhere). */
+.ds-row   { display: flex; flex-direction: row; min-width: 0; }
+.ds-stack { display: flex; flex-direction: column; min-width: 0; }
+/* A span stays inline; a label is block-level like a div, because a labelled
+   control row (checkbox + text) is a line of its own in a list. */
+span.ds-row, span.ds-stack { display: inline-flex; }
+.ds-wrap  { flex-wrap: wrap; }
+.ds-grow  { flex: 1; min-width: 0; }
+.ds-align-center   { align-items: center; }
+.ds-align-start    { align-items: flex-start; }
+.ds-align-end      { align-items: flex-end; }
+.ds-align-baseline { align-items: baseline; }
+.ds-align-stretch  { align-items: stretch; }
+.ds-justify-start   { justify-content: flex-start; }
+.ds-justify-center  { justify-content: center; }
+.ds-justify-between { justify-content: space-between; }
+.ds-justify-end     { justify-content: flex-end; }
+.ds-gap-px { gap: var(--s-px); }
+.ds-gap-0-5 { gap: var(--s-0-5); }
+.ds-gap-1 { gap: var(--s-1); }
+.ds-gap-1-5 { gap: var(--s-1-5); }
+.ds-gap-2 { gap: var(--s-2); }
+.ds-gap-3 { gap: var(--s-3); }
+.ds-gap-4 { gap: var(--s-4); }
+.ds-gap-5 { gap: var(--s-5); }
+.ds-gap-6 { gap: var(--s-6); }
+.ds-gap-7 { gap: var(--s-7); }
+.ds-spacer { flex: 1; min-width: 0; }
+
+.ds-text { margin: 0; }
+.ds-t-eyebrow { font-size: var(--t-eyebrow); }
+.ds-t-caption { font-size: var(--t-caption); }
+.ds-t-small   { font-size: var(--t-small); }
+.ds-t-body    { font-size: var(--t-body); }
+.ds-t-title   { font-size: var(--t-title); }
+.ds-t-display { font-size: var(--t-display); }
+.ds-tone-default { color: var(--fg-1); }
+.ds-tone-muted   { color: var(--fg-2); }
+.ds-tone-faint   { color: var(--fg-3); }
+.ds-tone-accent  { color: var(--accent); }
+.ds-tone-danger  { color: var(--danger); }
+.ds-tone-warn    { color: var(--warn); }
+.ds-mono  { font-family: var(--font-mono); }
+.ds-w-500 { font-weight: var(--fw-medium); }
+.ds-w-600 { font-weight: var(--fw-semibold); }
+/* Ellipsis needs a block box: a flex item already is one; a bare span is made one. */
+.ds-truncate { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+span.ds-truncate { display: inline-block; max-width: 100%; vertical-align: bottom; }
+
+.ds-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(18px * var(--ui-scale, 1));
+  height: calc(18px * var(--ui-scale, 1));
+  padding: 0 var(--s-1-5);
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  color: var(--fg-1);
+  box-shadow: 0 1px 0 var(--line-2);
+}
+.ds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  padding: var(--s-1) var(--s-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  line-height: 1;
+  cursor: default;
+}
+.ds-chip--active { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-edge); }
+.ds-chip--clickable { cursor: pointer; }
+.ds-chip-dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+.ds-chip-remove { display: inline-flex; cursor: pointer; opacity: 0.6; }
+
 /* ===== Settings — grouped-card topics (Section / SettingRow primitives) =====
    A quiet title sits above a single rounded card; rows inside are split only by
    the faintest hairline. Replaces the old per-topic eyebrow-header + border. */
@@ -40,6 +126,19 @@
 .setting-row-meta { flex: 1; min-width: 0; }
 .setting-row-label { font-size: var(--t-sm); color: var(--fg-0); }
 .setting-row-hint { font-size: var(--t-tiny); color: var(--fg-3); margin-top: 2px; }
+/* "Learn more" → the docs site (plan 009). A text button: colour on hover, never size. */
+.setting-learn-more {
+  all: unset;
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--fg-3);
+  font-size: var(--t-tiny);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.setting-learn-more:hover { color: var(--accent); }
+.setting-learn-more:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; border-radius: var(--r-1); }
 .settings-card-pad { padding: var(--s-4); }
 
 /* ===== Settings sidebar — filter box, group headings, pane rows =====
@@ -105,12 +204,48 @@
   background: var(--accent);
   flex-shrink: 0;
 }
+/* A matching control listed under its pane while the filter has a query.
+   Indented under the pane label; hover and the keyboard cursor change
+   background only, like the pane rows. */
+.settings-nav-hit {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--s-1) var(--s-2) var(--s-1) calc(var(--s-2) + 21px);
+  border-radius: var(--r-2);
+  font-size: var(--t-xs);
+  color: var(--fg-2);
+  background: transparent;
+  transition: background var(--dur-fast);
+}
+.settings-nav-hit:hover { background: var(--bg-3); }
+.settings-nav-hit.is-active { background: var(--bg-3); color: var(--fg-0); }
+.settings-nav-hit-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-hit-note { font-size: var(--t-micro); color: var(--fg-3); }
+
+/* The row a search hit or deep link jumped to (SettingField `is-target`): an
+   accent wash that fades out. Background only — the row keeps its size, padding
+   and borders, so nothing reflows while it flashes. */
+@keyframes setting-target-flash {
+  0%, 35% { background-color: color-mix(in srgb, var(--accent) 16%, transparent); }
+  100% { background-color: transparent; }
+}
+[data-setting-id].is-target { animation: setting-target-flash 1.6s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  [data-setting-id].is-target {
+    animation: none;
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+}
 
 /* Whole-line highlight for a Monaco row jumped to (search result or cross-file
    go-to-definition): an accent flash that fades back out. The decoration is
    cleared in JS once the animation settles, so no tint lingers. */
 .argus-line-flash {
-  animation: argus-line-flash 1.4s var(--ease-out) forwards;
+  animation: argus-line-flash 1.4s var(--ease) forwards;
 }
 @keyframes argus-line-flash {
   0% { background: color-mix(in srgb, var(--accent) 38%, transparent); }
@@ -128,10 +263,10 @@
   background: var(--accent);
   color: var(--fg-on-accent);
   border-radius: 0 0 var(--r-2) var(--r-2);
-  font-size: var(--t-base);
+  font-size: var(--t-body);
   font-weight: 600;
   text-decoration: none;
-  transition: top 0.1s;
+  transition: top var(--dur-fast) var(--ease);
 }
 .skip-link:focus {
   top: 0;
@@ -141,7 +276,7 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background: var(--bg-0);
+  /* background: tokens.css (--material-window: opaque unless translucent) */
 }
 
 #root {
@@ -163,7 +298,7 @@ body {
 ::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
-  transition: background 120ms ease;
+  transition: background var(--dur-fast) var(--ease);
 }
 
 @media (hover: hover) {
@@ -245,7 +380,7 @@ body {
 
 /* Bell flash — wired from useTerminal.ts onBell. */
 .terminal-bell-flash {
-  animation: terminal-bell-flash 0.2s ease-out;
+  animation: terminal-bell-flash var(--dur-base) var(--ease);
 }
 @keyframes terminal-bell-flash {
   0%   { background: var(--accent-bg); }
@@ -255,10 +390,13 @@ body {
 /* Mobile on-screen keyboard: hide the horizontal toolbar scrollbar, press feedback */
 .mobile-keys-toolbar::-webkit-scrollbar { display: none; }
 .mobile-keycap:active { transform: scale(0.93); }
-.mobile-keycap { transition: transform 80ms ease, background 80ms ease; -webkit-user-select: none; user-select: none; }
+.mobile-keycap { transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease); -webkit-user-select: none; user-select: none; }
 
 /* Mobile session list row: tap press feedback */
 .mobile-list-row:active { background: var(--bg-3) !important; }
+/* Per-session chips under the row's subtitle (plan 009 M1): same chips as the
+   desktop tile header. */
+.mobile-row-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1-5); margin-top: var(--s-1); }
 
 /* Narrow phones: hide "BACK" text in focus header, keep chevron only */
 @media (max-width: 375px) {
@@ -307,8 +445,8 @@ body {
   .mobile-terminal-input {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: var(--s-1-5);
+    padding: var(--s-1-5) var(--s-2);
     background: var(--bg-2);
     border-top: 1px solid var(--line-2);
     flex-shrink: 0;
@@ -317,17 +455,18 @@ body {
   .mobile-terminal-quickkeys {
     display: flex;
     flex-wrap: nowrap;
-    gap: 4px;
+    gap: var(--s-1);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 2px;
+    padding-bottom: var(--s-0-5);
   }
 
   .mobile-quickkey-btn {
     flex-shrink: 0;
+    /* 36px keycaps: a dense row of touch targets, not a spacing step. */
     min-width: 36px;
     height: 36px;
-    padding: 0 6px;
+    padding: 0 var(--s-1-5);
     border: 1px solid var(--line-2);
     border-radius: var(--r-2);
     background: var(--bg-2);
@@ -349,16 +488,17 @@ body {
 
   .mobile-terminal-textrow {
     display: flex;
-    gap: 6px;
+    gap: var(--s-1-5);
     align-items: center;
   }
 
   .mobile-terminal-text-input {
     flex: 1;
     min-width: 0;
+    /* 16px stops iOS zooming into the field; 44px is the touch minimum. */
     font-size: 16px !important;
     font-family: var(--font-mono);
-    padding: 8px 12px;
+    padding: var(--s-2) var(--s-3);
     min-height: 44px;
     border: 1px solid var(--line-2);
     border-radius: var(--r-2);
@@ -371,13 +511,13 @@ body {
   .mobile-terminal-send-btn {
     flex-shrink: 0;
     min-height: 44px;
-    padding: 0 16px;
+    padding: 0 var(--s-4);
     border: none;
     border-radius: var(--r-2);
     background: var(--accent);
     color: var(--fg-on-accent);
     font-weight: 600;
-    font-size: var(--t-base);
+    font-size: var(--t-body);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
@@ -508,7 +648,7 @@ body {
   border-top: 1px solid var(--line-2);
   max-height: 85vh;
   overflow-y: auto;
-  animation: commitSlideUp var(--dur-slow) cubic-bezier(0.32, 0.72, 0, 1);
+  animation: commitSlideUp var(--dur-slow) var(--ease);
   overscroll-behavior: contain;
 }
 
@@ -595,15 +735,15 @@ body {
   flex-shrink: 0;
   /* Anchors the drag handle on the right edge (see Sidebar.tsx). */
   position: relative;
-  background: var(--bg-1);
-  border-right: 1px solid var(--line-2);
+  background: var(--material-sidebar);
+  border-right: var(--hairline) solid var(--line-2);
   display: flex;
   flex-direction: column;
   padding: var(--s-3) var(--s-2);
   overflow-x: hidden;
   overflow-y: auto;
-  transition: width 180ms var(--ease-std);
-  width: 220px;
+  transition: width var(--dur-base) var(--ease);
+  width: var(--w-sidebar);
 }
 /* ── Stable collapsed ── */
 .argus-sidebar[data-collapsed="true"] {
@@ -611,7 +751,7 @@ body {
   padding-bottom: 9px; /* 3px less than default 12px lets settings land at exact vbox position */
 }
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { justify-content: center; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { align-self: center; }
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-label,
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-count,
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-kbd {
@@ -637,14 +777,14 @@ body {
   align-items: center;
   justify-content: flex-start;
   gap: var(--s-2);
-  padding: 6px var(--s-2);
+  padding: var(--row-pad-y) var(--s-2);
   color: var(--fg-1);
   background: transparent;
   border-radius: var(--r-2);
   font-size: var(--t-sm);
   margin-bottom: 1px;
   box-sizing: border-box;
-  transition: background var(--dur-fast) var(--ease-std),
+  transition: background var(--dur-fast) var(--ease),
               color var(--dur-fast);
 }
 .argus-sidebar-row svg { flex-shrink: 0; }
@@ -655,7 +795,7 @@ body {
 .argus-sidebar-row[data-highlight="true"]:hover { color: var(--accent); }
 
 .argus-sidebar-row > .argus-sidebar-label { flex: 1; white-space: nowrap; overflow: hidden; }
-.argus-sidebar .eyebrow { transition: opacity 120ms var(--ease-std); }
+.argus-sidebar .eyebrow { transition: opacity var(--dur-fast) var(--ease); }
 
 /* Version box — overflow:hidden enables the height collapse animation */
 .argus-sidebar-version-box { overflow: hidden; }
@@ -668,25 +808,25 @@ body {
 .argus-sidebar[data-animating="collapsing"] .argus-sidebar-tree,
 .argus-sidebar[data-animating="collapsing"] .argus-sidebar-version-box {
   opacity: 0;
-  transition: opacity 420ms var(--ease-std);
+  transition: opacity var(--motion-sidebar-fade) var(--ease);
 }
 .argus-sidebar[data-animating="collapsing"] .eyebrow,
 .argus-sidebar[data-animating="collapsing"] .argus-sidebar-label,
 .argus-sidebar[data-animating="collapsing"] .argus-sidebar-count,
 .argus-sidebar[data-animating="collapsing"] .argus-sidebar-kbd {
   opacity: 0;
-  transition: opacity 120ms var(--ease-std);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 .argus-sidebar[data-animating^="collapsing"] .argus-sidebar-inspector {
   opacity: 0;
-  transition: opacity 120ms var(--ease-std);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 /* ── Collapse phase 2: sidebar shrinks; tree + vbox heights via inline JS ── */
 .argus-sidebar[data-animating="collapsing-2"] {
   width: var(--w-rail);
-  transition: width 520ms cubic-bezier(.4,0,.6,1);
+  transition: width var(--motion-sidebar-collapse) var(--ease-sidebar-collapse);
 }
 .argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-label,
 .argus-sidebar[data-animating="collapsing-2"] .argus-sidebar-row > .argus-sidebar-count,
@@ -701,7 +841,7 @@ body {
 /* ── Expand phase 1: sidebar widens; tree + vbox heights via inline JS ── */
 .argus-sidebar[data-animating="expanding"] {
   width: 220px;
-  transition: width 450ms var(--ease-out);
+  transition: width var(--motion-sidebar-expand) var(--ease);
 }
 .argus-sidebar[data-animating="expanding"] .argus-sidebar-row > .argus-sidebar-label,
 .argus-sidebar[data-animating="expanding"] .argus-sidebar-row > .argus-sidebar-count,
@@ -717,14 +857,14 @@ body {
 .argus-sidebar[data-animating="expanding-2"] .argus-sidebar-tree,
 .argus-sidebar[data-animating="expanding-2"] .argus-sidebar-version-box {
   opacity: 1;
-  transition: opacity 420ms var(--ease-out);
+  transition: opacity var(--motion-sidebar-fade) var(--ease);
 }
 .argus-sidebar[data-animating="expanding-2"] .eyebrow,
 .argus-sidebar[data-animating="expanding-2"] .argus-sidebar-label,
 .argus-sidebar[data-animating="expanding-2"] .argus-sidebar-count,
 .argus-sidebar[data-animating="expanding-2"] .argus-sidebar-kbd {
   opacity: 1;
-  transition: opacity 150ms var(--ease-out);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 
 .argus-sidebar-count {
@@ -739,25 +879,30 @@ body {
 .argus-sidebar-collapse-btn {
   all: unset;
   cursor: pointer;
+  /* Hugs the icon (right end of the row) rather than spanning the sidebar:
+     the tooltip anchors on this box, and a full-width box put it mid-sidebar. */
+  align-self: flex-end;
   display: flex;
   align-items: center;
-  padding: 6px var(--s-2);
+  padding: var(--row-pad-y) var(--s-2);
   color: var(--fg-2);
   border-radius: var(--r-2);
   margin-bottom: var(--s-2);
-  justify-content: flex-end;
 }
 
 /* === TITLEBAR === */
 .argus-titlebar {
-  height: 44px;
+  /* Height follows the density; the left inset clears the traffic lights and
+     is pushed by main from the same function that places them
+     (electron/src/titlebarMetrics.ts). */
+  height: var(--h-titlebar, 44px);
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: var(--s-3);
-  padding: 0 var(--s-3) 0 80px;
-  background: var(--bg-1);
-  border-bottom: 1px solid var(--line-2);
+  padding: 0 var(--s-3) 0 var(--titlebar-inset, 82px);
+  background: var(--material-toolbar);
+  border-bottom: var(--hairline) solid var(--line-2);
 }
 .argus-titlebar-title {
   font-size: var(--t-tiny);
@@ -770,6 +915,53 @@ body {
   flex-shrink: 0;
 }
 .argus-titlebar-title-sub { color: var(--fg-3); }
+/* Inactive window (plan 008): the title recedes, like AppKit's toolbar. */
+:root[data-window-active="false"] .argus-titlebar-title { color: var(--fg-3); }
+
+/* === WINDOW SHELL (plan 008) ===
+   The shell paints the window material: transparent while translucent, so the
+   native vibrancy shows behind the sidebar and toolbar tints. The content
+   column (.argus-content: mosaic, focus, workbench panels) is always opaque.
+   It is the guaranteed opaque ancestor of every native terminal hole: a
+   native tile is a child NSWindow hidden by alpha 0, and whatever its hole's
+   ancestors paint shows in that frame (docs/solutions/macos/
+   native-terminal-overlay-child-windows-2026-09-02.md). */
+.argus-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--material-window);
+  color: var(--fg-0);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+}
+.argus-shell-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.argus-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-0);
+}
+
+/* "OTHERS" chip strip above the focused shell. */
+.argus-chip-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-4);
+  background: var(--material-toolbar);
+  border-bottom: var(--hairline) solid var(--line-2);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
 .argus-titlebar-slot {
   display: inline-flex;
   align-items: center;
@@ -807,8 +999,8 @@ body {
   border: 1px solid var(--line-2);
   border-radius: 0;
   overflow: hidden;
-  animation: argus-fade-in var(--dur-base) var(--ease-out) backwards;
-  animation-delay: calc(var(--i, 0) * 40ms);
+  animation: argus-fade-in var(--dur-base) var(--ease) backwards;
+  animation-delay: calc(var(--i, 0) * var(--motion-tile-stagger));
 }
 @keyframes argus-tile-genie-out {
   from { transform: scaleY(1) scaleX(1); opacity: 1; }
@@ -823,16 +1015,16 @@ body {
   to   { transform: scaleX(1) translateY(0);     opacity: 1; transform-origin: left center; }
 }
 .argus-tile--minimizing {
-  animation: argus-tile-genie-out 340ms cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+  animation: argus-tile-genie-out var(--motion-tile-genie-out) var(--ease-tile-genie-out) forwards !important;
   transform-origin: bottom center;
   pointer-events: none;
 }
 .argus-tile--restoring {
-  animation: argus-tile-genie-in 380ms cubic-bezier(0.16, 1, 0.3, 1) both !important;
+  animation: argus-tile-genie-in var(--motion-tile-genie-in) var(--ease-tile-genie-in) both !important;
   transform-origin: bottom center;
 }
 .argus-chip--entering {
-  animation: argus-chip-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: argus-chip-enter var(--motion-chip-enter) var(--ease-tile-genie-in) both;
 }
 @keyframes argus-tile-reflow-spring {
   0%   { transform: scale(1); }
@@ -841,7 +1033,7 @@ body {
   100% { transform: scale(1); }
 }
 .argus-tile--reflowing {
-  animation: argus-tile-reflow-spring 440ms cubic-bezier(0.34, 1.56, 0.64, 1) both !important;
+  animation: argus-tile-reflow-spring var(--motion-tile-reflow) var(--ease-snap) both !important;
 }
 @keyframes argus-tile-notified {
   0%   { box-shadow: 0 0 0 0px var(--accent-glow); }
@@ -849,7 +1041,7 @@ body {
   100% { box-shadow: 0 0 0 0px transparent; }
 }
 .argus-tile--notified {
-  animation: argus-tile-notified 1.2s var(--ease-out) forwards;
+  animation: argus-tile-notified 1.2s var(--ease) forwards;
 }
 .argus-tile-header {
   /* Anchors the running hairline (.argus-tile-prog, absolute) to the header.
@@ -859,7 +1051,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  padding: var(--s-1) var(--s-3);
+  padding: var(--header-pad-y) var(--s-3);
   background: var(--bg-1);
   flex-shrink: 0;
   cursor: grab;
@@ -873,6 +1065,147 @@ body {
 .argus-tile-header[data-drop-target] {
   box-shadow: inset 3px 0 0 0 var(--accent);
 }
+
+/* Session identity (plan 009): the colour is a 3px leading edge bar — inset
+   shadow, so it never reflows a row — and the emoji sits in a fixed slot so a
+   wide sequence cannot shift the name. Drop targets (above) out-rank the edge. */
+[data-identity-edge] {
+  box-shadow: inset 3px 0 0 0 var(--identity-edge);
+}
+.argus-identity-emoji {
+  display: inline-block;
+  width: 1.25em;
+  flex: 0 0 1.25em;
+  overflow: hidden;
+  text-align: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+.argus-identity-pop {
+  position: fixed;
+  z-index: var(--z-pop);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--material-menu);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  animation: argus-fade-in var(--dur-fast) var(--ease);
+}
+.argus-identity-pop-label { color: var(--fg-3); }
+.argus-identity-swatches { display: flex; gap: var(--s-1-5); }
+.argus-identity-swatch {
+  all: unset;
+  box-sizing: border-box;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-pill);
+  color: var(--fg-3);
+  cursor: pointer;
+  /* Selection ring as a shadow: same box size selected or not. */
+  box-shadow: inset 0 0 0 1px var(--line-3);
+}
+.argus-identity-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 3px var(--fg-1); }
+.argus-identity-swatch:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; }
+.argus-identity-emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--s-0-5); }
+.argus-identity-emoji-pick {
+  all: unset;
+  box-sizing: border-box;
+  height: var(--ctl-h-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-2);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+.argus-identity-emoji-pick:hover { background: var(--bg-3); }
+.argus-identity-emoji-pick[aria-pressed="true"] { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-3); }
+.argus-identity-emoji-pick:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: -2px; }
+.argus-identity-input {
+  box-sizing: border-box;
+  height: var(--ctl-h-sm);
+  padding: 0 var(--s-2);
+  background: var(--bg-inset);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--fg-0);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+}
+.argus-identity-input[aria-invalid="true"] { border-color: var(--danger); }
+.argus-identity-error { color: var(--danger); font-size: var(--t-tiny); }
+.argus-identity-pop-foot { display: flex; justify-content: flex-end; gap: var(--s-1-5); }
+
+/* App status bar (plan 009): one quiet line of global health along the bottom.
+   Height is the density-scaled --h-statusbar; solid background (the window is
+   never translucent). Items change colour on hover, never size. */
+.argus-statusbar {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  height: var(--h-statusbar);
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 0 var(--s-2);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  container: statusbar / inline-size;
+}
+.argus-statusbar-side { display: flex; align-items: stretch; gap: var(--s-1); min-width: 0; }
+/* Narrow window: the left side (connection, session counts) gives way with an
+   ellipsis; the right side keeps its size and sheds items by priority instead
+   of being clipped at the edge. */
+.argus-statusbar-side:first-child { flex: 1 1 auto; overflow: hidden; }
+.argus-statusbar-side:last-child { flex-shrink: 0; }
+.argus-statusbar-btn.argus-statusbar-fill { min-width: 0; }
+.argus-statusbar-text { overflow: hidden; text-overflow: ellipsis; }
+@container statusbar (max-width: 900px) { .argus-statusbar [data-priority="low"] { display: none; } }
+@container statusbar (max-width: 720px) { .argus-statusbar [data-priority="mid"] { display: none; } }
+@container statusbar (max-width: 560px) { .argus-statusbar .argus-statusbar-label { display: none; } }
+.argus-statusbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-1-5);
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.argus-statusbar-btn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 0 var(--s-1-5);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-statusbar-btn:hover { background: var(--bg-2); color: var(--fg-1); }
+.argus-statusbar-btn:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: -2px; }
+.argus-statusbar-item[data-tone="warn"] { color: var(--warn); }
+.argus-statusbar-item[data-tone="danger"] { color: var(--danger); }
+.argus-statusbar-item[data-tone="accent"] { color: var(--accent); }
+.argus-statusbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--status-done);
+}
+.argus-statusbar-item[data-tone="warn"] .argus-statusbar-dot { background: var(--warn); }
+.argus-statusbar-item[data-tone="danger"] .argus-statusbar-dot { background: var(--danger); }
 
 /* @dnd-kit DragOverlay card for active tile drag */
 .argus-tile-drag-overlay {
@@ -1160,7 +1493,7 @@ body {
 .argus-inspector-section-head:hover { background: var(--bg-3); }
 .argus-inspector-section-head:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: -1px; }
 .argus-inspector-section-title { font-size: var(--t-sm); font-weight: 500; }
-.argus-inspector-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease-std); transform: rotate(-90deg); }
+.argus-inspector-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease); transform: rotate(-90deg); }
 .argus-inspector-section[data-open] .argus-inspector-chevron { transform: none; }
 .argus-inspector-section-summary {
   margin-left: auto;
@@ -1271,7 +1604,7 @@ body {
 }
 .argus-inspector-disclosure-head:hover { color: var(--fg-0); }
 .argus-inspector-disclosure-head:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
-.argus-inspector-disclosure-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease-std); }
+.argus-inspector-disclosure-chevron { color: var(--fg-2); transition: transform var(--dur-fast) var(--ease); }
 .argus-inspector-disclosure[data-open] .argus-inspector-disclosure-chevron { transform: rotate(90deg); }
 .argus-inspector-disclosure-meta { margin-left: auto; font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-2); }
 .argus-inspector-disclosure-body { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-1) 0 0; }
@@ -1386,7 +1719,7 @@ body {
 .argus-inspector-pr-flag { display: inline-flex; border-radius: var(--r-1); }
 .argus-inspector-pr-flag:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
 /* C4: quiet until the row is hovered or the button has focus. */
-.argus-inspector-pr-more { display: inline-flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-pr-more { display: inline-flex; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
 .argus-inspector-prrow:hover .argus-inspector-pr-more,
 .argus-inspector-pr-more:focus-within,
 .argus-inspector-pr-more[data-open] { opacity: 1; }
@@ -1413,7 +1746,7 @@ body {
   color: var(--fg-0);
 }
 .argus-inspector-pr:hover .argus-inspector-pr-title { text-decoration: underline; text-decoration-color: var(--line-3); text-underline-offset: 2px; }
-.argus-inspector-pr-ext { flex-shrink: 0; margin-top: 3px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.argus-inspector-pr-ext { flex-shrink: 0; margin-top: 3px; color: var(--fg-3); opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
 .argus-inspector-pr:hover .argus-inspector-pr-ext,
 .argus-inspector-pr:focus-visible .argus-inspector-pr-ext { opacity: 1; }
 .argus-inspector-pr-ref {
@@ -1461,13 +1794,13 @@ body {
   flex-direction: column;
   gap: var(--s-2);
   padding: var(--s-3);
-  background: var(--bg-2);
+  background: var(--material-popover);
   border: 1px solid var(--line-3);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-pop);
   font-size: var(--t-tiny);
   color: var(--fg-1);
-  animation: argus-fade-in var(--dur-fast) var(--ease-out);
+  animation: argus-fade-in var(--dur-fast) var(--ease);
 }
 .argus-ci-popover-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
 .argus-ci-popover-head .eyebrow { color: var(--fg-2); }
@@ -1528,7 +1861,7 @@ body {
   font-size: var(--t-tiny);
   color: var(--fg-2);
   border-radius: var(--r-1);
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease);
 }
 .argus-inspector-pr-ref + .argus-inspector-pr-files { margin-left: 0; }
 .argus-inspector-pr-files:hover { background: var(--bg-3); color: var(--fg-1); }
@@ -1678,7 +2011,7 @@ body {
   /* Never shrinks, never wraps: the info region gives way instead (F12). */
   flex: none;
   opacity: 0.5;
-  transition: opacity var(--dur-fast) var(--ease-std);
+  transition: opacity var(--dur-fast) var(--ease);
 }
 .argus-tile:hover .argus-tile-actions,
 .argus-tile-actions:focus-within {
@@ -1711,7 +2044,7 @@ body {
   width: 34%;
   border-radius: 2px;
   background: linear-gradient(90deg, transparent, var(--status-running), transparent);
-  animation: argus-tile-prog-crawl 1.9s cubic-bezier(.45, 0, .55, 1) infinite;
+  animation: argus-tile-prog-crawl 1.9s ease-in-out infinite;
 }
 @keyframes argus-tile-prog-crawl {
   0%   { left: -36%; }
@@ -1780,7 +2113,7 @@ body {
   -webkit-backdrop-filter: blur(3px) saturate(115%);
   pointer-events: none;
   z-index: 3;
-  animation: argus-drop-fade 120ms ease-out;
+  animation: argus-drop-fade var(--dur-fast) var(--ease);
 }
 .argus-drop-pill {
   --drop-pill-hl: rgba(255, 255, 255, 0.18);
@@ -1977,7 +2310,7 @@ body {
   background: radial-gradient(circle, var(--accent-glow) 0%, transparent 62%);
   filter: blur(8px);
   pointer-events: none;
-  animation: argus-landing-breathe 6s var(--ease-std) infinite;
+  animation: argus-landing-breathe 6s var(--ease) infinite;
 }
 .argus-landing-inner {
   position: relative;
@@ -1986,7 +2319,7 @@ body {
   align-items: center;
   gap: var(--s-5);
   padding: var(--s-6);
-  animation: argus-fade-in var(--dur-slow) var(--ease-out) backwards;
+  animation: argus-fade-in var(--dur-slow) var(--ease) backwards;
 }
 .argus-landing-ring {
   position: relative;
@@ -2004,7 +2337,7 @@ body {
   inset: -1px;
   border-radius: 50%;
   border: 1px solid var(--accent);
-  animation: argus-landing-pulse var(--dur-ambient) var(--ease-out) infinite;
+  animation: argus-landing-pulse var(--dur-ambient) var(--ease) infinite;
 }
 .argus-landing-core {
   width: 62px;
@@ -2038,6 +2371,36 @@ body {
   justify-content: center;
   margin-top: var(--s-1);
 }
+.argus-landing-promo {
+  margin: var(--s-2) 0 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1-5);
+  font-size: var(--t-small);
+  color: var(--fg-3);
+}
+.argus-landing-promo-try {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+.argus-landing-promo-try:hover { text-decoration: underline; }
+.argus-landing-promo-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-landing-promo-try:focus-visible,
+.argus-landing-promo-x:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
 @keyframes argus-landing-breathe {
   /* opacity-only — scaling this 620px blurred radial-gradient re-rasterizes the
      blur every frame (very costly on the CPU; GPU compositing is off). */
@@ -2186,7 +2549,7 @@ body {
 }
 .argus-chat-output > summary::-webkit-details-marker { display: none; }
 .argus-chat-output > summary:hover { color: var(--fg-1); }
-.argus-chat-output-caret { flex: none; transition: transform 0.12s ease; }
+.argus-chat-output-caret { flex: none; transition: transform var(--dur-fast) var(--ease); }
 .argus-chat-output[open] .argus-chat-output-caret { transform: rotate(90deg); }
 .argus-chat-output-label { flex: none; font-weight: 500; }
 .argus-chat-output.is-stderr .argus-chat-output-label { color: var(--danger); }
@@ -2222,7 +2585,7 @@ body {
 .argus-chat-tool-head:hover { color: var(--fg-1); }
 .argus-chat-tool-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-1); }
 .argus-chat-tool-summary { font-weight: 500; }
-.argus-chat-tool-caret { flex: none; color: var(--fg-3); transition: transform 0.12s ease; }
+.argus-chat-tool-caret { flex: none; color: var(--fg-3); transition: transform var(--dur-fast) var(--ease); }
 .argus-chat-tools.is-open > .argus-chat-tool-summary .argus-chat-tool-caret,
 .argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
 .argus-chat-tool-icon { flex: none; color: var(--fg-3); }
@@ -2521,7 +2884,7 @@ body {
   height: calc(10px * var(--ui-scale));
   border-radius: calc(2.5px * var(--ui-scale));
   background: currentColor;
-  animation: argus-chat-stop-pulse 1.6s var(--ease-std) infinite;
+  animation: argus-chat-stop-pulse 1.6s var(--ease) infinite;
 }
 .argus-chat-stop.is-stopping .argus-chat-stop-glyph { animation: none; opacity: 0.4; }
 @keyframes argus-chat-stop-pulse {
@@ -2679,10 +3042,6 @@ body {
   background: var(--warn-bg);
   border-radius: var(--r-2);
 }
-.argus-prdiff-stale { display: flex; align-items: center; gap: var(--s-2); flex-shrink: 0; }
-.argus-prdiff-retry { all: unset; cursor: pointer; margin-left: auto; color: var(--accent); }
-.argus-prdiff-retry:hover { text-decoration: underline; }
-.argus-prdiff-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 1px; }
 .argus-prdiff-notice-files { list-style: none; margin: var(--s-1) 0 0; padding: 0; color: var(--fg-1); font-family: var(--font-mono); }
 .argus-prdiff-notice-files li { overflow-wrap: anywhere; }
 
@@ -2721,3 +3080,259 @@ body {
 .argus-rodiff-delnum { color: var(--danger); }
 .argus-rodiff-main { flex: 1; min-width: 0; overflow: auto; background: var(--bg-0); }
 .argus-rodiff-empty { padding: var(--s-6); color: var(--fg-3); font-family: var(--font-mono); font-size: var(--t-sm); }
+
+/* ── Surface states (plan 2026-10-29-003): skeleton rows, stale notice, error actions ── */
+.argus-skeleton-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+}
+.argus-skeleton-rows[data-variant='inline'] { flex-direction: row; flex-wrap: wrap; padding: var(--s-1) 0; }
+.argus-skeleton-rows[data-variant='diff'] { gap: var(--s-1); font-family: var(--font-mono); }
+.argus-skeleton-row { display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-4); }
+.argus-skeleton-bar {
+  display: inline-block;
+  height: var(--s-2);
+  width: 72%;
+  border-radius: var(--r-1);
+  background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
+  background-size: 200% 100%;
+  animation: argus-shimmer 1.4s linear infinite;
+}
+/* Deterministic widths: a fixed cycle, never random, so tests and screenshots are stable. */
+.argus-skeleton-row:nth-child(4n + 2) .argus-skeleton-bar:last-child { width: 54%; }
+.argus-skeleton-row:nth-child(4n + 3) .argus-skeleton-bar:last-child { width: 86%; }
+.argus-skeleton-row:nth-child(4n + 4) .argus-skeleton-bar:last-child { width: 40%; }
+/* Tree: nested rows step in. */
+.argus-skeleton-rows[data-variant='tree'] .argus-skeleton-row:nth-child(3n + 2) { padding-left: var(--s-4); }
+.argus-skeleton-rows[data-variant='tree'] .argus-skeleton-row:nth-child(3n + 3) { padding-left: var(--s-7); }
+/* Diff: a line-number gutter, then the code line. */
+.argus-skeleton-bar.argus-skeleton-gutter { width: var(--s-6); flex: none; }
+.argus-skeleton-rows[data-variant='inline'] .argus-skeleton-bar { width: var(--s-10); }
+@media (prefers-reduced-motion: reduce) {
+  .argus-skeleton-bar { animation: none; }
+}
+
+/* Stale: one fixed-height line above data whose last refresh failed. */
+.argus-stale-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1-5);
+  height: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  max-height: var(--ctl-h-md);
+  padding: 0 var(--s-3);
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--warn);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  font-size: var(--t-small);
+}
+.argus-stale-notice-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-1); }
+.argus-stale-notice-retry {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: inherit;
+}
+.argus-stale-notice-retry:hover { text-decoration: underline; }
+.argus-stale-notice-retry:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+
+/* Error: cause sentence, action row, collapsed raw detail. */
+.argus-error-cause { max-width: 360px; color: var(--fg-1); font-size: var(--t-small); }
+.argus-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-2); }
+.argus-error-details { max-width: 360px; width: 100%; text-align: left; color: var(--fg-2); font-size: var(--t-xs); }
+.argus-error-details > summary { cursor: pointer; color: var(--fg-2); text-align: center; }
+.argus-error-details > pre {
+  margin: var(--s-2) 0 0;
+  padding: var(--s-2) var(--s-3);
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  background: var(--bg-inset);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+}
+/* A panel's one-line empty / filtered-out note. */
+.argus-panel-note { padding: var(--s-4); color: var(--fg-3); font-size: var(--t-sm); }
+.argus-find-error { padding: var(--s-2) var(--s-3); }
+/* Sidebar tree with zero sessions: one line, one link-styled action (no hover reflow). */
+.argus-tree-empty { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-1) var(--s-3); color: var(--fg-3); font-size: var(--t-sm); }
+.argus-tree-empty-action { all: unset; cursor: pointer; color: var(--accent); }
+.argus-tree-empty-action:hover { text-decoration: underline; }
+.argus-tree-empty-action:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+/* Error state inside a settings pane or inspector section: left-aligned, not centred in the pane. */
+.argus-inline-surface-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); padding: var(--s-2) 0; }
+.argus-inline-surface-error .argus-error-actions { justify-content: flex-start; }
+.argus-inline-surface-error .argus-error-details > summary { text-align: left; }
+.argus-inline-surface-error-title { color: var(--fg-0); font-size: var(--t-sm); font-weight: 500; }
+/* Create sheet: the selected agent CLI isn't on PATH. A warning, never a gate. */
+.argus-preflight-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-size: var(--t-small);
+}
+.argus-preflight-notice-title { display: flex; align-items: center; gap: var(--s-1-5); color: var(--warn); font-weight: 500; }
+.argus-preflight-notice .argus-error-actions { justify-content: flex-start; }
+
+/* ── Tip card (plan 006): one-time hint, bottom-left so it never stacks with
+   the bottom-right toasts. Opacity/transform only on enter. ──────────────── */
+.argus-tipcard {
+  position: fixed;
+  left: var(--s-4);
+  bottom: calc(var(--s-4) + var(--statusbar-offset, 0px));
+  z-index: var(--z-toast);
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--s-4));
+  box-sizing: border-box;
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  background: var(--material-menu);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg-1);
+  font-size: var(--t-small);
+  opacity: 0;
+  transform: translateY(var(--s-1));
+  transition: opacity var(--dur-base) var(--ease), transform var(--dur-base) var(--ease);
+}
+.argus-tipcard[data-shown] { opacity: 1; transform: none; }
+.argus-tipcard-head { display: flex; align-items: center; gap: var(--s-2); }
+.argus-tipcard-title { flex: 1; min-width: 0; color: var(--fg-0); font-size: var(--t-body); font-weight: 600; }
+.argus-tipcard-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.argus-tipcard-body { line-height: 1.45; color: var(--fg-1); }
+.argus-tipcard-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  padding: 0 var(--s-1);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-1);
+  color: var(--fg-0);
+}
+.argus-tipcard-actions { display: flex; align-items: center; gap: var(--s-2); }
+.argus-tipcard-off {
+  all: unset;
+  margin-left: auto;
+  color: var(--fg-3);
+  font-size: var(--t-caption);
+  cursor: pointer;
+}
+.argus-tipcard-off:hover { color: var(--fg-1); text-decoration: underline; }
+.argus-tipcard-x:focus-visible,
+.argus-tipcard-off:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+.argus-tipcard-foot { color: var(--fg-2); font-size: var(--t-caption); display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; }
+@media (prefers-reduced-motion: reduce) {
+  .argus-tipcard { transition: none; transform: none; }
+}
+
+/* ── Command palette rows (plan 001). Hover and selection change the
+   background only, never the row's size. ─────────────────────────────── */
+.argus-cmd-eyebrow { padding: var(--s-2) var(--s-4); color: var(--fg-3); }
+.argus-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px var(--s-4);
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+.argus-cmd-row[aria-selected='true'] { background: var(--bg-3); border-left-color: var(--accent); }
+.argus-cmd-check { width: 10px; flex-shrink: 0; color: var(--accent); font-size: var(--t-micro); text-align: center; }
+.argus-cmd-icon { flex-shrink: 0; color: var(--fg-3); }
+.argus-cmd-title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  color: var(--fg-0);
+}
+.argus-cmd-row[aria-selected='true'] .argus-cmd-icon,
+.argus-cmd-row[aria-selected='true'] .argus-cmd-title { color: var(--accent); }
+.argus-cmd-row[data-destructive] .argus-cmd-icon,
+.argus-cmd-row[data-destructive] .argus-cmd-title { color: var(--danger); }
+.argus-cmd-fill { flex: 1; }
+.argus-cmd-hint {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  color: var(--fg-3);
+}
+
+/* ── Getting-started checklist (plan 006): sidebar card between Pilot and
+   System. A tick changes glyph and colour only; the row never reflows. ───── */
+.argus-checklist {
+  margin: var(--s-3) var(--s-2) 0;
+  padding: var(--s-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-1);
+}
+.argus-checklist-head { display: flex; align-items: center; gap: var(--s-1); }
+.argus-checklist-toggle {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.argus-checklist-x {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-xs);
+  height: var(--ctl-h-xs);
+  border-radius: var(--r-1);
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.argus-checklist-list { list-style: none; margin: var(--s-1-5) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+.argus-checklist-row { display: flex; align-items: center; gap: var(--s-1-5); font-size: var(--t-caption); color: var(--fg-1); }
+.argus-checklist-row[data-done] { color: var(--fg-3); }
+.argus-checklist-row .argus-checklist-glyph { flex-shrink: 0; color: var(--fg-4); }
+.argus-checklist-row[data-done] .argus-checklist-glyph { color: var(--ok); }
+.argus-checklist-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-checklist-act {
+  all: unset;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: var(--t-caption);
+  cursor: pointer;
+}
+.argus-checklist-act:hover { text-decoration: underline; }
+.argus-checklist-done-msg { margin: var(--s-1-5) 0 0; font-size: var(--t-caption); color: var(--ok); }
+.argus-checklist-toggle:focus-visible,
+.argus-checklist-x:focus-visible,
+.argus-checklist-act:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { isMaximizedPanel, type MaximizablePanel, type Overlay, type SidePanel, type View } from '../types.js';
+import { myWindowId } from '../../utils/windowId.js';
+import { viewKey } from './windowUiState.js';
 
 export interface AppViewState {
   view: View;
@@ -29,44 +31,76 @@ export interface AppViewApi extends AppViewState {
   dismissMaximized: () => void;
 }
 
-// ---- Cross-reload persistence (Cmd+R) ----
-// Focus is ephemeral, so it lives in sessionStorage (cleared when the app
-// closes) rather than localStorage. Only the focused view is restored — overlay
-// and side-panel state are transient and always start closed.
-const PERSIST_KEY = 'argus.appView';
+// ---- Relaunch persistence (plan 009 W2) ----
+// The view, focused session and open side panel are saved per window in
+// localStorage, so both a Cmd+R reload and a relaunch reopen the window as it
+// was. Overlays are transient and always start closed. ArgusApp drops a
+// restored focus whose session is gone or now owned by another window.
 
 export interface PersistedView {
   view: View;
   activeSessionId: string | null;
+  sidePanel: SidePanel;
+  maximizedOrigin: View | null;
 }
 
-/** Read the persisted view. Restores only a `focus` view that names a session;
- *  anything else (or malformed/missing storage) → the dashboard default. */
-export function loadPersistedView(): PersistedView {
+const DASHBOARD: PersistedView = { view: 'dashboard', activeSessionId: null, sidePanel: null, maximizedOrigin: null };
+
+/** Panels that can reopen from a plain record. A PR diff carries a fetched PR
+ *  and is opened from it, so it never restores. */
+const RESTORABLE_PANELS = new Set(['diff', 'explorer', 'terminal', 'activity']);
+
+function restorablePanel(p: unknown, sessionId: string): SidePanel {
+  if (!p || typeof p !== 'object') return null;
+  const { kind, sessionId: sid, maximized } = p as { kind?: unknown; sessionId?: unknown; maximized?: unknown };
+  if (typeof kind !== 'string' || !RESTORABLE_PANELS.has(kind) || sid !== sessionId) return null;
+  if ((kind === 'diff' || kind === 'explorer') && maximized === true) {
+    return { kind, sessionId, maximized: true };
+  }
+  return { kind, sessionId } as SidePanel;
+}
+
+/** Read this window's persisted view. Only a `focus` view naming a session
+ *  restores; anything else (or malformed/missing storage) → the dashboard. */
+export function loadPersistedView(windowId: string): PersistedView {
   try {
-    const raw = sessionStorage.getItem(PERSIST_KEY);
+    const raw = localStorage.getItem(viewKey(windowId));
     if (raw) {
       const p = JSON.parse(raw) as Partial<PersistedView>;
       if (p.view === 'focus' && typeof p.activeSessionId === 'string') {
-        return { view: 'focus', activeSessionId: p.activeSessionId };
+        const sidePanel = restorablePanel(p.sidePanel, p.activeSessionId);
+        const origin = p.maximizedOrigin === 'dashboard' || p.maximizedOrigin === 'focus' ? p.maximizedOrigin : null;
+        return {
+          view: 'focus',
+          activeSessionId: p.activeSessionId,
+          sidePanel,
+          maximizedOrigin: isMaximizedPanel(sidePanel) ? origin ?? 'focus' : null,
+        };
       }
     }
   } catch {
-    /* sessionStorage unavailable / malformed — fall through to default */
+    /* storage unavailable / malformed — fall through to default */
   }
-  return { view: 'dashboard', activeSessionId: null };
+  return DASHBOARD;
 }
 
-/** Persist a focused view; clear the key for any non-focus view. */
-export function persistView(view: View, activeSessionId: string | null): void {
+/** Persist a focused view (with its panel); clear the key for any other view. */
+export function persistView(windowId: string, state: Pick<AppViewState, 'view' | 'activeSessionId' | 'sidePanel' | 'maximizedOrigin'>): void {
   try {
-    if (view === 'focus' && activeSessionId) {
-      sessionStorage.setItem(PERSIST_KEY, JSON.stringify({ view, activeSessionId }));
+    if (state.view === 'focus' && state.activeSessionId) {
+      const panel = restorablePanel(state.sidePanel, state.activeSessionId);
+      const record: PersistedView = {
+        view: 'focus',
+        activeSessionId: state.activeSessionId,
+        sidePanel: panel,
+        maximizedOrigin: isMaximizedPanel(panel) ? state.maximizedOrigin : null,
+      };
+      localStorage.setItem(viewKey(windowId), JSON.stringify(record));
     } else {
-      sessionStorage.removeItem(PERSIST_KEY);
+      localStorage.removeItem(viewKey(windowId));
     }
   } catch {
-    /* best-effort persistence across Cmd+R */
+    /* best-effort persistence */
   }
 }
 
@@ -125,24 +159,15 @@ export function dismissMaximizedState(s: AppViewState): AppViewState {
  *   rebindable shortcuts (palette, new session, settings, …) are owned by the
  *   registry-driven handler in ArgusApp. Escape stays here.
  */
-export function useAppView(): AppViewApi {
-  const [state, setState] = useState<AppViewState>(() => {
-    const persisted = loadPersistedView();
-    return {
-      view: persisted.view,
-      activeSessionId: persisted.activeSessionId,
-      overlay: null,
-      sidePanel: null,
-      maximizedOrigin: null,
-    };
-  });
+export function useAppView(windowId: string = myWindowId): AppViewApi {
+  const [state, setState] = useState<AppViewState>(() => ({ ...loadPersistedView(windowId), overlay: null }));
 
-  // Persist the focused view so Cmd+R (renderer reload) returns to the same
-  // session instead of dropping to the mosaic. ArgusApp validates the restored
-  // session id once the list loads and exits focus if it no longer exists.
+  // Persist the focused view and its panel so a reload or relaunch returns to
+  // the same session. ArgusApp validates the restored session id once the list
+  // loads and exits focus if it no longer exists or belongs to another window.
   useEffect(() => {
-    persistView(state.view, state.activeSessionId);
-  }, [state.view, state.activeSessionId]);
+    persistView(windowId, state);
+  }, [windowId, state]);
 
   const openSession = useCallback((id: string) => {
     setState((s) => ({ ...s, view: 'focus', activeSessionId: id }));

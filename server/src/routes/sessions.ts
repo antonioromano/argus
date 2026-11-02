@@ -7,6 +7,9 @@ import type { ConfigStore } from '../persistence/ConfigStore.js';
 import type { ClaudeConversationsResponse, CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateFlags } from '../utils/flags.js';
+import { sendError } from '../errors/ArgusError.js';
+import { validateIdentity } from '../constants/sessionIdentity.js';
+import { isClaudeSessionId } from '../services/claudeSession.js';
 
 // Enforce single-membership: a session id may appear in at most one group (first wins).
 function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
@@ -114,7 +117,7 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
   });
 
   router.post('/', asyncHandler(async (req, res) => {
-    const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine, runMode } = req.body as CreateSessionRequest;
+    const { folderPath, name, agentType, flags, worktreeBranch, worktreeBase, terminalEngine, runMode, resumeClaudeSessionId } = req.body as CreateSessionRequest;
 
     if (!folderPath) {
       res.status(400).json({ error: 'folderPath is required' });
@@ -127,6 +130,19 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       return;
     }
 
+    // Reopen (undo of a close): a Claude conversation id, never a worktree.
+    const reopening = resumeClaudeSessionId !== undefined;
+    if (reopening) {
+      if (!isClaudeSessionId(resumeClaudeSessionId)) {
+        res.status(400).json({ error: 'resumeClaudeSessionId must be a Claude conversation id' });
+        return;
+      }
+      if (worktreeBranch || (agentType !== undefined && agentType !== 'claude')) {
+        res.status(400).json({ error: 'Only a Claude session outside a worktree can be reopened' });
+        return;
+      }
+    }
+
     if (flags?.length) {
       const validationError = validateFlags(flags);
       if (validationError) {
@@ -136,12 +152,16 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
     }
 
     try {
-      const session = await manager.createSession(folderPath, name, agentType, flags, undefined, undefined, worktreeBranch, worktreeBase, undefined, terminalEngine, runMode);
+      const session = await manager.createSession(
+        folderPath, name, reopening ? 'claude' : agentType, flags, undefined, undefined, worktreeBranch, worktreeBase, undefined, terminalEngine, runMode,
+        false, reopening ? { resumeClaudeSessionId } : {},
+      );
 
-      // Update sticky defaults: record which flags were enabled for this agent
+      // Update sticky defaults: record which flags were enabled for this agent.
+      // A reopen replays an old session's flags, not a new choice: leave them.
       const config = await configStore.load();
       const agentFlagDefs = config.agentFlags[session.agentType];
-      if (agentFlagDefs?.length) {
+      if (!reopening && agentFlagDefs?.length) {
         config.agentFlags[session.agentType] = agentFlagDefs.map((f) => ({
           ...f,
           enabled: (flags || []).includes(f.value),
@@ -151,8 +171,9 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
 
       res.status(201).json(session);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create session';
-      res.status(400).json({ error: message });
+      // Classified failures (unknown agent, missing folder, argusd down, git
+      // missing for a worktree) carry their code; the rest stay a plain 400.
+      sendError(res, err ?? new Error('Failed to create session'), { status: 400 });
     }
   }));
 
@@ -167,6 +188,22 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       res.json(await manager.renameSession(req.params.id, name));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to rename session';
+      res.status(404).json({ error: message });
+    }
+  }));
+
+  // Identity colour + emoji. Cosmetic like rename; validated here so the
+  // manager only ever stores a palette key and a single emoji grapheme.
+  router.patch('/:id/identity', asyncHandler(async (req, res) => {
+    const patch = validateIdentity(req.body);
+    if ('error' in patch) {
+      res.status(400).json({ error: patch.error });
+      return;
+    }
+    try {
+      res.json(await manager.setSessionIdentity(req.params.id, patch));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update session';
       res.status(404).json({ error: message });
     }
   }));

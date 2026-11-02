@@ -1,7 +1,7 @@
 import type { SessionInfo } from '@argus/shared';
 import { MoreHorizontal, CircleX } from 'lucide-react';
 import { AgentGlyph } from './AgentGlyph.js';
-import { StatusBar, DirtyBadge, IconButton, Tooltip } from '../../components/primitives/index.js';
+import { StatusStrip, DirtyBadge, IconButton, Tooltip, Row, Spacer, Text } from '../../components/primitives/index.js';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 
@@ -39,7 +39,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           onClick?.();
         }
       }}
-      aria-label={`Open shell ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
+      aria-label={`Open session ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
       className="terminal-card"
       data-status={s.status}
       style={{
@@ -58,16 +58,9 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             : 'var(--shadow-1)',
       }}
     >
-      <StatusBar status={s.status} height={3} />
+      <StatusStrip status={s.status} height={3} />
 
-      <div
-        style={{
-          padding: 'var(--s-3) var(--s-3) var(--s-2)',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 'var(--s-2)',
-        }}
-      >
+      <Row align="start" gap={2} style={{ padding: 'var(--s-3) var(--s-3) var(--s-2)' }}>
         <AgentGlyph agent={s.agentType} />
         {groupColor && (
           <span
@@ -88,11 +81,9 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           {statusLabel}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
+          <Row
+            gap={1.5}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-1-5)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-sm)',
               fontWeight: 'var(--fw-medium)',
@@ -100,9 +91,9 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
               overflow: 'hidden',
             }}
           >
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            <Text truncate>
               {shellLabel(s)}
-            </span>
+            </Text>
             {s.worktreeBranch && (
               <Tooltip content={s.worktreeBranch}>
                 <span
@@ -115,7 +106,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
                     color: 'var(--accent)',
                     border: '1px solid var(--accent-edge)',
                     borderRadius: 'var(--r-1)',
-                    padding: '1px var(--s-1)',
+                    padding: 'var(--s-px) var(--s-1)',
                     maxWidth: 120,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -126,7 +117,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
                 </span>
               </Tooltip>
             )}
-          </div>
+          </Row>
           <div
             className="eyebrow"
             style={{
@@ -139,7 +130,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             {s.folderPath}
           </div>
         </div>
-      </div>
+      </Row>
 
       <div
         style={{
@@ -158,14 +149,14 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
           overflow: 'hidden',
         }}
       >
-        <div style={{ color: 'var(--fg-3)' }}>$ {s.agentType}</div>
+        <Text as="div" tone="faint">$ {s.agentType}</Text>
         <div
           style={{
             marginTop: 'var(--s-1)',
             color: s.status === 'waiting' ? 'var(--accent)' : 'var(--fg-1)',
           }}
         >
-          {s.status === 'waiting' && <span style={{ color: 'var(--fg-3)' }}>› </span>}
+          {s.status === 'waiting' && <Text tone="faint">› </Text>}
           {preview}
           {(s.status === 'waiting' || s.status === 'idle' || s.status === 'done') && (
             <span style={{ animation: 'argus-blink 1s steps(1) infinite' }}>▌</span>
@@ -173,39 +164,21 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
-          padding: 'var(--s-2) var(--s-3) var(--s-3)',
-          marginTop: 'auto',
-        }}
-      >
+      <Row gap={2} style={{ padding: 'var(--s-2) var(--s-3) var(--s-3)', marginTop: 'auto' }}>
         <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>
           {s.agentType}
         </span>
         {s.flags.length > 0 && (
-          <span
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-micro)',
-              color: 'var(--fg-3)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 0,
-            }}
-          >
+          <Text mono size="eyebrow" tone="faint" truncate>
             {s.flags.join(' ')}
-          </span>
+          </Text>
         )}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         {s.hasGitChanges && <DirtyBadge size="sm" onClick={onOpenDiff ? () => onOpenDiff() : undefined} />}
         {onMore && (
           <IconButton
             icon={MoreHorizontal}
-            label="Shell menu"
+            label="Session menu"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onMore(e); }}
           />
@@ -213,12 +186,12 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
         {onKill && (
           <IconButton
             icon={CircleX}
-            label="Close shell"
+            label="Close session"
             size="sm"
             onClick={(e) => { e.stopPropagation(); onKill(); }}
           />
         )}
-      </div>
+      </Row>
     </div>
   );
 }

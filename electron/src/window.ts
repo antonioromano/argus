@@ -3,6 +3,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, writeFileSync } from 'fs';
 import { resolveMenuTarget } from './menuTarget.js';
+import { trafficLights, DEFAULT_TITLEBAR_H } from './titlebarMetrics.js';
+import { debounce, resolveInitialBounds, MIN_WIDTH, MIN_HEIGHT } from './windowBounds.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MAIN_WINDOW_ID = 'main'; // mirror of @argus/shared MAIN_WINDOW_ID (electron avoids the runtime dep)
@@ -19,6 +21,8 @@ let onMainClose: (() => void) | null = null;
 
 interface PersistedWindowState {
   fullscreen: boolean;
+  /** Zoomed (green button / double-click); restored after create. */
+  maximized?: boolean;
   displayId: number;
   bounds: { x: number; y: number; width: number; height: number };
   zoomLevel?: number; // whole-app zoom (Cmd +/-/0); persists across relaunch
@@ -49,6 +53,7 @@ export function saveAllWindowStates(): void {
     if (win.isDestroyed()) continue;
     states[id] = {
       fullscreen: win.isFullScreen(),
+      maximized: win.isMaximized(),
       displayId: screen.getDisplayMatching(win.getBounds()).id,
       bounds: win.getNormalBounds(),
       zoomLevel: zoomLevels.get(id) ?? 0,
@@ -60,6 +65,11 @@ export function saveAllWindowStates(): void {
     // non-critical
   }
 }
+
+// Bounds used to be written only on quit and window teardown, so a crash or a
+// force-quit reopened every window where it was at the previous clean quit.
+// Moves and resizes now save too, coalesced: both fire per frame mid-drag.
+const saveSoon = debounce(saveAllWindowStates, 500);
 
 export function setSecondaryCloseHandler(fn: (windowId: string) => void): void {
   onSecondaryClose = fn;
@@ -123,38 +133,20 @@ export function createAppWindow(windowId: string): BrowserWindow {
   const saved = loadWindowStates()[windowId];
   zoomLevels.set(windowId, saved?.zoomLevel ?? 0);
 
-  // Resolve target display: use saved display if still connected, else primary.
-  let displayBounds = screen.getPrimaryDisplay().workArea;
-  if (saved) {
-    const match = screen.getAllDisplays().find((d) => d.id === saved.displayId);
-    if (match) displayBounds = match.workArea;
-  }
-
-  // Derive initial bounds: restore saved (clamped to display) or center on display.
-  let initX: number | undefined;
-  let initY: number | undefined;
-  let initW = 1400;
-  let initH = 900;
-  if (saved) {
-    initW = Math.max(800, Math.min(saved.bounds.width, displayBounds.width));
-    initH = Math.max(600, Math.min(saved.bounds.height, displayBounds.height));
-    // Only restore x/y if the window would land on the target display.
-    const inBounds =
-      saved.bounds.x >= displayBounds.x &&
-      saved.bounds.x + saved.bounds.width <= displayBounds.x + displayBounds.width;
-    if (inBounds) {
-      initX = saved.bounds.x;
-      initY = saved.bounds.y;
-    }
-  }
+  // Saved display if still connected (else primary), sized to fit it; the
+  // saved position only when the title bar would be reachable (both axes).
+  const init = resolveInitialBounds(saved, screen.getAllDisplays(), screen.getPrimaryDisplay());
 
   const win = new BrowserWindow({
-    width: initW,
-    height: initH,
-    ...(initX !== undefined ? { x: initX, y: initY } : {}),
-    minWidth: 800,
-    minHeight: 600,
+    width: init.width,
+    height: init.height,
+    ...(init.x !== undefined ? { x: init.x, y: init.y } : {}),
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
     titleBarStyle: 'hiddenInset',
+    // Centred on the default toolbar row; the renderer moves them when the
+    // density changes the toolbar height (appearance:titlebar-height).
+    trafficLightPosition: { x: trafficLights(DEFAULT_TITLEBAR_H).x, y: trafficLights(DEFAULT_TITLEBAR_H).y },
     vibrancy: 'sidebar',
     visualEffectState: 'followWindow',
     backgroundColor: '#00000000',
@@ -231,6 +223,7 @@ export function createAppWindow(windowId: string): BrowserWindow {
   });
 
   win.once('ready-to-show', () => {
+    if (saved?.maximized && !saved.fullscreen) win.maximize();
     win.show();
     if (saved?.fullscreen) win.setFullScreen(true);
     app.dock?.show();
@@ -242,8 +235,12 @@ export function createAppWindow(windowId: string): BrowserWindow {
   // with an external display): measured +316 MB of CG image/CoreAnimation per
   // replug in the main process for a fullscreen window, 0 for the same window
   // un-fullscreened. Restored on leaving fullscreen.
-  win.on('enter-full-screen', () => win.setVibrancy(null));
-  win.on('leave-full-screen', () => win.setVibrancy('sidebar'));
+  win.on('enter-full-screen', () => { win.setVibrancy(null); saveSoon(); });
+  win.on('leave-full-screen', () => { win.setVibrancy('sidebar'); saveSoon(); });
+  win.on('resize', saveSoon);
+  win.on('move', saveSoon);
+  win.on('maximize', saveSoon);
+  win.on('unmaximize', saveSoon);
 
   // Resolve this BrowserWindow's CURRENT registry id at event time — adoption
   // (adoptAsMain) re-keys a window from its uuid to 'main' after creation, so
@@ -320,6 +317,15 @@ let keyOverlayOwners: () => Iterable<BrowserWindow | null | undefined> = () => [
 
 export function setKeyOverlayOwners(fn: () => Iterable<BrowserWindow | null | undefined>): void {
   keyOverlayOwners = fn;
+}
+
+export function getKeyOverlayOwners(): Iterable<BrowserWindow | null | undefined> {
+  return keyOverlayOwners();
+}
+
+/** Every live Argus window (for pushing per-window state such as appearance). */
+export function getAllAppWindows(): BrowserWindow[] {
+  return [...windows.values()].filter((w) => !w.isDestroyed());
 }
 
 export function getFocusedWindowId(): string {

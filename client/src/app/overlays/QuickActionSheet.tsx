@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { TileQuickAction } from '@argus/shared';
 import { Info, Minus, Maximize2, MoreHorizontal, CircleX } from 'lucide-react';
-import { Sheet, Button, Kbd, StatusDot, Icon } from '../../components/primitives/index.js';
+import { Sheet, Button, Kbd, StatusDot, Icon, Row, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import {
   DEFAULT_TILE_QUICK_ACTION,
@@ -29,19 +29,19 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
   return (
     <Sheet
       eyebrow={`NEW IN v${version}`}
-      title="Pick your shell quick action"
-      subtitle="Every shell header now keeps its name visible and always carries minimize + expand. Next to them sits one action of your choice — pick the one you reach for most. Everything else lives in the ⋯ menu."
+      title="Pick your session quick action"
+      subtitle="Every session header now keeps its name visible and always carries minimize + expand. Next to them sits one action of your choice — pick the one you reach for most. Everything else lives in the ⋯ menu."
       width={560}
       // Escape / backdrop click behave exactly like Skip: stamp the version so the
       // sheet never returns, and keep the default action.
       onClose={() => onConfirm(DEFAULT_TILE_QUICK_ACTION, version)}
       footer={
         <>
-          <span style={{ marginRight: 'auto', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', maxWidth: 230, lineHeight: 1.4 }}>
+          <Text size="eyebrow" tone="faint" style={{ marginRight: 'auto', maxWidth: 230, lineHeight: 1.4 }}>
             Asked once. Skipping keeps <b>{tileActionMeta(DEFAULT_TILE_QUICK_ACTION).label}</b>.
-          </span>
+          </Text>
           <Button variant="outline" onClick={() => onConfirm(DEFAULT_TILE_QUICK_ACTION, version)}>
-            Skip <span style={{ marginLeft: 6 }}><Kbd>esc</Kbd></span>
+            Skip <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>esc</Kbd></span>
           </Button>
           <Button variant="primary" onClick={() => onConfirm(choice, version)}>
             {choice === 'none' ? 'Use no pinned action' : `Use ${chosen.label}`}
@@ -51,7 +51,7 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
     >
       <div
         role="radiogroup"
-        aria-label="Shell header quick action"
+        aria-label="Session header quick action"
         style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--s-2)' }}
       >
         {PROMPT_QUICK_ACTIONS.map((id) => {
@@ -87,8 +87,8 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
                     position: 'absolute', top: 6, right: 6,
                     color: 'var(--accent)',
                     border: '1px solid var(--accent-edge)',
-                    borderRadius: 3,
-                    padding: '0 4px',
+                    borderRadius: 'var(--r-2)',
+                    padding: '0 var(--s-1)',
                   }}
                 >
                   default
@@ -104,15 +104,15 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
                   color: selected ? 'var(--accent)' : 'var(--fg-2)',
                 }}
               >
-                <Icon icon={Glyph} size={14} strokeWidth={1.8} />
+                <Icon icon={Glyph} size="md" />
               </span>
               <span style={{ minWidth: 0 }}>
                 <b style={{ display: 'block', color: 'var(--fg-0)', fontSize: 'var(--t-sm)', fontWeight: 'var(--fw-semibold)' }}>
                   {meta.label}
                 </b>
-                <span style={{ display: 'block', color: 'var(--fg-2)', fontSize: 'var(--t-micro)', lineHeight: 1.45, marginTop: 2 }}>
+                <Text size="eyebrow" tone="muted" style={{ display: 'block', lineHeight: 1.45, marginTop: 'var(--s-0-5)' }}>
                   {meta.hint}
-                </span>
+                </Text>
               </span>
             </button>
           );
@@ -121,9 +121,10 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
 
       <QuickActionPreview action={choice} />
 
-      <div
+      <Row
+        align="start"
+        gap={2}
         style={{
-          display: 'flex', gap: 'var(--s-2)', alignItems: 'flex-start',
           padding: 'var(--s-2) var(--s-3)',
           borderRadius: 'var(--r-2)',
           background: 'var(--accent-bg)',
@@ -133,9 +134,9 @@ export function QuickActionSheet({ version, onConfirm }: QuickActionSheetProps) 
           lineHeight: 1.5,
         }}
       >
-        <Icon icon={Info} size={14} strokeWidth={1.8} style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }} />
-        <span>Change it any time in <b>Settings → Shell header</b>. <Kbd>⌘,</Kbd></span>
-      </div>
+        <Icon icon={Info} size="md" style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 'var(--s-px)' }} />
+        <span>Change it any time in <b>Settings → Session header</b>. <Kbd>⌘,</Kbd></span>
+      </Row>
     </Sheet>
   );
 }
@@ -169,14 +170,12 @@ export function QuickActionPreview({
   const Glyph = meta?.icon;
   return (
     <div style={{ border: '1px solid var(--line-2)', borderRadius: 'var(--r-2)', overflow: 'hidden', background: 'var(--bg-0)' }}>
-      <div className="eyebrow" style={{ padding: '5px var(--s-2) 3px', color: 'var(--fg-4)' }}>preview</div>
-      <div
+      <div className="eyebrow" style={{ padding: 'var(--s-1-5) var(--s-2) var(--s-1)', color: 'var(--fg-4)' }}>preview</div>
+      <Row
+        gap={2}
         style={{
           position: 'relative',
           height: 28,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           padding: '0 var(--s-2) 0 var(--s-3)',
           background: 'var(--bg-1)',
           borderTop: '1px solid var(--line-2)',
@@ -184,26 +183,26 @@ export function QuickActionPreview({
       >
         <AgentGlyph agent={agent} size={14} />
         <StatusDot status="running" size={7} />
-        <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)', color: 'var(--fg-0)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <Text mono size="caption" truncate style={{ flex: 1, color: 'var(--fg-0)' }}>
           {name}
-        </span>
+        </Text>
         {chip}
         <span className="argus-tile-status argus-status" data-status="running">{STATUS_LABELS.running}</span>
         <span style={{ display: 'flex', alignItems: 'center', color: 'var(--fg-2)' }}>
           {Glyph && (
             <>
-              <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Glyph} size={13} strokeWidth={1.7} /></span>
+              <Row as="span" align="stretch" justify="center" style={{ width: 22 }}><Icon icon={Glyph} size="md" /></Row>
               <span className="argus-tile-winsep" />
             </>
           )}
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size={13} strokeWidth={1.7} /></span>
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size={13} strokeWidth={1.7} /></span>
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size={13} strokeWidth={1.7} /></span>
+          <Row as="span" align="stretch" justify="center" style={{ width: 22 }}><Icon icon={Minus} size="md" /></Row>
+          <Row as="span" align="stretch" justify="center" style={{ width: 22 }}><Icon icon={Maximize2} size="md" /></Row>
+          <Row as="span" align="stretch" justify="center" style={{ width: 22 }}><Icon icon={CircleX} size="md" /></Row>
           <span className="argus-tile-winsep" />
-          <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size={13} strokeWidth={1.7} /></span>
+          <Row as="span" align="stretch" justify="center" style={{ width: 22 }}><Icon icon={MoreHorizontal} size="md" /></Row>
         </span>
         {runningIndicator === 'hairline' && <span className="argus-tile-prog"><i /></span>}
-      </div>
+      </Row>
     </div>
   );
 }

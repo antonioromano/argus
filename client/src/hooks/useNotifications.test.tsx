@@ -72,6 +72,15 @@ describe('useNotifications — multi-window ownership', () => {
     expect(bridge.show.mock.calls[0][0]).toMatchObject({ id: 'x', subtitle: 'X', body: 'Proceed?' });
   });
 
+  it('the subtitle carries the identity emoji before the name', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    const r = mount();
+    const withEmoji = (status: string) => ({ ...s(status), name: 'api', emoji: '🦊' }) as SessionInfo;
+    act(() => r.render(<Window sessions={[withEmoji('running')]} owns={() => true} />));
+    act(() => r.render(<Window sessions={[withEmoji('waiting')]} owns={() => true} />));
+    expect(bridge.show.mock.calls[0][0]).toMatchObject({ subtitle: '🦊 api' });
+  });
+
   it('single-window default (no ownsSession) still notifies', () => {
     vi.spyOn(document, 'hasFocus').mockReturnValue(false);
     const r = mount();

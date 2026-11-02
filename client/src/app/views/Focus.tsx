@@ -1,8 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation } from '@argus/shared';
+import { DEFAULT_CONFIG, type SessionInfo, type TerminalEngine, type TileRunningIndicator, type MosaicOrientation, type AgentDefinition } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
-import { Terminal, Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare } from 'lucide-react';
+import { Copy, GitCompare, FolderOpen, Minimize2, CircleX, RotateCcw, ChevronUp, Bug, Activity, SquareTerminal, MessagesSquare, MoreHorizontal } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
@@ -19,13 +19,17 @@ import { ChatView, TERMINAL_SHEET_BAR_PX } from '../ui/chat/ChatView.js';
 import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
+import { exitedCardExitProps } from '../../utils/agentExit.js';
+import { resolveAgentDef } from '../../constants/builtinAgents.js';
 import { ModalPlaceholder } from '../ui/ModalPlaceholder.js';
 import { useFullScreenSuppressed } from '../../hooks/useFullScreenSuppressed.js';
 import { useOverlayHidden } from '../../hooks/useOverlayHidden.js';
-import { StatusPill, StatusDot, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon } from '../../components/primitives/index.js';
+import { StatusPill, StatusDot, DirtyBadge, Button, IconButton, Tooltip, Spinner, Icon, Row, Spacer } from '../../components/primitives/index.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from '../ui/sessionMenuContext.js';
 import { SessionRenameInput } from '../ui/SessionRenameInput.js';
+import { SessionIdentity } from '../ui/SessionIdentity.js';
+import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { CompanionTerminalPanel } from '../panels/CompanionTerminalPanel.js';
 import { ActivityPanel } from '../panels/ActivityPanel.js';
 import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
@@ -115,6 +119,8 @@ interface FocusProps {
   /** Close the maximized tool window, returning to the shell. */
   onRestore: () => void;
   onClone: () => void;
+  /** The user's custom agents (config), to name a missing agent command on the exited card. */
+  customAgents?: AgentDefinition[];
   onKill: () => void;
   onRestart: () => void;
   /** Reopen the last Claude conversation; pass only when it applies (canResume). */
@@ -157,6 +163,7 @@ export function Focus({
   onOpenFileInEditor,
   onRestore,
   onClone,
+  customAgents,
   onKill,
   onRestart,
   onResume,
@@ -312,12 +319,12 @@ export function Focus({
 
       <div ref={splitRef} style={{ flex: 1, display: 'flex', flexDirection: stacked ? 'column' : 'row', minHeight: 0 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: stacked ? CONVERSATION_MIN_HEIGHT : 0 }}>
-          <div
+          <Row
+            gap={3}
+            data-identity-edge={identityEdgeProps(active.color, theme === 'dark')['data-identity-edge']}
             style={{
+              ...identityEdgeProps(active.color, theme === 'dark').style,
               position: 'relative', // anchors the running hairline
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-3)',
               height: 'var(--h-panel-header)',
               boxSizing: 'border-box',
               padding: '0 var(--s-4)',
@@ -331,6 +338,7 @@ export function Focus({
             <div ref={infoRef} className="argus-tile-info" data-testid="focus-info" data-shed={shed} style={{ gap: 'var(--s-3)' }}>
               <AgentGlyph agent={active.agentType} size={16} />
               {shed < SHED.status ? <StatusPill status={active.status} /> : <StatusDot status={active.status} size={7} />}
+              <SessionIdentity session={active} />
               {renaming ? (
                 <SessionRenameInput
                   initial={shellLabel(active)}
@@ -428,26 +436,32 @@ export function Focus({
                 />
               )}
               <IconButton
-                icon={Terminal}
+                icon={SquareTerminal}
                 label="Shell"
                 size="sm"
                 active={!maximized && sidePanel?.kind === 'terminal'}
                 pressed={!maximized && sidePanel?.kind === 'terminal'}
                 onClick={onShellClick}
               />
-              <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 1, flexShrink: 0, margin: '0 2px' }} />
+              <div style={{ width: 1, height: 18, background: 'var(--line-2)', borderRadius: 'var(--r-1)', flexShrink: 0, margin: '0 var(--s-0-5)' }} />
               <IconButton icon={Minimize2} label="Exit focus" size="sm" onClick={onBack} />
-              <IconButton icon={Copy} label="Start a new shell from the same folder" size="sm" onClick={onClone} />
+              <IconButton icon={Copy} label="Start a new session from the same folder" size="sm" onClick={onClone} />
               {showDiagnostics && (
                 <IconButton icon={Bug} label="Dump diagnostics to ~/.argus/diagnostics" size="sm" onClick={onDumpDiagnostics} />
               )}
-              <IconButton icon={RotateCcw} label="Restart shell" size="sm" onClick={onRestart} />
-              <IconButton icon={CircleX} label="Close shell" size="sm" onClick={onKill} />
+              <IconButton icon={RotateCcw} label="Restart session" size="sm" onClick={onRestart} />
+              <IconButton icon={CircleX} label="Close session" size="sm" onClick={onKill} />
+              <IconButton
+                icon={MoreHorizontal}
+                label="Session actions"
+                size="sm"
+                onClick={(e) => sessionMenu.openMenuAt(active, e.currentTarget, 'focus')}
+              />
             </div>
             {runningIndicator === 'hairline' && active.status === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}
-          </div>
+          </Row>
 
           {/* Terminal/reply region. The terminal stays mounted at all times; when a
               tool window is maximized it collapses to 0 height and the workbench
@@ -489,7 +503,14 @@ export function Focus({
                 />
               </ErrorBoundary>
               {active.status === 'exited' && !useNativeTerminal && (
-                <ExitedCard runMode={active.runMode} folderPath={active.folderPath} onRestart={onRestart} onResume={onResume} onClone={onClone} />
+                <ExitedCard
+                  runMode={active.runMode}
+                  folderPath={active.folderPath}
+                  onRestart={onRestart}
+                  onResume={onResume}
+                  onClone={onClone}
+                  {...exitedCardExitProps(active, resolveAgentDef(active.agentType, customAgents))}
+                />
               )}
               {/* The Chat paints over a hidden terminal, unless its see-through terminal sheet is open. */}
               {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={active.status} />}
@@ -527,7 +548,7 @@ export function Focus({
                     bottom: PEEK_HEIGHT,
                     display: 'flex',
                     background: 'var(--bg-0)',
-                    animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+                    animation: 'argus-fade-in var(--dur-base) var(--ease)',
                   }}
                 >
                   <Suspense
@@ -575,7 +596,7 @@ export function Focus({
                 </div>
                 <button
                   onClick={restoreToShell}
-                  title="Return to shell"
+                  title="Return to session"
                   style={{
                     all: 'unset',
                     cursor: 'pointer',
@@ -595,11 +616,11 @@ export function Focus({
                     fontSize: 'var(--t-tiny)',
                   }}
                 >
-                  <Icon icon={Terminal} size={12} strokeWidth={1.6} />
+                  <Icon icon={SquareTerminal} size="sm" />
                   <span>Shell · collapsed</span>
-                  <div style={{ flex: 1 }} />
-                  <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <Icon icon={ChevronUp} size={12} strokeWidth={1.8} /> RETURN
+                  <Spacer />
+                  <span className="eyebrow" style={{ color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1)' }}>
+                    <Icon icon={ChevronUp} size="sm" /> RETURN
                   </span>
                 </button>
               </>

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DirectoryEntry } from '@argus/shared';
 import { api } from '../services/api.js';
-import { pushToast } from '../components/primitives/Toast.js';
+import { toastError } from '../errors/toastError.js';
+import { offerUndo, UNDO_WINDOW_LONG_MS } from '../utils/undoable.js';
 import { useSocket } from './useSocket.js';
 
 interface NodeState {
@@ -16,9 +17,11 @@ interface NodeState {
 /** Sentinel path for the synthetic "new file/folder" row while it is being named. */
 export const DRAFT_PATH = '\0argus-draft';
 
+/** `error`: why the last submit failed. Shown under the still-open input, so
+ *  the name can be fixed in place (docs/design/feedback-surfaces.md, V6). */
 export type TreeEdit =
-  | { kind: 'create'; parentPath: string; isDir: boolean }
-  | { kind: 'rename'; path: string; currentName: string };
+  | { kind: 'create'; parentPath: string; isDir: boolean; error?: string }
+  | { kind: 'rename'; path: string; currentName: string; error?: string };
 
 export interface VisibleNode {
   path: string;
@@ -31,18 +34,26 @@ export interface VisibleNode {
   draft?: boolean;
 }
 
+/** `needs-permanent`: the item is on another volume, so it can't go to the
+ *  staged trash; confirm, then call again with `permanent`. */
+export type RemoveResult = 'deleted' | 'needs-permanent' | 'failed';
+
 export interface UseFileTreeResult {
   rootPath: string;
   visibleNodes: VisibleNode[];
   toggle: (path: string) => void;
   refresh: () => void;
   isLoading: boolean;
+  /** The last root listing failed (rendered inline by the explorer, never toasted). */
+  rootError: unknown;
+  /** The root's children have loaded at least once (so a root error is "stale", not "empty"). */
+  rootLoaded: boolean;
   edit: TreeEdit | null;
   beginCreate: (parentPath: string, isDir: boolean) => void;
   beginRename: (path: string, currentName: string) => void;
   cancelEdit: () => void;
   submitEdit: (name: string) => Promise<boolean>;
-  removePath: (path: string, isDir: boolean) => Promise<boolean>;
+  removePath: (path: string, isDir: boolean, opts?: { permanent?: boolean }) => Promise<RemoveResult>;
 }
 
 /**
@@ -101,8 +112,7 @@ function toastFetchError(err: unknown): void {
   const now = Date.now();
   if (now - lastErrorToastAt < ERROR_TOAST_WINDOW_MS) return;
   lastErrorToastAt = now;
-  const msg = err instanceof Error && err.message ? err.message : 'unknown error';
-  pushToast(`Couldn't load folder: ${msg}`, 'danger');
+  toastError(err, 'Couldn’t load the folder');
 }
 
 function parentDir(p: string): string {
@@ -152,6 +162,7 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
     nodesRef.current = nodes;
   }, [nodes]);
   const [rootLoading, setRootLoading] = useState(true);
+  const [rootError, setRootError] = useState<unknown>(null);
   const [currentRoot, setCurrentRoot] = useState(rootPath);
   const [edit, setEdit] = useState<TreeEdit | null>(null);
 
@@ -160,13 +171,15 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
     setCurrentRoot(rootPath);
     setNodes(seedFrom(sessionId, rootPath));
     setRootLoading(true);
+    setRootError(null);
     setEdit(null);
   }
 
   // Never rejects: every caller fires it with `void`, so a failure must settle
   // the node here (spinner off, error on) instead of escaping as an unhandled
   // rejection and leaving the folder spinning forever. Resolves true on success.
-  const fetchChildren = useCallback(async (path: string): Promise<boolean> => {
+  // `onError` replaces the toast (the root's failure is shown inline instead).
+  const fetchChildren = useCallback(async (path: string, onError?: (err: unknown) => void): Promise<boolean> => {
     let res: Awaited<ReturnType<typeof api.getDirectoryChildren>>;
     try {
       res = await api.getDirectoryChildren(path, true);
@@ -181,7 +194,8 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
         next.set(path, { ...cur, loading: false, error: true, expanded: neverLoaded ? false : cur.expanded });
         return next;
       });
-      toastFetchError(err);
+      if (onError) onError(err);
+      else toastFetchError(err);
       return false;
     }
     setNodes((prev) => {
@@ -215,9 +229,12 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
   // Bootstrap root on mount / rootPath / version change.
   useEffect(() => {
     let cancelled = false;
+    let failure: unknown = null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchChildren(rootPath).finally(() => {
-      if (!cancelled) setRootLoading(false);
+    fetchChildren(rootPath, (err) => { failure = err ?? new Error('Couldn’t list the folder'); }).then((ok) => {
+      if (cancelled) return;
+      setRootError(ok ? null : failure);
+      setRootLoading(false);
     });
     return () => {
       cancelled = true;
@@ -293,6 +310,10 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
 
   const cancelEdit = useCallback(() => setEdit(null), []);
 
+  const failEdit = useCallback((title: string, reason?: string) => {
+    setEdit((cur) => (cur ? { ...cur, error: reason ? `${title}: ${reason}` : title } : cur));
+  }, []);
+
   const submitEdit = useCallback(async (rawName: string): Promise<boolean> => {
     if (!edit) return false;
     const name = rawName.trim().replace(/\/+$/, '');
@@ -303,12 +324,11 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
         const target = `${edit.parentPath}/${name}`;
         const res = await api.createFile(sessionId, target, edit.isDir);
         if (!res.success) {
-          pushToast(res.error ?? 'Failed to create', 'danger');
+          failEdit(`Couldn’t create ${name}`, res.error);
           return false; // keep the input open so the name can be fixed
         }
         setEdit(null);
-        await fetchChildren(edit.parentPath);
-        pushToast(`Created ${name}`, 'ok');
+        await fetchChildren(edit.parentPath); // the new row is the confirmation
         return true;
       }
       // rename
@@ -317,32 +337,47 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
       const target = `${dir}/${name}`;
       const res = await api.renameFile(sessionId, edit.path, target);
       if (!res.success) {
-        pushToast(res.error ?? 'Failed to rename', 'danger');
+        failEdit(`Couldn’t rename to ${name}`, res.error);
         return false;
       }
       setEdit(null);
-      await fetchChildren(dir);
-      pushToast(`Renamed to ${name}`, 'ok');
+      await fetchChildren(dir); // the renamed row is the confirmation
       return true;
     } catch (err) {
-      pushToast((err as Error).message ?? 'Operation failed', 'danger');
+      failEdit(edit.kind === 'create' ? `Couldn’t create ${name}` : `Couldn’t rename to ${name}`, err instanceof Error ? err.message : undefined);
       return false;
     }
-  }, [edit, sessionId, fetchChildren]);
+  }, [edit, sessionId, fetchChildren, failEdit]);
 
-  const removePath = useCallback(async (path: string, isDir: boolean): Promise<boolean> => {
+  // Delete goes to the server's staged trash, so it asks nothing and offers
+  // Undo for 10 s. An item on another volume can't be staged: the caller then
+  // confirms and calls again with `permanent` (docs/design/feedback-surfaces.md).
+  const removePath = useCallback(async (path: string, isDir: boolean, opts: { permanent?: boolean } = {}): Promise<RemoveResult> => {
+    const name = `${path.split('/').pop()}${isDir ? '/' : ''}`;
+    const dir = parentDir(path);
     try {
-      const res = await api.deleteFile(sessionId, path);
+      const res = await api.deleteFile(sessionId, path, opts.permanent);
+      if (res.needsPermanent) return 'needs-permanent';
       if (!res.success) {
-        pushToast(res.error ?? 'Failed to delete', 'danger');
-        return false;
+        toastError(new Error(res.error ?? 'Failed to delete'), `Couldn’t delete ${name}`);
+        return 'failed';
       }
-      await fetchChildren(parentDir(path));
-      pushToast(`Deleted ${path.split('/').pop()}${isDir ? '/' : ''}`, 'ok');
-      return true;
+      await fetchChildren(dir);
+      const undoId = res.undoId;
+      if (undoId) {
+        offerUndo({
+          message: `Deleted ${name}`,
+          durationMs: UNDO_WINDOW_LONG_MS,
+          undo: async () => {
+            await api.restoreFile(sessionId, undoId);
+            await fetchChildren(dir);
+          },
+        });
+      }
+      return 'deleted';
     } catch (err) {
-      pushToast((err as Error).message ?? 'Delete failed', 'danger');
-      return false;
+      toastError(err, `Couldn’t delete ${name}`);
+      return 'failed';
     }
   }, [sessionId, fetchChildren]);
 
@@ -390,6 +425,8 @@ export function useFileTree(rootPath: string, sessionId: string): UseFileTreeRes
     toggle,
     refresh,
     isLoading: rootLoading,
+    rootError,
+    rootLoaded: nodes.get(rootPath)?.children !== undefined,
     edit,
     beginCreate,
     beginRename,

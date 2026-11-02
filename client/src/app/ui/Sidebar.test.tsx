@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Sidebar } from './Sidebar.js';
+import { DensityProvider } from '../../context/DensityContext.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -47,7 +48,7 @@ describe('Sidebar — Session Inspector (stacked layout)', () => {
       .filter((el) => !el.closest('.argus-sidebar-inspector') || el.classList.contains('argus-sidebar-inspector'))
       .map((el) => el.classList.contains('argus-sidebar-inspector') ? 'inspector'
         : el.getAttribute('data-testid') ?? el.textContent);
-    expect(order).toEqual(['Pilot', 'Shells', 'tree', 'Find & Jump⌘K', 'inspector', 'System', 'Settings']);
+    expect(order).toEqual(['Pilot', 'Sessions', 'tree', 'Find & Jump⌘K', 'inspector', 'System', 'Settings']);
   });
 
   it('is not rendered while the sidebar is collapsed, and reports the state', () => {
@@ -65,5 +66,34 @@ describe('Sidebar — Session Inspector (stacked layout)', () => {
     render(changes, 1);
     expect(container.querySelector('[data-testid="inspector-stub"]')).not.toBeNull();
     expect(changes.at(-1)).toBe(false);
+  });
+});
+
+describe('Sidebar — width and density', () => {
+  const renderAt = (density: string) => act(() => root.render(
+    <DensityProvider density={density}>
+      <Sidebar onSelect={() => {}} sessionTree={<div />} />
+    </DensityProvider>,
+  ));
+  const width = () => container.querySelector<HTMLElement>('aside')!.style.width;
+
+  it('follows the density until dragged: Compact narrows it to 200px', () => {
+    renderAt('default');
+    expect(width()).toBe('220px');
+    renderAt('compact');
+    expect(width()).toBe('200px');
+    expect(localStorage.getItem('argus-sidebar-width')).toBeNull();
+  });
+
+  it('a stored 220 (the old auto-saved default) still follows the density', () => {
+    localStorage.setItem('argus-sidebar-width', '220');
+    renderAt('compact');
+    expect(width()).toBe('200px');
+  });
+
+  it('a dragged width wins over the density', () => {
+    localStorage.setItem('argus-sidebar-width', '300');
+    renderAt('compact');
+    expect(width()).toBe('300px');
   });
 });

@@ -23,6 +23,13 @@ export const PAINT_SURFACES = {
   },
 } as const satisfies Record<ThemeName, { terminal: string; inset: string }>;
 
+/** Mirrors of --bg-1 / --bg-2 / --accent, for the system-accent contrast clamp
+ *  (utils/focusAccent.ts), which runs before any stylesheet can be read. */
+export const PAINT_ACCENT_SURFACES = {
+  dark: { panel: '#131418', card: '#191b20', brand: '#FFB454' },
+  light: { panel: '#ebe7dd', card: '#ffffff', brand: '#8C5300' },
+} as const satisfies Record<ThemeName, { panel: string; card: string; brand: string }>;
+
 /** Mirrors of the --syn-* tokens (+ --fg-1 body text), for Monaco's themes. */
 export const PAINT_SYNTAX = {
   dark: { fg: '#c7cad1', kw: '#C5B4FC', str: '#7CFFB2', num: '#FFD23F', fn: '#7DD3FC', cm: '#868b98', pn: '#8b919c' },

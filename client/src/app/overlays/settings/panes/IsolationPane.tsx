@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { GitBranch, Trash2 } from 'lucide-react';
-import { Section, Button, AlertSheet, Icon } from '../../../../components/primitives/index.js';
+import { Section, Button, AlertSheet, Icon, Row, Text } from '../../../../components/primitives/index.js';
 import { api } from '../../../../services/api.js';
 
 /** Not a preferences pane — a janitor. It lists the worktrees Argus created and
@@ -56,50 +56,43 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
 
   return (
     <>
-      <div style={{ color: 'var(--fg-2)', fontSize: 'var(--t-sm)', lineHeight: 1.6, marginBottom: 'var(--s-5)' }}>
+      <Text as="div" size="body" tone="muted" style={{ lineHeight: 1.6, marginBottom: 'var(--s-5)' }}>
         Each isolated session runs in its own git worktree — a separate working directory branched off
         your repo. Changes stay sandboxed until you're ready to merge, so multiple agents can work in
         parallel without stepping on each other's files.
-      </div>
+      </Text>
 
       <Section title={`Active worktrees${worktreeSessions.length > 0 ? ` · ${worktreeSessions.length}` : ''}`}>
         {worktreeSessions.length === 0 ? (
-          <div className="settings-card-pad" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)' }}>
+          <Text as="div" className="settings-card-pad" size="body" tone="faint">
             No worktree sessions yet — create a session with isolation enabled and it shows up here.
-          </div>
+          </Text>
         ) : (
           worktreeSessions.map((s, i) => {
             const isLive = s.status !== 'exited';
             const last = i === worktreeSessions.length - 1;
             return (
-              <div
+              <Row
+                gap={3}
                 key={s.id}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-3)',
                   padding: 'var(--s-3) var(--s-4)',
                   borderBottom: last ? 'none' : '1px solid var(--line-1)',
                 }}
               >
-                <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--accent)" style={{ flexShrink: 0 }} />
+                <Icon icon={GitBranch} size="md" color="var(--accent)" style={{ flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-0)', fontWeight: 500 }}>
+                  <Text as="div" mono size="body" weight={500} style={{ color: 'var(--fg-0)' }}>
                     {s.worktreeBranch}
-                  </div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  </Text>
+                  <Text as="div" mono size="eyebrow" tone="faint" truncate style={{ marginTop: 'var(--s-0-5)' }}>
                     {s.folderPath}
-                  </div>
+                  </Text>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}>
-                  <span style={{
-                    fontSize: 'var(--t-micro)',
-                    fontFamily: 'var(--font-mono)',
-                    letterSpacing: 'var(--tracking-eye)',
-                    color: isLive ? 'var(--status-running)' : 'var(--fg-3)',
-                  }}>
+                <Row gap={2} style={{ flexShrink: 0 }}>
+                  <Text mono size="eyebrow" style={{ letterSpacing: 'var(--tracking-eye)', color: isLive ? 'var(--status-running)' : 'var(--fg-3)' }}>
                     {s.name} · {s.status}
-                  </span>
+                  </Text>
                   <Button
                     variant="outline"
                     size="sm"
@@ -107,10 +100,10 @@ export function IsolationPane({ sessions }: { sessions: SessionInfo[] }) {
                     onClick={() => void handleDeleteClick(s)}
                     title={isLive ? 'Close session first' : 'Delete worktree'}
                   >
-                    <Icon icon={Trash2} size={12} />
+                    <Icon icon={Trash2} size="sm" />
                   </Button>
-                </div>
-              </div>
+                </Row>
+              </Row>
             );
           })
         )}

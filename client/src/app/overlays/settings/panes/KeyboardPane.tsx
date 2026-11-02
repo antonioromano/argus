@@ -1,19 +1,21 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
-import { Section, SettingRow, Icon } from '../../../../components/primitives/index.js';
+import { Section, SettingRow, Icon, Row, Text } from '../../../../components/primitives/index.js';
 import { SHORTCUTS, CATEGORY_ORDER, type ShortcutActionId } from '../../../../keyboard/registry.js';
 import { resolveShortcuts, findConflicts } from '../../../../keyboard/useShortcuts.js';
 import { eventToCombo, formatCombo, isLoneModifier } from '../../../../keyboard/combo.js';
 import type { PaneProps } from '../types.js';
+import { SettingTargetContext } from '../settingTarget.js';
 
 /** Shortcuts only. "Confirm before closing a shell" used to head this pane — a
  *  behaviour pref that happened to mention ⌘W; it now lives with the other two
- *  confirmations in Behavior → Confirmations. */
+ *  confirmations in Behavior → General. */
 export function KeyboardPane({ config, onSave }: PaneProps) {
   const overrides = useMemo(() => config.keyboardShortcuts ?? {}, [config.keyboardShortcuts]);
   const resolved = resolveShortcuts(overrides);
   const conflicts = findConflicts(resolved);
   const [recording, setRecording] = useState<ShortcutActionId | null>(null);
+  const target = useContext(SettingTargetContext);
 
   // While recording, the next real keystroke becomes the binding. Capture phase so
   // we intercept before the global shortcut handler acts on (and consumes) the combo.
@@ -36,13 +38,11 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
     delete next[id];
     void onSave({ keyboardShortcuts: next });
   };
-  const resetAll = () => void onSave({ keyboardShortcuts: {} });
-  const hasOverrides = Object.keys(overrides).length > 0;
 
   const comboPill = (danger = false): React.CSSProperties => ({
     minWidth: 56,
     textAlign: 'center',
-    padding: '3px 8px',
+    padding: 'var(--s-1) var(--s-2)',
     border: `1px solid ${danger ? 'var(--danger)' : 'var(--line-2)'}`,
     background: 'var(--bg-2)',
     borderRadius: 'var(--r-1)',
@@ -54,7 +54,7 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
   const actionBtn: React.CSSProperties = {
     all: 'unset',
     cursor: 'pointer',
-    padding: '4px 10px',
+    padding: 'var(--s-1) var(--s-3)',
     border: '1px solid var(--line-2)',
     borderRadius: 'var(--r-1)',
     fontSize: 'var(--t-sm)',
@@ -74,18 +74,26 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
               const conflict = conflicts.has(a.id);
               const overridden = !a.fixed && a.id in overrides;
               return (
-                <SettingRow key={a.id} label={a.label} hint={a.note}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
+                // Label and hint stay in the keyboard registry (the catalog
+                // generates `shortcut:<id>` from it), so they are read from `a`.
+                <SettingRow
+                  key={a.id}
+                  label={a.label}
+                  hint={a.note}
+                  anchorId={`shortcut:${a.id}`}
+                  className={target === `shortcut:${a.id}` ? 'is-target' : undefined}
+                >
+                  <Row gap={2}>
                     {conflict && (
-                      <span title="This combo is bound to more than one action" style={{ display: 'flex', color: 'var(--danger)' }}>
-                        <Icon icon={AlertTriangle} size={14} />
-                      </span>
+                      <Row as="span" align="stretch" title="This combo is bound to more than one action" style={{ color: 'var(--danger)' }}>
+                        <Icon icon={AlertTriangle} size="md" />
+                      </Row>
                     )}
                     <span style={comboPill(conflict)}>
                       {isRecording ? 'Press keys…' : formatCombo(resolved[a.id])}
                     </span>
                     {a.fixed ? (
-                      <span style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)', minWidth: 70 }}>Not editable</span>
+                      <Text size="caption" tone="faint" style={{ minWidth: 70 }}>Not editable</Text>
                     ) : (
                       <>
                         <button
@@ -95,34 +103,22 @@ export function KeyboardPane({ config, onSave }: PaneProps) {
                           {isRecording ? 'Cancel' : 'Record'}
                         </button>
                         <button
-                          style={{ ...actionBtn, opacity: overridden ? 1 : 0.35, cursor: overridden ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 4 }}
+                          style={{ ...actionBtn, opacity: overridden ? 1 : 0.35, cursor: overridden ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 'var(--s-1)' }}
                           disabled={!overridden}
                           title="Reset to default"
                           onClick={() => overridden && resetOne(a.id)}
                         >
-                          <Icon icon={RotateCcw} size={13} />
+                          <Icon icon={RotateCcw} size="md" />
                         </button>
                       </>
                     )}
-                  </div>
+                  </Row>
                 </SettingRow>
               );
             })}
           </Section>
         );
       })}
-
-      {/* Kept alongside the sheet-wide Reset: this one touches only bindings, so
-          re-defaulting a mangled keymap never disturbs any other preference. */}
-      <div style={{ marginTop: 'var(--s-4)' }}>
-        <button
-          style={{ ...actionBtn, opacity: hasOverrides ? 1 : 0.35, cursor: hasOverrides ? 'pointer' : 'default' }}
-          disabled={!hasOverrides}
-          onClick={resetAll}
-        >
-          Reset all shortcuts
-        </button>
-      </div>
     </>
   );
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CURRENT_INTRO_ID, introConfigPatch, introToShow } from './intro.js';
+import { CURRENT_INTRO_ID, introConfigPatch, introDiscoveryPatch, introToShow } from './intro.js';
+import { EMPTY_DISCOVERY } from '../discovery/discoveryState.js';
 
 describe('introToShow', () => {
   it('waits until both config and version are known', () => {
@@ -48,5 +49,20 @@ describe('introConfigPatch', () => {
   it('saves the Welcome terminal defaults', () => {
     expect(introConfigPatch({ defaults: { runMode: 'direct', terminalEngine: 'web' } }, '0.22.0', '0.30.0'))
       .toEqual({ introSeen: CURRENT_INTRO_ID, defaultRunMode: 'direct', defaultTerminalEngine: 'web' });
+  });
+});
+
+describe('introDiscoveryPatch', () => {
+  it('Welcome starts the checklist and keeps the other discovery fields', () => {
+    const d = { ...EMPTY_DISCOVERY, used: ['inbox'] };
+    expect(introDiscoveryPatch('welcome', d, 42)).toEqual({ ...d, checklistStartedAt: 42 });
+  });
+
+  it("What's new never starts it (upgrading users)", () => {
+    expect(introDiscoveryPatch('whatsNew', EMPTY_DISCOVERY, 42)).toBeNull();
+  });
+
+  it('a second Welcome does not restart it', () => {
+    expect(introDiscoveryPatch('welcome', { ...EMPTY_DISCOVERY, checklistStartedAt: 7 }, 42)).toBeNull();
   });
 });

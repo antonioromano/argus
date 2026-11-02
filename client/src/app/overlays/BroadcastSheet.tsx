@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { BROADCAST_MAX_TARGETS, type BroadcastRequest, type BroadcastResult, type SessionInfo } from '@argus/shared';
 import { Send } from 'lucide-react';
-import { Button, Checkbox, Sheet, StatusPill, TextInput, Toggle } from '../../components/primitives/index.js';
+import { Button, Checkbox, Sheet, StatusPill, TextInput, Toggle, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { broadcastTargets, broadcastTextError } from './broadcastInput.js';
 
@@ -69,7 +69,7 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
     <>
       <Button variant="ghost" size="sm" disabled={sending} onClick={() => { setStep('compose'); setError(null); }}>Back</Button>
       <Button variant="primary" size="sm" icon={Send} disabled={sending || chosen.length === 0} onClick={() => { void send(); }}>
-        {sending ? 'Sending…' : `Send to ${chosen.length} shell${chosen.length === 1 ? '' : 's'}`}
+        {sending ? 'Sending…' : `Send to ${chosen.length} session${chosen.length === 1 ? '' : 's'}`}
       </Button>
     </>
   );
@@ -77,17 +77,17 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
   return (
     <Sheet
       eyebrow="Broadcast input"
-      title={step === 'compose' ? 'Send to several shells' : 'Confirm broadcast'}
+      title={step === 'compose' ? 'Send to several sessions' : 'Confirm broadcast'}
       subtitle={step === 'compose'
-        ? 'The same line is typed into every shell you tick.'
-        : 'This is typed into each shell below, as if you had typed it.'}
+        ? 'The same line is typed into every session you tick.'
+        : 'This is typed into each session below, as if you had typed it.'}
       width={560}
       onClose={onClose}
       footer={footer}
     >
       {step === 'compose' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+        <Stack gap={4}>
+          <Stack gap={2}>
             <TextInput
               mono
               autoFocus
@@ -97,18 +97,18 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               error={!!text && !!textError}
               onKeyDown={(e) => { if (e.key === 'Enter' && canReview) { e.preventDefault(); setStep('confirm'); } }}
             />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
+            <Row gap={2} style={{ fontSize: 'var(--t-xs)', color: 'var(--fg-2)' }}>
               <Toggle size="sm" checked={enter} onChange={setEnter} />
               <span>Press Enter after the text</span>
-              <span style={{ flex: 1 }} />
-              {text && textError && <span style={{ color: 'var(--danger)' }}>{textError}</span>}
-            </div>
-          </div>
+              <Spacer />
+              {text && textError && <Text tone="danger">{textError}</Text>}
+            </Row>
+          </Stack>
 
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 'var(--s-2)' }}>
+            <Row style={{ marginBottom: 'var(--s-2)' }}>
               <span className="eyebrow" style={{ color: 'var(--fg-3)' }}>SHELLS · {chosen.length} OF {targets.length}</span>
-              <span style={{ flex: 1 }} />
+              <Spacer />
               {targets.length > 0 && (
                 <button
                   type="button"
@@ -118,11 +118,11 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
                   {allOn ? 'None' : 'All'}
                 </button>
               )}
-            </div>
+            </Row>
             {targets.length === 0 && (
-              <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', padding: 'var(--s-3) 0' }}>No running shells.</div>
+              <Text as="div" size="body" tone="faint" style={{ padding: 'var(--s-3) 0' }}>No running sessions.</Text>
             )}
-            <div role="group" aria-label="Target shells" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Stack gap={0.5} role="group" aria-label="Target sessions">
               {targets.map((s) => (
                 <div
                   key={s.id}
@@ -138,16 +138,16 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
                   <StatusPill status={s.status} size="sm" />
                 </div>
               ))}
-            </div>
+            </Stack>
             {tooMany && (
-              <div style={{ marginTop: 'var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>
-                At most {BROADCAST_MAX_TARGETS} shells per broadcast.
-              </div>
+              <Text as="div" size="small" tone="danger" style={{ marginTop: 'var(--s-2)' }}>
+                At most {BROADCAST_MAX_TARGETS} sessions per broadcast.
+              </Text>
             )}
           </div>
-        </div>
+        </Stack>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+        <Stack gap={4}>
           <div
             data-testid="broadcast-preview"
             style={{
@@ -162,25 +162,25 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
               whiteSpace: 'pre-wrap',
             }}
           >
-            {text || <span style={{ color: 'var(--fg-3)' }}>(no text)</span>}
-            {enter && <span style={{ color: 'var(--accent)' }}> ⏎ Enter</span>}
+            {text || <Text tone="faint">(no text)</Text>}
+            {enter && <Text tone="accent"> ⏎ Enter</Text>}
           </div>
           <div>
             <div className="eyebrow" style={{ color: 'var(--fg-3)', marginBottom: 'var(--s-2)' }}>
               TO {chosen.length} SHELL{chosen.length === 1 ? '' : 'S'}
             </div>
-            <ul data-testid="broadcast-targets" style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <ul data-testid="broadcast-targets" style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 'var(--s-1)' }}>
               {chosen.map((s) => (
                 <li key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', fontSize: 'var(--t-sm)' }}>
                   <AgentGlyph agent={s.agentType} size={14} />
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-0)' }}>{s.name}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)' }}>{s.folderPath}</span>
+                  <Text mono style={{ color: 'var(--fg-0)' }}>{s.name}</Text>
+                  <Text mono size="eyebrow" tone="faint">{s.folderPath}</Text>
                 </li>
               ))}
             </ul>
           </div>
-          {error && <div role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{error}</div>}
-        </div>
+          {error && <Text as="div" role="alert" size="body" tone="danger">{error}</Text>}
+        </Stack>
       )}
     </Sheet>
   );

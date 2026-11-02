@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { AgentDefinition, AgentFlag, AppConfig } from '@argus/shared';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Flag } from 'lucide-react';
 import {
@@ -8,13 +8,19 @@ import {
   IconButton,
   Button,
   TextInput,
-  AlertSheet,
   Icon,
+  Stack,
+  Row,
+  Text,
 } from '../../../../components/primitives/index.js';
+import { offerUndo } from '../../../../utils/undoable.js';
+import { toastError } from '../../../../errors/toastError.js';
+import { restoreCustomAgentPatch } from './restoreCustomAgent.js';
 import { AgentGlyph } from '../../../ui/AgentGlyph.js';
 import { BUILTIN_AGENTS } from '../../../../constants/builtinAgents.js';
 import type { PaneProps } from '../types.js';
 import { ClaudeRendererSection } from './ClaudeRendererSection.js';
+import { SettingAnchor } from '../SettingField.js';
 
 const FLAG_PATTERN = /^--?[a-zA-Z0-9][a-zA-Z0-9\-_.=:,/ ]*$/;
 // Mirrors the server guard (config.ts) — custom agent commands are shell-spawned.
@@ -35,7 +41,9 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
   const [editingAgent, setEditingAgent] = useState<{ id: string | null; name: string; command: string; installUrl: string } | null>(null);
   const [agentFormError, setAgentFormError] = useState<string | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
-  const [removingAgent, setRemovingAgent] = useState<AgentDefinition | null>(null);
+  // The latest config, for an Undo that runs after other edits landed.
+  const configRef = useRef(config);
+  useEffect(() => { configRef.current = config; }, [config]);
 
   const toggleAgent = (agentId: string) => {
     setExpandedAgent((prev) => (prev === agentId ? null : agentId));
@@ -76,19 +84,20 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
     }
   };
 
-  const confirmRemoveAgent = async () => {
-    if (!removingAgent) return;
-    const id = removingAgent.id;
-    const nextAgents = config.customAgents.filter((a) => a.id !== id);
-    const nextFlags = { ...config.agentFlags };
+  // Config slices restore exactly, so removing asks nothing and offers Undo,
+  // which merges the agent back into whatever the config is by then.
+  const removeAgent = async (agent: AgentDefinition) => {
+    const before = configRef.current;
+    const id = agent.id;
+    const nextFlags = { ...before.agentFlags };
     delete nextFlags[id];
-    const patch: Partial<AppConfig> = { customAgents: nextAgents, agentFlags: nextFlags };
-    if (config.defaultAgent === id) patch.defaultAgent = 'claude';
-    try {
-      await onSave(patch);
-    } finally {
-      setRemovingAgent(null);
-    }
+    const patch: Partial<AppConfig> = { customAgents: before.customAgents.filter((a) => a.id !== id), agentFlags: nextFlags };
+    if (before.defaultAgent === id) patch.defaultAgent = 'claude';
+    await onSave(patch);
+    offerUndo({
+      message: `Removed ${agent.name}`,
+      undo: async () => { await onSave(restoreCustomAgentPatch(configRef.current, before, id)); },
+    });
   };
 
   const handleAddFlag = async (agentId: string) => {
@@ -106,178 +115,172 @@ export function AgentsPane({ config, onSave, onSaveFlag, onDeleteFlag }: AgentsP
   return (
     <>
       <Section title="Default for new sessions">
-        <div className="settings-card-pad">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--s-2)' }}>
-            {agents.map((a) => {
-              const sel = config.defaultAgent === a.id;
-              return (
-                <button
-                  key={a.id}
-                  onClick={() => onSave({ defaultAgent: a.id })}
-                  style={{
-                    all: 'unset',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: 'var(--s-3) var(--s-2)',
-                    background: sel ? 'var(--accent-bg)' : 'var(--bg-1)',
-                    border: `1px solid ${sel ? 'var(--accent-edge)' : 'var(--line-2)'}`,
-                    borderRadius: 'var(--r-2)',
-                  }}
-                >
-                  <AgentGlyph agent={a.id} size={28} />
-                  <span style={{ fontSize: 'var(--t-xs)', color: sel ? 'var(--accent)' : 'var(--fg-1)' }}>{a.id}</span>
-                </button>
-              );
-            })}
+        <SettingAnchor id="defaultAgent">
+          <div className="settings-card-pad">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--s-2)' }}>
+              {agents.map((a) => {
+                const sel = config.defaultAgent === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => onSave({ defaultAgent: a.id })}
+                    style={{
+                      all: 'unset',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 'var(--s-1-5)',
+                      padding: 'var(--s-3) var(--s-2)',
+                      background: sel ? 'var(--accent-bg)' : 'var(--bg-1)',
+                      border: `1px solid ${sel ? 'var(--accent-edge)' : 'var(--line-2)'}`,
+                      borderRadius: 'var(--r-2)',
+                    }}
+                  >
+                    <AgentGlyph agent={a.id} size={28} />
+                    <Text size="small" style={{ color: sel ? 'var(--accent)' : 'var(--fg-1)' }}>{a.id}</Text>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </SettingAnchor>
       </Section>
 
       <ClaudeRendererSection config={config} onSave={onSave} />
 
-      <Section
-        title="Installed agents"
-        action={<Button variant="outline" size="sm" icon={Plus} onClick={startAddAgent}>Add custom</Button>}
-      >
-        {editingAgent && (
-          <div style={{
-            display: 'flex', flexDirection: 'column', gap: 'var(--s-3)',
-            padding: 'var(--s-4)',
-            background: 'var(--bg-1)',
-            borderBottom: '1px solid var(--accent-edge)',
-          }}>
-            <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
-              {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
-            </div>
-            <Field label="Name" required>
-              <TextInput value={editingAgent.name} onChange={(v) => setEditingAgent((s) => s && { ...s, name: v })} placeholder="e.g. Aider" />
-            </Field>
-            <Field label="Command" required hint="binary + args · letters, numbers, _ @ . / - only">
-              <TextInput value={editingAgent.command} onChange={(v) => setEditingAgent((s) => s && { ...s, command: v })} placeholder="e.g. aider" mono />
-            </Field>
-            <Field label="Install URL" hint="optional">
-              <TextInput value={editingAgent.installUrl} onChange={(v) => setEditingAgent((s) => s && { ...s, installUrl: v })} placeholder="https://…" mono />
-            </Field>
-            {agentFormError && (
-              <div style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{agentFormError}</div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--s-2)' }}>
-              <Button variant="ghost" size="sm" onClick={() => setEditingAgent(null)}>Cancel</Button>
-              <Button variant="primary" size="sm" loading={savingAgent} onClick={() => void saveAgent()}>
-                {editingAgent.id === null ? 'Add agent' : 'Save'}
-              </Button>
-            </div>
-          </div>
-        )}
-        {agents.map((a) => {
-          const expanded = expandedAgent === a.id;
-          const agentFlags = config.agentFlags[a.id] ?? [];
-          return (
-            <Fragment key={a.id}>
-              <div
-                onClick={() => toggleAgent(a.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-3)',
-                  padding: 'var(--s-3) var(--s-4)',
-                  borderBottom: expanded ? 'none' : '1px solid var(--line-1)',
-                  cursor: 'pointer',
-                  background: expanded ? 'var(--bg-1)' : 'transparent',
-                }}
-              >
-                <AgentGlyph agent={a.id} size={28} />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-0)' }}>{a.name}</div>
-                  <div className="mono" style={{ fontSize: 'var(--t-tiny)', color: 'var(--fg-3)' }}>
-                    $ {a.command} {a.builtin ? '' : '· custom'}
-                  </div>
-                </div>
-                <Chip>{agentFlags.length} flags</Chip>
-                {!a.builtin && (
-                  <>
-                    <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => { e.stopPropagation(); startEditAgent(a); }} />
-                    <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => { e.stopPropagation(); setRemovingAgent(a); }} />
-                  </>
-                )}
-                {expanded
-                  ? <Icon icon={ChevronDown} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
-                  : <Icon icon={ChevronRight} size={13} strokeWidth={1.6} style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
-                }
-              </div>
-              {expanded && (
-                <div style={{
-                  padding: 'var(--s-3) var(--s-4)',
-                  background: 'var(--bg-1)',
-                  borderBottom: '1px solid var(--line-1)',
-                  borderTop: '1px solid var(--line-1)',
-                }}>
-                  {agentFlags.length === 0 ? (
-                    <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-3)', marginBottom: 'var(--s-3)' }}>
-                      No flags yet
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', marginBottom: 'var(--s-3)' }}>
-                      {agentFlags.map((f) => (
-                        <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)' }}>
-                          <span className="mono" style={{ flex: 1, fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
-                            {f.value}
-                          </span>
-                          <IconButton
-                            icon={Trash2}
-                            label="Delete flag"
-                            size="sm"
-                            onClick={(e) => { e.stopPropagation(); onDeleteFlag(a.id, f.id); }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 'var(--s-2)', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <TextInput
-                        value={flagInput}
-                        onChange={(v) => { setFlagInput(v); setFlagError(null); }}
-                        placeholder="--flag value"
-                        mono
-                        onKeyDown={(e) => { if (e.key === 'Enter') void handleAddFlag(a.id); }}
-                        error={!!flagError}
-                      />
-                      {flagError && (
-                        <div style={{ marginTop: 4, fontSize: 'var(--t-tiny)', color: 'var(--danger)' }}>
-                          {flagError}
-                        </div>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      icon={Flag}
-                      onClick={(e) => { e.stopPropagation(); void handleAddFlag(a.id); }}
-                      disabled={!flagInput.trim()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
+      <SettingAnchor id="customAgents">
+        <Section
+          title="Installed agents"
+          action={<Button variant="outline" size="sm" icon={Plus} onClick={startAddAgent}>Add custom</Button>}
+        >
+          {editingAgent && (
+            <Stack
+              gap={3}
+              style={{
+                padding: 'var(--s-4)',
+                background: 'var(--bg-1)',
+                borderBottom: '1px solid var(--accent-edge)',
+              }}
+            >
+              <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
+                {editingAgent.id === null ? 'Add custom agent' : 'Edit agent'}
+              </Text>
+              <Field label="Name" required>
+                <TextInput value={editingAgent.name} onChange={(v) => setEditingAgent((s) => s && { ...s, name: v })} placeholder="e.g. Aider" />
+              </Field>
+              <Field label="Command" required hint="binary + args · letters, numbers, _ @ . / - only">
+                <TextInput value={editingAgent.command} onChange={(v) => setEditingAgent((s) => s && { ...s, command: v })} placeholder="e.g. aider" mono />
+              </Field>
+              <Field label="Install URL" hint="optional">
+                <TextInput value={editingAgent.installUrl} onChange={(v) => setEditingAgent((s) => s && { ...s, installUrl: v })} placeholder="https://…" mono />
+              </Field>
+              {agentFormError && (
+                <Text as="div" size="small" tone="danger">{agentFormError}</Text>
               )}
-            </Fragment>
-          );
-        })}
-      </Section>
-
-      <AlertSheet
-        isOpen={removingAgent !== null}
-        title="Remove agent?"
-        message={`Remove "${removingAgent?.name ?? ''}"? Its saved flags will be cleared. This does not uninstall the CLI.`}
-        confirmLabel="Remove agent"
-        confirmDestructive
-        onConfirm={() => void confirmRemoveAgent()}
-        onCancel={() => setRemovingAgent(null)}
-      />
+              <Row align="stretch" justify="end" gap={2}>
+                <Button variant="ghost" size="sm" onClick={() => setEditingAgent(null)}>Cancel</Button>
+                <Button variant="primary" size="sm" loading={savingAgent} onClick={() => void saveAgent()}>
+                  {editingAgent.id === null ? 'Add agent' : 'Save'}
+                </Button>
+              </Row>
+            </Stack>
+          )}
+          {agents.map((a) => {
+            const expanded = expandedAgent === a.id;
+            const agentFlags = config.agentFlags[a.id] ?? [];
+            return (
+              <Fragment key={a.id}>
+                <Row
+                  gap={3}
+                  onClick={() => toggleAgent(a.id)}
+                  style={{
+                    padding: 'var(--s-3) var(--s-4)',
+                    borderBottom: expanded ? 'none' : '1px solid var(--line-1)',
+                    cursor: 'pointer',
+                    background: expanded ? 'var(--bg-1)' : 'transparent',
+                  }}
+                >
+                  <AgentGlyph agent={a.id} size={28} />
+                  <div style={{ flex: 1 }}>
+                    <Text as="div" size="body" style={{ color: 'var(--fg-0)' }}>{a.name}</Text>
+                    <Text as="div" className="mono" size="caption" tone="faint">
+                      $ {a.command} {a.builtin ? '' : '· custom'}
+                    </Text>
+                  </div>
+                  <Chip>{agentFlags.length} flags</Chip>
+                  {!a.builtin && (
+                    <>
+                      <IconButton icon={Pencil} label="Edit" size="sm" onClick={(e) => { e.stopPropagation(); startEditAgent(a); }} />
+                      <IconButton icon={Trash2} label="Remove" size="sm" onClick={(e) => { e.stopPropagation(); void removeAgent(a).catch((err: unknown) => toastError(err, `Couldn’t remove ${a.name}`)); }} />
+                    </>
+                  )}
+                  {expanded
+                    ? <Icon icon={ChevronDown} size="md" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                    : <Icon icon={ChevronRight} size="md" style={{ color: 'var(--fg-3)', flexShrink: 0 }} />
+                  }
+                </Row>
+                {expanded && (
+                  <div style={{
+                    padding: 'var(--s-3) var(--s-4)',
+                    background: 'var(--bg-1)',
+                    borderBottom: '1px solid var(--line-1)',
+                    borderTop: '1px solid var(--line-1)',
+                  }}>
+                    {agentFlags.length === 0 ? (
+                      <Text as="div" size="body" tone="faint" style={{ marginBottom: 'var(--s-3)' }}>
+                        No flags yet
+                      </Text>
+                    ) : (
+                      <Stack gap={1} style={{ marginBottom: 'var(--s-3)' }}>
+                        {agentFlags.map((f) => (
+                          <Row gap={2} key={f.id}>
+                            <Text className="mono" size="body" tone="default" style={{ flex: 1 }}>
+                              {f.value}
+                            </Text>
+                            <IconButton
+                              icon={Trash2}
+                              label="Delete flag"
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); onDeleteFlag(a.id, f.id); }}
+                            />
+                          </Row>
+                        ))}
+                      </Stack>
+                    )}
+                    <Row align="start" gap={2}>
+                      <div style={{ flex: 1 }}>
+                        <TextInput
+                          value={flagInput}
+                          onChange={(v) => { setFlagInput(v); setFlagError(null); }}
+                          placeholder="--flag value"
+                          mono
+                          onKeyDown={(e) => { if (e.key === 'Enter') void handleAddFlag(a.id); }}
+                          error={!!flagError}
+                        />
+                        {flagError && (
+                          <Text as="div" size="caption" tone="danger" style={{ marginTop: 'var(--s-1)' }}>
+                            {flagError}
+                          </Text>
+                        )}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        icon={Flag}
+                        onClick={(e) => { e.stopPropagation(); void handleAddFlag(a.id); }}
+                        disabled={!flagInput.trim()}
+                      >
+                        Add
+                      </Button>
+                    </Row>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+        </Section>
+      </SettingAnchor>
     </>
   );
 }

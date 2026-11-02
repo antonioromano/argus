@@ -6,6 +6,7 @@ import {
   registerOverlay, setSuppressionTransport, resetOverlayRegistryForTests,
 } from '../../hooks/nativeOverlayRegistry.js';
 import { LaunchCardStack } from './LaunchCardStack.js';
+import { focusPendingLaunch } from './launchFocus.js';
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
@@ -93,5 +94,16 @@ describe('LaunchCardStack', () => {
     const live = container.querySelectorAll('[aria-live="assertive"]');
     expect(live).toHaveLength(1);
     expect(live[0].textContent).toBe('Launch request: codex in /tmp/newest');
+  });
+  it('File → Review Pending Launch focuses the pending launch, and is a no-op once unmounted', async () => {
+    await act(async () => { root.render(<LaunchCardStack />); });
+    const target = container.querySelector<HTMLElement>('[data-testid="launch-prompt"], [data-testid="launch-card"] button');
+    expect(target).not.toBeNull();
+    act(() => focusPendingLaunch());
+    expect(document.activeElement).toBe(target);
+
+    act(() => root.unmount());
+    expect(() => focusPendingLaunch()).not.toThrow();
+    root = createRoot(container);
   });
 });

@@ -25,7 +25,7 @@ describe('ChainChip (beta F13)', () => {
   it('shows ⛓ and the count of chains from the shell', () => {
     act(() => { root.render(<ChainChip count={2} />); });
     expect(chip()?.textContent).toBe('⛓ 2');
-    expect(chip()?.getAttribute('aria-label')).toBe('2 chains');
+    expect(chip()?.getAttribute('aria-label')).toBe('2 follow-up prompts');
     expect(chip()?.className).toBe('argus-tile-chain');
   });
 });

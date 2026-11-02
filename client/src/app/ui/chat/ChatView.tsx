@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
 import type { ChatBlock, ChatMessage, ChatQueuedPrompt, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
-import { MessagesSquare, ArrowDown, Terminal, X } from 'lucide-react';
+import { MessagesSquare, ArrowDown, SquareTerminal, X } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
 import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
@@ -340,7 +340,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         icon={MessagesSquare}
         title="Chat not available yet"
         hint="The chat is read from Claude's transcript, which appears once this session has started a conversation. The terminal always works."
-        action={<Button variant="outline" size="sm" icon={Terminal} onClick={onShowTerminal}>Back to terminal</Button>}
+        action={<Button variant="outline" size="sm" icon={SquareTerminal} onClick={onShowTerminal}>Back to terminal</Button>}
       />
     );
   } else if (messages.length === 0) {
@@ -387,7 +387,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       {!sheetOpen && <SuppressNativeUnder target={rootRef} />}
       {sheet && (
         <div className="argus-chat-sheet-bar" style={{ height: TERMINAL_SHEET_BAR_PX }} data-testid="chat-terminal-sheet">
-          <Icon icon={Terminal} size={13} aria-hidden />
+          <Icon icon={SquareTerminal} size="md" aria-hidden />
           <span className="argus-chat-sheet-title">
             <code>/{sheet}</code> runs in the terminal
           </span>
@@ -414,7 +414,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                   // A turn ended with no transcript found (F15b): it is not coming.
                   : "Chat can't read this session's transcript — use the terminal"}
             </span>
-            <Button variant="ghost" size="sm" icon={Terminal} onClick={onShowTerminal}>Terminal</Button>
+            <Button variant="ghost" size="sm" icon={SquareTerminal} onClick={onShowTerminal}>Terminal</Button>
           </div>
         )}
         {!following && messages.length > 0 && (
@@ -426,7 +426,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
               virtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
             }}
           >
-            <Icon icon={ArrowDown} size={12} aria-hidden /> Latest
+            <Icon icon={ArrowDown} size="sm" aria-hidden /> Latest
           </button>
         )}
       </div>

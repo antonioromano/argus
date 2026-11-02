@@ -11,6 +11,9 @@ import {
   NGROK_PW_MIN,
   isNgrokPasswordValid,
   Icon,
+  Stack,
+  Row,
+  Text,
 } from '../../components/primitives/index.js';
 
 interface RemoteOverlayProps {
@@ -81,12 +84,10 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
         )
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-        <div
+      <Stack gap={4}>
+        <Row
+          gap={2}
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--s-2)',
             padding: 'var(--s-3) var(--s-4)',
             background: 'var(--bg-1)',
             border: '1px solid var(--line-2)',
@@ -96,27 +97,25 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
           {connected ? (
             <>
               <StatusDot status="running" size={8} />
-              <Icon icon={Wifi} size={14} strokeWidth={1.6} color="var(--accent)" />
+              <Icon icon={Wifi} size="md" color="var(--accent)" />
               <span className="eyebrow" style={{ color: 'var(--accent)' }}>ACTIVE</span>
             </>
           ) : (
             <>
-              <Icon icon={WifiOff} size={14} strokeWidth={1.6} color="var(--fg-3)" />
+              <Icon icon={WifiOff} size="md" color="var(--fg-3)" />
               <span className="eyebrow">OFFLINE</span>
             </>
           )}
           {status && !status.installed && (
             <span className="eyebrow" style={{ color: 'var(--warn)' }}>NGROK NOT INSTALLED</span>
           )}
-        </div>
+        </Row>
 
         {error && (
-          <div
+          <Row
+            gap={1.5}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '10px var(--s-3)',
+              padding: 'var(--s-3)',
               background: 'var(--danger-bg)',
               border: '1px solid color-mix(in srgb, var(--danger) 44%, transparent)',
               borderRadius: 'var(--r-2)',
@@ -125,36 +124,26 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
               fontSize: 'var(--t-sm)',
             }}
           >
-            <Icon icon={AlertTriangle} size={12} strokeWidth={1.6} />
+            <Icon icon={AlertTriangle} size="sm" />
             {error}
-          </div>
+          </Row>
         )}
 
         {connected && publicUrl && (
           <>
             <Field label="Public URL">
-              <div
+              <Row
+                gap={2}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-2)',
-                  padding: '6px var(--s-3)',
+                  padding: 'var(--s-1-5) var(--s-3)',
                   background: 'var(--bg-inset)',
                   border: '1px solid var(--line-2)',
                   borderRadius: 'var(--r-2)',
                 }}
               >
-                <span
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-sm)',
-                    color: 'var(--accent)',
-                    flex: 1,
-                    wordBreak: 'break-all',
-                  }}
-                >
+                <Text mono size="body" tone="accent" style={{ flex: 1, wordBreak: 'break-all' }}>
                   {publicUrl}
-                </span>
+                </Text>
                 <Button variant="ghost" size="sm" icon={copied ? Check : Copy} onClick={() => copy(publicUrl)}>
                   {copied ? 'Copied' : 'Copy'}
                 </Button>
@@ -163,14 +152,14 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
                   target="_blank"
                   rel="noreferrer"
                   className="eyebrow"
-                  style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  style={{ color: 'var(--accent)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 'var(--s-1)' }}
                 >
-                  <Icon icon={ExternalLink} size={11} strokeWidth={1.6} /> OPEN
+                  <Icon icon={ExternalLink} size="sm" /> OPEN
                 </a>
-              </div>
+              </Row>
             </Field>
 
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--s-3)' }}>
+            <Row align="stretch" justify="center" style={{ padding: 'var(--s-3)' }}>
               <div
                 style={{
                   background: '#fff',
@@ -181,7 +170,7 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
               >
                 <QRCodeSVG value={`${publicUrl}/mobile`} size={160} bgColor="#fff" fgColor="#000" />
               </div>
-            </div>
+            </Row>
             <p className="eyebrow" style={{ textAlign: 'center', color: 'var(--fg-3)' }}>
               SCAN TO OPEN MOBILE COMPANION
             </p>
@@ -198,7 +187,7 @@ export function RemoteOverlay({ status, loading, error, onStart, onStop, onClose
             error={pwErr ?? undefined}
           />
         )}
-      </div>
+      </Stack>
     </Sheet>
   );
 }

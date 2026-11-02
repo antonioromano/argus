@@ -5,6 +5,12 @@ import { ContextMenu } from '../../components/primitives/index.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import { buildSessionMenuItems, type SessionMenuActions } from './sessionMenu.js';
 import { SessionMenuContext, type SessionMenuApi, type SessionSurface } from './sessionMenuContext.js';
+import { emitDiscovery } from '../discovery/discoveryEvents.js';
+import { IdentityPopover } from './IdentityPopover.js';
+import { api as restApi } from '../../services/api.js';
+
+/** ContextMenu's min width — the ⋯ anchor right-aligns the menu to the button. */
+const MENU_W = 200;
 
 /**
  * Owns the one shell action menu for the whole app and the name being renamed.
@@ -32,14 +38,38 @@ export function SessionMenuProvider({
   const [menuAt, setMenuAt] = useState<
     { session: SessionInfo; x: number; y: number; surface: SessionSurface } | null
   >(null);
+  // The ⋯ button that opened the menu, if any: ContextMenu treats a press on it
+  // as inside, so the button's own click can toggle the menu closed.
+  const anchorRef = useRef<HTMLElement | null>(null);
   const [renaming, setRenaming] = useState<{ id: string; surface: SessionSurface } | null>(null);
+  const [identityAt, setIdentityAt] = useState<{ session: SessionInfo; x: number; y: number } | null>(null);
 
   const openMenu = useCallback((session: SessionInfo, e: React.MouseEvent, surface: SessionSurface) => {
     // Suppress Electron's native context menu and the surface's own click
     // (copy-path / open-session) so a right-click only opens this menu.
     e.preventDefault();
     e.stopPropagation();
+    anchorRef.current = null;
+    emitDiscovery({ type: 'used', marker: 'session-menu' });
     setMenuAt({ session, x: e.clientX, y: e.clientY, surface });
+  }, []);
+
+  const openMenuAt = useCallback((session: SessionInfo, anchor: HTMLElement, surface: SessionSurface) => {
+    if (anchorRef.current === anchor) {
+      anchorRef.current = null;
+      setMenuAt(null);
+      return;
+    }
+    anchorRef.current = anchor;
+    emitDiscovery({ type: 'used', marker: 'session-menu' });
+    // Right-aligned under the button, so the menu lines up with the control.
+    const r = anchor.getBoundingClientRect();
+    setMenuAt({ session, x: r.right - MENU_W, y: r.bottom + 4, surface });
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    anchorRef.current = null;
+    setMenuAt(null);
   }, []);
 
   const beginRename = useCallback((id: string, surface: SessionSurface) => {
@@ -62,18 +92,31 @@ export function SessionMenuProvider({
 
   const cancelRename = useCallback(() => setRenaming(null), []);
 
+  // From the menu the editor opens where the menu was; from the palette there
+  // is no point, so it opens near the top centre of the window.
+  const editIdentity = useCallback((session: SessionInfo, at?: { x: number; y: number }) => {
+    setIdentityAt({ session, x: at?.x ?? Math.round(window.innerWidth / 2 - 124), y: at?.y ?? 96 });
+  }, []);
+  const closeIdentity = useCallback(() => setIdentityAt(null), []);
+
   const api = useMemo<SessionMenuApi>(() => ({
     openMenu,
+    openMenuAt,
     beginRename,
     isRenaming: (id, surface) => renaming?.id === id && renaming.surface === surface,
     commitRename,
     cancelRename,
-  }), [openMenu, beginRename, renaming, commitRename, cancelRename]);
+    editIdentity,
+  }), [openMenu, openMenuAt, beginRename, renaming, commitRename, cancelRename, editIdentity]);
 
   const items = menuAt
     ? buildSessionMenuItems(
         menuAt.session,
-        { ...actions, onRename: (s) => beginRename(s.id, menuAt.surface) },
+        {
+          ...actions,
+          onRename: (s) => beginRename(s.id, menuAt.surface),
+          onEditIdentity: (s) => editIdentity(s, { x: menuAt.x, y: menuAt.y }),
+        },
         shortcuts,
       )
     : [];
@@ -82,7 +125,16 @@ export function SessionMenuProvider({
     <SessionMenuContext.Provider value={api}>
       {children}
       {menuAt && (
-        <ContextMenu x={menuAt.x} y={menuAt.y} items={items} onClose={() => setMenuAt(null)} />
+        <ContextMenu x={menuAt.x} y={menuAt.y} items={items} onClose={closeMenu} anchor={anchorRef} />
+      )}
+      {identityAt && (
+        <IdentityPopover
+          session={identityAt.session}
+          x={identityAt.x}
+          y={identityAt.y}
+          onSave={restApi.setSessionIdentity}
+          onClose={closeIdentity}
+        />
       )}
     </SessionMenuContext.Provider>
   );

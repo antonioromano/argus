@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 import Papa from 'papaparse';
-import { Icon } from '../primitives/index.js';
+import { Icon, Row } from '../primitives/index.js';
+import { useDensity } from '../../context/density-context.js';
 
 interface CsvPreviewProps {
   source: string;
 }
 
-const ROW_HEIGHT = 28;
 const ROW_NUM_WIDTH = 52;
 const MIN_COL = 64;
 const MAX_COL = 480;
@@ -97,6 +97,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { header, rows, error } = useMemo(() => parseCsv(source), [source]);
+  const { csvRowH: rowHeight } = useDensity();
 
   const [fitToScreen, setFitToScreen] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
@@ -130,9 +131,11 @@ export function CsvPreview({ source }: CsvPreviewProps) {
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 12,
   });
+  // Rows are estimate-sized only, so a density change must drop the cached sizes.
+  useEffect(() => { virtualizer.measure(); }, [virtualizer, rowHeight]);
 
   // Reset to the first hit whenever the query changes.
   useEffect(() => {
@@ -207,7 +210,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
 
   return (
     <div style={wrapperStyle}>
-      <div style={toolbarStyle}>
+      <Row justify="between" gap={2} style={toolbarStyle}>
         <label style={checkboxLabelStyle}>
           <input
             type="checkbox"
@@ -218,7 +221,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
           Fit to screen
         </label>
         <div style={findGroupStyle}>
-          <Icon icon={Search} size={11} strokeWidth={1.8} style={{ color: 'var(--fg-3)' }} />
+          <Icon icon={Search} size="sm" style={{ color: 'var(--fg-3)' }} />
           <input
             ref={inputRef}
             value={query}
@@ -247,7 +250,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(-1)}
             style={navBtnStyle(!matches.length)}
           >
-            <Icon icon={ChevronUp} size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronUp} size="sm" />
           </button>
           <button
             type="button"
@@ -256,10 +259,10 @@ export function CsvPreview({ source }: CsvPreviewProps) {
             onClick={() => go(1)}
             style={navBtnStyle(!matches.length)}
           >
-            <Icon icon={ChevronDown} size={12} strokeWidth={1.8} />
+            <Icon icon={ChevronDown} size="sm" />
           </button>
         </div>
-      </div>
+      </Row>
       {error && <div style={errorBannerStyle}>{error} · showing parsed rows</div>}
       <div ref={parentRef} className="argus-scroll argus-csv-preview" style={scrollStyle}>
         <table style={tableStyle}>
@@ -287,7 +290,7 @@ export function CsvPreview({ source }: CsvPreviewProps) {
                     position: 'absolute',
                     top: vRow.start,
                     left: 0,
-                    height: ROW_HEIGHT,
+                    height: rowHeight,
                   }}
                 >
                   <td style={{ ...tdStyle, ...clip, ...rowNumCellStyle }}>{vRow.index + 1}</td>
@@ -355,11 +358,7 @@ const scrollStyle: React.CSSProperties = {
 
 const toolbarStyle: React.CSSProperties = {
   flexShrink: 0,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: 'var(--s-2)',
-  padding: '4px var(--s-3)',
+  padding: 'var(--s-1) var(--s-3)',
   background: 'var(--bg-1)',
   borderBottom: '1px solid var(--line-2)',
   height: 32,
@@ -369,7 +368,7 @@ const toolbarStyle: React.CSSProperties = {
 const checkboxLabelStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 'var(--s-1-5)',
   cursor: 'pointer',
   color: 'var(--fg-2)',
   fontFamily: 'var(--font-mono)',
@@ -381,8 +380,8 @@ const checkboxLabelStyle: React.CSSProperties = {
 const findGroupStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '2px 6px',
+  gap: 'var(--s-1)',
+  padding: 'var(--s-0-5) var(--s-1-5)',
   borderRadius: 'var(--r-2)',
   border: '1px solid var(--line-2)',
   background: 'var(--bg-2)',
@@ -428,7 +427,7 @@ const emptyStyle: React.CSSProperties = {
 
 const errorBannerStyle: React.CSSProperties = {
   flexShrink: 0,
-  padding: '4px 10px',
+  padding: 'var(--s-1) var(--s-3)',
   fontSize: 'var(--t-xs)',
   color: 'var(--fg-3)',
   background: 'var(--bg-2)',
@@ -453,7 +452,7 @@ const thStyle: React.CSSProperties = {
   top: 0,
   zIndex: 1,
   textAlign: 'left',
-  padding: '5px 10px',
+  padding: 'var(--s-1-5) var(--s-3)',
   background: 'var(--bg-2)',
   color: 'var(--fg-0)',
   fontWeight: 600,
@@ -462,7 +461,7 @@ const thStyle: React.CSSProperties = {
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: '4px 10px',
+  padding: 'var(--s-1) var(--s-3)',
   borderBottom: '1px solid var(--line-2)',
   borderRight: '1px solid var(--line-2)',
 };
@@ -491,11 +490,11 @@ const rowNumCellStyle: React.CSSProperties = {
 const markStyle: React.CSSProperties = {
   background: 'color-mix(in srgb, var(--accent) 32%, transparent)',
   color: 'inherit',
-  borderRadius: 2,
+  borderRadius: 'var(--r-1)',
 };
 
 const activeMarkStyle: React.CSSProperties = {
   background: 'var(--accent)',
   color: 'var(--bg-0)',
-  borderRadius: 2,
+  borderRadius: 'var(--r-1)',
 };

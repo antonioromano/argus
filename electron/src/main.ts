@@ -2,19 +2,27 @@ import { app, dialog, ipcMain, BrowserWindow, Menu, shell, nativeImage, Notifica
 import type { MenuItemConstructorOptions } from 'electron';
 import { execFile, execFileSync, spawn } from 'child_process';
 import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises';
 import { createRequire } from 'module';
-import type { UpdateProgress } from '@argus/shared';
+import type { HelpActionResult, UpdateProgress } from '@argus/shared';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
 import { createLaunchGate, type LaunchGate, type McpLaunchDecision, type McpRequester } from './launchGate.js';
-import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, type IpcSenderLike } from './ipcGuards.js';
+import { systemSettingsUrl } from './systemSettings.js';
+import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeShortcuts, menuInvokeTarget, isSettingsPayload, sanitizeLauncherImport, SETTINGS_PAYLOAD_MAX_BYTES, type IpcSenderLike } from './ipcGuards.js';
+import { backupFileName, backupsToPrune, defaultExportName } from './settingsFiles.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
-import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { setMenuShortcuts } from './menuShortcuts.js';
+import {
+  MENU_LAYOUT, describeMenuCommands, isMainCommandId, menuCommand, menuCommandAccelerator,
+  menuCommandLabel, setMenuAppearance,
+  type MainCommandId, type MenuLayoutItem,
+} from './menuModel.js';
 import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
@@ -24,16 +32,31 @@ import {
   setMainCloseHandler, hideMainWindow, adoptAsMain,
   setZoomLevelForFocused, getZoomLevelForFocused,
   setAppQuitting, setStopAllOnQuit, getStopAllOnQuit, windowIdOf,
+  getAllAppWindows, getKeyOverlayOwners,
 } from './window.js';
+import { initAppearanceHost, type AppearanceHost } from './appearanceHost.js';
+import { appEnvironment, appInfo, readBuildStamp, type AppFacts } from './appInfo.js';
+import { DOCS_URL, REPO_URL, buildIssueUrl } from './helpLinks.js';
+import { createLogRing, installConsoleCapture, readTail } from './logRing.js';
 
-// Render terminals on the CPU, not the GPU. On a cold GPU (first open of a
-// session, or after the shader cache is evicted) Chromium's GPU glyph
-// rasterization intermittently fails for special glyphs — box-drawing renders
-// as "__" and the Claude icon as a black block — and only a reload clears it.
-// This is renderer-agnostic (hit DOM/Canvas/WebGL alike) and reproduces only in
-// the packaged app's cold-GPU state (never in the warm `npm run dev` session).
-// Disabling hardware acceleration removes the GPU raster path entirely, so the
-// failure mode can't occur. Must be called before app 'ready'.
+// The warn/error tail behind Help → Copy Diagnostics. Installed before the
+// server is imported so its warnings land here too (it logs to a stdout a
+// Finder-launched app discards). In memory only; see logRing.ts.
+const logRing = createLogRing();
+installConsoleCapture(logRing);
+
+// Render on the CPU, not the GPU. On a cold GPU (first open of a session, or
+// after the shader cache is evicted) Chromium's GPU path intermittently fails
+// for special glyphs — box-drawing renders as "__" and the Claude icon as a
+// black block — and only a reload clears it. Disabling hardware acceleration
+// removes the GPU path entirely, so the failure mode can't occur.
+//
+// Trade-off: with no GPU compositing the window can't be transparent, so the
+// native vibrancy never shows and the window material is always solid (see
+// appearanceHost.ts). Keeping GPU compositing with GPU rasterization off was
+// tried on 2026-10-29 and the garble came back on the first cold launch —
+// docs/solutions/macos/vibrancy-needs-gpu-compositing-2026-10-29.md.
+// Must be called before app 'ready'.
 app.disableHardwareAcceleration();
 
 // Keep Chromium's OSCrypt off the OS credential store. OSCrypt otherwise creates an
@@ -647,9 +670,10 @@ function handleLaunchUrl(url: string): void {
   void launchGate.handle(parsed).catch((e) => console.error('[launch] handle failed:', e));
 }
 
-function sendMenuEvent(channel: string): void {
+/** Deliver a renderer-run menu command to the focused window as one `menu:command` message. */
+function sendMenuCommand(id: string): void {
   const win = getAppWindow(getFocusedWindowId()) ?? getMainWindow();
-  if (win && !win.isDestroyed()) win.webContents.send(channel);
+  if (win && !win.isDestroyed()) win.webContents.send('menu:command', id);
 }
 
 // Per-window belief about whether a Monaco editor currently has focus in that
@@ -661,14 +685,16 @@ const editorFocusByWindow = new WeakMap<BrowserWindow, boolean>();
 // must not keep the colliding accelerators disabled: Monaco reports no blur
 // when a child NSWindow takes key status, so that belief would stay true.
 const nativeKeySessions = new Set<string>();
+// Set in main(); a key-overlay change re-derives each window's active state.
+let appearanceHost: AppearanceHost | null = null;
 setKeyOverlayOwners(() => [...nativeKeySessions].map((id) => {
   const winId = sessionToWindowId.get(id);
   const win = winId === undefined ? null : BrowserWindow.fromId(winId);
   return win && !win.isDestroyed() ? win : null;
 }));
 
-// Re-derive and apply enabled/disabled for the four Monaco-colliding menu
-// items from whichever window is resolved the same way sendMenuEvent resolves
+// Re-derive and apply enabled/disabled for the Monaco-colliding menu
+// items from whichever window is resolved the same way sendMenuCommand resolves
 // its target — that's the only window whose keystrokes can trigger the
 // accelerator-vs-Monaco-keybinding race in the first place. Re-run on every
 // OS window-focus change too, not just on a new editor-focus report: switching
@@ -687,211 +713,55 @@ function applyMenuAcceleratorGating(): void {
   }
 }
 
+/**
+ * What each main-run menu command does. The Record type makes a new
+ * `runIn: 'main'` entry in menuModel.ts a compile error until it has a handler
+ * here. The same map serves a menu click and a renderer `menu:invoke`, and
+ * each handler resolves its target window through getFocusedWindowId(), just
+ * as a click does.
+ */
+const MAIN_HANDLERS: Record<MainCommandId, () => void> = {
+  'menu:quit-stop-all': () => {
+    setStopAllOnQuit(true);
+    app.quit();
+  },
+  'menu:new-window': () => { void hostCreateWindowFn?.().catch(console.error); },
+  'menu:reload': () => getAppWindow(getFocusedWindowId())?.webContents.reload(),
+  'menu:force-reload': () => getAppWindow(getFocusedWindowId())?.webContents.reloadIgnoringCache(),
+  'menu:actual-size': () => setZoomLevelForFocused(0),
+  'menu:zoom-in': () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5),
+  'menu:zoom-out': () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5),
+  'menu:merge-windows': () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
+  'menu:documentation': () => openExternalAllowlisted(DOCS_URL),
+  'menu:github': () => openExternalAllowlisted(REPO_URL),
+};
+
+function menuItemFor(entry: MenuLayoutItem): MenuItemConstructorOptions {
+  if (entry === 'separator') return { type: 'separator' };
+  if (typeof entry === 'object') return { role: entry.role };
+  const def = menuCommand(entry);
+  const accelerator = menuCommandAccelerator(def);
+  // `id` on every item: applyMenuAcceleratorGating looks the colliding ones up.
+  return {
+    id: def.id,
+    label: menuCommandLabel(def),
+    ...(accelerator ? { accelerator } : {}),
+    click: () => {
+      if (isMainCommandId(def.id)) MAIN_HANDLERS[def.id]();
+      else sendMenuCommand(def.id);
+    },
+  };
+}
+
+/** The application menu, mapped from MENU_LAYOUT (see menuModel.ts). */
 function buildAppMenu(): Menu {
   const isMac = process.platform === 'darwin';
-
-  const appMenu: MenuItemConstructorOptions = {
-    label: 'Argus',
-    submenu: [
-      { role: 'about' },
-      { type: 'separator' },
-      {
-        label: 'Settings…',
-        accelerator: menuAccelerator('open-settings'),
-        click: () => sendMenuEvent('menu:open-settings'),
-      },
-      { type: 'separator' },
-      { role: 'services' },
-      { type: 'separator' },
-      { role: 'hide' },
-      { role: 'hideOthers' },
-      { role: 'unhide' },
-      { type: 'separator' },
-      { role: 'quit' }, // keep-alive: detaches, sessions keep running in the background
-      {
-        label: 'Quit & Stop All Sessions',
-        accelerator: 'CmdOrCtrl+Shift+Q',
-        click: () => {
-          setStopAllOnQuit(true);
-          app.quit();
-        },
-      },
-    ],
-  };
-
-  const fileMenu: MenuItemConstructorOptions = {
-    label: 'File',
-    submenu: [
-      {
-        label: 'New Window',
-        accelerator: 'CmdOrCtrl+Shift+N',
-        click: () => { void hostCreateWindowFn?.().catch(console.error); },
-      },
-      { type: 'separator' },
-      {
-        label: 'New Session',
-        accelerator: menuAccelerator('new-session'),
-        click: () => sendMenuEvent('menu:new-session'),
-      },
-      {
-        label: 'Close Session',
-        accelerator: menuAccelerator('close-shell'),
-        click: () => sendMenuEvent('menu:close-session'),
-      },
-      {
-        label: 'Review Pending Launch',
-        accelerator: 'Alt+CmdOrCtrl+L',
-        click: () => sendMenuEvent('menu:review-launch'),
-      },
-    ],
-  };
-
-  const editMenu: MenuItemConstructorOptions = {
-    label: 'Edit',
-    submenu: [
-      { role: 'undo' },
-      { role: 'redo' },
-      { type: 'separator' },
-      { role: 'cut' },
-      { role: 'copy' },
-      { role: 'paste' },
-      { role: 'pasteAndMatchStyle' },
-      { role: 'delete' },
-      { role: 'selectAll' },
-    ],
-  };
-
-  const viewMenu: MenuItemConstructorOptions = {
-    label: 'View',
-    submenu: [
-      {
-        label: 'Toggle Find & Jump',
-        accelerator: menuAccelerator('command-palette'),
-        click: () => sendMenuEvent('menu:toggle-palette'),
-      },
-      {
-        label: 'Waiting Inbox',
-        accelerator: menuAccelerator('waiting-inbox'),
-        click: () => sendMenuEvent('menu:waiting-inbox'),
-      },
-      {
-        label: 'Search All Sessions',
-        accelerator: menuAccelerator('session-search'),
-        click: () => sendMenuEvent('menu:session-search'),
-      },
-      { type: 'separator' },
-      {
-        label: 'Toggle Theme',
-        accelerator: 'CmdOrCtrl+Shift+L',
-        click: () => sendMenuEvent('menu:toggle-theme'),
-      },
-      { type: 'separator' },
-      // These five were renderer-only keydown handlers. A native terminal
-      // overlay is a child NSWindow that takes key focus, so the renderer never
-      // sees their keydown — as app-menu accelerators they fire regardless of
-      // which view has focus.
-      //
-      // Their accelerators come from menuShortcuts.ts, which the renderer keeps
-      // in sync with the resolved bindings in AppConfig.keyboardShortcuts — so
-      // rebinding one in Settings moves it here too, and keeps working inside a
-      // native tile. A binding the menu cannot express (no Cmd/Ctrl/Alt) falls
-      // back to its default; the renderer keydown path still honours it, which
-      // means it works in web tiles only.
-      //
-      // `id` is set on the four that collide with Monaco's own default
-      // keybindings (see menuAcceleratorGating.ts) so applyMenuAcceleratorGating
-      // can look them up and toggle `.enabled` while an editor has focus.
-      // menu:open-shell (Cmd+T) has no Monaco collision and needs no id.
-      {
-        id: 'menu:open-diff',
-        label: 'Diff for Focused Shell',
-        accelerator: menuAccelerator('open-diff'),
-        click: () => sendMenuEvent('menu:open-diff'),
-      },
-      {
-        id: 'menu:open-files',
-        label: 'Files for Focused Shell',
-        accelerator: menuAccelerator('open-files'),
-        click: () => sendMenuEvent('menu:open-files'),
-      },
-      {
-        label: 'Terminal for Focused Shell',
-        accelerator: menuAccelerator('open-shell'),
-        click: () => sendMenuEvent('menu:open-shell'),
-      },
-      {
-        id: 'menu:terminal-search',
-        label: 'Search in Terminal',
-        accelerator: menuAccelerator('terminal-search'),
-        click: () => sendMenuEvent('menu:terminal-search'),
-      },
-      {
-        id: 'menu:clear-terminal',
-        label: 'Clear Scrollback',
-        accelerator: menuAccelerator('clear-terminal'),
-        click: () => sendMenuEvent('menu:clear-terminal'),
-      },
-      { type: 'separator' },
-      // Not the built-in roles: those reload BrowserWindow.getFocusedWindow(),
-      // which is null while a native tile (a child NSWindow) is key, so Cmd+R
-      // did nothing there. getFocusedWindowId() also resolves the overlay's
-      // owner — see menuTarget.ts.
-      {
-        label: 'Reload',
-        accelerator: 'CmdOrCtrl+R',
-        click: () => getAppWindow(getFocusedWindowId())?.webContents.reload(),
-      },
-      {
-        label: 'Force Reload',
-        accelerator: 'Shift+CmdOrCtrl+R',
-        click: () => getAppWindow(getFocusedWindowId())?.webContents.reloadIgnoringCache(),
-      },
-      { type: 'separator' },
-      // Whole-app browser zoom (scales terminals, Monaco, and UI uniformly).
-      // Custom click handlers (not built-in roles) so every change routes through
-      // setZoomLevel and keeps the tracked level in sync — survives reload.
-      { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => setZoomLevelForFocused(0) },
-      { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: () => setZoomLevelForFocused(getZoomLevelForFocused() + 0.5) },
-      { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => setZoomLevelForFocused(getZoomLevelForFocused() - 0.5) },
-      { type: 'separator' },
-      { role: 'togglefullscreen' },
-    ],
-  };
-
-  const windowMenu: MenuItemConstructorOptions = {
-    label: 'Window',
-    submenu: [
-      { role: 'minimize' },
-      { role: 'zoom' },
-      { type: 'separator' },
-      {
-        label: 'Merge All Windows',
-        click: () => { void hostMergeAllFn?.(getFocusedWindowId()).catch(console.error); },
-      },
-      { type: 'separator' },
-      { role: 'front' },
-    ],
-  };
-
-  const helpMenu: MenuItemConstructorOptions = {
-    role: 'help',
-    submenu: [
-      {
-        label: 'What’s New…',
-        click: () => sendMenuEvent('menu:whats-new'),
-      },
-      { type: 'separator' },
-      {
-        label: 'Argus on GitHub',
-        click: () => shell.openExternal('https://github.com/antonioromano/argus'),
-      },
-    ],
-  };
-
-  const template: MenuItemConstructorOptions[] = isMac
-    ? [appMenu, fileMenu, editMenu, viewMenu, windowMenu, helpMenu]
-    : [fileMenu, editMenu, viewMenu, windowMenu, helpMenu];
-
+  const template: MenuItemConstructorOptions[] = MENU_LAYOUT
+    .filter((m) => isMac || !m.macOnly)
+    .map((m) => ({
+      ...(m.role ? { role: m.role } : { label: m.label }),
+      submenu: m.items.map(menuItemFor),
+    }));
   return Menu.buildFromTemplate(template);
 }
 
@@ -986,6 +856,7 @@ async function main() {
       if (focused) nativeKeySessions.add(id);
       else nativeKeySessions.delete(id);
       applyMenuAcceleratorGating();
+      appearanceHost?.refresh();
       sendToNativeTermWindow(id, 'native-term:focus', { sessionId: id, focused });
     },
   });
@@ -1010,6 +881,22 @@ async function main() {
   // frame of our own 127.0.0.1 page (ipcMain otherwise accepts any frame of any
   // webContents) and that the payload has the expected shape.
   const trusted = (e: IpcSenderLike) => isTrustedSender(e, appOrigin());
+
+  // macOS appearance → renderer (accent, Reduce Transparency, Increase
+  // Contrast, active window, fullscreen), and the renderer's theme → the
+  // window material. Before any window exists: the preload reads the first
+  // snapshot synchronously.
+  appearanceHost = initAppearanceHost({
+    trusted,
+    windows: getAllAppWindows,
+    keyOverlayOwners: getKeyOverlayOwners,
+    // View → Use Light/Dark Appearance names the switch it would make.
+    onThemeChanged: (dark) => {
+      if (!setMenuAppearance(dark) || !Menu.getApplicationMenu()) return;
+      Menu.setApplicationMenu(buildAppMenu());
+      applyMenuAcceleratorGating();
+    },
+  });
   /** Common native-term guard: trusted sender + object payload with a valid sessionId. */
   const ntArgs = (e: IpcSenderLike, arg: unknown): Record<string, unknown> & { sessionId: string } | null =>
     trusted(e) && isPlainObject(arg) && isSessionId(arg.sessionId) ? (arg as Record<string, unknown> & { sessionId: string }) : null;
@@ -1168,15 +1055,6 @@ async function main() {
     nativeTerminal!.show(sessionId, win?.getNativeWindowHandle());
   });
 
-  // Native message box — used by the renderer for confirmations (delete, close session, etc.)
-  // Only whitelisted fields reach dialog.showMessageBox (no icon paths, signal…).
-  ipcMain.handle('dialog:showMessageBox', async (event, raw: unknown) => {
-    const opts = trusted(event) ? sanitizeMessageBoxOptions(raw) : null;
-    if (!opts) throw new Error('Refused: untrusted sender or bad message box options');
-    const win = BrowserWindow.fromWebContents(event.sender) ?? undefined;
-    return dialog.showMessageBox(win!, opts);
-  });
-
   // Open URLs in the system default browser (called from the xterm link
   // provider's click handler, and from a native overlay's requestOpenLink).
   ipcMain.handle('shell:openExternal', (event, url: unknown) => {
@@ -1222,6 +1100,13 @@ async function main() {
   terminalNotifierPath = resolveTerminalNotifier();
 
   ipcMain.on('notif:show', (e, payload: NotifPayload) => { if (trusted(e) && isPlainObject(payload)) postNotification(payload); });
+  // A pane key, never a URL: only the fixed x-apple.systempreferences URLs in
+  // systemSettings.ts can open, so openExternalAllowlisted stays http(s)/mailto.
+  ipcMain.on('system:openSettings', (e, pane: unknown) => {
+    if (!trusted(e)) return;
+    const url = systemSettingsUrl(pane);
+    if (url) void shell.openExternal(url);
+  });
 
   ipcMain.on('notif:close', (event, id: unknown) => {
     if (!trusted(event) || typeof id !== 'string') return;
@@ -1240,22 +1125,12 @@ async function main() {
     }
   });
 
-  // Native About panel
-  const version = readAppVersion();
-  app.setAboutPanelOptions({
-    applicationName: 'Argus',
-    applicationVersion: version,
-    version,
-    copyright: `© ${new Date().getFullYear()} Antonio Romano`,
-    credits: 'Multi-session dashboard for Claude Code',
-  });
-
   // Application menu — gives Cmd+N/W/,/K/Shift+L the native menu-bar treatment.
   Menu.setApplicationMenu(buildAppMenu());
 
-  // Renderer reports Monaco editor focus enter/leave so the four colliding
+  // Renderer reports Monaco editor focus enter/leave so the Monaco-colliding
   // accelerators (menuAcceleratorGating.ts) can be disabled exactly while an
-  // editor would otherwise lose its own Cmd+D/E/F/L to the menu. The
+  // editor would otherwise lose its own Cmd+D/E/F/L/Shift+L to the menu. The
   // reporting window is resolved from e.sender, not trusted from the payload —
   // a renderer must not be able to name an arbitrary window. Also re-applied
   // on every OS window-focus change, since which window's belief is
@@ -1270,6 +1145,51 @@ async function main() {
     Menu.setApplicationMenu(buildAppMenu());
     applyMenuAcceleratorGating();
   });
+
+  // Renderer -> main: the menu commands with their live accelerators, so the
+  // renderer never keeps its own copy of the menu (see menuModel.ts).
+  ipcMain.handle('menu:describe', (e) => (trusted(e) ? describeMenuCommands() : []));
+  // Renderer -> main: run a main-owned menu command (New Window, Reload, Zoom,
+  // Merge All Windows, Quit & Stop All, Argus on GitHub). Trusted sender and
+  // the static main-run allowlist only; the id is the whole payload.
+  ipcMain.on('menu:invoke', (e, raw: unknown) => {
+    const id = menuInvokeTarget(e, raw, appOrigin());
+    if (id) MAIN_HANDLERS[id]();
+  });
+
+  // Help surfaces (plan 002): About, Copy Diagnostics, Report an Issue. Main
+  // assembles the diagnostics from its own runtime facts, the in-process
+  // server's counts and the log tails; there is no REST route (the API is
+  // reachable over ngrok). The text goes to the clipboard, never back over
+  // IPC: the renderer only learns whether it worked.
+  const appFacts = (): AppFacts => ({
+    appVersion: readAppVersion(),
+    packaged: app.isPackaged,
+    macos: process.getSystemVersion(),
+    arch: process.arch,
+    versions: process.versions,
+    build: readBuildStamp(join(__dirname, 'build-info.json')),
+  });
+  const buildDiagnostics = (): { markdown: string; summary: string } =>
+    server.hostBuildDiagnostics(appEnvironment(appFacts()), {
+      recent: logRing.tail(80),
+      update: readTail(join(app.getPath('userData'), 'update.log'), 40),
+    });
+  ipcMain.handle('help:app-info', (e) => (trusted(e) ? appInfo(appFacts()) : null));
+  const helpAction = (e: IpcSenderLike, openIssue: boolean): HelpActionResult => {
+    if (!trusted(e)) return { ok: false, error: 'Refused' };
+    try {
+      const { markdown, summary } = buildDiagnostics();
+      clipboard.writeText(markdown);
+      if (openIssue) openExternalAllowlisted(buildIssueUrl(summary, readAppVersion()));
+      return { ok: true };
+    } catch (err) {
+      console.error('[help] diagnostics failed:', err);
+      return { ok: false, error: 'Argus could not collect its diagnostics' };
+    }
+  };
+  ipcMain.handle('help:copy-diagnostics', (e) => helpAction(e, false));
+  ipcMain.handle('help:report-issue', (e) => helpAction(e, true));
 
   ipcMain.on('editor-focus:changed', (e, focused: unknown) => {
     if (!trusted(e)) return;
@@ -1424,6 +1344,74 @@ async function main() {
     if (!launchSender(e, true)) return refused;
     if (typeof id !== 'string') return { ok: false, error: 'Bad input' };
     return launchService.remove(id);
+  });
+
+  // Settings export / import (plan 007). Same gate as the launcher writes:
+  // our main frame, in a focused Argus window. No path ever comes from the
+  // renderer — main picks it through a dialog or the fixed backup folder, and
+  // remembers the last one so "Show in Finder" needs no path either.
+  const settingsSender = (e: Electron.IpcMainInvokeEvent) => (trusted(e) ? launchSender(e, true) : null);
+  const lastSettingsFile: { export?: string; backup?: string } = {};
+  const jsonFilter = [{ name: 'Argus settings', extensions: ['json'] }];
+  ipcMain.handle('settings:save-file', async (e, text: unknown) => {
+    const w = settingsSender(e);
+    if (!w) return refused;
+    if (!isSettingsPayload(text)) return { ok: false, error: 'Bad input' };
+    const opts = { title: 'Export Settings', defaultPath: join(app.getPath('documents'), defaultExportName(new Date())), filters: jsonFilter };
+    const win = getAppWindow(w);
+    const res = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts);
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+    await writeFile(res.filePath, text, 'utf8');
+    lastSettingsFile.export = res.filePath;
+    return { ok: true, path: res.filePath };
+  });
+  ipcMain.handle('settings:open-file', async (e) => {
+    const w = settingsSender(e);
+    if (!w) return refused;
+    const opts = { title: 'Import Settings', properties: ['openFile' as const], filters: jsonFilter };
+    const win = getAppWindow(w);
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    const file = res.canceled ? undefined : res.filePaths[0];
+    if (!file) return { ok: false, canceled: true };
+    // Size before read: a huge or special file is refused without loading it.
+    const info = await stat(file);
+    if (!info.isFile() || info.size > SETTINGS_PAYLOAD_MAX_BYTES) {
+      return { ok: false, error: 'That file is larger than 1 MB, so it is not an Argus settings file.' };
+    }
+    return { ok: true, text: await readFile(file, 'utf8') };
+  });
+  ipcMain.handle('settings:backup', async (e, text: unknown) => {
+    if (!settingsSender(e)) return refused;
+    if (!isSettingsPayload(text)) return { ok: false, error: 'Bad input' };
+    const dir = join(app.getPath('userData'), 'settings-backups');
+    await mkdir(dir, { recursive: true });
+    const file = join(dir, backupFileName(new Date()));
+    await writeFile(file, text, 'utf8');
+    for (const old of backupsToPrune(await readdir(dir))) await unlink(join(dir, old)).catch(() => {});
+    lastSettingsFile.backup = file;
+    return { ok: true, path: file };
+  });
+  ipcMain.handle('settings:reveal', (e, which: unknown) => {
+    if (!settingsSender(e)) return false;
+    const file = which === 'export' || which === 'backup' ? lastSettingsFile[which] : undefined;
+    if (!file) return false;
+    shell.showItemInFolder(file);
+    return true;
+  });
+  // Each launcher is re-validated on this Mac (agent installed, folder present,
+  // flags safe) and saved through the same path as "Save as launcher".
+  ipcMain.handle('launcher:import', async (e, raw: unknown) => {
+    if (!settingsSender(e)) return refused;
+    const items = sanitizeLauncherImport(raw);
+    if (!items) return { ok: false, error: 'Bad input' };
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const item of items) {
+      const v = await launchService.validate(item.request);
+      if (!v.ok) { results.push({ id: item.id, ok: false, error: v.error }); continue; }
+      const saved = await launchService.add({ id: item.id, label: item.label, validated: v.value, overwrite: item.overwrite });
+      results.push(saved.ok ? { id: item.id, ok: true } : { id: item.id, ok: false, error: saved.error });
+    }
+    return { ok: true, results };
   });
 
   // Dev only: the unbundled Electron binary would show the Electron atom. A
@@ -1661,12 +1649,12 @@ app.on('before-quit', (e) => {
     const extra = sessions.length > 10 ? `\n…and ${sessions.length - 10} more` : '';
     const opts = {
       type: 'warning' as const,
-      title: 'Exit all sessions?',
-      message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
+      title: 'Stop all sessions?',
+      message: `Quitting will stop ${sessions.length} session${sessions.length === 1 ? '' : 's'}.`,
       detail:
-        `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
-        + 'Turn off "Exit sessions on quit" in Settings → Confirmations to keep them running instead.',
-      buttons: ['Cancel', 'Exit all sessions'],
+        `These sessions will stop and can’t be resumed:\n\n${names}${extra}\n\n`
+        + 'Turn off “Stop all sessions when quitting” in Settings → General to keep them running instead.',
+      buttons: ['Cancel', 'Stop All and Quit'],
       defaultId: 1,
       cancelId: 0,
       checkboxLabel: "Don't ask again",

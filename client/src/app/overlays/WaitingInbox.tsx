@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SessionInfo } from '@argus/shared';
 import { Inbox } from 'lucide-react';
-import { Checkbox, Kbd, Icon } from '../../components/primitives/index.js';
+import { Checkbox, Kbd, Icon, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { formatWaiting, inboxOptions, optionForKey, waitingItems } from './inboxItems.js';
+import { displayLabel } from '../../utils/sessionLabel.js';
 
 interface WaitingInboxProps {
   sessions: SessionInfo[];
@@ -87,7 +88,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
   }, [selected]);
 
   return (
-    <div
+    <Stack
       style={{
         background: 'var(--bg-2)',
         border: '1px solid var(--line-3)',
@@ -95,53 +96,51 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
         boxShadow: 'var(--shadow-pop)',
         width: 'min(92vw, 720px)',
         maxHeight: '66vh',
-        display: 'flex',
-        flexDirection: 'column',
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
-        <Icon icon={Inbox} size={14} strokeWidth={1.6} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-md)', color: 'var(--fg-0)' }}>Waiting on you</span>
-        <span
+      <Row gap={3} style={{ padding: 'var(--s-3) var(--s-4)', borderBottom: '1px solid var(--line-2)' }}>
+        <Icon icon={Inbox} size="md" style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <Text mono size="title" style={{ color: 'var(--fg-0)' }}>Waiting on you</Text>
+        <Text
+          mono
+          size="eyebrow"
           style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-micro)',
             color: items.length ? 'var(--accent)' : 'var(--fg-3)',
             background: items.length ? 'var(--accent-bg)' : 'var(--bg-3)',
-            borderRadius: 10,
-            padding: '0 6px',
+            borderRadius: 'var(--r-4)',
+            padding: '0 var(--s-1-5)',
           }}
         >
           {items.length}
-        </span>
-        <span style={{ flex: 1 }} />
+        </Text>
+        <Spacer />
         {shortcutLabel && <Kbd>{shortcutLabel}</Kbd>}
-      </div>
+      </Row>
 
-      <div role="listbox" aria-label="Waiting shells" className="argus-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div role="listbox" aria-label="Waiting sessions" className="argus-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {items.length === 0 && (
-          <div
+          <Stack
+            align="center"
+            gap={2}
             className="empty-hint"
             style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 'var(--s-2)',
               padding: 'var(--s-6)',
               color: 'var(--fg-3)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-sm)',
             }}
           >
-            <Icon icon={Inbox} size={22} strokeWidth={1.2} />
+            <Icon icon={Inbox} size="xl" />
             <span>Nothing is waiting on you.</span>
-          </div>
+          </Stack>
         )}
         {items.map((s) => {
           const isSelected = selected?.id === s.id;
           return (
-            <div
+            <Row
+              align="stretch"
+              gap={3}
               key={s.id}
               id={`inbox-row-${s.id}`}
               role="option"
@@ -149,52 +148,40 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
               onClick={() => onJump(s.id)}
               onMouseEnter={() => setSelectedId(s.id)}
               style={{
-                display: 'flex',
-                gap: 10,
-                padding: '10px var(--s-4)',
+                padding: 'var(--s-3) var(--s-4)',
                 cursor: 'pointer',
                 background: isSelected ? 'var(--bg-3)' : 'transparent',
                 borderLeft: `2px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
               }}
             >
               {onBroadcast && (
-                <div style={{ paddingTop: 1, flexShrink: 0 }}>
+                <div style={{ paddingTop: 'var(--s-px)', flexShrink: 0 }}>
                   <Checkbox checked={marked.has(s.id)} onChange={() => toggleMark(s.id)} size={14} />
                 </div>
               )}
-              <div style={{ paddingTop: 1, flexShrink: 0 }}>
+              <div style={{ paddingTop: 'var(--s-px)', flexShrink: 0 }}>
                 <AgentGlyph agent={s.agentType} size={16} />
               </div>
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-                  <span
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: 'var(--t-sm)',
-                      fontWeight: 500,
-                      color: isSelected ? 'var(--accent)' : 'var(--fg-0)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {s.name}
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+              <Stack gap={1} grow>
+                <Row align="baseline" gap={3}>
+                  <Text mono size="body" weight={500} truncate style={{ color: isSelected ? 'var(--accent)' : 'var(--fg-0)' }}>
+                    {displayLabel(s)}
+                  </Text>
+                  <Text mono size="eyebrow" tone="faint" style={{ whiteSpace: 'nowrap' }}>
                     {s.agentType} · {s.folderPath.split('/').slice(-2).join('/')}
-                  </span>
-                  <span style={{ flex: 1 }} />
+                  </Text>
+                  <Spacer />
                   {s.waitingSince !== undefined && (
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--warn)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                    <Text mono size="eyebrow" tone="warn" style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
                       {formatWaiting(now - s.waitingSince)}
-                    </span>
+                    </Text>
                   )}
-                </div>
-                <div style={{ fontSize: 'var(--t-xs)', lineHeight: 1.45, color: s.lastPrompt ? 'var(--fg-1)' : 'var(--fg-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                </Row>
+                <Text as="div" size="small" truncate style={{ lineHeight: 1.45, color: s.lastPrompt ? 'var(--fg-1)' : 'var(--fg-3)' }}>
                   {s.lastPrompt ?? 'Waiting for input'}
-                </div>
+                </Text>
                 {inboxOptions(s).length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <Row align="stretch" gap={1.5} wrap>
                     {inboxOptions(s).map((o) => (
                       <button
                         key={o.key}
@@ -207,15 +194,24 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
                         <span className="argus-inbox-option-label">{o.label}</span>
                       </button>
                     ))}
-                  </div>
+                  </Row>
                 )}
-              </div>
-            </div>
+              </Stack>
+            </Row>
           );
         })}
       </div>
 
-      <div style={{ display: 'flex', gap: 'var(--s-4)', padding: 'var(--s-2) var(--s-4)', background: 'var(--bg-1)', borderTop: '1px solid var(--line-2)', flexShrink: 0 }}>
+      <Row
+        align="stretch"
+        gap={4}
+        style={{
+          padding: 'var(--s-2) var(--s-4)',
+          background: 'var(--bg-1)',
+          borderTop: '1px solid var(--line-2)',
+          flexShrink: 0,
+        }}
+      >
         {[
           { key: '↑↓', label: 'NAVIGATE' },
           { key: '↵', label: 'JUMP' },
@@ -226,12 +222,12 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
           ] : []),
           { key: 'Esc', label: 'CLOSE' },
         ].map(({ key, label }) => (
-          <span key={label} className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Row as="span" key={label} gap={1.5} className="eyebrow">
             <Kbd>{key}</Kbd>
             {label}
-          </span>
+          </Row>
         ))}
-      </div>
-    </div>
+      </Row>
+    </Stack>
   );
 }

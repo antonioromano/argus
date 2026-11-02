@@ -13,11 +13,16 @@ declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
 }
 
+import { ApiError } from '../../services/api.js';
+import { registerErrorActionHost } from '../../errors/errorActions.js';
 const getGitSummary = vi.fn();
 const getSessionPrs = vi.fn();
 const setSessionPrReady = vi.fn();
-vi.mock('../../services/api.js', () => ({
+const gitInit = vi.fn();
+vi.mock('../../services/api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api.js')>()),
   api: {
+    gitInit: (folder: string) => gitInit(folder),
     getGitSummary: (id: string) => getGitSummary(id),
     getSessionPrs: (id: string) => getSessionPrs(id),
     setSessionPrReady: (id: string, url: string, ready: boolean) => setSessionPrReady(id, url, ready),
@@ -26,6 +31,10 @@ vi.mock('../../services/api.js', () => ({
 const pushToast = vi.fn();
 vi.mock('../../components/primitives/index.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../components/primitives/index.js')>()),
+  pushToast: (message: string, tone?: string) => pushToast(message, tone),
+}));
+vi.mock('../../components/primitives/Toast.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../components/primitives/Toast.js')>()),
   pushToast: (message: string, tone?: string) => pushToast(message, tone),
 }));
 const openExternal = vi.fn();
@@ -262,6 +271,29 @@ describe('Git section', () => {
     getGitSummary.mockResolvedValue({ summary: null });
     await render();
     expect(sectionEl('git').textContent).toContain('Not a git repository');
+  });
+
+  it('offers Initialize git outside a repository, then reads the status again', async () => {
+    getGitSummary.mockResolvedValue({ summary: null });
+    gitInit.mockResolvedValue(undefined);
+    await render();
+    const init = [...sectionEl('git').querySelectorAll('button')].find((b) => b.textContent === 'Initialize git')!;
+    getGitSummary.mockResolvedValue({ summary });
+    await act(async () => { init.click(); });
+    expect(gitInit).toHaveBeenCalledWith('/repo');
+    expect(sectionEl('git').textContent).toContain('feat/login');
+  });
+
+  it('a failed read names the cause and retries', async () => {
+    getGitSummary.mockRejectedValueOnce(new ApiError(503, 'spawn git ENOENT', { code: 'GIT_NOT_INSTALLED' }));
+    await render();
+    const git = sectionEl('git');
+    expect(git.textContent).toContain('git isn’t installed');
+    expect(git.textContent).not.toContain('ENOENT');
+    getGitSummary.mockResolvedValue({ summary });
+    const retry = [...git.querySelectorAll('button')].find((b) => b.textContent === 'Retry')!;
+    await act(async () => { retry.click(); });
+    expect(sectionEl('git').textContent).toContain('feat/login');
   });
 });
 
@@ -514,6 +546,25 @@ describe('GitHub section', () => {
     await render({ ctx: ctx({ prStatusEnabled: false }) });
     expect(sectionEl('github').textContent).toContain('Pull request status is off');
     expect(getSessionPrs).not.toHaveBeenCalled();
+  });
+
+  it('gh signed out names the fix; the off notice links to its settings pane', async () => {
+    const openSettings = vi.fn();
+    const unregister = registerErrorActionHost({ 'open-settings': openSettings });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn(async () => {}) }, configurable: true });
+    try {
+      getSessionPrs.mockRejectedValue(new ApiError(503, 'gh: not logged in', { code: 'GH_NOT_AUTHENTICATED' }));
+      await render();
+      const gh = sectionEl('github');
+      expect(gh.textContent).toContain('GitHub CLI isn’t signed in');
+      expect([...gh.querySelectorAll('button')].map((b) => b.textContent)).toContain('Copy “gh auth login”');
+      await render({ ctx: ctx({ prStatusEnabled: false }) });
+      const link = [...sectionEl('github').querySelectorAll('button')].find((b) => b.textContent?.includes('Session header'))!;
+      await act(async () => { link.click(); });
+      expect(openSettings).toHaveBeenCalledWith({ kind: 'open-settings', pane: 'shell-header' });
+    } finally {
+      unregister();
+    }
   });
 
   it('a closed card fetches nothing; its glance counts the last list with the worst checks', async () => {

@@ -1,40 +1,73 @@
-import { Search } from 'lucide-react';
-import { GROUP_ORDER, PANES, paneMatches, type PaneDef, type PaneId } from './registry.js';
-import { Icon } from '../../../components/primitives/index.js';
+import { useState } from 'react';
+import { ListChecks, Search } from 'lucide-react';
+import { GROUP_ORDER, type PaneDef, type PaneId } from './registry.js';
+import { visiblePanes, type SettingHit } from './search.js';
+import { Icon, Text } from '../../../components/primitives/index.js';
+
+/** Hits listed under one pane; the rest are a refinement of the query away. */
+const MAX_HITS_PER_PANE = 4;
 
 interface SettingsNavProps {
-  active: PaneId;
+  /** The open pane, or the virtual Modified view. */
+  active: PaneId | 'modified';
   onSelect: (id: PaneId) => void;
   /** Panes holding at least one non-default value — rendered with an amber dot. */
   modified: Set<PaneId>;
   query: string;
   onQuery: (next: string) => void;
+  /** Controls matching the query, best first (see searchSettings). */
+  hits: SettingHit[];
+  /** Open a setting: its pane, scrolled to and flashed. */
+  onGoTo: (settingId: string) => void;
+  /** Settings differing from their default; the pinned Modified entry shows while > 0. */
+  modifiedCount: number;
+  onShowModified: () => void;
 }
 
+type Entry = { kind: 'pane'; pane: PaneId } | { kind: 'hit'; pane: PaneId; id: string };
+
 /**
- * The sidebar: a filter box over fourteen single-topic panes in four groups.
+ * The sidebar: a filter box over twelve single-topic panes in four groups.
  *
- * The filter matters more here than it would in a six-tab sheet — with this many
- * panes, "which one holds X" is the question, and the keyword lists in the
- * registry answer it without the user learning our taxonomy first.
+ * With a query, each matching pane also lists the matching controls under it,
+ * so "which row holds X" is answered here, not by scanning the pane. Arrow keys
+ * walk panes and hits; Enter opens the selected hit, or the best one.
  */
-export function SettingsNav({ active, onSelect, modified, query, onQuery }: SettingsNavProps) {
-  const visible = PANES.filter((p) => paneMatches(p, query));
+export function SettingsNav({ active, onSelect, modified, query, onQuery, hits, onGoTo, modifiedCount, onShowModified }: SettingsNavProps) {
+  const visible = visiblePanes(query, hits);
+  const [cursorHit, setCursorHit] = useState<string | null>(null);
 
-  // Arrow keys walk the visible panes, wrapping — the filtered-out ones are
-  // skipped rather than silently selected.
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    if (visible.length === 0) return;
-    e.preventDefault();
-    const idx = visible.findIndex((p) => p.id === active);
-    const next = e.key === 'ArrowDown'
-      ? (idx + 1) % visible.length
-      : (idx - 1 + visible.length) % visible.length;
-    onSelect(visible[next].id);
-  };
-
+  const hitsFor = (pane: PaneId) => hits.filter((h) => h.setting.pane === pane).slice(0, MAX_HITS_PER_PANE);
   const byGroup = (group: PaneDef['group']) => visible.filter((p) => p.group === group);
+
+  // Render order, which is also the order the arrow keys walk.
+  const entries: Entry[] = GROUP_ORDER.flatMap((g) => byGroup(g)).flatMap((p) => [
+    { kind: 'pane' as const, pane: p.id },
+    ...hitsFor(p.id).map((h) => ({ kind: 'hit' as const, pane: p.id, id: h.setting.id })),
+  ]);
+  // A cursor left on a hit the new query no longer lists falls back to the pane.
+  const cursor = entries.some((e) => e.kind === 'hit' && e.id === cursorHit) ? cursorHit : null;
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      const id = cursor ?? hits[0]?.setting.id;
+      if (!id) return;
+      e.preventDefault();
+      onGoTo(id);
+      return;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (entries.length === 0) return;
+    e.preventDefault();
+    const idx = entries.findIndex((en) => (cursor
+      ? en.kind === 'hit' && en.id === cursor
+      : en.kind === 'pane' && en.pane === active));
+    const next = entries[e.key === 'ArrowDown'
+      ? (idx + 1) % entries.length
+      : (idx - 1 + entries.length) % entries.length];
+    onSelect(next.pane);
+    setCursorHit(next.kind === 'hit' ? next.id : null);
+  };
 
   return (
     <aside
@@ -53,7 +86,7 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
     >
       <div style={{ padding: 'var(--s-3) var(--s-3) var(--s-2)' }}>
         <div className="settings-nav-search">
-          <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" />
+          <Icon icon={Search} size="md" color="var(--fg-3)" />
           <input
             type="search"
             value={query}
@@ -66,10 +99,28 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
       </div>
 
       <div className="argus-scroll" style={{ flex: 1, overflow: 'auto', padding: '0 var(--s-2) var(--s-4)' }}>
+        {/* Pinned above the groups: a cross-pane view, not a pane. Stays while
+            open so resetting the last row lands on its empty state. */}
+        {(modifiedCount > 0 || active === 'modified') && (
+          <button
+            role="tab"
+            aria-selected={active === 'modified'}
+            tabIndex={active === 'modified' ? 0 : -1}
+            onClick={() => { setCursorHit(null); onShowModified(); }}
+            className={`settings-nav-item${active === 'modified' ? ' is-active' : ''}`}
+            style={{ marginTop: 'var(--s-1)' }}
+          >
+            <Icon icon={ListChecks} size="md" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>Modified</span>
+            <Text size="small" tone="faint" style={{ fontVariantNumeric: 'tabular-nums' }}>
+              {modifiedCount}
+            </Text>
+          </button>
+        )}
         {visible.length === 0 && (
-          <div style={{ padding: 'var(--s-3) var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+          <Text as="div" size="small" tone="faint" style={{ padding: 'var(--s-3) var(--s-2)' }}>
             Nothing matches “{query.trim()}”.
-          </div>
+          </Text>
         )}
         {GROUP_ORDER.map((group) => {
           const panes = byGroup(group);
@@ -81,24 +132,40 @@ export function SettingsNav({ active, onSelect, modified, query, onQuery }: Sett
                 const Glyph = p.icon;
                 const on = p.id === active;
                 return (
-                  <button
-                    key={p.id}
-                    role="tab"
-                    aria-selected={on}
-                    tabIndex={on ? 0 : -1}
-                    onClick={() => onSelect(p.id)}
-                    className={`settings-nav-item${on ? ' is-active' : ''}`}
-                  >
-                    <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
-                    {modified.has(p.id) && (
-                      <span
-                        className="settings-nav-dot"
-                        title="Holds a value that differs from the default"
-                        aria-label="modified"
-                      />
-                    )}
-                  </button>
+                  <div key={p.id}>
+                    <button
+                      role="tab"
+                      aria-selected={on}
+                      tabIndex={on ? 0 : -1}
+                      onClick={() => { setCursorHit(null); onSelect(p.id); }}
+                      className={`settings-nav-item${on ? ' is-active' : ''}`}
+                    >
+                      <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1, textAlign: 'left', minWidth: 0 }}>{p.label}</span>
+                      {modified.has(p.id) && (
+                        <span
+                          className="settings-nav-dot"
+                          title="Holds a value that differs from the default"
+                          aria-label="modified"
+                        />
+                      )}
+                    </button>
+                    {hitsFor(p.id).map((h) => (
+                      <button
+                        key={h.setting.id}
+                        type="button"
+                        tabIndex={-1}
+                        className={`settings-nav-hit${cursor === h.setting.id ? ' is-active' : ''}`}
+                        onClick={() => { setCursorHit(h.setting.id); onGoTo(h.setting.id); }}
+                        title={h.hidden && h.revealVia ? `Turn on ${h.revealVia.label} first` : `${h.setting.section} › ${h.setting.label}`}
+                      >
+                        <span className="settings-nav-hit-label">{h.setting.label}</span>
+                        {h.hidden && h.revealVia && (
+                          <span className="settings-nav-hit-note">Turn on {h.revealVia.label} first</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 );
               })}
             </div>

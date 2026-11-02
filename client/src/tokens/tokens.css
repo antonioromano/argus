@@ -98,6 +98,15 @@
   --shadow-2: 0 4px 12px rgba(0,0,0,.45), 0 0 0 1px var(--line-2);
   --shadow-pop: 0 18px 40px rgba(0,0,0,.55), 0 0 0 1px var(--line-3);
   --shadow-sheet: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px var(--line-3);
+
+  /* Materials (plan 008) — tints laid over the native window vibrancy.
+     Chrome = --bg-1 at 0.60; floating surfaces = --bg-2 at 0.82. Only used
+     while <html data-material="translucent">; see MATERIALS below. */
+  --material-sidebar: rgba(19, 20, 24, 0.60);
+  --material-toolbar: rgba(19, 20, 24, 0.60);
+  --material-sheet:   rgba(25, 27, 32, 0.82);
+  --material-popover: rgba(25, 27, 32, 0.82);
+  --material-menu:    rgba(25, 27, 32, 0.82);
 }
 
 /* ===== LIGHT ===== */
@@ -179,6 +188,74 @@
   --shadow-2: 0 6px 16px rgba(20,15,8,.08), 0 0 0 1px var(--line-2);
   --shadow-pop: 0 18px 40px rgba(20,15,8,.18), 0 0 0 1px var(--line-3);
   --shadow-sheet: 0 30px 80px rgba(20,15,8,.22), 0 0 0 1px var(--line-3);
+
+  --material-sidebar: rgba(235, 231, 221, 0.60);
+  --material-toolbar: rgba(235, 231, 221, 0.60);
+  --material-sheet:   rgba(255, 255, 255, 0.82);
+  --material-popover: rgba(255, 255, 255, 0.82);
+  --material-menu:    rgba(255, 255, 255, 0.82);
+}
+
+/* ===== MATERIALS (plan 008) =====
+   <html data-material> is set only inside Electron, by useSystemAppearance:
+   'translucent' lets the NSVisualEffectView behind the window show through the
+   chrome (sidebar, toolbar, chip strip) and gives floating surfaces (menus,
+   popovers, sheets) a tint plus a small blur. Anything else (Reduce
+   Transparency, Increase Contrast, fullscreen, the Solid setting, /mobile, the
+   browser, tests) resolves every material to its opaque surface, so the app
+   looks exactly as it did before vibrancy. Content (tiles, terminals, Monaco,
+   diffs, chat) never uses a material. */
+:root:not([data-material="translucent"]) {
+  --material-window:  var(--bg-0);
+  --material-sidebar: var(--bg-1);
+  --material-toolbar: var(--bg-1);
+  --material-sheet:   var(--bg-2);
+  --material-popover: var(--bg-2);
+  --material-menu:    var(--bg-2);
+}
+:root[data-material="translucent"] {
+  --material-window: transparent;
+}
+/* The floating-surface blur. CPU-rastered (hardware acceleration is off), so
+   it is kept to bounded panels; the full-window sheet scrim has none. */
+:root[data-material="translucent"] .material-float {
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+}
+
+/* ===== INCREASE CONTRAST (plan 008) =====
+   Hairlines step up one notch and muted text uses the secondary tone. Driven
+   by main (data-contrast) with the media query as belt and braces. */
+:root[data-contrast="more"] {
+  --line-1: rgba(255, 255, 255, 0.10);
+  --line-2: rgba(255, 255, 255, 0.16);
+  --line-3: rgba(255, 255, 255, 0.24);
+  --fg-3: var(--fg-2);
+}
+[data-theme="light"][data-contrast="more"] {
+  --line-1: rgba(20, 15, 8, 0.13);
+  --line-2: rgba(20, 15, 8, 0.22);
+  --line-3: rgba(20, 15, 8, 0.32);
+}
+@media (prefers-contrast: more) {
+  :root {
+    --line-1: rgba(255, 255, 255, 0.10);
+    --line-2: rgba(255, 255, 255, 0.16);
+    --line-3: rgba(255, 255, 255, 0.24);
+    --fg-3: var(--fg-2);
+  }
+  [data-theme="light"] {
+    --line-1: rgba(20, 15, 8, 0.13);
+    --line-2: rgba(20, 15, 8, 0.22);
+    --line-3: rgba(20, 15, 8, 0.32);
+  }
+}
+
+/* ===== INACTIVE WINDOW (plan 008) =====
+   App in the background or another Argus window key: the accent goes grey and
+   chrome text recedes. Colour only, never size (hover-no-reflow rule). */
+:root[data-window-active="false"] {
+  --sys-accent: var(--fg-4);
 }
 
 /* ===== SCALE — shared ===== */
@@ -205,8 +282,16 @@
   --t-xl:    calc(20px * var(--ui-scale));
   --t-2xl:   calc(24px * var(--ui-scale));
   --t-3xl:   calc(32px * var(--ui-scale));
-  --t-4xl:   calc(44px * var(--ui-scale));
-  --t-5xl:   calc(64px * var(--ui-scale));
+
+  /* Type roles — the locked scale (plan 005). New code uses these six; the
+     size names above stay as their values and as aliases for one release.
+     --t-base (14px) is only the <body> root size — rows and forms use --t-body. */
+  --t-eyebrow: var(--t-micro);   /* 10 — uppercase eyebrows, kbd hints */
+  --t-caption: var(--t-tiny);    /* 11 — meta, timestamps, chips */
+  --t-small:   var(--t-xs);      /* 12 — secondary text, hints */
+  --t-body:    var(--t-sm);      /* 13 — default UI text in rows and forms */
+  --t-title:   var(--t-md);      /* 15 — sheet and pane titles */
+  --t-display: var(--t-xl);      /* 20 — empty-state and intro headlines */
 
   --lh-tight:   1.15;
   --lh-snug:    1.35;
@@ -237,6 +322,23 @@
   --ctl-h-md: calc(28px * var(--ui-scale));
   --ctl-h-lg: calc(32px * var(--ui-scale));
 
+  /* Desktop rows size by padding (--row-pad-y, --leaf-pad-y), which density
+     (plan 008, density.ts) re-binds; there is no fixed row-height token.
+     Touch rows (mobile) are a fixed hit target, so they do not scale. */
+  --row-h-touch:       44px;
+
+  /* Density (plan 008) — the Default values. DensityProvider rewrites these
+     on <html> from tokens/density.ts (Compact / Comfortable); density.test.ts
+     keeps the two in step. */
+  --row-pad-y:    6px;    /* sidebar navigation rows */
+  --leaf-pad-y:   4px;    /* session-tree leaves */
+  --group-h:      26px;   /* session-tree group header */
+  --header-pad-y: 4px;    /* shell tile header */
+  --h-titlebar:   44px;   /* toolbar; the traffic lights centre on it */
+  --h-statusbar:  22px;   /* app status bar (plan 009); toasts sit above it */
+  --w-sidebar:    220px;  /* sidebar width until dragged */
+  --tree-indent:  28px;   /* session-tree leaf indent: lines leaves up under the group label */
+
   /* Collapsed sidebar rail — wide enough for a scaled icon plus its row padding. */
   --w-rail: calc(56px * var(--ui-scale));
 
@@ -246,9 +348,11 @@
   --fw-semibold: 600;
   --fw-bold:     700;
 
-  /* Spacing — 4px base */
+  /* Spacing — 4px grid. Not multiplied by --ui-scale: gaps stay put when the
+     font grows. The two half-steps (--s-0-5, --s-1-5) are for icon↔label gaps. */
   --s-0: 0;
   --s-px: 1px;
+  --s-0-5: 2px;
   --s-1: 4px;
   --s-1-5: 6px;
   --s-2: 8px;
@@ -264,28 +368,51 @@
   /* Panel header height — one row for the shell header and every side panel that
      docks beside it (diff, explorer, terminal), so their hairlines line up. Set by
      the tallest thing any of them holds: a size="sm" Button/IconButton (24px) plus
-     --s-1 above and below, plus the 1px bottom border. Headers pin this with
+     --header-pad-y above and below (--s-1 at Default density, so it follows the
+     tile header), plus the 1px bottom border. Headers pin this with
      box-sizing: border-box, so adding a control cannot silently retune the row.
      Scales with the sm control height, so it is 33px at the default font. */
-  --h-panel-header: calc(var(--ctl-h-sm) + 2 * var(--s-1) + 1px);
+  --h-panel-header: calc(var(--ctl-h-sm) + 2 * var(--header-pad-y) + 1px);
+
+  /* Hairline — chrome separators. 0.5px on Retina (below). */
+  --hairline: 1px;
+
+  /* System accent (plan 008) — macOS accent colour for focus rings, text
+     selection and native form controls only. useSystemAppearance sets
+     --sys-accent-color when it clears 3:1 on the panels; otherwise the brand
+     accent. --accent itself stays amber: it doubles as --status-waiting. */
+  --sys-accent: var(--sys-accent-color, var(--accent));
 
   /* Radius — micro, not pillowy */
   --r-0: 0;
-  --r-1: 2px;
-  --r-2: 4px;        /* default */
-  --r-3: 6px;
-  --r-4: 10px;       /* sheets */
+  --r-1: 2px;        /* kbd, inline chips, scrollbar */
+  --r-2: 4px;        /* controls — default */
+  --r-3: 6px;        /* cards, popovers, menus */
+  --r-4: 10px;       /* sheets, windows */
   --r-pill: 999px;
 
-  /* Motion */
-  --ease-std: cubic-bezier(.22, .61, .36, 1);
-  --ease-out: cubic-bezier(.16, 1, .3, 1);
-  --ease-in:  cubic-bezier(.4, 0, 1, 1);
-  --ease-snap: cubic-bezier(.4, 0, .2, 1.4);
-  --dur-fast: 120ms;
-  --dur-base: 200ms;
-  --dur-slow: 360ms;
+  /* Motion — one easing, three durations. */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-snap: cubic-bezier(.34, 1.56, .64, 1);   /* tile reflow spring only */
+  --dur-fast: 120ms;         /* hover, chevrons */
+  --dur-base: 200ms;         /* popovers, toasts, fades */
+  --dur-slow: 360ms;         /* sheets, layout */
   --dur-ambient: 2400ms;     /* waiting pulse */
+
+  /* Signature motion — choreographed sequences that keep their own timing.
+     Exempt from the three-duration rule; nothing else should use them. */
+  --motion-sidebar-collapse: 520ms;
+  --motion-sidebar-expand:   450ms;
+  --motion-sidebar-fade:     420ms;   /* content fade before collapse / after expand */
+  --ease-sidebar-collapse: cubic-bezier(.4, 0, .6, 1);   /* symmetric, not too snappy */
+  --ease-sidebar-expand:   cubic-bezier(.4, 0, 1, 1);    /* slow start so icons visibly travel */
+  --motion-tile-genie-out: 340ms;
+  --motion-tile-genie-in:  380ms;
+  --ease-tile-genie-out: cubic-bezier(.4, 0, .2, 1);
+  --ease-tile-genie-in:  cubic-bezier(.16, 1, .3, 1);
+  --motion-chip-enter:   280ms;   /* minimized chip, eases with --ease-tile-genie-in */
+  --motion-tile-reflow:  440ms;   /* with --ease-snap */
+  --motion-tile-stagger: 40ms;    /* per-tile fade-in delay step */
 
   /* Z stack */
   --z-grid: 0;
@@ -299,6 +426,9 @@
   --z-overlay: 2000;   /* alert dialogs / password gate — above everything but toasts */
   --z-toast: 3000;
 }
+@media (min-resolution: 2dppx) {
+  :root { --hairline: 0.5px; }
+}
 
 
 /* ===== GLOBAL ===== */
@@ -309,7 +439,7 @@ body {
   font-size: var(--t-base);
   line-height: var(--lh-body);
   color: var(--fg-0);
-  background: var(--bg-0);
+  background: var(--material-window);
   font-feature-settings: "ss01", "ss02", "cv01", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -423,6 +553,13 @@ body.argus-bg-idle *::after {
 
 /* C2 — Reduced motion: respect user preference globally */
 @media (prefers-reduced-motion: reduce) {
+  /* Zero the tokens too, so JS that reads them (getComputedStyle) and inline
+     transitions built from them agree with the !important kill-switch below. */
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
@@ -433,8 +570,13 @@ body.argus-bg-idle *::after {
 
 /* H3 — Global focus-visible ring (only keyboard focus, not mouse) */
 *:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--sys-accent);
   outline-offset: 2px;
   border-radius: inherit;
 }
 *:focus:not(:focus-visible) { outline: none; }
+
+/* System accent on selection and native controls (plan 008, accent option 1:
+   selected rows stay neutral; amber stays the status colour). */
+::selection { background: color-mix(in srgb, var(--sys-accent) 35%, transparent); }
+input, select, progress { accent-color: var(--sys-accent); }

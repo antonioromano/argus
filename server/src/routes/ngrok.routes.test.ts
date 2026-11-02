@@ -111,3 +111,23 @@ test('POST /recheck re-detects the install then reports status', async () => {
     assert.equal(((await res.json()) as { installed: boolean }).installed, true);
   } finally { await srv.close(); }
 });
+
+test('typed ngrok failures carry their code (plan 003)', async () => {
+  const { ArgusError } = await import('../errors/ArgusError.js');
+  const notInstalled = await serve({ installed: false });
+  try {
+    const res = await notInstalled.call('POST', '/start', { password: PW });
+    assert.equal(res.status, 400);
+    assert.equal(((await res.json()) as { code?: string }).code, 'NGROK_NOT_INSTALLED');
+  } finally {
+    await notInstalled.close();
+  }
+  const timedOut = await serve({ installed: true, start: async () => { throw new ArgusError('NGROK_TIMEOUT', 504, 'Timed out waiting for ngrok tunnel'); }, getStatus: () => status() });
+  try {
+    const res = await timedOut.call('POST', '/start', { password: PW });
+    assert.equal(res.status, 504);
+    assert.deepEqual(await res.json(), { error: 'Timed out waiting for ngrok tunnel', code: 'NGROK_TIMEOUT' });
+  } finally {
+    await timedOut.close();
+  }
+});

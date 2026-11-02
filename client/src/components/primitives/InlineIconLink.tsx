@@ -31,7 +31,7 @@ export function InlineIconLink({
           ['--rest-opacity' as string]: String(opacity),
         } as CSSProperties}
       >
-        <Icon icon={Glyph} size={size} strokeWidth={1.6} />
+        <Icon icon={Glyph} size={size} />
       </button>
     </Tooltip>
   );

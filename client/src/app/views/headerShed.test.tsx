@@ -136,8 +136,6 @@ function renderMosaic(s: SessionInfo) {
         onCreate={noop}
         onKill={noop}
         onRestart={noop}
-        onDumpDiagnostics={noop}
-        showDiagnostics={false}
         onClone={noop}
         quickAction="clone"
         usageMeter={usageMeter}
@@ -205,7 +203,7 @@ function expectShedOrder(regionId: string) {
 }
 
 describe('Mosaic tile header (F12)', () => {
-  const ACTIONS = ['Clone', 'Minimize to chip row', 'Expand to focus view', 'Close shell', 'More actions'];
+  const ACTIONS = ['Clone', 'Minimize to chip row', 'Expand to focus view', 'Close session', 'Session actions'];
 
   it('sheds reset age, plan, ctx, pills, then the status label as the tile narrows', () => {
     renderMosaic(session());
@@ -268,7 +266,7 @@ describe('Mosaic tile header (F12)', () => {
 });
 
 describe('Focus header (F12)', () => {
-  const ACTIONS = ['Diff', 'Files', 'Shell', 'Exit focus', 'Start a new shell from the same folder', 'Restart shell', 'Close shell'];
+  const ACTIONS = ['Diff', 'Files', 'Shell', 'Exit focus', 'Start a new session from the same folder', 'Restart session', 'Close session', 'Session actions'];
 
   it('sheds in the same order and never moves an action into the clipping region', () => {
     renderFocus(session());

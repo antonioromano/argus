@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { SessionRenameInput } from './SessionRenameInput.js';
+import { Spacer } from '../../components/primitives/index.js';
 
 interface WindowChromeProps {
   title?: string;
@@ -16,7 +17,10 @@ interface WindowChromeProps {
 }
 
 /**
- * Argus OS root window. 44px draggable title bar + main content area.
+ * Argus OS root window. Draggable title bar (--h-titlebar) + main content area. The
+ * shell paints the window material (transparent while translucent, so macOS
+ * vibrancy shows through the toolbar and sidebar tints); the opaque content
+ * column is the caller's `.argus-content`.
  * Electron traffic-light region is owned by macOS automatically (via no-frame
  * window settings); this chrome supplies title/subtitle and right-side toolbar
  * slot for app-level controls.
@@ -24,18 +28,7 @@ interface WindowChromeProps {
 export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameWindow, leading, toolbar, children }: WindowChromeProps) {
   const [renaming, setRenaming] = useState(false);
   return (
-    <div
-      style={{
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--bg-0)',
-        color: 'var(--fg-0)',
-        fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--t-base)',
-      }}
-    >
+    <div className="argus-shell">
       <div
         className="argus-titlebar"
         // @ts-expect-error Electron WebkitAppRegion
@@ -45,7 +38,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
           <img
             src="/spartan.png"
             alt=""
-            style={{ height: 22, width: 22, verticalAlign: 'middle', marginRight: 8, borderRadius: 4 }}
+            style={{ height: 22, width: 22, verticalAlign: 'middle', marginRight: 'var(--s-2)', borderRadius: 'var(--r-2)' }}
           />
           {title}
           {subtitle && <span className="argus-titlebar-title-sub"> / {subtitle}</span>}
@@ -55,7 +48,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
             // The chip sits inside the draggable title bar — no-drag so the
             // click reaches it instead of starting a window drag.
             // @ts-expect-error Electron WebkitAppRegion
-            style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center', marginLeft: 10 }}
+            style={{ WebkitAppRegion: 'no-drag', display: 'flex', alignItems: 'center', marginLeft: 'var(--s-3)' }}
           >
             {renaming && onRenameWindow ? (
               <SessionRenameInput
@@ -81,7 +74,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
                   color: 'var(--fg-1)',
                   fontFamily: 'var(--font-mono)',
                   fontSize: 'var(--t-tiny)',
-                  padding: '2px 8px',
+                  padding: 'var(--s-0-5) var(--s-2)',
                   cursor: onRenameWindow ? 'pointer' : 'default',
                   whiteSpace: 'nowrap',
                 }}
@@ -100,7 +93,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
             {leading}
           </div>
         )}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         {toolbar && (
           <div
             className="argus-titlebar-slot"
@@ -111,7 +104,7 @@ export function WindowChrome({ title = 'ARGUS', subtitle, windowLabel, onRenameW
           </div>
         )}
       </div>
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+      <div className="argus-shell-body">
         {children}
       </div>
     </div>

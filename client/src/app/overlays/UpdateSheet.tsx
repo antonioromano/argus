@@ -2,7 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { UpdateStatus, UpdateProgress, SessionInfo } from '@argus/shared';
 import { ArrowRight, AlertTriangle, Info, type LucideIcon } from 'lucide-react';
-import { Sheet, Button, Kbd, Icon } from '../../components/primitives/index.js';
+import { Sheet, Button, Kbd, Icon, Stack, Row, Text } from '../../components/primitives/index.js';
 import { api } from '../../services/api.js';
 import { ENGINE_SHORT, ENGINE_NOTE_UPDATE } from '../ui/terminalEngineCopy.js';
 import type { UpdateFailure } from '../../hooks/useUpdate.js';
@@ -84,7 +84,7 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
   ) : (
     <>
       <Button onClick={onClose} disabled={submitting} variant="outline">
-        Not now <span style={{ marginLeft: 6 }}><Kbd>esc</Kbd></span>
+        Not now <span style={{ marginLeft: 'var(--s-1-5)' }}><Kbd>esc</Kbd></span>
       </Button>
       <Button onClick={() => handleApply()} disabled={submitting} loading={submitting} variant="primary">
         Update now
@@ -100,17 +100,17 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
       onClose={inFlight ? () => {} : onClose}
       footer={footer}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
+      <Stack gap={4}>
+        <Row gap={3}>
           <Badge label="Current" version={status.currentVersion} />
-          <Icon icon={ArrowRight} size={16} strokeWidth={1.6} color="var(--fg-3)" />
+          <Icon icon={ArrowRight} size="lg" color="var(--fg-3)" />
           <Badge label="Latest" version={status.latestVersion ?? ''} highlight />
-        </div>
+        </Row>
 
         {!showProgress && !failure && (
           <>
             <Notice kind="info">
-              Argus closes and relaunches once the download finishes. Your shells keep running and
+              Argus closes and relaunches once the download finishes. Your sessions keep running and
               come back automatically — the agents run in a background daemon, not in the app.
             </Notice>
             {advanced.length > 0 && (
@@ -123,50 +123,49 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
                     marginBottom: 'var(--s-2)',
                   }}
                 >
-                  <div
+                  <Text
+                    as="div"
+                    size="eyebrow"
+                    tone="faint"
                     style={{
-                      padding: '6px 11px',
+                      padding: 'var(--s-1-5) var(--s-3)',
                       background: 'var(--bg-1)',
                       borderBottom: '1px solid var(--line-1)',
-                      fontSize: 10,
                       textTransform: 'uppercase',
                       letterSpacing: '.07em',
-                      color: 'var(--fg-3)',
                     }}
                   >
-                    {ENGINE_SHORT.native} shells · {advanced.length} of {sessions.length}
-                  </div>
+                    {ENGINE_SHORT.native} sessions · {advanced.length} of {sessions.length}
+                  </Text>
                   {advanced.slice(0, 8).map((sn) => (
-                    <div
+                    <Row
+                      gap={3}
                       key={sn.id}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: '7px 11px',
+                        padding: 'var(--s-2) var(--s-3)',
                         borderBottom: '1px solid var(--line-1)',
                         fontSize: 'var(--t-sm)',
                       }}
                     >
-                      <span style={{ color: 'var(--fg-0)', fontWeight: 500 }}>{sn.name}</span>
-                      <span
+                      <Text weight={500} style={{ color: 'var(--fg-0)' }}>{sn.name}</Text>
+                      <Text
+                        size="eyebrow"
+                        tone="accent"
                         style={{
-                          fontSize: 10,
-                          padding: '1px 6px',
-                          borderRadius: 3,
-                          color: 'var(--accent)',
+                          padding: 'var(--s-px) var(--s-1-5)',
+                          borderRadius: 'var(--r-2)',
                           border: '1px solid var(--accent-edge)',
                           background: 'var(--accent-bg)',
                         }}
                       >
                         {ENGINE_SHORT.native}
-                      </span>
-                    </div>
+                      </Text>
+                    </Row>
                   ))}
                   {advanced.length > 8 && (
-                    <div style={{ padding: '7px 11px', fontSize: 'var(--t-xs)', color: 'var(--fg-3)' }}>
+                    <Text as="div" size="small" tone="faint" style={{ padding: 'var(--s-2) var(--s-3)' }}>
                       …and {advanced.length - 8} more
-                    </div>
+                    </Text>
                   )}
                 </div>
                 <Notice kind="warn" icon={AlertTriangle}>{ENGINE_NOTE_UPDATE}</Notice>
@@ -191,7 +190,7 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
           ) : (
             <Notice kind="danger" icon={AlertTriangle}>
               <strong>Update failed.</strong>
-              <div style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{failure.error}</div>
+              <div style={{ marginTop: 'var(--s-1)', whiteSpace: 'pre-wrap' }}>{failure.error}</div>
             </Notice>
           )
         )}
@@ -200,7 +199,7 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
 
         {status.changelog && !showProgress && !failure && (
           <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>WHAT'S NEW</div>
+            <div className="eyebrow" style={{ marginBottom: 'var(--s-1-5)' }}>WHAT'S NEW</div>
             <div
               className="argus-scroll mono"
               style={{
@@ -231,7 +230,7 @@ export function UpdateSheet({ status, progress, failure, sessions = [], onResetS
             VIEW RELEASE ON GITHUB ↗
           </a>
         )}
-      </div>
+      </Stack>
     </Sheet>
   );
 }
@@ -242,19 +241,16 @@ function ProgressBar({ progress }: { progress: UpdateProgress | null }) {
   const determinate = typeof pct === 'number';
   const installing = progress?.phase === 'install';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div
-        className="mono"
-        style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}
-      >
+    <Stack gap={2}>
+      <Row align="stretch" justify="between" className="mono" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
         <span>{label}</span>
         {determinate && <span style={{ color: 'var(--fg-3)' }}>{Math.round(pct!)}%</span>}
-      </div>
+      </Row>
       <div
         style={{
           position: 'relative',
           height: 8,
-          borderRadius: 999,
+          borderRadius: 'var(--r-pill)',
           background: 'var(--bg-1)',
           border: '1px solid var(--line-2)',
           overflow: 'hidden',
@@ -270,28 +266,28 @@ function ProgressBar({ progress }: { progress: UpdateProgress | null }) {
             // installing): full bar with a subtle pulse so it never looks stalled.
             width: determinate ? `${pct}%` : '100%',
             background: 'var(--accent)',
-            borderRadius: 999,
-            transition: 'width 0.25s ease',
+            borderRadius: 'var(--r-pill)',
+            transition: 'width var(--dur-base) var(--ease)',
             animation: determinate ? undefined : 'argus-pulse 1.2s ease-in-out infinite',
             opacity: installing && !determinate ? 0.8 : 1,
           }}
         />
       </div>
       <style>{'@keyframes argus-pulse { 0%,100% { opacity: 0.45 } 50% { opacity: 1 } }'}</style>
-    </div>
+    </Stack>
   );
 }
 
 function Badge({ label, version, highlight }: { label: string; version: string; highlight?: boolean }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+    <Stack align="center" gap={1}>
       <span className="eyebrow">{label}</span>
       <span
         style={{
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--t-md)',
           fontWeight: 600,
-          padding: '4px 10px',
+          padding: 'var(--s-1) var(--s-3)',
           borderRadius: 'var(--r-2)',
           background: highlight ? 'var(--accent-bg)' : 'var(--bg-1)',
           color: highlight ? 'var(--accent)' : 'var(--fg-0)',
@@ -300,7 +296,7 @@ function Badge({ label, version, highlight }: { label: string; version: string; 
       >
         v{version}
       </span>
-    </div>
+    </Stack>
   );
 }
 
@@ -320,12 +316,11 @@ function Notice({
     danger: { bg: 'var(--danger-bg)', fg: 'var(--danger)', border: 'color-mix(in srgb, var(--danger) 44%, transparent)' },
   }[kind];
   return (
-    <div
+    <Row
+      align="start"
+      gap={2}
       style={{
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: 8,
-        padding: '10px var(--s-3)',
+        padding: 'var(--s-3)',
         borderRadius: 'var(--r-2)',
         background: palette.bg,
         border: `1px solid ${palette.border}`,
@@ -335,8 +330,8 @@ function Notice({
         lineHeight: 1.5,
       }}
     >
-      {Glyph && <Icon icon={Glyph} size={14} strokeWidth={1.6} color={palette.fg} />}
+      {Glyph && <Icon icon={Glyph} size="md" color={palette.fg} />}
       <div style={{ flex: 1 }}>{children}</div>
-    </div>
+    </Row>
   );
 }

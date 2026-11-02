@@ -1,6 +1,8 @@
-import { History, Power, RotateCcw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Copy, History, Power, RotateCcw, SearchX } from 'lucide-react';
 import type { RunMode } from '@argus/shared';
-import { Button, Icon } from '../../components/primitives/index.js';
+import { Button, Icon, Row, Text } from '../../components/primitives/index.js';
+import { isCommandNotFoundExit } from '../../utils/agentExit.js';
 
 /**
  * Laid over an exited session's terminal so the empty screen explains itself
@@ -17,6 +19,10 @@ export function ExitedCard({
   onRestart,
   onResume,
   onClone,
+  exitCode,
+  exitedAfterMs,
+  agentCommand,
+  installCommand,
 }: {
   runMode?: RunMode;
   folderPath: string;
@@ -24,8 +30,16 @@ export function ExitedCard({
   /** Present when the last Claude conversation can be reopened (see canResume). */
   onResume?: () => void;
   onClone?: () => void;
+  /** The last run's exit code and how long after spawn it came (see useSessions). */
+  exitCode?: number;
+  exitedAfterMs?: number;
+  /** The agent's CLI command, named in the "couldn't find" variant. */
+  agentCommand?: string;
+  /** Shell command that installs the agent, when Argus knows one. */
+  installCommand?: string;
 }) {
   const stoppedWithArgus = runMode === 'direct';
+  const notFound = !!agentCommand && isCommandNotFoundExit(exitCode, exitedAfterMs);
   return (
     <div
       data-testid="exited-card"
@@ -43,7 +57,7 @@ export function ExitedCard({
         role="status"
         style={{
           width: 'min(78%, 340px)',
-          padding: '20px 22px',
+          padding: 'var(--s-5)',
           textAlign: 'center',
           background: 'var(--bg-1)',
           border: '1px solid var(--line-2)',
@@ -51,37 +65,102 @@ export function ExitedCard({
           boxShadow: '0 6px 24px rgba(0,0,0,.08)',
         }}
       >
-        <div
-          aria-hidden
-          style={{
-            width: 36,
-            height: 36,
-            margin: '0 auto 10px',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'var(--accent-bg)',
-            color: 'var(--accent)',
-          }}
-        >
-          <Icon icon={Power} size={16} strokeWidth={2} />
-        </div>
-        <div style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg-0)' }}>
-          {stoppedWithArgus ? 'Session stopped' : 'Agent exited'}
-        </div>
-        <div style={{ marginTop: 4, fontSize: 'var(--t-xs)', lineHeight: 1.45, color: 'var(--fg-2)' }}>
-          {stoppedWithArgus ? 'The agent isn’t running. Native sessions stop when Argus quits.' : 'The agent process has ended.'}
-          <br />
-          {onResume && <>Resume picks up the last conversation. </>}
-          Restart starts a fresh agent in <span style={{ fontFamily: 'var(--font-mono)', wordBreak: 'break-all' }}>{folderPath}</span>.
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 14 }}>
-          {onResume && <Button variant="primary" size="sm" icon={History} onClick={onResume}>Resume conversation</Button>}
-          <Button variant={onResume ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
-          {onClone && <Button variant="outline" size="sm" onClick={onClone}>Clone…</Button>}
-        </div>
+        {notFound ? (
+          <NotFoundBody command={agentCommand!} installCommand={installCommand} onRestart={onRestart} />
+        ) : (
+          <>
+            <div aria-hidden style={iconBadge(false)}>
+              <Icon icon={Power} size="lg" strokeWidth={2} />
+            </div>
+            <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
+              {stoppedWithArgus ? 'Session stopped' : 'Agent exited'}
+            </Text>
+            <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-1)', lineHeight: 1.45 }}>
+              {stoppedWithArgus ? 'The agent isn’t running. Sessions using the Native terminal stop when Argus quits.' : 'The agent process has ended.'}
+              <br />
+              {onResume && <>Resume picks up the last conversation. </>}
+              Restart starts a fresh agent in <span style={mono}>{folderPath}</span>.
+            </Text>
+            <Row align="stretch" justify="center" wrap gap={2} style={{ marginTop: 'var(--s-4)' }}>
+              {onResume && <Button variant="primary" size="sm" icon={History} onClick={onResume}>Resume conversation</Button>}
+              <Button variant={onResume ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
+              {onClone && <Button variant="outline" size="sm" onClick={onClone}>Clone…</Button>}
+            </Row>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+const iconBadge = (danger: boolean) => ({
+  width: 36,
+  height: 36,
+  margin: '0 auto 10px',
+  borderRadius: '50%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: danger ? 'var(--danger-bg)' : 'var(--accent-bg)',
+  color: danger ? 'var(--danger)' : 'var(--accent)',
+});
+
+const mono = { fontFamily: 'var(--font-mono)', wordBreak: 'break-all' as const };
+
+/** Exit 127 right after spawn: the shell couldn't find the agent's command. */
+function NotFoundBody({ command, installCommand, onRestart }: { command: string; installCommand?: string; onRestart: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = () => {
+    if (!installCommand) return;
+    void navigator.clipboard.writeText(installCommand).then(() => {
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    }, () => {});
+  };
+  return (
+    <>
+      <div aria-hidden style={iconBadge(true)}>
+        <Icon icon={SearchX} size="lg" strokeWidth={2} />
+      </div>
+      <Text as="div" size="body" weight={600} style={{ color: 'var(--fg-0)' }}>
+        Couldn’t find <span style={mono}>{command}</span>
+      </Text>
+      <Text as="div" size="small" tone="muted" style={{ marginTop: 'var(--s-1)', lineHeight: 1.45 }}>
+        The session ended right after it started, with exit code 127 (command not found).
+        <br />
+        {installCommand
+          ? <>Install it, then restart:</>
+          : <>Check that <span style={mono}>{command}</span> is installed and on your PATH, then restart.</>}
+      </Text>
+      {installCommand && (
+        <code
+          style={{
+            display: 'block',
+            marginTop: 'var(--s-2)',
+            padding: 'var(--s-1-5) var(--s-2)',
+            textAlign: 'left',
+            fontSize: 'var(--t-xs)',
+            color: 'var(--fg-1)',
+            background: 'var(--bg-inset)',
+            border: '1px solid var(--line-2)',
+            borderRadius: 'var(--r-2)',
+            ...mono,
+          }}
+        >
+          {installCommand}
+        </code>
+      )}
+      <Row align="stretch" justify="center" wrap gap={2} style={{ marginTop: 'var(--s-4)' }}>
+        {installCommand && (
+          <Button variant="primary" size="sm" icon={copied ? Check : Copy} onClick={copy}>
+            {copied ? 'Copied' : 'Copy install command'}
+          </Button>
+        )}
+        <Button variant={installCommand ? 'outline' : 'primary'} size="sm" icon={RotateCcw} onClick={onRestart}>Restart</Button>
+      </Row>
+    </>
   );
 }

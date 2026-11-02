@@ -74,7 +74,7 @@ export function MarkdownPreview({ source, filePath, rootPath }: MarkdownPreviewP
                   {...rest}
                   style={{
                     background: 'var(--bg-2)',
-                    padding: '0 4px',
+                    padding: '0 var(--s-1)',
                     borderRadius: 'var(--r-1)',
                     fontFamily: 'var(--font-mono)',
                     fontSize: 'var(--t-xs)',

@@ -1,31 +1,41 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import type { SessionInfo } from '@argus/shared';
+import type { PatchSelectionRequest, SessionInfo } from '@argus/shared';
 import { X, GitBranch, RefreshCw, GitCommit, AlignLeft, SplitSquareHorizontal, Plus, Check, Minus, EyeOff, RotateCcw, Upload } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGitDiff } from '../../hooks/useGitDiff.js';
 import { useCommitSelection } from '../../hooks/useCommitSelection.js';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag.js';
 import {
   type ChangeBlock,
   collectAllBlockHashes,
   resolveSelectionToChunkIndices,
 } from '../overlays/diff/changeBlocks.js';
 import { type FileModel, modelsFromRaw, shouldAutoCollapse, estimateBodyHeight } from '../overlays/diff/diffModel.js';
-import { RevertConfirmCard } from '../overlays/diff/ConfirmRevert.js';
-import { useSkipRevertConfirm } from '../../hooks/useSkipRevertConfirm.js';
 import { FileSection } from './FileSection.js';
 import { useFileScrollSpy } from './useFileScrollSpy.js';
 import { api } from '../../services/api.js';
 import { workRoot } from '../../utils/workRoot.js';
+import { offerUndo, UNDO_WINDOW_LONG_MS } from '../../utils/undoable.js';
 import {
   IconButton,
   Button,
   Chip,
-  LoadingState,
   EmptyState,
   ErrorState,
+  SkeletonRows,
+  StaleNotice,
   Tooltip,
   Icon,
+  Row,
+  Spacer,
+  Stack,
+  Text,
 } from '../../components/primitives/index.js';
+
+const baseName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+
+// Retired with the revert confirm cards: reverting is undoable now.
+try { localStorage.removeItem('argus.revert.skipConfirm'); } catch { /* storage unavailable */ }
 
 interface DiffWorkbenchProps {
   session: SessionInfo;
@@ -37,7 +47,7 @@ interface DiffWorkbenchProps {
 }
 
 export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }: DiffWorkbenchProps) {
-  const { diff, isLoading, error, refresh } = useGitDiff({
+  const { diff, isLoading, error, failure, refresh } = useGitDiff({
     sessionId: session.id,
     isOpen: true,
     sessionStatus: session.status,
@@ -48,9 +58,8 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
   const [stagingPath, setStagingPath] = useState<string | null>(null);
   const [unstagingPath, setUnstagingPath] = useState<string | null>(null);
   const [ignoringPath, setIgnoringPath] = useState<string | null>(null);
-  const [pendingRevertFile, setPendingRevertFile] = useState<string | null>(null);
   const [revertingFilePath, setRevertingFilePath] = useState<string | null>(null);
-  const { skip: skipConfirmFile, toggle: toggleSkipConfirmFile } = useSkipRevertConfirm();
+  const [discardError, setDiscardError] = useState<string | null>(null);
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement>(null);
   const [commitOpen, setCommitOpen] = useState(false);
@@ -71,6 +80,8 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
   );
 
   const total = files.length;
+  // Skeleton only after 300 ms of a first load, so fast loads never flash it.
+  const showSkeleton = useDelayedFlag(isLoading && total === 0);
   const { mainRef, registerRef, resolvedActiveId, nearIds, scrollToFile } = useFileScrollSpy(files);
 
   // Pre-compute hash sets per UNSTAGED file from the already-parsed diff.
@@ -125,25 +136,51 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
     }
   };
 
+  // Discard is undoable (the server keeps the patch for 30 s), so it never
+  // asks first: it reverts, then offers Undo for 10 s. A failure stays inline
+  // in the panel header, next to its cause (docs/design/feedback-surfaces.md).
+  const discard = async (req: PatchSelectionRequest, message: string): Promise<boolean> => {
+    setDiscardError(null);
+    let undoId: string | undefined;
+    try {
+      const result = await api.discardPatch(session.id, req);
+      if (!result.success) throw new Error(result.error || 'Revert failed');
+      undoId = result.undoId;
+    } catch (e) {
+      setDiscardError(`Couldn’t revert ${req.filePath}: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+    if (undoId) {
+      const id = undoId;
+      offerUndo({
+        message,
+        durationMs: UNDO_WINDOW_LONG_MS,
+        undo: async () => {
+          const restored = await api.undoDiscard(session.id, id);
+          if (!restored.success) throw new Error(restored.error || 'Undo failed');
+          await refresh();
+        },
+      });
+    }
+    return true;
+  };
+
   const handleRevertFile = async (f: FileModel) => {
     const allHashes = hashesByFile.get(f.path) ?? new Set<string>();
     const chunks = resolveSelectionToChunkIndices(f.path, f.parsed, allHashes);
     if (chunks.length === 0) return;
     setRevertingFilePath(f.path);
     try {
-      const result = await api.discardPatch(session.id, {
-        filePath: f.path,
-        fromPath: f.fromPath,
-        source: 'unstaged',
-        chunks,
-      });
-      if (result.success) {
+      const ok = await discard(
+        { filePath: f.path, fromPath: f.fromPath, source: 'unstaged', chunks },
+        `Reverted ${baseName(f.path)}`,
+      );
+      if (ok) {
         selection.clearForFiles([f.path]);
         await refresh();
       }
     } finally {
       setRevertingFilePath(null);
-      setPendingRevertFile(null);
     }
   };
 
@@ -152,13 +189,16 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
   };
 
   const handleRevert = (filePath: string, fromPath?: string) => async (block: ChangeBlock) => {
-    const result = await api.discardPatch(session.id, {
-      filePath,
-      fromPath,
-      source: 'unstaged',
-      chunks: [{ chunkIndex: block.chunkIndex, selectedChangeIndices: block.changeIndicesInChunk }],
-    });
-    if (result.success) {
+    const ok = await discard(
+      {
+        filePath,
+        fromPath,
+        source: 'unstaged',
+        chunks: [{ chunkIndex: block.chunkIndex, selectedChangeIndices: block.changeIndicesInChunk }],
+      },
+      `Reverted 1 change in ${baseName(filePath)}`,
+    );
+    if (ok) {
       selection.uncheck(filePath, block.hash); // hash no longer exists post-revert; drop it unconditionally
       await refresh();
     }
@@ -269,11 +309,9 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
         position: 'relative',
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-4)',
@@ -282,25 +320,25 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           flexShrink: 0,
         }}
       >
-        <Icon icon={GitBranch} size={14} strokeWidth={1.6} color="var(--dirty)" />
+        <Icon icon={GitBranch} size="md" color="var(--dirty)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · DIFF</div>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)', color: 'var(--fg-1)' }}>
+        <Text mono size="body" tone="default">
           {session.name}
-        </span>
+        </Text>
         {total > 0 && <Chip dot="var(--dirty)">{total} {total === 1 ? 'file' : 'files'}</Chip>}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         <div style={{ display: 'inline-flex', borderRadius: 'var(--r-2)', overflow: 'hidden', border: '1px solid var(--line-2)' }}>
           <button
             onClick={() => setViewMode('split')}
             style={modeBtn(viewMode === 'split')}
           >
-            <Icon icon={SplitSquareHorizontal} size={11} strokeWidth={1.6} /> SPLIT
+            <Icon icon={SplitSquareHorizontal} size="sm" /> SPLIT
           </button>
           <button
             onClick={() => setViewMode('unified')}
             style={modeBtn(viewMode === 'unified')}
           >
-            <Icon icon={AlignLeft} size={11} strokeWidth={1.6} /> UNIFIED
+            <Icon icon={AlignLeft} size="sm" /> UNIFIED
           </button>
         </div>
         <IconButton icon={RefreshCw} label="Refresh" size="sm" onClick={refresh} />
@@ -317,7 +355,27 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
           Commit
         </Button>
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
-      </div>
+      </Row>
+
+      {discardError && (
+        <Row
+          gap={2}
+          role="alert"
+          style={{
+            padding: 'var(--s-1-5) var(--s-4)',
+            fontSize: 'var(--t-tiny)',
+            color: 'var(--danger)',
+            background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
+            borderBottom: '1px solid var(--line-2)',
+            flexShrink: 0,
+          }}
+        >
+          <Text truncate style={{ flex: 1 }} title={discardError}>
+            {discardError}
+          </Text>
+          <IconButton icon={X} label="Dismiss" size="sm" onClick={() => setDiscardError(null)} />
+        </Row>
+      )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <aside
@@ -330,24 +388,26 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
             overflowY: 'auto',
           }}
         >
-          {isLoading && total === 0 && <LoadingState label="Loading diff" />}
-          {error && <ErrorState title="Diff failed" detail={error} onRetry={refresh} />}
+          {showSkeleton && <SkeletonRows variant="list" count={6} />}
+          {error && total === 0 && <ErrorState error={failure} fallbackTitle="Couldn’t read the changes" onRetry={() => { void refresh(); }} />}
+          {error && total > 0 && <StaleNotice error={failure} subject="the last diff" onRetry={() => { void refresh(); }} />}
           {!error && !!diff?.oversized?.length && (
-            <div
+            <Text
+              as="div"
+              size="caption"
+              tone="warn"
               role="note"
               title={diff.oversized.join('\n')}
               style={{
                 margin: 'var(--s-2)',
-                padding: '6px var(--s-2)',
-                fontSize: 'var(--t-tiny)',
-                color: 'var(--warn)',
+                padding: 'var(--s-1-5) var(--s-2)',
                 background: 'var(--warn-bg)',
                 borderRadius: 'var(--r-2)',
               }}
             >
               {diff.oversized.length === 1 ? '1 file is' : `${diff.oversized.length} files are`} too large to preview —
               listed without content, still stageable as a whole.
-            </div>
+            </Text>
           )}
           {!isLoading && !error && total === 0 && (
             <EmptyState icon={GitCommit} title="No changes" hint="Working tree clean." />
@@ -376,7 +436,6 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                           ? 'all'
                           : 'partial';
                   const isHovered = hoveredFile === f.path;
-                  const isConfirming = pendingRevertFile === f.path;
                   const isReverting = revertingFilePath === f.path;
                   return (
                     <Fragment key={id}>
@@ -395,8 +454,8 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                           height: 28,
                           width: '100%',
                           boxSizing: 'border-box',
-                          background: isConfirming ? 'color-mix(in srgb, var(--danger) 8%, transparent)' : sel ? 'var(--bg-2)' : 'transparent',
-                          borderLeft: `2px solid ${isConfirming ? 'var(--danger)' : sel ? 'var(--accent)' : 'transparent'}`,
+                          background: sel ? 'var(--bg-2)' : 'transparent',
+                          borderLeft: `2px solid ${sel ? 'var(--accent)' : 'transparent'}`,
                           boxShadow: sel ? 'var(--shadow-1)' : 'none',
                         }}
                       >
@@ -414,42 +473,26 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                             }
                           }}
                         />
-                        <span
-                          style={{
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: 'var(--t-tiny)',
-                            color: sel ? 'var(--accent)' : 'var(--fg-1)',
-                            flex: 1,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
+                        <Text mono size="caption" tone={sel ? 'accent' : 'default'} truncate style={{ flex: 1 }}>
                           {f.path}
-                        </span>
+                        </Text>
                         {f.source === 'untracked' && <span className="eyebrow" style={{ color: 'var(--accent)' }}>UNTRACKED</span>}
                         {f.source !== 'untracked' && f.isNew && <span className="eyebrow" style={{ color: 'var(--accent)' }}>NEW</span>}
                         {f.isDeleted && <span className="eyebrow" style={{ color: 'var(--danger)' }}>DEL</span>}
-                        {f.source !== 'untracked' && !isHovered && !isConfirming && (
+                        {f.source !== 'untracked' && !isHovered && (
                           <>
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--ok)' }}>+{f.add}</span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--t-micro)', color: 'var(--danger)' }}>−{f.del}</span>
+                            <Text mono size="eyebrow" tone="danger">−{f.del}</Text>
                           </>
                         )}
-                        {f.source === 'unstaged' && (isHovered || isConfirming) && (
+                        {f.source === 'unstaged' && isHovered && (
                           <SidebarChipButton
                             label={isReverting ? 'REVERTING…' : 'REVERT'}
                             icon={RotateCcw}
                             tone="danger"
                             busy={isReverting}
                             title="Revert all changes in this file"
-                            onActivate={() => {
-                              if (skipConfirmFile) {
-                                void handleRevertFile(f);
-                              } else {
-                                setPendingRevertFile(f.path);
-                              }
-                            }}
+                            onActivate={() => void handleRevertFile(f)}
                           />
                         )}
                         {f.source === 'untracked' && isHovered && (
@@ -483,27 +526,6 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
                           />
                         )}
                       </button>
-                      {isConfirming && (
-                        <div
-                          style={{
-                            padding: '8px var(--s-4)',
-                            background: 'color-mix(in srgb, var(--danger) 8%, transparent)',
-                            borderLeft: '2px solid var(--danger)',
-                            borderTop: '1px solid color-mix(in srgb, var(--danger) 20%, transparent)',
-                          }}
-                        >
-                          <RevertConfirmCard
-                            title="Revert all changes?"
-                            subtitle="Cannot be undone."
-                            confirmLabel={isReverting ? 'Reverting' : 'Revert file'}
-                            busy={isReverting}
-                            skip={skipConfirmFile}
-                            onToggleSkip={toggleSkipConfirmFile}
-                            onCancel={() => setPendingRevertFile(null)}
-                            onConfirm={() => void handleRevertFile(f)}
-                          />
-                        </div>
-                      )}
                     </Fragment>
                   );
                 })}
@@ -514,9 +536,7 @@ export function DiffWorkbench({ session, onClose, initialFile, onOpenInEditor }:
 
         <main ref={mainRef} style={{ flex: 1, minWidth: 0, background: 'var(--bg-0)', overflow: 'auto' }} className="argus-scroll">
           {total === 0 ? (
-            <div style={{ padding: 'var(--s-7)', color: 'var(--fg-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-sm)' }}>
-              {isLoading ? 'Loading diff…' : 'No files to view.'}
-            </div>
+            showSkeleton && <SkeletonRows variant="diff" count={12} />
           ) : (
             files.map((f) => {
               const allHashes = f.source === 'unstaged' ? hashesByFile.get(f.path) : undefined;
@@ -629,14 +649,14 @@ function FileCheckbox({ visible, state, disabled, onClick }: FileCheckboxProps) 
           opacity: disabled ? 0.4 : 1,
         }}
       >
-        {state === 'all' && <Icon icon={Check} size={10} strokeWidth={2.5} />}
+        {state === 'all' && <Icon icon={Check} size="xs" strokeWidth={2} />}
         {state === 'partial' && (
           <span
             style={{
               width: 7,
               height: 2,
               background: 'var(--bg-0)',
-              borderRadius: 1,
+              borderRadius: 'var(--r-1)',
               display: 'inline-block',
             }}
           />
@@ -682,8 +702,8 @@ function SidebarChipButton({ label, icon: Glyph, tone, busy, title, onActivate }
           cursor: busy ? 'wait' : 'pointer',
           display: 'inline-flex',
           alignItems: 'center',
-          gap: 3,
-          padding: '2px 6px',
+          gap: 'var(--s-1)',
+          padding: 'var(--s-0-5) var(--s-1-5)',
           borderRadius: 'var(--r-2)',
           border: '1px solid var(--line-3)',
           color,
@@ -691,7 +711,7 @@ function SidebarChipButton({ label, icon: Glyph, tone, busy, title, onActivate }
           fontSize: 'var(--t-micro)',
         }}
       >
-        <Icon icon={Glyph} size={10} strokeWidth={2} />
+        <Icon icon={Glyph} size="xs" strokeWidth={2} />
         {label}
       </span>
     </Tooltip>
@@ -714,7 +734,8 @@ interface CommitPopoverProps {
 function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitAndPush, committing, pushing, error, fileCount, blockCount }: CommitPopoverProps) {
   const busy = committing || pushing;
   return (
-    <div
+    <Stack
+      gap={2}
       style={{
         position: 'absolute',
         top: 56,
@@ -726,9 +747,6 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-sheet)',
         padding: 'var(--s-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--s-2)',
       }}
     >
       <div className="eyebrow" style={{ color: 'var(--accent)' }}>
@@ -758,9 +776,9 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         }}
       />
       {error && (
-        <div style={{ color: 'var(--danger)', fontFamily: 'var(--font-mono)', fontSize: 'var(--t-tiny)' }}>{error}</div>
+        <Text as="div" mono size="caption" tone="danger">{error}</Text>
       )}
-      <div style={{ display: 'flex', gap: 'var(--s-2)', justifyContent: 'flex-end' }}>
+      <Row align="stretch" justify="end" gap={2}>
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>Cancel</Button>
         <Button variant="secondary" size="sm" icon={GitCommit} onClick={onSubmit} disabled={busy || !message.trim()}>
           {committing ? 'Committing…' : 'Commit'}
@@ -768,8 +786,8 @@ function CommitPopover({ message, onMessageChange, onCancel, onSubmit, onSubmitA
         <Button variant="primary" size="sm" icon={Upload} onClick={onSubmitAndPush} disabled={busy || !message.trim()}>
           {pushing ? 'Pushing…' : 'Commit & Push'}
         </Button>
-      </div>
-    </div>
+      </Row>
+    </Stack>
   );
 }
 
@@ -778,8 +796,8 @@ const modeBtn = (active: boolean): React.CSSProperties => ({
   cursor: 'pointer',
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '4px var(--s-2)',
+  gap: 'var(--s-1)',
+  padding: 'var(--s-1) var(--s-2)',
   background: active ? 'var(--bg-3)' : 'var(--bg-2)',
   color: active ? 'var(--accent)' : 'var(--fg-2)',
   fontFamily: 'var(--font-mono)',

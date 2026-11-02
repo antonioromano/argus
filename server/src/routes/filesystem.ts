@@ -1,4 +1,4 @@
-import express, { Router } from 'express';
+import express, { Router, type Response } from 'express';
 import { execFile } from 'child_process';
 import { readFile, stat, readdir, mkdir, writeFile, rename, unlink, rm } from 'fs/promises';
 import path from 'path';
@@ -9,9 +9,11 @@ import { atomicWrite } from '../utils/atomicWrite.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { BINARY_EXTENSIONS, EXCLUDED_SEARCH_DIRS, EXCLUDED_SEARCH_EXTS } from '../utils/searchExclusions.js';
 import type { SessionManager } from '../services/SessionManager.js';
-import type { WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse } from '@argus/shared';
+import type { ApiErrorBody, WriteFileRequest, CreateFileRequest, RenameFileRequest, DeleteFileRequest, MoveFileRequest, FileCrudResponse, RestoreFileRequest } from '@argus/shared';
+import type { StagedTrash } from '../services/StagedTrash.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { getRipgrepPath } from '../utils/ripgrep.js';
+import { sendError } from '../errors/ArgusError.js';
 import { findInFiles, parseGlobList, FindInFilesError, FIND_QUERY_MAX } from '../services/search/findInFiles.js';
 
 const MAX_FILE_SIZE_BYTES = 512 * 1024; // 512 KB
@@ -81,8 +83,15 @@ export function isBrowsablePath(sessionManager: SessionManager, rawPath: string)
 
 export function createFilesystemRoutes(
   sessionManager: SessionManager,
-  options?: { pickFolder?: () => Promise<string | null> },
+  options?: {
+    pickFolder?: () => Promise<string | null>;
+    /** ripgrep lookup; injectable so tests can simulate a build without it. */
+    ripgrepPath?: () => string | null;
+    /** Staged trash behind DELETE /file. Without it a delete is permanent. */
+    trash?: StagedTrash;
+  },
 ): Router {
+  const ripgrepPath = options?.ripgrepPath ?? getRipgrepPath;
   const router = Router();
 
   router.get('/autocomplete', async (req, res) => {
@@ -166,12 +175,7 @@ export function createFilesystemRoutes(
       const mimeType = getMimeType(ext);
       res.json({ content, encoding: 'utf8', mimeType, size, truncated, mtimeMs: fileStat.mtimeMs });
     } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        res.status(404).json({ error: 'file not found' });
-      } else {
-        res.status(500).json({ error: 'failed to read file' });
-      }
+      sendReadError(res, err);
     }
   });
 
@@ -214,12 +218,7 @@ export function createFilesystemRoutes(
       res.setHeader('Cache-Control', 'no-store');
       res.send(data);
     } catch (err: unknown) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
-        res.status(404).json({ error: 'file not found' });
-      } else {
-        res.status(500).json({ error: 'failed to read file' });
-      }
+      sendReadError(res, err);
     }
   });
 
@@ -329,7 +328,7 @@ export function createFilesystemRoutes(
     // available (same binary as routes/symbols), grep otherwise.
     const contentResults: { path: string; name: string; ext: string; lineNumber: number }[] = [];
     await new Promise<void>((resolve) => {
-      const rg = getRipgrepPath();
+      const rg = ripgrepPath();
       // -F: treat query as a literal string, not a regex (avoids errors/odd matches
       // on chars like [ ( etc). -e: bind it as the pattern so a leading '-' isn't
       // parsed as a flag. --: end options before the path operand.
@@ -410,9 +409,10 @@ export function createFilesystemRoutes(
       res.status(400).json({ error: 'path is not a directory' });
       return;
     }
-    const rg = getRipgrepPath();
+    const rg = ripgrepPath();
     if (!rg) {
-      res.status(503).json({ error: 'ripgrep is not available' });
+      // ripgrep ships inside the app: missing means a broken build, not a search error.
+      res.status(503).json({ error: 'ripgrep is not available', code: 'RIPGREP_UNAVAILABLE' } satisfies ApiErrorBody);
       return;
     }
 
@@ -472,7 +472,7 @@ export function createFilesystemRoutes(
 
     execFile(cmd, args, (err) => {
       if (err) {
-        res.status(500).json({ success: false, error: `failed to open: ${err.message}` });
+        sendError(res, Object.assign(err, { message: `failed to open: ${err.message}` }), { tool: cmd }, { success: false });
         return;
       }
       res.json({ success: true });
@@ -529,7 +529,7 @@ export function createFilesystemRoutes(
       if (code === 'EEXIST') {
         res.status(409).json({ success: false, error: 'file or directory already exists' } satisfies FileCrudResponse);
       } else {
-        res.status(500).json({ success: false, error: (err as Error).message } satisfies FileCrudResponse);
+        sendError(res, err, undefined, { success: false });
       }
     }
   });
@@ -553,12 +553,12 @@ export function createFilesystemRoutes(
       await rename(validatedFrom.resolved, validatedTo.resolved);
       res.json({ success: true } satisfies FileCrudResponse);
     } catch (err: unknown) {
-      res.status(500).json({ success: false, error: (err as Error).message } satisfies FileCrudResponse);
+      sendError(res, err, undefined, { success: false });
     }
   });
 
   router.delete('/file', express.json(), async (req, res) => {
-    const { sessionId, path: rawPath } = req.body as DeleteFileRequest;
+    const { sessionId, path: rawPath, permanent } = req.body as DeleteFileRequest;
 
     const validated = validateDestructivePath(sessionManager, sessionId, rawPath);
     if ('error' in validated) {
@@ -567,6 +567,26 @@ export function createFilesystemRoutes(
     }
 
     const { resolved } = validated;
+    const trash = options?.trash;
+
+    // Undoable by default: move into the staged trash. Across volumes the move
+    // fails with EXDEV, and the client asks before deleting for good.
+    if (trash && permanent !== true) {
+      try {
+        const undoId = await trash.stage(resolved, sessionId);
+        res.json({ success: true, undoId } satisfies FileCrudResponse);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'EXDEV') {
+          res.status(409).json({ success: false, error: 'This item is on another volume, so deleting it cannot be undone', needsPermanent: true } satisfies FileCrudResponse);
+        } else if (code === 'ENOENT') {
+          res.status(404).json({ success: false, error: 'file or directory not found', code: 'FOLDER_NOT_FOUND' });
+        } else {
+          sendError(res, err, undefined, { success: false });
+        }
+      }
+      return;
+    }
 
     try {
       const fileStat = await stat(resolved);
@@ -579,11 +599,33 @@ export function createFilesystemRoutes(
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'ENOENT') {
-        res.status(404).json({ success: false, error: 'file or directory not found' } satisfies FileCrudResponse);
+        res.status(404).json({ success: false, error: 'file or directory not found', code: 'FOLDER_NOT_FOUND' });
       } else {
-        res.status(500).json({ success: false, error: (err as Error).message } satisfies FileCrudResponse);
+        sendError(res, err, undefined, { success: false });
       }
     }
+  });
+
+  // Undo of DELETE /file. The staged trash checks the session and that the
+  // original path is free; the scope check is the destructive one, so a path
+  // that now resolves outside the session (or to its root) is refused.
+  router.post('/file/restore', express.json(), async (req, res) => {
+    const { sessionId, undoId } = (req.body ?? {}) as RestoreFileRequest;
+    const trash = options?.trash;
+    if (!trash || typeof sessionId !== 'string' || typeof undoId !== 'string' || !sessionId || !undoId) {
+      res.status(400).json({ success: false, error: 'sessionId and undoId are required' } satisfies FileCrudResponse);
+      return;
+    }
+    if (!sessionManager.getSession(sessionId)) {
+      res.status(404).json({ success: false, error: 'session not found' } satisfies FileCrudResponse);
+      return;
+    }
+    const result = await trash.restore(undoId, sessionId, (origin) => {
+      const v = validateDestructivePath(sessionManager, sessionId, origin);
+      return 'error' in v ? null : v.resolved;
+    });
+    if (result.ok) res.json({ success: true } satisfies FileCrudResponse);
+    else res.status(result.status).json({ success: false, error: result.error } satisfies FileCrudResponse);
   });
 
   router.post('/move', express.json(), async (req, res) => {
@@ -605,11 +647,24 @@ export function createFilesystemRoutes(
       await rename(validatedFrom.resolved, validatedTo.resolved);
       res.json({ success: true } satisfies FileCrudResponse);
     } catch (err: unknown) {
-      res.status(500).json({ success: false, error: (err as Error).message } satisfies FileCrudResponse);
+      sendError(res, err, undefined, { success: false });
     }
   });
 
   return router;
+}
+
+/** A failed file read: 404 / 403 with their code, else a plain 500. The
+ *  messages are the ones clients already match on. */
+function sendReadError(res: Response, err: unknown): void {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'ENOENT') {
+    res.status(404).json({ error: 'file not found', code: 'FOLDER_NOT_FOUND' } satisfies ApiErrorBody);
+  } else if (code === 'EACCES' || code === 'EPERM') {
+    res.status(403).json({ error: 'permission denied', code: 'PERMISSION_DENIED' } satisfies ApiErrorBody);
+  } else {
+    res.status(500).json({ error: 'failed to read file' });
+  }
 }
 
 function getMimeType(ext: string): string {

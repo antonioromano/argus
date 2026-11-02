@@ -16,6 +16,7 @@ vi.mock('../services/api.js', () => ({
 vi.mock('../components/primitives/Toast.js', () => ({ pushToast: vi.fn() }));
 
 import { api } from '../services/api.js';
+import { pushToast } from '../components/primitives/Toast.js';
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -88,6 +89,33 @@ describe('useFileBuffer', () => {
     expect(buf!.initialContent).toBe('v1');
     expect(buf!.dirty).toBe(true);
     expect(buf!.saving).toBe(false);
+  });
+
+  // Feedback policy V3/V4: an autosave is shown by the dirty marker clearing,
+  // and a conflict by the editor's inline banner — neither needs a toast.
+  it('autosave writes without a toast; an explicit save says Saved', async () => {
+    vi.mocked(pushToast).mockClear();
+    await mount('/a.txt');
+    vi.mocked(api.writeFile).mockResolvedValue({ success: true, mtimeMs: 2 } as WriteRes);
+    act(() => buf!.setContent('v1'));
+    await act(async () => { vi.advanceTimersByTime(5000); await Promise.resolve(); await Promise.resolve(); });
+    expect(api.writeFile).toHaveBeenCalledTimes(1);
+    expect(buf!.dirty).toBe(false);
+    expect(pushToast).not.toHaveBeenCalled();
+
+    act(() => buf!.setContent('v2'));
+    await act(async () => { await buf!.save(); });
+    expect(pushToast).toHaveBeenCalledWith('Saved', 'ok');
+  });
+
+  it('a conflict sets the inline flag and does not toast', async () => {
+    vi.mocked(pushToast).mockClear();
+    await mount('/a.txt');
+    vi.mocked(api.writeFile).mockResolvedValue({ success: false, conflict: true } as WriteRes);
+    act(() => buf!.setContent('v1'));
+    await act(async () => { await buf!.save(); });
+    expect(buf!.conflict).toBe(true);
+    expect(pushToast).not.toHaveBeenCalled();
   });
 
   it('a clean save (no typing in flight) ends clean', async () => {

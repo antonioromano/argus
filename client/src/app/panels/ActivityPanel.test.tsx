@@ -9,7 +9,8 @@ import { relativeTime } from './activityFormat.js';
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
 const getSessionActivity = vi.fn();
-vi.mock('../../services/api.js', () => ({
+vi.mock('../../services/api.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/api.js')>()),
   api: { getSessionActivity: (...a: unknown[]) => getSessionActivity(...a) },
 }));
 
@@ -101,6 +102,23 @@ describe('ActivityPanel', () => {
     await render();
     expect(rows()).toHaveLength(0);
     expect(container.textContent).toContain('No activity yet');
+  });
+
+  it('does not claim "no activity" while the first fetch is in flight', async () => {
+    getSessionActivity.mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(container.textContent).not.toContain('No activity yet');
+  });
+
+  it('shows an error with Retry when the fetch fails, and Retry refetches', async () => {
+    getSessionActivity.mockRejectedValueOnce(new Error('boom'));
+    await render();
+    expect(container.textContent).toContain('Couldn’t load activity');
+    expect(container.textContent).not.toContain('No activity yet');
+    const retry = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Retry')!;
+    await act(async () => { retry.click(); });
+    expect(getSessionActivity).toHaveBeenCalledTimes(2);
+    expect(rows()).toHaveLength(4);
   });
 });
 

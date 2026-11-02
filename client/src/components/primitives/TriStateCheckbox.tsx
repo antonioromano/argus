@@ -41,7 +41,7 @@ export function TriStateCheckbox({ checked, onChange, size = 14, disabled = fals
       {isMixed ? (
         <span style={{ width: scaledPx(size * 0.5), height: 2, background: 'var(--fg-on-accent)' }} />
       ) : isOn ? (
-        <Icon icon={Check} size={size - 4} strokeWidth={2.5} color="var(--fg-on-accent)" />
+        <Icon icon={Check} size={size - 4} strokeWidth={2} color="var(--fg-on-accent)" />
       ) : null}
     </span>
   );

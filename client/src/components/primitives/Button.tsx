@@ -38,7 +38,7 @@ const PALETTE: Record<ButtonVariant, { bg: string; fg: string; border: string }>
 const SIZES: Record<'sm' | 'md' | 'lg', { padding: string; height: string; font: string }> = {
   sm: { padding: '0 var(--s-2)', height: 'var(--ctl-h-sm)', font: 'var(--t-xs)' },
   md: { padding: '0 var(--s-3)', height: scaledPx(30), font: 'var(--t-sm)' },
-  lg: { padding: '0 var(--s-4)', height: scaledPx(36), font: 'var(--t-base)' },
+  lg: { padding: '0 var(--s-4)', height: scaledPx(36), font: 'var(--t-body)' },
 };
 
 export function Button({
@@ -75,7 +75,7 @@ export function Button({
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
+        gap: 'var(--s-1-5)',
         padding: s.padding,
         height: s.height,
         background: p.bg,
@@ -90,13 +90,13 @@ export function Button({
         opacity: isDisabled ? 0.5 : 1,
         width: full ? '100%' : 'auto',
         whiteSpace: 'nowrap',
-        transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast), opacity var(--dur-fast)',
+        transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast), opacity var(--dur-fast)',
         ...style,
       }}
     >
-      {loading ? <Spinner size={iconSize} /> : (Glyph && <Icon icon={Glyph} size={iconSize} strokeWidth={1.6} />)}
+      {loading ? <Spinner size={iconSize} /> : (Glyph && <Icon icon={Glyph} size={iconSize} />)}
       {children}
-      {IconRight && <Icon icon={IconRight} size={iconSize} strokeWidth={1.6} />}
+      {IconRight && <Icon icon={IconRight} size={iconSize} />}
     </button>
   );
   return title ? <Tooltip content={title}>{btn}</Tooltip> : btn;

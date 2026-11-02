@@ -1,6 +1,6 @@
 # Argus
 
-![Version](https://img.shields.io/badge/version-0.30.3-blue) ![Node](https://img.shields.io/badge/node-22-green) ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
+![Version](https://img.shields.io/badge/version-0.31.0-blue) ![Node](https://img.shields.io/badge/node-22-green) ![Platform](https://img.shields.io/badge/platform-macOS-lightgrey) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 
 A native macOS desktop app for managing multiple AI coding agent sessions at once. Spawn [Claude Code](https://claude.ai/code), [Gemini CLI](https://github.com/google-gemini/gemini-cli), or [OpenAI Codex](https://github.com/openai/codex) processes in real pseudo-terminals, watch their output side by side, and track each session's state — running, waiting, idle, or exited — in real time.
 
@@ -9,22 +9,8 @@ A native macOS desktop app for managing multiple AI coding agent sessions at onc
 ## Table of Contents
 
 - [Installation](#installation)
+  - [Installing from the DMG](#installing-from-the-dmg)
 - [Features](#features)
-  - [Session Management](#session-management)
-  - [Session Insights](#session-insights)
-  - [Layout & Organization](#layout--organization)
-  - [Focus Mode](#focus-mode)
-  - [Terminal](#terminal)
-  - [File Explorer](#file-explorer)
-  - [Git Diff Viewer](#git-diff-viewer)
-  - [Git Commit & Staging](#git-commit--staging)
-  - [Multi-Agent Support](#multi-agent-support)
-  - [Remote Access](#remote-access)
-  - [Password Authentication](#password-authentication)
-  - [Auto-Update](#auto-update)
-  - [Notifications](#notifications)
-  - [Mobile Support](#mobile-support)
-  - [Theme](#theme)
 - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [How It Works](#how-it-works)
 - [Tech Stack](#tech-stack)
@@ -54,128 +40,31 @@ brew upgrade --cask argus
 
 If `brew upgrade` reports `Refusing to load cask … from untrusted tap`, run `brew trust antonioromano/argus` once, then re-run the upgrade. **In-app updates** (the built-in "Update now" button) trust the tap automatically — no manual step needed.
 
+### Installing from the DMG
+
+Prefer the DMG from [GitHub Releases](https://github.com/antonioromano/argus/releases)? Argus is ad-hoc signed, so macOS blocks the first launch:
+
+1. Open the DMG and drag **Argus** to **Applications**.
+2. Open Argus once. macOS says *"Apple could not verify Argus is free of malware"* — click **Done**.
+3. Open **System Settings → Privacy & Security**, scroll to *"Argus was blocked to protect your Mac"*, click **Open Anyway** and confirm.
+
+Argus opens normally from then on. On macOS 15 and later, right-click → Open no longer skips this. From Terminal instead: `xattr -dr com.apple.quarantine /Applications/Argus.app`. Homebrew installs skip all of it (the cask strips the quarantine flag). Details: [First launch](https://antonioromano.github.io/argus/install/#first-launch).
+
 ## Features
 
-### Session Management
+Full user docs: **[antonioromano.github.io/argus](https://antonioromano.github.io/argus/)**. One page per feature:
 
-- **Create sessions** — Pick a project folder (system picker or interactive folder tree), set an optional name, and choose which AI agent to run
-- **Clone sessions** — Duplicate an existing session in the same folder with a different agent or different CLI flags
-- **Delete sessions** — Close sessions with a confirmation prompt
-- **Status badges** — Each session shows its real-time state: `waiting` (prompt visible), `running` (agent processing), `idle` (quiet, no prompt), or `exited`
-- **Collapsible sessions** — Minimize any session to a chip strip at the top of the dashboard; collapsed sessions stay connected and continue showing live status, then restore with one click
-- **Agent CLI flags** — Configure per-agent command-line flags (e.g. `--model`, `--verbose`) in Settings with sticky defaults; toggle individual flags on or off per session at creation time
-- **Git dirty indicator** — Orange warning icon next to session names when uncommitted changes exist; visible in terminal cards, focus mode, sidebar, collapsed chips, and dropdowns
-- **Resume conversation** — An exited Claude session offers *Resume conversation* next to Restart (exited card, the shell's ⋯ menu, Find & Jump). It relaunches with `claude --resume <id>`, and the conversation id is persisted, so it also works after Argus restarts
-
-### Session Insights
-
-- **Usage meter** — Claude and Codex shells show a usage chip: context-window % (Claude's transcript, Codex's `~/.codex/sessions` rollout log) and your plan usage with its reset time (Claude via a status-line wrapper that keeps your own status line unchanged; Codex from its rollout log). Plan usage is per account, so every shell of an agent shows the same value. Settings → Shell header picks the parts (drag to reorder, click to hide) and the amber/red thresholds. Gemini reports no usage, so its shells show no chip
-- **Waiting inbox** — `⌘⇧J` (also in the View menu and Find & Jump) lists every session waiting on input, longest-waiting first, with its question. `↑↓` picks, `↵` jumps to the shell, and a digit answers a numbered menu prompt without leaving the inbox
-- **Broadcast input** — Send one line (`/compact`, "rebase on main", `y`) to several shells at once, optionally followed by Enter. Pick targets in Find & Jump or mark them with Space in the waiting inbox and press `B`; a confirmation step shows the exact text and every target first
-
-### Layout & Organization
-
-- **Grouped grid** — Sessions are automatically grouped by their working folder
-- **Drag-and-drop reordering** — Rearrange both groups and individual sessions within groups via drag handles
-- **Persistent order** — Session ordering is saved to disk and restored on relaunch
-
-### Focus Mode
-
-- **Full-screen session** — Click into any session to expand it, with the terminal taking up most of the view
-- **Collapsed session strip** — Other sessions appear as a horizontal mini bar with status indicators for quick switching
-- **Explorer panel** — Toggle a file explorer alongside the terminal in focus mode; mutually exclusive with the diff panel
-- **Exit** — Press **Escape** or click the back button to return to the grid
-
-### Terminal
-
-- **xterm.js terminal** — Smooth, high-performance terminal with the DOM renderer for crisp text on a cold start
-- **Live two-way I/O** — All keyboard input and terminal output streams in real time
-- **Reconnect replay** — The server keeps a headless terminal mirror of every session and replays its screen and scrollback when you reconnect or reload
-- **Full terminal features** — Clickable links, copy-paste, and responsive resizing
-
-### File Explorer
-
-- **Browse project files** — Tree-based file browser scoped to each session's working directory, with a session sidebar for switching between projects
-- **Syntax highlighting** — 29 languages supported via Prism (TypeScript, JavaScript, Python, Rust, Go, Java, C/C++, C#, Ruby, PHP, Swift, Kotlin, SQL, GraphQL, YAML, TOML, Dockerfile, Makefile, and more)
-- **File search** — Search by filename or file content with debounced real-time results
-- **Inline editing** — Edit files directly in the app; conflict detection compares `mtime` to prevent overwriting changes made by the agent after you opened the file
-- **Markdown preview** — Markdown files render with full formatting
-- **Copy to clipboard** — One-click copy of the full file contents
-- **Resizable panels** — Drag dividers between sidebar, file tree, and preview columns; sizes persist
-- **Ephemeral terminal** — Open a real shell in the session's working directory from the Explorer view without creating a new session
-- **State persistence** — Selected session, file, and search query persist across tab switches
-
-### Git Diff Viewer
-
-- **Inline diff panel** — Opens alongside the terminal in focus mode, showing the current git state of the session's folder
-- **Three diff sections** — Unstaged changes, staged changes, and branch changes displayed separately
-- **Auto-refresh** — Polls for new changes every 3 seconds while the session is running; manual refresh button also available
-- **File-level breakdown** — Expandable file sections with per-file addition/deletion counts; `NEW` and `DELETED` badges for created or removed files
-- **Diff fullscreen** — Expand the diff panel to full screen; press **Escape** to collapse
-
-### Git Commit & Staging
-
-- **Commit mode** — Toggle commit mode in the diff panel to enter a staging workflow alongside the live diff
-- **Selective staging** — Stage changes at the file, hunk, or individual line level using tri-state checkboxes (none / partial / all selected)
-- **Commit bar** — Write a commit message, toggle amend mode (pre-fills the last commit message), and commit with one click or **Ctrl/Cmd+Enter**
-- **Discard with undo** — Discard selected changes with a 30-second in-memory undo window; applies at the hunk or line level
-- **Stale diff detection** — If the diff refreshes while commit mode is active, a warning banner notifies you before you stage outdated selections
-
-### Multi-Agent Support
-
-- **Built-in agents** — Claude Code, Gemini CLI, and OpenAI Codex available out of the box
-- **Custom agents** — Add any CLI tool as an agent via Settings (name + command)
-- **Default agent** — Configure which agent is pre-selected when creating new sessions
-- **Install detection** — Settings panel shows which agents are installed and their resolved paths, with install commands for missing ones
-
-### Remote Access
-
-- **ngrok tunnel** — Expose the dashboard publicly via an ngrok tunnel directly from the toolbar
-- **One-click start/stop** — Start and stop the tunnel from the header; copy or open the public URL
-- **Sleep prevention** — Keeps the computer awake while the tunnel is active (`caffeinate`)
-- **Install guidance** — If ngrok is not installed, shows install instructions
-
-> **Security note:** The public URL grants full terminal access to all sessions. Share it only with trusted users.
-
-### Password Authentication
-
-- **Auto-enabled with ngrok** — When a tunnel is started, you set a password; the URL and password are shown together for easy sharing
-- **Secure comparison** — Passwords are hashed with scrypt (per-password salt) and compared using `crypto.timingSafeEqual` to prevent timing attacks
-- **Token-based sessions** — After login, a UUID token is issued and validated on all subsequent API and Socket.io requests; tokens are cleared when the tunnel stops
-
-### Auto-Update
-
-- **Hourly version check** — Compares the installed version against the remote GitHub repository
-- **One-click update** — When a new version is available, a modal shows the version diff and changelog
-- **Safety guard** — Refuses to update if the working tree has uncommitted local changes
-
-### Notifications
-
-- **Desktop notifications** — Fire when a session transitions to `waiting` while the app is not in focus; click to focus the app. The packaged (ad-hoc signed) build delivers via a bundled [terminal-notifier](https://github.com/julienXX/terminal-notifier): macOS asks once to allow notifications from "terminal-notifier" — accept it, and make sure that entry stays enabled in System Settings → Notifications
-- **Tab title badge** — App title shows `(N) Argus` with the count of sessions awaiting input
-- **Waiting count badge** — Orange badge on the Sessions navigation tab shows how many sessions need attention
-- **Configurable** — Toggle on/off in Settings
-- **Auto-dismiss** — Notifications close automatically when the session leaves `waiting` status or is deleted
-
-### Launch links
-
-Other local tools can open a session in Argus with a link. `argus://new?agent=claude&folder=~/dev/repo&prompt=…` always shows an approval card listing every argument; nothing runs until you click Start. Tick **Save as launcher** to get a one-click `argus://run/<id>` link (manage them in Settings → Launchers). A saved launcher re-checks its agent command and the contents of the folder's agent config files (`.claude/settings*.json`, `.mcp.json`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.gemini/settings.json`) on every run; any change sends it back through the approval card.
-
-### Mobile Support
-
-A mobile companion view is reachable from your phone's browser when an ngrok tunnel is active.
-
-- **Bottom navigation** — On narrow screens, a bottom nav bar provides access to Sessions, Git Diff, and Explorer tabs, plus a floating action button for new sessions
-- **Quick-action buttons** — Pre-mapped touch buttons for common terminal inputs: arrow keys, Enter, y/n, Ctrl+C, Escape, Tab, and number options 1-5
-- **Mobile text input** — A text input row for typing arbitrary commands and sending them to the terminal
-- **Touch scrolling with momentum** — Custom touch event handling with inertia-based momentum scrolling in terminals
-- **Swipe gestures** — Swipe down on the diff file sheet to dismiss it
-- **Safe area support** — Respects iOS safe-area-inset for the bottom nav and header
-
-### Theme
-
-- **Dark and Light modes** — Dark theme uses a Tokyo Night-inspired palette; Light theme for bright environments
-- **Persisted preference** — Theme choice is saved and defaults to the OS system preference
+- [Sessions](https://antonioromano.github.io/argus/features/sessions/) — create, clone, rename, restart and resume agent sessions; status in real time
+- [Session identity](https://antonioromano.github.io/argus/features/session-identity/) — a colour and an emoji per session, everywhere it appears
+- [Mosaic](https://antonioromano.github.io/argus/features/mosaic/) and [Focus mode](https://antonioromano.github.io/argus/features/focus/) — every session side by side, or one at full size
+- [Waiting inbox](https://antonioromano.github.io/argus/features/waiting-inbox/), [Broadcast](https://antonioromano.github.io/argus/features/broadcast/) and [Notifications](https://antonioromano.github.io/argus/features/notifications/)
+- [Diff viewer](https://antonioromano.github.io/argus/features/diff/), [File explorer](https://antonioromano.github.io/argus/features/explorer/) and [Git commit & staging](https://antonioromano.github.io/argus/features/git/)
+- [Usage meter](https://antonioromano.github.io/argus/features/usage-meter/) — context and plan usage per Claude or Codex session
+- [Status bar](https://antonioromano.github.io/argus/features/status-bar/) and [Window restore](https://antonioromano.github.io/argus/features/window-restore/)
+- [Remote access](https://antonioromano.github.io/argus/features/remote/) and the [phone companion](https://antonioromano.github.io/argus/features/mobile/)
+- [Launch links](https://antonioromano.github.io/argus/features/launch-links/) — `argus://` deep links that start sessions
+- [Keyboard shortcuts](https://antonioromano.github.io/argus/features/keyboard-shortcuts/)
+- Beta: [worktree lifecycle](https://antonioromano.github.io/argus/beta/worktree-lifecycle/), [activity timeline](https://antonioromano.github.io/argus/beta/activity-timeline/), [session templates](https://antonioromano.github.io/argus/beta/session-templates/), [handoff](https://antonioromano.github.io/argus/beta/handoff/), [session chains](https://antonioromano.github.io/argus/beta/session-chains/)
 
 ## Keyboard Shortcuts
 

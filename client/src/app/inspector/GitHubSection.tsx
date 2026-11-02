@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { MouseEvent as RMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleCheck, ExternalLink, Eye, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MessageSquareWarning, MoreHorizontal, TriangleAlert } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Eye, FileDiff, GitPullRequest, GitPullRequestArrow, GitPullRequestDraft, Link, MessageSquareWarning, MoreHorizontal, AlertTriangle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { PrReviewDecision, SessionPrEntry } from '@argus/shared';
 import { AlertSheet, ContextMenu, Icon, IconButton, Tooltip, pushToast } from '../../components/primitives/index.js';
@@ -13,7 +13,8 @@ import {
 } from '../../utils/prFormat.js';
 import { useLastSessionPrs, useSessionPrs } from '../../hooks/useSessionPrs.js';
 import type { InspectorContext, InspectorSectionProps } from './types.js';
-import { InspectorEmpty } from './InspectorRow.js';
+import { InspectorEmpty, InspectorError, InspectorSettingsLink } from './InspectorRow.js';
+import { toastError } from '../../errors/toastError.js';
 import { CiStatus } from './CiMonitor.js';
 
 /**
@@ -26,7 +27,7 @@ function chipEntries(session: InspectorSectionProps['session']): SessionPrEntry[
 
 /** Review decisions shown as an icon in the row's right column (none → nothing). */
 const REVIEW_ICON: Record<Exclude<PrReviewDecision, 'none'>, LucideIcon> = {
-  approved: CircleCheck,
+  approved: CheckCircle2,
   changes_requested: MessageSquareWarning,
   review_required: Eye,
 };
@@ -67,7 +68,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
       await api.setSessionPrReady(sessionId, url, ready);
       pushToast(ready ? `${ref} is ready for review` : `${ref} is a draft again`, 'ok');
     } catch (err) {
-      pushToast(`Couldn’t ${ready ? 'mark' : 'convert'} ${ref}${ready ? ' ready' : ' to draft'}: ${err instanceof Error ? err.message : String(err)}`, 'danger');
+      toastError(err, `Couldn’t ${ready ? 'mark' : 'convert'} ${ref}${ready ? ' ready' : ' to draft'}`);
     } finally {
       setBusy(false);
       onChanged?.();
@@ -77,7 +78,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   const copyLink = () => {
     navigator.clipboard.writeText(url).then(
       () => pushToast('Link copied', 'ok'),
-      (err: unknown) => pushToast(err instanceof Error ? err.message : String(err), 'danger'),
+      (err: unknown) => toastError(err, 'Couldn’t copy the link'),
     );
   };
   const menuItems: ContextMenuEntry[] = [
@@ -105,27 +106,27 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
   return (
     <li className="argus-inspector-prrow" data-state={pr?.state ?? 'unknown'} data-tone={pr ? prTone(pr) : undefined} onContextMenu={openMenuAt}>
       <span className="argus-inspector-pr-glyph" role="img" aria-label={pr ? `${PR_STATE_LABEL[pr.state]} pull request` : 'Pull request'} title={pr ? PR_STATE_LABEL[pr.state] : undefined}>
-        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size={14} strokeWidth={2} />
+        <Icon icon={pr ? PR_STATE_ICON[pr.state] : GitPullRequest} size="md" strokeWidth={2} />
       </span>
       {/* Under the state glyph, one per line: the review icon (in line with
           the second line), then the conflict icon. */}
       {review && (
         <Tooltip content={PR_REVIEW_LABEL[review]}>
           <span className="argus-inspector-pr-flag argus-inspector-pr-review" data-review={review} role="img" aria-label={PR_REVIEW_LABEL[review]} tabIndex={0}>
-            <Icon icon={REVIEW_ICON[review]} size={12} strokeWidth={1.8} />
+            <Icon icon={REVIEW_ICON[review]} size="sm" />
           </span>
         </Tooltip>
       )}
       {conflicting && (
         <Tooltip content="merge conflicts">
           <span className="argus-inspector-pr-flag argus-inspector-pr-conflict" data-row={review ? 3 : 2} role="img" aria-label="merge conflicts" tabIndex={0}>
-            <Icon icon={TriangleAlert} size={12} strokeWidth={1.8} />
+            <Icon icon={AlertTriangle} size="sm" />
           </span>
         </Tooltip>
       )}
       <button type="button" className="argus-inspector-pr" onClick={() => openExternal(url)} title={`${pr?.title ? `${pr.title}\n` : ''}Open ${ref} on GitHub`}>
         <span className="argus-inspector-pr-title">{pr?.title || shortRef}</span>
-        <Icon icon={ExternalLink} size={11} strokeWidth={1.8} className="argus-inspector-pr-ext" />
+        <Icon icon={ExternalLink} size="sm" className="argus-inspector-pr-ext" />
       </button>
       {(pr?.title || ctx.onOpenPrDiff) && (
         <div className="argus-inspector-pr-line">
@@ -139,7 +140,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
                 </span>
               ) : (
                 <>
-                  <Icon icon={FileDiff} size={12} strokeWidth={1.8} />
+                  <Icon icon={FileDiff} size="sm" />
                   Changed files
                 </>
               )}
@@ -162,7 +163,7 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
               title={`Mark ${ref} ready for review`}
               onClick={() => { void setReady(true); }}
             >
-              <Icon icon={GitPullRequestArrow} size={12} strokeWidth={1.8} />
+              <Icon icon={GitPullRequestArrow} size="sm" />
               {busy ? 'Marking ready…' : 'Mark ready'}
             </button>
           )}
@@ -197,17 +198,23 @@ export function PrRow({ entry, sessionId, ctx, onChanged }: {
  */
 export function GitHubBody({ session, ctx }: InspectorSectionProps) {
   const refreshKey = session.pr ? `${session.pr.url}|${session.pr.state}|${session.pr.ci}` : '';
-  const { prs, enabled, error, reload } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
-  if (!ctx.prStatusEnabled || !enabled) return <InspectorEmpty>Pull request status is off (Settings → Shell header).</InspectorEmpty>;
+  const { prs, enabled, error, failure, reload } = useSessionPrs(session.id, ctx.prStatusEnabled, refreshKey);
+  if (!ctx.prStatusEnabled || !enabled) {
+    return <InspectorEmpty action={<InspectorSettingsLink pane="shell-header" />}>Pull request status is off.</InspectorEmpty>;
+  }
 
   const list = prs ?? chipEntries(session);
   if (list.length === 0) {
-    if (prs === undefined) return <InspectorEmpty>{error ? `Couldn’t read pull requests: ${error}` : 'Looking for pull requests…'}</InspectorEmpty>;
+    if (prs === undefined) {
+      return error
+        ? <InspectorError error={failure ?? error} fallbackTitle="Couldn’t read pull requests" onRetry={reload} />
+        : <InspectorEmpty>Looking for pull requests…</InspectorEmpty>;
+    }
     return <InspectorEmpty>No pull request for this session.</InspectorEmpty>;
   }
   return (
     <>
-      {error && prs && <InspectorEmpty>Couldn’t refresh pull requests ({error}); showing the last reading.</InspectorEmpty>}
+      {error && prs && <InspectorError error={failure ?? error} fallbackTitle="Couldn’t refresh pull requests" onRetry={reload} stale />}
       <ul className="argus-inspector-prs" aria-label="Pull requests">
         {list.map((entry) => <PrRow key={entry.url} entry={entry} sessionId={session.id} ctx={ctx} onChanged={reload} />)}
       </ul>

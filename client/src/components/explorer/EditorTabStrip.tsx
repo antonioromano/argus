@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Icon } from '../primitives/index.js';
+import { Icon, Row, Text } from '../primitives/index.js';
 
 export interface EditorTabStripProps {
   groupIndex: number;
@@ -39,10 +39,9 @@ export function EditorTabStrip({
   onAddClick,
 }: EditorTabStripProps) {
   return (
-    <div
+    <Row
+      align="stretch"
       style={{
-        display: 'flex',
-        alignItems: 'stretch',
         height: 34,
         flexShrink: 0,
         background: 'var(--bg-1)',
@@ -80,9 +79,9 @@ export function EditorTabStrip({
         onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--fg-0)')}
         onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--fg-3)')}
       >
-        <Icon icon={Plus} size={14} strokeWidth={1.6} />
+        <Icon icon={Plus} size="md" />
       </button>
-    </div>
+    </Row>
   );
 }
 
@@ -102,17 +101,15 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
   const [hover, setHover] = useState(false);
   const [closeHover, setCloseHover] = useState(false);
   return (
-    <div
+    <Row
+      gap={2}
       onPointerDown={onPointerDown}
       onClick={onActivate}
       onDoubleClick={onPin}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        padding: '0 8px 0 11px',
+        padding: '0 var(--s-2) 0 var(--s-3)',
         fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-xs)',
         whiteSpace: 'nowrap',
@@ -129,7 +126,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
       {active && (
         <span style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'var(--accent)' }} />
       )}
-      <span style={{ color: active ? 'var(--accent)' : 'var(--fg-3)', fontSize: 'var(--t-tiny)' }}>TS</span>
+      <Text size="caption" tone={active ? 'accent' : 'faint'}>TS</Text>
       <span style={{ fontStyle: preview ? 'italic' : 'normal' }}>{baseName(path)}</span>
       {/* Fixed-width control box — reserves space so hover never reflows the row. */}
       <span
@@ -147,7 +144,7 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
           height: 16,
           display: 'grid',
           placeItems: 'center',
-          borderRadius: 3,
+          borderRadius: 'var(--r-2)',
           flexShrink: 0,
           background: closeHover ? 'var(--bg-3)' : 'transparent',
           color: dirty && !closeHover ? 'var(--dirty)' : 'var(--fg-3)',
@@ -156,9 +153,9 @@ function Tab({ path, active, preview, dirty, dragging, onActivate, onClose, onPi
         {dirty && !closeHover ? (
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--dirty)' }} />
         ) : hover || active || closeHover ? (
-          <Icon icon={X} size={12} strokeWidth={2} />
+          <Icon icon={X} size="sm" strokeWidth={2} />
         ) : null}
       </span>
-    </div>
+    </Row>
   );
 }

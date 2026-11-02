@@ -12,8 +12,9 @@ import {
   Search,
   TextSearch,
 } from 'lucide-react';
-import { Button, IconButton, Chip, LoadingState, Icon } from '../../components/primitives/index.js';
+import { Button, IconButton, Chip, ErrorState, Icon, Row, SkeletonRows, Spacer, StaleNotice, Text } from '../../components/primitives/index.js';
 import { useFileTree } from '../../hooks/useFileTree.js';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag.js';
 import { useGitFileStatuses } from '../../hooks/useGitFileStatuses.js';
 import { useEditorGroups } from '../../hooks/useEditorGroups.js';
 import { ExplorerFileTree } from '../../components/explorer/ExplorerFileTree.js';
@@ -358,6 +359,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
   );
 
   const tree = useFileTree(workRoot(session), session.id);
+  const showTreeSkeleton = useDelayedFlag(tree.isLoading && tree.visibleNodes.length === 0);
   const gitStatuses = useGitFileStatuses({ sessionId: session.id, enabled: true });
 
   const dirtyMap = dirtyByPath(tabStates);
@@ -376,11 +378,9 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
         position: 'relative',
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-4)',
@@ -389,24 +389,14 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           flexShrink: 0,
         }}
       >
-        <Icon icon={FolderOpen} size={14} strokeWidth={1.6} color="var(--accent)" />
+        <Icon icon={FolderOpen} size="md" color="var(--accent)" />
         <div className="eyebrow" style={{ color: 'var(--accent)' }}>ARGUS · EXPLORER</div>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-sm)',
-            color: 'var(--fg-1)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            maxWidth: '40%',
-          }}
-        >
+        <Text mono size="body" tone="default" truncate style={{ maxWidth: '40%' }}>
           {focusedPath ?? workRoot(session)}
-        </span>
+        </Text>
         {focusedSnap?.dirty && <Chip dot="var(--dirty)">UNSAVED</Chip>}
         {focusedSnap?.saving && <Chip dot="var(--accent)">SAVING…</Chip>}
-        <div style={{ flex: 1 }} />
+        <Spacer />
         {isPreviewable && focusedPath && (
           <SegmentedControl
             value={viewModeFor(focusedPath)}
@@ -426,7 +416,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
           Save
         </Button>
         <IconButton icon={X} label="Close" size="sm" onClick={onClose} />
-      </div>
+      </Row>
 
       <div ref={bodyRef} style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <aside
@@ -441,17 +431,22 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             position: 'relative',
           }}
         >
-          {tree.isLoading && tree.visibleNodes.length === 0 ? (
-            <LoadingState label="Loading tree" />
+          {tree.rootError && !tree.rootLoaded ? (
+            <ErrorState error={tree.rootError} fallbackTitle="Couldn’t list this folder" onRetry={tree.refresh} />
+          ) : tree.isLoading && tree.visibleNodes.length === 0 ? (
+            showTreeSkeleton && <SkeletonRows variant="tree" count={10} />
           ) : (
-            <ExplorerFileTree
-              tree={tree}
-              sessionId={session.id}
-              gitStatuses={gitStatuses}
-              selectedPath={focusedPath}
-              onOpenFile={(path) => onPreviewFile(path)}
-              onActivateFile={(path) => onPickFile(path)}
-            />
+            <>
+              {!!tree.rootError && <StaleNotice error={tree.rootError} subject="the last listing" onRetry={tree.refresh} />}
+              <ExplorerFileTree
+                tree={tree}
+                sessionId={session.id}
+                gitStatuses={gitStatuses}
+                selectedPath={focusedPath}
+                onOpenFile={(path) => onPreviewFile(path)}
+                onActivateFile={(path) => onPickFile(path)}
+              />
+            </>
           )}
           {searchOpen && (
             <FileSearchPanel
@@ -516,11 +511,11 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                   />
                   {/* Match the editor surface so there's no flash before Monaco paints:
                       dark editor (argus-dark) == --bg-inset; light editor (argus-light) is white. */}
-                  <div
+                  <Row
+                    align="stretch"
                     style={{
                       flex: 1,
                       minHeight: 0,
-                      display: 'flex',
                       background: theme === 'dark' ? 'var(--bg-inset)' : 'var(--bg-2)',
                     }}
                   >
@@ -543,7 +538,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                         />
                       ))
                     )}
-                  </div>
+                  </Row>
                 </div>
                 {isSplit && gi === 0 && (
                   <ResizeDivider
@@ -582,7 +577,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
                     background: 'var(--bg-1)',
                     border: '1px solid var(--accent-edge)',
                     borderRadius: 'var(--r-2)',
-                    padding: '6px 12px',
+                    padding: 'var(--s-1-5) var(--s-3)',
                     fontSize: 'var(--t-tiny)',
                   }}
                 >
@@ -603,8 +598,8 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             zIndex: 1000,
             display: 'inline-flex',
             alignItems: 'center',
-            gap: 8,
-            padding: '5px 11px',
+            gap: 'var(--s-2)',
+            padding: 'var(--s-1-5) var(--s-3)',
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--t-xs)',
             color: 'var(--fg-0)',
@@ -615,7 +610,7 @@ export function ExplorerWorkbench({ session, onClose, initialFilePath, initialLi
             pointerEvents: 'none',
           }}
         >
-          <span style={{ color: 'var(--accent)', fontSize: 'var(--t-tiny)' }}>TS</span>
+          <Text size="caption" tone="accent">TS</Text>
           {ghost.label}
         </div>
       )}
@@ -683,8 +678,8 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
-              gap: 4,
-              padding: '4px var(--s-2)',
+              gap: 'var(--s-1)',
+              padding: 'var(--s-1) var(--s-2)',
               background: active ? 'var(--bg-3)' : 'var(--bg-2)',
               color: active ? 'var(--accent)' : 'var(--fg-2)',
               fontFamily: 'var(--font-mono)',
@@ -692,7 +687,7 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
               letterSpacing: 'var(--tracking-eye)',
             }}
           >
-            <Icon icon={Glyph} size={11} strokeWidth={1.6} /> {it.label}
+            <Icon icon={Glyph} size="sm" /> {it.label}
           </button>
         );
       })}
@@ -702,14 +697,12 @@ function SegmentedControl({ value, onChange }: { value: ViewMode; onChange: (v: 
 
 function ConflictBanner({ onReload }: { onReload: () => void }) {
   return (
-    <div
+    <Row
+      gap={2}
       role="alert"
       className="eyebrow"
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '6px 16px',
+        padding: 'var(--s-1-5) var(--s-4)',
         background: 'var(--warn-bg)',
         borderBottom: '1px solid color-mix(in srgb, var(--warn) 33%, transparent)',
         color: 'var(--warn)',
@@ -717,10 +710,10 @@ function ConflictBanner({ onReload }: { onReload: () => void }) {
         flexShrink: 0,
       }}
     >
-      <Icon icon={AlertTriangle} size={13} strokeWidth={1.6} />
+      <Icon icon={AlertTriangle} size="md" />
       File changed on disk
-      <div style={{ flex: 1 }} />
+      <Spacer />
       <Button variant="ghost" size="sm" onClick={onReload}>Reload from disk</Button>
-    </div>
+    </Row>
   );
 }

@@ -1,5 +1,6 @@
 import type { IPty } from 'node-pty';
 import type { TerminalMirror } from '../TerminalMirror.js';
+import type { BackendHealthEvent } from '../backendHealth.js';
 
 export interface SpawnOpts {
   sessionId: string;
@@ -81,4 +82,11 @@ export interface PtyBackend {
    * replay settles. tmux has no such transport, so it never registers.
    */
   onSessionResync?(cb: (sessionId: string) => void): void;
+
+  /**
+   * Transport-level health (plan 009 S1): the argusd connection dropping,
+   * coming back, or answering with another protocol version. tmux has no
+   * connection, so it never registers.
+   */
+  onHealthEvent?(cb: (event: BackendHealthEvent) => void): void;
 }

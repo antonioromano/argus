@@ -64,6 +64,16 @@ test('PUT confirmExitOnQuit:false persists', async () => {
   assert.equal(loaded.confirmExitOnQuit, false);
 });
 
+test('showStatusBar and restoreLayoutOnLaunch persist (allowlist)', async () => {
+  const { body } = await put({ showStatusBar: false, restoreLayoutOnLaunch: false });
+  assert.equal(body.showStatusBar, false);
+  assert.equal(body.restoreLayoutOnLaunch, false);
+  const loaded = await get();
+  assert.equal(loaded.showStatusBar, false);
+  assert.equal(loaded.restoreLayoutOnLaunch, false);
+  await put({ showStatusBar: true, restoreLayoutOnLaunch: true });
+});
+
 test('omitting fields preserves existing values', async () => {
   await put({ exitSessionsOnQuit: true, confirmExitOnQuit: false });
   // A PUT touching only an unrelated field must not drop the quit settings.
@@ -110,6 +120,13 @@ test('PUT mosaicOrientation persists and rejects unknown values', async () => {
   assert.equal((await put({ mosaicOrientation: 'vertical' })).body.mosaicOrientation, 'vertical');
   assert.equal((await put({ mosaicOrientation: 'diagonal' })).body.mosaicOrientation, 'vertical');
   assert.equal((await put({ mosaicOrientation: 'horizontal' })).body.mosaicOrientation, 'horizontal');
+});
+
+test('PUT density persists the three densities and ignores anything else', async () => {
+  assert.equal((await get()).density, 'default');
+  assert.equal((await put({ density: 'compact' })).body.density, 'compact');
+  assert.equal((await put({ density: 'huge' })).body.density, 'compact');
+  assert.equal((await put({ density: 'comfortable' })).body.density, 'comfortable');
 });
 
 test('PUT tileQuickAction persists a valid action (allowlist regression)', async () => {
@@ -186,7 +203,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
   const nonDefault: Record<string, unknown> = {
     defaultAgent: 'gemini',
     customAgents: [{ id: 'aider', name: 'Aider', command: 'aider', builtin: false }],
-    agentFlags: { claude: [{ value: '--verbose', enabled: true }] },
+    agentFlags: { claude: [{ id: 'f1', value: '--verbose', enabled: true }] },
     notificationsEnabled: true,
     notifyOnWaiting: false,
     notifyOnDone: true,
@@ -194,6 +211,8 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     notificationSound: true,
     showClock: true,
     clockShowSeconds: true,
+    showStatusBar: false,
+    restoreLayoutOnLaunch: false,
     othersFolderName: 'Archive',
     preventSleepWhileRunning: true,
     confirmCloseShell: false,
@@ -204,6 +223,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     codeFontSize: 15,
     mosaicWaitingStyle: 'flag',
     mosaicOrientation: 'vertical',
+    density: 'compact',
     debugToolsEnabled: true,
     ptyBackend: 'tmux',
     tileQuickAction: 'files',
@@ -232,6 +252,8 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     betaSessionTemplates: true,
     betaHandoff: true,
     betaSessionChains: true,
+    showTips: false,
+    discovery: { tipsSeen: ['broadcast'], tipLastShownAt: 10, notifAskedAt: 20, used: ['inbox'], checklistStartedAt: 30, checklistDone: ['two-sessions'], checklistDismissed: true, betaPromosHidden: ['*'] },
   };
 
   // The list above used to be maintained by hand against a comment, and
@@ -411,4 +433,101 @@ test('inspector: width is clamped, side is left or right, visibility is a strict
     assert.equal((await put({ inspectorCollapsed: bad })).status, 400, JSON.stringify(bad));
   }
   assert.deepEqual((await get()).inspectorCollapsed, ['usage', 'git']);
+});
+
+// Malformed agent payloads used to reach .trim() on a non-string and crash the
+// handler with a 500; they are client errors and must come back as 400s.
+test('malformed agentFlags / customAgents are rejected with 400, not 500', async () => {
+  const before = await get();
+  const cases: unknown[] = [
+    { agentFlags: 'nope' },
+    { agentFlags: { claude: 'not-a-list' } },
+    { agentFlags: { claude: [{ value: 42 }] } },
+    { agentFlags: { claude: [null] } },
+    { customAgents: 'nope' },
+    { customAgents: [null] },
+    { customAgents: [{ id: 'x', name: 7, command: 'x' }] },
+    { customAgents: [{ id: 'x', name: 'X', command: 7 }] },
+    { customAgents: [{ id: 'x', name: 'X', command: 'x', promptFlag: 5 }] },
+  ];
+  for (const body of cases) {
+    const res = await put(body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}, got ${res.status}`);
+  }
+  const after = await get();
+  assert.deepEqual(after.customAgents, before.customAgents);
+  assert.deepEqual(after.agentFlags, before.agentFlags);
+});
+
+test('showTips round-trips as a strict boolean', async () => {
+  assert.equal((await put({ showTips: false })).body.showTips, false);
+  assert.equal((await put({ showTips: 'yes' })).body.showTips, false);
+  assert.equal((await put({ showTips: true })).body.showTips, true);
+});
+
+test('discovery is sanitized: capped lists, valid timestamps, unknown fields dropped', async () => {
+  await put({ discovery: { ...DEFAULT_CONFIG.discovery, tipLastShownAt: 1000, notifAskedAt: 5 } });
+  const { status, body } = await put({
+    discovery: {
+      tipsSeen: [...Array.from({ length: 100 }, (_, i) => `t${i}`)],
+      used: ['inbox', 'x'.repeat(65), 7],
+      tipLastShownAt: -1,
+      notifAskedAt: 'soon',
+      checklistStartedAt: 42,
+      checklistDismissed: true,
+      foo: 'bar',
+    },
+  });
+  assert.equal(status, 200);
+  const d = body.discovery;
+  assert.equal(d.tipsSeen.length, 64);
+  assert.deepEqual(d.used, ['inbox']);
+  assert.equal(d.tipLastShownAt, 1000, 'negative keeps current');
+  assert.equal(d.notifAskedAt, 5, 'non-number keeps current');
+  assert.equal(d.checklistStartedAt, 42);
+  assert.equal(d.checklistDismissed, true);
+  assert.deepEqual(d.checklistDone, [], 'missing list keeps current');
+  assert.equal('foo' in d, false);
+  assert.deepEqual((await get()).discovery, d);
+});
+
+test('a PUT without discovery leaves it untouched', async () => {
+  const before = (await get()).discovery;
+  await put({ showClock: false });
+  assert.deepEqual((await get()).discovery, before);
+});
+
+// Settings import (plan 007) sends a whole file's agents and flags through this
+// route, so every field is type-guarded: malformed or hostile input is a 400.
+test('imported agents and flags: hostile or ambiguous input is a 400 and nothing changes', async () => {
+  const before = await get();
+  const cases: unknown[] = [
+    { agentFlags: { claude: [{ value: '--verbose', enabled: true }] } },
+    { agentFlags: { claude: [{ id: 'f', value: '--verbose', enabled: 'yes' }] } },
+    { agentFlags: { claude: [{ id: 'f', value: '--x; rm -rf /' }] } },
+    { customAgents: [{ id: 'claude', name: 'Fake', command: 'claude' }] },
+    { customAgents: [{ id: 'shell', name: 'Fake', command: 'zsh' }] },
+    { customAgents: [{ id: 'a', name: 'A', command: 'a' }, { id: 'a', name: 'B', command: 'b' }] },
+    { customAgents: [{ id: 'evil', name: 'Evil', command: 'rm -rf / ; curl x|sh' }] },
+    { customAgents: [{ id: 'num', name: 'Num', command: 42 }] },
+  ];
+  for (const body of cases) {
+    const res = await put(body);
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}, got ${res.status}`);
+    assert.equal(typeof res.body.error, 'string');
+  }
+  const after = await get();
+  assert.deepEqual(after.customAgents, before.customAgents);
+  assert.deepEqual(after.agentFlags, before.agentFlags);
+});
+
+test('a well-formed imported agent with its flags is accepted', async () => {
+  const res = await put({
+    customAgents: [{ id: 'aider', name: 'Aider', command: 'aider --yes', builtin: false }],
+    agentFlags: { aider: [{ id: 'f1', value: '--model sonnet', enabled: true }] },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.customAgents[0].command, 'aider --yes');
+  assert.equal(res.body.agentFlags.aider[0].value, '--model sonnet');
+  await put({ customAgents: [], agentFlags: {} });
 });

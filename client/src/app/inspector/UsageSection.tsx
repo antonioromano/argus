@@ -15,7 +15,7 @@ import {
   type UsageLevel,
 } from '../../utils/usageFormat.js';
 import type { InspectorSectionProps } from './types.js';
-import { InspectorEmpty, InspectorRow } from './InspectorRow.js';
+import { InspectorEmpty, InspectorRow, InspectorSettingsLink } from './InspectorRow.js';
 
 const TICK_MS = 30_000;
 
@@ -131,7 +131,7 @@ function UsageDetails({ usage }: { usage: SessionUsage }) {
         aria-controls={bodyId}
         onClick={() => setOpen((o) => !o)}
       >
-        <Icon icon={ChevronRight} size={11} strokeWidth={2} className="argus-inspector-disclosure-chevron" />
+        <Icon icon={ChevronRight} size="sm" strokeWidth={2} className="argus-inspector-disclosure-chevron" />
         <span>Details</span>
         <span className="argus-inspector-disclosure-meta">{formatTokens(usage.totalTokens)} tokens</span>
       </button>
@@ -173,7 +173,7 @@ export function UsageBody({ session, ctx }: InspectorSectionProps) {
   const now = useNow(!!plan);
 
   if (!agent) return <InspectorEmpty>This agent doesn’t report usage.</InspectorEmpty>;
-  if (!meter) return <InspectorEmpty>The usage meter is off (Settings → Shell header).</InspectorEmpty>;
+  if (!meter) return <InspectorEmpty action={<InspectorSettingsLink pane="shell-header" />}>The usage meter is off.</InspectorEmpty>;
 
   const usage = session.usage;
   const windows = liveWindows(plan, now);

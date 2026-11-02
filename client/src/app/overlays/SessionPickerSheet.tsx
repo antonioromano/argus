@@ -1,5 +1,5 @@
 import type { SessionInfo } from '@argus/shared';
-import { Sheet, StatusPill } from '../../components/primitives/index.js';
+import { Sheet, StatusPill, Stack, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 
 interface SessionPickerSheetProps {
@@ -13,13 +13,13 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
   const title = target === 'diff' ? 'Open Diff' : 'Open Files';
   return (
     <Sheet
-      eyebrow="Pick a shell"
+      eyebrow="Pick a session"
       title={title}
-      subtitle="No shell is open — choose which one to inspect."
+      subtitle="No session is open — choose which one to inspect."
       onClose={onClose}
       width={460}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+      <Stack gap={2}>
         {sessions.map((s) => (
           <button
             key={s.id}
@@ -41,26 +41,17 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
           >
             <AgentGlyph agent={s.agentType} size={18} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 'var(--t-sm)',
-                  color: 'var(--fg-0)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <Text as="div" mono size="body" truncate style={{ color: 'var(--fg-0)' }}>
                 {s.folderPath}
-              </div>
-              <div className="eyebrow" style={{ marginTop: 2 }}>
+              </Text>
+              <div className="eyebrow" style={{ marginTop: 'var(--s-0-5)' }}>
                 {s.agentType}
               </div>
             </div>
             <StatusPill status={s.status} size="sm" />
           </button>
         ))}
-      </div>
+      </Stack>
     </Sheet>
   );
 }

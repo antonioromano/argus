@@ -23,4 +23,4 @@ export const ENGINE_SHORT: Record<TerminalEngine, string> = {
  */
 export const ENGINE_NOTE_UPDATE =
   'These render as Universal if the new version’s native component fails to load. '
-  + 'The shell and its history are unaffected — only how it is drawn.';
+  + 'The session and its history are unaffected — only how it is drawn.';

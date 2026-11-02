@@ -1,6 +1,6 @@
 import { Minus, Maximize2, CircleX, MoreHorizontal, GitBranch } from 'lucide-react';
 import type { AppConfig } from '@argus/shared';
-import { StatusDot, Icon } from '../../components/primitives/index.js';
+import { StatusDot, Icon, Row, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 
@@ -50,46 +50,33 @@ export function WaitingStylePreview({ style }: { style: WaitingStyle }) {
           overflow: 'hidden',
         }}
       >
-        <div
+        <Row
+          gap={2}
           style={{
             position: 'relative',
             height: 28,
             flex: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--s-2)',
             padding: '0 var(--s-2) 0 var(--s-3)',
           }}
         >
           <AgentGlyph agent="claude" size={14} />
           <StatusDot status="waiting" size={7} />
-          <span
-            style={{
-              flex: 1,
-              minWidth: 0,
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-tiny)',
-              color: 'var(--fg-0)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <Text mono size="caption" truncate style={{ flex: 1, color: 'var(--fg-0)' }}>
             argus
-          </span>
+          </Text>
           <span className="argus-tile-status argus-status" data-status="waiting">
             {STATUS_LABELS.waiting}
           </span>
           <span className="argus-tile-actions" style={{ color: 'var(--fg-2)' }}>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={GitBranch} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={GitBranch} size="md" /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size={13} strokeWidth={1.7} /></span>
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Minus} size="md" /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={Maximize2} size="md" /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={CircleX} size="md" /></span>
             <span className="argus-tile-winsep" />
-            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size={13} strokeWidth={1.7} /></span>
+            <span style={{ width: 22, display: 'inline-flex', justifyContent: 'center' }}><Icon icon={MoreHorizontal} size="md" /></span>
           </span>
-        </div>
+        </Row>
         {/* Stand-in for the terminal fill: the breathing style's ::after sits
             above this, which is the whole reason it is drawn as an overlay. */}
         <div

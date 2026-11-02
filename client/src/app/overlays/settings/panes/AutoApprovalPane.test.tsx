@@ -26,6 +26,14 @@ vi.mock('../../../../components/primitives/index.js', async (orig) => ({
   pushToast: mocks.push,
 }));
 
+// Deferred delete (plan 004 U6): capture the offer so a test can run Undo
+// (revert) or the toast closing (commit) itself.
+const deferred = vi.hoisted(() => ({ offers: [] as { message: string; apply: () => void; commit: () => Promise<void>; revert: () => void }[] }));
+vi.mock('../../../../utils/undoable.js', async (orig) => ({
+  ...(await orig<typeof import('../../../../utils/undoable.js')>()),
+  deferUndoable: (o: (typeof deferred.offers)[number]) => { deferred.offers.push(o); o.apply(); return { dismiss() {} }; },
+}));
+
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
 
 const FOLDER = '/Users/me/proj';
@@ -45,6 +53,7 @@ beforeEach(() => {
   mocks.removeRule.mockReset().mockResolvedValue(undefined);
   mocks.getMode.mockReset().mockResolvedValue(null);
   mocks.push.mockReset();
+  deferred.offers.length = 0;
   onSave = vi.fn().mockResolvedValue(DEFAULT_CONFIG);
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
 });
@@ -79,7 +88,7 @@ describe('AutoApprovalPane', () => {
     expect(container.textContent).toContain('npm test -- --watch');
   });
 
-  it('turning the feature on needs an in-page confirmation; off saves at once', async () => {
+  it('turning the feature on asks in a sheet; off saves at once', async () => {
     await render();
     // Toggle renders a <label><span onClick> — the first span inside the first label.
     const toggle = container.querySelector('label > span');
@@ -92,11 +101,21 @@ describe('AutoApprovalPane', () => {
     expect(onSave).toHaveBeenCalledWith({ autoApprovalEnabled: true });
   });
 
-  it('removing a rule asks first', async () => {
+  it('removing a rule hides it at once; Undo brings it back with no request', async () => {
     await render();
-    await click(button('Remove…'));
-    expect(mocks.removeRule).not.toHaveBeenCalled();
     await click(button('Remove'));
+    expect(container.querySelectorAll('[data-testid="aa-rule"]')).toHaveLength(0);
+    expect(mocks.removeRule).not.toHaveBeenCalled();
+    await act(async () => { deferred.offers[0].revert(); });
+    expect(container.querySelectorAll('[data-testid="aa-rule"]')).toHaveLength(1);
+    expect(mocks.removeRule).not.toHaveBeenCalled();
+  });
+
+  it('the Undo window closing removes the rule once, in the folder it was shown for', async () => {
+    await render();
+    await click(button('Remove'));
+    await act(async () => { await deferred.offers[0].commit(); });
+    expect(mocks.removeRule).toHaveBeenCalledTimes(1);
     expect(mocks.removeRule).toHaveBeenCalledWith(FOLDER, 'r1');
   });
 

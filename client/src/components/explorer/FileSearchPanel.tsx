@@ -4,7 +4,7 @@ import { Search, FileText, FileCode, FileJson, X } from 'lucide-react';
 import { isMac } from '../../utils/platform.js';
 import { api } from '../../services/api.js';
 import { relativeTo } from '../../utils/pathFormat.js';
-import { Icon } from '../primitives/index.js';
+import { Icon, Row, Text } from '../primitives/index.js';
 
 interface FileSearchPanelProps {
   folderPath: string;
@@ -15,9 +15,9 @@ interface FileSearchPanelProps {
 
 export function ResultIcon({ ext }: { ext: string }) {
   const style: React.CSSProperties = { flexShrink: 0, color: 'var(--fg-3)' };
-  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size={13} style={style} />;
-  if (ext === '.json') return <Icon icon={FileJson} size={13} style={style} />;
-  return <Icon icon={FileText} size={13} style={style} />;
+  if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) return <Icon icon={FileCode} size="md" style={style} />;
+  if (ext === '.json') return <Icon icon={FileJson} size="md" style={style} />;
+  return <Icon icon={FileText} size="md" style={style} />;
 }
 
 export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClose }: FileSearchPanelProps) {
@@ -118,21 +118,19 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-1)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       {/* Header */}
-      <div
+      <Row
+        gap={1.5}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 10px',
+          padding: 'var(--s-1-5) var(--s-3)',
           borderBottom: '1px solid var(--line-2)',
           flexShrink: 0,
         }}
       >
-        <Icon icon={Search} size={13} strokeWidth={1.6} color="var(--fg-3)" style={{ flexShrink: 0 }} />
+        <Icon icon={Search} size="md" color="var(--fg-3)" style={{ flexShrink: 0 }} />
         <input
           ref={inputRef}
           value={query}
@@ -176,9 +174,9 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
             flexShrink: 0,
           }}
         >
-          <Icon icon={X} size={13} strokeWidth={1.6} />
+          <Icon icon={X} size="md" />
         </button>
-      </div>
+      </Row>
 
       {/* Results */}
       <div
@@ -197,7 +195,8 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         {results.map((r, i) => {
           const selected = i === selectedIndex;
           return (
-            <div
+            <Row
+              gap={1.5}
               key={r.path + (r.lineNumber ?? '')}
               id={`file-search-opt-${i}`}
               data-idx={i}
@@ -206,10 +205,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
               onClick={() => { onSelectFile(r.path, r.lineNumber); onClose(); }}
               onMouseEnter={() => setSelectedIndex(i)}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '5px 10px',
+                padding: 'var(--s-1-5) var(--s-3)',
                 cursor: 'pointer',
                 background: selected ? 'var(--bg-3)' : 'transparent',
                 borderLeft: selected ? '2px solid var(--accent)' : '2px solid transparent',
@@ -218,30 +214,12 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
             >
               <ResultIcon ext={r.ext} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-sm)',
-                    color: 'var(--fg-0)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                <Text as="div" mono size="body" truncate style={{ color: 'var(--fg-0)' }}>
                   {r.name}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 'var(--t-tiny)',
-                    color: 'var(--fg-3)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
+                </Text>
+                <Text as="div" mono size="caption" tone="faint" truncate>
                   {relPath(r.path)}{r.lineNumber ? `:${r.lineNumber}` : ''}
-                </div>
+                </Text>
               </div>
               <span
                 style={{
@@ -254,17 +232,17 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
               >
                 {r.matchType === 'filename' ? 'NAME' : 'CONTENT'}
               </span>
-            </div>
+            </Row>
           );
         })}
       </div>
 
       {/* Footer */}
-      <div
+      <Row
+        align="stretch"
+        gap={3}
         style={{
-          display: 'flex',
-          gap: 12,
-          padding: '4px 10px',
+          padding: 'var(--s-1) var(--s-3)',
           borderTop: '1px solid var(--line-2)',
           flexShrink: 0,
           fontFamily: 'var(--font-mono)',
@@ -275,13 +253,13 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         <span>↑↓ navigate</span>
         <span>↵ open</span>
         <span>Esc close</span>
-      </div>
+      </Row>
     </div>
   );
 }
 
 const emptyStyle: React.CSSProperties = {
-  padding: '20px 10px',
+  padding: 'var(--s-5) var(--s-3)',
   textAlign: 'center',
   fontFamily: 'var(--font-mono)',
   fontSize: 'var(--t-sm)',

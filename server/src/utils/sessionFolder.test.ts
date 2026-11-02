@@ -68,3 +68,15 @@ test('POST /api/sessions rejects a relative folderPath before reaching the manag
     await new Promise<void>((r) => server.close(() => r()));
   }
 });
+
+test('a missing folder carries FOLDER_NOT_FOUND (404)', async () => {
+  const root = tmp();
+  try {
+    await assert.rejects(resolveSessionFolder(path.join(root, 'missing')), (e: unknown) => {
+      const err = e as { code?: string; status?: number; message: string };
+      return err.code === 'FOLDER_NOT_FOUND' && err.status === 404 && /does not exist/.test(err.message);
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

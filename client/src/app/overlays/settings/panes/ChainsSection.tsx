@@ -1,22 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import type { ChainFire, SessionChain, SessionInfo } from '@argus/shared';
-import { IconButton, Section, Toggle, pushToast } from '../../../../components/primitives/index.js';
+import { IconButton, Section, Toggle, Stack, Row } from '../../../../components/primitives/index.js';
+import { toastError } from '../../../../errors/toastError.js';
+import { PaneLoadState } from '../PaneLoadState.js';
 import { useSocket } from '../../../../hooks/useSocket.js';
 import { api } from '../../../../services/api.js';
 import { shellLabel } from '../../../../utils/sessionLabel.js';
+import { useDeferredRemove } from '../../../../hooks/useDeferredRemove.js';
 
 /**
  * Beta F13: every chain (armed state, why it disarmed, remove) and the last
  * fires (sent / queued / dropped + reason). Rendered by BetaPane only while
- * `betaSessionChains` is on; new chains are made from a shell's "Chain to…".
+ * `betaSessionChains` is on; new chains are made from a session's "Add Follow-up
+ * Prompt…". User-facing copy says "follow-up prompt"; code keeps "chain".
  */
 export function ChainsSection() {
   const socket = useSocket();
   const [chains, setChains] = useState<SessionChain[] | null>(null);
   const [fires, setFires] = useState<ChainFire[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const refetch = useCallback(() => {
     Promise.all([api.listChains(), api.chainAudit(), api.getSessions()])
@@ -26,7 +30,7 @@ export function ChainsSection() {
         setNames(Object.fromEntries(sessions.map((s: SessionInfo) => [s.id, shellLabel(s)])));
         setError(null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load chains'));
+      .catch((err: unknown) => setError(err ?? new Error('Couldn’t load follow-up prompts')));
   }, []);
 
   useEffect(() => {
@@ -42,27 +46,27 @@ export function ChainsSection() {
       const next = await api.setChainArmed(c.id, armed);
       setChains((list) => list?.map((x) => (x.id === c.id ? next : x)) ?? null);
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : 'Could not update the chain', 'danger');
+      toastError(err, 'Couldn’t update the follow-up prompt');
     }
   };
 
-  const remove = async (c: SessionChain) => {
-    try {
-      await api.deleteChain(c.id);
-      setChains((list) => list?.filter((x) => x.id !== c.id) ?? null);
-    } catch (err) {
-      pushToast(err instanceof Error ? err.message : 'Could not remove the chain', 'danger');
-    }
-  };
+  // Deferred: re-creating a chain would lose its armed state and fire history.
+  const { hidden, remove: deferRemove } = useDeferredRemove();
+  const remove = (c: SessionChain) => deferRemove(c.id, {
+    message: `Removed follow-up prompt ${name(c.sourceId)} → ${name(c.targetId)}`,
+    commit: () => api.deleteChain(c.id),
+    onCommitted: () => setChains((list) => list?.filter((x) => x.id !== c.id) ?? null),
+  });
+  const visible = chains?.filter((c) => !hidden.has(c.id));
 
   return (
-    <Section title="Chains">
-      <div data-testid="chains-section" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
-        {error && <div role="alert" style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{error}</div>}
-        {chains && chains.length === 0 && (
-          <div className="setting-row-hint">No chains yet. Right-click a shell → Chain to… to add one.</div>
+    <Section title="Follow-up prompts">
+      <Stack gap={2} data-testid="chains-section">
+        <PaneLoadState loaded={chains !== null} error={error} errorTitle="Couldn’t load follow-up prompts" onRetry={refetch} />
+        {visible && visible.length === 0 && !error && (
+          <div className="setting-row-hint">No follow-up prompts yet. Right-click a session → Add Follow-up Prompt… to add one.</div>
         )}
-        {chains?.map((c) => (
+        {visible?.map((c) => (
           <div key={c.id} className="setting-row" data-testid={`chain-${c.id}`}>
             <div className="setting-row-meta" style={{ minWidth: 0 }}>
               <div className="setting-row-label">
@@ -74,32 +78,41 @@ export function ChainsSection() {
               </div>
               {!c.armed && c.disarmedReason && (
                 <div className="setting-row-hint" data-testid="chain-reason" style={{ color: 'var(--warn, var(--fg-2))' }}>
-                  Disarmed: {c.disarmedReason}
+                  Turned off: {c.disarmedReason}
                 </div>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-2)', flexShrink: 0 }}>
-              <Toggle checked={c.armed} onChange={(v) => { void setArmed(c, v); }} label={c.armed ? 'Armed' : 'Disarmed'} size="sm" />
-              <IconButton icon={Trash2} label="Remove chain" size="sm" onClick={() => { void remove(c); }} />
-            </div>
+            <Row gap={2} style={{ flexShrink: 0 }}>
+              <Toggle checked={c.armed} onChange={(v) => { void setArmed(c, v); }} label={c.armed ? 'On' : 'Off'} size="sm" />
+              <IconButton icon={Trash2} label="Remove follow-up prompt" size="sm" onClick={() => remove(c)} />
+            </Row>
           </div>
         ))}
 
         {fires.length > 0 && (
           <div data-testid="chain-fires" style={{ marginTop: 'var(--s-2)' }}>
-            <div className="eyebrow" style={{ color: 'var(--fg-2)', marginBottom: 'var(--s-1)' }}>Recent fires</div>
+            <div className="eyebrow" style={{ color: 'var(--fg-2)', marginBottom: 'var(--s-1)' }}>Recently sent</div>
             {fires.map((f, i) => (
-              <div key={`${f.at}-${i}`} style={{ display: 'flex', gap: 'var(--s-2)', fontSize: 'var(--t-xs)', color: 'var(--fg-2)', lineHeight: 1.6 }}>
+              <Row
+                align="stretch"
+                gap={2}
+                key={`${f.at}-${i}`}
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  color: 'var(--fg-2)',
+                  lineHeight: 1.6,
+                }}
+              >
                 <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-3)', flexShrink: 0 }}>{new Date(f.at).toLocaleTimeString()}</span>
                 <span style={{ flexShrink: 0, color: f.outcome === 'dropped' ? 'var(--danger)' : f.outcome === 'sent' ? 'var(--fg-0)' : 'var(--fg-2)' }}>{f.outcome}</span>
                 <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {name(f.sourceId, f.sourceName)} → {name(f.targetId, f.targetName)}{f.reason ? ` · ${f.reason}` : ''}
                 </span>
-              </div>
+              </Row>
             ))}
           </div>
         )}
-      </div>
+      </Stack>
     </Section>
   );
 }

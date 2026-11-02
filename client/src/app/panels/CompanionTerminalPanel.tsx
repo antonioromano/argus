@@ -1,10 +1,10 @@
 import { useRef } from 'react';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
-import { Terminal } from 'lucide-react';
+import { SquareTerminal } from 'lucide-react';
 import { useCompanionTerminal } from '../../hooks/useCompanionTerminal.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
-import { Icon } from '../../components/primitives/index.js';
+import { Icon, Row, Text } from '../../components/primitives/index.js';
 import { terminalBackground } from '../../tokens/paint.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -43,11 +43,9 @@ export function CompanionTerminalPanel({
         flexDirection: 'column',
       }}
     >
-      <div
+      <Row
+        gap={2}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--s-2)',
           height: 'var(--h-panel-header)',
           boxSizing: 'border-box',
           padding: '0 var(--s-4)',
@@ -55,21 +53,10 @@ export function CompanionTerminalPanel({
           flexShrink: 0,
         }}
       >
-        <Icon icon={Terminal} size={13} strokeWidth={1.6} color="var(--fg-2)" />
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--t-sm)',
-            color: 'var(--fg-1)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
+        <Icon icon={SquareTerminal} size="md" color="var(--fg-2)" />
+        <Text mono size="body" tone="default" truncate style={{ flex: 1 }}>
           {shellLabel(session)}
-        </span>
+        </Text>
         {!terminalAlive && (
           <span
             className="eyebrow"
@@ -78,7 +65,7 @@ export function CompanionTerminalPanel({
             exited
           </span>
         )}
-      </div>
+      </Row>
 
       <div
         style={{
@@ -99,6 +86,7 @@ export function CompanionTerminalPanel({
             background: termBg,
             borderRadius: 'var(--r-2)',
             overflow: 'hidden',
+            // eslint-disable-next-line argus/no-raw-style-scale -- terminal inset feeds fit() cols/rows; matches TerminalShell
             padding: '8px 14px 0px 14px',
             position: 'relative',
           }}

@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback, useEffect, cloneElement } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, cloneElement } from 'react';
 import type { ReactElement, ReactNode, CSSProperties, MouseEvent as RMouseEvent, FocusEvent as RFocusEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { SuppressWhileMounted } from '../../hooks/useOverlaySuppression.js';
+import { coversNativeOverlay } from '../../hooks/nativeOverlayRegistry.js';
 
 interface TooltipProps {
   /** Usually a string; a node for a structured breakdown (e.g. the usage chip). */
@@ -82,6 +83,25 @@ function getCoords(rect: DOMRect, position: string): Coords {
   }
 }
 
+type Position = 'top' | 'bottom' | 'left' | 'right';
+const OPPOSITE: Record<Position, Position> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
+
+/** The asked-for side first, then its opposite, then the other two. */
+function placementOrder(p: Position): Position[] {
+  return [p, OPPOSITE[p], ...(['top', 'bottom', 'left', 'right'] as Position[]).filter((q) => q !== p && q !== OPPOSITE[p])];
+}
+
+/** The box a placement would occupy once translated and clamped. */
+function boxAt(coords: Coords, tt: { width: number; height: number }) {
+  const pct = (s: string) => (s.endsWith('%') ? parseFloat(s) / 100 : 0);
+  return {
+    x: coords.left + pct(coords.translateX) * tt.width,
+    y: coords.top + pct(coords.translateY) * tt.height,
+    width: tt.width,
+    height: tt.height,
+  };
+}
+
 function clampToViewport(
   coords: Coords,
   ttRect: { width: number; height: number },
@@ -111,22 +131,45 @@ function clampToViewport(
 export function Tooltip({ content, children, position = 'top', delay = 400 }: TooltipProps) {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState<Coords | null>(null);
+  // Placement is settled before the bubble paints or suppresses anything.
+  const [placed, setPlaced] = useState(false);
+  // Every placement would cover a native terminal: the trigger's `title` shows
+  // the OS tooltip instead, which macOS draws above every window.
+  const [systemTip, setSystemTip] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<Element | null>(null);
+  // undefined: nothing saved; null: the trigger had no title attribute.
+  const savedTitle = useRef<string | null | undefined>(undefined);
+
+  const restoreTitle = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el || savedTitle.current === undefined) return;
+    if (savedTitle.current === null) el.removeAttribute('title');
+    else el.setAttribute('title', savedTitle.current);
+    savedTitle.current = undefined;
+  }, []);
 
   const hide = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setVisible(false);
-  }, []);
+    setPlaced(false);
+    setSystemTip(false);
+    restoreTitle();
+  }, [restoreTitle]);
 
   const show = useCallback((el: Element) => {
     bindGlobalListeners();
+    triggerRef.current = el;
     timerRef.current = setTimeout(() => {
       const rect = el.getBoundingClientRect();
       setCoords(getCoords(rect, position));
+      setPlaced(false);
       setVisible(true);
     }, delay);
   }, [position, delay]);
+
+  useEffect(() => () => restoreTitle(), [restoreTitle]);
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
@@ -141,15 +184,27 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
     return () => { if (activeHide === hide) activeHide = null; };
   }, [visible, hide]);
 
-  // After tooltip becomes visible, measure & clamp to viewport.
-  useEffect(() => {
-    if (!visible || !coords || !tooltipRef.current) return;
-    const ttRect = tooltipRef.current.getBoundingClientRect();
-    const clamped = clampToViewport(coords, { width: ttRect.width, height: ttRect.height });
-    if (clamped.left !== coords.left || clamped.top !== coords.top) {
-      setCoords(clamped);
+  // Before paint: measure, then take the first placement (asked-for side,
+  // its opposite, the other two) that fits the window without landing on a
+  // native terminal. A tooltip must never hide a terminal just to show a hint.
+  // If every side would, a plain-text tooltip falls back to the OS tooltip;
+  // rich content keeps the asked-for side and hides what it covers.
+  useLayoutEffect(() => {
+    if (!visible || placed || !tooltipRef.current || !triggerRef.current) return;
+    const tt = tooltipRef.current.getBoundingClientRect();
+    const size = { width: tt.width, height: tt.height };
+    const anchor = triggerRef.current.getBoundingClientRect();
+    const candidates = placementOrder(position).map((p) => clampToViewport(getCoords(anchor, p), size));
+    const clear = candidates.find((c) => !coversNativeOverlay(boxAt(c, size)));
+    if (!clear && typeof content === 'string') {
+      const el = triggerRef.current;
+      if (savedTitle.current === undefined) savedTitle.current = el.getAttribute('title');
+      el.setAttribute('title', content);
+      setSystemTip(true);
     }
-  }, [visible, coords]);
+    setCoords(clear ?? candidates[0]);
+    setPlaced(true);
+  }, [visible, placed, position, content]);
 
   // eslint-disable-next-line react-hooks/refs -- cloneElement handler wiring; no hook ref is read during render (tooltipRef is only touched in effects)
   const cloned = cloneElement(children, {
@@ -183,7 +238,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         color: 'var(--fg-0)',
         border: '1px solid var(--line-3)',
         borderRadius: 'var(--r-2)',
-        padding: '4px 8px',
+        padding: 'var(--s-1) var(--s-2)',
         fontFamily: 'var(--font-mono)',
         fontSize: 'var(--t-tiny)',
         fontWeight: 500,
@@ -191,8 +246,8 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         whiteSpace: 'nowrap',
         boxShadow: 'var(--shadow-pop)',
         pointerEvents: 'none',
-        opacity: visible ? 1 : 0,
-        transition: 'opacity var(--dur-fast) var(--ease-std)',
+        opacity: visible && placed && !systemTip ? 1 : 0,
+        transition: 'opacity var(--dur-fast) var(--ease)',
       }
     : { display: 'none' };
 
@@ -209,7 +264,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
           mount onward, not just while the bubble is actually shown. Gating
           SuppressWhileMounted on `visible` gives it the tooltip's real
           on-screen lifetime instead. */}
-      {visible && <SuppressWhileMounted target={() => tooltipRef.current?.getBoundingClientRect() ?? null} />}
+      {visible && placed && !systemTip && <SuppressWhileMounted target={() => tooltipRef.current?.getBoundingClientRect() ?? null} />}
     </>
   );
 }

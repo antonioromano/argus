@@ -25,6 +25,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   notificationSound: false,
   showClock: false,
   clockShowSeconds: false,
+  showStatusBar: true,
+  restoreLayoutOnLaunch: true,
   othersFolderName: 'Others',
   preventSleepWhileRunning: false,
   confirmCloseShell: true,
@@ -35,6 +37,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   codeFontSize: 13,
   mosaicWaitingStyle: 'breathing',
   mosaicOrientation: 'horizontal',
+  density: 'default',
   debugToolsEnabled: false,
   ptyBackend: 'auto',
   tileQuickAction: 'diff',
@@ -63,6 +66,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   betaSessionTemplates: false,
   betaHandoff: false,
   betaSessionChains: false,
+  showTips: true,
+  discovery: { tipsSeen: [], tipLastShownAt: 0, notifAskedAt: 0, used: [], checklistStartedAt: 0, checklistDone: [], checklistDismissed: false, betaPromosHidden: [] },
 };
 
 export class ConfigStore {

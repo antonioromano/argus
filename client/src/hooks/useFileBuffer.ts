@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/Toast.js';
+import { toastError } from '../errors/toastError.js';
 
 const AUTOSAVE_MS = 5000;
 
@@ -134,7 +135,9 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
   // callback reads it through a ref so the closure isn't stale.
   const saveRef = useRef<() => Promise<void>>(async () => {});
 
-  const save = useCallback(async () => {
+  // `explicit`: ⌘S or the Save button. Only that gets a "Saved" toast; an
+  // autosave every few seconds is already shown by the dirty marker clearing.
+  const saveCore = useCallback(async (explicit: boolean) => {
     const cur = stateRef.current;
     const path = filePathRef.current;
     if (!path) return;
@@ -154,13 +157,13 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
       });
       if (filePathRef.current !== path) return;
       if (res.conflict) {
+        // The editor's inline ConflictBanner says so, with Reload.
         setState((s) => ({ ...s, saving: false, conflict: true }));
-        pushToast('File changed on disk — reload', 'warn');
         return;
       }
       if (!res.success) {
         setState((s) => ({ ...s, saving: false, error: res.error ?? 'Save failed' }));
-        pushToast(res.error ?? 'Save failed', 'danger');
+        toastError(new Error(res.error ?? 'Save failed'), 'Couldn’t save');
         return;
       }
       const next: UseFileBufferState = {
@@ -182,7 +185,7 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
         conflict: false,
         error: null,
       }));
-      pushToast('Saved', 'ok');
+      if (explicit) pushToast('Saved', 'ok');
       // An autosave that fired mid-flight bailed on `saving`; queue the newer edit.
       if (next.dirty) {
         clearTimer();
@@ -194,21 +197,23 @@ export function useFileBuffer({ sessionId, filePath }: UseFileBufferOptions): Us
       if (filePathRef.current !== path) return;
       const msg = err instanceof Error ? err.message : 'Save failed';
       setState((s) => ({ ...s, saving: false, error: msg }));
-      pushToast(msg, 'danger');
+      toastError(err, 'Couldn’t save');
     }
   }, [sessionId, clearTimer]);
 
   useEffect(() => {
-    saveRef.current = save;
-  }, [save]);
+    saveRef.current = () => saveCore(false);
+  }, [saveCore]);
+
+  const save = useCallback(() => saveCore(true), [saveCore]);
 
   const setContent = useCallback((next: string) => {
     setState((s) => ({ ...s, content: next, dirty: next !== s.initialContent }));
     clearTimer();
     timerRef.current = setTimeout(() => {
-      void save();
+      void saveCore(false);
     }, AUTOSAVE_MS);
-  }, [save, clearTimer]);
+  }, [saveCore, clearTimer]);
 
   const reload = useCallback(async () => {
     if (!filePath) return;

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import type { SessionPrReadyResponse } from '@argus/shared';
+import type { ApiErrorBody, SessionPrReadyResponse } from '@argus/shared';
 import type { SessionManager } from '../services/SessionManager.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { isGithubPrUrl } from '../services/usage/TranscriptTailer.js';
@@ -37,7 +37,7 @@ export function createSessionPrRoutes(manager: Pick<SessionManager, 'listSession
     }
     const result = await manager.sessionPrDiff(req.params.id, url);
     if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
+      res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) } satisfies ApiErrorBody);
       return;
     }
     res.setHeader('Cache-Control', 'no-cache');
@@ -61,7 +61,7 @@ export function createSessionPrRoutes(manager: Pick<SessionManager, 'listSession
     }
     const result = await manager.setSessionPrReady(req.params.id, url, ready);
     if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
+      res.status(result.status).json({ error: result.error, ...(result.code ? { code: result.code } : {}) } satisfies ApiErrorBody);
       return;
     }
     const body: SessionPrReadyResponse = { pr: result.pr };

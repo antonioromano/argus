@@ -3,6 +3,7 @@ import { DaemonClient, DaemonPty } from '../daemon/DaemonClient.js';
 import { shquote } from '../PtyManager.js';
 import type { TerminalMirror } from '../TerminalMirror.js';
 import type { PtyBackend, SpawnOpts } from './types.js';
+import type { BackendHealthEvent } from '../backendHealth.js';
 
 /** How long a restart waits for the killed agent's exit before giving up on it. */
 const STOP_EXIT_TIMEOUT_MS = 2_000;
@@ -36,6 +37,11 @@ export class DaemonBackend implements PtyBackend {
     this.client.on('resync', (sessionId: string) => this.reattach(sessionId));
   }
 
+  /** Whether the argusd socket is up right now (Help → Copy Diagnostics). */
+  isConnected(): boolean {
+    return this.client.isConnected();
+  }
+
   private reattach(sessionId: string): void {
     if (!this.ptys.has(sessionId)) return; // stopped meanwhile: nothing to repaint
     this.client.attach(sessionId, () => this.resyncCb?.(sessionId));
@@ -55,6 +61,13 @@ export class DaemonBackend implements PtyBackend {
 
   onSessionResync(cb: (sessionId: string) => void): void {
     this.resyncCb = cb;
+  }
+
+  onHealthEvent(cb: (event: BackendHealthEvent) => void): void {
+    this.client.on('connected', () => cb('connected'));
+    this.client.on('reconnected', () => cb('connected'));
+    this.client.on('disconnected', () => cb('disconnected'));
+    this.client.on('versionMismatch', () => cb('versionMismatch'));
   }
 
   async ready(): Promise<void> {

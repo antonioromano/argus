@@ -9,6 +9,8 @@ export interface ContextMenuItem {
   label: string;
   icon?: LucideIcon;
   shortcut?: string;
+  /** A muted second line under the label (e.g. a beta caveat). */
+  hint?: string;
   danger?: boolean;
   disabled?: boolean;
   onClick: () => void;
@@ -81,6 +83,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
     <div
       ref={ref}
       role="menu"
+      className="material-float"
       onContextMenu={(e) => e.preventDefault()}
       style={{
         position: 'fixed',
@@ -88,24 +91,24 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
         top: pos.y,
         zIndex: 'var(--z-pop)' as unknown as number,
         minWidth: MENU_W,
-        background: 'var(--bg-2)',
+        background: 'var(--material-menu)',
         border: '1px solid var(--line-3)',
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-pop)',
-        padding: 4,
-        animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+        padding: 'var(--s-1)',
+        animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
       {items.map((entry, i) => {
         if (isSeparator(entry)) {
-          return <div key={`sep-${i}`} style={{ height: 1, background: 'var(--line-2)', margin: '4px 6px' }} />;
+          return <div key={`sep-${i}`} role="separator" className="argus-ctx-sep" />;
         }
         if (isHeader(entry)) {
           return (
             <div
               key={`hdr-${i}`}
               className="eyebrow"
-              style={{ padding: '6px 9px 3px', color: 'var(--fg-4)' }}
+              style={{ padding: 'var(--s-1-5) var(--s-2) var(--s-1)', color: 'var(--fg-4)' }}
             >
               {entry.header}
             </div>
@@ -129,9 +132,9 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
               boxSizing: 'border-box',
               display: 'flex',
               alignItems: 'center',
-              gap: 9,
+              gap: 'var(--s-2)',
               width: '100%',
-              padding: '6px 9px',
+              padding: 'var(--s-1-5) var(--s-2)',
               borderRadius: 'var(--r-2)',
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--t-tiny)',
@@ -139,8 +142,17 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
               cursor: entry.disabled ? 'default' : 'pointer',
             }}
           >
-            {Glyph && <Icon icon={Glyph} size={13} strokeWidth={1.6} style={{ flexShrink: 0 }} />}
-            <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{entry.label}</span>
+            {Glyph && <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />}
+            {entry.hint ? (
+              <span style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ whiteSpace: 'nowrap' }}>{entry.label}</span>
+                <span className="argus-ctx-hint" style={{ fontSize: 'var(--t-eyebrow)', color: 'var(--fg-3)', whiteSpace: 'nowrap' }}>
+                  {entry.hint}
+                </span>
+              </span>
+            ) : (
+              <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{entry.label}</span>
+            )}
             {entry.shortcut && (
               <span style={{ marginLeft: 'auto', color: 'var(--fg-3)' }}>{entry.shortcut}</span>
             )}

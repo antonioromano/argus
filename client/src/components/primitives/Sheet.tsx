@@ -60,13 +60,14 @@ export function Sheet({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 'var(--s-6)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       <SuppressWhileMounted target="all" />
       <div
         ref={panelRef}
         onClick={(e) => e.stopPropagation()}
+        className="material-float"
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}
@@ -79,7 +80,7 @@ export function Sheet({
           maxHeight: '92%',
           display: 'flex',
           flexDirection: 'column',
-          background: 'var(--bg-2)',
+          background: 'var(--material-sheet)',
           border: '1px solid var(--line-2)',
           boxShadow: 'var(--shadow-sheet)',
           borderRadius: 'var(--r-4)',
@@ -96,7 +97,7 @@ export function Sheet({
           }}>
             <div>
               {eyebrow && (
-                <div className="eyebrow" style={{ color: 'var(--accent)', marginBottom: 6 }}>
+                <div className="eyebrow" style={{ color: 'var(--accent)', marginBottom: 'var(--s-1-5)' }}>
                   {eyebrow}
                 </div>
               )}
@@ -111,7 +112,7 @@ export function Sheet({
                 </div>
               )}
               {subtitle && (
-                <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginTop: 4 }}>
+                <div style={{ fontSize: 'var(--t-sm)', color: 'var(--fg-2)', marginTop: 'var(--s-1)' }}>
                   {subtitle}
                 </div>
               )}
@@ -132,7 +133,7 @@ export function Sheet({
             gap: 'var(--s-2)',
             padding: 'var(--s-4) var(--s-6)',
             borderTop: '1px solid var(--line-1)',
-            background: 'var(--bg-1)',
+            background: 'var(--material-toolbar)',
           }}>
             {footer}
           </div>
