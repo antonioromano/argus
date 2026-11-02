@@ -42,7 +42,7 @@ describe('DensityProvider', () => {
     render(d);
     const m = DENSITY_METRICS[d];
     expect(html().dataset.density).toBe(d);
-    expect(html().style.getPropertyValue('--row-h')).toBe(m.rowH);
+    expect(html().style.getPropertyValue('--row-pad-y')).toBe(`${m.rowPadY}px`);
     expect(html().style.getPropertyValue('--header-pad-y')).toBe(`${m.headerPadY}px`);
     expect(html().style.getPropertyValue('--h-titlebar')).toBe(`${m.titlebarH}px`);
     expect(html().style.getPropertyValue('--w-sidebar')).toBe(`${m.sidebarW}px`);
@@ -65,7 +65,7 @@ describe('DensityProvider', () => {
     render('compact');
     act(() => root.unmount());
     expect(html().dataset.density).toBeUndefined();
-    expect(html().style.getPropertyValue('--row-h')).toBe('');
+    expect(html().style.getPropertyValue('--row-pad-y')).toBe('');
     act(() => { root = createRoot(container); });
   });
 });

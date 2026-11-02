@@ -60,37 +60,29 @@ describe('spacing', () => {
 });
 
 describe('row heights', () => {
-  it.each([
-    ['--row-h-compact', 'var(--ctl-h-sm)'],
-    ['--row-h', 'var(--ctl-h-md)'],
-    ['--row-h-comfortable', 'var(--ctl-h-lg)'],
-    ['--row-h-touch', '44px'],
-  ])('%s = %s', (name, value) => {
-    expect(decl(name)).toBe(value);
+  it('keeps the fixed mobile touch row', () => {
+    expect(decl('--row-h-touch')).toBe('44px');
+  });
+
+  it('has no desktop row-height token: rows size by density padding', () => {
+    // --row-h and its compact/comfortable aliases were bound but never read.
+    for (const name of ['--row-h', '--row-h-compact', '--row-h-comfortable']) expect(decl(name), name).toBeUndefined();
   });
 });
 
 describe('density re-binds row rhythm only (plan 005 row heights × plan 008 density)', () => {
-  /** Everything DensityProvider may write on <html>: the row height, row/header padding, chrome geometry. */
-  const REBOUND = ['--row-h', '--row-pad-y', '--leaf-pad-y', '--group-h', '--header-pad-y', '--h-titlebar', '--h-statusbar', '--w-sidebar'];
+  /** Everything DensityProvider may write on <html>: row/header padding and chrome geometry. */
+  const REBOUND = ['--row-pad-y', '--leaf-pad-y', '--group-h', '--header-pad-y', '--h-titlebar', '--h-statusbar', '--w-sidebar'];
 
   it.each(Object.keys(DENSITY_METRICS) as (keyof typeof DENSITY_METRICS)[])('%s writes exactly the row-rhythm tokens', (d) => {
     expect(Object.keys(densityCssVars(DENSITY_METRICS[d])).sort()).toEqual([...REBOUND].sort());
   });
 
-  it('never re-binds control heights, the row-height aliases, type, spacing or the UI scale', () => {
-    const FIXED = /^--(ctl-h-|row-h-|t-|s-|lh-|font|ui-scale|code)/;
+  it('never re-binds control heights, row heights, type, spacing or the UI scale', () => {
+    const FIXED = /^--(ctl-h-|row-h|t-|s-|lh-|font|ui-scale|code)/;
     for (const m of Object.values(DENSITY_METRICS)) {
       expect(Object.keys(densityCssVars(m)).filter((k) => FIXED.test(k))).toEqual([]);
     }
-  });
-
-  it('each density binds --row-h to a row-height alias of a control height, never a raw number', () => {
-    const rowH = Object.fromEntries(Object.entries(DENSITY_METRICS).map(([d, m]) => [d, m.rowH]));
-    // Default can't say var(--row-h) (it is --row-h), so it names the step --row-h aliases.
-    expect(rowH).toEqual({ compact: 'var(--row-h-compact)', default: decl('--row-h'), comfortable: 'var(--row-h-comfortable)' });
-    expect(decl('--row-h-compact')).toMatch(/^var\(--ctl-h-/);
-    expect(decl('--row-h-comfortable')).toMatch(/^var\(--ctl-h-/);
   });
 
   it('no [data-density] stylesheet rule overrides tokens behind the provider\'s back', () => {

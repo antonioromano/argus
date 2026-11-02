@@ -322,13 +322,9 @@
   --ctl-h-md: calc(28px * var(--ui-scale));
   --ctl-h-lg: calc(32px * var(--ui-scale));
 
-  /* Row heights — list/tree/menu rows. Aliases of the control heights so they
-     scale with the font. Density (plan 008) re-binds --row-h along with the
-     row/header padding and chrome heights (see density.ts). Touch rows
-     (mobile) are a fixed hit target, so they do not scale. */
-  --row-h-compact:     var(--ctl-h-sm);
-  --row-h:             var(--ctl-h-md);
-  --row-h-comfortable: var(--ctl-h-lg);
+  /* Desktop rows size by padding (--row-pad-y, --leaf-pad-y), which density
+     (plan 008, density.ts) re-binds; there is no fixed row-height token.
+     Touch rows (mobile) are a fixed hit target, so they do not scale. */
   --row-h-touch:       44px;
 
   /* Density (plan 008) — the Default values. DensityProvider rewrites these

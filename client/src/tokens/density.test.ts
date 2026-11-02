@@ -10,10 +10,8 @@ const decl = (name: string) =>
 describe('density table', () => {
   it('tokens.css defaults equal the Default density (surfaces with no provider)', () => {
     for (const [name, value] of Object.entries(densityCssVars(DENSITY_METRICS.default))) {
-      if (name === '--row-h') continue; // the Phase-1 binding itself, checked below
       expect(decl(name), name).toBe(value);
     }
-    expect(decl('--row-h')).toBe(DENSITY_METRICS.default.rowH);
   });
 
   it('every number grows from Compact to Comfortable, except the sidebar which only Compact narrows', () => {
@@ -23,11 +21,6 @@ describe('density table', () => {
       expect(d[k], k).toBeLessThan(f[k]);
     }
     expect([c.sidebarW, d.sidebarW, f.sidebarW]).toEqual([200, 220, 220]);
-  });
-
-  it('binds --row-h to the Phase-1 row-height tokens', () => {
-    expect(DENSITY_METRICS.compact.rowH).toBe('var(--row-h-compact)');
-    expect(DENSITY_METRICS.comfortable.rowH).toBe('var(--row-h-comfortable)');
   });
 
   it('the panel header follows the tile header padding', () => {
