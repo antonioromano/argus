@@ -118,7 +118,7 @@ export function FileSearchPanel({ folderPath, initialQuery, onSelectFile, onClos
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-1)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       {/* Header */}

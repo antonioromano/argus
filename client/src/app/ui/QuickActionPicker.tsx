@@ -136,7 +136,7 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
             borderRadius: 'var(--r-3)',
             boxShadow: 'var(--shadow-pop)',
             padding: 'var(--s-1)',
-            animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+            animation: 'argus-fade-in var(--dur-fast) var(--ease)',
           }}
         >
           <SuppressWhileMounted target={() => listRef.current?.getBoundingClientRect() ?? null} />

@@ -186,7 +186,7 @@ export function FindInFilesPanel({ folderPath, query, onQueryChange, focusNonce,
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-1)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-1)', padding: 'var(--s-1-5) var(--s-2)', borderBottom: '1px solid var(--line-2)', flexShrink: 0 }}>

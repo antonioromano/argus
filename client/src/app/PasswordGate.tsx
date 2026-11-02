@@ -65,7 +65,7 @@ export function PasswordGate({ onAuthenticated }: PasswordGateProps) {
           borderRadius: 'var(--r-4)',
           padding: 'var(--s-7)',
           boxShadow: 'var(--shadow-sheet)',
-          animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+          animation: 'argus-fade-in var(--dur-base) var(--ease)',
         }}
       >
         <div

@@ -396,9 +396,6 @@
 
   /* Motion — one easing, three durations. */
   --ease: cubic-bezier(.22, .61, .36, 1);
-  --ease-std: var(--ease);   /* deprecated alias — use --ease */
-  --ease-out: var(--ease);   /* deprecated alias — use --ease */
-  --ease-in:  var(--ease);   /* deprecated alias — use --ease */
   --ease-snap: cubic-bezier(.34, 1.56, .64, 1);   /* tile reflow spring only */
   --dur-fast: 120ms;         /* hover, chevrons */
   --dur-base: 200ms;         /* popovers, toasts, fades */

@@ -57,8 +57,7 @@ describe('motion tokens', () => {
     expect(offenders(/(^|[\s(,])0?\.\d+s\b/, /\binfinite\b/), 'use var(--dur-fast|base|slow)').toEqual([]);
   });
 
-  it('uses --ease, not the deprecated aliases, in stylesheets', () => {
-    const css = offenders(/var\(--ease-(std|out|in)\)/).filter((o) => /\.css:/.test(o));
-    expect(css, 'replace var(--ease-std|out|in) with var(--ease)').toEqual([]);
+  it('uses --ease, never the removed std/out/in aliases', () => {
+    expect(offenders(/var\(--ease-(std|out|in)\)/), 'replace var(--ease-std|out|in) with var(--ease)').toEqual([]);
   });
 });

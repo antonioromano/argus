@@ -60,7 +60,7 @@ export function Sheet({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 'var(--s-6)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       <SuppressWhileMounted target="all" />

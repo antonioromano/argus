@@ -29,7 +29,7 @@ const idleBtn: React.CSSProperties = {
   background: 'transparent',
   color: 'var(--fg-2)',
   cursor: 'pointer',
-  transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
+  transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast)',
   padding: 0,
   ...noDrag,
 };

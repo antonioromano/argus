@@ -192,7 +192,7 @@ export function Tooltip({ content, children, position = 'top', delay = 400 }: To
         boxShadow: 'var(--shadow-pop)',
         pointerEvents: 'none',
         opacity: visible ? 1 : 0,
-        transition: 'opacity var(--dur-fast) var(--ease-std)',
+        transition: 'opacity var(--dur-fast) var(--ease)',
       }
     : { display: 'none' };
 

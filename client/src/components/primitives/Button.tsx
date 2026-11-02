@@ -90,7 +90,7 @@ export function Button({
         opacity: isDisabled ? 0.5 : 1,
         width: full ? '100%' : 'auto',
         whiteSpace: 'nowrap',
-        transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast), opacity var(--dur-fast)',
+        transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast), opacity var(--dur-fast)',
         ...style,
       }}
     >

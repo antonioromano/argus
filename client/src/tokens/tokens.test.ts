@@ -82,11 +82,9 @@ describe('radii', () => {
 });
 
 describe('motion', () => {
-  it('has one easing; std/out/in alias it', () => {
+  it('has one easing, and the old std/out/in aliases are gone', () => {
     expect(decl('--ease')).toBe('cubic-bezier(.22, .61, .36, 1)');
-    expect(decl('--ease-std')).toBe('var(--ease)');
-    expect(decl('--ease-out')).toBe('var(--ease)');
-    expect(decl('--ease-in')).toBe('var(--ease)');
+    for (const alias of ['--ease-std', '--ease-out', '--ease-in']) expect(decl(alias)).toBeUndefined();
   });
 
   it.each(['--dur-fast', '--dur-base', '--dur-slow', '--dur-ambient'])('keeps %s', (name) => {

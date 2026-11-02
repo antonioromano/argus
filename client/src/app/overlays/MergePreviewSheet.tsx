@@ -91,7 +91,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
           inset: 0,
           zIndex: 'var(--z-sheet)',
           background: 'var(--bg-overlay)',
-          animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+          animation: 'argus-fade-in var(--dur-base) var(--ease)',
         }}
       />
 
@@ -114,7 +114,7 @@ export function MergePreviewSheet({ mergeFlow, onClose, onMerge, onCleanUp }: Me
           display: 'flex',
           flexDirection: 'column',
           boxShadow: 'var(--shadow-sheet)',
-          animation: 'merge-sheet-in var(--dur-base) var(--ease-out) both',
+          animation: 'merge-sheet-in var(--dur-base) var(--ease) both',
           outline: 'none',
         }}
       >

@@ -213,7 +213,7 @@ export function Toggle({ checked, onChange, label, size = 'md', disabled }: Togg
           background: checked ? 'var(--fg-on-accent)' : 'var(--fg-2)',
           // translateX, not animated `left` — `left` reflows each frame; transform composites cheaper
           transform: checked ? `translateX(${w - k - 4}px)` : 'translateX(0)',
-          transition: 'transform var(--dur-base) var(--ease-std), background var(--dur-base)',
+          transition: 'transform var(--dur-base) var(--ease), background var(--dur-base)',
         }} />
       </span>
       {label && <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>}

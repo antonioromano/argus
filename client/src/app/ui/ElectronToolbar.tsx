@@ -35,7 +35,7 @@ const iconBtn = (active = false): React.CSSProperties => ({
   background: active ? 'var(--accent-bg)' : 'transparent',
   color: active ? 'var(--accent)' : 'var(--fg-2)',
   cursor: 'pointer',
-  transition: 'background var(--dur-fast) var(--ease-std), color var(--dur-fast)',
+  transition: 'background var(--dur-fast) var(--ease), color var(--dur-fast)',
   // @ts-expect-error Electron-only
   WebkitAppRegion: 'no-drag',
 });

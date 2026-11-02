@@ -37,7 +37,7 @@ export function Overlay({ onClose, children, align = 'center', label = 'Dialog',
         justifyContent: 'center',
         paddingTop: align === 'top' ? '10vh' : 'var(--s-6)',
         paddingBottom: 'var(--s-6)',
-        animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-base) var(--ease)',
       }}
     >
       <div

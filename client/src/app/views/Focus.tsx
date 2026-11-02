@@ -508,7 +508,7 @@ export function Focus({
                     bottom: PEEK_HEIGHT,
                     display: 'flex',
                     background: 'var(--bg-0)',
-                    animation: 'argus-fade-in var(--dur-base) var(--ease-out)',
+                    animation: 'argus-fade-in var(--dur-base) var(--ease)',
                   }}
                 >
                   <Suspense

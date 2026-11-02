@@ -114,7 +114,7 @@ export function AlertSheet({
           borderRadius: 'var(--r-4)',
           boxShadow: 'var(--shadow-sheet)',
           padding: 'var(--s-5) var(--s-5) var(--s-4)',
-          animation: 'argus-fade-in var(--dur-base) var(--ease-out) both',
+          animation: 'argus-fade-in var(--dur-base) var(--ease) both',
         }}
       >
         <p

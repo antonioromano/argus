@@ -96,7 +96,7 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
         borderRadius: 'var(--r-3)',
         boxShadow: 'var(--shadow-pop)',
         padding: 'var(--s-1)',
-        animation: 'argus-fade-in var(--dur-fast) var(--ease-out)',
+        animation: 'argus-fade-in var(--dur-fast) var(--ease)',
       }}
     >
       {items.map((entry, i) => {
