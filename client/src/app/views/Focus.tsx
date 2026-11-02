@@ -463,7 +463,7 @@ export function Focus({
                 paddingTop: chatMode && chatSheet && !maximized ? TERMINAL_SHEET_BAR_PX : 0,
               }}
             >
-              <ErrorBoundary key={active.id} label={active.name}>
+              <ErrorBoundary key={`term-${active.id}`} label={active.name}>
                 <TerminalShell
                   session={active}
                   socket={socket}
@@ -499,7 +499,12 @@ export function Focus({
               {/* The terminal stays mounted under the chat, so switching back is instant. */}
               {chatMode && !maximized && (
                 <ChatView
-                  key={active.id}
+                  // Not bare `active.id`: the terminal's ErrorBoundary above is a
+                  // SIBLING keyed by the same id, and React reconciles by key. A
+                  // duplicate made it delete the old terminal's fiber but leave
+                  // its DOM behind, so a native tile stayed on screen next to
+                  // the new session's.
+                  key={`chat-${active.id}`}
                   session={active}
                   socket={socket}
                   onShowTerminal={() => setViewMode('terminal')}

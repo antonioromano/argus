@@ -16,7 +16,9 @@ declare global {
 // no interest in. Stubbing it isolates the things under test: the "Native"
 // marker in Focus's own header and the exited-session card over the terminal.
 vi.mock('../ui/TerminalShell.js', () => ({
-  TerminalShell: ({ requestFocusToken }: { requestFocusToken?: number }) => <i data-testid="terminal-shell" data-focus-token={requestFocusToken} />,
+  TerminalShell: ({ session, requestFocusToken }: { session: { id: string }; requestFocusToken?: number }) => (
+    <div data-testid="terminal-shell" data-session={session.id} data-focus-token={requestFocusToken} />
+  ),
 }));
 // The companion shell spawns a real xterm; only its placement matters here.
 vi.mock('../../hooks/useCompanionTerminal.js', () => ({
@@ -356,5 +358,27 @@ describe('Focus — PR diff tool window (B4)', () => {
     renderFocus(session(), noop, { sidePanel: { kind: 'prdiff', sessionId: 'other', pr, maximized: true } });
     await settle();
     expect(container.querySelector('[data-testid="pr-diff-view"]')).toBeNull();
+  });
+});
+
+describe('Focus — sibling keys', () => {
+  // The terminal's ErrorBoundary and the Chat view are siblings and both used
+  // `key={active.id}`. React reconciles by key, so on a session switch it
+  // deleted the old terminal's fiber but left its DOM behind: a native tile
+  // stayed on screen beside the new session's.
+  it('leaves exactly one terminal after a session switch while Chat is showing', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+      renderFocus(session({ id: 's2', name: 'other', status: 'running' }), noop, { defaultSessionView: 'chat' });
+      expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+      const terminals = container.querySelectorAll('[data-testid="terminal-shell"]');
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0].getAttribute('data-session')).toBe('s2');
+      const dupKey = errors.mock.calls.filter((c) => String(c[0]).includes('two children with the same key'));
+      expect(dupKey).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
