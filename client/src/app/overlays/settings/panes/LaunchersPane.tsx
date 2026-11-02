@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
-import { Button, Section, SettingRow, pushToast, Row, Text } from '../../../../components/primitives/index.js';
+import { Button, Section, SettingRow, Toggle, pushToast, Row, Text } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
 import { PaneLoadState } from '../PaneLoadState.js';
@@ -120,6 +120,11 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
         <SettingRow label="Link format" hint="Every argus://new link opens an approval card.">
           <Button size="sm" variant="ghost" onClick={() => copy(EXAMPLE())}>Copy example link</Button>
         </SettingRow>
+      </Section>
+      <Section title="Argus MCP server">
+        <SettingField id="mcpServerEnabled">
+          <Toggle checked={config.mcpServerEnabled === true} onChange={(v) => onSave({ mcpServerEnabled: v })} />
+        </SettingField>
       </Section>
     </>
   );

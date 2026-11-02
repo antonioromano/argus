@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ChatMessage } from '@argus/shared';
-import { EMPTY_CHAT, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
+import { BUILTIN_COMMANDS, EMPTY_CHAT, INTERACTIVE_COMMANDS, MAX_CLIENT_CHAT_MESSAGES, applyChatUpdate, interactiveCommandOf, slashCommandName, modelLabel, permissionModeLabel, slashQuery, slashSuggestions, supportsChatView } from './chat.js';
 
 const msg = (id: string, role: ChatMessage['role'] = 'user'): ChatMessage => ({ id, role, blocks: [{ kind: 'text', text: id }] });
 
@@ -15,6 +15,20 @@ describe('applyChatUpdate', () => {
     const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('a'), msg('b')] });
     expect(s1.messages.map((m) => m.id)).toEqual(['a', 'b']);
     expect(applyChatUpdate(s1, { reset: false, available: true, messages: [msg('b')] })).toBe(s1);
+  });
+
+  it('an append replaces a message it already has when its content changed (a joined tool result)', () => {
+    const call = (status: 'pending' | 'ok'): ChatMessage => ({
+      id: 'a1',
+      role: 'assistant',
+      blocks: [{ kind: 'tool', id: 't1', name: 'Bash', label: 'ls', status }],
+    });
+    const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [msg('u'), call('pending')] });
+    const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [call('ok'), msg('b')] });
+    expect(s1.messages.map((m) => m.id)).toEqual(['u', 'a1', 'b']);
+    expect(s1.messages[1].blocks[0]).toMatchObject({ status: 'ok' });
+    expect(s1.messages[0]).toBe(s0.messages[0]);
+    expect(s0.messages[1].blocks[0]).toMatchObject({ status: 'pending' });
   });
 
   it('an unavailable reset clears the list', () => {
@@ -110,5 +124,43 @@ describe('slash autocomplete', () => {
     const s0 = applyChatUpdate(EMPTY_CHAT, { reset: true, available: true, messages: [], commands: custom });
     const s1 = applyChatUpdate(s0, { reset: false, available: true, messages: [msg('a')] });
     expect(s1.commands).toBe(custom);
+  });
+});
+
+describe('interactiveCommandOf (F6)', () => {
+  it('names a bare picker command, whatever the case and surrounding space', () => {
+    expect(interactiveCommandOf('/mcp')).toBe('mcp');
+    expect(interactiveCommandOf('  /Config \n')).toBe('config');
+    expect(interactiveCommandOf('/plugins')).toBe('plugins');
+  });
+
+  it('leaves commands with arguments, plain text and other commands in the Chat', () => {
+    expect(interactiveCommandOf('/mcp enable github')).toBeNull();
+    expect(interactiveCommandOf('/add-dir ~/src')).toBeNull();
+    expect(interactiveCommandOf('/compact')).toBeNull();
+    expect(interactiveCommandOf('mcp')).toBeNull();
+    expect(interactiveCommandOf('/var/folders/x/mcp')).toBeNull();
+  });
+
+  it('shares the command parse with the echo: `/name`, then a space or the end', () => {
+    expect(slashCommandName('/mcp enable x')).toBe('mcp');
+    expect(slashCommandName(' /plugin:skill')).toBe('plugin:skill');
+    expect(slashCommandName('/var/folders/x.png look')).toBeNull();
+    expect(slashCommandName('hi /mcp')).toBeNull();
+  });
+
+  it('keeps /resume and /model on their Chat-native handling', () => {
+    expect(interactiveCommandOf('/resume')).toBeNull();
+    expect(interactiveCommandOf('/model')).toBeNull();
+    expect(INTERACTIVE_COMMANDS.has('resume')).toBe(false);
+    expect(INTERACTIVE_COMMANDS.has('model')).toBe(false);
+  });
+
+  it('lists the picker built-ins the autocomplete offers', () => {
+    const builtins = new Set(BUILTIN_COMMANDS.map((c) => c.name));
+    for (const name of ['agents', 'config', 'hooks', 'mcp', 'permissions', 'plugin']) {
+      expect(builtins.has(name)).toBe(true);
+      expect(INTERACTIVE_COMMANDS.has(name)).toBe(true);
+    }
   });
 });

@@ -111,7 +111,7 @@ const PANE_DEFS: readonly Omit<PaneDef, 'keys'>[] = [
     label: 'Launchers',
     group: 'Workspace',
     icon: Rocket,
-    keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots', 'template', 'templates', 'multi-session', 'spawn'],
+    keywords: ['launcher', 'deep link', 'argus://', 'url', 'link', 'run', 'jarvar', 'dashboard', 'approve', 'roots', 'template', 'templates', 'multi-session', 'spawn', 'mcp', 'orchestrator', 'orchestrate', 'start_session'],
   },
   {
     id: 'general',

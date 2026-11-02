@@ -1,11 +1,14 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatBlock, ChatMessage } from '@argus/shared';
-import { Image as ImageIcon, Wrench, HelpCircle, ChevronRight, Info } from 'lucide-react';
-import { Icon } from '../../../components/primitives/index.js';
+import type { ChatBlock, ChatMessage, ChatToolBlock } from '@argus/shared';
+import { Image as ImageIcon, HelpCircle, ChevronRight, Info, CircleStop, Clock, Send } from 'lucide-react';
+import { Button, Icon } from '../../../components/primitives/index.js';
 import { openExternal } from '../../../utils/openExternal.js';
+import { api } from '../../../services/api.js';
 import { ChatCodeBlock } from './ChatCodeBlock.js';
+import { userMarkdown } from './userMarkdown.js';
+import { ChatToolGroup, type ToolOpenState } from './ChatToolGroup.js';
 
 const markdownComponents: Components = {
   // Links open in the system browser, never inside the sandboxed renderer.
@@ -40,34 +43,63 @@ const markdownComponents: Components = {
   },
 };
 
+const imageChip = (
+  <span className="argus-chat-chip">
+    <Icon icon={ImageIcon} size="sm" aria-hidden /> image
+  </span>
+);
+
+/**
+ * An attached image: a thumbnail when its file is still readable through the
+ * session-scoped image route, else the plain chip (Argus's temp images, a
+ * deleted file, a path outside every session folder).
+ */
+function ChatImage({ path }: { path?: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!path) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    api.getImageBlob(path).then(
+      (blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setUrl(null);
+    };
+  }, [path]);
+  if (!url) return imageChip;
+  return <img className="argus-chat-image" src={url} alt="" title={path} data-testid="chat-image" />;
+}
+
 /** First line of a command's output, for the collapsed summary. */
 function firstLine(text: string): string {
   const line = text.split('\n', 1)[0];
   return line.length > 120 ? `${line.slice(0, 120)}…` : line;
 }
 
-function Block({ block }: { block: ChatBlock }) {
+/** `user`: a prompt, rendered as typed (userMarkdown). */
+function Block({ block, user }: { block: ChatBlock; user: boolean }) {
   switch (block.kind) {
     case 'text':
       return (
         <div className="md-preview argus-chat-md">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents} skipHtml>
-            {block.text}
+            {user ? userMarkdown(block.text) : block.text}
           </ReactMarkdown>
         </div>
       );
     case 'tool':
-      return (
-        <span className="argus-chat-chip" title="Tool call">
-          <Icon icon={Wrench} size="sm" aria-hidden /> {block.name}
-        </span>
-      );
+      // Never reached: partsOf sends every tool block to ChatToolGroup.
+      return null;
     case 'image':
-      return (
-        <span className="argus-chat-chip">
-          <Icon icon={ImageIcon} size="sm" aria-hidden /> image
-        </span>
-      );
+      return <ChatImage path={block.path} />;
     case 'command':
       return (
         <code className="argus-chat-command" data-testid="chat-command">
@@ -87,12 +119,15 @@ function Block({ block }: { block: ChatBlock }) {
           <pre className="argus-chat-output-text">{block.text}</pre>
         </details>
       );
-    case 'notice':
+    case 'notice': {
+      // A stopped turn (F3) reads as a stop, not as information.
+      const stopped = block.text.startsWith('Stopped');
       return (
-        <span className="argus-chat-notice">
-          <Icon icon={Info} size="sm" aria-hidden /> {block.text}
+        <span className={`argus-chat-notice${stopped ? ' is-stopped' : ''}`}>
+          <Icon icon={stopped ? CircleStop : Info} size="sm" aria-hidden /> {block.text}
         </span>
       );
+    }
     default:
       return (
         <span className="argus-chat-chip argus-chat-chip-muted" title="Not shown in the Chat view — see the terminal">
@@ -106,15 +141,41 @@ interface ChatMessageItemProps {
   message: ChatMessage;
   /** First of a run of messages from the same role: shows the role label. */
   showRole: boolean;
+  /** Sent from the composer, not in the transcript yet. */
+  pending?: boolean;
+  /** Pending and sent while Claude was running: Claude Code holds it in its queue. */
+  queued?: boolean;
+  /** Queued mid-step: offers "Send now", which interrupts the step. */
+  onSendNow?: () => void;
+  /** "Send now" was pressed and Claude has not read the queue yet. */
+  sendingNow?: boolean;
+  /** Open tool groups and steps (see ToolOpenState). */
+  toolStore?: ToolOpenState;
 }
 
-export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole }: ChatMessageItemProps) {
+type Part = { block: ChatBlock } | { tools: ChatToolBlock[] };
+
+/** Blocks with each run of tool calls folded into one group. */
+function partsOf(blocks: ChatBlock[]): Part[] {
+  const out: Part[] = [];
+  for (const block of blocks) {
+    const last = out[out.length - 1];
+    if (block.kind !== 'tool') out.push({ block });
+    else if (last && 'tools' in last) last.tools.push(block);
+    else out.push({ tools: [block] });
+  }
+  return out;
+}
+
+export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole, pending, queued, onSendNow, sendingNow, toolStore }: ChatMessageItemProps) {
   const user = message.role === 'user';
   const system = message.role === 'system';
   const command = user && message.blocks[0]?.kind === 'command';
   const cls = ['argus-chat-msg', user ? 'is-user' : system ? 'is-system' : 'is-assistant'];
   if (command) cls.push('is-command');
   if (message.echo) cls.push('is-echo');
+  if (pending) cls.push('is-pending');
+  if (queued) cls.push('is-queued');
   return (
     <div
       className={cls.join(' ')}
@@ -123,10 +184,29 @@ export const ChatMessageItem = memo(function ChatMessageItem({ message, showRole
     >
       {showRole && !system && <div className="argus-chat-role eyebrow">{user ? 'You' : 'Claude'}</div>}
       <div className="argus-chat-body">
-        {message.blocks.map((b, i) => (
-          <Block key={i} block={b} />
-        ))}
+        {partsOf(message.blocks).map((p, i) =>
+          'tools' in p ? <ChatToolGroup key={i} steps={p.tools} store={toolStore} /> : <Block key={i} block={p.block} user={user} />,
+        )}
       </div>
+      {queued && (
+        <div className="argus-chat-queued-row">
+          <span className="argus-chat-queued" title="Claude will read this when it finishes the current step" data-testid="chat-queued">
+            <Icon icon={Clock} size="sm" aria-hidden /> Queued
+          </span>
+          {onSendNow && (
+            <Button
+              size="sm"
+              icon={Send}
+              loading={sendingNow}
+              onClick={onSendNow}
+              title="Stop the current step and send this now"
+              className="argus-chat-send-now"
+            >
+              {sendingNow ? 'Sending…' : 'Send now'}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 });

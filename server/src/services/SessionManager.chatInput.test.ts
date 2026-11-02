@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'os';
 import { SessionManager } from './SessionManager.js';
+import type { ScreenRow } from './claudeScreen.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux';
 
@@ -15,12 +16,23 @@ function fixture() {
   (sm as any).io = { to: () => ({ emit: (event: string, payload: any) => emitted.push({ event, payload }) }), emit: () => {} };
   (sm as any).sessions.set('s', {
     id: 's', name: 's', folderPath: os.tmpdir(), agentType: 'claude', flags: [], status: 'idle', createdAt: new Date().toISOString(), chatViewers: 1,
+    // The screen with its faint attribute, as the last settle left it (prompt suggestion, F9).
+    stateDetector: { footerCells: () => screen },
   });
+  let screen: ScreenRow[] = [];
+  let cellReads = 0;
   const writes: Array<[string, number | undefined]> = [];
   const write = (data: string, pause?: number) => writes.push([data, pause]);
-  const settle = (rows: string[]) => (sm as any).applyFooter('s', rows);
+  // `cells`: the same screen with its faint attribute (prompt suggestion, F9).
+  const settle = (rows: string[], cells: ScreenRow[] = []) => {
+    screen = cells;
+    (sm as any).applyFooter('s', rows, () => {
+      cellReads++;
+      return cells;
+    });
+  };
   const tick = () => new Promise((r) => setImmediate(r));
-  return { sm, emitted, writes, write, settle, tick };
+  return { sm, emitted, writes, write, settle, tick, cellReads: () => cellReads };
 }
 
 test('submit: text, then Enter after a pause; done once the input box is empty', async () => {
@@ -55,10 +67,43 @@ test('submit: multi-line text is pasted; empty or exited is refused', async () =
   assert.equal(await f.sm.submitChatInput('s', 'hi', f.write), false);
 });
 
+test('submit: a stopped prompt left in the input box is cleared before typing (F3)', async () => {
+  const f = fixture();
+  const first = f.sm.submitChatInput('s', 'wait 5 seconds', f.write);
+  f.settle(['❯ ']);
+  await first;
+  // Stop: Claude Code put the prompt back into its input box.
+  f.settle(['──', '❯ wait 5 seconds', '──']);
+  f.writes.length = 0;
+  const p = f.sm.submitChatInput('s', 'next one', f.write);
+  assert.deepEqual(f.writes, [['\x03', undefined]]);
+  f.settle(['──', '❯ ', '──']);
+  await f.tick();
+  assert.deepEqual(f.writes.slice(1), [['next one', 60], ['\r', undefined]]);
+  f.settle(['❯ ']);
+  assert.equal(await p, true);
+});
+
+test('submit: text the chat did not send, or a running turn, is never cleared', async () => {
+  const f = fixture();
+  f.settle(['──', '❯ typed in the terminal', '──']);
+  const a = f.sm.submitChatInput('s', 'hello', f.write);
+  assert.equal(f.writes[0][0], 'hello');
+  f.settle(['❯ ']);
+  await a;
+  f.settle(['──', '❯ hello', '──']);
+  (f.sm as any).sessions.get('s').status = 'running';
+  f.writes.length = 0;
+  const b = f.sm.submitChatInput('s', 'queued', f.write);
+  assert.equal(f.writes[0][0], 'queued');
+  f.settle(['❯ ']);
+  await b;
+});
+
 test('mode: footer changes are pushed to chat viewers; Shift+Tab until the target shows', async () => {
   const f = fixture();
   f.settle(['  ⏵⏵ auto mode on (shift+tab to cycle)']);
-  assert.deepEqual(f.emitted.at(-1), { event: 'session:chatMode', payload: { sessionId: 's', permissionMode: 'auto' } });
+  assert.deepEqual(f.emitted.findLast((e) => e.event === 'session:chatMode'), { event: 'session:chatMode', payload: { sessionId: 's', permissionMode: 'auto' } });
 
   const p = f.sm.setPermissionMode('s', 'acceptEdits', f.write);
   assert.deepEqual(f.writes, [['\x1b[Z', undefined]]);
@@ -76,4 +121,62 @@ test('mode: refused for unknown modes and while waiting', async () => {
   (f.sm as any).sessions.get('s').status = 'waiting';
   assert.equal(await f.sm.setPermissionMode('s', 'plan', f.write), false);
   assert.equal(f.writes.length, 0);
+});
+
+test('prompt suggestion: sent to Chat views when it appears, changes and goes away (F9)', async () => {
+  const f = fixture();
+  const row = (text: string, dimFrom: number): ScreenRow => [...text].map((ch, i) => ({ ch, dim: i >= dimFrom }));
+  f.settle(['❯ commit it'], [row('❯ commit it', 2)]);
+  f.settle(['❯ commit it'], [row('❯ commit it', 2)]);
+  const sent = () => f.emitted.filter((e) => e.event === 'session:chatSuggestion').map((e) => e.payload.suggestion);
+  assert.deepEqual(sent(), ['commit it'], 'once per change');
+  assert.equal((await f.sm.openChat('s'))?.suggestion, 'commit it', 'a new viewer gets it in the snapshot');
+  f.settle(['❯ commit'], [row('❯ commit', 99)]);
+  assert.deepEqual(sent(), ['commit it', null], 'typed input is no suggestion');
+  f.settle(['❯ run the tests'], [row('❯ run the tests', 2)]);
+  const p = f.sm.submitChatInput('s', 'something else', f.write);
+  assert.deepEqual(sent(), ['commit it', null, 'run the tests', null], 'sending clears it');
+  f.settle(['❯ '], [row('❯ ', 2)]);
+  await p;
+});
+
+const faint = (text: string, dimFrom: number): ScreenRow => [...text].map((ch, i) => ({ ch, dim: i >= dimFrom }));
+
+test('prompt suggestion: a suggestion that starts like the sent text is no pending input (F9)', async () => {
+  const f = fixture();
+  const p = f.sm.submitChatInput('s', 'run the tests', f.write);
+  // The turn ended fast and Claude suggests a follow-up that starts the same way.
+  f.settle(['❯ run the tests', '──', '❯ run the tests again', '──'], [faint('❯ run the tests again', 2)]);
+  assert.equal(await p, true);
+  assert.equal(f.writes.length, 2, 'no Enter on the suggestion');
+  // Nor is it cleared with Ctrl+C before the next message.
+  const q = f.sm.submitChatInput('s', 'next', f.write);
+  assert.equal(f.writes[2][0], 'next');
+  f.settle(['❯ '], [faint('❯ ', 2)]);
+  await q;
+});
+
+test('prompt suggestion: only read while a Chat view is open; a new viewer reads it at once (F9)', async () => {
+  const f = fixture();
+  f.sm.closeChat('s');
+  f.settle(['❯ commit it'], [faint('❯ commit it', 2)]);
+  assert.equal(f.cellReads(), 0);
+  assert.equal((await f.sm.openChat('s'))?.suggestion, 'commit it');
+});
+
+test('at prompt: every settle tells Chat views whether the empty input box is shown (F6)', () => {
+  const f = fixture();
+  const sent = () => f.emitted.filter((e) => e.event === 'session:chatAtPrompt').map((e) => e.payload.atPrompt);
+  f.settle(['────', '❯ ', '────']);
+  f.settle(['────', '❯ ', '────']);
+  f.settle(['   ❯ Auto-compact   true', '   Esc to close']);
+  f.settle(['────', '❯ /config', '────']);
+  assert.deepEqual(sent(), [true, true, false, false], 'on every settle, not only changes');
+  assert.deepEqual(f.emitted.find((e) => e.event === 'session:chatAtPrompt')?.payload, { sessionId: 's', atPrompt: true });
+  // A box holding only the suggestion is empty.
+  f.settle(['────', '❯ commit it', '────'], [[...'❯ commit it'].map((ch, i) => ({ ch, dim: i >= 2 }))]);
+  assert.equal(sent().at(-1), true);
+  f.sm.closeChat('s');
+  f.settle(['────', '❯ ', '────']);
+  assert.equal(sent().length, 5, 'nothing without a Chat view');
 });

@@ -177,6 +177,9 @@ export interface AppConfig {
   inspectorCollapsed?: string[];
   // F5: let per-folder rules auto-approve tool calls via the PreToolUse hook (default: false).
   autoApprovalEnabled?: boolean;
+  // F10: expose the Argus MCP server (/mcp) and hand it to new Claude sessions
+  // via --mcp-config, so one session can start and drive others (default: false).
+  mcpServerEnabled?: boolean;
   // How Claude sessions draw their UI (default: 'fullscreen'). Applied at spawn,
   // so it reaches new and restarted sessions only.
   claudeRenderer?: ClaudeRenderer;
@@ -303,6 +306,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
+  mcpServerEnabled: false,
   claudeRenderer: 'fullscreen',
   defaultSessionView: 'terminal',
   betaActivityTimeline: false,
@@ -372,8 +376,11 @@ export type PendingLaunchState = 'pending' | 'starting' | 'error' | 'expired';
 
 export interface PendingLaunchView {
   id: string;
-  source: 'new' | 'run';
+  /** 'mcp' = an Argus session asked for it with the MCP start_session tool (F10). */
+  source: 'new' | 'run' | 'mcp';
   launcherId?: string;
+  /** source 'mcp': name of the session that asked. */
+  requestedBy?: string;
   label: string;
   agent: string;
   folder: string;
@@ -459,6 +466,8 @@ export interface SessionInfo {
   runMode?: RunMode;
   /** Deep-link launcher that started this session. */
   launcherId?: string;
+  /** F10: the Argus session whose MCP start_session call created this one. */
+  spawnedBy?: string;
   /** Plain Shell only: the directory the shell is in now (OSC 7), and its git state. */
   cwd?: string;
   shellGit?: ShellGitContext | null;
@@ -468,13 +477,34 @@ export interface SessionInfo {
   claudeSessionId?: string;
   /** Epoch ms the session entered `waiting`; set only while waiting. */
   waitingSince?: number;
-  /** While waiting: the numbered menu choices on screen, when they could be read reliably. */
+  /** While waiting: the menu choices on screen, when they could be read reliably. */
   promptOptions?: PromptOption[];
+  /** With promptOptions: the menu's question as shown on screen (lastPrompt may be a hook's generic text). */
+  promptQuestion?: string;
+  /** With promptOptions: the question tabs of a multi-question AskUserQuestion. */
+  promptTabs?: PromptTab[];
   /** GitHub PR of the session's branch (via `gh`), when there is one. */
   pr?: SessionPr;
+  /** F5: every non-closed PR of the session at a glance (shell tabs); absent when none. */
+  prSummary?: SessionPrSummary;
   /** Beta F8: days since the worktree branch's last commit, set only once it
    *  is stale (≥ 15 days) and only while `betaWorktreeLifecycle` is on. */
   worktreeStaleDays?: number;
+  /**
+   * Claude only, fresh sessions: the prompt the agent was started with (a
+   * launch, template or handoff), so Chat can show it before the transcript
+   * records it (F15). In memory only, never persisted; `clipped` when longer
+   * than the server's cap (the text is then a prefix of the prompt). Cleared
+   * when `starting` ends (F15b): by then the transcript has recorded it.
+   */
+  initialPrompt?: { text: string; clipped?: boolean };
+  /**
+   * Claude only, fresh spawn (create or restart) until the first turn ends:
+   * the first running → idle/done once the agent has a prompt (F15b). An exit
+   * before that keeps it (until a restart), with `initialPrompt`. While set,
+   * Chat reads a missing transcript as "Claude is starting"; after, as unreadable.
+   */
+  starting?: boolean;
   /** Exit code of the agent's last run while the session is exited; cleared when it
    *  runs again. Persisted, so it survives a reload or app restart. */
   exitCode?: number;
@@ -791,6 +821,29 @@ export interface PrChecks {
   failed: PrFailedCheck[];
 }
 
+/**
+ * The colour a PR is shown in (see the client's prTone): merged, closed, draft,
+ * or for an open PR blocked (conflicts / failing checks), ready or pending.
+ */
+export type PrTone = 'ready' | 'pending' | 'blocked' | 'draft' | 'merged' | 'closed';
+
+/** F5: one PR of a session's summary, as the shell tab's tooltip lists it. */
+export interface SessionPrSummaryItem {
+  url: string;
+  number: number;
+  state: PrState;
+  tone: PrTone;
+  title?: string;
+}
+
+/** F5: the session's PRs for the shell tab — closed ones left out. `tone` is
+ *  the most action-needing one (blocked → pending → ready → draft → merged). */
+export interface SessionPrSummary {
+  count: number;
+  tone: PrTone;
+  prs: SessionPrSummaryItem[];
+}
+
 /** One PR of a session in the Inspector's GitHub card (B3). */
 export interface SessionPrEntry {
   /** github.com PR URL — the row's identity. */
@@ -834,11 +887,23 @@ export interface SessionPrReadyResponse {
   pr: SessionPr | null;
 }
 
-/** One numbered choice of a waiting agent's selection menu. Sending `key`
- *  (a single digit) to the session picks it. */
+/** One choice of a waiting agent's selection menu, answered through
+ *  `session:answer` with its `key` ("1"–"9"; a `freeText` option also needs `text`). */
 export interface PromptOption {
   key: string;
   label: string;
+  /** multiSelect question: whether the option is ticked (its key toggles it). */
+  checked?: boolean;
+  /** Free-text choice ("Type something."): answered with `key` plus the typed `text`. */
+  freeText?: boolean;
+  /** The answer already picked for this question (seen when going back to it). */
+  chosen?: boolean;
+}
+
+/** One question of a multi-question AskUserQuestion; `session:answer` 'prev' / 'next' move between them. */
+export interface PromptTab {
+  label: string;
+  answered: boolean;
 }
 
 /**
@@ -870,11 +935,43 @@ export interface SessionUsage {
  * the Claude Code transcript, which is not a public API: anything the parser
  * does not recognise becomes `unknown` instead of breaking the view.
  */
+/** How a tool call ended; `pending` until its result is recorded. */
+export type ChatToolStatus = 'ok' | 'error' | 'blocked' | 'pending';
+
+/** What an expanded tool step shows; every text is clipped by the server. */
+export interface ChatToolDetail {
+  /** Bash: the command (highlighted as shell). */
+  command?: string;
+  /** Edit / Write: the file, and the replaced and replacement text (Write: `newText` only). */
+  path?: string;
+  oldText?: string;
+  newText?: string;
+  /** Any other tool: its input as pretty JSON. */
+  input?: string;
+  /** The tool result's text. */
+  output?: string;
+}
+
+/**
+ * One tool call of an assistant turn. `label` is a human line ("List files",
+ * "src/a.ts", "Figma · Get screenshot"); unknown tools fall back to `name`.
+ */
+export interface ChatToolBlock {
+  kind: 'tool';
+  /** Claude's `tool_use` id, which the later `tool_result` names. */
+  id: string;
+  name: string;
+  label: string;
+  detail?: ChatToolDetail;
+  status: ChatToolStatus;
+}
+
 export type ChatBlock =
   | { kind: 'text'; text: string }
-  /** A tool call; only the tool name is shown in phase 1. */
-  | { kind: 'tool'; name: string }
-  | { kind: 'image' }
+  /** A tool call, joined with its result once the transcript records it (F7). */
+  | ChatToolBlock
+  /** An attached image; `path` when the prompt names a file a session can read (for a thumbnail). */
+  | { kind: 'image'; path?: string }
   /** A slash command as typed (`/model` + `opus`), or a `!` bash command (name `!`). */
   | { kind: 'command'; name: string; args?: string }
   /** What a local command (or `!` bash command) printed; shown collapsed. */
@@ -953,6 +1050,32 @@ export interface ChatUpdate {
    * commands are the client's own list). Same delivery as `permissionMode`.
    */
   commands?: ChatCommand[];
+  /**
+   * The next prompt Claude Code suggests as faint text in its empty input box
+   * (Tab accepts it there). Sent on a reset; changes come as `session:chatSuggestion`.
+   */
+  suggestion?: string;
+  /** Claude Code's input queue (F8). Sent on a reset and whenever it changes. */
+  queue?: ChatQueue;
+}
+
+/**
+ * Prompts typed while Claude was running, still waiting in Claude Code's queue
+ * (read from its `queue-operation` transcript entries). Only the user's own
+ * prompts are listed: task notifications, messages from other sessions and
+ * slash commands (they get an echo) are left out.
+ */
+export interface ChatQueue {
+  /** In the order Claude Code will read them. */
+  items: ChatQueuedPrompt[];
+  /** Listed prompts ever enqueued in this transcript: grows by one per prompt, never shrinks. */
+  seq: number;
+}
+
+export interface ChatQueuedPrompt {
+  /** `queued-<n>`, n being its place in `seq`. */
+  id: string;
+  blocks: ChatBlock[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */
@@ -1142,8 +1265,14 @@ export interface ClientToServerEvents {
   'session:mark-done': (sessionId: string) => void;
   /** Type the same text into several sessions at once (validated + rate-limited server-side). */
   'session:broadcast': (payload: BroadcastRequest, ack?: (result: BroadcastResult) => void) => void;
-  /** Answer a waiting numbered menu with one digit; refused unless that option is on screen now. */
-  'session:answer': (payload: { sessionId: string; key: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
+  /**
+   * Answer a waiting menu; refused unless that option is on screen now. `key` is
+   * an option's key, 'next' (Tab) to leave a multiSelect question or go to the
+   * next of several questions, or 'prev' (←) to go back one; `text` is
+   * required by a `freeText` option and typed for the user. The server picks the
+   * keystrokes: the digit, or arrow keys + Enter for an unnumbered menu.
+   */
+  'session:answer': (payload: { sessionId: string; key: string; text?: string }, ack?: (result: { ok: true } | { ok: false; error: string }) => void) => void;
   // Companion terminals (one per session, persists while parent session is alive)
   /** `size` is the client's grid; a not-yet-running shell spawns at it (default 120x30). */
   /** Start receiving `session:chat` updates for a Claude session (B1 Chat view). */
@@ -1195,6 +1324,12 @@ export interface SessionStatusPayload {
   /** See SessionInfo.waitingSince / promptOptions — present only while waiting. */
   waitingSince?: number;
   promptOptions?: PromptOption[];
+  promptQuestion?: string;
+  promptTabs?: PromptTab[];
+  /** SessionInfo.starting / initialPrompt as of this status: sent only while
+   *  starting, so their absence clears them (F15b). */
+  starting?: boolean;
+  initialPrompt?: { text: string; clipped?: boolean };
 }
 
 export interface ServerToClientEvents {
@@ -1222,6 +1357,8 @@ export interface ServerToClientEvents {
   'session:shellContext': (payload: { sessionId: string; cwd: string; shellGit: ShellGitContext | null }) => void;
   /** The session's PR / CI state changed; null = no PR (or the feature is off). */
   'session:pr': (payload: { sessionId: string; pr: SessionPr | null }) => void;
+  /** F5: the session's PR summary changed; null = no non-closed PR (or the feature is off). */
+  'session:prSummary': (payload: { sessionId: string; summary: SessionPrSummary | null }) => void;
   /** Beta F8: the worktree's stale marker changed; null = not stale (or the feature is off). */
   'session:worktreeStale': (payload: { sessionId: string; staleDays: number | null }) => void;
   /** Beta F6: one new activity entry, emitted only to the session's room. */
@@ -1232,6 +1369,13 @@ export interface ServerToClientEvents {
   'session:chat': (payload: ChatUpdate) => void;
   /** The permission mode Claude Code shows on screen changed (Chat view subscribers only). */
   'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
+  /** Claude Code's prompt suggestion appeared, changed or went away (null; Chat view subscribers only). */
+  'session:chatSuggestion': (payload: { sessionId: string; suggestion: string | null }) => void;
+  /**
+   * A settled Claude screen shows its empty input box (true) or not: a picker, dialog or typed
+   * text is there instead (F6). Sent on every settle, to Chat view subscribers only.
+   */
+  'session:chatAtPrompt': (payload: { sessionId: string; atPrompt: boolean }) => void;
   /** An agent account's plan usage changed (shared by every shell of that agent). */
   'usage:plan': (payload: { agent: PlanUsageAgent; plan: PlanUsage }) => void;
   /** A Claude session reported a (new) conversation id — Resume reopens it. */

@@ -69,6 +69,7 @@ export const CONFIG_DIAG_POLICY: Record<keyof AppConfig, DiagPolicy> = {
   inspectorWidth: 'include',
   inspectorCollapsed: 'include',
   autoApprovalEnabled: 'include',
+  mcpServerEnabled: 'include',
   claudeRenderer: 'include',
   defaultSessionView: 'include',
   betaActivityTimeline: 'include',

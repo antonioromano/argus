@@ -3,7 +3,7 @@ import type { SessionInfo } from '@argus/shared';
 import { Inbox } from 'lucide-react';
 import { Checkbox, Kbd, Icon, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
-import { formatWaiting, optionForKey, waitingItems } from './inboxItems.js';
+import { formatWaiting, inboxOptions, optionForKey, waitingItems } from './inboxItems.js';
 import { displayLabel } from '../../utils/sessionLabel.js';
 
 interface WaitingInboxProps {
@@ -180,9 +180,9 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
                 <Text as="div" size="small" truncate style={{ lineHeight: 1.45, color: s.lastPrompt ? 'var(--fg-1)' : 'var(--fg-3)' }}>
                   {s.lastPrompt ?? 'Waiting for input'}
                 </Text>
-                {s.promptOptions && s.promptOptions.length > 0 && (
+                {inboxOptions(s).length > 0 && (
                   <Row align="stretch" gap={1.5} wrap>
-                    {s.promptOptions.map((o) => (
+                    {inboxOptions(s).map((o) => (
                       <button
                         key={o.key}
                         type="button"
@@ -215,7 +215,7 @@ export function WaitingInbox({ sessions, shortcutLabel, onClose, onJump, onSendK
         {[
           { key: '↑↓', label: 'NAVIGATE' },
           { key: '↵', label: 'JUMP' },
-          ...(selected?.promptOptions?.length ? [{ key: `1–${selected.promptOptions.length}`, label: 'ANSWER' }] : []),
+          ...(selected && inboxOptions(selected).length ? [{ key: `1–${inboxOptions(selected).at(-1)!.key}`, label: 'ANSWER' }] : []),
           ...(onBroadcast && items.length ? [
             { key: 'Space', label: 'MARK' },
             { key: 'B', label: markedIds.length ? `BROADCAST (${markedIds.length})` : 'BROADCAST' },

@@ -6,8 +6,12 @@ import { Square as SquareIcon, CircleX, Minus, Check, Maximize2, MoreHorizontal 
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { ShellGitChip } from '../ui/ShellGitChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
+import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
+import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
+import { ChipMarks } from '../ui/MinimizedChip.js';
+import { chipClass } from '../ui/chipFormat.js';
 import { ChainChip } from '../ui/ChainChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
 import { canResume } from '../../utils/resume.js';
@@ -690,7 +694,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
   return (
     <button
       ref={setNodeRef}
-      className={isNew ? 'argus-chip argus-chip--entering' : 'argus-chip'}
+      className={chipClass(session, isNew ? 'argus-chip--entering' : undefined)}
       style={style}
       onClick={onClick}
       {...listeners}
@@ -700,7 +704,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
       {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
-      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+      <ChipMarks session={session} />
     </button>
   );
 }
@@ -709,11 +713,11 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
 
 function ChipDragPreview({ session }: { session: SessionInfo }) {
   return (
-    <button type="button" className="argus-chip argus-chip-drag-overlay">
+    <button type="button" className={chipClass(session, 'argus-chip-drag-overlay')}>
       <StatusDot status={session.status} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
-      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+      <ChipMarks session={session} />
     </button>
   );
 }
@@ -783,6 +787,16 @@ function MosaicTileInner({
     [onOpenSearch, sessionId],
   );
   const tileRootRef = useRef<HTMLDivElement>(null);
+  // Header info sheds by priority as the tile narrows; the actions never do.
+  const infoRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLSpanElement>(null);
+  const renaming = sessionMenu.isRenaming(session.id, 'tile');
+  const headerInfo = shedInfo(session, { usageMeter, chainCount });
+  const shed = useHeaderShed(infoRef, nameRef, [
+    shellLabel(session), !!groupColor, session.hasGitChanges, renaming, shedKey(headerInfo),
+  ].join('|'));
+  const showPills = shed < SHED.pills;
+  const nameHint = 'Click to copy path · right-click for actions';
   // Capture autoFocus at mount: true means this tile is being restored from the
   // minimized row and should skip the staggered entrance animation (which would
   // make it a ghost for up to idx*40ms due to the `backwards` fill mode delay).
@@ -853,71 +867,78 @@ function MosaicTileInner({
         {...dragHandleListeners}
         {...dragHandleAttributes}
       >
-        <AgentGlyph agent={session.agentType} size={16} />
-        {groupColor && (
-          <span
-            aria-hidden
-            style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
-          />
-        )}
-        <StatusDot status={session.status} size={7} />
-        <SessionIdentity session={session} />
-
-        {sessionMenu.isRenaming(session.id, 'tile') ? (
-          <SessionRenameInput
-            initial={shellLabel(session)}
-            onCommit={(v) => sessionMenu.commitRename(session.id, v)}
-            onCancel={sessionMenu.cancelRename}
-            style={{ flex: '0 1 220px', fontSize: 'var(--t-sm)' }}
-          />
-        ) : (
-          <Tooltip content="Click to copy path">
+        {/* Info region: takes the leftover width and clips, so nothing in it
+            can ever push the actions out (see headerShed for the order). */}
+        <div ref={infoRef} className="argus-tile-info" data-testid="tile-info" data-shed={shed}>
+          <AgentGlyph agent={session.agentType} size={16} />
+          {groupColor && (
             <span
-              role="button"
-              tabIndex={0}
-              className="argus-tile-name"
-              aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
-              onClick={copyPath}
-              onContextMenu={(e) => sessionMenu.openMenu(session, e, 'tile')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
-              style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
-            >
-              {copied && <Icon icon={Check} size="sm" strokeWidth={2} style={{ flexShrink: 0 }} />}
-              {copied ? 'Copied path' : shellLabel(session)}
+              aria-hidden
+              style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
+            />
+          )}
+          <StatusDot status={session.status} size={7} />
+          <SessionIdentity session={session} />
+
+          {renaming ? (
+            <SessionRenameInput
+              initial={shellLabel(session)}
+              onCommit={(v) => sessionMenu.commitRename(session.id, v)}
+              onCancel={sessionMenu.cancelRename}
+              style={{ flex: '0 1 220px', fontSize: 'var(--t-sm)' }}
+            />
+          ) : (
+            <Tooltip content={<ShedTooltip hint={nameHint} rows={shedRows(headerInfo, shed)} />}>
+              <span
+                ref={nameRef}
+                role="button"
+                tabIndex={0}
+                className="argus-tile-name"
+                aria-label={copied ? 'Path copied' : `Copy path ${session.folderPath}`}
+                onClick={copyPath}
+                onContextMenu={(e) => sessionMenu.openMenu(session, e, 'tile')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); doCopy(); } }}
+                style={{ color: copied ? 'var(--accent)' : 'var(--fg-0)' }}
+              >
+                {copied && <Icon icon={Check} size="sm" strokeWidth={2} style={{ flexShrink: 0 }} />}
+                {copied ? 'Copied path' : shellLabel(session)}
+              </span>
+            </Tooltip>
+          )}
+
+          {showPills && session.worktreeBranch && (
+            <Tooltip content={session.worktreeBranch}>
+              <span className="argus-tile-branch">{session.worktreeBranch.replace(/^argus\//, '')}</span>
+            </Tooltip>
+          )}
+          {showPills && <StaleChip staleDays={session.worktreeStaleDays} />}
+          {showPills && session.runMode === 'direct' && (
+            <Tooltip content="Native terminal — stops when Argus quits">
+              <span className="argus-tile-branch">Native</span>
+            </Tooltip>
+          )}
+          {/* A Shell with integration reports git for wherever it cd'd to; that
+              replaces the start-folder dirty dot, which would describe another repo. */}
+          {session.shellGit !== undefined ? (
+            showPills && session.cwd && session.shellGit && <ShellGitChip cwd={session.cwd} git={session.shellGit} />
+          ) : session.hasGitChanges && (
+            <Tooltip content="Uncommitted changes">
+              <span className="argus-tile-dirty" />
+            </Tooltip>
+          )}
+
+          {showPills && <ChainChip count={chainCount} />}
+          {showPills && session.pr && <PrChip pr={session.pr} />}
+          {usageMeter && shed < SHED.ctx && (
+            <UsageChip agentType={session.agentType} usage={session.usage} plan={planFor(usageMeter.plans, session.agentType)} view={usageMeter} omit={usageOmit(shed)} />
+          )}
+
+          {shed < SHED.status && (
+            <span className="argus-tile-status argus-status" data-status={session.status}>
+              {STATUS_LABELS[session.status]}
             </span>
-          </Tooltip>
-        )}
-
-        {session.worktreeBranch && (
-          <Tooltip content={session.worktreeBranch}>
-            <span className="argus-tile-branch">{session.worktreeBranch.replace(/^argus\//, '')}</span>
-          </Tooltip>
-        )}
-        <StaleChip staleDays={session.worktreeStaleDays} />
-        {session.runMode === 'direct' && (
-          <Tooltip content="Native terminal — stops when Argus quits">
-            <span className="argus-tile-branch">Native</span>
-          </Tooltip>
-        )}
-        {/* A Shell with integration reports git for wherever it cd'd to; that
-            replaces the start-folder dirty dot, which would describe another repo. */}
-        {session.shellGit !== undefined ? (
-          session.cwd && session.shellGit && <ShellGitChip cwd={session.cwd} git={session.shellGit} />
-        ) : session.hasGitChanges && (
-          <Tooltip content="Uncommitted changes">
-            <span className="argus-tile-dirty" />
-          </Tooltip>
-        )}
-
-        <ChainChip count={chainCount} />
-        {session.pr && <PrChip pr={session.pr} />}
-        {usageMeter && (
-          <UsageChip agentType={session.agentType} usage={session.usage} plan={planFor(usageMeter.plans, session.agentType)} view={usageMeter} />
-        )}
-
-        <span className="argus-tile-status argus-status" data-status={session.status}>
-          {STATUS_LABELS[session.status]}
-        </span>
+          )}
+        </div>
 
         {/* [action] ┃ [minimize] [expand] [close] ┃ [⋯] — a rule per group: the
             pinned action, the window controls, the menu. ⋯ sits last so its popup
@@ -950,7 +971,7 @@ function MosaicTileInner({
             onClick={(e) => { e.stopPropagation(); onOpen(session.id); }} />
           <IconButton
             icon={CircleX}
-            label={`Close shell${comboLabel('close-shell') ? `  ${comboLabel('close-shell')}` : ''}`}
+            label={`Close session${comboLabel('close-shell') ? `  ${comboLabel('close-shell')}` : ''}`}
             size="sm"
             className="hover-danger"
             onClick={(e) => { e.stopPropagation(); onKill(session); }}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'fs';
 import os from 'os';
 import path from 'path';
-import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, echoCommandOf, parseChatEntry, parseChatLine, parseSkillListing } from './ChatTail.js';
+import { ChatTail, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT, cleanUserText, echoCommandOf, parseChatEntry, parseChatLine, parseSkillListing, queuedBlocksOf } from './ChatTail.js';
 
 const user = (uuid: string, content: unknown, extra: Record<string, unknown> = {}) =>
   JSON.stringify({ type: 'user', uuid, timestamp: '2026-10-23T16:00:00.000Z', message: { role: 'user', content }, ...extra });
@@ -26,12 +26,15 @@ test('parses user and assistant text with timestamps', () => {
   ]);
 });
 
-test('tool calls become name-only blocks; thinking and tool results are dropped', () => {
-  assert.deepEqual(parseChatEntry(assistant('a1', [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }]))?.blocks, [
-    { kind: 'tool', name: 'Bash' },
+test('tool calls become pending steps; thinking and tool results make no message', () => {
+  assert.deepEqual(parseChatEntry(assistant('a1', [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }]))?.blocks, [
+    { kind: 'tool', id: 't1', name: 'Bash', label: 'ls', status: 'pending', detail: { command: 'ls' } },
   ]);
   assert.equal(parseChatEntry(assistant('a2', [{ type: 'thinking', thinking: '' }])), undefined);
-  assert.equal(parseChatEntry(user('u1', [{ type: 'tool_result', content: 'out' }])), undefined);
+  assert.equal(parseChatEntry(user('u1', [{ type: 'tool_result', tool_use_id: 't1', content: 'out' }])), undefined);
+  assert.deepEqual(parseChatLine(user('u1', [{ type: 'tool_result', tool_use_id: 't1', content: 'out' }]))?.toolResults, [
+    { id: 't1', status: 'ok', output: 'out' },
+  ]);
 });
 
 test('unknown block types are kept as unknown, never thrown', () => {
@@ -380,5 +383,274 @@ test('ChatTail reports the skill listing on a reset and when it changes', async 
     ['pr-review', 'Review a PR, v2'],
   ]);
   assert.equal(parseChatLine(listing('- x: y').replace('"isSidechain":false', '"isSidechain":true')), undefined);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('a composer prompt with an image renders as typed: no paste wrapper, image marker or temp path (F2)', () => {
+  // Real-shaped entry: Claude Code wraps the pasted text, leaves `[Image #N]`
+  // and the temp path inline, and records the image as its own block.
+  const tmp = '/var/folders/xh/qkxmvh7503l8l87ntff5p6fm0000gn/T/argus-chat-images/93bb08bb-19e9-4b37-a511-c4fd55ea5049.png';
+  const entry = user('u1', [
+    { type: 'text', text: `[Image #14]\n\n<pasted_content id="910a">\n${tmp} - first point\n- second point\n</pasted_content id="910a">\n` },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+  ]);
+  assert.deepEqual(parseChatEntry(entry)?.blocks, [
+    { kind: 'text', text: '- first point\n- second point' },
+    // Argus's temp dir is outside every session folder: no readable path.
+    { kind: 'image' },
+  ]);
+});
+
+test('the new composer layout (paths on their own line) parses the same', () => {
+  const tmp = '/tmp/argus-chat-images/6a6548dd-87e5-4254-ac2f-09c3e5130b06.png';
+  const entry = user('u1', [
+    { type: 'text', text: `[Image #1] [Image #2]\n<pasted_content id="1">\n${tmp} /repo/shot.png\n- item\n</pasted_content id="1">` },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '' } },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: '' } },
+  ]);
+  assert.deepEqual(parseChatEntry(entry)?.blocks, [
+    // A user's own file stays in the text; only Argus's temp paths are noise.
+    { kind: 'text', text: '/repo/shot.png\n- item' },
+    { kind: 'image' },
+    { kind: 'image', path: '/repo/shot.png' },
+  ]);
+});
+
+test('paste wrappers are unwrapped; `[Image #N]` stays without an image block', () => {
+  assert.equal(cleanUserText('<pasted_content id="ab">\nhello\n</pasted_content id="ab">'), 'hello');
+  assert.equal(cleanUserText('see [Image #3]'), 'see [Image #3]');
+  assert.equal(cleanUserText('see [Image #3]', true), 'see');
+  assert.equal(cleanUserText('"/private/var/x y/argus-chat-images/a-b.jpg" what is this?'), 'what is this?');
+});
+
+test('a stopped turn is a "Stopped" notice; task notifications are hidden (F3)', () => {
+  assert.deepEqual(parseChatEntry(user('u1', [{ type: 'text', text: '[Request interrupted by user]' }])), {
+    id: 'u1',
+    role: 'system',
+    blocks: [{ kind: 'notice', text: 'Stopped' }],
+    ts: Date.parse('2026-10-23T16:00:00.000Z'),
+  });
+  assert.deepEqual(parseChatEntry(user('u2', '[Request interrupted by user for tool use]'))?.blocks, [{ kind: 'notice', text: 'Stopped' }]);
+  assert.equal(parseChatEntry(user('u3', [{ type: 'text', text: '[Request interrupted by user for tool use]' }]))?.role, 'system');
+  assert.equal(parseChatEntry(user('u4', '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>')), undefined);
+});
+
+const toolUse = (uuid: string, id: string, name: string, input: unknown, extra: Record<string, unknown> = {}) =>
+  assistant(uuid, [{ type: 'tool_use', id, name, input }], extra);
+const toolResult = (uuid: string, id: string, content: unknown, extra: Record<string, unknown> = {}) =>
+  user(uuid, [{ type: 'tool_result', tool_use_id: id, content, ...extra }]);
+
+test('ChatTail: a tool result in a later entry is joined to its call (in a reset)', async () => {
+  const f = tmpFile();
+  writeFileSync(
+    f,
+    [
+      toolUse('a1', 't1', 'Bash', { command: 'ls', description: 'List files' }),
+      toolUse('a2', 't2', 'Read', { file_path: '/repo/x.ts' }, { cwd: '/repo' }),
+      toolResult('r1', 't1', 'a.ts\nb.ts'),
+      toolResult('r2', 't2', "The user doesn't want to proceed with this tool use.", { is_error: true }),
+    ].join('\n') + '\n',
+  );
+  const t = new ChatTail(f);
+  await t.poll();
+  const d = t.drain();
+  assert.equal(d.reset, true);
+  assert.deepEqual(d.messages.map((m) => m.id), ['a1', 'a2']);
+  assert.deepEqual(d.messages[0].blocks, [
+    { kind: 'tool', id: 't1', name: 'Bash', label: 'List files', status: 'ok', detail: { command: 'ls', output: 'a.ts\nb.ts' } },
+  ]);
+  assert.deepEqual(d.messages[1].blocks[0], {
+    kind: 'tool',
+    id: 't2',
+    name: 'Read',
+    label: 'x.ts',
+    status: 'blocked',
+    detail: { path: '/repo/x.ts', output: "The user doesn't want to proceed with this tool use." },
+  });
+});
+
+test('ChatTail: a result arriving after the call was sent re-sends that message (same id)', async () => {
+  const f = tmpFile();
+  writeFileSync(f, user('u1', 'go') + '\n' + toolUse('a1', 't1', 'Bash', { command: 'false' }) + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  const first = t.drain();
+  const sent = first.messages[1];
+  assert.equal(sent.blocks[0].kind === 'tool' && sent.blocks[0].status, 'pending');
+
+  appendFileSync(f, toolResult('r1', 't1', 'Exit code 1', { is_error: true }) + '\n' + toolUse('a2', 't2', 'Grep', { pattern: 'x' }) + '\n');
+  await t.poll();
+  const d = t.drain();
+  assert.equal(d.reset, false);
+  assert.deepEqual(d.messages.map((m) => m.id), ['a1', 'a2']);
+  assert.equal(d.messages[0].blocks[0].kind === 'tool' && d.messages[0].blocks[0].status, 'error');
+  // What was sent before is never mutated.
+  assert.equal(sent.blocks[0].kind === 'tool' && sent.blocks[0].status, 'pending');
+  assert.equal(t.messages[1].blocks[0].kind === 'tool' && t.messages[1].blocks[0].status, 'error');
+
+  // A call and its result in the same read are sent once, already joined.
+  appendFileSync(f, toolResult('r2', 't2', 'hit') + '\n');
+  await t.poll();
+  const d2 = t.drain();
+  assert.deepEqual(d2.messages.map((m) => m.id), ['a2']);
+  assert.equal(d2.messages[0].blocks[0].kind === 'tool' && d2.messages[0].blocks[0].status, 'ok');
+
+  // A result for an unknown (or already joined) call changes nothing.
+  appendFileSync(f, toolResult('r3', 't2', 'again') + '\n' + toolResult('r4', 'nope', 'x') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().messages, []);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+const queuedCommand = (uuid: string, attachment: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ type: 'attachment', uuid, timestamp: '2026-10-23T16:00:00.000Z', attachment: { type: 'queued_command', ...attachment }, ...extra });
+
+test('a prompt Claude read mid-turn (queued_command attachment) is a user message', () => {
+  const m = parseChatEntry(queuedCommand('q1', { prompt: 'PS. also check the tests', commandMode: 'prompt', origin: { kind: 'human' } }));
+  assert.deepEqual(m, { id: 'q1', role: 'user', blocks: [{ kind: 'text', text: 'PS. also check the tests' }], ts: Date.parse('2026-10-23T16:00:00.000Z') });
+  // Older Claude Code versions record no origin.
+  assert.equal(parseChatEntry(queuedCommand('q2', { prompt: 'and this', commandMode: 'prompt' }))?.role, 'user');
+  // A prompt with an image is a block list, as in a user entry.
+  assert.deepEqual(
+    parseChatEntry(queuedCommand('q3', { prompt: [{ type: 'image', source: {} }, { type: 'text', text: 'see [Image #1]' }], commandMode: 'prompt', origin: { kind: 'human' } }))?.blocks,
+    [{ kind: 'image' }, { kind: 'text', text: 'see' }],
+  );
+});
+
+test('queued task notifications, peer messages and sidechain prompts are not chat messages', () => {
+  assert.equal(parseChatEntry(queuedCommand('t1', { prompt: '<task-notification>\n<status>completed</status>\n</task-notification>', commandMode: 'task-notification' })), undefined);
+  assert.equal(parseChatEntry(queuedCommand('p1', { prompt: 'from another session', commandMode: 'prompt', origin: { kind: 'peer' } })), undefined);
+  assert.equal(parseChatEntry(queuedCommand('s1', { prompt: 'sub', commandMode: 'prompt' }, { isSidechain: true })), undefined);
+  // Only harness wrappers: nothing the user typed.
+  assert.equal(parseChatEntry(queuedCommand('r1', { prompt: '<system-reminder>x</system-reminder>', commandMode: 'prompt' })), undefined);
+  // The queue bookkeeping itself is never a message.
+  assert.equal(parseChatEntry(JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: 'hi', sessionId: 's' })), undefined);
+});
+
+const queueOp = (operation: string, content?: string, extra: Record<string, unknown> = {}) =>
+  JSON.stringify({ type: 'queue-operation', operation, timestamp: '2026-11-02T10:00:00.000Z', sessionId: 's', ...(content === undefined ? {} : { content }), ...extra });
+
+test('queue-operation lines are parsed as queue changes; sidechain and unknown ops are not', () => {
+  assert.deepEqual(parseChatLine(queueOp('enqueue', 'hi'))?.queueOp, { op: 'enqueue', content: 'hi' });
+  assert.deepEqual(parseChatLine(queueOp('dequeue'))?.queueOp, { op: 'dequeue' });
+  assert.deepEqual(parseChatLine(queueOp('remove', 'hi', { reason: 'absorbed_mid_turn' }))?.queueOp, { op: 'remove', content: 'hi' });
+  assert.deepEqual(parseChatLine(queueOp('popAll', 'hi'))?.queueOp, { op: 'popAll', content: 'hi' });
+  assert.equal(parseChatLine(queueOp('enqueue', 'sub', { isSidechain: true })), undefined);
+  assert.equal(parseChatLine(queueOp('shuffle', 'hi')), undefined);
+});
+
+test('only the user\'s own queued prompts are listed', () => {
+  assert.deepEqual(queuedBlocksOf('also check the tests'), [{ kind: 'text', text: 'also check the tests' }]);
+  assert.deepEqual(queuedBlocksOf('<bash-input>git status</bash-input>'), [{ kind: 'command', name: '!', args: 'git status' }]);
+  // A pasted text is the user's too.
+  assert.deepEqual(queuedBlocksOf('<pasted_content id="x">\nlog\n</pasted_content id="x">'), [{ kind: 'text', text: 'log' }]);
+  for (const foreign of [
+    undefined,
+    '<task-notification>\n<status>completed</status>\n</task-notification>',
+    '<system-reminder>\nLinked sessions\n</system-reminder>',
+    '<agent-message from="x">hi</agent-message>',
+    '<ci-monitor-event>failed</ci-monitor-event>',
+    '<cross-session-message from="y">hi</cross-session-message>',
+    '<!--\nPrompt for post-session rule harvesting.\n-->',
+    // The Chat echoes a slash command itself.
+    '/compact',
+    '/model opus',
+  ]) {
+    assert.equal(queuedBlocksOf(foreign), undefined, String(foreign));
+  }
+});
+
+test('ChatTail follows Claude Code\'s queue: enqueue, dequeue in order, remove and popAll by text', async () => {
+  const f = tmpFile();
+  writeFileSync(f, user('u1', 'go') + '\n' + queueOp('enqueue', 'one') + '\n' + queueOp('enqueue', '<task-notification>x</task-notification>') + '\n' + queueOp('enqueue', 'two') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  const first = t.drain();
+  assert.equal(first.reset, true);
+  assert.deepEqual(first.queue, {
+    items: [
+      { id: 'queued-1', blocks: [{ kind: 'text', text: 'one' }] },
+      { id: 'queued-2', blocks: [{ kind: 'text', text: 'two' }] },
+    ],
+    seq: 2,
+  });
+
+  // Nothing changed: no queue in the delta.
+  await t.poll();
+  assert.equal(t.drain().queue, undefined);
+
+  // Dequeue takes the head; the notification behind it is not listed, so taking it changes nothing.
+  appendFileSync(f, queueOp('dequeue') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().queue?.items.map((q) => q.id), ['queued-2']);
+  appendFileSync(f, queueOp('dequeue') + '\n');
+  await t.poll();
+  assert.equal(t.drain().queue, undefined);
+
+  // Read mid-turn (remove) or pulled back into the input box (popAll): taken by text,
+  // oldest copy first (the `two` still queued from before).
+  appendFileSync(f, queueOp('enqueue', 'two') + '\n' + queueOp('enqueue', 'three') + '\n' + queueOp('remove', 'two', { reason: 'absorbed_mid_turn' }) + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().queue, {
+    items: [
+      { id: 'queued-3', blocks: [{ kind: 'text', text: 'two' }] },
+      { id: 'queued-4', blocks: [{ kind: 'text', text: 'three' }] },
+    ],
+    seq: 4,
+  });
+  appendFileSync(f, queueOp('popAll', 'two') + '\n' + queueOp('popAll', 'three') + '\n' + queueOp('remove', 'not queued') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().queue, { items: [], seq: 4 });
+
+  // A snapshot carries the queue as it is now.
+  appendFileSync(f, queueOp('enqueue', 'four') + '\n');
+  await t.poll();
+  assert.deepEqual(t.queue, { items: [{ id: 'queued-5', blocks: [{ kind: 'text', text: 'four' }] }], seq: 5 });
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail: a rewritten transcript starts a fresh queue', async () => {
+  const f = tmpFile();
+  writeFileSync(f, queueOp('enqueue', 'old one') + '\n' + queueOp('enqueue', 'old two') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  t.drain();
+  writeFileSync(f, queueOp('enqueue', 'new') + '\n');
+  await t.poll();
+  const d = t.drain();
+  assert.equal(d.reset, true);
+  assert.deepEqual(d.queue, { items: [{ id: 'queued-1', blocks: [{ kind: 'text', text: 'new' }] }], seq: 1 });
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail: a remove without text takes the oldest; a stale head is corrected by the prompt Claude records', async () => {
+  const f = tmpFile();
+  const notice = '<task-notification>\n<task-id>t1</task-id>\n</task-notification>';
+  // Seen in real transcripts: a notification enqueued, then removed with no text.
+  writeFileSync(f, queueOp('enqueue', notice) + '\n' + queueOp('remove') + '\n' + queueOp('enqueue', 'mine') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  assert.deepEqual(t.drain().queue?.items.map((q) => q.id), ['queued-1']);
+  appendFileSync(f, queueOp('dequeue') + '\n' + user('u1', 'mine') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().queue, { items: [], seq: 1 });
+
+  // A head Claude Code dropped without a record: the dequeue takes it here, while
+  // Claude took `two`. Its user entry, still queued, tells which one went.
+  appendFileSync(f, queueOp('enqueue', '<agent-message from="x">hi</agent-message>') + '\n' + queueOp('enqueue', 'two') + '\n');
+  await t.poll();
+  t.drain();
+  appendFileSync(f, queueOp('dequeue') + '\n' + user('u2', 'two') + '\n');
+  await t.poll();
+  assert.deepEqual(t.drain().queue, { items: [], seq: 2 });
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});
+
+test('ChatTail: the same prompt queued twice and read once stays queued once', async () => {
+  const f = tmpFile();
+  writeFileSync(f, queueOp('enqueue', 'yes') + '\n' + queueOp('enqueue', 'yes') + '\n' + queueOp('dequeue') + '\n' + user('u1', 'yes') + '\n');
+  const t = new ChatTail(f);
+  await t.poll();
+  assert.deepEqual(t.drain().queue, { items: [{ id: 'queued-2', blocks: [{ kind: 'text', text: 'yes' }] }], seq: 2 });
   rmSync(path.dirname(f), { recursive: true, force: true });
 });

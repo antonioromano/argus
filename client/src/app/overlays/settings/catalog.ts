@@ -227,6 +227,14 @@ const BASE: readonly SettingDescriptor[] = [
     keys: ['launchFolderRoots'], kind: 'list',
     format: (c) => (c.launchFolderRoots ?? []).join(', '),
   },
+  {
+    id: 'mcpServerEnabled', pane: 'launchers', section: 'Argus MCP server',
+    label: 'Let Claude sessions orchestrate Argus',
+    hint: 'New and restarted Claude sessions get an argus MCP server: start sessions (each one opens an approval card), list and read sessions, and send input to or interrupt the ones they started. Running sessions pick it up on restart.',
+    keywords: ['mcp', 'orchestrator', 'orchestrate', 'start_session', 'mcp server'],
+    // It hands sessions control over Argus: open it in Settings, never flip it from the palette.
+    keys: ['mcpServerEnabled'], kind: 'toggle', palette: 'open',
+  },
 
   // ── General ───────────────────────────────────────────────────────────────
   {

@@ -58,6 +58,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   inspectorWidth: 300,
   inspectorCollapsed: [],
   autoApprovalEnabled: false,
+  mcpServerEnabled: false,
   claudeRenderer: 'fullscreen',
   defaultSessionView: 'terminal',
   betaActivityTimeline: false,

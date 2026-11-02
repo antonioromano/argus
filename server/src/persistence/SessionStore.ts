@@ -17,6 +17,7 @@ export interface PersistedSession {
   terminalEngine?: TerminalEngine;
   runMode?: RunMode;
   launcherId?: string;
+  spawnedBy?: string;
   /** Claude only: the conversation id last reported by the agent's hooks. */
   claudeSessionId?: string;
   /** Claude only: usage-meter tail state (offsets + totals per transcript). */

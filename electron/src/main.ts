@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
-import { createLaunchGate, type LaunchGate } from './launchGate.js';
+import { createLaunchGate, type LaunchGate, type McpLaunchDecision, type McpRequester } from './launchGate.js';
 import { systemSettingsUrl } from './systemSettings.js';
 import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeShortcuts, menuInvokeTarget, isSettingsPayload, sanitizeLauncherImport, SETTINGS_PAYLOAD_MAX_BYTES, type IpcSenderLike } from './ipcGuards.js';
 import { backupFileName, backupsToPrune, defaultExportName } from './settingsFiles.js';
@@ -1266,7 +1266,7 @@ async function main() {
   });
 
   const launchService = server.getLaunchService() as import('../../server/dist/services/launch/LaunchService.js').LaunchService;
-  const hostLaunch = server.hostLaunch as (v: import('@argus/shared').ValidatedLaunch, windowId: string, launcherId?: string) => Promise<{ id: string }>;
+  const hostLaunch = server.hostLaunch as (v: import('@argus/shared').ValidatedLaunch, windowId: string, launcherId?: string, spawnedBy?: string) => Promise<{ id: string }>;
   const sendTo = (windowId: string, channel: string, payload?: unknown) => {
     const win = getAppWindow(windowId) ?? getMainWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -1276,7 +1276,7 @@ async function main() {
     newId: () => randomUUID(),
     validate: (req) => launchService.validate(req),
     resolveRun: (id) => launchService.resolveRun(id),
-    launch: (v, w, l) => hostLaunch(v, w, l),
+    launch: (v, w, l, by) => hostLaunch(v, w, l, by),
     saveLauncher: (i) => launchService.add(i),
     targetWindow: () => getFocusedWindowId(),
     changed: (w, reason) => {
@@ -1297,6 +1297,9 @@ async function main() {
     },
   });
   setInterval(() => launchGate?.tick(), 30_000).unref();
+  // F10: MCP start_session goes through the same gate (card + approval) as a link.
+  const setMcpLaunchHook = server.setMcpLaunchHook as (fn: (v: import('@argus/shared').ValidatedLaunch, caller: McpRequester, signal?: AbortSignal) => Promise<McpLaunchDecision>) => void;
+  setMcpLaunchHook((v, caller, signal) => launchGate!.request(v, caller, signal));
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   /** Only an Argus window's main frame may drive launches. Returns its window id. */
@@ -1313,7 +1316,7 @@ async function main() {
     const w = launchSender(e, false);
     return w && launchGate ? launchGate.list(w) : [];
   });
-  ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown } }) => {
+  ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown }; trust?: unknown }) => {
     const sender = launchSender(e, true);
     if (!sender || !launchGate) return refused;
     if (typeof arg?.id !== 'string' || !UUID_RE.test(arg.id)) return { ok: false, error: 'Bad id' };
@@ -1323,7 +1326,7 @@ async function main() {
       return { ok: false, error: 'Bad input' };
     }
     const saveAs = s ? { id: s.id as string, label: s.label as string, overwrite: s.overwrite === true } : undefined;
-    return launchGate.approve(arg.id, saveAs);
+    return launchGate.approve(arg.id, saveAs, arg.trust === true);
   });
   ipcMain.handle('launch:discard', (e, id: unknown) => {
     const sender = launchSender(e, false);

@@ -17,7 +17,9 @@ declare global {
 // no interest in. Stubbing it isolates the things under test: the "Native"
 // marker in Focus's own header and the exited-session card over the terminal.
 vi.mock('../ui/TerminalShell.js', () => ({
-  TerminalShell: () => null,
+  TerminalShell: ({ session, requestFocusToken }: { session: { id: string }; requestFocusToken?: number }) => (
+    <div data-testid="terminal-shell" data-session={session.id} data-focus-token={requestFocusToken} />
+  ),
 }));
 // The companion shell spawns a real xterm; only its placement matters here.
 vi.mock('../../hooks/useCompanionTerminal.js', () => ({
@@ -35,7 +37,13 @@ vi.mock('../panels/PrDiffView.js', () => ({
 
 // The chat view subscribes over the socket; here only whether Focus mounts it matters.
 vi.mock('../ui/chat/ChatView.js', () => ({
-  ChatView: () => <section data-testid="chat-view" />,
+  TERMINAL_SHEET_BAR_PX: 36,
+  ChatView: ({ onTerminalSheet }: { onTerminalSheet?: (open: boolean) => void }) => (
+    <section data-testid="chat-view">
+      <button type="button" data-testid="sheet-open" onClick={() => onTerminalSheet?.(true)} />
+      <button type="button" data-testid="sheet-close" onClick={() => onTerminalSheet?.(false)} />
+    </section>
+  ),
 }));
 
 let container: HTMLDivElement;
@@ -257,6 +265,33 @@ describe('Focus — Terminal/Chat toggle (B1)', () => {
     expect(container.querySelector('[data-testid="chat-view"]')).toBeNull();
   });
 
+  it("insets the terminal below the Chat's terminal sheet and gives it the keyboard (F6)", () => {
+    renderFocus(session({ status: 'idle' }));
+    act(() => toggle('Chat')!.click());
+    const shell = () => container.querySelector('[data-testid="terminal-shell"]') as HTMLElement;
+    const region = () => shell().parentElement!;
+    expect(region().style.paddingTop).toBe('0px');
+    const token = Number(shell().dataset.focusToken);
+    act(() => (container.querySelector('[data-testid="sheet-open"]') as HTMLButtonElement).click());
+    expect(region().style.paddingTop).toBe('36px');
+    expect(Number(shell().dataset.focusToken)).toBe(token + 1);
+    act(() => (container.querySelector('[data-testid="sheet-close"]') as HTMLButtonElement).click());
+    expect(region().style.paddingTop).toBe('0px');
+  });
+
+  it('a modal over the see-through terminal sheet still gets the placeholder (F6)', () => {
+    renderFocus(session({ status: 'idle' }));
+    act(() => toggle('Chat')!.click());
+    let handle: ReturnType<typeof suppress> | undefined;
+    act(() => { handle = suppress('all'); });
+    // The opaque Chat covers the hidden terminal itself.
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).toBeNull();
+    act(() => (container.querySelector('[data-testid="sheet-open"]') as HTMLButtonElement).click());
+    expect(container.querySelector('[data-testid="modal-placeholder"]')).not.toBeNull();
+    act(() => handle!.release());
+    resetOverlayRegistryForTests();
+  });
+
   it('keeps chat after leaving and re-entering Focus', () => {
     renderFocus(session({ status: 'running' }));
     act(() => toggle('Chat')!.click());
@@ -350,5 +385,27 @@ describe('Focus header — session actions ⋯', () => {
     expect(btn).toBeTruthy();
     act(() => btn.click());
     expect(openMenuAt).toHaveBeenCalledWith(active, btn, 'focus');
+  });
+});
+
+describe('Focus — sibling keys', () => {
+  // The terminal's ErrorBoundary and the Chat view are siblings and both used
+  // `key={active.id}`. React reconciles by key, so on a session switch it
+  // deleted the old terminal's fiber but left its DOM behind: a native tile
+  // stayed on screen beside the new session's.
+  it('leaves exactly one terminal after a session switch while Chat is showing', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderFocus(session({ status: 'running' }), noop, { defaultSessionView: 'chat' });
+      renderFocus(session({ id: 's2', name: 'other', status: 'running' }), noop, { defaultSessionView: 'chat' });
+      expect(container.querySelector('[data-testid="chat-view"]')).not.toBeNull();
+      const terminals = container.querySelectorAll('[data-testid="terminal-shell"]');
+      expect(terminals).toHaveLength(1);
+      expect(terminals[0].getAttribute('data-session')).toBe('s2');
+      const dupKey = errors.mock.calls.filter((c) => String(c[0]).includes('two children with the same key'));
+      expect(dupKey).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
