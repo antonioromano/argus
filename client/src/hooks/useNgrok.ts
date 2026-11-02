@@ -11,28 +11,38 @@ export function useNgrok(socket: TypedSocket) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const refreshStatus = useCallback(() => {
     api.getNgrokStatus().then(setStatus).catch(console.error);
   }, []);
 
+  // Broadcasts sent while the socket is down are lost, and starting a tunnel
+  // takes it down on purpose: setting the password drops every tokenless socket
+  // before ngrok reports `connected`. Re-read the status on every (re)connect.
   useEffect(() => {
+    refreshStatus();
     const handleStatus = (newStatus: NgrokStatus) => setStatus(newStatus);
     socket.on('ngrok:status', handleStatus);
-    return () => { socket.off('ngrok:status', handleStatus); };
-  }, [socket]);
+    socket.on('connect', refreshStatus);
+    return () => {
+      socket.off('ngrok:status', handleStatus);
+      socket.off('connect', refreshStatus);
+    };
+  }, [socket, refreshStatus]);
 
   const startTunnel = useCallback(async (password: string) => {
     setLoading(true);
     setError(null);
     try {
       await api.startNgrok(undefined, password);
+      // Don't wait for the socket to come back with the token to show the QR.
+      refreshStatus();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start tunnel';
       setError(message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshStatus]);
 
   const stopTunnel = useCallback(async () => {
     setLoading(true);
