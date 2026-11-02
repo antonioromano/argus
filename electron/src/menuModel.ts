@@ -65,9 +65,9 @@ const DEFS = [
   // to its default here; the renderer keydown path still honours it (web
   // tiles only). Four of them collide with Monaco defaults and are gated
   // while an editor has focus: see menuAcceleratorGating.ts.
-  { id: 'menu:open-diff', label: 'Diff for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-diff' },
-  { id: 'menu:open-files', label: 'Files for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-files' },
-  { id: 'menu:open-shell', label: 'Terminal for Focused Shell', section: 'View', runIn: 'renderer', shortcut: 'open-shell' },
+  { id: 'menu:open-diff', label: 'Show Diff', section: 'View', runIn: 'renderer', shortcut: 'open-diff' },
+  { id: 'menu:open-files', label: 'Show Files', section: 'View', runIn: 'renderer', shortcut: 'open-files' },
+  { id: 'menu:open-shell', label: 'Open Shell', section: 'View', runIn: 'renderer', shortcut: 'open-shell' },
   { id: 'menu:terminal-search', label: 'Search in Terminal…', section: 'View', runIn: 'renderer', shortcut: 'terminal-search' },
   { id: 'menu:clear-terminal', label: 'Clear Scrollback', section: 'View', runIn: 'renderer', shortcut: 'clear-terminal' },
   // Not the built-in reload roles: those reload BrowserWindow.getFocusedWindow(),

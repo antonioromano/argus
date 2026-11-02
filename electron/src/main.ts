@@ -1646,12 +1646,12 @@ app.on('before-quit', (e) => {
     const extra = sessions.length > 10 ? `\n…and ${sessions.length - 10} more` : '';
     const opts = {
       type: 'warning' as const,
-      title: 'Exit all sessions?',
-      message: `Quitting will stop ${sessions.length} shell${sessions.length === 1 ? '' : 's'}.`,
+      title: 'Stop all sessions?',
+      message: `Quitting will stop ${sessions.length} session${sessions.length === 1 ? '' : 's'}.`,
       detail:
-        `These shells will be terminated and cannot be resumed:\n\n${names}${extra}\n\n`
-        + 'Turn off "Exit sessions on quit" in Settings → General to keep them running instead.',
-      buttons: ['Cancel', 'Exit all sessions'],
+        `These sessions will stop and can’t be resumed:\n\n${names}${extra}\n\n`
+        + 'Turn off “Stop all sessions when quitting” in Settings → General to keep them running instead.',
+      buttons: ['Cancel', 'Stop All and Quit'],
       defaultId: 1,
       cancelId: 0,
       checkboxLabel: "Don't ask again",
