@@ -751,7 +751,7 @@ body {
   padding-bottom: 9px; /* 3px less than default 12px lets settings land at exact vbox position */
 }
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row { justify-content: center; gap: 0; }
-.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { justify-content: center; }
+.argus-sidebar[data-collapsed="true"] .argus-sidebar-collapse-btn { align-self: center; }
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-label,
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-count,
 .argus-sidebar[data-collapsed="true"] .argus-sidebar-row > .argus-sidebar-kbd {
@@ -879,13 +879,15 @@ body {
 .argus-sidebar-collapse-btn {
   all: unset;
   cursor: pointer;
+  /* Hugs the icon (right end of the row) rather than spanning the sidebar:
+     the tooltip anchors on this box, and a full-width box put it mid-sidebar. */
+  align-self: flex-end;
   display: flex;
   align-items: center;
   padding: var(--row-pad-y) var(--s-2);
   color: var(--fg-2);
   border-radius: var(--r-2);
   margin-bottom: var(--s-2);
-  justify-content: flex-end;
 }
 
 /* === TITLEBAR === */

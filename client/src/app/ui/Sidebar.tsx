@@ -301,7 +301,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       // cursor.
       style={collapsed ? undefined : { width, transition: resizing ? 'none' : undefined }}
     >
-      <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+      <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} position="right">
         <button
           type="button"
           className="argus-sidebar-collapse-btn"
