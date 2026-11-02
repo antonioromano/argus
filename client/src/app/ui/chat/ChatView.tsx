@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
 import type { ChatBlock, ChatMessage, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
@@ -28,6 +28,8 @@ const DISCARD_MS = 5000;
 const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
 const DISCARDED_NOTICE: ChatBlock = { kind: 'notice', text: 'Claude finished without reading it — it is not in the conversation.' };
+/** Ctrl+X Ctrl+S: Claude Code's "send now" for its queue (verified on 2.1.316). */
+const SEND_NOW_KEY = '\x18\x13';
 let pendingSeq = 0;
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
@@ -104,6 +106,25 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
     stopTimer.current = setTimeout(() => setStopAsked(false), STOP_RETRY_MS);
   };
   useEffect(() => () => clearTimeout(stopTimer.current), []);
+  /**
+   * "Send now" on a queued prompt: Claude Code's own send-now key interrupts the
+   * step and submits its whole queue in order, each prompt once. Nothing is typed
+   * again; with an empty queue (already read) the key does nothing.
+   */
+  const [sendNowAsked, setSendNowAsked] = useState(false);
+  const sendNowTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const sendingNow = sendNowAsked && running;
+  const sendNow = () => {
+    if (!running || stopping || sendingNow) return;
+    socket.emit('session:input', { sessionId: session.id, data: SEND_NOW_KEY });
+    setSendNowAsked(true);
+    clearTimeout(sendNowTimer.current);
+    sendNowTimer.current = setTimeout(() => setSendNowAsked(false), STOP_RETRY_MS);
+  };
+  const sendNowRef = useRef(sendNow);
+  sendNowRef.current = sendNow;
+  const onSendNow = useCallback(() => sendNowRef.current(), []);
+  useEffect(() => () => clearTimeout(sendNowTimer.current), []);
   const onStopKey = useRef<() => void>(undefined);
   onStopKey.current = () => {
     if (running) stop();
@@ -138,7 +159,10 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   }, []);
   useEffect(() => {
     // The turn ended: the next Stop starts fresh.
-    if (!running) setStopAsked(false);
+    if (!running) {
+      setStopAsked(false);
+      setSendNowAsked(false);
+    }
   }, [running]);
 
   const status = session.status;
@@ -229,6 +253,13 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const [toolStore] = useState<ToolOpenState>(() => new Set());
   // Still waiting in Claude Code's queue (not stopped, not dropped).
   const queuedIds = new Set(shown.filter((p) => p.queued && !p.stopped && !p.discarded).map((p) => p.id));
+  const hasQueued = queuedIds.size > 0;
+  useEffect(() => {
+    // Claude read the queue: a prompt queued after it gets a fresh "Send now".
+    if (!hasQueued) setSendNowAsked(false);
+  }, [hasQueued]);
+  // Only mid-step: at Claude's prompt the queue goes out by itself.
+  const canSendNow = running && !stopping;
   /**
    * Show a plain prompt at once; a slash command gets its echo from the server.
    * (A message can start with an attachment's path: `/var/…` is no command.)
@@ -291,7 +322,15 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
                 ref={virtualizer.measureElement}
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               >
-                <ChatMessageItem message={m} showRole={!prev || prev.role !== m.role} pending={pendingIds.has(m.id)} queued={queuedIds.has(m.id)} toolStore={toolStore} />
+                <ChatMessageItem
+                  message={m}
+                  showRole={!prev || prev.role !== m.role}
+                  pending={pendingIds.has(m.id)}
+                  queued={queuedIds.has(m.id)}
+                  onSendNow={canSendNow && queuedIds.has(m.id) ? onSendNow : undefined}
+                  sendingNow={sendingNow && queuedIds.has(m.id)}
+                  toolStore={toolStore}
+                />
               </div>
             );
           })}

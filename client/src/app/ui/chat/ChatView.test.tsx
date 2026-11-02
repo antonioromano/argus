@@ -577,6 +577,91 @@ describe('ChatView', () => {
       expect(container.textContent).toContain('Stopped before Claude recorded it');
     });
 
+    describe('Send now on a queued prompt (F8)', () => {
+      const sendNowButtons = () => Array.from(container.querySelectorAll('.argus-chat-send-now')) as HTMLButtonElement[];
+      const inputs = (emitted: unknown[][]) => emitted.filter(([ev]) => ev === 'session:input').map(([, p]) => (p as { data: string }).data);
+      const sends = (emitted: unknown[][]) => emitted.filter(([ev]) => ev === 'session:chat:send');
+
+      it("sends Claude Code's send-now key once and never types the prompt again", () => {
+        const { socket, fire, emitted } = fakeSocket();
+        render(session({ status: 'running' }), socket);
+        fire('session:chat', update({ messages: history }));
+        typeAndSend('do this first');
+        expect(sends(emitted)).toHaveLength(1);
+        const [button] = sendNowButtons();
+        expect(button.textContent).toBe('Send now');
+        expect(button.disabled).toBe(false);
+
+        act(() => button.click());
+        expect(inputs(emitted)).toEqual(['\x18\x13']);
+        expect(sendNowButtons()[0].disabled).toBe(true);
+        expect(sendNowButtons()[0].textContent).toBe('Sending…');
+        // Still queued (not stopped), and a second click sends nothing more.
+        expect(container.querySelector('[data-testid="chat-queued"]')).not.toBeNull();
+        act(() => sendNowButtons()[0].click());
+        expect(inputs(emitted)).toEqual(['\x18\x13']);
+
+        // Claude Code submits it: recorded once, the echo and its button go.
+        fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'do this first' }] }] }));
+        expect(sendNowButtons()).toHaveLength(0);
+        expect(userBodies().filter((t) => t?.includes('do this first'))).toHaveLength(1);
+        expect(sends(emitted)).toHaveLength(1);
+      });
+
+      it('only while Claude runs a step with the prompt still queued', () => {
+        const { socket, fire } = fakeSocket();
+        render(session(), socket);
+        fire('session:chat', update({ messages: history }));
+        typeAndSend('sent while idle');
+        expect(sendNowButtons()).toHaveLength(0);
+
+        render(session({ status: 'running' }), socket);
+        typeAndSend('queued');
+        expect(sendNowButtons()).toHaveLength(1);
+        // The turn ended: Claude reads the queue by itself.
+        render(session({ status: 'idle' }), socket);
+        expect(sendNowButtons()).toHaveLength(0);
+      });
+
+      it('hidden once Stop was pressed', () => {
+        const { socket, fire } = fakeSocket();
+        render(session({ status: 'running' }), socket);
+        fire('session:chat', update({ messages: history }));
+        typeAndSend('queued');
+        act(() => stopButton().click());
+        expect(sendNowButtons()).toHaveLength(0);
+      });
+
+      it('one press covers the whole queue; a prompt queued after Claude read it gets a fresh button', () => {
+        const { socket, fire, emitted } = fakeSocket();
+        render(session({ status: 'running' }), socket);
+        fire('session:chat', update({ messages: history }));
+        typeAndSend('one');
+        typeAndSend('two');
+        act(() => sendNowButtons()[1].click());
+        expect(sendNowButtons().map((b) => b.disabled)).toEqual([true, true]);
+        expect(inputs(emitted)).toEqual(['\x18\x13']);
+
+        // Claude Code sent both, in order; the next turn is running.
+        fire('session:chat', update({ reset: false, messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'one' }] }, { id: 'u2', role: 'user', blocks: [{ kind: 'text', text: 'two' }] }] }));
+        expect(sendNowButtons()).toHaveLength(0);
+        typeAndSend('three');
+        expect(sendNowButtons().map((b) => b.disabled)).toEqual([false]);
+      });
+
+      it('gives the button back when Claude has not read the queue by then', () => {
+        vi.useFakeTimers();
+        const { socket, fire } = fakeSocket();
+        render(session({ status: 'running' }), socket);
+        fire('session:chat', update({ messages: history }));
+        typeAndSend('queued');
+        act(() => sendNowButtons()[0].click());
+        expect(sendNowButtons()[0].disabled).toBe(true);
+        act(() => { vi.advanceTimersByTime(8000); });
+        expect(sendNowButtons()[0].disabled).toBe(false);
+      });
+    });
+
     it('gives the Stop button back when the turn keeps running', () => {
       vi.useFakeTimers();
       const { socket } = fakeSocket();
