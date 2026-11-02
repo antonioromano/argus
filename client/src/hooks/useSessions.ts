@@ -316,12 +316,15 @@ export function useSessions(socket: TypedSocket) {
     unhideSession(id);
   }, [applyDelta, unhideSession]);
 
-  const deleteSession = useCallback(async (id: string) => {
+  /** Resolves true once the session is gone; false when it failed (already toasted). */
+  const deleteSession = useCallback(async (id: string): Promise<boolean> => {
     try {
       await api.deleteSession(id);
       applyDelta((prev) => prev.filter((s) => s.id !== id));
+      return true;
     } catch (err) {
       toastError(err, 'Couldn’t delete the session');
+      return false;
     }
   }, [applyDelta]);
 

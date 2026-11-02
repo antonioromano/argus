@@ -37,6 +37,9 @@ export interface StagedTrashOptions {
  */
 export class StagedTrash {
   private readonly entries = new Map<string, Entry>();
+  /** Slots made by this run, recorded before their folder exists. The startup
+   *  sweep runs while the delete route is already live and must not take them. */
+  private readonly ownSlots = new Set<string>();
   private readonly ttlMs: number;
   private readonly rename: (from: string, to: string) => Promise<void>;
 
@@ -45,7 +48,8 @@ export class StagedTrash {
     this.rename = opts.rename ?? fsRename;
   }
 
-  /** Startup: anything left in the trash is from a previous run and unrestorable. */
+  /** Startup: anything left in the trash is from a previous run and unrestorable.
+   *  Slots this run staged meanwhile are skipped. */
   async sweep(): Promise<void> {
     let names: string[];
     try {
@@ -53,13 +57,14 @@ export class StagedTrash {
     } catch {
       return;
     }
-    await Promise.all(names.map((n) => rm(path.join(this.dir, n), { recursive: true, force: true }).catch(() => {})));
+    await Promise.all(names.filter((n) => !this.ownSlots.has(n)).map((n) => rm(path.join(this.dir, n), { recursive: true, force: true }).catch(() => {})));
   }
 
   /** Moves `absPath` into the trash and returns its undo id. Rethrows the
    *  rename error (EXDEV across volumes, ENOENT, EACCES) with the slot cleaned up. */
   async stage(absPath: string, sessionId: string): Promise<string> {
     const undoId = randomUUID();
+    this.ownSlots.add(undoId);
     const slot = path.join(this.dir, undoId);
     await mkdir(slot, { recursive: true });
     try {

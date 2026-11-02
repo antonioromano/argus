@@ -128,3 +128,21 @@ test('sweep empties the trash left by a previous run', async () => {
     await new StagedTrash(path.join(trashDir, 'missing')).sweep(); // no dir: no throw
   } finally { cleanup(); }
 });
+
+test('the startup sweep leaves an item this run staged meanwhile restorable', async () => {
+  // index.ts starts the sweep without awaiting it, with the delete route
+  // already live: a delete staged during the sweep must survive it.
+  const { project, trashDir, inScope, cleanup } = setup();
+  try {
+    mkdirSync(path.join(trashDir, 'old-id'), { recursive: true });
+    const trash = new StagedTrash(trashDir);
+    const file = path.join(project, 'b.txt');
+    writeFileSync(file, 'keep');
+    const id = await trash.stage(file, 's1');
+    await trash.sweep();
+    assert.deepEqual(readdirSync(trashDir), [id], 'the old slot went, the new one stayed');
+    assert.deepEqual(await trash.restore(id, 's1', inScope), { ok: true, path: file });
+    assert.equal(readFileSync(file, 'utf8'), 'keep');
+    await trash.purgeAll();
+  } finally { cleanup(); }
+});

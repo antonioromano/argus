@@ -131,3 +131,24 @@ describe('pending close', () => {
     expect(container.textContent).toContain('daemon down');
   });
 });
+
+describe('deleteSession result', () => {
+  // ArgusApp offers "Reopen" for a closed live session only when this is true:
+  // a failed kill leaves the agent running, and Reopen would start a second one
+  // on the same conversation.
+  it('resolves true once the session is gone', async () => {
+    let ok: boolean | undefined;
+    await act(async () => { ok = await probe.hook!.deleteSession('a'); });
+    expect(ok).toBe(true);
+    expect(ids()).toEqual(['b']);
+  });
+
+  it('resolves false, keeps the session and says why when the kill fails', async () => {
+    vi.mocked(api.deleteSession).mockRejectedValue(new ApiError(500, 'kill failed'));
+    let ok: boolean | undefined;
+    await act(async () => { ok = await probe.hook!.deleteSession('a'); });
+    expect(ok).toBe(false);
+    expect(ids()).toEqual(['a', 'b']);
+    expect(container.textContent).toContain('kill failed');
+  });
+});
