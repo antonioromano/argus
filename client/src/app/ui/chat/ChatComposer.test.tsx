@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionStatus } from '@argus/shared';
 import { ChatComposer } from './ChatComposer.js';
+import { pruneChatDrafts } from './chatDrafts.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -12,12 +13,16 @@ let container: HTMLDivElement;
 let root: Root;
 
 interface Props {
+  sessionId?: string;
   status?: SessionStatus;
   permissionMode?: string;
   model?: string;
   modelSet?: string;
   onUploadImage?: (file: File) => Promise<string>;
   onSetMode?: (mode: string) => Promise<boolean>;
+  onStop?: () => void;
+  suggestion?: string;
+  commands?: { name: string; description?: string }[];
 }
 
 function render(props: Props = {}) {
@@ -25,6 +30,7 @@ function render(props: Props = {}) {
   act(() =>
     root.render(
       <ChatComposer
+        sessionId={props.sessionId ?? 's1'}
         status={props.status ?? 'idle'}
         onSubmit={onSubmit}
         permissionMode={props.permissionMode}
@@ -32,6 +38,9 @@ function render(props: Props = {}) {
         modelSet={props.modelSet}
         onUploadImage={props.onUploadImage}
         onSetMode={props.onSetMode}
+        onStop={props.onStop}
+        suggestion={props.suggestion}
+        commands={props.commands}
       />,
     ),
   );
@@ -60,6 +69,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  pruneChatDrafts(new Set());
   globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
   delete (window as Window & { electronFiles?: unknown }).electronFiles;
 });
@@ -83,12 +93,12 @@ describe('ChatComposer — mode and model', () => {
     const onSubmit = render({ model: 'claude-opus-5-5' });
     act(() => button('Opus 5.5')!.click());
     act(() => menuItem('Sonnet 5.5')!.click());
-    expect(onSubmit).toHaveBeenCalledWith('/model claude-sonnet-5-5');
+    expect(onSubmit).toHaveBeenCalledWith('/model claude-sonnet-5-5', expect.any(Array));
     expect(button('Sonnet 5.5')).toBeDefined();
     // Quick switch back: sent again, and the label follows.
     act(() => button('Sonnet 5.5')!.click());
     act(() => menuItem('Opus 5.5')!.click());
-    expect(onSubmit).toHaveBeenLastCalledWith('/model claude-opus-5-5');
+    expect(onSubmit).toHaveBeenLastCalledWith('/model claude-opus-5-5', []);
     expect(button('Opus 5.5')).toBeDefined();
   });
 });
@@ -104,6 +114,47 @@ describe('ChatComposer — model label', () => {
     // The transcript reports something else: the truth wins over the optimistic pick.
     render({ model: 'claude-opus-5-5', modelSet: 'Haiku 5.5' });
     expect(button('Haiku 5.5')).toBeDefined();
+  });
+});
+
+describe('ChatComposer — Stop', () => {
+  const stopButton = () => container.querySelector('button[aria-label="Stop (⌘Esc)"]') as HTMLButtonElement | null;
+  const sendButton = () => container.querySelector('button[aria-label="Send"]') as HTMLButtonElement | null;
+
+  it('replaces Send with Stop while a turn runs', () => {
+    const onStop = vi.fn();
+    render({ status: 'running', onStop });
+    expect(sendButton()).toBeNull();
+    act(() => stopButton()!.click());
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Send when idle or waiting, and without a stop handler', () => {
+    render({ status: 'idle', onStop: vi.fn() });
+    expect(stopButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
+    render({ status: 'waiting', onStop: vi.fn() });
+    expect(stopButton()).toBeNull();
+    render({ status: 'running' });
+    expect(stopButton()).toBeNull();
+    expect(sendButton()).not.toBeNull();
+  });
+});
+
+describe('ChatComposer — preview of the sent message', () => {
+  it('passes the typed text and one block per attachment', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    const onSubmit = render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, 'look');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\nlook', [{ kind: 'text', text: 'look' }, { kind: 'image' }]);
   });
 });
 
@@ -126,9 +177,24 @@ describe('ChatComposer — attachments', () => {
 
     const send = container.querySelector('button[aria-label="Send"]') as HTMLButtonElement;
     act(() => send.click());
-    expect(onSubmit).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"');
+    expect(onSubmit).toHaveBeenCalledWith('"/Users/me/My Shots/shot.png"', expect.any(Array));
     expect(container.querySelector('.argus-chat-attachment')).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+  });
+
+  it('sends the paths on their own line, so a leading list item stays one (F2)', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    const onSubmit = render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    const box = container.querySelector('textarea')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box, '- first\n- second');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/Users/me/shot.png\n- first\n- second', expect.any(Array));
   });
 
   it('shows non-image files by name and removes them', () => {
@@ -167,7 +233,7 @@ describe('ChatComposer — pasted images', () => {
     await act(async () => { resolve('/tmp/argus-chat-images/abc.png'); });
     expect(container.querySelector('.argus-chat-attachment.is-uploading')).toBeNull();
     act(() => send.click());
-    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus-chat-images/abc.png');
+    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus-chat-images/abc.png', expect.any(Array));
   });
 
   it('marks a failed upload and never sends it', async () => {
@@ -203,7 +269,7 @@ describe('ChatComposer — slash autocomplete', () => {
 
   function renderWith(commands = [{ name: 'pr-review', description: 'Review a PR' }]) {
     const onSubmit = vi.fn();
-    act(() => root.render(<ChatComposer status="idle" onSubmit={onSubmit} commands={commands} />));
+    act(() => root.render(<ChatComposer sessionId="s1" status="idle" onSubmit={onSubmit} commands={commands} />));
     return onSubmit;
   }
 
@@ -232,18 +298,18 @@ describe('ChatComposer — slash autocomplete', () => {
     expect(box().value).toBe('/config ');
     type('/cost');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('/cost');
+    expect(onSubmit).toHaveBeenCalledWith('/cost', expect.any(Array));
   });
 
   it('Enter sends a custom command typed in full even when a longer one is listed first', () => {
     const onSubmit = renderWith([{ name: 'deploy-staging', description: 'Staging' }, { name: 'deploy', description: 'Prod' }]);
     type('/deploy');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('/deploy');
+    expect(onSubmit).toHaveBeenCalledWith('/deploy', expect.any(Array));
   });
 
   it('stays closed while Claude waits at a menu', () => {
-    act(() => root.render(<ChatComposer status="waiting" onSubmit={vi.fn()} />));
+    act(() => root.render(<ChatComposer sessionId="s1" status="waiting" onSubmit={vi.fn()} />));
     type('/mo');
     expect(items()).toEqual([]);
   });
@@ -273,7 +339,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
   const key = (k: string, init: KeyboardEventInit = {}) =>
     act(() => { box().dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })); });
   const layerText = () =>
-    Array.from(container.querySelectorAll('[data-testid="composer-highlight"] > .argus-cmp-line'))
+    Array.from(container.querySelectorAll('[data-testid="composer-highlight"] .argus-cmp-line'))
       .map((l) => (l.textContent ?? '').replace(/\u200b/g, ''))
       .join('\n');
 
@@ -288,7 +354,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     key('Enter');
     expect(box().value).toBe('- one\n');
     key('Enter');
-    expect(onSubmit).toHaveBeenCalledWith('- one');
+    expect(onSubmit).toHaveBeenCalledWith('- one', expect.any(Array));
   });
 
   it('numbered lists continue and renumber; Cmd+Enter sends from inside a list', () => {
@@ -297,7 +363,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     key('Enter');
     expect(box().value).toBe('1. a\n2. \n3. b');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith('1. a\n2. \n3. b');
+    expect(onSubmit).toHaveBeenCalledWith('1. a\n2. \n3. b', expect.any(Array));
   });
 
   it('Tab nests a list item and Shift+Tab steps it out; Tab elsewhere is left to the browser', () => {
@@ -315,9 +381,9 @@ describe('ChatComposer — live Markdown (D2)', () => {
 
   it('Enter inside a code fence adds a line', () => {
     const onSubmit = render();
-    type('```ts');
+    type('```ts\nconst x = 1;\n```', 18);
     key('Enter');
-    expect(box().value).toBe('```ts\n');
+    expect(box().value).toBe('```ts\nconst x = 1;\n\n```');
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -325,7 +391,7 @@ describe('ChatComposer — live Markdown (D2)', () => {
     const onSubmit = render();
     type('ends with spaces  \n  \n');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith('ends with spaces  ');
+    expect(onSubmit).toHaveBeenCalledWith('ends with spaces  ', expect.any(Array));
   });
 
   it('applies a list edit through insertText on just the changed span (native undo)', () => {
@@ -362,6 +428,111 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it('typing the third backtick changes nothing: ``` and a language stay as typed', () => {
+    render();
+    type('``');
+    const event = new InputEvent('beforeinput', { data: '`', inputType: 'insertText', bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(false);
+    type('```ts');
+    expect(box().value).toBe('```ts');
+  });
+
+  it('a typed ``` stays plain text until the new line opens the box, whose fences are hidden', () => {
+    render();
+    type('code block\n```');
+    expect(container.querySelector('[data-testid="composer-codebox"]')).toBeNull();
+    expect(layerText()).toBe('code block\n```');
+    key('Enter', { shiftKey: true });
+    const codebox = container.querySelector('[data-testid="composer-codebox"]')!;
+    expect(codebox).not.toBeNull();
+    // The caret is on the code row: both fences are drawn invisible.
+    expect(codebox.querySelectorAll('.is-fence-mark')).toHaveLength(2);
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+    // On a fence row, that fence shows.
+    act(() => {
+      box().blur();
+      box().setSelectionRange(14, 14);
+      box().focus();
+    });
+    const rows = codebox.querySelectorAll('.argus-cmp-line.is-fence');
+    expect(rows[0].classList.contains('is-active')).toBe(true);
+    expect(rows[1].classList.contains('is-active')).toBe(false);
+    // Out of the composer, both hide again.
+    act(() => { box().blur(); });
+    expect(codebox.querySelector('.is-fence.is-active')).toBeNull();
+  });
+
+  it('Shift+Enter after an opening fence opens the code box, caret inside', () => {
+    const onSubmit = render();
+    type('```ts');
+    const e = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(true);
+    expect(box().value).toBe('```ts\n\n```');
+    expect(box().selectionStart).toBe(6);
+    expect(onSubmit).not.toHaveBeenCalled();
+    const codebox = container.querySelector('[data-testid="composer-codebox"]')!;
+    expect(codebox.querySelectorAll('.argus-cmp-line.is-fence')).toHaveLength(2);
+    expect(codebox.querySelectorAll('.argus-cmp-line.is-code')).toHaveLength(1);
+    expect(layerText()).toBe('```ts\n\n```');
+  });
+
+  it('plain Enter (⌘Enter sends inside a fence) opens the box the same way', () => {
+    const onSubmit = render();
+    type('see:\n```');
+    key('Enter');
+    expect(box().value).toBe('see:\n```\n\n```');
+    expect(box().selectionStart).toBe(9);
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Inside the box, new lines are plain lines (no second box).
+    type('see:\n```\n- a\n```', 12);
+    key('Enter');
+    expect(box().value).toBe('see:\n```\n- a\n\n```');
+  });
+
+  it('Shift+Enter outside a code block stays the textarea\'s own new line, inside it is Enter\'s', () => {
+    render();
+    for (const [src, caret] of [['hello', 5], ['```\nx\n```', 9], ['- item', 6]] as const) {
+      type(src, caret);
+      const e = new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+      act(() => { box().dispatchEvent(e); });
+      expect(e.defaultPrevented).toBe(false);
+    }
+    type('```\n  x = 1\n```', 11);
+    key('Enter', { shiftKey: true });
+    expect(box().value).toBe('```\n  x = 1\n  \n```');
+  });
+
+  it('Enter at the end of the closing fence adds a line below the box; ⌘Enter sends', () => {
+    const onSubmit = render();
+    type('```\nx\n```');
+    key('Enter');
+    expect(box().value).toBe('```\nx\n```\n');
+    expect(box().selectionStart).toBe(10);
+    expect(onSubmit).not.toHaveBeenCalled();
+    key('Enter', { metaKey: true });
+    expect(onSubmit).toHaveBeenCalledWith('```\nx\n```', expect.any(Array));
+  });
+
+  it('opens the box with one insertText on the changed span (one undo step)', () => {
+    render();
+    type('```ts');
+    const calls: unknown[][] = [];
+    const real = document.execCommand;
+    document.execCommand = ((cmd: string, _ui: boolean, value: string) => {
+      calls.push([cmd, value, box().selectionStart, box().selectionEnd]);
+      return false;
+    }) as typeof document.execCommand;
+    try {
+      key('Enter', { shiftKey: true });
+    } finally {
+      document.execCommand = real;
+    }
+    expect(calls).toEqual([['insertText', '\n\n```', 5, 5]]);
+    expect(box().value).toBe('```ts\n\n```');
+  });
+
   it('draws a styled copy of exactly the typed text, and sends plain Markdown', () => {
     const onSubmit = render();
     const src = '**bold** _it_ `code`\n- item\n\n```js\nconst x = 1;\n```';
@@ -369,10 +540,145 @@ describe('ChatComposer — live Markdown (D2)', () => {
     expect(layerText()).toBe(src);
     expect(container.querySelector('.is-bold')?.textContent).toBe('bold');
     expect(container.querySelector('.is-italic')?.textContent).toBe('it');
-    expect(container.querySelector('span.is-code')?.textContent).toBe('code');
+    expect(container.querySelector('span.is-code:not(.is-mark)')?.textContent).toBe('code');
+    expect(container.querySelector('[data-testid="composer-codebox"]')?.textContent).toBe('```jsconst x = 1;```');
     expect(container.querySelector('.is-bullet')?.textContent).toBe('-');
     expect(container.querySelector('.argus-cmp-line.is-code')?.textContent).toBe('const x = 1;');
     key('Enter', { metaKey: true });
-    expect(onSubmit).toHaveBeenCalledWith(src);
+    expect(onSubmit).toHaveBeenCalledWith(src, expect.any(Array));
+  });
+});
+
+describe('ChatComposer — draft (F11)', () => {
+  const box = () => container.querySelector('textarea')!;
+  function typeText(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box(), value);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  function remount() {
+    act(() => root.unmount());
+    act(() => { root = createRoot(container); });
+  }
+
+  it('restores the typed text and attachments after the composer unmounts', () => {
+    const file = pick('shot.png', '/Users/me/shot.png');
+    render();
+    const input = container.querySelector('[data-testid="chat-file-input"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    typeText('half a thought');
+
+    // Chat → Terminal: the composer goes away; back to Chat: it comes back.
+    remount();
+    render();
+    expect(box().value).toBe('half a thought');
+    expect(container.querySelector('.argus-chat-attachment img')?.getAttribute('src')).toBe('blob:preview');
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('keeps one draft per session', () => {
+    render({ sessionId: 'a' });
+    typeText('for a');
+    remount();
+    render({ sessionId: 'b' });
+    expect(box().value).toBe('');
+    typeText('for b');
+    remount();
+    render({ sessionId: 'a' });
+    expect(box().value).toBe('for a');
+  });
+
+  it('clears the draft on send', () => {
+    const onSubmit = render();
+    typeText('ship it');
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('ship it', expect.any(Array));
+    remount();
+    render();
+    expect(box().value).toBe('');
+  });
+
+  it('lands an upload that finishes after the composer unmounted', async () => {
+    let finish!: (path: string) => void;
+    const onUploadImage = () => new Promise<string>((r) => { finish = r; });
+    render({ onUploadImage });
+    const image = new File(['x'], 'shot.png', { type: 'image/png' });
+    act(() => {
+      const e = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'clipboardData', { value: { files: [image] } });
+      box().dispatchEvent(e);
+    });
+    remount();
+    await act(async () => finish('/tmp/argus/pasted.png'));
+    const onSubmit = render({ onUploadImage });
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('/tmp/argus/pasted.png', [{ kind: 'image' }]);
+  });
+});
+
+describe('ChatComposer — prompt suggestion (F9)', () => {
+  const box = () => container.querySelector('textarea')!;
+  function typeText(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(box(), value);
+      box().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const tab = () => {
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    act(() => { box().dispatchEvent(e); });
+    return e;
+  };
+
+  it('shows the suggestion as ghost text; Tab puts it in the composer without sending', () => {
+    const onSubmit = render({ suggestion: 'commit it' });
+    expect(box().placeholder).toBe('commit it');
+    expect(container.querySelector('.argus-chat-hint')?.textContent).toBe('Tab to use the suggestion');
+    const e = tab();
+    expect(e.defaultPrevented).toBe(true);
+    expect(box().value).toBe('commit it');
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Taken: clearing the text brings the placeholder back, not the suggestion.
+    typeText('');
+    expect(box().placeholder).toBe('Message Claude…');
+  });
+
+  it('any typing dismisses it, and Tab then does what it does without one', () => {
+    render({ suggestion: 'commit it' });
+    typeText('x');
+    typeText('');
+    expect(box().placeholder).toBe('Message Claude…');
+    expect(tab().defaultPrevented).toBe(false);
+    expect(box().value).toBe('');
+    // A new suggestion shows again.
+    render({ suggestion: 'run the tests' });
+    expect(box().placeholder).toBe('run the tests');
+  });
+
+  it('shows the same text again when a later turn suggests it', () => {
+    const onSubmit = render({ suggestion: 'commit it' });
+    tab();
+    act(() => (container.querySelector('button[aria-label="Send"]') as HTMLButtonElement).click());
+    expect(onSubmit).toHaveBeenCalledWith('commit it', expect.any(Array));
+    // Sending clears it on the server; the next turn ends with the same suggestion.
+    render({ suggestion: undefined, status: 'running', onStop: vi.fn() });
+    render({ suggestion: 'commit it' });
+    expect(box().placeholder).toBe('commit it');
+  });
+
+  it('is not offered mid-turn or at a menu', () => {
+    render({ suggestion: 'commit it', status: 'running', onStop: vi.fn() });
+    expect(box().placeholder).toBe('Message Claude…');
+    render({ suggestion: 'commit it', status: 'waiting' });
+    expect(box().placeholder).toBe('Message Claude…');
+  });
+
+  it('slash autocomplete keeps Tab while its menu is open', () => {
+    render({ suggestion: 'commit it', commands: [] });
+    typeText('/res');
+    tab();
+    expect(box().value).toBe('/resume ');
   });
 });

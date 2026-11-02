@@ -1,0 +1,30 @@
+[?1049h[H
+[38;2;215;119;87m ▐[48;2;0;0;0m▛███▛█[0m[3C[1mClaude Code[1C[38;2;153;153;153;22mv2.1.312
+[38;2;215;119;87m▝▜[48;2;0;0;0m█████[49m█▀[2C[38;2;153;153;153mOpus 5.5 with medium effort · Claude Team
+[38;2;215;119;87m ▝▝   ▝▝ [2C[38;2;153;153;153m~/projects/demo
+
+
+[48;2;55;55;55m❯ [38;2;255;255;255mCreate a file hello.txt containing hi[39m                                                                                 
+[0m
+[38;2;78;186;101m⏺[1C[39;1mBash[0m(printf 'hi\n'[1C> hello.txt &&[1Ccat[1Chello.txt)
+[38;2;153;153;153m  ⎿  [0mhi
+[38;2;153;153;153m  ⎿  [0mCreated[1C[1mhello.txt[1C[38;2;153;153;153;22m(+1 -0)
+[5C[38;2;80;200;80;48;2;2;40;0m 1 +[38;2;248;248;242mhi                                                                                                      [0m
+[38;2;153;153;153m  ⎿  (files that changed while this command ran, by the command or by another process; a convenience view, not a 
+[5Creview or audit of the command)
+
+[38;2;255;255;255m⏺[1C[0mI[1Ccreated[1C[38;2;177;185;249mhello.txt[1C[0min[1Cthe[1Cworking[1Cdirectory,[1Cand[1Cit[1Ccontains[1C[38;2;177;185;249mhi[0m.
+
+[38;2;153;153;153m✻[1CChurned for 6s · done 11:45 AM
+
+
+
+[0m [1C                  [1C          
+[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m❯ [2mcommit it
+[38;2;136;136;136;22m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[0m  [38;2;255;193;7m⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker[38;2;153;153;153m · restart with CLAUDE_CODE_FORCE_SESSION_PE…
+[0m  [38;2;153;153;153;1mOpus 5.5[22m [2mmedium[22m [2m│[22m [32m▎░░░░░ 5%[38;2;153;153;153m [2m│[22m [2m5h[22m [32m█▉░░░░ 32%[38;2;153;153;153m [2mcap[22m [31m1h7m[38;2;153;153;153m [2mrst[22m 2h44m [2m│[22m [2m7d[22m [36m████▎░ 72%[38;2;153;153;153m [2mcap[22m [31m10h12m[38;2;153;153;153m [2mrst[22m 3d9h
+[2C[2mctx[22m 46K[2m/[22m1.0M
+[2C[2m⎇[22m [36mmaster[33m*[38;2;153;153;153m ?2
+[2C[38;2;255;193;7m⏵⏵ auto mode on[38;2;153;153;153m (shift+tab to cycle)[6A[36D[0m[?2004h[?1004h[?1003h

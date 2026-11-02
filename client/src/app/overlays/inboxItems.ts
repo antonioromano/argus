@@ -1,4 +1,4 @@
-import type { SessionInfo } from '@argus/shared';
+import type { PromptOption, SessionInfo } from '@argus/shared';
 
 /** Every session waiting on the user, longest-waiting first. */
 export function waitingItems(sessions: readonly SessionInfo[]): SessionInfo[] {
@@ -17,7 +17,18 @@ export function formatWaiting(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
+/**
+ * The options the inbox answers with one key. A multiSelect question (its
+ * digits only toggle) and a free-text option (it needs the typed answer) are
+ * answered in Chat or the terminal instead.
+ */
+export function inboxOptions(session: SessionInfo): PromptOption[] {
+  const options = session.promptOptions ?? [];
+  if (options.some((o) => o.checked !== undefined)) return [];
+  return options.filter((o) => !o.freeText);
+}
+
 /** The option a digit key picks for this session, if its menu was read reliably. */
 export function optionForKey(session: SessionInfo, key: string): string | undefined {
-  return session.promptOptions?.find((o) => o.key === key)?.key;
+  return inboxOptions(session).find((o) => o.key === key)?.key;
 }
