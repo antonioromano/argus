@@ -9,12 +9,13 @@ import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
 import { parseLaunchUrl } from './launchLink.js';
-import { createLaunchGate, type LaunchGate } from './launchGate.js';
+import { createLaunchGate, type LaunchGate, type McpLaunchDecision, type McpRequester } from './launchGate.js';
 import { appOrigin, isTrustedSender, isSessionId, isRect, isFontPx, isPlainObject, sanitizeMessageBoxOptions, sanitizeShortcuts, type IpcSenderLike } from './ipcGuards.js';
 import { NativeTerminalHost } from './nativeTerminal/NativeTerminalHost.js';
 import type { NativeTerminalAddon, Theme } from './nativeTerminal/types.js';
 import { COLLIDING_MENU_CHANNELS, shouldCollidingAcceleratorsBeEnabled } from './menuAcceleratorGating.js';
 import { menuAccelerator, setMenuShortcuts } from './menuShortcuts.js';
+import { buildCaskCurrentCheck, buildPhase1Script, buildPhase2Script } from './brewUpdate.js';
 import { decideQuitConfirmation } from './quitPolicy.js';
 import type { QuitSummary } from './quitPolicy.js';
 import {
@@ -94,7 +95,8 @@ const UPDATE_CASK = 'argus';
  *
  *   Phase 2 (after we quit): a detached helper waits for this process to exit,
  *   installs from the warm cache (`brew upgrade --cask argus`, fast/offline),
- *   and relaunches Argus ONLY on success. brew can't replace the running
+ *   and relaunches Argus in every outcome; a failed install leaves a marker
+ *   that the next launch re-checks and surfaces. brew can't replace the running
  *   Argus.app, which is why the install is deferred to after quit.
  */
 function applyBrewUpdate(
@@ -125,21 +127,7 @@ function applyBrewUpdate(
       // run `brew trust` explicitly (the Homebrew 4.x untrusted-tap gate) and
       // check `brew outdated` before downloading so an up-to-date install is
       // reported honestly instead of a no-op masquerading as success.
-      const phase1 = [
-        `if [ -f "${lockFile}" ]; then echo "@@FAIL Another update is already running."; exit 0; fi`,
-        `echo "@@PHASE trust"`,
-        `brew trust ${UPDATE_TAP} 2>&1`,
-        `echo "@@PHASE update"`,
-        `brew update 2>&1`,
-        `echo "@@PHASE check"`,
-        `OUTDATED=$(brew outdated --cask ${UPDATE_CASK} 2>&1)`,
-        `if [ -z "$OUTDATED" ]; then echo "@@UPTODATE"; exit 0; fi`,
-        `echo "@@PHASE download"`,
-        `brew fetch --cask ${UPDATE_CASK} 2>&1`,
-        `FETCH_EXIT=$?`,
-        `if [ "$FETCH_EXIT" != "0" ]; then echo "@@FAIL_EXIT $FETCH_EXIT"; exit 0; fi`,
-        `echo "@@OK"`,
-      ].join('\n');
+      const phase1 = buildPhase1Script({ cask: UPDATE_CASK, tap: UPDATE_TAP, lockFile });
 
       log(`[argus-update] ${new Date().toISOString()} phase1 start`);
       const proc = spawn(loginShell, ['-l', '-c', phase1], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -227,29 +215,13 @@ function applyBrewUpdate(
 /**
  * Phase 2 helper: spawned detached just before we quit. Waits for this process
  * to exit, installs the already-downloaded cask from cache, and relaunches Argus
- * only on success. A lock file prevents the relaunched app from re-triggering
- * the loop; a `.failed` marker lets the next launch surface a failed install.
+ * in every outcome (the next launch surfaces a failure). A lock file prevents
+ * the relaunched app from re-triggering the loop; a `.failed` marker lets the
+ * next launch surface a failed install.
  */
 function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
-  const script = [
-    `if [ -f "${lockFile}" ]; then echo "[argus-update] phase2 already running, exiting" >> "${logFile}"; exit 0; fi`,
-    `echo $$ > "${lockFile}"`,
-    `rm -f "${failMarker}"`,
-    `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.5; done`,
-    `echo "[argus-update] $(date) phase2 install" >> "${logFile}"`,
-    `brew upgrade --cask ${UPDATE_CASK} >> "${logFile}" 2>&1`,
-    `BREW_EXIT=$?`,
-    `rm -f "${lockFile}"`,
-    `if [ $BREW_EXIT -eq 0 ]; then`,
-    `  echo "[argus-update] $(date) install ok, relaunching" >> "${logFile}"`,
-    `  open -a Argus`,
-    `else`,
-    `  echo "[argus-update] $(date) install failed (exit $BREW_EXIT)" >> "${logFile}"`,
-    `  echo "$BREW_EXIT" > "${failMarker}"`,
-    `  open -a Argus`,
-    `fi`,
-  ].join('\n');
+  const script = buildPhase2Script({ cask: UPDATE_CASK, parentPid: process.pid, logFile, lockFile, failMarker });
 
   const child = spawn(loginShell, ['-l', '-c', script], { detached: true, stdio: 'ignore' });
   child.unref();
@@ -1374,7 +1346,7 @@ async function main() {
   });
 
   const launchService = server.getLaunchService() as import('../../server/dist/services/launch/LaunchService.js').LaunchService;
-  const hostLaunch = server.hostLaunch as (v: import('@argus/shared').ValidatedLaunch, windowId: string, launcherId?: string) => Promise<{ id: string }>;
+  const hostLaunch = server.hostLaunch as (v: import('@argus/shared').ValidatedLaunch, windowId: string, launcherId?: string, spawnedBy?: string) => Promise<{ id: string }>;
   const sendTo = (windowId: string, channel: string, payload?: unknown) => {
     const win = getAppWindow(windowId) ?? getMainWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -1384,7 +1356,7 @@ async function main() {
     newId: () => randomUUID(),
     validate: (req) => launchService.validate(req),
     resolveRun: (id) => launchService.resolveRun(id),
-    launch: (v, w, l) => hostLaunch(v, w, l),
+    launch: (v, w, l, by) => hostLaunch(v, w, l, by),
     saveLauncher: (i) => launchService.add(i),
     targetWindow: () => getFocusedWindowId(),
     changed: (w, reason) => {
@@ -1405,6 +1377,9 @@ async function main() {
     },
   });
   setInterval(() => launchGate?.tick(), 30_000).unref();
+  // F10: MCP start_session goes through the same gate (card + approval) as a link.
+  const setMcpLaunchHook = server.setMcpLaunchHook as (fn: (v: import('@argus/shared').ValidatedLaunch, caller: McpRequester, signal?: AbortSignal) => Promise<McpLaunchDecision>) => void;
+  setMcpLaunchHook((v, caller, signal) => launchGate!.request(v, caller, signal));
 
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   /** Only an Argus window's main frame may drive launches. Returns its window id. */
@@ -1421,7 +1396,7 @@ async function main() {
     const w = launchSender(e, false);
     return w && launchGate ? launchGate.list(w) : [];
   });
-  ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown } }) => {
+  ipcMain.handle('launch:approve', (e, arg: { id: unknown; saveAs?: { id: unknown; label: unknown; overwrite?: unknown }; trust?: unknown }) => {
     const sender = launchSender(e, true);
     if (!sender || !launchGate) return refused;
     if (typeof arg?.id !== 'string' || !UUID_RE.test(arg.id)) return { ok: false, error: 'Bad id' };
@@ -1431,7 +1406,7 @@ async function main() {
       return { ok: false, error: 'Bad input' };
     }
     const saveAs = s ? { id: s.id as string, label: s.label as string, overwrite: s.overwrite === true } : undefined;
-    return launchGate.approve(arg.id, saveAs);
+    return launchGate.approve(arg.id, saveAs, arg.trust === true);
   });
   ipcMain.handle('launch:discard', (e, id: unknown) => {
     const sender = launchSender(e, false);
@@ -1493,21 +1468,36 @@ async function main() {
   surfaceFailedInstall();
 }
 
-/** Show + clear the Phase-2 install-failure marker written by startPhase2. */
+/**
+ * Show + clear the Phase-2 install-failure marker written by startPhase2.
+ * The marker is re-checked against cask state first: older versions' phase 2
+ * trusted brew's exit code and could leave a marker although the cask upgraded.
+ */
 function surfaceFailedInstall(): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
   if (!existsSync(failMarker)) return;
   let exitCode = '';
   try { exitCode = readFileSync(failMarker, 'utf8').trim(); } catch { /* ignore */ }
   const logFile = join(app.getPath('userData'), 'update.log');
-  void dialog.showMessageBox({
-    type: 'warning',
-    title: 'Argus — Update did not install',
-    message: 'The latest version was downloaded but Homebrew could not install it.',
-    detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
-    buttons: ['OK'],
+  const shell = process.env.SHELL || '/bin/zsh';
+  // execFile has no default timeout: a held brew lock or a blocking rc file would
+  // park the login shell and swallow a real failure. A timeout sets `err`, so a
+  // hang falls through to the dialog (fails closed).
+  execFile(shell, ['-l', '-c', buildCaskCurrentCheck(UPDATE_CASK)], { timeout: 15000, killSignal: 'SIGKILL' }, (err) => {
+    if (!err) {
+      try { appendFileSync(logFile, `[argus-update] ${new Date().toISOString()} failure marker ignored: argus is current\n`); } catch { /* best-effort */ }
+      try { unlinkSync(failMarker); } catch { /* best-effort */ }
+      return;
+    }
+    void dialog.showMessageBox({
+      type: 'warning',
+      title: 'Argus — Update did not install',
+      message: 'The latest version was downloaded but Homebrew could not install it.',
+      detail: `Argus reopened the previous version.${exitCode ? ` (brew exit ${exitCode})` : ''}\n\nTry the update again, or run "brew upgrade --cask argus" in a terminal.\nDetails: ${logFile}`,
+      buttons: ['OK'],
+    });
+    try { unlinkSync(failMarker); } catch { /* best-effort */ }
   });
-  try { unlinkSync(failMarker); } catch { /* best-effort */ }
 }
 
 // Single-instance lock: a second launch of the SAME profile focuses the existing

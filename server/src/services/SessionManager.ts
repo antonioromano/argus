@@ -19,8 +19,10 @@ import type {
   SessionUsage,
   PlanUsageMap,
   PromptOption,
+  PromptTab,
   SessionStatusPayload,
   SessionPr,
+  SessionPrSummary,
   SessionPrEntry,
   SessionPrsResponse,
   SessionPrDiffResponse,
@@ -40,6 +42,7 @@ import { TerminalMirror } from './TerminalMirror.js';
 import { RawTail } from './RawTail.js';
 import { coverageFor } from './agentSignals/coverage.js';
 import { computeSignalToken } from './agentSignals/token.js';
+import { writeMcpConfig } from './mcp/injection.js';
 import { getSignalAdapter } from './agentSignals/registry.js';
 import type { InjectionFile } from './agentSignals/types.js';
 import { makePtyBackend } from './ptyBackend/index.js';
@@ -58,13 +61,24 @@ import { FileWatcherService } from './FileWatcherService.js';
 import { findStaleRowRange } from './scrollbackDedup.js';
 import { cleanupSessionDimensions } from '../socket/handler.js';
 import { chatRoom } from '../socket/rooms.js';
-import { CYCLE_MODE_KEY, SETTABLE_PERMISSION_MODES, chatInputBytes, inputStillPending, permissionModeFromFooter } from './claudeScreen.js';
+import {
+  CYCLE_MODE_KEY,
+  SETTABLE_PERMISSION_MODES,
+  chatInputBytes,
+  clearPromptInput,
+  inputStillPending,
+  permissionModeFromFooter,
+  promptBoxEmpty,
+  promptSuggestion,
+  type ScreenRow,
+} from './claudeScreen.js';
 import { BROADCAST_ENTER_DELAY_MS } from '../socket/broadcast.js';
 import { resolveWithinBase } from '../utils/pathScope.js';
 import { workRootOf } from '../utils/workRoot.js';
 import { resolveSessionFolder } from '../utils/sessionFolder.js';
 import type { GitService } from './GitService.js';
 import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
+import { prSummaryItem, summarizePrItems } from './prSummary.js';
 import { staleDays } from './worktreeLifecycle.js';
 import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
 import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
@@ -79,6 +93,7 @@ import {
   type RolloutCandidate,
 } from './usage/codexRollout.js';
 import type { SearchTarget } from './search/crossSessionSearch.js';
+import { frameToRows } from './search/scrollbackSearch.js';
 import { buildResumeFlags, isClaudeSessionId } from './claudeSession.js';
 
 /** Launch-only extras (deep links). Never reachable from REST/Socket.io. */
@@ -87,6 +102,8 @@ export interface CreateSessionOpts {
   initialPrompt?: string;
   /** The saved launcher this session was started from (metadata). */
   launcherId?: string;
+  /** F10: the orchestrating session that asked for this one over MCP. */
+  spawnedBy?: string;
   /** Skip the per-create sessions.json write. restoreSessions sets it and
    *  persists once at the end, instead of rewriting the file per session. */
   skipPersist?: boolean;
@@ -140,6 +157,25 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
+  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15).
+   *  Cleared when startup ends (see `startup`), so it never outlives the first turn. */
+  initialPrompt?: { text: string; clipped?: boolean };
+  /**
+   * Set from spawn (create or restart) until the first turn ends: the first
+   * running → idle/done once the conversation has its first prompt. Drives
+   * SessionInfo.starting and the end of `initialPrompt` (F15b).
+   * - `last`: the last status announced.
+   * - `prompted`: the first prompt was submitted — the launch prompt, a Chat
+   *   send, or a native `running` (UserPromptSubmit/PreToolUse: a prompt typed
+   *   in the terminal). Raw pty input never counts: the folder-trust Enter,
+   *   xterm's query replies and keystrokes are no prompt.
+   * - `heuristicOk`: a heuristic settle may end it. False for a launch prompt
+   *   until a native `running` is seen or STARTUP_NATIVE_WAIT_MS passes
+   *   (`fallback`), since before the first hook a startup paint can settle.
+   */
+  startup?: { last: SessionStatus; prompted: boolean; heuristicOk: boolean; nativeRan?: boolean; heldSettle?: boolean; fallback?: NodeJS.Timeout };
+  /** Orchestrator (MCP start_session caller); it may write to this session. */
+  spawnedBy?: string;
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -150,6 +186,8 @@ interface ManagedSession {
    *  heuristic transitions for covered states. */
   nativeLastSeenAt?: number;
   nativeState?: AgentSignalState;
+  /** A menu was already on screen when the last native 'running' arrived (a leftover, not its prompt). */
+  menuAtNativeRunning?: boolean;
   nativeCoverage?: Set<AgentSignalState>;
   /** Last few raw native signals — diagnostics dump only, never control flow. */
   nativeRing?: AgentSignal[];
@@ -207,14 +245,24 @@ interface ManagedSession {
   /** Set by emitStatus while the session is waiting (see SessionInfo). */
   waitingSince?: number;
   promptOptions?: PromptOption[];
+  promptQuestion?: string;
+  promptTabs?: PromptTab[];
   /** Claude only: usage meter fed by the hooks' `transcript_path` (F1). */
   usage?: SessionUsageTracker;
   /** Claude only: open Chat views (B1); the chat feed runs while this is > 0. */
   chatViewers?: number;
   /** Claude only: permission mode read from the footer on screen (B1). */
   permissionMode?: string;
+  /** Claude only: the next prompt Claude Code suggests in its empty input box (F9). */
+  promptSuggestion?: string;
   /** Called with the bottom rows of the next settled screen (mode switch, chat submit). */
   settleWaiters?: Set<(rows: string[]) => void>;
+  /** Bottom rows of the last settled screen. */
+  settledRows?: string[];
+  /** The last text a Chat view typed into Claude's prompt. */
+  lastChatInput?: string;
+  /** When Esc was written to a running session (an interrupt; Claude Code fires no Stop hook for it). */
+  interruptedAt?: number;
   /** Codex only: the rollout log this shell writes, once matched. */
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
 }
@@ -225,11 +273,33 @@ const MODE_SWITCH_TIMEOUT_MS = 2_500;
 const CHAT_SUBMIT_CHECK_MS = 2_000;
 /** Chat submit: extra Enters pressed when the text is still in the input box. */
 const CHAT_ENTER_RETRIES = 2;
+/** Clears Claude Code's input box (with text in it; it only warns on an empty one). */
+const CLEAR_INPUT_KEY = '\x03';
 /** Longest Chat view message accepted (characters). */
 const MAX_CHAT_INPUT = 100_000;
+/** How much of a launch prompt SessionInfo carries for Chat's first echo (F15). */
+export const INITIAL_PROMPT_MAX = 2000;
+
+/** The launch prompt as SessionInfo carries it: clipped, so a huge prompt never rides every session list. */
+export function clipInitialPrompt(text: string): { text: string; clipped?: boolean } | undefined {
+  if (!text.trim()) return undefined;
+  if (text.length <= INITIAL_PROMPT_MAX) return { text };
+  // Never cut a surrogate pair in half (an emoji at the cut).
+  const hi = text.charCodeAt(INITIAL_PROMPT_MAX - 1);
+  const end = hi >= 0xd800 && hi <= 0xdbff ? INITIAL_PROMPT_MAX - 1 : INITIAL_PROMPT_MAX;
+  return { text: text.slice(0, end), clipped: true };
+}
 
 /** A pty write through the socket input queue; `pauseAfter` holds later writes back (ms). */
 export type ChatWrite = (data: string, pauseAfter?: number) => void;
+
+/** Pause between the keystrokes of one menu answer, so Claude's TUI reads each on its own. */
+const ANSWER_KEY_PAUSE_MS = 60;
+/** Longest free-text menu answer typed for the user (one line). */
+const MAX_FREE_TEXT_ANSWER = 2_000;
+const ARROW_DOWN = '\x1b[B';
+const ARROW_UP = '\x1b[A';
+const ARROW_LEFT = '\x1b[D';
 
 /** Codex rollout logs are polled (matched, then tailed) this often. */
 const CODEX_POLL_MS = 2_000;
@@ -256,6 +326,9 @@ const GIT_REPO_RECHECK_MS = 60_000;
 const PR_POLL_INTERVAL_MS = 30_000;
 /** Parallel `gh pr view` runs per sweep. */
 const PR_POLL_CONCURRENCY = 2;
+/** F5: re-read a session's linked PRs for the shell-tab summary at most this
+ *  often (sooner when its header PR changes). The header chip keeps the sweep cadence. */
+export const PR_SUMMARY_INTERVAL_MS = 5 * 60_000;
 /** B3: most PRs one Inspector list request reads (the newest win). */
 export const SESSION_PRS_MAX = 20;
 /** Beta F8: re-read a worktree's last-commit time at most this often. Staleness
@@ -272,10 +345,23 @@ const RAW_TAIL_BYTES = 16 * 1024;
 // event; once stale (old CLI, user stripped the hook config), the heuristic
 // detector silently takes back over (plan 2026-07-22-001, R4).
 const NATIVE_FRESHNESS_MS = 30_000;
+/** How long after a native 'running' a newly painted menu is taken as that tool's prompt. */
+const MENU_AFTER_RUNNING_MS = 15_000;
 /** Hold 'done' promotion until the screen stops painting for this long. */
 const DONE_GRACE_MS = 2_000;
 /** Output younger than this at grace-fire means the session is still working. */
 const DONE_QUIET_MS = 1_200;
+/**
+ * A launch prompt's startup ends on a heuristic settle only once a native
+ * `running` (UserPromptSubmit) was seen, or after this long without one (F15b).
+ * Claude's hooks fire within a few seconds of spawn even with slow MCP servers
+ * (10–20 s at worst); 30 s is past any normal startup, so the fallback only
+ * kicks in when hooks are broken, where the cost of waiting is just a longer
+ * "Starting Claude…".
+ */
+const STARTUP_NATIVE_WAIT_MS = 30_000;
+/** After an Esc interrupt, re-read the settled screen once this long later. */
+const INTERRUPT_SETTLE_MS = 1_500;
 // Depth of the per-session raw-signal ring kept for the diagnostics dump.
 const NATIVE_RING_SIZE = 5;
 /**
@@ -475,6 +561,10 @@ export class SessionManager {
   private prService: PrStatusService | null = null;
   private prEnabled = true;
   private prMap = new Map<string, SessionPr>();
+  /** F5: every non-closed PR of a session, for the shell tabs. */
+  private prSummaryMap = new Map<string, SessionPrSummary>();
+  /** F5: when each session's summary was last rebuilt (see PR_SUMMARY_INTERVAL_MS). */
+  private prSummaryAt = new Map<string, number>();
   private prPollRunning = false;
   /** A sweep was asked for while one was running (see pollPrStatus). */
   private prPollAgain = false;
@@ -514,6 +604,8 @@ export class SessionManager {
   /** Native-signal wiring, supplied by index.ts once resolved (plan 001 U2). */
   private signalSecret?: string;
   private signalBinPath?: string;
+  /** F10: hand the Argus MCP server to new Claude sessions (AppConfig.mcpServerEnabled). */
+  private mcpServerEnabled = false;
 
   /** Process-survival + pty layer (tmux by default; argusd daemon behind a flag). */
   private backend: PtyBackend;
@@ -692,6 +784,9 @@ export class SessionManager {
       this.prService?.clear();
       for (const id of this.prMap.keys()) this.io?.emit('session:pr', { sessionId: id, pr: null });
       this.prMap.clear();
+      for (const id of this.prSummaryMap.keys()) this.io?.emit('session:prSummary', { sessionId: id, summary: null });
+      this.prSummaryMap.clear();
+      this.prSummaryAt.clear();
     }
     this.restartPrPoll();
   }
@@ -872,6 +967,8 @@ export class SessionManager {
    * have read the PR before the write, so it is followed by one more.
    */
   private sweepPrsAfterWrite(): void {
+    // The written PR may be a linked one: rebuild every summary now.
+    this.prSummaryAt.clear();
     if (this.prPollRunning) this.prPollAgain = true;
     else void this.pollPrStatus();
   }
@@ -888,6 +985,8 @@ export class SessionManager {
     try {
       const byFolder = new Map<string, Promise<SessionPr | null>>();
       const live = Array.from(this.sessions.values()).filter((s) => s.status !== 'exited');
+      // F5: summaries are rebuilt after every chip is out, so their extra reads never delay one.
+      const summaryJobs: Array<() => Promise<void>> = [];
       await runBounded(live, PR_POLL_CONCURRENCY, async (session) => {
         // `gh` runs only inside a folder Argus manages (path-scope containment).
         const folder = this.resolveWithinAnySession(workRootOf(session));
@@ -897,22 +996,36 @@ export class SessionManager {
           p = service.forFolder(folder);
           byFolder.set(folder, p);
         }
-        let pr = await p;
+        const folderPr = await p;
+        // One read per URL per session per sweep: the chip's fallback below and
+        // the summary share it.
+        const reads = new Map<string, Promise<SessionPr | null>>();
+        const read = (url: string): Promise<SessionPr | null> => {
+          let r = reads.get(url);
+          if (!r) { r = service.forUrl(url, folder); reads.set(url, r); }
+          return r;
+        };
         // No PR on the folder's branch: fall back to the PR the conversation
         // itself created or pushed to — e.g. a hub session on `main` that works
         // in other repos. Several sessions on one PR share the service cache.
-        const linked = pr ? undefined : session.usage?.linkedPrUrl();
-        if (linked) pr = await service.forUrl(linked, folder);
+        const linked = folderPr ? undefined : session.usage?.linkedPrUrl();
+        const pr = linked ? await read(linked) : folderPr;
         if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
         const prev = this.prMap.get(session.id) ?? null;
-        if (JSON.stringify(prev) === JSON.stringify(pr)) return;
-        if (pr) this.prMap.set(session.id, pr);
-        else this.prMap.delete(session.id);
-        // Broadcast only what the chip shows: a title edit or GitHub recomputing
-        // mergeability after a push is not worth a re-render in every window.
-        if (chipKey(prev) === chipKey(pr)) return;
-        this.io?.emit('session:pr', { sessionId: session.id, pr });
+        const changed = JSON.stringify(prev) !== JSON.stringify(pr);
+        if (changed) {
+          if (pr) this.prMap.set(session.id, pr);
+          else this.prMap.delete(session.id);
+          // Broadcast only what the chip shows: a title edit or GitHub recomputing
+          // mergeability after a push is not worth a re-render in every window.
+          if (chipKey(prev) !== chipKey(pr)) this.io?.emit('session:pr', { sessionId: session.id, pr });
+        }
+        const at = this.prSummaryAt.get(session.id);
+        if (changed || at === undefined || Date.now() - at >= PR_SUMMARY_INTERVAL_MS) {
+          summaryJobs.push(() => this.refreshPrSummary(session, folder, service, folderPr, read));
+        }
       });
+      await runBounded(summaryJobs, PR_POLL_CONCURRENCY, (job) => job());
     } finally {
       this.prPollRunning = false;
     }
@@ -920,6 +1033,47 @@ export class SessionManager {
       this.prPollAgain = false;
       await this.pollPrStatus();
     }
+  }
+
+  /**
+   * F5: rebuild the shell tab's summary over the same PRs as the Inspector
+   * list, each once (URLs compared case-insensitively). A PR gh could not read
+   * this time keeps its last reading rather than dropping out of the count.
+   */
+  private async refreshPrSummary(
+    session: ManagedSession, folder: string, service: PrStatusService,
+    folderPr: SessionPr | null, read: (url: string) => Promise<SessionPr | null>,
+  ): Promise<void> {
+    const seen = new Set<string>();
+    const entries = (await this.sessionPrEntries(session, folder, service, folderPr)).filter((e) => {
+      const key = e.url.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const listed: (SessionPr | null)[] = entries.map((e) => (e.folderBranch ? e.pr : null));
+    await runBounded(entries.map((e, i) => [e, i] as const).filter(([e]) => !e.folderBranch), PR_POLL_CONCURRENCY, async ([e, i]) => {
+      listed[i] = await read(e.url);
+    });
+    if (!this.prEnabled || this.sessions.get(session.id) !== session) return;
+    const last = this.prSummaryMap.get(session.id)?.prs ?? [];
+    const items = entries.flatMap((e, i) => {
+      const pr = listed[i];
+      if (pr) return [prSummaryItem(pr)];
+      return last.filter((p) => samePrUrl(p.url, e.url));
+    });
+    this.prSummaryAt.set(session.id, Date.now());
+    this.applyPrSummary(session.id, summarizePrItems(items));
+  }
+
+  /** F5: store a session's PR summary; broadcast it only when more than a title changed. */
+  private applyPrSummary(id: string, summary: SessionPrSummary | null): void {
+    const prev = this.prSummaryMap.get(id) ?? null;
+    if (JSON.stringify(prev) === JSON.stringify(summary)) return;
+    if (summary) this.prSummaryMap.set(id, summary);
+    else this.prSummaryMap.delete(id);
+    const shown = (x: SessionPrSummary | null) => JSON.stringify(x && { ...x, prs: x.prs.map(({ title: _t, ...rest }) => rest) });
+    if (shown(prev) !== shown(summary)) this.io?.emit('session:prSummary', { sessionId: id, summary });
   }
 
   /**
@@ -950,8 +1104,11 @@ export class SessionManager {
    * folder PR (one cached lookup) carries `pr`. Also the allow-list of PRs
    * whose diff may be read (sessionPrDiff).
    */
-  private async sessionPrEntries(session: ManagedSession, folder: string, service: PrStatusService): Promise<SessionPrEntry[]> {
-    const folderPr = await service.forFolder(folder);
+  private async sessionPrEntries(
+    session: ManagedSession, folder: string, service: PrStatusService,
+    known?: SessionPr | null,
+  ): Promise<SessionPrEntry[]> {
+    const folderPr = known !== undefined ? known : await service.forFolder(folder);
     const linked = (session.usage?.linkedPrUrls() ?? []).slice().reverse();
     const all: SessionPrEntry[] = linked.map((url) => ({ url, pr: null, folderBranch: samePrUrl(url, folderPr?.url), linked: true }));
     // The newest SESSION_PRS_MAX, the folder PR always among them (in its own
@@ -1031,6 +1188,28 @@ export class SessionManager {
   }
 
   /** Toggle the "keep macOS awake while a shell is running" feature; reconciles immediately. */
+  /** F10: whether sessions spawned from now on get the Argus MCP server. */
+  setMcpServerEnabled(enabled: boolean): void {
+    this.mcpServerEnabled = enabled;
+  }
+
+  /**
+   * `--mcp-config` flags pointing a Claude session at the Argus MCP server,
+   * with a token bound to this session id (so the server knows who asks).
+   * Empty when the setting is off, signals are unconfigured, or the agent is
+   * not Claude. Spawn-only, like signal injection: never stored in flags.
+   */
+  private mcpInjection(sessionId: string, agentType: string): string[] {
+    if (!this.mcpServerEnabled || !this.signalSecret || agentType !== 'claude') return [];
+    const port = process.env.ARGUS_PORT || process.env.PORT || '5401';
+    try {
+      return writeMcpConfig(this.dataDir, port, this.signalSecret, sessionId);
+    } catch (e) {
+      console.warn('[mcp] failed to write session MCP config:', e);
+      return [];
+    }
+  }
+
   setPreventSleepWhileRunning(enabled: boolean): void {
     this.preventSleepWhileRunning = enabled;
     this.refreshSleepPrevention();
@@ -1229,7 +1408,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
+    stateDetector.setOnSettled((rows, cells) => this.applyFooter(id, rows, cells));
     // A direct session restored after a restart: its agent died with the last
     // Argus (spec D2), so there is nothing to classify — mark it exited up front.
     if (restoreExited) stateDetector.setExited();
@@ -1265,7 +1444,8 @@ export class SessionManager {
         }
       }
     }
-    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags)];
+    const mcpFlags = (attachExisting || restoreExited) ? [] : this.mcpInjection(id, resolvedAgentType);
+    const spawnFlags = [...promptTail, ...(inj?.flags ?? resolvedFlags), ...mcpFlags];
     const spawnEnv = this.agentSpawnEnv(resolvedAgentType, command, config, inj);
 
     // Survives app quit when the backend is persistent. tmuxName is set only for
@@ -1330,12 +1510,20 @@ export class SessionManager {
       persistent: restoreExited ? false : persistent,
       runMode: resolvedRunMode,
       launcherId: opts.launcherId,
+      // Chat (Claude only) shows it at once; the agent got it on its command line.
+      initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
+      // A fresh Claude spawn only (Chat is its sole reader): a restored or re-attached agent started long ago.
+      startup: resolvedAgentType === 'claude' && !attachExisting && !restoreExited && existingId == null
+        ? { last: initialStatus, prompted: promptTail.length > 0, heuristicOk: promptTail.length === 0 }
+        : undefined,
+      spawnedBy: opts.spawnedBy,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
       hasUserInputSinceIdle: !attachExisting && existingId == null,
       cwdParser: resolvedAgentType === SHELL_AGENT_ID ? new OscCwdParser() : undefined,
     };
+    if (session.startup && !session.startup.heuristicOk) this.armStartupFallback(session);
 
     ptyProcess.onData((data) => {
       // Ignore late output from a pty that restart already replaced (node-pty
@@ -1357,6 +1545,7 @@ export class SessionManager {
       // A replaced pty's exit must not be reported as the session exiting.
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
@@ -1408,12 +1597,14 @@ export class SessionManager {
     // Remove the generated native-signal settings file (best-effort).
     try {
       rmSync(path.join(this.dataDir, 'signals', `${id}.json`), { force: true });
+      rmSync(path.join(this.dataDir, 'mcp', `${id}.json`), { force: true });
     } catch {
       /* ignore */
     }
     void this.fileWatcher.stop(id);
     session.usage?.dispose();
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    this.endStartup(session);
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
     const backend = this.backendFor(session);
@@ -1423,6 +1614,8 @@ export class SessionManager {
     this.sessions.delete(id);
     this.gitDirtyMap.delete(id);
     this.prMap.delete(id);
+    this.prSummaryMap.delete(id);
+    this.prSummaryAt.delete(id);
     this.staleMap.delete(id);
     this.activity.drop(id);
     this.refreshCodexPoll();
@@ -1479,6 +1672,11 @@ export class SessionManager {
 
     // Reset state
     session.rawTail?.clear();
+    this.setSuggestion(id, session, undefined);
+    // A restart never replays the launch prompt (see createSession).
+    session.initialPrompt = undefined;
+    this.endStartup(session);
+    session.startup = session.agentType === 'claude' ? { last: 'running', prompted: false, heuristicOk: true } : undefined;
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -1513,7 +1711,7 @@ export class SessionManager {
     );
     stateDetector.setOnPromptUpdate((text) => this.applyPromptUpdate(id, text));
     stateDetector.setOnWaitingRepaint(() => this.refreshPromptOptions(id));
-    stateDetector.setOnSettled((rows) => this.applyFooter(id, rows));
+    stateDetector.setOnSettled((rows, cells) => this.applyFooter(id, rows, cells));
 
     // Restart is a fresh run (the old tmux session was killed above), so re-inject
     // native signals and reset the native-freshness window.
@@ -1532,7 +1730,7 @@ export class SessionManager {
     session.nativeState = undefined;
     // Spawn-only: the resume flags are never written back to session.flags, so
     // the next plain Restart is still a fresh start.
-    const spawnFlags = inj?.flags ?? userFlags;
+    const spawnFlags = [...(inj?.flags ?? userFlags), ...this.mcpInjection(id, session.agentType)];
     const spawnEnv = this.agentSpawnEnv(session.agentType, command, config, inj);
     await backend.ready?.();
     const ptyProcess = backend.spawn({
@@ -1572,6 +1770,7 @@ export class SessionManager {
     ptyProcess.onExit(({ exitCode }) => {
       if (session.pty !== ptyProcess) return;
       stateDetector.setExited();
+      this.setSuggestion(id, session, undefined);
       this.flushOutput(id);
       this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
       this.scheduleExitedTier(session, ptyProcess);
@@ -1606,16 +1805,35 @@ export class SessionManager {
     // applyNativeSignal) so the session is still 'running', and now the screen
     // agrees it is idle. Dropping that stranded the session on 'running' for good.
     const deferredNativeIdle = detected === 'idle' && session.nativeState === 'idle' && session.status === 'running';
-    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle) {
+    // Exception: Esc interrupted the turn. Claude Code fires no Stop hook for an
+    // interrupt, so the native 'running' would hold the status for good.
+    const interrupted = detected === 'idle' && this.interruptPending(session);
+    // Exception: the hooks last said running (PreToolUse fires right before the
+    // tool's permission prompt / AskUserQuestion / plan approval) and the screen
+    // now shows a menu it can read. Claude's waiting Notification follows only
+    // seconds later, so dropping this left Chat with no prompt card meanwhile.
+    // Only a menu painted since that signal, and soon after it: one already on
+    // screen then is a leftover, not the tool's prompt.
+    const menuAfterNativeRunning =
+      detected === 'waiting' && session.nativeState === 'running' && session.menuAtNativeRunning === false &&
+      Date.now() - (session.nativeLastSeenAt ?? 0) < MENU_AFTER_RUNNING_MS &&
+      !!session.stateDetector.getMenuOptions?.();
+    if (detected !== 'running' && this.nativeIsFresh(session) && !deferredNativeIdle && !interrupted && !menuAfterNativeRunning) {
       const coverage = session.nativeCoverage ?? new Set(coverageFor(session.agentType));
-      if (coverage.has(detected as AgentSignalState)) return;
+      if (coverage.has(detected as AgentSignalState)) {
+        // Already waiting: the drop must not freeze a menu painted after the
+        // native waiting arrived (no later repaint would refresh it).
+        if (detected === 'waiting') this.refreshPromptOptions(id);
+        return;
+      }
     }
 
     let status = detected;
     if (detected === 'idle' || detected === 'waiting') {
       // A plain shell finishing a command is its normal rhythm, not a run worth
       // flagging — promoting it would raise a 'done' notification after every `ls`.
-      if (!session.suppressDonePromotion && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
+      // Nor is a turn the user stopped.
+      if (!session.suppressDonePromotion && !interrupted && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
         status = 'done';
       }
     }
@@ -1659,28 +1877,81 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status: session.status, lastPrompt: text });
   }
 
-  /** A repaint while waiting: re-announce the status if the menu options changed. */
+  /** A repaint while waiting: re-announce the status if the menu (options or question) changed. */
   private refreshPromptOptions(id: string): void {
     const session = this.sessions.get(id);
     if (!session || session.status !== 'waiting') return;
     const fresh = session.stateDetector.getMenuOptions?.();
-    if (JSON.stringify(fresh) === JSON.stringify(session.promptOptions)) return;
+    const question = fresh ? session.stateDetector.getLastPromptText() : undefined;
+    const tabs = fresh ? session.stateDetector.getMenu?.()?.tabs : undefined;
+    if (
+      JSON.stringify(fresh) === JSON.stringify(session.promptOptions) &&
+      question === session.promptQuestion &&
+      JSON.stringify(tabs) === JSON.stringify(session.promptTabs)
+    ) return;
     this.emitStatus({ sessionId: id, status: 'waiting', lastPrompt: session.lastPrompt });
   }
 
   /**
-   * Guard for answering a waiting menu with one digit (waiting inbox): the
-   * session must still be waiting and the menu on screen *right now* must have
-   * that option. Re-read here, never trusted from the client, so a digit is
-   * never typed into whatever replaced the menu. Returns an error, or null.
+   * Answer a waiting menu (waiting inbox, Chat prompt card). The session must
+   * still be waiting and the menu on screen *right now* must have that choice:
+   * re-read here, never trusted from the client, so keys are never typed into
+   * whatever replaced the menu. `key` is an option's key, 'next' (Tab: the
+   * next question / the review step, for a multiSelect question or several
+   * questions) or 'prev' (← to the previous question); `text`
+   * answers a free-text option ("Type something.") — its digit opens the
+   * field, then the text and Enter follow. An unnumbered menu (trust prompt) is
+   * answered with arrow keys from its cursor, then Enter; one with previews
+   * with the digit (which only moves the cursor there), then Enter. Returns an error, or
+   * null once the keys are queued through `write`.
    */
-  checkPromptAnswer(id: string, key: unknown): string | null {
+  answerPrompt(id: string, key: unknown, text: unknown, write: ChatWrite): string | null {
     const session = this.sessions.get(id);
     if (!session) return 'Session not found';
-    if (typeof key !== 'string' || !/^[1-9]$/.test(key)) return 'Invalid choice';
+    if (typeof key !== 'string' || !/^([1-9]|next|prev)$/.test(key)) return 'Invalid choice';
+    if (text !== undefined && typeof text !== 'string') return 'Invalid answer';
     if (session.status !== 'waiting') return 'That shell is no longer waiting';
-    const options = session.stateDetector.getMenuOptions?.();
-    if (!options?.some((o) => o.key === key)) return 'The prompt changed — open the shell to answer';
+    const menu = session.stateDetector.getMenu?.();
+    const changed = 'The prompt changed — open the shell to answer';
+    if (!menu) return changed;
+    if (key === 'next') {
+      if (!menu.tabs && !menu.options.some((o) => o.checked !== undefined)) return changed;
+      write('\t');
+      return null;
+    }
+    if (key === 'prev') {
+      if (!menu.tabs) return changed;
+      write(ARROW_LEFT);
+      return null;
+    }
+    const index = menu.options.findIndex((o) => o.key === key);
+    const option = menu.options[index];
+    if (!option) return changed;
+    // A free-text option's digit alone would leave Claude on an empty field.
+    if (option.freeText && option.checked === undefined && text === undefined) return 'Type the answer in Chat or the terminal';
+    if (text !== undefined) {
+      // A multiSelect "Type something" only toggles: its field needs the cursor on it.
+      if (!option.freeText || option.checked !== undefined || menu.cursor !== undefined) return changed;
+      const line = text.replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim();
+      if (!line) return 'Type an answer first';
+      if (line.length > MAX_FREE_TEXT_ANSWER) return 'That answer is too long';
+      write(key, ANSWER_KEY_PAUSE_MS);
+      write(line, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    if (menu.cursor !== undefined) {
+      const delta = index - menu.cursor;
+      for (let i = 0; i < Math.abs(delta); i++) write(delta > 0 ? ARROW_DOWN : ARROW_UP, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    if (menu.confirm) {
+      write(key, ANSWER_KEY_PAUSE_MS);
+      write('\r');
+      return null;
+    }
+    write(key);
     return null;
   }
 
@@ -1721,6 +1992,66 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
   }
 
+  /**
+   * Startup ends at the first turn's end: running → idle/done once the agent
+   * has a prompt (F15b). Not at the first native running (UserPromptSubmit):
+   * Claude writes the prompt to its transcript around then and ChatTail reads
+   * it later still, so a Chat mounted in that gap would have neither the
+   * launch prompt nor its record. At the turn's end the record is there. Not
+   * `waiting` either: the folder-trust dialog comes before the prompt is read.
+   * An exit keeps it, so a Chat opened after a failed start still shows the
+   * prompt with its "ended" notice; a restart starts over.
+   */
+  private trackStartup(session: ManagedSession, status: SessionStatus): void {
+    const st = session.startup;
+    if (!st) return;
+    const turnEnded = (status === 'idle' || status === 'done') && st.last === 'running' && st.prompted;
+    if (turnEnded && (st.heuristicOk || st.nativeRan)) {
+      this.endStartup(session);
+      return;
+    }
+    // Held only for want of a hook: the fallback may end it if the session stays settled.
+    if (status !== 'exited') st.heldSettle = turnEnded || (st.heldSettle === true && status !== 'running');
+    st.last = status;
+  }
+
+  private endStartup(session: ManagedSession): void {
+    if (session.startup?.fallback) clearTimeout(session.startup.fallback);
+    session.startup = undefined;
+    session.initialPrompt = undefined;
+  }
+
+  /**
+   * A launch prompt: no hook within STARTUP_NATIVE_WAIT_MS means hooks are not
+   * coming, so the heuristic may end startup from now on — and at once if the
+   * session already settled after running (the turn ended while we waited).
+   * That end is announced to sockets only: the status itself did not change,
+   * so in-process status subscribers must not see a repeat.
+   */
+  private armStartupFallback(session: ManagedSession): void {
+    const st = session.startup;
+    if (!st) return;
+    st.fallback = setTimeout(() => {
+      if (session.startup !== st || st.nativeRan) return;
+      st.fallback = undefined;
+      st.heuristicOk = true;
+      const settled = session.status === 'idle' || session.status === 'done';
+      if (!settled || !st.prompted || !st.heldSettle) return;
+      this.endStartup(session);
+      this.io?.emit('session:status', { sessionId: session.id, status: session.status, lastPrompt: session.lastPrompt });
+    }, STARTUP_NATIVE_WAIT_MS);
+    st.fallback.unref?.();
+  }
+
+  /** Esc was written to the running session and no native signal has come since. */
+  private interruptPending(session: ManagedSession): boolean {
+    return (
+      session.interruptedAt !== undefined &&
+      session.nativeState === 'running' &&
+      session.interruptedAt >= (session.nativeLastSeenAt ?? 0)
+    );
+  }
+
   private nativeIsFresh(session: ManagedSession): boolean {
     return (
       session.nativeLastSeenAt !== undefined &&
@@ -1746,6 +2077,12 @@ export class SessionManager {
 
     session.nativeLastSeenAt = Date.now();
     session.nativeState = signal.state;
+    // A native running is a submitted prompt (a terminal one included): the first turn started.
+    if (session.startup && signal.state === 'running') {
+      session.startup.prompted = true;
+      session.startup.nativeRan = true;
+    }
+    session.menuAtNativeRunning = signal.state === 'running' ? !!session.stateDetector.getMenuOptions?.() : undefined;
     if (signal.coverage && signal.coverage.length > 0) {
       session.nativeCoverage = new Set(signal.coverage);
     }
@@ -1841,6 +2178,8 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return undefined;
     session.chatViewers = (session.chatViewers ?? 0) + 1;
+    // Settles read the suggestion only while a Chat view is open: read it now for the snapshot.
+    if (session.status !== 'exited') this.setSuggestion(id, session, promptSuggestion(session.stateDetector.footerCells()));
     const tracker = this.usageTracker(session);
     await tracker.openChat((update) => {
       if (this.sessions.get(id) !== session) return;
@@ -1850,11 +2189,19 @@ export class SessionManager {
     });
     const snap = tracker.chatSnapshot();
     if (session.permissionMode) snap.permissionMode = session.permissionMode;
+    if (session.promptSuggestion) snap.suggestion = session.promptSuggestion;
     return snap;
   }
 
-  /** A settled Claude screen: track the permission mode its footer shows. */
-  private applyFooter(id: string, rows: string[]): void {
+  /** Track Claude's prompt suggestion; Chat views hear of each change. */
+  private setSuggestion(id: string, session: ManagedSession, suggestion: string | undefined): void {
+    if (suggestion === session.promptSuggestion) return;
+    session.promptSuggestion = suggestion;
+    if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatSuggestion', { sessionId: id, suggestion: suggestion ?? null });
+  }
+
+  /** A settled Claude screen: track the permission mode its footer shows, and the prompt suggestion. */
+  private applyFooter(id: string, rows: string[], cells: () => ScreenRow[]): void {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude') return;
     const mode = permissionModeFromFooter(rows);
@@ -1862,9 +2209,22 @@ export class SessionManager {
       session.permissionMode = mode;
       if (session.chatViewers) this.io?.to(chatRoom(id)).emit('session:chatMode', { sessionId: id, permissionMode: mode });
     }
+    // Read from the cells: a suggestion differs from typed input only by being
+    // faint. Only Chat views use it, so it is read only while one is open.
+    const suggestion = session.chatViewers ? promptSuggestion(cells()) : undefined;
+    this.setSuggestion(id, session, suggestion);
+    // A box holding only the suggestion is empty: the chat submit checks must
+    // not take it for text still waiting there (and press Enter on it).
+    const inputRows = suggestion ? clearPromptInput(rows) : rows;
+    session.settledRows = inputRows;
+    // Every settle, not only changes: a Chat's terminal sheet (F6) closes on the first one that
+    // shows the empty box again, also after a command that opened no picker at all.
+    if (session.chatViewers) {
+      this.io?.to(chatRoom(id)).emit('session:chatAtPrompt', { sessionId: id, atPrompt: promptBoxEmpty(inputRows) });
+    }
     const waiters = session.settleWaiters;
     session.settleWaiters = undefined;
-    waiters?.forEach((w) => w(rows));
+    waiters?.forEach((w) => w(inputRows));
   }
 
   /** Bottom rows of the session's next settled screen, or undefined after `timeoutMs`. */
@@ -1915,6 +2275,21 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || session.agentType !== 'claude' || session.status === 'exited') return false;
     if (!text.trim() || text.length > MAX_CHAT_INPUT) return false;
+    // The conversation's first prompt, if none yet: startup ends with its turn (F15b).
+    if (session.startup) session.startup.prompted = true;
+    // A stopped turn puts its prompt back into Claude's input box, out of the
+    // Chat view's sight: typing now would append to it (and send both). Clear
+    // it first, but only text this view sent, and never mid-turn or at a menu,
+    // where Ctrl+C means something else.
+    const idle = session.status === 'idle' || session.status === 'done';
+    if (idle && session.lastChatInput && session.settledRows && inputStillPending(session.settledRows, session.lastChatInput)) {
+      write(CLEAR_INPUT_KEY);
+      await this.nextSettle(session, CHAT_SUBMIT_CHECK_MS);
+      if (this.sessions.get(id) !== session) return false;
+    }
+    session.lastChatInput = text;
+    // Whatever was suggested is gone once something is sent; the next settle confirms it.
+    this.setSuggestion(id, session, undefined);
     // Before the write, so a command recorded at once still finds its echo. Not
     // at a menu: there the text answers the menu, it does not run a command.
     if (session.status !== 'waiting') session.usage?.echoChatInput(text);
@@ -1947,7 +2322,11 @@ export class SessionManager {
     const session = this.sessions.get(id);
     if (!session || !session.chatViewers) return;
     session.chatViewers -= 1;
-    if (session.chatViewers === 0) session.usage?.closeChat();
+    if (session.chatViewers === 0) {
+      session.usage?.closeChat();
+      // Not read without a viewer: the next one reads it afresh.
+      session.promptSuggestion = undefined;
+    }
   }
 
   private usageTracker(session: ManagedSession): SessionUsageTracker {
@@ -2026,17 +2405,39 @@ export class SessionManager {
       sessionId: session.id,
       sessionName: session.name,
       agentType: session.agentType,
-      scrollback: () => {
-        if (session.exitedFrame) return { kind: 'frozen' as const, frame: session.exitedFrame.full };
-        const mirror = session.mirror;
-        if (!mirror || mirror.disposed) return null;
-        const frame = mirror.frozenFrame();
-        if (frame !== null) return { kind: 'frozen' as const, frame };
-        const rows = mirror.searchableRows();
-        return rows ? { kind: 'live' as const, rows } : null;
-      },
+      scrollback: () => this.scrollbackOf(session),
       transcripts: () => session.usage?.transcriptPaths() ?? [],
     }));
+  }
+
+  /**
+   * F10 read_session: the last `lines` logical lines (soft wraps joined) of a
+   * session's screen as plain text, trailing blank rows dropped. Never wakes a
+   * hibernated mirror: a sleeping or exited session is read from its stored frame.
+   */
+  tailLines(id: string, lines: number): string[] {
+    const session = this.sessions.get(id);
+    const sb = session ? this.scrollbackOf(session) : null;
+    if (!sb) return [];
+    const rows = sb.kind === 'live' ? sb.rows : frameToRows(sb.frame);
+    const logical: string[] = [];
+    for (const r of rows) {
+      if (r.wrapped && logical.length > 0) logical[logical.length - 1] += r.text;
+      else logical.push(r.text);
+    }
+    while (logical.length > 0 && !logical[logical.length - 1]!.trim()) logical.pop();
+    return logical.slice(-lines).map((l) => l.trimEnd());
+  }
+
+  /** A session's screen without waking its mirror: the stored frame when asleep or exited. */
+  private scrollbackOf(session: ManagedSession): ReturnType<SearchTarget['scrollback']> {
+    if (session.exitedFrame) return { kind: 'frozen', frame: session.exitedFrame.full };
+    const mirror = session.mirror;
+    if (!mirror || mirror.disposed) return null;
+    const frame = mirror.frozenFrame();
+    if (frame !== null) return { kind: 'frozen', frame };
+    const rows = mirror.searchableRows();
+    return rows ? { kind: 'live', rows } : null;
   }
 
   /** Validated transcripts of a session, the current one last (F12 handoff). */
@@ -2217,14 +2618,27 @@ export class SessionManager {
     const payload: SessionStatusPayload = { ...base };
     const session = this.sessions.get(base.sessionId);
     if (session) {
+      this.trackStartup(session, base.status);
+      if (session.startup) {
+        payload.starting = true;
+        if (session.initialPrompt) payload.initialPrompt = session.initialPrompt;
+      }
       if (base.status === 'waiting') {
         session.waitingSince ??= Date.now();
         session.promptOptions = session.stateDetector.getMenuOptions?.();
+        // The menu's own question, read off the screen: lastPrompt may be the
+        // hook's generic "Claude needs your permission" instead.
+        session.promptQuestion = session.promptOptions ? session.stateDetector.getLastPromptText() : undefined;
+        session.promptTabs = session.promptOptions ? session.stateDetector.getMenu?.()?.tabs : undefined;
         payload.waitingSince = session.waitingSince;
         if (session.promptOptions) payload.promptOptions = session.promptOptions;
+        if (session.promptQuestion) payload.promptQuestion = session.promptQuestion;
+        if (session.promptTabs) payload.promptTabs = session.promptTabs;
       } else {
         session.waitingSince = undefined;
         session.promptOptions = undefined;
+        session.promptQuestion = undefined;
+        session.promptTabs = undefined;
       }
     }
     this.io?.emit('session:status', payload);
@@ -2465,12 +2879,27 @@ export class SessionManager {
 
     session.suppressDonePromotion = false;
     session.hasUserInputSinceIdle = true;
+    if (data === '\x1b' && session.status === 'running') this.noteInterrupt(id, session);
     // User sent input — exit sticky-done so StateDetector can track the new run.
     if (session.status === 'done') {
       session.status = 'idle';
       this.emitStatus({ sessionId: id, status: 'idle' });
     }
     session.pty.write(data);
+  }
+
+  /**
+   * Esc on a running session may interrupt the turn. The screen settling idle
+   * then ends it (see applyDetectedStatus). If the detector already read idle
+   * before the Esc (a turn that only waits on a background task), no new
+   * transition comes, so the settled status is re-applied once.
+   */
+  private noteInterrupt(id: string, session: ManagedSession): void {
+    session.interruptedAt = Date.now();
+    setTimeout(() => {
+      if (this.sessions.get(id) !== session || session.status !== 'running') return;
+      if (session.stateDetector.getStatus() === 'idle') this.applyDetectedStatus(id, 'idle');
+    }, INTERRUPT_SETTLE_MS).unref?.();
   }
 
   resizeSession(id: string, cols: number, rows: number): void {
@@ -2778,7 +3207,7 @@ export class SessionManager {
       // exited placeholder without touching survivor lookup/attach at all.
       if (p.runMode === 'direct') {
         try {
-          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+          await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, false, p.terminalEngine, 'direct', true, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
           console.log(`Restored (exited) direct session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
         } catch (err) {
           console.error(`Failed to restore session "${p.name}":`, err);
@@ -2798,7 +3227,7 @@ export class SessionManager {
       }
 
       try {
-        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
+        await this.createSession(p.folderPath, p.name, p.agentType, p.flags || [], p.id, p.createdAt, p.worktreeBranch, undefined, attach, p.terminalEngine, p.runMode ?? 'persistent', false, { launcherId: p.launcherId, spawnedBy: p.spawnedBy, skipPersist: true, claudeSessionId: p.claudeSessionId, usage: p.usage, codexUsage: p.codexUsage });
         console.log(`${attach ? 'Reattached' : 'Restored'} session: ${p.name} (${p.folderPath}) [${p.agentType}]`);
       } catch (err) {
         console.error(`Failed to restore session "${p.name}":`, err);
@@ -2848,6 +3277,7 @@ export class SessionManager {
       flags: session.flags,
       hasGitChanges: this.gitDirtyMap.get(session.id) ?? false,
       pr: this.prMap.get(session.id),
+      prSummary: this.prSummaryMap.get(session.id),
       worktreeStaleDays: this.staleMap.get(session.id),
       worktreePath: session.worktreePath,
       worktreeBranch: session.worktreeBranch,
@@ -2855,12 +3285,17 @@ export class SessionManager {
       terminalEngine: session.terminalEngine,
       runMode: session.runMode,
       launcherId: session.launcherId,
+      initialPrompt: session.initialPrompt,
+      starting: session.startup ? true : undefined,
+      spawnedBy: session.spawnedBy,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
       claudeSessionId: session.claudeSessionId,
       waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
       promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
+      promptQuestion: session.status === 'waiting' ? session.promptQuestion : undefined,
+      promptTabs: session.status === 'waiting' ? session.promptTabs : undefined,
     };
   }
 
@@ -3003,6 +3438,7 @@ export class SessionManager {
         terminalEngine: s.terminalEngine,
         runMode: s.runMode,
         launcherId: s.launcherId,
+        spawnedBy: s.spawnedBy,
         claudeSessionId: s.claudeSessionId,
         usage: s.usage?.serialize(),
         codexUsage: s.codex ? { spawnedAt: s.codex.spawnedAt, path: s.codex.tailer?.path } : undefined,

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, Plus, SendHorizontal, X } from 'lucide-react';
-import type { ChatCommand, SessionStatus } from '@argus/shared';
-import { ContextMenu, Icon, IconButton, type ContextMenuEntry } from '../../../components/primitives/index.js';
+import type { ChatBlock, ChatCommand, SessionStatus } from '@argus/shared';
+import { ContextMenu, Icon, IconButton, Tooltip, type ContextMenuEntry } from '../../../components/primitives/index.js';
 import {
   PICKABLE_MODELS,
   PICKABLE_MODES,
@@ -13,12 +13,23 @@ import {
 } from '../../../utils/chat.js';
 import { formatPathsForPty } from '../../../utils/pathFormat.js';
 import { ComposerHighlight } from './ComposerHighlight.js';
-import { enterContinues, enterEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { enterContinues, enterEdit, fenceEnterEdit, indentEdit, type Edit } from './composerMarkdown.js';
+import { newAttachmentKey as newKey, revokePreviews as revoke, useChatDraft, type DraftAttachment as Attachment } from './chatDrafts.js';
 
 interface ChatComposerProps {
+  /** Keys the unsent draft, which outlives this component (F11). */
+  sessionId: string;
   status: SessionStatus;
-  /** Type `text` into Claude's prompt and submit it (the server presses Enter). */
-  onSubmit: (text: string) => void;
+  /**
+   * Type `text` into Claude's prompt and submit it (the server presses Enter).
+   * `preview` is the message as the composer showed it (typed text, then one
+   * block per attachment), for the Chat view to show until the transcript has it.
+   */
+  onSubmit: (text: string, preview: ChatBlock[]) => void;
+  /** Interrupt the running turn; while `running` the send button becomes Stop. */
+  onStop?: () => void;
+  /** A stop was asked for and the turn hasn't ended yet. */
+  stopping?: boolean;
   /** Claude Code's permission mode (footer on screen, else the transcript). */
   permissionMode?: string;
   /** Ask the server to switch the permission mode; resolves false when it couldn't. */
@@ -33,25 +44,17 @@ interface ChatComposerProps {
   onShowTerminal?: () => void;
   /** Skills and custom commands for the `/` autocomplete (built-ins are always offered). */
   commands?: ChatCommand[];
+  /** Claude Code's suggested next prompt: ghost text while the composer is empty, Tab takes it. */
+  suggestion?: string;
   autoFocus?: boolean;
-}
-
-interface Attachment {
-  key: string;
-  /** Absolute path sent to Claude; undefined while a pasted image uploads. */
-  path?: string;
-  name: string;
-  /** blob: URL of an image, for the thumbnail. */
-  preview?: string;
-  /** The upload failed: shown as an error, never sent. */
-  failed?: boolean;
 }
 
 type ElectronFiles = { getPath: (name: string) => string | undefined };
 
-let nextKey = 0;
-const newKey = () => `att-${++nextKey}`;
 const previewOf = (f: File) => (typeof URL.createObjectURL === 'function' ? URL.createObjectURL(f) : undefined);
+/** The Stop button's name and tooltip; ⌘Esc is wired by ChatView. */
+export const STOP_LABEL = 'Stop (⌘Esc)';
+
 const isImageFile = (f: File) => /^image\/(png|jpeg|gif|webp)$/.test(f.type);
 
 /**
@@ -71,7 +74,6 @@ function sortFiles(files: FileList | File[] | null): { withPath: Attachment[]; t
   return { withPath, toUpload };
 }
 
-const revoke = (list: Attachment[]) => list.forEach((a) => a.preview && URL.revokeObjectURL(a.preview));
 const canPickFiles = () => typeof window !== 'undefined' && 'electronFiles' in window;
 
 type Menu = { kind: 'mode' | 'model'; x: number; y: number };
@@ -111,13 +113,18 @@ function applyEdit(box: HTMLTextAreaElement, edit: Edit): void {
  * was submitted). Enter sends, Shift+Enter adds a line; in a list or code
  * block Enter continues it and Cmd+Enter sends (D2: the Markdown is styled
  * live by a layer under the textarea, the text sent stays plain Markdown).
- * Attached files are sent as their paths
+ * Attached files are sent as their paths, on a line
  * ahead of the text, which Claude Code reads (images become attachments) — the
  * same as dropping them on the terminal.
  */
-export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, autoFocus }: ChatComposerProps) {
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, permissionMode, onSetMode, model, modelSet, onUploadImage, onShowTerminal, commands, suggestion, autoFocus }: ChatComposerProps) {
+  // The draft lives in a store keyed by session, so unmounting (Terminal view,
+  // another session, focus ↔ mosaic) keeps it; only sending clears it.
+  const [draft, updateDraft] = useChatDraft(sessionId);
+  const { text, attachments } = draft;
+  const setText = (t: string) => updateDraft((d) => (d.text === t ? d : { ...d, text: t }));
+  // Through the store, so an upload that finishes after unmount still lands.
+  const setAttachments = (fn: (cur: Attachment[]) => Attachment[]) => updateDraft((d) => ({ ...d, attachments: fn(d.attachments) }));
   const [dragOver, setDragOver] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
@@ -131,12 +138,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const layerRef = useRef<HTMLDivElement>(null);
   // Enter adds an item / line here instead of sending (drives the hint).
   const [continues, setContinues] = useState(false);
+  // The line the caret is on: a code box shows its hidden fence there.
+  const [caretLine, setCaretLine] = useState(-1);
   const fileRef = useRef<HTMLInputElement>(null);
-  // Latest attachments for the unmount cleanup (their blob URLs).
-  const attachmentsRef = useRef(attachments);
-  useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
   const exited = status === 'exited';
   // Shift+Tab and slash commands only make sense at Claude's prompt.
   const atPrompt = !exited && status !== 'waiting';
@@ -144,8 +148,6 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
-
-  useEffect(() => () => revoke(attachmentsRef.current), []);
 
   const uploading = attachments.some((a) => !a.path && !a.failed);
   const ready = attachments.filter((a): a is Attachment & { path: string } => !!a.path);
@@ -155,6 +157,15 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   // Not at a menu: there a slash command would only be typed into the menu.
   const slashOpen = suggestions.length > 0 && atPrompt;
   const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
+  // F9: shown in place of the placeholder until Tab takes it or anything is typed.
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  // Forgotten once the suggestion leaves the screen, so the same text suggested
+  // after a later turn shows again.
+  if (dismissed !== null && !suggestion) setDismissed(null);
+  const ghost =
+    suggestion && suggestion !== dismissed && text === '' && attachments.length === 0 && atPrompt && status !== 'running'
+      ? suggestion
+      : undefined;
   const complete = (c: ChatCommand) => {
     setText(`/${c.name} `);
     setSlashIndex(0);
@@ -172,6 +183,9 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const trackCaret = () => {
     const box = ref.current;
     if (!box) return;
+    let line = 0;
+    for (let i = box.value.indexOf('\n'); i >= 0 && i < box.selectionStart; i = box.value.indexOf('\n', i + 1)) line++;
+    setCaretLine(line);
     // Always set: two calls in one event would compare against a stale `continues`.
     setContinues(box.selectionStart === box.selectionEnd && enterContinues(box.value, box.selectionStart));
   };
@@ -179,11 +193,15 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
   const send = () => {
     if (!canSend) return;
     // An ended list leaves an empty last line; it is not part of the message.
-    onSubmit([formatPathsForPty(ready.map((a) => a.path)), text.replace(/(\n[ \t]*)+$/, '')].filter((s) => s.trim()).join(' '));
+    // Paths go on their own line: on the text's first line a leading `- ` or `#`
+    // would no longer start the line, and the sent message would lose it.
+    const typed = text.replace(/(\n[ \t]*)+$/, '');
+    const preview: ChatBlock[] = typed.trim() ? [{ kind: 'text', text: typed }] : [];
+    for (const a of ready) preview.push(a.preview ? { kind: 'image' } : { kind: 'text', text: `\`${a.name}\`` });
+    onSubmit([formatPathsForPty(ready.map((a) => a.path)), typed].filter((s) => s.trim()).join('\n'), preview);
     setContinues(false);
     revoke(attachments);
-    setAttachments([]);
-    setText('');
+    updateDraft(() => ({ text: '', attachments: [] }));
   };
 
   const attach = (list: Attachment[]) => {
@@ -251,7 +269,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
       label: m.label,
       shortcut: currentLabel === m.label ? '✓' : undefined,
       onClick: () => {
-        onSubmit(`/model ${m.id}`);
+        onSubmit(`/model ${m.id}`, []);
         setPicked({ id: m.id, set: modelSet, model });
       },
     })),
@@ -261,7 +279,7 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
       label: 'More models… (terminal)',
       onClick: () => {
         onShowTerminal?.();
-        onSubmit('/model');
+        onSubmit('/model', []);
       },
     },
   ];
@@ -331,14 +349,15 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           </div>
         )}
         <div className="argus-cmp-field">
-        <ComposerHighlight ref={layerRef} text={text} />
+        <ComposerHighlight ref={layerRef} text={text} caretLine={caretLine} />
         <textarea
           ref={ref}
           className="argus-cmp-input"
           value={text}
-          rows={Math.min(8, Math.max(1, text.split('\n').length))}
+          // The height follows the text (CSS field-sizing), capped at ~45% of the view.
+          rows={1}
           disabled={exited}
-          placeholder={exited ? 'Session has exited — restart it to continue.' : 'Message Claude…'}
+          placeholder={exited ? 'Session has exited — restart it to continue.' : (ghost ?? 'Message Claude…')}
           aria-label="Message"
           role="combobox"
           aria-expanded={slashOpen}
@@ -347,12 +366,15 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
           aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
           spellCheck
           onChange={(e) => {
+            if (ghost) setDismissed(ghost);
             setText(e.target.value);
             setSlashIndex(0);
             trackCaret();
           }}
           onScroll={syncLayer}
           onSelect={trackCaret}
+          onFocus={trackCaret}
+          onBlur={() => setCaretLine(-1)}
           onPaste={(e) => {
             // A screenshot on the clipboard is only bytes: upload it to get a path.
             const images = Array.from(e.clipboardData.files).filter(isImageFile);
@@ -384,11 +406,22 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
                 return;
               }
             }
-            const box = e.currentTarget;
-            if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+            // Tab takes the suggestion for editing; nothing reaches Claude until it is sent.
+            if (ghost && e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
               e.preventDefault();
+              setDismissed(ghost);
+              setText(ghost);
+              return;
+            }
+            const box = e.currentTarget;
+            if (e.key === 'Enter' && !e.altKey) {
               // In a list or code block Enter edits; Cmd/Ctrl+Enter always sends.
-              const edit = e.metaKey || e.ctrlKey ? undefined : enterEdit(box.value, box.selectionStart, box.selectionEnd);
+              // Shift+Enter is the textarea's own new line, except in a code block
+              // (its opening fence included), where it edits like Enter.
+              const edit =
+                e.metaKey || e.ctrlKey ? undefined : (e.shiftKey ? fenceEnterEdit : enterEdit)(box.value, box.selectionStart, box.selectionEnd);
+              if (!edit && e.shiftKey) return;
+              e.preventDefault();
               if (!edit) {
                 send();
                 return;
@@ -424,10 +457,30 @@ export function ChatComposer({ status, onSubmit, permissionMode, onSetMode, mode
             </>
           )}
           <div style={{ flex: 1 }} />
-          <span className="argus-chat-hint">
-            {continues ? 'Enter for a new line · ⌘Enter to send' : 'Enter to send · Shift+Enter for a new line'}
+          <span className={`argus-chat-hint${stopping ? ' is-stopping' : ''}`} aria-live="polite">
+            {stopping
+              ? 'Stopping…'
+              : ghost
+                ? 'Tab to use the suggestion'
+                : continues
+                  ? 'Enter for a new line · ⌘Enter to send'
+                  : 'Enter to send · Shift+Enter for a new line'}
           </span>
-          <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          {status === 'running' && onStop ? (
+            <Tooltip content={STOP_LABEL}>
+              <button
+                type="button"
+                className={`argus-chat-stop${stopping ? ' is-stopping' : ''}`}
+                aria-label={STOP_LABEL}
+                onClick={onStop}
+                disabled={stopping}
+              >
+                <span className="argus-chat-stop-glyph" aria-hidden />
+              </button>
+            </Tooltip>
+          ) : (
+            <IconButton icon={SendHorizontal} label="Send" size="sm" onClick={send} disabled={!canSend} />
+          )}
         </div>
       </div>
       <div className="argus-chat-composer-meta">

@@ -886,6 +886,21 @@ body {
    any missed mouseleave — drag handle re-parenting, minimize's pointer-events:
    none, reflow spring, window blur — stranded the header showing actions and no
    name. Nothing here transforms, so that failure mode cannot recur. */
+/* Everything but the actions. Takes the leftover width (basis 0, so its width
+   never depends on what it holds) and clips: an overlong header can cut info,
+   never an action. useHeaderShed drops pieces by priority until it fits, which
+   reads scrollWidth — hence a scroll container (hidden), not clip. The padding,
+   undone by the margin, keeps a focused chip's 1px ring from being cut. */
+.argus-tile-info {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  overflow: hidden;
+  padding-block: 2px;
+  margin-block: -2px;
+}
 .argus-tile-name {
   flex: 1;
   min-width: 0;
@@ -1660,7 +1675,8 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
-  flex-shrink: 0;
+  /* Never shrinks, never wraps: the info region gives way instead (F12). */
+  flex: none;
   opacity: 0.5;
   transition: opacity var(--dur-fast) var(--ease-std);
 }
@@ -1723,7 +1739,12 @@ body {
 }
 .argus-chip-label { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--fg-1); }
 .argus-chip-window-badge { font-size: 10px; opacity: 0.6; margin-left: 4px; }
-.argus-chip-dirty { width: 5px; height: 5px; border-radius: 50%; background: var(--dirty); }
+/* `±` = uncommitted changes, after the PR glyph. */
+.argus-chip-dirty { font-family: var(--font-mono); font-size: 11px; line-height: 1; color: var(--dirty); }
+.argus-chip-pr { display: inline-flex; align-items: center; gap: 2px; }
+.argus-chip-pr-count { font-family: var(--font-mono); font-size: 10px; line-height: 1; }
+/* The tile's running crawl (.argus-tile-prog), kept clear of the rounded corners. */
+.argus-chip-prog { left: var(--r-2); right: var(--r-2); }
 
 /* Dims every tile that is not the selected one — the ONLY signal that says
    which tile is selected, since the selected one carries no mark of its own.
@@ -2063,6 +2084,8 @@ body {
   color: var(--fg-1);
   font-family: var(--font-sans);
   font-size: var(--t-sm);
+  /* Sized by its tile, never by its content: the composer caps itself at a share of this height (cqh). */
+  container-type: size;
 }
 .argus-chat-main { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .argus-chat-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
@@ -2083,6 +2106,8 @@ body {
 .argus-chat-code-lang { padding: 2px 10px; font-family: var(--font-mono); font-size: var(--t-xs); color: var(--fg-3); border-bottom: 1px solid var(--line-1); }
 .md-preview .argus-chat-code pre { margin: 0; border: none; border-radius: 0; background: transparent; padding: 10px 12px; }
 .argus-chat-code code { font-family: var(--font-mono); font-size: 0.88em; color: var(--fg-0); white-space: pre; }
+/* Inline code: a color of its own (the user bubble is --bg-2, the generic pill's color). */
+.argus-chat-md :not(pre) > code { color: var(--syn-fn); background: var(--bg-3); }
 
 /* Shared syntax highlighting (src/syntax). Spans in code blocks; diff rows use
    the CSS Custom Highlight API so their text stays one node. Colors are the
@@ -2124,6 +2149,15 @@ body {
   background: var(--bg-1);
 }
 .argus-chat-chip-muted { color: var(--fg-3); border-style: dashed; }
+.argus-chat-image {
+  display: block;
+  max-width: calc(160px * var(--ui-scale));
+  max-height: calc(120px * var(--ui-scale));
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  object-fit: contain;
+}
 .argus-chat-command {
   font-family: var(--font-mono);
   font-size: var(--t-sm);
@@ -2134,6 +2168,11 @@ body {
 .argus-chat-msg.is-command .argus-chat-body { background: var(--bg-1); }
 /* An echo the transcript never recorded: same chip, dashed edge. */
 .argus-chat-msg.is-echo .argus-chat-body { border-style: dashed; }
+/* Sent, not in the transcript yet (F3): shown at once, settles when Claude records it. */
+.argus-chat-msg.is-pending .argus-chat-body { opacity: 0.7; }
+/* Sent while Claude was running (F8): held in Claude Code's queue until it reads it. */
+.argus-chat-queued-row { display: flex; align-items: center; gap: var(--s-2); margin-top: 4px; }
+.argus-chat-queued { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-xs); color: var(--fg-3); cursor: default; }
 .argus-chat-msg.is-system { padding-top: var(--s-1); padding-bottom: var(--s-1); }
 .argus-chat-output { width: 100%; min-width: 0; font-size: var(--t-xs); color: var(--fg-2); }
 .argus-chat-output > summary {
@@ -2166,7 +2205,70 @@ body {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Tool steps (F7): a summary line per run of calls, one row per step, details on demand. */
+.argus-chat-tools { display: flex; flex-direction: column; width: 100%; min-width: 0; font-size: var(--t-xs); color: var(--fg-2); }
+.argus-chat-tool-head {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--fg-2);
+}
+.argus-chat-tool-head:hover { color: var(--fg-1); }
+.argus-chat-tool-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-1); }
+.argus-chat-tool-summary { font-weight: 500; }
+.argus-chat-tool-caret { flex: none; color: var(--fg-3); transition: transform 0.12s ease; }
+.argus-chat-tools.is-open > .argus-chat-tool-summary .argus-chat-tool-caret,
+.argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
+.argus-chat-tool-icon { flex: none; color: var(--fg-3); }
+.argus-chat-tool-verb { flex: none; color: var(--fg-3); }
+.argus-chat-tool-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-chat-tool-mark { flex: none; }
+.argus-chat-tool-mark.is-error { color: var(--danger); }
+.argus-chat-tool-mark.is-blocked { color: var(--warn); }
+.argus-chat-tool-spin { flex: none; color: var(--fg-3); animation: argus-spin 0.9s linear infinite; }
+.argus-chat-tool-steps { display: flex; flex-direction: column; margin: 2px 0 0 5px; padding-left: var(--s-2); border-left: 1px solid var(--line-1); }
+.argus-chat-tool-step { min-width: 0; }
+.argus-chat-tool-step[data-status='error'] .argus-chat-tool-label,
+.argus-chat-tool-step[data-status='blocked'] .argus-chat-tool-label { color: var(--fg-3); text-decoration: line-through; text-decoration-color: var(--line-2); }
+.argus-chat-tool-detail { display: flex; flex-direction: column; gap: var(--s-1); margin: 2px 0 var(--s-1) 18px; min-width: 0; }
+.argus-chat-tool-empty { margin: 2px 0 var(--s-1) 18px; color: var(--fg-3); }
+.argus-chat-tool-code {
+  margin: 0;
+  padding: 6px 10px;
+  max-height: calc(240px * var(--ui-scale));
+  overflow: auto;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2);
+  background: var(--bg-inset);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.argus-chat-tool-output { margin: 0; }
+.argus-chat-tool-output.is-error { color: var(--danger); }
+.argus-chat-tool-diff { padding: 4px 0; }
+.argus-chat-tool-diff > div { padding: 0 10px; }
+.argus-chat-tool-diff-del { background: var(--diff-del); color: var(--diff-del-fg); }
+.argus-chat-tool-diff-add { background: var(--diff-add); color: var(--diff-add-fg); }
+.argus-chat-tool-diff-ctx { color: var(--fg-3); }
 .argus-chat-notice { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-3); }
+.argus-chat-notice.is-stopped { color: var(--fg-1); }
+.argus-chat-starting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: 2px var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--fg-3);
+}
 .argus-chat-jump {
   all: unset;
   position: absolute;
@@ -2263,6 +2365,23 @@ body {
 .argus-chat-resume-empty { padding: var(--s-3); font-size: var(--t-sm); color: var(--fg-3); }
 /* What Claude Code waits for (ChatPromptCard). */
 .argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
+/* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
+.argus-chat[data-sheet] { background: transparent; pointer-events: none; }
+.argus-chat[data-sheet] > :not(.argus-chat-sheet-bar) { visibility: hidden; }
+.argus-chat-sheet-bar {
+  pointer-events: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-2) 0 var(--s-3);
+  box-sizing: border-box;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  color: var(--fg-2);
+}
+.argus-chat-sheet-title { color: var(--fg-1); white-space: nowrap; }
+.argus-chat-sheet-hint { flex: 1; min-width: 0; color: var(--fg-3); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .argus-chat-prompt {
   display: flex;
   flex-direction: column;
@@ -2279,12 +2398,27 @@ body {
 .argus-chat-prompt-head { display: flex; align-items: flex-start; gap: var(--s-2); color: var(--accent); }
 .argus-chat-prompt-text { color: var(--fg-0); font-size: var(--t-sm); overflow-wrap: anywhere; }
 .argus-chat-prompt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.argus-chat-prompt-options { display: flex; flex-direction: column; gap: 4px; max-width: 560px; }
+.argus-chat-prompt-key { min-width: 1.2em; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.argus-chat-prompt-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.argus-chat-prompt-tabs { display: flex; align-items: center; gap: var(--s-2); max-width: 560px; }
+.argus-chat-prompt-tablist { display: flex; flex-wrap: wrap; flex: 1; min-width: 0; justify-content: center; gap: 4px; }
+.argus-chat-prompt-tab {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px var(--s-2); border: 1px solid var(--line-2); border-radius: 999px;
+  font-size: var(--t-xs); color: var(--fg-2);
+}
+.argus-chat-prompt-tab[data-answered] { color: var(--fg-0); border-color: var(--accent-edge); }
 .argus-chat-prompt-error { font-size: var(--t-xs); color: var(--danger); }
+.argus-chat-prompt-free { display: flex; align-items: center; gap: var(--s-2); }
+.argus-chat-prompt-free > .text-input-wrap { flex: 1; min-width: 0; }
 .argus-chat-composer-box:focus-within,
 .argus-chat-composer-box.is-drag-over { border-color: var(--accent-edge); }
 .argus-chat-composer textarea {
   resize: none;
-  max-height: calc(240px * var(--ui-scale));
+  /* Grows with its text, wrapped lines included, up to ~45% of the Chat view, then scrolls. */
+  field-sizing: content;
+  max-height: 45cqh;
   background: transparent;
   border: none;
   outline: none;
@@ -2336,21 +2470,67 @@ body {
 .argus-cmp-content .is-bold { text-shadow: 0.45px 0 0 currentColor; }
 /* Plex ships no italic face here, so this is a synthetic slant of the same glyphs. */
 .argus-cmp-content .is-italic { font-style: italic; }
-.argus-cmp-content span.is-code { background: var(--bg-inset); border-radius: 3px; box-shadow: 0 0 0 1px var(--bg-inset); }
+.argus-cmp-content span.is-code { background: var(--bg-3); color: var(--syn-fn); box-shadow: 0 0 0 1px var(--bg-3); }
+/* One pill across the backticks and the code: only its ends are rounded. */
+.argus-cmp-content span.is-code.is-open { border-radius: 4px 0 0 4px; }
+.argus-cmp-content span.is-code.is-close { border-radius: 0 4px 4px 0; }
 .argus-cmp-content .is-number { color: var(--accent); }
 .argus-cmp-content .is-bullet { position: relative; color: transparent; }
 .argus-cmp-content .is-bullet::before { content: '•'; position: absolute; inset: 0; text-align: center; color: var(--accent); }
 .argus-cmp-line.is-quote { color: var(--fg-2); }
-.argus-cmp-line.is-code,
-.argus-cmp-line.is-fence {
-  /* A full-width band; the matching padding keeps the text where it was. */
-  margin: 0 calc(-1 * var(--s-3));
-  padding: 0 var(--s-3);
-  background: var(--bg-inset);
+/* A closed fenced block is one box, drawn like the sent message's
+   (.argus-chat-code): one surface step above what it sits on (that is --bg-1
+   on the --bg-0 list, so --bg-2 on the --bg-1 composer), the same edge and
+   radius. The matching padding keeps the text where it was; an inset shadow
+   draws the edge without taking height, so the rows still line up with the
+   textarea's. */
+.argus-cmp-codebox {
+  margin: 0 calc(-1 * var(--s-2));
+  padding: 0 var(--s-2);
+  border-radius: var(--r-2);
+  background: var(--bg-2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
+/* The fence rows are the box's top and bottom padding: the fence is hidden
+   until the caret is on its row; a language stays as a dim label. */
 .argus-cmp-line.is-fence { color: var(--fg-3); }
+.argus-cmp-line.is-fence .is-fence-mark { color: transparent; }
+.argus-cmp-line.is-fence.is-active .is-fence-mark { color: var(--fg-3); }
 .argus-chat-composer-actions { display: flex; align-items: center; gap: var(--s-2); padding: 0 var(--s-2) var(--s-2); }
 .argus-chat-hint { font-size: var(--t-xs); color: var(--fg-3); }
+.argus-chat-hint.is-stopping { color: var(--fg-1); }
+/* Stop (F3): a filled rounded square that breathes while the turn runs. */
+.argus-chat-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--fg-0);
+  cursor: pointer;
+}
+.argus-chat-stop:hover:not(:disabled) { background: var(--bg-3); }
+.argus-chat-stop:disabled { cursor: default; }
+.argus-chat-stop-glyph {
+  width: calc(10px * var(--ui-scale));
+  height: calc(10px * var(--ui-scale));
+  border-radius: calc(2.5px * var(--ui-scale));
+  background: currentColor;
+  animation: argus-chat-stop-pulse 1.6s var(--ease-std) infinite;
+}
+.argus-chat-stop.is-stopping .argus-chat-stop-glyph { animation: none; opacity: 0.4; }
+@keyframes argus-chat-stop-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .argus-chat-stop-glyph { animation: none; }
+}
 .argus-chat-composer-meta {
   display: flex;
   align-items: center;

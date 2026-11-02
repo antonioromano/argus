@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionInfo } from '@argus/shared';
 import { useSessions } from './useSessions.js';
+import { getChatDraft, resetChatDraftsForTest, updateChatDraft } from '../app/ui/chat/chatDrafts.js';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
@@ -86,6 +87,16 @@ describe('useSessions reconnect snapshot vs socket deltas', () => {
 
   const byId = (id: string) => hook.sessions.find((s) => s.id === id);
 
+  it('a status carries starting / initialPrompt while the session starts; their absence clears them (F15b)', async () => {
+    await mountWith([sess('a', { status: 'running', starting: true, initialPrompt: { text: 'go' } })]);
+    await act(async () => { socket.emit('session:status', { sessionId: 'a', status: 'waiting', starting: true, initialPrompt: { text: 'go' } }); });
+    expect(byId('a')!.starting).toBe(true);
+    expect(byId('a')!.initialPrompt).toEqual({ text: 'go' });
+    await act(async () => { socket.emit('session:status', { sessionId: 'a', status: 'done' }); });
+    expect(byId('a')!.starting).toBeUndefined();
+    expect(byId('a')!.initialPrompt).toBeUndefined();
+  });
+
   it('a status delta received while the reconnect GET is in flight survives the snapshot', async () => {
     await mountWith([sess('a', { status: 'idle' })]);
 
@@ -140,5 +151,54 @@ describe('useSessions reconnect snapshot vs socket deltas', () => {
     await act(async () => { newer.resolve([sess('new')]); await flush(); });
     await act(async () => { older.resolve([sess('old')]); await flush(); });
     expect(hook.sessions.map((s) => s.id)).toEqual(['new']);
+  });
+});
+
+describe('useSessions — chat drafts (F11)', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const socket = createFakeSocket();
+
+  function Probe() {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- fake socket
+    useSessions(socket as any);
+    return null;
+  }
+
+  beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    localStorage.clear();
+    resetChatDraftsForTest();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => { root = createRoot(container); });
+    vi.mocked(api.getSessions).mockReset();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    globalThis.IS_REACT_ACT_ENVIRONMENT = undefined;
+  });
+
+  it('keeps every draft when the first fetch fails, and drops gone sessions once one succeeds', async () => {
+    updateChatDraft('a', () => ({ text: 'keep', attachments: [] }));
+    updateChatDraft('gone', () => ({ text: 'drop', attachments: [] }));
+    vi.mocked(api.getSessions).mockRejectedValueOnce(new Error('server down'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => {
+      root.render(<Probe />);
+      await flush();
+    });
+    expect(getChatDraft('a').text).toBe('keep');
+    expect(getChatDraft('gone').text).toBe('drop');
+
+    vi.mocked(api.getSessions).mockResolvedValueOnce([sess('a')]);
+    await act(async () => {
+      socket.emit('connect');
+      await flush();
+    });
+    expect(getChatDraft('a').text).toBe('keep');
+    expect(getChatDraft('gone').text).toBe('');
   });
 });

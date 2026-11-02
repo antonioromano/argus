@@ -224,6 +224,7 @@ test('no AppConfig field is silently dropped by PUT', async () => {
     inspectorWidth: 420,
     inspectorCollapsed: ['git'],
     autoApprovalEnabled: true,
+    mcpServerEnabled: true,
     claudeRenderer: 'classic',
     defaultSessionView: 'chat',
     betaActivityTimeline: true,

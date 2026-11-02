@@ -52,7 +52,8 @@ export interface ElectronLaunchBridge {
   /** Deep-link scheme main registered: 'argus' packaged, 'argus-dev' in dev. */
   scheme?: string;
   list(): Promise<PendingLaunchView[]>;
-  approve(id: string, saveAs?: SaveAsLauncher): Promise<LaunchActionResult>;
+  /** `trust`: an MCP card's "don't ask again for this session" (F10). */
+  approve(id: string, saveAs?: SaveAsLauncher, trust?: boolean): Promise<LaunchActionResult>;
   discard(id: string): Promise<void>;
   onChanged(cb: () => void): () => void;
   onToast(cb: (t: { message: string; tone: 'ok' | 'warn' | 'danger' }) => void): () => void;

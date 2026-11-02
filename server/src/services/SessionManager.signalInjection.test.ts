@@ -72,3 +72,26 @@ test('buildSignalInjection honors ARGUS_PORT for the ingestion URL', () => {
     else process.env.ARGUS_PORT = prev;
   }
 });
+
+// F10: the Argus MCP server reaches Claude sessions via --mcp-config, opt-in.
+const mcp = (m: SessionManager, agent: string) => (m as any).mcpInjection('sess-X', agent) as string[];
+
+test('mcpInjection: nothing while the setting is off', () => {
+  assert.deepEqual(mcp(sm(), 'claude'), []);
+});
+
+test('mcpInjection: claude gets a --mcp-config file when on; other agents never', () => {
+  const m = sm();
+  m.setMcpServerEnabled(true);
+  const flags = mcp(m, 'claude');
+  assert.equal(flags[0], '--mcp-config');
+  assert.match(flags[1]!, /mcp\/sess-X\.json$/);
+  assert.deepEqual(mcp(m, 'codex'), []);
+  assert.deepEqual(mcp(m, 'gemini'), []);
+});
+
+test('mcpInjection: no signal secret → no token to hand out → nothing', () => {
+  const m = new SessionManager(os.tmpdir(), fakeConfig);
+  m.setMcpServerEnabled(true);
+  assert.deepEqual(mcp(m, 'claude'), []);
+});

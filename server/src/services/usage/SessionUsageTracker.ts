@@ -1,7 +1,7 @@
 import path from 'path';
 import os from 'os';
 import { realpathSync, statSync } from 'fs';
-import type { ChatCommand, ChatMessage, ChatUpdate, SessionUsage } from '@argus/shared';
+import type { ChatCommand, ChatMessage, ChatQueue, ChatUpdate, SessionUsage } from '@argus/shared';
 import { contextWindowFor } from './contextWindows.js';
 import { ChatTail } from './ChatTail.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
@@ -47,6 +47,10 @@ export interface ChatSnapshot {
   permissionMode?: string;
   modelSet?: string;
   commands?: ChatCommand[];
+  /** Claude Code's input queue (F8). */
+  queue?: ChatQueue;
+  /** Claude Code's prompt suggestion on screen (filled in by the SessionManager). */
+  suggestion?: string;
 }
 
 /** Transcript files remembered per session; the oldest are dropped past this. */
@@ -370,6 +374,7 @@ export class SessionUsageTracker {
     if (this.chat!.permissionMode) snap.permissionMode = this.chat!.permissionMode;
     if (this.chat!.modelSet) snap.modelSet = this.chat!.modelSet;
     if (this.chat!.commands) snap.commands = this.chat!.commands;
+    snap.queue = this.chat!.queue;
     return snap;
   }
 
@@ -413,13 +418,14 @@ export class SessionUsageTracker {
     // Closed, or moved to another transcript, while reading: that read is stale.
     if (this.chatSink !== sink || this.chat !== chat) return;
     const delta = chat.drain();
-    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined || !!delta.removed || !!delta.commands;
+    const meta = delta.permissionMode !== undefined || delta.modelSet !== undefined || !!delta.removed || !!delta.commands || !!delta.queue;
     if (delta.reset ? !swallow : delta.messages.length > 0 || meta) {
       const update: Parameters<ChatSink>[0] = { reset: delta.reset, available: true, messages: delta.messages };
       if (delta.permissionMode !== undefined) update.permissionMode = delta.permissionMode;
       if (delta.modelSet !== undefined) update.modelSet = delta.modelSet;
       if (delta.removed) update.removed = delta.removed;
       if (delta.commands) update.commands = delta.commands;
+      if (delta.queue) update.queue = delta.queue;
       sink(update);
     }
   }

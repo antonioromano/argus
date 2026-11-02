@@ -1,5 +1,7 @@
-import type { SessionInfo } from '@argus/shared';
-import { StatusDot } from '../../components/primitives/index.js';
+import type { SessionInfo, SessionPrSummary } from '@argus/shared';
+import { Icon, StatusDot, Tooltip } from '../../components/primitives/index.js';
+import { PR_STATE_ICON, PR_TONE_COLOR } from '../../utils/prFormat.js';
+import { chipClass, chipPrSummary, describeChipPrs } from './chipFormat.js';
 import { AgentGlyph } from './AgentGlyph.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { useSessionMenu } from './sessionMenuContext.js';
@@ -16,6 +18,43 @@ interface MinimizedChipProps {
   windowBadge?: string;
 }
 
+/** Linked-PR glyph, coloured like the header PrChip; a count when there are several. */
+function ChipPrs({ summary }: { summary: SessionPrSummary }) {
+  const lead = summary.prs.find((p) => p.tone === summary.tone) ?? summary.prs[0];
+  const lines = describeChipPrs(summary);
+  const label = summary.count === 1 ? `Pull request: ${lines[0]}` : `${summary.count} pull requests: ${lines.join('; ')}`;
+  return (
+    <Tooltip content={<div>{lines.map((l, i) => <div key={i}>{l}</div>)}</div>}>
+      <span className="argus-chip-pr" data-tone={summary.tone} role="img" aria-label={label} style={{ color: PR_TONE_COLOR[summary.tone] }}>
+        <Icon icon={PR_STATE_ICON[lead.state]} size={11} strokeWidth={2} />
+        {summary.count > 1 && <span className="argus-chip-pr-count">{summary.count}</span>}
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
+ * What a shell pill shows after its name — shared by MinimizedChip and the
+ * Mosaic minimized row: the session's PRs (glyph tinted by the most
+ * action-needing one), `±` for uncommitted changes, and while `running` the
+ * Mosaic tile's progress crawl along the bottom edge (the status dot does not
+ * pulse: pulse means `waiting`).
+ */
+export function ChipMarks({ session }: { session: SessionInfo }) {
+  const prs = chipPrSummary(session);
+  return (
+    <>
+      {prs && <ChipPrs summary={prs} />}
+      {session.hasGitChanges && (
+        <Tooltip content="Uncommitted changes">
+          <span className="argus-chip-dirty" role="img" aria-label="Uncommitted changes">±</span>
+        </Tooltip>
+      )}
+      {session.status === 'running' && <span className="argus-tile-prog argus-chip-prog" aria-hidden><i /></span>}
+    </>
+  );
+}
+
 /**
  * Compact pill representing a non-foreground shell — used by the focus-view
  * OTHERS strip and the mosaic minimized row. Click acts (switch/restore);
@@ -26,6 +65,7 @@ interface MinimizedChipProps {
 export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDrop, onDragEnd, isDropTarget, windowBadge }: MinimizedChipProps) {
   const sessionMenu = useSessionMenu();
   const renaming = sessionMenu.isRenaming(session.id, 'chip');
+  const className = chipClass(session);
 
   const body = (
     <>
@@ -42,7 +82,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
         <span className="argus-chip-label">{shellLabel(session)}</span>
       )}
       {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
-      {session.hasGitChanges && <span className="argus-chip-dirty" />}
+      <ChipMarks session={session} />
     </>
   );
 
@@ -59,7 +99,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
   if (renaming) {
     return (
       <div
-        className="argus-chip"
+        className={className}
         data-drop-target={isDropTarget || undefined}
         onContextMenu={(e) => sessionMenu.openMenu(session, e, 'chip')}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDragOver(); }}
@@ -73,7 +113,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
 
   return (
     <button
-      className="argus-chip"
+      className={className}
       draggable
       data-drop-target={isDropTarget || undefined}
       onClick={onClick}

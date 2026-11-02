@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr } from '@argus/shared';
+import type { SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr, SessionPrSummary } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api } from '../services/api.js';
 import { pushToast } from '../components/primitives/index.js';
 import { pruneFileTreeCache } from './useFileTree.js';
+import { pruneChatDrafts } from '../app/ui/chat/chatDrafts.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type SessionsUpdater = (prev: SessionInfo[]) => SessionInfo[];
@@ -36,9 +37,14 @@ export function useSessions(socket: TypedSocket) {
   // Evict per-session caches for sessions that are gone (deleted, errored, or
   // missing from a post-reconnect refetch). Gated on `loaded` so the empty
   // pre-fetch list never reads as "everything was deleted".
+  // Drafts are user text, not a cache: only a list the server actually sent
+  // may drop them (`loaded` is also set when the first GET failed).
+  const fetchedRef = useRef(false);
   useEffect(() => {
     if (!loaded) return;
-    pruneFileTreeCache(new Set(sessions.map((s) => s.id)));
+    const live = new Set(sessions.map((s) => s.id));
+    pruneFileTreeCache(live);
+    if (fetchedRef.current) pruneChatDrafts(live);
   }, [sessions, loaded]);
 
   // Load sessions on mount and after reconnect
@@ -53,6 +59,7 @@ export function useSessions(socket: TypedSocket) {
         // A newer GET already landed; this response is older than it.
         if (seq < appliedSeq) return;
         appliedSeq = seq;
+        fetchedRef.current = true;
         setSessions(() => deltas.reduce((acc, fn) => fn(acc), snapshot));
       }).finally(() => {
         pendingDeltasRef.current.delete(deltas);
@@ -70,11 +77,12 @@ export function useSessions(socket: TypedSocket) {
 
   // Listen for socket events
   useEffect(() => {
-    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions }: SessionStatusPayload) => {
+    const handleStatus = ({ sessionId, status, lastPrompt, waitingSince, promptOptions, promptQuestion, promptTabs, starting, initialPrompt }: SessionStatusPayload) => {
       applyDelta((prev) =>
         prev.map((s) => (s.id === sessionId
-          // waitingSince/promptOptions are only sent while waiting; their absence clears them.
-          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions }
+          // waitingSince/promptOptions/promptQuestion/promptTabs are only sent while waiting; their absence clears them.
+          // starting/initialPrompt are only sent while the session starts (F15b); likewise.
+          ? { ...s, status, lastPrompt: lastPrompt ?? s.lastPrompt, waitingSince, promptOptions, promptQuestion, promptTabs, starting, initialPrompt }
           : s)),
       );
     };
@@ -118,6 +126,10 @@ export function useSessions(socket: TypedSocket) {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, pr: pr ?? undefined } : s)));
     };
 
+    const handlePrSummary = ({ sessionId, summary }: { sessionId: string; summary: SessionPrSummary | null }) => {
+      applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, prSummary: summary ?? undefined } : s)));
+    };
+
     const handleWorktreeStale = ({ sessionId, staleDays }: { sessionId: string; staleDays: number | null }) => {
       applyDelta((prev) => prev.map((s) => (s.id === sessionId ? { ...s, worktreeStaleDays: staleDays ?? undefined } : s)));
     };
@@ -141,6 +153,7 @@ export function useSessions(socket: TypedSocket) {
     socket.on('session:gitStatus', handleGitStatus);
     socket.on('session:shellContext', handleShellContext);
     socket.on('session:pr', handlePr);
+    socket.on('session:prSummary', handlePrSummary);
     socket.on('session:worktreeStale', handleWorktreeStale);
 
     return () => {
@@ -155,6 +168,7 @@ export function useSessions(socket: TypedSocket) {
       socket.off('session:gitStatus', handleGitStatus);
       socket.off('session:shellContext', handleShellContext);
       socket.off('session:pr', handlePr);
+      socket.off('session:prSummary', handlePrSummary);
       socket.off('session:worktreeStale', handleWorktreeStale);
     };
   }, [socket, applyDelta]);
