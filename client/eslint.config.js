@@ -33,7 +33,11 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      'argus/no-raw-style-scale': 'error',
+      // bannedTokens: legacy sizes outside the role scale, and the removed
+      // easing aliases — components use the --t-* roles and var(--ease).
+      'argus/no-raw-style-scale': ['error', {
+        bannedTokens: ['--t-base', '--t-lg', '--t-2xl', '--t-3xl', '--ease-std', '--ease-out', '--ease-in'],
+      }],
     },
   },
   {
