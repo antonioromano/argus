@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Launcher } from '@argus/shared';
-import { Button, Section, SettingRow, pushToast } from '../../../../components/primitives/index.js';
+import { Button, Section, SettingRow, Toggle, pushToast } from '../../../../components/primitives/index.js';
 import type { PaneProps } from '../types.js';
 import { isBetaEnabled } from '../../../../utils/betaFlags.js';
 import { TemplatesSection } from './TemplatesSection.js';
@@ -123,6 +123,17 @@ export function LaunchersPane({ config, onSave }: PaneProps) {
         </SettingRow>
         <SettingRow label="Link format" hint="Every argus://new link opens an approval card.">
           <Button size="sm" variant="ghost" onClick={() => copy(EXAMPLE())}>Copy example link</Button>
+        </SettingRow>
+      </Section>
+      <Section title="Argus MCP server">
+        <SettingRow
+          label="Let Claude sessions orchestrate Argus"
+          hint="New and restarted Claude sessions get an argus MCP server: start sessions (each one opens an approval card), list and read sessions, and send input to or interrupt the ones they started. Running sessions pick it up on restart."
+        >
+          <Toggle
+            checked={config.mcpServerEnabled === true}
+            onChange={(v) => onSave({ mcpServerEnabled: v })}
+          />
         </SettingRow>
       </Section>
     </>
