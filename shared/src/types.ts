@@ -390,9 +390,16 @@ export interface SessionInfo {
    * Claude only, fresh sessions: the prompt the agent was started with (a
    * launch, template or handoff), so Chat can show it before the transcript
    * records it (F15). In memory only, never persisted; `clipped` when longer
-   * than the server's cap (the text is then a prefix of the prompt).
+   * than the server's cap (the text is then a prefix of the prompt). Cleared
+   * when `starting` ends (F15b): by then the transcript has recorded it.
    */
   initialPrompt?: { text: string; clipped?: boolean };
+  /**
+   * Fresh spawn (create or restart) until the first turn ends: the first
+   * running → idle/done once the agent has a prompt (F15b). While set, Chat
+   * reads a missing transcript as "Claude is starting"; after, as unreadable.
+   */
+  starting?: boolean;
 }
 
 // ── Beta F8: worktree lifecycle ────────────────────────────────────────────
@@ -1148,6 +1155,10 @@ export interface SessionStatusPayload {
   promptOptions?: PromptOption[];
   promptQuestion?: string;
   promptTabs?: PromptTab[];
+  /** SessionInfo.starting / initialPrompt as of this status: sent only while
+   *  starting, so their absence clears them (F15b). */
+  starting?: boolean;
+  initialPrompt?: { text: string; clipped?: boolean };
 }
 
 export interface ServerToClientEvents {

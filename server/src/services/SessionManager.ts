@@ -151,8 +151,16 @@ interface ManagedSession {
   lastPrompt?: string;
   /** Launcher that started this session (deep link run/<id>); focus-if-live key. */
   launcherId?: string;
-  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15). */
+  /** Claude, fresh create with a prompt: what Chat shows until the transcript records it (F15).
+   *  Cleared when startup ends (see `startup`), so it never outlives the first turn. */
   initialPrompt?: { text: string; clipped?: boolean };
+  /**
+   * Set from spawn (create or restart) until the first turn ends: the first
+   * running → idle/done once the agent has a prompt (the launch prompt, or
+   * input since spawn). `last` is the last status announced. Drives
+   * SessionInfo.starting and the end of `initialPrompt` (F15b).
+   */
+  startup?: { last: SessionStatus; prompted: boolean };
   /** Per-session terminal implementation preference; undefined = never chose
    *  (renderer falls back to the app default). Normalized at the boundary via
    *  normalizeTerminalEngine — never stores an unvalidated value. */
@@ -1383,6 +1391,8 @@ export class SessionManager {
       launcherId: opts.launcherId,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
+      // A fresh spawn only: a restored or re-attached agent started long ago.
+      startup: !attachExisting && !restoreExited && existingId == null ? { last: initialStatus, prompted: promptTail.length > 0 } : undefined,
       suppressDonePromotion: attachExisting,
       // New sessions are user-initiated; allow done-promotion on their first finish.
       // Restored/reattached sessions default to false until the user sends input.
@@ -1536,6 +1546,7 @@ export class SessionManager {
     this.setSuggestion(id, session, undefined);
     // A restart never replays the launch prompt (see createSession).
     session.initialPrompt = undefined;
+    session.startup = { last: 'running', prompted: false };
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -1849,6 +1860,27 @@ export class SessionManager {
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
     this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
+  }
+
+  /**
+   * Startup ends at the first turn's end: running → idle/done once the agent
+   * has a prompt (F15b). Not at the first native running (UserPromptSubmit):
+   * Claude writes the prompt to its transcript around then and ChatTail reads
+   * it later still, so a Chat mounted in that gap would have neither the
+   * launch prompt nor its record. At the turn's end the record is there. Not
+   * `waiting` either: the folder-trust dialog comes before the prompt is read.
+   * An exit keeps it, so a Chat opened after a failed start still shows the
+   * prompt with its "ended" notice; a restart starts over.
+   */
+  private trackStartup(session: ManagedSession, status: SessionStatus): void {
+    const st = session.startup;
+    if (!st) return;
+    if ((status === 'idle' || status === 'done') && st.last === 'running' && st.prompted) {
+      session.startup = undefined;
+      session.initialPrompt = undefined;
+      return;
+    }
+    st.last = status;
   }
 
   /** Esc was written to the running session and no native signal has come since. */
@@ -2397,6 +2429,11 @@ export class SessionManager {
     const payload: SessionStatusPayload = { ...base };
     const session = this.sessions.get(base.sessionId);
     if (session) {
+      this.trackStartup(session, base.status);
+      if (session.startup) {
+        payload.starting = true;
+        if (session.initialPrompt) payload.initialPrompt = session.initialPrompt;
+      }
       if (base.status === 'waiting') {
         session.waitingSince ??= Date.now();
         session.promptOptions = session.stateDetector.getMenuOptions?.();
@@ -2653,6 +2690,7 @@ export class SessionManager {
 
     session.suppressDonePromotion = false;
     session.hasUserInputSinceIdle = true;
+    if (session.startup) session.startup.prompted = true;
     if (data === '\x1b' && session.status === 'running') this.noteInterrupt(id, session);
     // User sent input — exit sticky-done so StateDetector can track the new run.
     if (session.status === 'done') {
@@ -3059,6 +3097,7 @@ export class SessionManager {
       runMode: session.runMode,
       launcherId: session.launcherId,
       initialPrompt: session.initialPrompt,
+      starting: session.startup ? true : undefined,
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),

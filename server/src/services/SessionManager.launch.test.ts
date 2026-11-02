@@ -123,3 +123,68 @@ test('prompt on an agent without prompt support throws', async () => {
     /does not accept an initial prompt/,
   );
 });
+
+/** Captures every session:status payload the manager broadcasts. */
+function capture(sm: SessionManager): any[] {
+  const out: any[] = [];
+  (sm as any).io = { emit: (ev: string, p: any) => { if (ev === 'session:status') out.push(p); }, to: () => ({ emit() {} }) };
+  return out;
+}
+
+test('the launch prompt and starting last until the first turn ends, then clear for every window (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'fix the bug' });
+  assert.equal(s.starting, true);
+  const sent = capture(sm);
+  // The folder-trust dialog (waiting) and a heuristic running keep it: the prompt is not read yet.
+  sm.applyNativeSignal(s.id, { state: 'waiting', promptText: 'Do you trust the files in this folder?' });
+  sm.applyNativeSignal(s.id, { state: 'running' });
+  assert.equal(sent.at(-1).starting, true);
+  assert.deepEqual(sent.at(-1).initialPrompt, { text: 'fix the bug' });
+  assert.equal(sm.getSessionInfo(s.id)?.starting, true);
+  // The first turn ends (Stop): the transcript has the prompt by now.
+  sm.applyNativeSignal(s.id, { state: 'idle' });
+  assert.equal(sent.at(-1).status, 'done');
+  assert.equal(sent.at(-1).starting, undefined);
+  assert.equal(sent.at(-1).initialPrompt, undefined);
+  assert.equal(sm.getSessionInfo(s.id)?.starting, undefined);
+  assert.equal(sm.getSessionInfo(s.id)?.initialPrompt, undefined);
+  // Later turns (and a /clear) never bring it back.
+  sm.applyNativeSignal(s.id, { state: 'running' });
+  assert.equal(sent.at(-1).initialPrompt, undefined);
+});
+
+test('with no launch prompt, startup ends at the first turn after input, not at the welcome screen (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], {});
+  const sent = capture(sm);
+  // Claude settles at its welcome screen: no prompt yet, so still starting.
+  sm.applyNativeSignal(s.id, { state: 'idle' });
+  assert.equal(sent.at(-1).status, 'done');
+  assert.equal(sent.at(-1).starting, true);
+  sm.writeToSession(s.id, 'hello\r');
+  sm.applyNativeSignal(s.id, { state: 'running' });
+  assert.equal(sent.at(-1).starting, true);
+  sm.applyNativeSignal(s.id, { state: 'idle' });
+  assert.equal(sent.at(-1).starting, undefined);
+});
+
+test('an exit keeps the launch prompt; a restart starts over without it (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'hello' });
+  (sm as any).sessions.get(s.id).status = 'exited';
+  assert.deepEqual(sm.getSessionInfo(s.id)?.initialPrompt, { text: 'hello' });
+  const sent = capture(sm);
+  await sm.restartSession(s.id);
+  assert.equal(sent.at(-1).status, 'running');
+  assert.equal(sent.at(-1).starting, true);
+  assert.equal(sent.at(-1).initialPrompt, undefined);
+});
+
+test('a restored session is not starting (F15b)', async () => {
+  const { sm } = harness();
+  const s = await create(sm, [], { initialPrompt: 'hello' });
+  (sm as any).sessions.clear();
+  await sm.restoreSessions();
+  assert.equal(sm.getSessionInfo(s.id)?.starting, undefined);
+});

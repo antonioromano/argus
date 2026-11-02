@@ -87,6 +87,16 @@ describe('useSessions reconnect snapshot vs socket deltas', () => {
 
   const byId = (id: string) => hook.sessions.find((s) => s.id === id);
 
+  it('a status carries starting / initialPrompt while the session starts; their absence clears them (F15b)', async () => {
+    await mountWith([sess('a', { status: 'running', starting: true, initialPrompt: { text: 'go' } })]);
+    await act(async () => { socket.emit('session:status', { sessionId: 'a', status: 'waiting', starting: true, initialPrompt: { text: 'go' } }); });
+    expect(byId('a')!.starting).toBe(true);
+    expect(byId('a')!.initialPrompt).toEqual({ text: 'go' });
+    await act(async () => { socket.emit('session:status', { sessionId: 'a', status: 'done' }); });
+    expect(byId('a')!.starting).toBeUndefined();
+    expect(byId('a')!.initialPrompt).toBeUndefined();
+  });
+
   it('a status delta received while the reconnect GET is in flight survives the snapshot', async () => {
     await mountWith([sess('a', { status: 'idle' })]);
 

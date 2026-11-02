@@ -30,8 +30,6 @@ const ENDED_NOTICE: ChatBlock = { kind: 'notice', text: 'The session ended befor
 const SEND_NOW_KEY = '\x18\x13';
 const NO_QUEUE: ChatQueuedPrompt[] = [];
 let pendingSeq = 0;
-/** Sessions whose launch prompt (F15) a Chat view already showed: once per session, not per mount. */
-const launchShown = new Set<string>();
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
 /** Height of the terminal sheet's bar; the host insets the terminal by it so the bar never covers it. */
@@ -222,15 +220,19 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const userCount = useMemo(() => userCountOf(chat.messages), [chat.messages]);
   const queueSeq = chat.queue?.seq ?? 0;
   // The prompt the session was started with shows at once, like one sent from the composer (F15).
+  // The server holds it only until the first turn ends (F15b), so every mount, in every window,
+  // seeds it while it is there and nothing is recorded; once seeded, the echo stays until the
+  // transcript records it, even if the server drops the prompt first.
   const launchPrompt = session.initialPrompt;
+  const launchSeeded = useRef(false);
   useEffect(() => {
-    if (!chat.loaded || !launchPrompt || launchShown.has(session.id)) return;
+    if (!chat.loaded || !launchPrompt || launchSeeded.current) return;
     // A command gets its echo from the server, as when typed in the composer.
     if (slashCommandName(launchPrompt.text) !== null) return;
-    launchShown.add(session.id);
+    launchSeeded.current = true;
     const p = launchPending(`pending-${++pendingSeq}`, launchPrompt, userCount);
     if (p) setPending((cur) => [p, ...cur]);
-  }, [chat.loaded, userCount, launchPrompt, session.id]);
+  }, [chat.loaded, userCount, launchPrompt]);
   const exited = session.status === 'exited';
   // A prompt drops out once the transcript records it or Claude Code queues it.
   const shown = useMemo(() => openPending(pending, userCount, queueSeq), [pending, userCount, queueSeq]);
@@ -393,7 +395,14 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         {!chat.available && messages.length > 0 && (
           // Prompts sent before Claude wrote its transcript (F15): shown at once, with the terminal at hand.
           <div className="argus-chat-starting" data-testid="chat-starting">
-            <span>{exited ? 'The session ended before Claude started the conversation.' : 'Starting Claude…'}</span>
+            <span>
+              {exited
+                ? 'The session ended before Claude started the conversation.'
+                : session.starting
+                  ? 'Starting Claude…'
+                  // Its first turn ended with no transcript found (F15b): it is not coming.
+                  : "Chat can't read this session's transcript — use the terminal"}
+            </span>
             <Button variant="ghost" size="sm" icon={Terminal} onClick={onShowTerminal}>Terminal</Button>
           </div>
         )}
