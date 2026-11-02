@@ -2239,6 +2239,15 @@ body {
 .argus-chat-tool-diff-ctx { color: var(--fg-3); }
 .argus-chat-notice { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--fg-3); }
 .argus-chat-notice.is-stopped { color: var(--fg-1); }
+.argus-chat-starting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: 2px var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--fg-3);
+}
 .argus-chat-jump {
   all: unset;
   position: absolute;

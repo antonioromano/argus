@@ -14,7 +14,7 @@ import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
 import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
-import { newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
+import { launchPending, newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -25,10 +25,13 @@ const STOP_RETRY_MS = 8000;
 /** Matches the notice ChatTail makes of Claude Code's "[Request interrupted by user]". */
 const STOPPED_MARK: ChatBlock = { kind: 'notice', text: 'Stopped' };
 const STOPPED_NOTICE: ChatBlock = { kind: 'notice', text: 'Stopped before Claude recorded it — it is not in the conversation.' };
+const ENDED_NOTICE: ChatBlock = { kind: 'notice', text: 'The session ended before Claude recorded it — it is not in the conversation.' };
 /** Ctrl+X Ctrl+S: Claude Code's "send now" for its queue (verified on 2.1.316). */
 const SEND_NOW_KEY = '\x18\x13';
 const NO_QUEUE: ChatQueuedPrompt[] = [];
 let pendingSeq = 0;
+/** Sessions whose launch prompt (F15) a Chat view already showed: once per session, not per mount. */
+const launchShown = new Set<string>();
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
 /** Height of the terminal sheet's bar; the host insets the terminal by it so the bar never covers it. */
@@ -218,6 +221,17 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
 
   const userCount = useMemo(() => userCountOf(chat.messages), [chat.messages]);
   const queueSeq = chat.queue?.seq ?? 0;
+  // The prompt the session was started with shows at once, like one sent from the composer (F15).
+  const launchPrompt = session.initialPrompt;
+  useEffect(() => {
+    if (!chat.loaded || !launchPrompt || launchShown.has(session.id)) return;
+    // A command gets its echo from the server, as when typed in the composer.
+    if (slashCommandName(launchPrompt.text) !== null) return;
+    launchShown.add(session.id);
+    const p = launchPending(`pending-${++pendingSeq}`, launchPrompt, userCount);
+    if (p) setPending((cur) => [p, ...cur]);
+  }, [chat.loaded, userCount, launchPrompt, session.id]);
+  const exited = session.status === 'exited';
   // A prompt drops out once the transcript records it or Claude Code queues it.
   const shown = useMemo(() => openPending(pending, userCount, queueSeq), [pending, userCount, queueSeq]);
   useEffect(() => {
@@ -245,9 +259,14 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         ? recorded
         : recorded.concat(
             queue.map((q) => ({ id: q.id, role: 'user', blocks: q.blocks })),
-            shown.map((p) => ({ id: p.id, role: 'user', blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : p.blocks })),
+            shown.map((p) => ({
+              id: p.id,
+              role: 'user',
+              // Ended unrecorded (a failed start, an exit): Claude will not record it now.
+              blocks: p.stopped && !stopping ? [...p.blocks, STOPPED_NOTICE] : exited ? [...p.blocks, ENDED_NOTICE] : p.blocks,
+            })),
           ),
-    [recorded, queue, shown, stopping],
+    [recorded, queue, shown, stopping, exited],
   );
   const { pendingIds, queuedIds } = useMemo(() => {
     const queued = busy ? queue.map((q) => q.id).concat(shown.filter((p) => p.queueAt !== undefined).map((p) => p.id)) : [];
@@ -302,7 +321,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   let body: ReactNode;
   if (!chat.loaded) {
     body = <LoadingState label="Reading transcript" />;
-  } else if (!chat.available) {
+  } else if (!chat.available && messages.length === 0) {
     body = (
       <EmptyState
         icon={MessagesSquare}
@@ -371,6 +390,13 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       )}
       <div className="argus-chat-main">
         {body}
+        {!chat.available && messages.length > 0 && (
+          // Prompts sent before Claude wrote its transcript (F15): shown at once, with the terminal at hand.
+          <div className="argus-chat-starting" data-testid="chat-starting">
+            <span>{exited ? 'The session ended before Claude started the conversation.' : 'Starting Claude…'}</span>
+            <Button variant="ghost" size="sm" icon={Terminal} onClick={onShowTerminal}>Terminal</Button>
+          </div>
+        )}
         {!following && messages.length > 0 && (
           <button
             type="button"
