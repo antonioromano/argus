@@ -70,3 +70,18 @@ describe('ChatMessageItem — images', () => {
   });
 });
 
+
+describe('ChatMessageItem — code block copy', () => {
+  it('copies the raw block text and shows Copied', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const draft = 'Thanks Dan, confirmed then.\n\n• Their link is set up correctly';
+    await render({ id: 'm1', role: 'assistant', blocks: [{ kind: 'text', text: `Draft:\n\n\`\`\`\n${draft}\n\`\`\`` }] });
+    const button = container.querySelector<HTMLButtonElement>('.argus-chat-code-copy');
+    expect(button?.getAttribute('aria-label')).toBe('Copy');
+    await act(async () => { button!.click(); });
+    expect(writeText).toHaveBeenCalledWith(draft);
+    expect(container.querySelector('.argus-chat-code-copy')?.getAttribute('aria-label')).toBe('Copied');
+    expect(container.querySelector('.argus-chat-code')?.classList.contains('is-copied')).toBe(true);
+  });
+});
