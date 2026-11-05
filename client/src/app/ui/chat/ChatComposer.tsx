@@ -157,13 +157,10 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
   // Not at a menu: there a slash command would only be typed into the menu.
   const slashOpen = suggestions.length > 0 && atPrompt;
   const active = slashOpen ? suggestions[Math.min(slashIndex, suggestions.length - 1)] : undefined;
-  // F9: shown in place of the placeholder until Tab takes it or anything is typed.
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  // Forgotten once the suggestion leaves the screen, so the same text suggested
-  // after a later turn shows again.
-  if (dismissed !== null && !suggestion) setDismissed(null);
+  // F9: shown in place of the placeholder whenever the composer is empty — taking it
+  // with Tab or typing hides it, clearing the text brings it back (as Claude Code does).
   const ghost =
-    suggestion && suggestion !== dismissed && text === '' && attachments.length === 0 && atPrompt && status !== 'running'
+    suggestion && text === '' && attachments.length === 0 && atPrompt && status !== 'running'
       ? suggestion
       : undefined;
   const complete = (c: ChatCommand) => {
@@ -366,7 +363,6 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
           aria-activedescendant={active ? `argus-chat-slash-${active.name}` : undefined}
           spellCheck
           onChange={(e) => {
-            if (ghost) setDismissed(ghost);
             setText(e.target.value);
             setSlashIndex(0);
             trackCaret();
@@ -409,7 +405,6 @@ export function ChatComposer({ sessionId, status, onSubmit, onStop, stopping, pe
             // Tab takes the suggestion for editing; nothing reaches Claude until it is sent.
             if (ghost && e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.metaKey && !e.ctrlKey) {
               e.preventDefault();
-              setDismissed(ghost);
               setText(ghost);
               return;
             }

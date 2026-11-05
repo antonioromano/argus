@@ -640,19 +640,21 @@ describe('ChatComposer — prompt suggestion (F9)', () => {
     expect(e.defaultPrevented).toBe(true);
     expect(box().value).toBe('commit it');
     expect(onSubmit).not.toHaveBeenCalled();
-    // Taken: clearing the text brings the placeholder back, not the suggestion.
+    // Taken, then cleared: the suggestion comes back and Tab takes it again.
     typeText('');
-    expect(box().placeholder).toBe('Message Claude…');
+    expect(box().placeholder).toBe('commit it');
+    tab();
+    expect(box().value).toBe('commit it');
   });
 
-  it('any typing dismisses it, and Tab then does what it does without one', () => {
+  it('typing hides it, clearing the text brings it back', () => {
     render({ suggestion: 'commit it' });
     typeText('x');
-    typeText('');
-    expect(box().placeholder).toBe('Message Claude…');
+    expect(box().placeholder).not.toBe('commit it');
     expect(tab().defaultPrevented).toBe(false);
-    expect(box().value).toBe('');
-    // A new suggestion shows again.
+    typeText('');
+    expect(box().placeholder).toBe('commit it');
+    // A new suggestion replaces it.
     render({ suggestion: 'run the tests' });
     expect(box().placeholder).toBe('run the tests');
   });
