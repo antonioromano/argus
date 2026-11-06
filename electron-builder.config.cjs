@@ -39,7 +39,14 @@ module.exports = {
   // per-platform package. Unpack it from the asar so it stays executable; the
   // server rewrites rgPath app.asar → app.asar.unpacked at runtime (see
   // server/src/utils/ripgrep.ts). grep is the fallback when it can't run.
-  asarUnpack: ['**/node_modules/@vscode/ripgrep*/**'],
+  //
+  // The renderer bundle is unpacked too, and the server serves it from
+  // app.asar.unpacked (server/src/utils/clientDist.ts). Electron opens a packed
+  // file by copying it once to $TMPDIR and caching that path for the life of
+  // the process. macOS purges $TMPDIR files left untouched for ~3 days, so
+  // after a few days of uptime index.html 404'd and every new window or
+  // reload showed {"error":"Bad request"}.
+  asarUnpack: ['**/node_modules/@vscode/ripgrep*/**', 'client/dist/**'],
   extraResources: [
     {
       from: 'electron/resources/tmux',
