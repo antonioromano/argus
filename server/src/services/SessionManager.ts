@@ -1600,7 +1600,7 @@ export class SessionManager {
       this.nudgeUsage(session, true);
     });
 
-    this.applyRestoredInsights(session, opts);
+    this.applyRestoredInsights(session, opts, attachExisting || restoreExited);
     // A reopened conversation is the same Claude session: Resume works at once.
     if (resumeId !== undefined) session.claudeSessionId = resumeId;
     this.sessions.set(id, session);
@@ -3313,8 +3313,14 @@ export class SessionManager {
     await this.persistSessions();
   }
 
-  /** Carry a restored Claude session's conversation id and usage meter over a restart. */
-  private applyRestoredInsights(session: ManagedSession, opts: CreateSessionOpts): void {
+  /**
+   * Carry a restored Claude session's conversation id and usage meter over a restart.
+   * `sameRun` is false when the agent did not survive and a fresh one is being
+   * spawned: the conversation id is kept (Resume reopens it), but the current
+   * transcript is dropped — otherwise Chat would keep showing the dead run's
+   * conversation until the new agent's first hook reported its own transcript.
+   */
+  private applyRestoredInsights(session: ManagedSession, opts: CreateSessionOpts, sameRun: boolean): void {
     if (session.agentType === 'codex' && opts.codexUsage && Number.isFinite(opts.codexUsage.spawnedAt)) {
       const file = opts.codexUsage.path ? confineRollout(opts.codexUsage.path, this.codexRoot) : undefined;
       // Re-read the matched log from the start: it is the source of truth and
@@ -3328,7 +3334,9 @@ export class SessionManager {
       try {
         session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u));
         // A surviving agent kept writing while Argus was down — catch up.
-        session.usage.schedule();
+        if (sameRun) session.usage.schedule();
+        // A fresh agent starts an empty context, as a non-resume restart does.
+        else session.usage.clearCurrent();
       } catch (err) {
         console.warn(`[usage] could not restore meter for ${session.id}:`, err);
       }

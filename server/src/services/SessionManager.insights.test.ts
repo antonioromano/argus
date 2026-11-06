@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { SessionManager } from './SessionManager.js';
@@ -146,6 +146,32 @@ test('a restored session announces its Claude id and usage in session:created', 
   (sm as any).sessions.get('r1').usage.dispose();
   await (sm as any).fileWatcher.stopAll();
   rmSync(dataDir, { recursive: true, force: true });
+  rmSync(seed.dataDir, { recursive: true, force: true });
+});
+
+test('a restored Claude session keeps its transcript only when the agent survived', async () => {
+  const seed = mgr();
+  const f = transcript(seed.dataDir);
+  const s0 = inject(seed.sm);
+  seed.sm.applyAgentMeta('s', { claudeSessionId: UUID, transcriptPath: f });
+  await s0.usage.pollNow();
+  const usageState = s0.usage.serialize();
+  s0.usage.dispose();
+
+  for (const sameRun of [true, false]) {
+    // Same Claude config dir as the seed: a restored path is re-validated against it.
+    process.env.CLAUDE_CONFIG_DIR = seed.dataDir;
+    const sm = new SessionManager(seed.dataDir, fakeConfig);
+    const s = inject(sm);
+    (sm as any).applyRestoredInsights(s, { claudeSessionId: UUID, usage: usageState }, sameRun);
+    // The conversation id survives either way: Resume can still reopen it.
+    assert.equal(s.claudeSessionId, UUID);
+    // A re-attached agent is still writing the old transcript; a fresh one is
+    // not, so Chat must not keep showing the dead run's conversation.
+    assert.equal(s.usage.current, sameRun ? realpathSync(f) : undefined);
+    assert.equal(s.usage.snapshot().totalTokens, 1030, 'the meter totals carry over');
+    s.usage.dispose();
+  }
   rmSync(seed.dataDir, { recursive: true, force: true });
 });
 
