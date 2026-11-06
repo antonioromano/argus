@@ -6,6 +6,12 @@ export function asyncHandler(fn: (req: Request, res: Response, next: NextFunctio
   return (req, res, next) => fn(req, res, next).catch(next);
 }
 
+/** Body text for 4xx errors raised by middleware (body-parser, express.static). */
+const CLIENT_ERROR_COPY: Record<number, string> = {
+  404: 'Not found',
+  413: 'Request body too large',
+};
+
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   // A failure a route or service already classified: answer with its class.
   if (err instanceof ArgusError) {
@@ -16,7 +22,7 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   // malformed JSON) carry their status; answer with it instead of a 500.
   const status = (err as { status?: unknown })?.status;
   if (typeof status === 'number' && status >= 400 && status < 500) {
-    if (!res.headersSent) res.status(status).json({ error: status === 413 ? 'Request body too large' : 'Bad request' });
+    if (!res.headersSent) res.status(status).json({ error: CLIENT_ERROR_COPY[status] ?? 'Bad request' });
     return;
   }
   console.error('[server] unhandled error:', err);

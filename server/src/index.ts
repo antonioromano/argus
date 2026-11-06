@@ -70,6 +70,7 @@ import { createAuthMiddleware } from './middleware/auth.js';
 import { createChatImageRoutes } from './routes/chatImages.js';
 import { createOriginGuard } from './middleware/originGuard.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { resolveClientDist } from './utils/clientDist.js';
 import { createJsonBodyParser } from './middleware/bodyParsers.js';
 import { createDebugScrollRoute } from './routes/debugScroll.js';
 import { createAgentSignalRoutes } from './routes/agentSignals.js';
@@ -608,7 +609,7 @@ setupSocketHandler(io, sessionManager, authService, updateService, {
 
 // Production static file serving
 if (process.env.NODE_ENV === 'production') {
-  const clientDist = path.resolve(__dirname, '..', '..', 'client', 'dist');
+  const clientDist = resolveClientDist(path.resolve(__dirname, '..', '..', 'client', 'dist'));
   if (fs.existsSync(clientDist)) {
     app.use(express.static(clientDist));
     app.get('*', (_req, res) => {
