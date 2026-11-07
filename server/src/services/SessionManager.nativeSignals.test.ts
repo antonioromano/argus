@@ -409,3 +409,45 @@ test('after an Esc interrupt the settled idle is re-applied when no transition c
   t.mock.timers.tick(1_500);
   assert.equal(s.status, 'idle', 'the detector already read idle: the session leaves running');
 });
+
+test('a heuristic waiting dropped under a fresh native running is re-applied once native goes stale', (t) => {
+  // Live repro: PreToolUse(AskUserQuestion) → native running; the menu painted too
+  // late/unreadable for the menu-after-running exception; no Notification ever came.
+  // The detector is edge-triggered, so it never re-reported waiting: the session
+  // showed 'running' for 12h over an open question.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { sm, emitted } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'How to handle?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  detect(sm, 'waiting');
+  assert.equal(s.status, 'running', 'dropped while native is fresh');
+
+  emitted.length = 0;
+  t.mock.timers.tick(31_000);
+  assert.equal(s.status, 'waiting', 'detector verdict applies once native is stale');
+  assert.equal(emitted.at(-1)!.p.status, 'waiting');
+});
+
+test('the stale recheck does nothing when a newer native signal arrived', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const { sm } = mgr();
+  const s = inject(sm, {
+    agentType: 'claude',
+    status: 'running',
+    hasUserInputSinceIdle: false,
+    stateDetector: { getLastPromptText: () => 'Q?', getStatus: () => 'waiting', msSinceLastFeed: () => Infinity },
+  });
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL });
+  detect(sm, 'waiting');
+  t.mock.timers.tick(20_000);
+  sm.applyNativeSignal('s', { state: 'running', coverage: FULL }); // still working
+  t.mock.timers.tick(11_000);
+  assert.equal(s.status, 'running', 'native refreshed: still authoritative');
+  t.mock.timers.tick(20_000);
+  assert.equal(s.status, 'waiting', 're-armed recheck applies after the newer signal goes stale');
+});

@@ -204,6 +204,8 @@ interface ManagedSession {
   nativeState?: AgentSignalState;
   /** A menu was already on screen when the last native 'running' arrived (a leftover, not its prompt). */
   menuAtNativeRunning?: boolean;
+  /** Re-applies a dropped heuristic status once the native window goes stale. */
+  nativeRecheckTimer?: NodeJS.Timeout;
   nativeCoverage?: Set<AgentSignalState>;
   /** Last few raw native signals — diagnostics dump only, never control flow. */
   nativeRing?: AgentSignal[];
@@ -1670,6 +1672,7 @@ export class SessionManager {
     void this.fileWatcher.stop(id);
     session.usage?.dispose();
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    if (session.nativeRecheckTimer) { clearTimeout(session.nativeRecheckTimer); session.nativeRecheckTimer = undefined; }
     this.endStartup(session);
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -1723,6 +1726,7 @@ export class SessionManager {
     const wasTiered = session.exitedFrame !== undefined;
     session.exitedFrame = undefined;
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    if (session.nativeRecheckTimer) { clearTimeout(session.nativeRecheckTimer); session.nativeRecheckTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
     const backend = this.backendFor(session);
@@ -1893,6 +1897,7 @@ export class SessionManager {
         // Already waiting: the drop must not freeze a menu painted after the
         // native waiting arrived (no later repaint would refresh it).
         if (detected === 'waiting') this.refreshPromptOptions(id);
+        this.armNativeStaleRecheck(id, session);
         return;
       }
     }
@@ -2119,6 +2124,27 @@ export class SessionManager {
       session.nativeState === 'running' &&
       session.interruptedAt >= (session.nativeLastSeenAt ?? 0)
     );
+  }
+
+  /**
+   * A heuristic transition was dropped under a fresh native signal. The
+   * detector is edge-triggered: it reports a status once, so when the native
+   * window lapses with no hook to follow (an AskUserQuestion whose menu the
+   * running exception could not read, and no Notification ever sent), nothing
+   * would re-apply its verdict and the session stayed 'running' for good.
+   * Re-check at staleness; a newer native signal pushes the check out again.
+   */
+  private armNativeStaleRecheck(id: string, session: ManagedSession): void {
+    if (session.nativeRecheckTimer) clearTimeout(session.nativeRecheckTimer);
+    const wait = Math.max(0, (session.nativeLastSeenAt ?? 0) + NATIVE_FRESHNESS_MS - Date.now()) + 50;
+    session.nativeRecheckTimer = setTimeout(() => {
+      session.nativeRecheckTimer = undefined;
+      if (this.sessions.get(id) !== session || session.status === 'exited') return;
+      if (this.nativeIsFresh(session)) { this.armNativeStaleRecheck(id, session); return; }
+      const detected = session.stateDetector.getStatus();
+      if (detected !== session.status && detected !== 'running') this.applyDetectedStatus(id, detected);
+    }, wait);
+    session.nativeRecheckTimer.unref?.();
   }
 
   private nativeIsFresh(session: ManagedSession): boolean {
