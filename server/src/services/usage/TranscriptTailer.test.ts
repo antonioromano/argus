@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync, renameSync } from 'fs';
 import os from 'os';
 import path from 'path';
+import { nodeTranscriptFs } from './JsonlTailer.js';
 import { TranscriptTailer, isGithubPrUrl, MAX_PR_URLS, type TranscriptFs } from './TranscriptTailer.js';
 
 function tmpFile(): string {
@@ -93,7 +94,7 @@ test('reads only appended bytes', async () => {
   writeFileSync(f, assistant('m1', { in: 1 }));
   const reads: number[] = [];
   const fs: TranscriptFs = {
-    stat: async (p) => { const s = (await import('fs')).statSync(p); return { size: s.size, ino: s.ino }; },
+    stat: async (p) => { const s = (await import('fs')).statSync(p); return { size: s.size, ino: s.ino, mtimeMs: s.mtimeMs }; },
     read: async (p, pos, len) => {
       reads.push(pos);
       const fd = (await import('fs')).openSync(p, 'r');
@@ -102,6 +103,8 @@ test('reads only appended bytes', async () => {
       (await import('fs')).closeSync(fd);
       return b.subarray(0, n);
     },
+    readdir: nodeTranscriptFs.readdir,
+    readFile: nodeTranscriptFs.readFile,
   };
   const t = new TranscriptTailer(f, fs);
   await t.poll();
@@ -187,7 +190,7 @@ test('the model string is capped', async () => {
 /** Real file, but every read returns at most `max` bytes — many tiny chunks. */
 function trickleFs(max: number): TranscriptFs {
   return {
-    stat: async (p) => { const st = (await import('fs')).statSync(p); return { size: st.size, ino: st.ino }; },
+    stat: async (p) => { const st = (await import('fs')).statSync(p); return { size: st.size, ino: st.ino, mtimeMs: st.mtimeMs }; },
     read: async (p, pos, len) => {
       const fsm = await import('fs');
       const n = Math.min(len, max);
@@ -197,6 +200,8 @@ function trickleFs(max: number): TranscriptFs {
       fsm.closeSync(fd);
       return b.subarray(0, got);
     },
+    readdir: nodeTranscriptFs.readdir,
+    readFile: nodeTranscriptFs.readFile,
   };
 }
 

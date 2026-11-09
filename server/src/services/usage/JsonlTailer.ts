@@ -1,4 +1,4 @@
-import { open, stat } from 'fs/promises';
+import { open, readdir, readFile, stat } from 'fs/promises';
 
 /**
  * Tolerant incremental reader of an append-only JSONL file: the shared core of
@@ -14,14 +14,18 @@ import { open, stat } from 'fs/promises';
 
 /** Minimal fs surface, injectable for tests. */
 export interface TranscriptFs {
-  stat(path: string): Promise<{ size: number; ino: number }>;
+  stat(path: string): Promise<{ size: number; ino: number; mtimeMs: number }>;
   read(path: string, position: number, length: number): Promise<Buffer>;
+  /** Entry names only; `[]` when the directory is missing. */
+  readdir(dir: string): Promise<string[]>;
+  /** Whole file as utf8; for small files (meta.json). */
+  readFile(path: string): Promise<string>;
 }
 
 export const nodeTranscriptFs: TranscriptFs = {
   async stat(path) {
     const s = await stat(path);
-    return { size: s.size, ino: s.ino };
+    return { size: s.size, ino: s.ino, mtimeMs: s.mtimeMs };
   },
   async read(path, position, length) {
     const fh = await open(path, 'r');
@@ -32,6 +36,18 @@ export const nodeTranscriptFs: TranscriptFs = {
     } finally {
       await fh.close();
     }
+  },
+  async readdir(dir) {
+    try {
+      return await readdir(dir);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return [];
+      throw err;
+    }
+  },
+  readFile(path) {
+    return readFile(path, 'utf8');
   },
 };
 
