@@ -1,6 +1,6 @@
 # Agents in the Chat: roster, agent sheet, typing state — design
 
-**Status:** approved in conversation 2026-11-09 (option B for the status pill, see D14). Not yet built.
+**Status:** Built on feat/chat-agents-roster (2026-11-09); not yet released.
 
 ## Intent
 
