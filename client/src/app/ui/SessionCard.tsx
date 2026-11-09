@@ -20,6 +20,7 @@ interface SessionCardProps {
 function defaultLastOut(s: SessionInfo): string {
   if (s.status === 'waiting') return 'Awaiting input…';
   if (s.status === 'running') return 'Agent thinking…';
+  if (displayStatus(s) === 'agents') return 'Agents working…';
   if (s.status === 'idle') return 'Idle';
   if (s.status === 'done') return 'Run finished';
   return '[process exited]';

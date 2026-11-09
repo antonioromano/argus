@@ -34,7 +34,8 @@
   transition: opacity var(--dur-slow) var(--ease);
 }
 
-.terminal-card[data-status="running"]::before {
+.terminal-card[data-status="running"]::before,
+.terminal-card[data-status="agents"]::before {
   background: radial-gradient(ellipse at 50% 0%, var(--status-running-bg) 0%, transparent 70%);
   opacity: 1;
 }
@@ -48,7 +49,8 @@
   opacity: 1;
 }
 
-.terminal-card[data-status="running"] {
+.terminal-card[data-status="running"],
+.terminal-card[data-status="agents"] {
   border: 1px solid var(--status-running);
 }
 .terminal-card[data-status="waiting"] {
@@ -64,6 +66,7 @@
 }
 
 .terminal-card:hover[data-status="running"],
+.terminal-card:hover[data-status="agents"],
 .terminal-card:hover[data-status="waiting"],
 .terminal-card:hover[data-status="idle"] {
   border-color: var(--line-3);

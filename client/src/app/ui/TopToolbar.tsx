@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react';
 import type { SessionInfo } from '@argus/shared';
 import { TextInput, Tooltip } from '../../components/primitives/index.js';
-import { STATUS_COLORS } from '../../constants/status.js';
+import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
 import { displayStatus } from '../../utils/displayStatus.js';
 
@@ -38,11 +38,11 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
           {matches.map((s) => {
             const isActive = s.id === activeSessionId;
             return (
-              <Tooltip key={s.id} content={`${s.name} · ${s.status}`}>
+              <Tooltip key={s.id} content={`${s.name} · ${STATUS_LABELS[displayStatus(s)]}`}>
                 <button
                   type="button"
                   onClick={() => onSelectSession?.(s.id)}
-                  aria-label={`${s.name} · ${s.status}`}
+                  aria-label={`${s.name} · ${STATUS_LABELS[displayStatus(s)]}`}
                   aria-current={isActive || undefined}
                   disabled={!onSelectSession}
                   style={{
