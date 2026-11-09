@@ -1,9 +1,10 @@
 import path from 'path';
 import os from 'os';
 import { realpathSync, statSync } from 'fs';
-import type { ChatCommand, ChatMessage, ChatQueue, ChatUpdate, SessionUsage } from '@argus/shared';
+import type { AgentRun, ChatCommand, ChatMessage, ChatQueue, ChatUpdate, SessionUsage } from '@argus/shared';
 import { contextWindowFor } from './contextWindows.js';
 import { ChatTail } from './ChatTail.js';
+import { AgentRoster } from './AgentRoster.js';
 import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
 
 /**
@@ -35,6 +36,10 @@ export interface SessionUsageTrackerOpts {
   roots?: readonly string[];
   /** Chat view safety-net poll while a chat is open (hooks drive the rest). */
   chatPollMs?: number;
+  /** The current transcript's agent roster changed (agents, running count). */
+  onAgents?: (agents: AgentRun[], running: number) => void;
+  /** Roster poll while an agent is unfinished (hooks drive the rest). */
+  agentsPollMs?: number;
 }
 
 /** A chat view update without its session id (the caller adds it). */
@@ -58,6 +63,7 @@ const MAX_TRANSCRIPTS = 32;
 const DEFAULT_DEBOUNCE_MS = 400;
 const DEFAULT_EMIT_THROTTLE_MS = 1000;
 const DEFAULT_CHAT_POLL_MS = 1000;
+const DEFAULT_AGENTS_POLL_MS = 1000;
 /** Message ids remembered for cross-transcript dedupe (oldest dropped first). */
 const MAX_OWNED_IDS = 50_000;
 
@@ -103,6 +109,11 @@ export function resolveTranscriptPath(p: unknown, roots: readonly string[] = tra
   }
 }
 
+/** A subagent's own transcript (`…/subagents/agent-*.jsonl`) is never the session's (D13). */
+function isSubagentTranscript(p: string): boolean {
+  return path.basename(path.dirname(p)) === 'subagents';
+}
+
 export class SessionUsageTracker {
   private tailers = new Map<string, TranscriptTailer>();
   private current?: string;
@@ -126,6 +137,14 @@ export class SessionUsageTracker {
   private chatPollMs: number;
   /** The first read after openChat() is answered by chatSnapshot(), not the sink. */
   private chatSwallowReset = false;
+  // Agent roster: one per transcript, read from the `subagents/` folder next to
+  // it. Only the current one is polled; a timer runs while an agent is unfinished.
+  private rosters = new Map<string, AgentRoster>();
+  private onAgents?: (agents: AgentRun[], running: number) => void;
+  private agentsPollMs: number;
+  private agentsTimer?: ReturnType<typeof setInterval>;
+  /** The last roster report, so an unchanged list is never sent twice. */
+  private lastAgents = JSON.stringify({ agents: [], running: 0 });
   /** message id → the transcript that counts it. A conversation resumed into a
    *  new file can repeat its history there; only the first file counts it. */
   private owners = new Map<string, string>();
@@ -143,6 +162,8 @@ export class SessionUsageTracker {
     this.emitThrottleMs = opts.emitThrottleMs ?? DEFAULT_EMIT_THROTTLE_MS;
     this.roots = opts.roots ?? transcriptRoots();
     this.chatPollMs = opts.chatPollMs ?? DEFAULT_CHAT_POLL_MS;
+    this.onAgents = opts.onAgents;
+    this.agentsPollMs = opts.agentsPollMs ?? DEFAULT_AGENTS_POLL_MS;
   }
 
   static restore(
@@ -199,19 +220,26 @@ export class SessionUsageTracker {
 
   /** The transcript Claude is writing now. A new path starts a new tailer. */
   setTranscript(reported: string): void {
-    if (this.disposed) return;
+    if (this.disposed || isSubagentTranscript(reported)) return;
     // Known paths were resolved when first seen; a new one must check out.
     const p = this.tailers.has(reported) ? reported : resolveTranscriptPath(reported, this.roots);
-    if (!p) return;
+    if (!p || isSubagentTranscript(p)) return;
     if (!this.tailers.has(p)) {
       this.tailers.set(p, new TranscriptTailer(p, this.fs, this.claim));
       while (this.tailers.size > MAX_TRANSCRIPTS) {
         const oldest = this.tailers.keys().next().value as string;
         if (oldest === p) break;
         this.tailers.delete(oldest);
+        this.rosters.get(oldest)?.dispose();
+        this.rosters.delete(oldest);
       }
     }
-    this.current = p;
+    if (p !== this.current) {
+      // Claude moved on: the old conversation's unfinished agents won't be heard from.
+      this.failAgents();
+      this.current = p;
+      this.reportAgents();
+    }
     this.schedule();
   }
 
@@ -244,6 +272,7 @@ export class SessionUsageTracker {
   clearCurrent(): void {
     if (this.current === undefined) return;
     this.current = undefined;
+    this.syncAgentsTimer();
     this.updatedAt = Date.now();
     this.emitSoon();
     void this.readChatSoon();
@@ -265,8 +294,9 @@ export class SessionUsageTracker {
 
   /** Read the current transcript right away (tests, final read on exit). */
   async pollNow(): Promise<void> {
-    const tailer = this.current ? this.tailers.get(this.current) : undefined;
-    if (!tailer || this.disposed) return;
+    const p = this.current;
+    const tailer = p ? this.tailers.get(p) : undefined;
+    if (!p || !tailer || this.disposed) return;
     void this.readChatSoon();
     this.polling = true;
     try {
@@ -276,12 +306,77 @@ export class SessionUsageTracker {
       }
     } catch (err) {
       console.warn('[usage] transcript read failed:', err instanceof Error ? err.message : err);
+    }
+    try {
+      await this.pollAgents(p, tailer);
+    } catch (err) {
+      console.warn('[agents] roster read failed:', err instanceof Error ? err.message : err);
     } finally {
       this.polling = false;
     }
     if (this.pollAgain) {
       this.pollAgain = false;
       this.schedule();
+    }
+  }
+
+  /**
+   * Read the roster, then forward the transcript's task notifications to it
+   * (after the read, so an agent first listed by this read can still be ended).
+   */
+  private async pollAgents(p: string, tailer: TranscriptTailer): Promise<void> {
+    const roster = this.rosterOf(p);
+    let changed = await roster.poll();
+    for (const n of tailer.takeTaskNotifications()) changed = roster.applyNotification(n) || changed;
+    // Moved to another transcript, or disposed, while reading: that roster is no longer reported.
+    if (this.disposed || this.current !== p) return;
+    if (changed) this.reportAgents();
+    this.syncAgentsTimer();
+  }
+
+  private rosterOf(p: string): AgentRoster {
+    let roster = this.rosters.get(p);
+    if (!roster) {
+      // `<conversation>.jsonl` keeps its agents in `<conversation>/subagents/`.
+      roster = new AgentRoster(path.join(p.slice(0, -'.jsonl'.length), 'subagents'), { fs: this.fs });
+      this.rosters.set(p, roster);
+    }
+    return roster;
+  }
+
+  /** The current transcript's agents, newest running first. */
+  agentsSnapshot(): { agents: AgentRun[]; running: number } {
+    const roster = this.current ? this.rosters.get(this.current) : undefined;
+    return roster ? { agents: roster.agents(), running: roster.runningCount() } : { agents: [], running: 0 };
+  }
+
+  /** Exit / restart: the current transcript's unfinished agents are reported failed, once. */
+  failAgents(): void {
+    const roster = this.current ? this.rosters.get(this.current) : undefined;
+    if (roster?.failAll()) this.reportAgents();
+    this.syncAgentsTimer();
+  }
+
+  /** Send the current roster unless it is what was sent last. */
+  private reportAgents(): void {
+    if (this.disposed) return;
+    const snap = this.agentsSnapshot();
+    const key = JSON.stringify(snap);
+    if (key === this.lastAgents) return;
+    this.lastAgents = key;
+    this.onAgents?.(snap.agents, snap.running);
+  }
+
+  /** The roster timer exists only while the current roster has an unfinished agent. */
+  private syncAgentsTimer(): void {
+    const roster = this.current ? this.rosters.get(this.current) : undefined;
+    const want = !this.disposed && !!roster && roster.runningCount() > 0;
+    if (want && !this.agentsTimer) {
+      this.agentsTimer = setInterval(() => this.schedule(0), this.agentsPollMs);
+      this.agentsTimer.unref?.();
+    } else if (!want && this.agentsTimer) {
+      clearInterval(this.agentsTimer);
+      this.agentsTimer = undefined;
     }
   }
 
@@ -435,7 +530,11 @@ export class SessionUsageTracker {
     this.disposed = true;
     if (this.pollTimer) clearTimeout(this.pollTimer);
     if (this.emitTimer) clearTimeout(this.emitTimer);
+    if (this.agentsTimer) clearInterval(this.agentsTimer);
     this.pollTimer = undefined;
     this.emitTimer = undefined;
+    this.agentsTimer = undefined;
+    for (const r of this.rosters.values()) r.dispose();
+    this.rosters.clear();
   }
 }
