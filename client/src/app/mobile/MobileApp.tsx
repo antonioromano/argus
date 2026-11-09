@@ -4,7 +4,6 @@ import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { useGroups, type GhostFavorite } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
-import { useConfig } from '../../hooks/useConfig.js';
 import { useChatViewMode, writeViewMode } from '../../hooks/useChatViewMode.js';
 import { useNotificationPref, useDoneNotificationPref } from '../../hooks/useNotificationPref.js';
 import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
@@ -91,13 +90,11 @@ function Inner() {
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
 
   // Terminal or Chat for the open session: the per-session choice shared with
-  // the desktop (same localStorage key), falling back to the app-wide
-  // defaultSessionView once the config has loaded.
-  // A fetch that fails (a tunnel blip) must not leave the body blank for good:
-  // once the load is over with no config, the terminal is the default.
-  const { config, loading: configLoading } = useConfig();
-  const defaultView = config ? config.defaultSessionView ?? 'terminal' : configLoading ? null : 'terminal';
-  const [viewMode, setViewMode] = useChatViewMode(focusedId ?? '', defaultView);
+  // the desktop (same localStorage key). A phone opens Claude sessions as chat
+  // by default, whatever the desktop's defaultSessionView: a terminal on a
+  // phone scrolls over the tunnel and sizes the pty to the phone, the chat
+  // does neither. "Open terminal" in the session menu still switches.
+  const [viewMode, setViewMode] = useChatViewMode(focusedId ?? '', 'chat');
   const openSession = (id: string, mode?: SessionViewMode) => {
     if (mode && id === focusedId) setViewMode(mode);
     else if (mode) writeViewMode(id, mode); // read when the session mounts
