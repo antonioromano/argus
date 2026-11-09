@@ -119,6 +119,12 @@ describe('ChatAgentsStrip', () => {
     render([agent()]);
     render([]);
     expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('[aria-label="Finished"]')).not.toBeNull();
+    expect(rows()[0].querySelector('[aria-label="Running"]')).toBeNull();
+    const shown = rows()[0].textContent;
+    act(() => { vi.advanceTimersByTime(3_000); });
+    // Frozen: no live tick.
+    expect(rows()[0].textContent).toBe(shown);
     act(() => { vi.advanceTimersByTime(AGENT_LINGER_MS + 100); });
     expect(rows()).toHaveLength(0);
   });

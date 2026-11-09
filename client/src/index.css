@@ -2631,6 +2631,9 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-chat-tool-mark.is-error { color: var(--danger); }
 .argus-chat-tool-mark.is-blocked { color: var(--warn); }
 .argus-chat-tool-spin { flex: none; color: var(--fg-3); animation: argus-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .argus-chat-tool-spin { animation: none; }
+}
 .argus-chat-tool-steps { display: flex; flex-direction: column; margin: 2px 0 0 5px; padding-left: var(--s-2); border-left: 1px solid var(--line-1); }
 .argus-chat-tool-step { min-width: 0; }
 .argus-chat-tool-step[data-status='error'] .argus-chat-tool-label,
@@ -2793,7 +2796,7 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-chat-agent-row:hover { background: var(--bg-2); }
 .argus-chat-agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .argus-chat-agent-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.argus-chat-agent-meta { flex: 0 1 auto; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.argus-chat-agent-meta { flex: none; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .argus-chat-tool-mark.is-done { color: var(--ok); }
 /* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
 .argus-chat[data-sheet] { background: transparent; pointer-events: none; }

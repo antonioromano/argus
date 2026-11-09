@@ -81,7 +81,10 @@ export function followRoster(prev: ReadonlyMap<string, TrackedAgent>, agents: re
   for (const [id, t] of prev) {
     if (t.stopped) continue;
     const cur = byId.get(id);
-    if (!cur || cur.status !== 'running') edit().set(id, { agent: cur ?? t.agent, stopped: true });
+    if (cur && cur.status === 'running') continue;
+    // Gone from the roster: freeze the last snapshot as finished, so it never lingers as running.
+    const agent = cur ?? { ...t.agent, status: 'finished' as const, finishedAt: t.agent.finishedAt ?? Date.now(), quietMinutes: undefined };
+    edit().set(id, { agent, stopped: true });
   }
   return next ?? prev;
 }
