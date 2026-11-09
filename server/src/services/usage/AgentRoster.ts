@@ -184,7 +184,12 @@ export class AgentRoster {
 
   private async pollOnce(): Promise<boolean> {
     if (this.disposed) return false;
-    const names = await this.fs.readdir(this.folder);
+    let names: string[];
+    try {
+      names = await this.fs.readdir(this.folder);
+    } catch {
+      return false; // missing is [] already; anything else: keep the last roster, retry next poll
+    }
     const present = new Set<string>();
     for (const name of names) {
       const id = META_RE.exec(name)?.[1];
@@ -230,7 +235,12 @@ export class AgentRoster {
       }
     }
     if (!agent?.tail || agent.ended) return;
-    await agent.tail.poll();
+    try {
+      await agent.tail.poll();
+    } catch {
+      return; // unreadable right now (replaced mid-read, EMFILE…): keep the last state, retry next poll
+    }
+    if (agent.ended) return; // ended by failAll() / a notification during the read: the first end wins
     // The meta flag ends it; an older writer never sets the flag, so its agent is done being tailed.
     const { version } = agent.tail;
     if (agent.meta.finished || (version !== undefined && versionBelow(version, AGENT_FINISHED_FLAG_MIN_VERSION))) {

@@ -233,4 +233,25 @@ describe('AgentRoster', () => {
     assert.equal(r.agents().find((a) => a.id === ID)?.parentAgentId, undefined);
     rmSync(dir, { recursive: true, force: true });
   });
+  test('an unreadable agent jsonl does not stop the poll', async () => {
+    const dir = folder();
+    const other = 'bbbbbbbbbbbbbbbbb';
+    writeMeta(dir, other, {});
+    writeFileSync(jsonlPath(dir, other), jsonlFrom(T0));
+    const fs: TranscriptFs = {
+      ...nodeTranscriptFs,
+      read(p, pos, len) {
+        if (p === jsonlPath(dir)) return Promise.reject(Object.assign(new Error('EMFILE'), { code: 'EMFILE' }));
+        return nodeTranscriptFs.read(p, pos, len);
+      },
+    };
+    const r = new AgentRoster(dir, { fs, now: () => LAST });
+    assert.equal(await r.poll(), true);
+    assert.equal(r.agents().find((a) => a.id === other)?.outputTokens, 416);
+    const line = JSON.parse(jsonlFrom(T0).split('\n')[2]);
+    appendFileSync(jsonlPath(dir, other), JSON.stringify({ ...line, message: { ...line.message, id: 'msg_3' } }) + '\n');
+    assert.equal(await r.poll(), true);
+    assert.equal(r.agents().find((a) => a.id === other)?.outputTokens, 665);
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
