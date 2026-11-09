@@ -14,7 +14,9 @@ import { Icon } from '../../components/primitives/index.js';
 
 interface FocusProps {
   session: SessionInfo;
-  /** Terminal or Chat for this session; null while the default is still loading. */
+  /** Terminal or Chat for this session: the stored per-session choice, else the
+   *  caller's default (MobileApp passes chat). Null only when a caller has no
+   *  default yet: the body is then covered rather than flashing a view. */
   viewMode: SessionViewMode | null;
   onSetViewMode: (mode: SessionViewMode) => void;
   onBack: () => void;
@@ -25,10 +27,9 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
   const socket = useSocket();
   const [showChanges, setShowChanges] = useState(false);
 
-  // Chat is Claude only, chosen per session (same key as the desktop) and
-  // falling back to the app-wide defaultSessionView. A null mode means the
-  // config has not arrived: cover the body rather than flash the terminal and
-  // swap to the chat a moment later.
+  // Chat is Claude only, chosen per session (same key as the desktop); on the
+  // phone the default is chat (MobileApp). A null mode means no default is
+  // known: cover the body rather than flash one view and swap a moment later.
   const chatCapable = supportsChatView(session.agentType);
   const chatMode = chatCapable && viewMode === 'chat';
   const viewPending = chatCapable && viewMode === null;

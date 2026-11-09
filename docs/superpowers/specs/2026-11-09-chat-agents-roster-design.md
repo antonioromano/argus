@@ -51,7 +51,7 @@ The user asked for three things in this order: see running agents in the Chat; a
 - **No existing tick:** `SessionUsageTracker` has no cadence of its own: a 400 ms debounce on hook nudges, plus a 1 s interval only while a Chat viewer is open. The roster needs its own driver.
 - **Agent file sizes:** reviewer agents here run 300 KB–1.4 MB each; one conversation folder holds 22 agents / 33 MB. Reading every finished agent's jsonl on first sight is not acceptable.
 - `parentAgentId` is already present in the meta file of a `spawnDepth: 2` agent; nested agents live in the same `subagents/` folder. Meta is written at launch, so the folder listing detects a start.
-- Mobile: `ChatView` is mounted by `client/src/app/mobile/Focus.tsx` in chat mode (default since this conversation's uncommitted change in `MobileApp.tsx`); the terminal unmounts in that mode.
+- Mobile: `ChatView` is mounted by `client/src/app/mobile/Focus.tsx` in chat mode (the default since 0.33.0: `MobileApp.tsx` passes `'chat'` as the fallback); the terminal unmounts in that mode.
 
 ## Decisions
 
