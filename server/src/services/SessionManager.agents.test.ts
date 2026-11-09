@@ -211,3 +211,40 @@ test('agents: agentChat refuses a file outside the folder, and undefined for a m
   t.done();
   rmSync(outside, { recursive: true, force: true });
 });
+
+test('agents: a restart fails the roster and arms no done grace for the new run', async () => {
+  const t = transcriptDir();
+  const { sm, emitted } = mgr([t.d]);
+  const s = inject(sm, { status: 'idle', doneHeldByAgents: true });
+  s.stateDetector.destroy = () => {};
+  (sm as any).backendFor = () => ({ detach: () => {}, stopSession: () => {} });
+  // Stop the restart right after the state reset: spawning is not under test.
+  (sm as any).configStore = { load: async () => { throw new Error('stop here'); } };
+  sm.applyAgentMeta('s', { transcriptPath: t.conv });
+  await s.usage.pollNow();
+  assert.equal(s.agentsRunning, 1);
+
+  await assert.rejects(sm.restartSession('s'), /stop here/);
+  const ev = emitted.filter((e) => e.ev === 'session:agents').at(-1)!;
+  assert.equal(ev.p.agentsRunning, 0);
+  assert.deepEqual(ev.p.agents.map((a: AgentRun) => [a.id, a.status]), [[ID, 'failed']]);
+  assert.equal(s.doneTimer, undefined, 'no done grace leaks into the new run');
+  assert.equal(s.doneHeldByAgents, false);
+  s.usage.dispose();
+  t.done();
+});
+
+test('agents: agentChat reports an unreadable agent file as unavailable', async () => {
+  const t = transcriptDir();
+  const OTHER = 'dddddddddddddddd';
+  copyFileSync(path.join(FIXTURES, `agent-${ID}.meta.json`), path.join(t.sub, `agent-${OTHER}.meta.json`));
+  mkdirSync(path.join(t.sub, `agent-${OTHER}.jsonl`)); // a directory by that name: EISDIR on read
+  const { sm } = mgr([t.d]);
+  const s = inject(sm);
+  sm.applyAgentMeta('s', { transcriptPath: t.conv });
+  await s.usage.pollNow();
+  assert.ok(s.usage.agentsSnapshot().agents.some((a: AgentRun) => a.id === OTHER), 'the roster lists it');
+  assert.deepEqual(await sm.agentChat('s', OTHER, 0), { available: false, messages: [], offset: 0 });
+  s.usage.dispose();
+  t.done();
+});

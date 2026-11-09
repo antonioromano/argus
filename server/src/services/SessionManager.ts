@@ -1736,6 +1736,8 @@ export class SessionManager {
     const wasTiered = session.exitedFrame !== undefined;
     session.exitedFrame = undefined;
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    // A done held for the old run's agents is the old run's: failing them below must not promote it.
+    session.doneHeldByAgents = false;
     if (session.nativeRecheckTimer) { clearTimeout(session.nativeRecheckTimer); session.nativeRecheckTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -2507,7 +2509,11 @@ export class SessionManager {
     }
     const tail = new ChatTail(file, nodeTranscriptFs, { sidechain: true });
     tail.seek(after);
-    await tail.poll();
+    try {
+      await tail.poll();
+    } catch {
+      return unavailable; // unreadable (e.g. a directory by that name)
+    }
     return { available: true, messages: tail.messages, offset: tail.lineOffset };
   }
 
@@ -3616,7 +3622,6 @@ export class SessionManager {
   // Queued so concurrent create/destroy calls can't race two store.save()
   // writes and let a stale snapshot win. Each queued job reads `this.sessions`
   // only once it's its turn, so it always persists the latest state.
-  /** Keeps the exit for SessionInfo and the next restore; persisted best-effort. */
   /** The session's current pty exited (both spawn paths). */
   private onPtyExit(session: ManagedSession, stateDetector: StateDetector, exitCode: number): void {
     const id = session.id;
@@ -3631,6 +3636,7 @@ export class SessionManager {
     this.nudgeUsage(session, true);
   }
 
+  /** Keeps the exit for SessionInfo and the next restore; persisted best-effort. */
   private recordExit(session: ManagedSession, exitCode: number): void {
     session.lastExit = {
       exitCode,
