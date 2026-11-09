@@ -1065,9 +1065,34 @@ export interface ChatUpdate {
 }
 
 /**
- * Lifecycle of one agent in a Claude session's roster. `running` comes only from
- * Claude Code's own `finished` flag (plus the main transcript's completion
- * notification as the fallback), never from elapsed time.
+ * Prompts typed while Claude was running, still waiting in Claude Code's queue
+ * (read from its `queue-operation` transcript entries). Only the user's own
+ * prompts are listed: task notifications, messages from other sessions and
+ * slash commands (they get an echo) are left out.
+ */
+export interface ChatQueue {
+  /** In the order Claude Code will read them. */
+  items: ChatQueuedPrompt[];
+  /** Listed prompts ever enqueued in this transcript: grows by one per prompt, never shrinks. */
+  seq: number;
+}
+
+export interface ChatQueuedPrompt {
+  /** `queued-<n>`, n being its place in `seq`. */
+  id: string;
+  blocks: ChatBlock[];
+}
+
+/**
+ * Lifecycle of one agent in a Claude session's roster.
+ *
+ * An agent is `running` when its meta file has no `finished` flag AND its jsonl
+ * entries carry a Claude Code `version` >= 2.1.301 (older writers never set the
+ * flag, so their agents are never shown running). Elapsed time never decides it.
+ * A running agent stops running on the first of: the meta file's `finished`; the
+ * main transcript's `<task-notification>` naming its `toolUseId` or `agentId`; a
+ * non-background Agent call's own `tool_result`; the session exiting, restarting
+ * or changing transcript (then `failed`).
  */
 export type AgentRunStatus = 'running' | 'finished' | 'failed';
 
@@ -1091,7 +1116,12 @@ export interface AgentRun {
   startedAt: number;
   /** Epoch ms of the agent's last jsonl entry, once finished. */
   finishedAt?: number;
-  /** `running` while Claude Code has not set `finished`; `failed` when the agent ended with an error. */
+  /**
+   * `running` only when the meta file has no `finished` flag and the jsonl's Claude Code
+   * `version` is >= 2.1.301 (see AgentRunStatus); it also ends on the main transcript's
+   * `<task-notification>` for this agent. `failed` when the session exited, restarted or
+   * changed transcript while it ran, or the agent ended with an error. Never elapsed time.
+   */
   status: AgentRunStatus;
   /** Output tokens the agent has produced so far. */
   outputTokens: number;
@@ -1109,25 +1139,6 @@ export interface AgentChatResponse {
   messages: ChatMessage[];
   /** Byte offset to pass as `after` on the next call. */
   offset: number;
-}
-
-/**
- * Prompts typed while Claude was running, still waiting in Claude Code's queue
- * (read from its `queue-operation` transcript entries). Only the user's own
- * prompts are listed: task notifications, messages from other sessions and
- * slash commands (they get an echo) are left out.
- */
-export interface ChatQueue {
-  /** In the order Claude Code will read them. */
-  items: ChatQueuedPrompt[];
-  /** Listed prompts ever enqueued in this transcript: grows by one per prompt, never shrinks. */
-  seq: number;
-}
-
-export interface ChatQueuedPrompt {
-  /** `queued-<n>`, n being its place in `seq`. */
-  id: string;
-  blocks: ChatBlock[];
 }
 
 /** Agent kinds whose plan (subscription) usage the meter shows. */
