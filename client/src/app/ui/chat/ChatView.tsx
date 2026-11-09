@@ -16,6 +16,7 @@ import { ChatResumePicker } from './ChatResumePicker.js';
 import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
 import { showTypingRow } from './typingRow.js';
+import { AgentOpenContext, type AgentOpener } from './agentOpen.js';
 import { launchPending, newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -99,6 +100,16 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
 export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet, onOpenAgent }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
   const openAgent = (agent: AgentRun) => onOpenAgent?.(agent);
+  const onOpenAgentRef = useRef(onOpenAgent);
+  onOpenAgentRef.current = onOpenAgent;
+  const canOpenAgent = onOpenAgent !== undefined;
+  const roster = session.agents ?? NO_AGENTS;
+  // Agent steps offer "Open" for agents in the roster (only when the host can show one).
+  const agentOpener = useMemo<AgentOpener | null>(() => {
+    if (!canOpenAgent) return null;
+    const byToolUse = new Map(roster.filter((a) => a.toolUseId).map((a) => [a.toolUseId!, a]));
+    return { agentFor: (id) => byToolUse.get(id), open: (a) => onOpenAgentRef.current?.(a) };
+  }, [canOpenAgent, roster]);
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
@@ -408,7 +419,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
         </div>
       )}
       <div className="argus-chat-main">
-        {body}
+        <AgentOpenContext.Provider value={agentOpener}>{body}</AgentOpenContext.Provider>
         {showTypingRow(session.status, session.agentsRunning ?? 0, rows[rows.length - 1]) && (
           <div className="argus-chat-typing" data-testid="chat-typing">Claude is writing…</div>
         )}
@@ -475,7 +486,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           />
         </div>
       )}
-      <ChatAgentsStrip agents={session.agents ?? NO_AGENTS} onOpen={openAgent} />
+      <ChatAgentsStrip agents={roster} onOpen={openAgent} />
       {aboveComposer}
       <ChatComposer
         sessionId={session.id}

@@ -6,7 +6,7 @@ import { useNow } from '../../../hooks/useNow.js';
 import { StatusMark } from './ChatToolGroup.js';
 import { AGENT_LINGER_MS, agentRowParts, followRoster, nestedCounts } from './agentRow.js';
 
-function AgentMark({ status }: { status: AgentRun['status'] }) {
+export function AgentMark({ status }: { status: AgentRun['status'] }) {
   if (status === 'running') return <StatusMark status="pending" />;
   if (status === 'failed') return <StatusMark status="error" />;
   return <Icon icon={Check} size="sm" className="argus-chat-tool-mark is-done" aria-label="Finished" />;

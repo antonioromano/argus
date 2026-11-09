@@ -105,6 +105,44 @@ describe('ChatView', () => {
     expect(onOpenAgent).toHaveBeenCalledWith(running);
   });
 
+  it('an Agent step with a roster match offers Open', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', toolUseId: 'toolu_a', agentType: 'Explore', description: 'Find callers', background: true,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    const onOpenAgent = vi.fn();
+    act(() => {
+      root.render(<ChatView session={session({ agents: [running] })} socket={socket} onShowTerminal={vi.fn()} onOpenAgent={onOpenAgent} />);
+    });
+    fire('session:chat', update({ messages: [
+      { id: 'm1', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_a', name: 'Agent', label: 'Find callers', status: 'pending' }] },
+      { id: 'm2', role: 'user', blocks: [{ kind: 'text', text: 'next' }] },
+      { id: 'm3', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_other', name: 'Agent', label: 'Unknown agent', status: 'ok' }] },
+    ] }));
+    const steps = Array.from(container.querySelectorAll('[data-testid="chat-tool-step"]'));
+    expect(steps).toHaveLength(2);
+    const open = steps[0].querySelector<HTMLButtonElement>('[data-testid="chat-tool-open-agent"]');
+    expect(open?.textContent).toContain('Open');
+    // No roster entry for the second call: nothing to open.
+    expect(steps[1].querySelector('[data-testid="chat-tool-open-agent"]')).toBeNull();
+    act(() => open!.click());
+    expect(onOpenAgent).toHaveBeenCalledWith(running);
+  });
+
+  it('offers no Open on Agent steps without an onOpenAgent host', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', toolUseId: 'toolu_a', agentType: 'Explore', description: 'Find callers', background: true,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    render(session({ agents: [running] }), socket);
+    fire('session:chat', update({ messages: [
+      { id: 'm1', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_a', name: 'Agent', label: 'Find callers', status: 'pending' }] },
+    ] }));
+    expect(container.querySelector('[data-testid="chat-tool-open-agent"]')).toBeNull();
+  });
+
   it('shows no strip without agents', () => {
     const { socket } = fakeSocket();
     render(session(), socket);

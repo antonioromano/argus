@@ -17,6 +17,8 @@ import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ChatView, TERMINAL_SHEET_BAR_PX } from '../ui/chat/ChatView.js';
+import { ChatAgentSheet } from '../ui/chat/ChatAgentSheet.js';
+import { useOpenedAgent } from '../../hooks/useAgentChat.js';
 import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -185,6 +187,7 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   // The Chat's terminal sheet (F6) is open: inset the terminal below its bar and hand it the keyboard.
   const [chatSheet, setChatSheet] = useState(false);
+  const [openAgent, setOpenAgent] = useOpenedAgent(active);
   const onChatSheet = useCallback((open: boolean) => {
     setChatSheet(open);
     if (open) setFocusToken((t) => t + 1);
@@ -534,7 +537,11 @@ export function Focus({
                   onShowTerminal={() => setViewMode('terminal')}
                   autoFocus
                   onTerminalSheet={onChatSheet}
+                  onOpenAgent={setOpenAgent}
                 />
+              )}
+              {chatMode && !maximized && openAgent && (
+                <ChatAgentSheet session={active} agent={openAgent} onClose={() => setOpenAgent(null)} />
               )}
             </div>
 

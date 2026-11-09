@@ -1,11 +1,12 @@
-import { memo, useReducer, useState } from 'react';
+import { memo, useContext, useReducer, useState } from 'react';
 import type { ChatToolBlock } from '@argus/shared';
 import type { LucideIcon } from 'lucide-react';
-import { Ban, Bot, ChevronRight, CircleX, FilePen, FileText, Globe, ListTodo, LoaderCircle, Plug, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react';
+import { Ban, Bot, ChevronRight, PanelRightOpen, CircleX, FilePen, FileText, Globe, ListTodo, LoaderCircle, Plug, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react';
 import { Icon } from '../../../components/primitives/index.js';
 import { HighlightedCode } from '../../../syntax/HighlightedCode.js';
 import { langForPath } from '../../../syntax/highlighter.js';
 import { editLines, stepPrefix, toolSummary } from './toolSteps.js';
+import { AGENT_TOOLS, AgentOpenContext } from './agentOpen.js';
 
 /**
  * Open groups and steps by key. Owned by the Chat view, so a row the
@@ -120,16 +121,37 @@ function useOpen(id: string, kind: 'step' | 'group', store: ToolOpenState, also?
 
 function Step({ step, store, group }: { step: ChatToolBlock; store: ToolOpenState; group?: string }) {
   const [open, toggle] = useOpen(step.id, 'step', store, group);
+  const opener = useContext(AgentOpenContext);
+  // An Agent call whose agent is in the roster opens it (read from context, so the memoized rows need no new prop).
+  const agent = opener && step.id && AGENT_TOOLS.has(step.name) ? opener.agentFor(step.id) : undefined;
   const prefix = stepPrefix(step);
+  const head = (
+    <button type="button" className="argus-chat-tool-head" aria-expanded={open} onClick={toggle} title={step.name}>
+      <Icon icon={ChevronRight} size="sm" className="argus-chat-tool-caret" aria-hidden />
+      <Icon icon={iconOf(step.name)} size="sm" className="argus-chat-tool-icon" aria-hidden />
+      {prefix && <span className="argus-chat-tool-verb">{prefix}</span>}
+      <span className="argus-chat-tool-label">{step.label}</span>
+      <StatusMark status={step.status} />
+    </button>
+  );
   return (
     <div className={`argus-chat-tool-step${open ? ' is-open' : ''}`} data-testid="chat-tool-step" data-status={step.status}>
-      <button type="button" className="argus-chat-tool-head" aria-expanded={open} onClick={toggle} title={step.name}>
-        <Icon icon={ChevronRight} size="sm" className="argus-chat-tool-caret" aria-hidden />
-        <Icon icon={iconOf(step.name)} size="sm" className="argus-chat-tool-icon" aria-hidden />
-        {prefix && <span className="argus-chat-tool-verb">{prefix}</span>}
-        <span className="argus-chat-tool-label">{step.label}</span>
-        <StatusMark status={step.status} />
-      </button>
+      {agent && opener ? (
+        <div className="argus-chat-tool-line">
+          {head}
+          <button
+            type="button"
+            className="argus-chat-tool-open"
+            onClick={() => opener.open(agent)}
+            title="Read what this agent is doing"
+            data-testid="chat-tool-open-agent"
+          >
+            <Icon icon={PanelRightOpen} size="sm" aria-hidden /> Open
+          </button>
+        </div>
+      ) : (
+        head
+      )}
       {open && <StepDetail step={step} />}
     </div>
   );

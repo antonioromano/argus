@@ -2627,7 +2627,8 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-chat-tool-summary { font-weight: 500; }
 .argus-chat-tool-caret { flex: none; color: var(--fg-3); transition: transform var(--dur-fast) var(--ease); }
 .argus-chat-tools.is-open > .argus-chat-tool-summary .argus-chat-tool-caret,
-.argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
+.argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret,
+.argus-chat-tool-step.is-open > .argus-chat-tool-line > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
 .argus-chat-tool-icon { flex: none; color: var(--fg-3); }
 .argus-chat-tool-verb { flex: none; color: var(--fg-3); }
 .argus-chat-tool-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2802,6 +2803,70 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-chat-agent-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .argus-chat-agent-meta { flex: none; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .argus-chat-tool-mark.is-done { color: var(--ok); }
+/* An Agent step whose agent is in the roster: its head, then "Open" (agent sheet). */
+.argus-chat-tool-line { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.argus-chat-tool-open {
+  all: unset;
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--s-1-5);
+  border-radius: var(--r-1);
+  font-size: var(--t-xs);
+  color: var(--accent);
+  cursor: pointer;
+}
+.argus-chat-tool-open:hover { background: var(--bg-2); }
+.argus-chat-tool-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Agent sheet: one agent's transcript, read-only. */
+.argus-agent-sheet-body { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; }
+.argus-agent-sheet-messages { display: flex; flex-direction: column; }
+.argus-agent-sheet-nested { display: flex; flex-direction: column; padding-bottom: var(--s-2); border-bottom: 1px solid var(--line-1); }
+.argus-agent-sheet-nested-title { color: var(--fg-3); margin-bottom: var(--s-1); }
+.argus-agent-sheet-nested-row { cursor: default; max-width: none; }
+.argus-agent-sheet-nested-row:hover { background: transparent; }
+/* Phone: full screen over the chat, with the Changes screen's header. */
+.argus-agent-screen { display: flex; flex-direction: column; background: var(--bg-0); }
+.argus-agent-screen-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  min-height: 52px;
+  padding: env(safe-area-inset-top, 0px) var(--s-3) 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+}
+.argus-agent-screen-back {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--row-h-touch);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--accent);
+  font-size: var(--t-tiny);
+  cursor: pointer;
+}
+.argus-agent-screen-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.argus-agent-screen-title, .argus-agent-screen-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-agent-screen-title { font-size: var(--t-sm); font-weight: 600; color: var(--fg-0); }
+.argus-agent-screen-subtitle { font-size: var(--t-xs); color: var(--fg-3); }
+.argus-agent-screen-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-3) calc(var(--s-3) + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
 /* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
 .argus-chat[data-sheet] { background: transparent; pointer-events: none; }
 .argus-chat[data-sheet] > :not(.argus-chat-sheet-bar) { visibility: hidden; }

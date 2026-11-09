@@ -6,6 +6,8 @@ import { useTerminal } from '../../hooks/useTerminal.js';
 import { useTheme } from '../../context/theme-context.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ChatView } from '../ui/chat/ChatView.js';
+import { ChatAgentSheet } from '../ui/chat/ChatAgentSheet.js';
+import { useOpenedAgent } from '../../hooks/useAgentChat.js';
 import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
 import { Diff } from './Diff.js';
@@ -26,6 +28,7 @@ interface FocusProps {
 export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: FocusProps) {
   const socket = useSocket();
   const [showChanges, setShowChanges] = useState(false);
+  const [openAgent, setOpenAgent] = useOpenedAgent(session);
 
   // Chat is Claude only, chosen per session (same key as the desktop); on the
   // phone the default is chat (MobileApp). A null mode means no default is
@@ -95,12 +98,17 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
             // The desktop keeps the chat see-through over a terminal sheet; a phone
             // has no room for both.
             onTerminalSheet={(open) => { if (open) onSetViewMode('terminal'); }}
+            onOpenAgent={setOpenAgent}
           />
         </div>
       ) : viewPending ? (
         <div data-testid="view-pending" aria-hidden style={{ flex: 1, minHeight: 0, background: 'var(--bg-inset)' }} />
       ) : (
         <TerminalMode key={session.id} session={session} />
+      )}
+      {/* Full screen over the chat, like Changes: a phone has no room for a sheet beside it. */}
+      {chatMode && openAgent && (
+        <ChatAgentSheet session={session} agent={openAgent} onClose={() => setOpenAgent(null)} fullScreen />
       )}
       {showChanges && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)' }}>
