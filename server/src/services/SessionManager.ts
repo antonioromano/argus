@@ -2287,6 +2287,11 @@ export class SessionManager {
     this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
   }
 
+  /** A subagent's hook fired: poll soon so the roster lists the new agent sooner. */
+  nudgeAgents(sessionId: string): void {
+    this.sessions.get(sessionId)?.usage?.schedule();
+  }
+
   /**
    * Hook metadata from a Claude session: the conversation id (Resume) and the
    * transcript path (usage meter). Validated by the route; ignored for any

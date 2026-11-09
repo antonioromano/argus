@@ -110,7 +110,7 @@ export function resolveTranscriptPath(p: unknown, roots: readonly string[] = tra
 }
 
 /** A subagent's own transcript (`…/subagents/agent-*.jsonl`) is never the session's (D13). */
-function isSubagentTranscript(p: string): boolean {
+export function isSubagentTranscript(p: string): boolean {
   return path.basename(path.dirname(p)) === 'subagents';
 }
 
