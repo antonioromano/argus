@@ -4,6 +4,7 @@ import { AgentGlyph } from './AgentGlyph.js';
 import { StatusStrip, DirtyBadge, IconButton, Tooltip, Row, Spacer, Text } from '../../components/primitives/index.js';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/status.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface SessionCardProps {
   session: SessionInfo;
@@ -25,8 +26,9 @@ function defaultLastOut(s: SessionInfo): string {
 }
 
 export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, onKill, onOpenDiff, focus }: SessionCardProps) {
-  const statusColor = STATUS_COLORS[s.status];
-  const statusLabel = STATUS_LABELS[s.status];
+  const ds = displayStatus(s);
+  const statusColor = STATUS_COLORS[ds];
+  const statusLabel = STATUS_LABELS[ds];
   const preview = lastOut ?? defaultLastOut(s);
   return (
     <div
@@ -41,7 +43,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
       }}
       aria-label={`Open session ${s.name}, status ${statusLabel}, folder ${s.folderPath}`}
       className="terminal-card"
-      data-status={s.status}
+      data-status={ds}
       style={{
         position: 'relative',
         overflow: 'hidden',
@@ -58,7 +60,7 @@ export function SessionCard({ session: s, lastOut, groupColor, onClick, onMore, 
             : 'var(--shadow-1)',
       }}
     >
-      <StatusStrip status={s.status} height={3} />
+      <StatusStrip status={ds} height={3} />
 
       <Row align="start" gap={2} style={{ padding: 'var(--s-3) var(--s-3) var(--s-2)' }}>
         <AgentGlyph agent={s.agentType} />

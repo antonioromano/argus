@@ -4,6 +4,7 @@ import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { StatusPill, DirtyBadge, Icon, Row, Text } from '../../components/primitives/index.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface FocusHeaderProps {
   session: SessionInfo;
@@ -60,7 +61,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           name mid-word — `bursttest` became `burst…` just because output started.
           Reserve the widest label's footprint so the title never reflows. */}
       <Row align="stretch" justify="end" style={{ flexShrink: 0, minWidth: 86 }}>
-        <StatusPill status={session.status} size="sm" />
+        <StatusPill status={displayStatus(session)} size="sm" />
       </Row>
       <button
         onClick={onShowChanges}

@@ -1,4 +1,4 @@
-import type { SessionStatus } from '@argus/shared';
+import type { DisplayStatus } from '../../utils/displayStatus.js';
 import { Row, StatusPill } from '../../components/primitives/index.js';
 
 /**
@@ -9,7 +9,7 @@ import { Row, StatusPill } from '../../components/primitives/index.js';
  * same way keeps the grid consistent. The terminal stays mounted underneath;
  * nothing reloads when the sheet closes. The parent must be `position: relative`.
  */
-export function ModalPlaceholder({ status }: { status: SessionStatus }) {
+export function ModalPlaceholder({ status }: { status: DisplayStatus }) {
   return (
     <Row
       justify="center"

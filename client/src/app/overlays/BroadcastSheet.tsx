@@ -4,6 +4,7 @@ import { Send } from 'lucide-react';
 import { Button, Checkbox, Sheet, StatusPill, TextInput, Toggle, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { broadcastTargets, broadcastTextError } from './broadcastInput.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface BroadcastSheetProps {
   sessions: SessionInfo[];
@@ -135,7 +136,7 @@ export function BroadcastSheet({ sessions, initialSelected, onSend, onSent, onCl
                   <span className="argus-broadcast-name">{s.name}</span>
                   <span className="argus-broadcast-path">{s.folderPath.split('/').slice(-2).join('/')}</span>
                   <span style={{ flex: 1 }} />
-                  <StatusPill status={s.status} size="sm" />
+                  <StatusPill status={displayStatus(s)} size="sm" />
                 </div>
               ))}
             </Stack>

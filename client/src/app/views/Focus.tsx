@@ -49,6 +49,7 @@ import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { isMaximizedPanel, type SidePanel } from '../types.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
 const SIDE_PANEL_MIN = 240;
@@ -337,7 +338,7 @@ export function Focus({
                 so it can never push the actions after it out of view. */}
             <div ref={infoRef} className="argus-tile-info" data-testid="focus-info" data-shed={shed} style={{ gap: 'var(--s-3)' }}>
               <AgentGlyph agent={active.agentType} size={16} />
-              {shed < SHED.status ? <StatusPill status={active.status} /> : <StatusDot status={active.status} size={7} />}
+              {shed < SHED.status ? <StatusPill status={displayStatus(active)} /> : <StatusDot status={displayStatus(active)} size={7} />}
               <SessionIdentity session={active} />
               {renaming ? (
                 <SessionRenameInput
@@ -458,7 +459,7 @@ export function Focus({
                 onClick={(e) => sessionMenu.openMenuAt(active, e.currentTarget, 'focus')}
               />
             </div>
-            {runningIndicator === 'hairline' && active.status === 'running' && (
+            {runningIndicator === 'hairline' && sortStatus(displayStatus(active)) === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}
           </Row>
@@ -482,7 +483,7 @@ export function Focus({
                   session={active}
                   socket={socket}
                   theme={theme}
-                  status={active.status}
+                  status={displayStatus(active)}
                   focused={terminalFocused}
                   onFocusChange={setTerminalFocused}
                   // Entering Focus is a request to work in this shell: take
@@ -513,7 +514,7 @@ export function Focus({
                 />
               )}
               {/* The Chat paints over a hidden terminal, unless its see-through terminal sheet is open. */}
-              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={active.status} />}
+              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={displayStatus(active)} />}
               {viewPending && (
                 <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
               )}

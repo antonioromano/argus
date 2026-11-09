@@ -9,6 +9,7 @@ import { SessionRenameInput } from './SessionRenameInput.js';
 import { SessionIdentity } from './SessionIdentity.js';
 import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { useTheme } from '../../context/theme-context.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 interface MinimizedChipProps {
   session: SessionInfo;
@@ -53,7 +54,7 @@ export function ChipMarks({ session }: { session: SessionInfo }) {
           <span className="argus-chip-dirty" role="img" aria-label="Uncommitted changes">±</span>
         </Tooltip>
       )}
-      {session.status === 'running' && <span className="argus-tile-prog argus-chip-prog" aria-hidden><i /></span>}
+      {sortStatus(displayStatus(session)) === 'running' && <span className="argus-tile-prog argus-chip-prog" aria-hidden><i /></span>}
     </>
   );
 }
@@ -74,7 +75,7 @@ export function MinimizedChip({ session, onClick, onDragStart, onDragOver, onDro
 
   const body = (
     <>
-      <StatusDot status={session.status} size={6} />
+      <StatusDot status={displayStatus(session)} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <SessionIdentity session={session} />
       {renaming ? (

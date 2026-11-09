@@ -1,8 +1,8 @@
-import type { SessionStatus } from '@argus/shared';
+import type { DisplayStatus } from '../../utils/displayStatus.js';
 import { STATUS_MARQUEE } from '../../constants/status.js';
 
 interface StatusStripProps {
-  status: SessionStatus;
+  status: DisplayStatus;
   height?: number;
   marquee?: boolean;
 }

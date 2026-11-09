@@ -3,6 +3,7 @@ import type { SessionInfo } from '@argus/shared';
 import { TextInput, Tooltip } from '../../components/primitives/index.js';
 import { STATUS_COLORS } from '../../constants/status.js';
 import { filterSessions } from '../../utils/sessionFilter.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface TopToolbarProps {
   filter?: string;
@@ -50,8 +51,8 @@ export function TopToolbar({ filter, onFilter, sessions, activeSessionId, onSele
                     padding: 0,
                     border: 'none',
                     borderRadius: 0,
-                    background: STATUS_COLORS[s.status],
-                    opacity: isActive ? 1 : s.status === 'idle' ? 0.4 : 1,
+                    background: STATUS_COLORS[displayStatus(s)],
+                    opacity: isActive ? 1 : displayStatus(s) === 'idle' ? 0.4 : 1,
                     boxShadow: isActive ? 'inset 0 0 0 2px var(--fg-0)' : 'none',
                     animation: s.status === 'waiting' ? 'argus-pulse-bar 2.4s ease-in-out infinite' : 'none',
                     cursor: onSelectSession ? 'pointer' : 'default',

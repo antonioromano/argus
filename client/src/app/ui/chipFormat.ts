@@ -1,5 +1,6 @@
 import type { PrTone, SessionInfo, SessionPrSummary } from '@argus/shared';
 import { PR_STATE_LABEL, prRef, prTone } from '../../utils/prFormat.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 const TONE_LABEL: Record<PrTone, string> = {
   blocked: 'needs attention',
@@ -30,5 +31,5 @@ export function describeChipPrs(summary: SessionPrSummary): string[] {
 
 /** The pill's class; `--running` while the session works (the sweep is in ChipMarks). */
 export function chipClass(session: SessionInfo, extra?: string): string {
-  return ['argus-chip', session.status === 'running' && 'argus-chip--running', extra].filter(Boolean).join(' ');
+  return ['argus-chip', sortStatus(displayStatus(session)) === 'running' && 'argus-chip--running', extra].filter(Boolean).join(' ');
 }

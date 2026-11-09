@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SessionInfo, SessionStatus } from '@argus/shared';
+import type { SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import type { ISearchOptions } from '@xterm/addon-search';
@@ -8,6 +8,7 @@ import type { NativeTerminalTheme } from '../../hooks/useTerminal.js';
 import { useNativeOverlayRect } from '../../hooks/useNativeOverlayRect.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { STATUS_COLORS } from '../../constants/status.js';
+import { displayStatus, type DisplayStatus } from '../../utils/displayStatus.js';
 import { formatPathsForPty } from '../../utils/pathFormat.js';
 import { TerminalSearchBar } from '../../components/terminal/TerminalSearchBar.js';
 import type { TerminalSearchEngine } from '../../components/terminal/TerminalSearchBar.js';
@@ -93,7 +94,7 @@ interface TerminalShellProps {
   session: SessionInfo;
   socket: TypedSocket;
   theme: 'dark' | 'light';
-  status?: SessionStatus;
+  status?: DisplayStatus;
   focused?: boolean;
   onFocusChange?: (focused: boolean) => void;
   /** Draw status-colored border + radius + waiting glow. Default true (mosaic). Focus view sets false. */
@@ -353,7 +354,7 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
 
   if (failed) return <TerminalShellXterm {...props} />;
   const { status, framed = true } = props;
-  const st = status ?? session.status;
+  const st = status ?? displayStatus(session);
   const edge = STATUS_COLORS[st];
   // The overlay is an opaque child NSWindow covering exactly the hole, so any
   // chrome has to live OUTSIDE that rect to be visible at all. Border, radius
@@ -503,7 +504,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
     }
   }, [socket, session.id]);
 
-  const st = status ?? session.status;
+  const st = status ?? displayStatus(session);
   const edge = STATUS_COLORS[st];
   // Match xterm's own theme background so the sub-row gutter left by FitAddon's
   // whole-cell rounding (most visible at the bottom) blends in instead of

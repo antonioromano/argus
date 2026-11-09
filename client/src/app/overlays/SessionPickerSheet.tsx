@@ -1,6 +1,7 @@
 import type { SessionInfo } from '@argus/shared';
 import { Sheet, StatusPill, Stack, Text } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface SessionPickerSheetProps {
   sessions: SessionInfo[];
@@ -48,7 +49,7 @@ export function SessionPickerSheet({ sessions, target, onClose, onPick }: Sessio
                 {s.agentType}
               </div>
             </div>
-            <StatusPill status={s.status} size="sm" />
+            <StatusPill status={displayStatus(s)} size="sm" />
           </button>
         ))}
       </Stack>
