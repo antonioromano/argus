@@ -80,6 +80,11 @@ export abstract class JsonlTailer {
     return this.offset;
   }
 
+  /** Byte offset just past everything read so far, the carried unterminated line included. */
+  get readPosition(): number {
+    return this.offset + this.pendingBytes;
+  }
+
   /**
    * Start the next poll at `offset`, which must be a line boundary (a
    * `lineOffset` from an earlier read): the bytes before it are never read.
@@ -92,8 +97,11 @@ export abstract class JsonlTailer {
     this.dropping = false;
   }
 
-  /** Read whatever was appended since the last poll. Resolves true when the state changed. */
-  async poll(): Promise<boolean> {
+  /**
+   * Read whatever was appended since the last poll, at most `maxBytes` of it
+   * (the rest is left for the next poll). Resolves true when the state changed.
+   */
+  async poll(maxBytes = Infinity): Promise<boolean> {
     let st: { size: number; ino: number };
     try {
       st = await this.fs.stat(this.path);
@@ -108,8 +116,9 @@ export abstract class JsonlTailer {
     this.ino = st.ino;
 
     let pos = this.offset + this.pendingBytes;
-    while (pos < st.size) {
-      const len = Math.min(READ_CHUNK, st.size - pos);
+    const end = Math.min(st.size, pos + Math.max(0, maxBytes));
+    while (pos < end) {
+      const len = Math.min(READ_CHUNK, end - pos);
       const chunk = await this.fs.read(this.path, pos, len);
       if (chunk.length === 0) break;
       pos += chunk.length;

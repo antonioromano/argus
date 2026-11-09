@@ -299,6 +299,12 @@ interface ManagedSession {
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
   /** When the current pty was spawned (ms); measures exitedAfterMs. */
   spawnedAt?: number;
+  /**
+   * Claude only: when the current Claude process started (ms), for the agent
+   * roster's run-start rule. Unknown for a re-attached survivor whose start was
+   * never persisted (the rule then stays off).
+   */
+  runStartedAt?: number;
   /** The last run's exit, persisted so a restored exited session keeps it
    *  (the "couldn't find <cmd>" card needs code 127 + how soon it exited). */
   lastExit?: { exitCode: number; exitedAfterMs?: number };
@@ -1574,6 +1580,9 @@ export class SessionManager {
       color: opts.color,
       emoji: opts.emoji,
       spawnedAt: Date.now(),
+      // A survivor keeps the start persisted with its meter (applyRestoredInsights);
+      // anything else is a new process, or none at all (restoreExited: its agents are dead).
+      runStartedAt: attachExisting ? undefined : Date.now(),
       lastExit: restoreExited ? opts.lastExit : undefined,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
@@ -1759,8 +1768,11 @@ export class SessionManager {
     session.initialPrompt = undefined;
     this.endStartup(session);
     session.startup = session.agentType === 'claude' ? { last: 'running', prompted: false, heuristicOk: true } : undefined;
-    // The old process's agents died with it, resumed or not.
+    // The old process's agents died with it, resumed or not; any agent first
+    // seen from now on that was last written before this point died with it too.
     session.usage?.failAgents();
+    session.runStartedAt = Date.now();
+    session.usage?.setRunStartedAt(session.runStartedAt);
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -2472,7 +2484,10 @@ export class SessionManager {
   }
 
   private usageTracker(session: ManagedSession): SessionUsageTracker {
-    session.usage ??= new SessionUsageTracker((usage) => this.onUsageChange(session, usage), this.trackerOpts(session));
+    if (!session.usage) {
+      session.usage = new SessionUsageTracker((usage) => this.onUsageChange(session, usage), this.trackerOpts(session));
+      if (session.runStartedAt !== undefined) session.usage.setRunStartedAt(session.runStartedAt);
+    }
     return session.usage;
   }
 
@@ -3453,6 +3468,9 @@ export class SessionManager {
     if (opts.usage) {
       try {
         session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u), this.trackerOpts(session));
+        // A survivor's process started when the meter says; any other session started a new one (or none).
+        if (session.runStartedAt === undefined) session.runStartedAt = session.usage.runStart;
+        else session.usage.setRunStartedAt(session.runStartedAt);
         // A surviving agent kept writing while Argus was down — catch up.
         if (sameRun) session.usage.schedule();
         // A fresh agent starts an empty context, as a non-resume restart does.

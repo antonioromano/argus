@@ -5,9 +5,11 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { nodeTranscriptFs, type TranscriptFs } from './JsonlTailer.js';
-import { AGENT_ROSTER_CAP, AgentRoster } from './AgentRoster.js';
+import { AGENT_ROSTER_CAP, AGENT_VERSION_PROBE_BYTES, AgentRoster, isAgentId } from './AgentRoster.js';
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'subagents');
+const NAMED_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'subagents-named');
+const NAMED = 'ap2-palette-fe28114a195e07d2';
 const ID = 'aaaaaaaaaaaaaaaaa';
 /** The fixture jsonl's first and last entry timestamps (entries are 1 s apart). */
 const T0 = Date.parse('2026-11-09T14:36:24.000Z');
@@ -254,4 +256,124 @@ describe('AgentRoster', () => {
     assert.equal(r.agents().find((a) => a.id === other)?.outputTokens, 665);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  test('a named agent (hyphenated id) is listed, tailed and ended by its notification', async () => {
+    assert.equal(isAgentId(NAMED), true);
+    for (const bad of ['a.b', '../x', 'a/b', '-abcdef', 'short', 'x'.repeat(97)]) assert.equal(isAgentId(bad), false, bad);
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'argus-roster-'));
+    cpSync(NAMED_FIXTURES, dir, { recursive: true });
+    const r = new AgentRoster(dir, { now: () => LAST });
+    await r.poll();
+    const [a] = r.agents();
+    assert.equal(a.id, NAMED);
+    assert.equal(a.status, 'running', 'named agents never get `finished`');
+    assert.equal(a.outputTokens, 416);
+    assert.equal(r.applyNotification({ taskId: NAMED, toolUseId: 'toolu_named', status: 'killed', at: LAST + 500 }), true);
+    assert.equal(r.agents()[0].status, 'failed');
+    assert.equal(r.runningCount(), 0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('run-start rule: an unfinished agent last written before the run started is failed at first sight', async () => {
+    const dir = folder();
+    const r = new AgentRoster(dir, { now: () => LAST + MIN, runStartedAt: LAST + 1 });
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'failed');
+    assert.equal(r.agents()[0].finishedAt, LAST);
+    assert.equal(r.runningCount(), 0);
+
+    // Written after the run started: this run's agent, running.
+    const live = new AgentRoster(dir, { now: () => LAST, runStartedAt: T0 - 1 });
+    await live.poll();
+    assert.equal(live.agents()[0].status, 'running');
+    // A later run start never fails an agent already listed (failAll does that).
+    live.setRunStartedAt(LAST + MIN);
+    await live.poll();
+    assert.equal(live.agents()[0].status, 'running');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('run-start rule falls back to the jsonl mtime when no entry has a timestamp', async () => {
+    const dir = folder();
+    const lines = jsonlFrom(T0).split('\n').filter(Boolean).map((l) => { const e = JSON.parse(l); delete e.timestamp; return JSON.stringify(e); });
+    writeFileSync(jsonlPath(dir), lines.join('\n') + '\n');
+    utimesSync(jsonlPath(dir), new Date(T0), new Date(T0));
+    const r = new AgentRoster(dir, { now: () => LAST, runStartedAt: T0 + 1000 });
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'failed');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('after failAll, an agent first seen later and last written before it is failed too', async () => {
+    const dir = folder();
+    const r = new AgentRoster(dir, { now: () => LAST + MIN });
+    await r.poll();
+    r.failAll();
+    const other = 'bbbbbbbbbbbbbbbbb';
+    writeMeta(dir, other, {});
+    writeFileSync(jsonlPath(dir, other), jsonlFrom(T0 + 10_000));
+    await r.poll();
+    assert.equal(r.agents().find((a) => a.id === other)?.status, 'failed');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('a notification read before the agent is first listed ends it at first sight', async () => {
+    const dir = folder();
+    const r = new AgentRoster(dir, { now: () => LAST });
+    assert.equal(r.applyNotification({ taskId: 'zzzzzzzz', toolUseId: 'toolu_1', status: 'killed', at: LAST + 1 }), false);
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'failed', 'matched by tool use id');
+    assert.equal(r.runningCount(), 0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('an older writer is decided from the first 64 KB and never tailed past it', async () => {
+    const dir = folder();
+    const head = jsonlFrom(T0, '2.1.200');
+    const filler = JSON.stringify({ type: 'user', message: { role: 'user', content: 'x'.repeat(4096) } }) + '\n';
+    writeFileSync(jsonlPath(dir), head + filler.repeat(64)); // ~260 KB
+    const { fs } = countingFs();
+    let bytes = 0;
+    const counted: TranscriptFs = { ...fs, read: (p, pos, len) => { if (p === jsonlPath(dir)) bytes += len; return fs.read(p, pos, len); } };
+    const r = new AgentRoster(dir, { fs: counted, now: () => LAST });
+    await r.poll();
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'finished');
+    assert.ok(bytes <= AGENT_VERSION_PROBE_BYTES, `read ${bytes} bytes`);
+
+    // No version at all in the head: an older writer too.
+    const dir2 = folder();
+    writeFileSync(jsonlPath(dir2), filler.repeat(64));
+    const r2 = new AgentRoster(dir2, { now: () => LAST });
+    await r2.poll();
+    assert.equal(r2.agents()[0].status, 'finished');
+    assert.equal(r2.runningCount(), 0);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir2, { recursive: true, force: true });
+  });
+
+  test('a stuck read is warned about once per agent per minute', async () => {
+    const dir = folder();
+    let now = LAST;
+    const fs: TranscriptFs = {
+      ...nodeTranscriptFs,
+      read: () => Promise.reject(Object.assign(new Error('EACCES'), { code: 'EACCES' })),
+    };
+    const warn = console.warn;
+    const warned: unknown[][] = [];
+    console.warn = (...args: unknown[]) => { warned.push(args); };
+    try {
+      const r = new AgentRoster(dir, { fs, now: () => now });
+      await r.poll();
+      await r.poll();
+      assert.equal(warned.length, 1);
+      now += MIN;
+      await r.poll();
+      assert.equal(warned.length, 2);
+    } finally {
+      console.warn = warn;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
+

@@ -72,8 +72,62 @@ export function isGithubPrUrl(v: unknown): v is string {
 /** A background agent's completion, as Claude Code records it in the main transcript. */
 export interface TaskNotification { taskId: string; toolUseId?: string; status: string; at: number }
 
-/** Notifications held between takeTaskNotifications() calls; the oldest drop off first. */
+/**
+ * Notifications held between takeTaskNotifications() calls once the first take
+ * happened; the oldest drop off first. Before it, nothing is dropped.
+ */
 const MAX_TASK_NOTIFICATIONS = 50;
+
+/** The task notification in one transcript line (a user entry or a queued_command attachment), if any. */
+export function parseTaskNotification(text: string): TaskNotification | undefined {
+  if (!text.includes('<task-notification>')) return undefined;
+  let entry: any;
+  try {
+    entry = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const content = entry?.message?.content;
+  const body: unknown =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content) && content[0]?.type === 'text'
+        ? content[0].text
+        : entry?.attachment?.type === 'queued_command'
+          ? entry.attachment.prompt
+          : undefined;
+  if (typeof body !== 'string' || !body.trimStart().startsWith('<task-notification>')) return undefined;
+  const tag = (name: string): string | undefined => body.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`))?.[1] || undefined;
+  const taskId = tag('task-id');
+  const status = tag('status');
+  if (!taskId || !status) return undefined;
+  const toolUseId = tag('tool-use-id');
+  const ms = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
+  const n: TaskNotification = { taskId, status, at: Number.isFinite(ms) ? ms : Date.now() };
+  if (toolUseId) n.toolUseId = toolUseId;
+  return n;
+}
+
+/**
+ * Every task notification of a whole transcript, read once. A tailer restored
+ * at a saved offset never sees the notifications before it, so the roster of a
+ * restored session is fed from this instead.
+ */
+export class TaskNotificationScan extends JsonlTailer {
+  notifications: TaskNotification[] = [];
+
+  protected clear(): boolean {
+    const had = this.notifications.length > 0;
+    this.notifications = [];
+    return had;
+  }
+
+  protected line(text: string): boolean {
+    const n = parseTaskNotification(text);
+    if (n) this.notifications.push(n);
+    return !!n;
+  }
+}
 
 const zero = (): UsageCounters => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
@@ -91,11 +145,14 @@ export class TranscriptTailer extends JsonlTailer {
    */
   prUrls: string[] = [];
   private taskNotifications: TaskNotification[] = [];
+  /** takeTaskNotifications() was called since the file was (re)read from byte 0. */
+  private taken = false;
 
   /** Notifications seen since the last call; cleared on return. */
   takeTaskNotifications(): TaskNotification[] {
     const out = this.taskNotifications;
     this.taskNotifications = [];
+    this.taken = true;
     return out;
   }
 
@@ -151,6 +208,7 @@ export class TranscriptTailer extends JsonlTailer {
     this.context = undefined;
     this.prUrls = [];
     this.taskNotifications = [];
+    this.taken = false;
     return had;
   }
 
@@ -222,32 +280,12 @@ export class TranscriptTailer extends JsonlTailer {
 
   /** Record a `<task-notification>` carried by a user entry or a queued_command attachment. */
   private noteTask(text: string): void {
-    let entry: any;
-    try {
-      entry = JSON.parse(text);
-    } catch {
-      return;
-    }
-    const content = entry?.message?.content;
-    const body: unknown =
-      typeof content === 'string'
-        ? content
-        : Array.isArray(content) && content[0]?.type === 'text'
-          ? content[0].text
-          : entry?.attachment?.type === 'queued_command'
-            ? entry.attachment.prompt
-            : undefined;
-    if (typeof body !== 'string' || !body.trimStart().startsWith('<task-notification>')) return;
-    const tag = (name: string): string | undefined => body.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`))?.[1] || undefined;
-    const taskId = tag('task-id');
-    const status = tag('status');
-    if (!taskId || !status) return;
-    const toolUseId = tag('tool-use-id');
-    const ms = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
-    const n: TaskNotification = { taskId, status, at: Number.isFinite(ms) ? ms : Date.now() };
-    if (toolUseId) n.toolUseId = toolUseId;
+    const n = parseTaskNotification(text);
+    if (!n) return;
     this.taskNotifications.push(n);
-    if (this.taskNotifications.length > MAX_TASK_NOTIFICATIONS) this.taskNotifications.shift();
+    // Until the first take (a fresh read of a long transcript) every one is kept,
+    // so no agent of that history is left running for want of its notification.
+    if (this.taken && this.taskNotifications.length > MAX_TASK_NOTIFICATIONS) this.taskNotifications.shift();
   }
 
   private addPrUrl(url: string): void {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { realpathSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, symlinkSync, rmSync, statSync } from 'fs';
+import { realpathSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, appendFileSync, readFileSync, symlinkSync, rmSync, statSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -245,6 +245,70 @@ test('agents: agentChat reports an unreadable agent file as unavailable', async 
   await s.usage.pollNow();
   assert.ok(s.usage.agentsSnapshot().agents.some((a: AgentRun) => a.id === OTHER), 'the roster lists it');
   assert.deepEqual(await sm.agentChat('s', OTHER, 0), { available: false, messages: [], offset: 0 });
+  s.usage.dispose();
+  t.done();
+});
+
+/** The fixture agent's jsonl, re-timed so its last entry is `msAgo` before now (the real clock). */
+function retimeAgent(sub: string, msAgo: number): number {
+  const file = path.join(sub, `agent-${ID}.jsonl`);
+  const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  const last = Date.now() - msAgo;
+  writeFileSync(file, lines.map((l, i) => JSON.stringify({ ...JSON.parse(l), timestamp: new Date(last - (lines.length - 1 - i) * 1000).toISOString() })).join('\n') + '\n');
+  return last;
+}
+
+test('agents: a restart fails an agent of the old process that the roster never listed', async () => {
+  const t = transcriptDir();
+  const last = retimeAgent(t.sub, 60_000);
+  const { sm, emitted } = mgr([t.d]);
+  // A resume keeps the transcript, so the next run reads the same subagents folder.
+  const s = inject(sm, { status: 'idle', claudeSessionId: '11111111-1111-4111-8111-111111111111' });
+  s.stateDetector.destroy = () => {};
+  (sm as any).backendFor = () => ({ detach: () => {}, stopSession: () => {} });
+  (sm as any).configStore = { load: async () => { throw new Error('stop here'); } };
+  // Known transcript, never polled (e.g. restored a moment ago): the roster is empty at restart.
+  sm.applyAgentMeta('s', { transcriptPath: t.conv });
+  await assert.rejects(sm.restartSession('s', { resume: true }), /stop here/);
+  assert.ok(s.runStartedAt > last);
+  await s.usage.pollNow();
+  const ev = emitted.filter((e) => e.ev === 'session:agents').at(-1)!;
+  assert.equal(ev.p.agentsRunning, 0);
+  assert.deepEqual(ev.p.agents.map((a: AgentRun) => [a.id, a.status]), [[ID, 'failed']]);
+  s.usage.dispose();
+  t.done();
+});
+
+test('agents: a restored meter whose offset is past a killed notification holds no done', async (tc) => {
+  const t = transcriptDir();
+  appendFileSync(
+    t.conv,
+    JSON.stringify({
+      type: 'user', uuid: 'u2', timestamp: new Date().toISOString(),
+      message: { role: 'user', content: `<task-notification>\n<task-id>${ID}</task-id>\n<status>killed</status>\n</task-notification>` },
+    }) + '\n',
+  );
+  // The previous Argus read the whole transcript, then quit.
+  const prev = mgr([t.d]);
+  const old = inject(prev.sm);
+  prev.sm.applyAgentMeta('s', { transcriptPath: t.conv });
+  await old.usage.pollNow();
+  const usage = old.usage.serialize();
+  old.usage.dispose();
+
+  // Re-attached survivor: the run start is unknown (older state), the notification is behind the offset.
+  const { sm, emitted } = mgr([t.d]);
+  const s = inject(sm, { status: 'running' });
+  (sm as any).applyRestoredInsights(s, { usage }, true);
+  await s.usage.pollNow();
+  assert.equal(s.agentsRunning ?? 0, 0);
+  assert.deepEqual(s.usage.agentsSnapshot().agents.map((a: AgentRun) => [a.id, a.status]), [[ID, 'failed']]);
+
+  tc.mock.timers.enable({ apis: ['setTimeout'] });
+  sm.applyNativeSignal('s', { state: 'idle', coverage: FULL });
+  tc.mock.timers.tick(DONE_GRACE_MS);
+  assert.equal(s.status, 'done', 'no agent holds the done');
+  assert.equal(statuses(emitted).at(-1), 'done');
   s.usage.dispose();
   t.done();
 });

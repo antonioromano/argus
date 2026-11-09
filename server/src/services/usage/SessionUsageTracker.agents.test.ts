@@ -135,3 +135,100 @@ test('roster: clearCurrent fails the unfinished agents first', async () => {
   assert.equal(calls[1].agents[0].status, 'failed');
   done();
 });
+
+// --- C1: agents killed or crashed never get `finished`; the run must still end them ---
+
+const FIXTURE_JSONL = () => readFileSync(path.join(FIXTURES, `agent-${ID}.jsonl`), 'utf8');
+
+/** A task notification line as Claude Code writes it into the main transcript. */
+const notification = (taskId: string, status: string, uuid: string, toolUseId?: string) =>
+  JSON.stringify({
+    type: 'user',
+    uuid,
+    timestamp: '2026-11-09T14:40:00.000Z',
+    message: {
+      role: 'user',
+      content: `<task-notification>\n<task-id>${taskId}</task-id>\n${toolUseId ? `<tool-use-id>${toolUseId}</tool-use-id>\n` : ''}<status>${status}</status>\n</task-notification>`,
+    },
+  }) + '\n';
+
+test('roster: a restored tailer past a killed notification still ends the agent (backfill)', async () => {
+  const { d, conv, t, done } = setup();
+  appendFileSync(conv, notification(ID, 'killed', 'u2', 'toolu_1'));
+  // The last Argus read the whole transcript, then quit before the roster saw the notification.
+  t.setTranscript(conv);
+  await t.pollNow();
+  const state = t.serialize();
+  assert.equal(state.transcripts[0].offset, readFileSync(conv).length, 'the saved offset is past the notification');
+  t.dispose();
+
+  const calls: Call[] = [];
+  const r = SessionUsageTracker.restore(state, () => {}, {
+    emitThrottleMs: 0, roots: [d], chatPollMs: 60_000, agentsPollMs: 60_000,
+    onAgents: (agents, running) => calls.push({ agents, running }),
+  });
+  await r.pollNow();
+  assert.equal(r.agentsSnapshot().running, 0);
+  assert.deepEqual(r.agentsSnapshot().agents.map((a) => [a.id, a.status]), [[ID, 'failed']]);
+  r.dispose();
+  done();
+});
+
+test('roster: a fresh read of a transcript with 60 notifications ends all 60 agents', async () => {
+  const { conv, sub, t, done } = setup();
+  rmSync(path.join(sub, `agent-${ID}.meta.json`));
+  rmSync(path.join(sub, `agent-${ID}.jsonl`));
+  const meta = JSON.parse(readFileSync(path.join(FIXTURES, `agent-${ID}.meta.json`), 'utf8'));
+  let lines = '';
+  for (let i = 0; i < 60; i++) {
+    const id = `agent${String(i).padStart(3, '0')}xyz`;
+    writeFileSync(path.join(sub, `agent-${id}.meta.json`), JSON.stringify({ ...meta, toolUseId: `toolu_${i}` }));
+    writeFileSync(path.join(sub, `agent-${id}.jsonl`), FIXTURE_JSONL());
+    lines += notification(id, i % 2 ? 'killed' : 'completed', `n${i}`, `toolu_${i}`);
+  }
+  appendFileSync(conv, lines);
+  t.setTranscript(conv);
+  await t.pollNow();
+  const snap = t.agentsSnapshot();
+  assert.equal(snap.running, 0, 'no notification was dropped');
+  assert.ok(snap.agents.every((a) => a.status !== 'running'));
+  done();
+});
+
+test('roster: after a restart, an agent the roster never listed and last written before the run is failed', async () => {
+  const { conv, sub, t, calls, done } = setup();
+  // The fixture agent has no `finished`; its jsonl ends at 14:36:27 on 2026-11-09.
+  const last = Date.parse('2026-11-09T14:36:27.000Z');
+  t.setTranscript(conv);
+  // Restart before any poll: failAgents() finds an empty roster.
+  t.failAgents();
+  t.setRunStartedAt(last + 1000);
+  await t.pollNow();
+  assert.equal(calls.at(-1)?.running, 0);
+  const [a] = calls.at(-1)!.agents;
+  assert.equal(a.status, 'failed');
+  assert.equal(a.finishedAt, last);
+
+  // An agent written after the run started is this run's: running.
+  const later = 'cccccccccccccccc';
+  copyFileSync(path.join(sub, `agent-${ID}.meta.json`), path.join(sub, `agent-${later}.meta.json`));
+  writeFileSync(
+    path.join(sub, `agent-${later}.jsonl`),
+    FIXTURE_JSONL().split('\n').filter(Boolean).map((l) => JSON.stringify({ ...JSON.parse(l), timestamp: new Date(last + 5000).toISOString() })).join('\n') + '\n',
+  );
+  await t.pollNow();
+  assert.equal(t.agentsSnapshot().running, 1);
+  assert.equal(t.agentsSnapshot().agents.find((x) => x.id === later)?.status, 'running');
+  done();
+});
+
+test('roster: the run start survives serialize/restore', async () => {
+  const { d, conv, t, done } = setup();
+  t.setTranscript(conv);
+  t.setRunStartedAt(1234);
+  await t.pollNow();
+  const r = SessionUsageTracker.restore(t.serialize(), () => {}, { roots: [d], chatPollMs: 60_000, agentsPollMs: 60_000 });
+  assert.equal(r.runStart, 1234);
+  r.dispose();
+  done();
+});

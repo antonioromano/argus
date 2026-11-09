@@ -13,8 +13,16 @@ import { toolBlockOf, toolResultsOf, withResult } from './chatTools.js';
  * Running is decided by the meta `finished` flag and the writer's version only
  * (spec D1), never by elapsed time: older Claude Code never sets the flag, so
  * its agents are listed as finished. An agent ends on the first of meta
- * `finished`, a task notification, or `failAll()`; the first end wins. Agents
- * already finished at first sight are listed from meta alone and never tailed.
+ * `finished`, a task notification (remembered, so one read before the agent
+ * is first listed still counts), `failAll()`, or the run-start rule; the first
+ * end wins. Agents already finished at first sight are listed from meta alone
+ * and never tailed.
+ *
+ * Claude Code writes no `finished` for an agent stopped with TaskStop, killed
+ * or crashed. The run-start rule covers those whose notification was missed:
+ * an unfinished agent whose last jsonl entry (fallback: jsonl mtime) predates
+ * the current Claude process belonged to a process that is gone, and a
+ * resumed run never continues it, so it is `failed` at first sight.
  */
 
 /** First Claude Code version that writes `finished` into an agent's meta file. */
@@ -24,8 +32,16 @@ export const AGENT_QUIET_MS = 5 * 60_000;
 /** Most agents in the broadcast list. */
 export const AGENT_ROSTER_CAP = 20;
 
-const META_RE = /^agent-([A-Za-z0-9]{6,64})\.meta\.json$/;
-const AGENT_ID_RE = /^[A-Za-z0-9]{6,64}$/;
+/** Hex ids, and named ones such as `ap2-palette-fe28114a195e07d2`: no dots, no slashes. */
+const ID_PATTERN = '[A-Za-z0-9][A-Za-z0-9-]{5,95}';
+const META_RE = new RegExp(`^agent-(${ID_PATTERN})\\.meta\\.json$`);
+const AGENT_ID_RE = new RegExp(`^${ID_PATTERN}$`);
+/** The head of a jsonl read to learn its writer's version; an older writer's agent is never tailed past it. */
+export const AGENT_VERSION_PROBE_BYTES = 64 * 1024;
+/** A failing read is logged at most once per agent (or folder) per this long. */
+const WARN_EVERY_MS = 60_000;
+/** Task notifications remembered for agents not listed yet; the oldest drop off first. */
+const NOTIFIED_CAP = 1000;
 
 /** An agent id as Claude Code names its files (the `<id>` of `agent-<id>.jsonl`); safe in a file name. */
 export function isAgentId(id: string): boolean {
@@ -39,6 +55,8 @@ const SEEN_CAP = 512;
 export interface AgentRosterOpts {
   fs?: TranscriptFs;
   now?: () => number;
+  /** When the current Claude process started (ms): see the run-start rule. */
+  runStartedAt?: number;
 }
 
 interface Meta {
@@ -61,8 +79,12 @@ interface Agent {
   /** Only for agents not finished at first sight. */
   tail?: AgentTail;
   /** Set by the first end event; never changes after. */
-  ended?: { status: Exclude<AgentRunStatus, 'running'>; at?: number };
+  ended?: End;
+  /** The run-start rule was applied (once, on the first read that knows the version). */
+  runChecked?: boolean;
 }
+
+type End = { status: Exclude<AgentRunStatus, 'running'>; at?: number };
 
 function parseVersion(v: string): [number, number, number] | undefined {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
@@ -171,6 +193,11 @@ export class AgentRoster {
   private readonly roster = new Map<string, Agent>();
   /** `mtimeMs:size` of meta files that did not parse, so they are re-read only once changed. */
   private readonly badMetas = new Map<string, string>();
+  /** Task notifications by `id:<taskId>` / `tool:<toolUseId>`, for agents first listed after them. */
+  private readonly notified = new Map<string, End>();
+  /** Last warning per key (agent id or the folder), for the rate limit. */
+  private readonly warnedAt = new Map<string, number>();
+  private runStartedAt?: number;
   private hash = '[]';
   private inflight?: Promise<boolean>;
   private disposed = false;
@@ -178,6 +205,20 @@ export class AgentRoster {
   constructor(private readonly folder: string, opts: AgentRosterOpts = {}) {
     this.fs = opts.fs ?? nodeTranscriptFs;
     this.now = opts.now ?? Date.now;
+    this.runStartedAt = opts.runStartedAt;
+  }
+
+  /** A new Claude process started at `ms`: agents first seen from now on are judged against it. */
+  setRunStartedAt(ms: number | undefined): void {
+    this.runStartedAt = ms;
+  }
+
+  private warn(key: string, what: string, err: unknown): void {
+    const now = this.now();
+    const last = this.warnedAt.get(key);
+    if (last !== undefined && now - last < WARN_EVERY_MS) return;
+    this.warnedAt.set(key, now);
+    console.warn(`[agents] ${what}:`, err instanceof Error ? err.message : err);
   }
 
   /** List + stat metas, tail unfinished agents. True when the broadcast list changed. */
@@ -193,8 +234,10 @@ export class AgentRoster {
     let names: string[];
     try {
       names = await this.fs.readdir(this.folder);
-    } catch {
-      return false; // missing is [] already; anything else: keep the last roster, retry next poll
+    } catch (err) {
+      // Missing is [] already; anything else (EACCES…): keep the last roster, retry next poll.
+      this.warn(this.folder, `cannot list ${this.folder}`, err);
+      return false;
     }
     const present = new Set<string>();
     for (const name of names) {
@@ -206,6 +249,7 @@ export class AgentRoster {
     }
     for (const id of this.roster.keys()) if (!present.has(id)) this.roster.delete(id);
     for (const id of this.badMetas.keys()) if (!present.has(id)) this.badMetas.delete(id);
+    for (const id of this.warnedAt.keys()) if (id !== this.folder && !present.has(id)) this.warnedAt.delete(id);
     return this.commit();
   }
 
@@ -241,17 +285,54 @@ export class AgentRoster {
       }
     }
     if (!agent?.tail || agent.ended) return;
+    const { tail } = agent;
     try {
-      await agent.tail.poll();
-    } catch {
-      return; // unreadable right now (replaced mid-read, EMFILE…): keep the last state, retry next poll
+      if (tail.version === undefined) {
+        // The version decides whether the flag will ever come: learn it from the head only.
+        await tail.poll(AGENT_VERSION_PROBE_BYTES - tail.readPosition);
+        if (tail.version === undefined && tail.readPosition >= AGENT_VERSION_PROBE_BYTES) {
+          agent.ended ??= { status: 'finished' }; // no version in the head: an older writer
+          return;
+        }
+      }
+      if (tail.version !== undefined && !versionBelow(tail.version, AGENT_FINISHED_FLAG_MIN_VERSION)) await tail.poll();
+    } catch (err) {
+      // Unreadable right now (replaced mid-read, EMFILE, EACCES…): keep the last state, retry next poll.
+      this.warn(id, `cannot read agent ${id}`, err);
+      return;
     }
     if (agent.ended) return; // ended by failAll() / a notification during the read: the first end wins
     // The meta flag ends it; an older writer never sets the flag, so its agent is done being tailed.
-    const { version } = agent.tail;
+    const { version } = tail;
     if (agent.meta.finished || (version !== undefined && versionBelow(version, AGENT_FINISHED_FLAG_MIN_VERSION))) {
       agent.ended = { status: 'finished' };
+      return;
     }
+    if (version === undefined) return; // not written yet: listed as finished until it is
+    const noted = this.notified.get(`id:${id}`) ?? (agent.meta.toolUseId ? this.notified.get(`tool:${agent.meta.toolUseId}`) : undefined);
+    if (noted) {
+      agent.ended = noted;
+      return;
+    }
+    if (!agent.runChecked) {
+      agent.runChecked = true;
+      await this.applyRunStart(agent);
+    }
+  }
+
+  /** The run-start rule: an unfinished agent last written before the current process started is failed. */
+  private async applyRunStart(agent: Agent): Promise<void> {
+    const start = this.runStartedAt;
+    if (start === undefined) return;
+    let last = agent.tail?.lastAt;
+    if (last === undefined) {
+      try {
+        last = (await this.fs.stat(path.join(this.folder, `agent-${agent.id}.jsonl`))).mtimeMs;
+      } catch {
+        return;
+      }
+    }
+    if (last < start) agent.ended ??= { status: 'failed', at: last };
   }
 
   private statusOf(a: Agent): AgentRunStatus {
@@ -309,18 +390,35 @@ export class AgentRoster {
 
   /** D1 fallback: a task notification ends the matching agent. True when one changed. */
   applyNotification(n: TaskNotification): boolean {
+    const end: End = { status: n.status === 'completed' ? 'finished' : 'failed', at: n.at };
+    // Remembered for an agent not listed yet (a restored session reads notifications before the roster).
+    this.remember(`id:${n.taskId}`, end);
+    if (n.toolUseId !== undefined) this.remember(`tool:${n.toolUseId}`, end);
     let ended = false;
     for (const a of this.roster.values()) {
       const matches = a.id === n.taskId || (n.toolUseId !== undefined && a.meta.toolUseId === n.toolUseId);
       if (!matches || this.statusOf(a) !== 'running') continue;
-      a.ended = { status: n.status === 'completed' ? 'finished' : 'failed', at: n.at };
+      a.ended = end;
       ended = true;
     }
     return ended && this.commit();
   }
 
-  /** Exit / restart / transcript change: every running agent → failed. True when any changed. */
+  private remember(key: string, end: End): void {
+    if (this.notified.has(key)) return; // the first end wins
+    this.notified.set(key, end);
+    if (this.notified.size > NOTIFIED_CAP) this.notified.delete(this.notified.keys().next().value as string);
+  }
+
+  /**
+   * Exit / restart / transcript change: every running agent → failed. The
+   * process that wrote them is gone, so one first seen later and last written
+   * before now fails too (the run-start rule, with now as the cutoff).
+   * True when any changed.
+   */
   failAll(): boolean {
+    const now = this.now();
+    if (this.runStartedAt === undefined || this.runStartedAt < now) this.runStartedAt = now;
     let ended = false;
     for (const a of this.roster.values()) {
       if (this.statusOf(a) !== 'running') continue;
@@ -334,6 +432,8 @@ export class AgentRoster {
     this.disposed = true;
     this.roster.clear();
     this.badMetas.clear();
+    this.notified.clear();
+    this.warnedAt.clear();
   }
 
   /** Re-hash the broadcast list. True when it differs from the last one reported. */

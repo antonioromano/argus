@@ -5,7 +5,7 @@ import type { AgentRun, ChatCommand, ChatMessage, ChatQueue, ChatUpdate, Session
 import { contextWindowFor } from './contextWindows.js';
 import { ChatTail } from './ChatTail.js';
 import { AgentRoster } from './AgentRoster.js';
-import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
+import { TaskNotificationScan, TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptTailerState } from './TranscriptTailer.js';
 
 /**
  * The usage meter of one Argus session (F1): every transcript the session's
@@ -26,6 +26,8 @@ import { TranscriptTailer, nodeTranscriptFs, type TranscriptFs, type TranscriptT
 export interface SessionUsageTrackerState {
   current?: string;
   transcripts: TranscriptTailerState[];
+  /** When the current Claude process started (ms), so a re-attached run keeps it. */
+  runStartedAt?: number;
 }
 
 export interface SessionUsageTrackerOpts {
@@ -150,6 +152,13 @@ export class SessionUsageTracker {
   private agentsTimer?: ReturnType<typeof setInterval>;
   /** The last roster report, so an unchanged list is never sent twice. */
   private lastAgents = JSON.stringify({ agents: [], running: 0 });
+  /** When the current Claude process started (ms); each roster judges agents against it. */
+  private runStartedAt?: number;
+  /**
+   * Restored transcripts whose roster has not been fed the notifications
+   * before the saved offset yet (their tailer never reads those bytes again).
+   */
+  private notificationBackfill = new Set<string>();
   /** message id → the transcript that counts it. A conversation resumed into a
    *  new file can repeat its history there; only the first file counts it. */
   private owners = new Map<string, string>();
@@ -180,8 +189,10 @@ export class SessionUsageTracker {
     for (const s of state.transcripts ?? []) {
       if (!isPlausibleTranscriptPath(s.path)) continue;
       t.tailers.set(s.path, TranscriptTailer.restore(s, t.fs, t.claim));
+      if (s.offset > 0) t.notificationBackfill.add(s.path);
       for (const [id] of s.recent ?? []) t.owners.set(id, s.path);
     }
+    if (typeof state.runStartedAt === 'number' && Number.isFinite(state.runStartedAt)) t.runStartedAt = state.runStartedAt;
     // Totals of every transcript are kept, but only a still-valid file is read again.
     if (state.current && t.tailers.has(state.current) && resolveTranscriptPath(state.current, t.roots) === state.current) {
       t.current = state.current;
@@ -194,7 +205,23 @@ export class SessionUsageTracker {
     return {
       current: this.current,
       transcripts: [...this.tailers.values()].map((t) => t.serialize()),
+      runStartedAt: this.runStartedAt,
     };
+  }
+
+  /** When the current Claude process started (ms), if known. */
+  get runStart(): number | undefined {
+    return this.runStartedAt;
+  }
+
+  /**
+   * A Claude process started at `ms` (spawn, restart, a fresh run on restore).
+   * An unfinished agent first seen from now on whose transcript was last
+   * written before it belonged to a process that is gone, and is failed.
+   */
+  setRunStartedAt(ms: number): void {
+    this.runStartedAt = ms;
+    for (const r of this.rosters.values()) r.setRunStartedAt(ms);
   }
 
   /**
@@ -235,6 +262,7 @@ export class SessionUsageTracker {
         const oldest = this.tailers.keys().next().value as string;
         if (oldest === p) break;
         this.tailers.delete(oldest);
+        this.notificationBackfill.delete(oldest);
         this.rosters.get(oldest)?.dispose();
         this.rosters.delete(oldest);
       }
@@ -334,6 +362,14 @@ export class SessionUsageTracker {
   private async pollAgents(p: string, tailer: TranscriptTailer): Promise<void> {
     const roster = this.rosterOf(p);
     let changed = await roster.poll();
+    if (this.notificationBackfill.has(p)) {
+      // Once: the restored tailer starts at its saved offset, so the notifications
+      // before it (an agent killed while Argus was down) come from a whole-file scan.
+      const scan = new TaskNotificationScan(p, this.fs);
+      await scan.poll();
+      this.notificationBackfill.delete(p);
+      for (const n of scan.notifications) changed = roster.applyNotification(n) || changed;
+    }
     for (const n of tailer.takeTaskNotifications()) changed = roster.applyNotification(n) || changed;
     // Moved to another transcript, or disposed, while reading: that roster is no longer reported.
     if (this.disposed || this.current !== p) return;
@@ -344,7 +380,7 @@ export class SessionUsageTracker {
   private rosterOf(p: string): AgentRoster {
     let roster = this.rosters.get(p);
     if (!roster) {
-      roster = new AgentRoster(subagentsFolder(p), { fs: this.fs });
+      roster = new AgentRoster(subagentsFolder(p), { fs: this.fs, runStartedAt: this.runStartedAt });
       this.rosters.set(p, roster);
     }
     return roster;
