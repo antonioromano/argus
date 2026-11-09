@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Socket } from 'socket.io-client';
-import type { ChatBlock, ChatMessage, ChatQueuedPrompt, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
+import type { AgentRun, ChatBlock, ChatMessage, ChatQueuedPrompt, ClientToServerEvents, ServerToClientEvents, SessionInfo } from '@argus/shared';
 import { MessagesSquare, ArrowDown, SquareTerminal, X } from 'lucide-react';
 import { useChat } from '../../../hooks/useChat.js';
 import { api } from '../../../services/api.js';
@@ -9,6 +9,7 @@ import { useOverlaySuppression } from '../../../hooks/useOverlaySuppression.js';
 import { Button, EmptyState, Icon, LoadingState } from '../../../components/primitives/index.js';
 import { interactiveCommandOf, slashCommandName } from '../../../utils/chat.js';
 import { ChatMessageItem } from './ChatMessageItem.js';
+import { ChatAgentsStrip } from './ChatAgentsStrip.js';
 import { ChatComposer } from './ChatComposer.js';
 import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
@@ -29,6 +30,7 @@ const ENDED_NOTICE: ChatBlock = { kind: 'notice', text: 'The session ended befor
 /** Ctrl+X Ctrl+S: Claude Code's "send now" for its queue (verified on 2.1.316). */
 const SEND_NOW_KEY = '\x18\x13';
 const NO_QUEUE: ChatQueuedPrompt[] = [];
+const NO_AGENTS: AgentRun[] = [];
 let pendingSeq = 0;
 /** The Chat view used last: ⌘Esc goes to it while focus is on no element. */
 let lastChat: HTMLElement | null = null;
@@ -48,6 +50,8 @@ interface ChatViewProps {
    * its bar: the host insets the terminal by TERMINAL_SHEET_BAR_PX and gives it the keyboard.
    */
   onTerminalSheet?: (open: boolean) => void;
+  /** A row of the agents strip was tapped. Without it the rows show but do nothing. */
+  onOpenAgent?: (agent: AgentRun) => void;
 }
 
 /**
@@ -91,8 +95,9 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
  * transcript, rendered as messages, with a composer that types into the pty.
  * The terminal stays mounted underneath; this only covers it.
  */
-export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet }: ChatViewProps) {
+export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet, onOpenAgent }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
+  const openAgent = (agent: AgentRun) => onOpenAgent?.(agent);
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [following, setFollowing] = useState(true);
@@ -466,6 +471,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           />
         </div>
       )}
+      <ChatAgentsStrip agents={session.agents ?? NO_AGENTS} onOpen={openAgent} />
       {aboveComposer}
       <ChatComposer
         sessionId={session.id}

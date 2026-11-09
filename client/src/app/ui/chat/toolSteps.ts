@@ -70,7 +70,7 @@ function kindOf(name: string): Kind {
 }
 
 /** The word shown before a step's label, when its label is a bare path or pattern. */
-export function stepPrefix(step: ChatToolBlock): string | undefined {
+export function stepPrefix(step: Pick<ChatToolBlock, 'name' | 'label'>): string | undefined {
   // A fallback label (the tool's name) needs no verb in front of it.
   return step.label === step.name ? undefined : kindOf(step.name).prefix;
 }

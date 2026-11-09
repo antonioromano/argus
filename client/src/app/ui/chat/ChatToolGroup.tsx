@@ -34,7 +34,7 @@ function iconOf(name: string): LucideIcon {
   return ICONS[name] ?? (name.startsWith('mcp__') ? Plug : Wrench);
 }
 
-function StatusMark({ status }: { status: ChatToolBlock['status'] }) {
+export function StatusMark({ status }: { status: ChatToolBlock['status'] }) {
   switch (status) {
     case 'pending':
       return <Icon icon={LoaderCircle} size="sm" className="argus-chat-tool-spin" aria-label="Running" />;

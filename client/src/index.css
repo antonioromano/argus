@@ -591,6 +591,8 @@ body {
 /* No hover on a phone: the copy button on code blocks is always there. */
 .mobile-chat .argus-chat-code-copy { opacity: 1; }
 .mobile-chat .argus-chat-prompt-wrap { padding-left: var(--s-3); padding-right: var(--s-3); }
+.mobile-chat .argus-chat-agents { padding-left: var(--s-3); padding-right: var(--s-3); }
+.mobile-chat .argus-chat-agent-row { min-height: var(--row-h-touch); }
 
 /* Commit FAB (mobile only) */
 .commit-fab {
@@ -2762,6 +2764,37 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-chat-resume-empty { padding: var(--s-3); font-size: var(--t-sm); color: var(--fg-3); }
 /* What Claude Code waits for (ChatPromptCard). */
 .argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
+/* Running agents (ChatAgentsStrip), where Claude's terminal UI lists them. Hover tints, never resizes. */
+.argus-chat-agents {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: var(--s-2) var(--s-4) 0;
+  background: var(--bg-0);
+}
+.argus-chat-agent-row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  min-height: 28px;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-1);
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.argus-chat-agent-row:hover { background: var(--bg-2); }
+.argus-chat-agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.argus-chat-agent-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-chat-agent-meta { flex: 0 1 auto; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.argus-chat-tool-mark.is-done { color: var(--ok); }
 /* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
 .argus-chat[data-sheet] { background: transparent; pointer-events: none; }
 .argus-chat[data-sheet] > :not(.argus-chat-sheet-bar) { visibility: hidden; }

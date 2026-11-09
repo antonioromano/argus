@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
+import type { AgentRun, ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
@@ -83,6 +83,32 @@ describe('ChatView', () => {
     expect(emitted).toContainEqual(['session:chat:subscribe', 's1']);
     act(() => root.render(<></>));
     expect(emitted).toContainEqual(['session:chat:unsubscribe', 's1']);
+  });
+
+  it('shows the strip when the session has agents', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', agentType: 'pre-push-reviewer', description: 'Delta review of fix commit', background: false,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    const onOpenAgent = vi.fn();
+    act(() => {
+      root.render(<ChatView session={session({ agents: [running] })} socket={socket} onShowTerminal={vi.fn()} onOpenAgent={onOpenAgent} />);
+    });
+    fire('session:chat', update({ messages: [] }));
+    const strip = container.querySelector('.argus-chat-agents');
+    expect(strip?.textContent).toContain('Delta review of fix commit');
+    // Between the messages and the composer.
+    const composer = container.querySelector('.argus-chat-composer');
+    expect(strip!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => strip!.querySelector<HTMLButtonElement>('.argus-chat-agent-row')!.click());
+    expect(onOpenAgent).toHaveBeenCalledWith(running);
+  });
+
+  it('shows no strip without agents', () => {
+    const { socket } = fakeSocket();
+    render(session(), socket);
+    expect(container.querySelector('.argus-chat-agents')).toBeNull();
   });
 
   it('falls back to the terminal while no transcript is readable', () => {
