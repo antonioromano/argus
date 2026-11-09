@@ -1090,9 +1090,13 @@ export interface ChatQueuedPrompt {
  * entries carry a Claude Code `version` >= 2.1.301 (older writers never set the
  * flag, so their agents are never shown running). Elapsed time never decides it.
  * A running agent stops running on the first of: the meta file's `finished`; the
- * main transcript's `<task-notification>` naming its `toolUseId` or `agentId`; a
- * non-background Agent call's own `tool_result`; the session exiting, restarting
- * or changing transcript (then `failed`).
+ * main transcript's `<task-notification>` naming its `toolUseId` or `agentId`
+ * (`failed` unless its status is `completed`); the session exiting, restarting
+ * or changing transcript (then `failed`); or, at first sight, the run-start
+ * rule: an agent whose jsonl was last written before the current Claude process
+ * started belonged to a process that is gone (then `failed`). A foreground Agent
+ * call's own `tool_result` is not an end signal: foreground agents get
+ * `finished` on disk, and the run-start rule ends an interrupted one.
  */
 export type AgentRunStatus = 'running' | 'finished' | 'failed';
 
@@ -1119,8 +1123,9 @@ export interface AgentRun {
   /**
    * `running` only when the meta file has no `finished` flag and the jsonl's Claude Code
    * `version` is >= 2.1.301 (see AgentRunStatus); it also ends on the main transcript's
-   * `<task-notification>` for this agent. `failed` when the session exited, restarted or
-   * changed transcript while it ran, or the agent ended with an error. Never elapsed time.
+   * `<task-notification>` for this agent. `failed` when the notification's status is not
+   * `completed`, when the session exited, restarted or changed transcript while it ran, or
+   * when it was last written before the current Claude process started. Never elapsed time.
    */
   status: AgentRunStatus;
   /** Output tokens the agent has produced so far. */
