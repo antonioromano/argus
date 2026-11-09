@@ -113,6 +113,7 @@ export function shedInfo(
   if (opts.branch !== false && session.worktreeBranch) rows.push({ level: pills, label: 'Branch', value: session.worktreeBranch });
   if (session.runMode === 'direct') rows.push({ level: pills, label: 'Terminal', value: 'Native — stops when Argus quits' });
   if (session.worktreeStaleDays !== undefined) rows.push({ level: pills, label: 'Stale', value: `No commit for ${session.worktreeStaleDays} days` });
+  if (session.agentsRunning) rows.push({ level: pills, label: 'Agents', value: String(session.agentsRunning) });
   if (opts.chainCount) rows.push({ level: pills, label: 'Chains', value: String(opts.chainCount) });
   if (opts.gitAndPr !== false) {
     if (session.cwd && session.shellGit) rows.push({ level: pills, label: 'Git', value: describeShellGit(session.cwd, session.shellGit) });

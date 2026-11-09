@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG, type SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { Mosaic } from './Mosaic.js';
 import { Focus } from './Focus.js';
+import { shedInfo, shedKey, shedRows, SHED } from '../ui/headerShed.js';
 import { usageMeterView, type UsageMeterState } from '../../utils/usageFormat.js';
 
 declare global {
@@ -262,6 +263,30 @@ describe('Mosaic tile header (F12)', () => {
     expect(tip!.textContent).toContain('#74');
     expect(tip!.textContent).toContain('argus/f10-argus-header-overflow');
     expect(tip!.textContent).toContain('52%');
+  });
+});
+
+describe('agents chip in the shed', () => {
+  it('adds a pills-level Agents row and changes the content key when agents start', () => {
+    const idle = shedInfo(session());
+    const busy = shedInfo(session({ agentsRunning: 2 }));
+    expect(shedKey(busy)).not.toBe(shedKey(idle));
+    expect(shedRows(busy, SHED.pills).some((r) => r.label === 'Agents' && r.value === '2')).toBe(true);
+    expect(shedRows(idle, SHED.pills).some((r) => r.label === 'Agents')).toBe(false);
+  });
+
+  it('lists the agents in the name tooltip once the pills are shed', () => {
+    renderMosaic(session({ agentsRunning: 3 }));
+    resizeTo(60);
+    const name = container.querySelector('.argus-tile-name')!;
+    vi.useFakeTimers();
+    try {
+      act(() => { name.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+      act(() => { vi.advanceTimersByTime(1000); });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(document.querySelector('[data-testid="shed-tooltip"]')!.textContent).toContain('Agents');
   });
 });
 
