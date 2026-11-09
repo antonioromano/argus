@@ -15,6 +15,7 @@ import { ChatPromptCard } from './ChatPromptCard.js';
 import { ChatResumePicker } from './ChatResumePicker.js';
 import type { ToolOpenState } from './ChatToolGroup.js';
 import { chatRows } from './toolSteps.js';
+import { showTypingRow } from './typingRow.js';
 import { launchPending, newPending, openPending, userCountOf, type Pending } from './pendingEchoes.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -408,6 +409,9 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
       )}
       <div className="argus-chat-main">
         {body}
+        {showTypingRow(session.status, session.agentsRunning ?? 0, rows[rows.length - 1]) && (
+          <div className="argus-chat-typing" data-testid="chat-typing">Claude is writing…</div>
+        )}
         {!chat.available && messages.length > 0 && (
           // Prompts sent before Claude wrote its transcript (F15): shown at once, with the terminal at hand.
           <div className="argus-chat-starting" data-testid="chat-starting">

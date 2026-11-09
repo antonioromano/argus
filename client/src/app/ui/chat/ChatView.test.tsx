@@ -340,6 +340,17 @@ describe('ChatView', () => {
     expect(box.value).toBe('');
   });
 
+  it('typing row appears for a running session with a recorded prompt and no agents', () => {
+    const { socket, fire } = fakeSocket();
+    render(session({ status: 'running', agentsRunning: 0 }), socket);
+    fire('session:chat', update({ messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'hi' }] }] }));
+    expect(container.querySelector('[data-testid="chat-typing"]')?.textContent).toBe('Claude is writing…');
+    render(session({ status: 'running', agentsRunning: 1 }), socket);
+    expect(container.querySelector('[data-testid="chat-typing"]')).toBeNull();
+    render(session({ status: 'waiting', agentsRunning: 0 }), socket);
+    expect(container.querySelector('[data-testid="chat-typing"]')).toBeNull();
+  });
+
   it('disables the composer for an exited session', () => {
     const { socket } = fakeSocket();
     render(session({ status: 'exited' }), socket);
