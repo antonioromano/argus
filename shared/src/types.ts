@@ -515,6 +515,11 @@ export interface SessionInfo {
   color?: string;
   /** Identity: one emoji grapheme shown before the name. */
   emoji?: string;
+  /** Claude only: the agents of this session's roster (running and recently finished); absent until known. */
+  agents?: AgentRun[];
+  /** Claude only: running agents in the roster. Drives the derived `agents` display state while the
+   *  session status is `idle` (client `displayStatus`); it never changes `SessionStatus`. */
+  agentsRunning?: number;
 }
 
 /** Health of the process backend that owns the ptys. tmux has no connection to
@@ -1060,6 +1065,53 @@ export interface ChatUpdate {
 }
 
 /**
+ * Lifecycle of one agent in a Claude session's roster. `running` comes only from
+ * Claude Code's own `finished` flag (plus the main transcript's completion
+ * notification as the fallback), never from elapsed time.
+ */
+export type AgentRunStatus = 'running' | 'finished' | 'failed';
+
+/** One agent of a Claude session's roster (its `subagents/agent-*.meta.json` and jsonl). */
+export interface AgentRun {
+  /** The agent's id: the `agent-<id>` part of its file name. */
+  id: string;
+  /** The `tool_use` id of the Agent call that launched it, when the main transcript names it. */
+  toolUseId?: string;
+  /** The agent type, e.g. `general-purpose` or `pre-push-reviewer`. */
+  agentType: string;
+  /** What the agent was asked to do (the Agent call's description). */
+  description: string;
+  /** Launched in the background (`run_in_background`), so the main turn does not wait for it. */
+  background: boolean;
+  /** Nesting level: 1 for an agent the main conversation launched, 2+ for agents launched by agents. */
+  depth: number;
+  /** The agent that launched this one, when it is nested. */
+  parentAgentId?: string;
+  /** Epoch ms of the agent's first jsonl entry. */
+  startedAt: number;
+  /** Epoch ms of the agent's last jsonl entry, once finished. */
+  finishedAt?: number;
+  /** `running` while Claude Code has not set `finished`; `failed` when the agent ended with an error. */
+  status: AgentRunStatus;
+  /** Output tokens the agent has produced so far. */
+  outputTokens: number;
+  /** The agent's latest tool step (label and status), shown as its current activity. */
+  lastStep?: Pick<ChatToolBlock, 'name' | 'label' | 'status'>;
+  /** Set while running and the jsonl has not grown for 5 min: minutes since its last write. */
+  quietMinutes?: number;
+}
+
+/** One page of an agent's own transcript, for the agent sheet. Pass `offset` back as `after` to read only what was appended. */
+export interface AgentChatResponse {
+  /** False while the agent's transcript cannot be read (missing or outside the session's folder). */
+  available: boolean;
+  /** Entries past `after` (the whole transcript on the first call). */
+  messages: ChatMessage[];
+  /** Byte offset to pass as `after` on the next call. */
+  offset: number;
+}
+
+/**
  * Prompts typed while Claude was running, still waiting in Claude Code's queue
  * (read from its `queue-operation` transcript entries). Only the user's own
  * prompts are listed: task notifications, messages from other sessions and
@@ -1367,6 +1419,8 @@ export interface ServerToClientEvents {
   'session:usage': (payload: { sessionId: string; usage: SessionUsage }) => void;
   /** Chat view messages for a subscribed Claude session (see ChatUpdate). */
   'session:chat': (payload: ChatUpdate) => void;
+  /** A Claude session's agent roster changed: the agents and the running count (see AgentRun). */
+  'session:agents': (payload: { sessionId: string; agents: AgentRun[]; agentsRunning: number }) => void;
   /** The permission mode Claude Code shows on screen changed (Chat view subscribers only). */
   'session:chatMode': (payload: { sessionId: string; permissionMode: string }) => void;
   /** Claude Code's prompt suggestion appeared, changed or went away (null; Chat view subscribers only). */
