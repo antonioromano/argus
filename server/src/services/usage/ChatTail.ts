@@ -211,11 +211,16 @@ export interface QueueOp {
 
 const QUEUE_OPS: ReadonlySet<string> = new Set(['enqueue', 'dequeue', 'remove', 'popAll']);
 
+export interface ChatTailOpts {
+  /** Read a subagent's own transcript (`subagents/agent-<id>.jsonl`): its sidechain entries are kept. */
+  sidechain?: boolean;
+}
+
 /**
  * One transcript line → its chat message and/or permission mode, or undefined
  * when it carries neither (other entry types, malformed JSON, …).
  */
-export function parseChatLine(text: string): ChatLine | undefined {
+export function parseChatLine(text: string, opts: ChatTailOpts = {}): ChatLine | undefined {
   // Cheap prefilter: most lines are attachments, snapshots and tool results.
   const listing = text.includes('"skill_listing"');
   const queued = text.includes('"queued_command"');
@@ -228,6 +233,8 @@ export function parseChatLine(text: string): ChatLine | undefined {
     return undefined;
   }
   if (!entry || typeof entry !== 'object') return undefined;
+  // An agent's own transcript is all sidechain: there it is the main thread.
+  if (opts.sidechain && entry.isSidechain) entry.isSidechain = false;
   if (listing && entry.type === 'attachment') {
     const a = entry.attachment;
     if (entry.isSidechain || a?.type !== 'skill_listing' || typeof a.content !== 'string') return undefined;
@@ -454,12 +461,12 @@ export class ChatTail extends JsonlTailer {
   /** Texts dequeued whose user entry has not come yet (see settleTaken). */
   private taken: (string | undefined)[] = [];
 
-  constructor(path: string, fs: TranscriptFs = nodeTranscriptFs) {
+  constructor(path: string, fs: TranscriptFs = nodeTranscriptFs, private opts: ChatTailOpts = {}) {
     super(path, fs);
   }
 
   protected line(text: string): boolean {
-    const parsed = parseChatLine(text);
+    const parsed = parseChatLine(text, this.opts);
     if (!parsed) return false;
     if (parsed.permissionMode && parsed.permissionMode !== this.permissionMode) {
       this.permissionMode = parsed.permissionMode;

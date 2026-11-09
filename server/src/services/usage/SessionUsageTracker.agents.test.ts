@@ -124,3 +124,14 @@ test('roster: failAgents emits failed and running 0', async () => {
   assert.equal(calls[1].agents[0].status, 'failed');
   done();
 });
+
+test('roster: clearCurrent fails the unfinished agents first', async () => {
+  const { conv, t, calls, done } = setup();
+  t.setTranscript(conv);
+  await t.pollNow();
+  t.clearCurrent();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].running, 0);
+  assert.equal(calls[1].agents[0].status, 'failed');
+  done();
+});

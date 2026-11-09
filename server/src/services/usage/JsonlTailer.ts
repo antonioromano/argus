@@ -75,6 +75,23 @@ export abstract class JsonlTailer {
   /** Forget the subclass state (the file was rewritten). True when there was any. */
   protected abstract clear(): boolean;
 
+  /** Byte offset just past the last complete line read: where the next poll starts. */
+  get lineOffset(): number {
+    return this.offset;
+  }
+
+  /**
+   * Start the next poll at `offset`, which must be a line boundary (a
+   * `lineOffset` from an earlier read): the bytes before it are never read.
+   * Any carried unterminated line is dropped with them.
+   */
+  seek(offset: number): void {
+    this.offset = offset;
+    this.pieces = [];
+    this.pendingBytes = 0;
+    this.dropping = false;
+  }
+
   /** Read whatever was appended since the last poll. Resolves true when the state changed. */
   async poll(): Promise<boolean> {
     let st: { size: number; ino: number };

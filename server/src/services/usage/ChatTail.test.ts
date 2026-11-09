@@ -654,3 +654,27 @@ test('ChatTail: the same prompt queued twice and read once stays queued once', a
   assert.deepEqual(t.drain().queue, { items: [{ id: 'queued-2', blocks: [{ kind: 'text', text: 'yes' }] }], seq: 2 });
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+test('sidechain entries are dropped, unless the tail reads an agent transcript', async () => {
+  const file = tmpFile();
+  writeFileSync(file, user('s1', 'task', { isSidechain: true }) + '\n' + assistant('s2', [{ type: 'text', text: 'on it' }], { isSidechain: true }) + '\n');
+  const main = new ChatTail(file);
+  await main.poll();
+  assert.deepEqual(main.messages, []);
+  const agent = new ChatTail(file, undefined, { sidechain: true });
+  await agent.poll();
+  assert.deepEqual(agent.messages.map((m) => [m.id, m.role]), [['s1', 'user'], ['s2', 'assistant']]);
+  rmSync(path.dirname(file), { recursive: true, force: true });
+});
+
+test('seek starts the next read at a line offset, and lineOffset reports the end', async () => {
+  const file = tmpFile();
+  const first = user('u1', 'one') + '\n';
+  writeFileSync(file, first + user('u2', 'two') + '\n' + '{"partial');
+  const tail = new ChatTail(file);
+  tail.seek(Buffer.byteLength(first));
+  await tail.poll();
+  assert.deepEqual(tail.messages.map((m) => m.id), ['u2']);
+  assert.equal(tail.lineOffset, Buffer.byteLength(first + user('u2', 'two') + '\n'), 'the unterminated tail is not counted');
+  rmSync(path.dirname(file), { recursive: true, force: true });
+});

@@ -25,6 +25,12 @@ export const AGENT_QUIET_MS = 5 * 60_000;
 export const AGENT_ROSTER_CAP = 20;
 
 const META_RE = /^agent-([A-Za-z0-9]{6,64})\.meta\.json$/;
+const AGENT_ID_RE = /^[A-Za-z0-9]{6,64}$/;
+
+/** An agent id as Claude Code names its files (the `<id>` of `agent-<id>.jsonl`); safe in a file name. */
+export function isAgentId(id: string): boolean {
+  return AGENT_ID_RE.test(id);
+}
 const MAX_DESCRIPTION = 200;
 const MAX_FIELD = 128;
 /** Message ids remembered for output-token dedup (streamed entries repeat one message). */

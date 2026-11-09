@@ -114,6 +114,11 @@ function isSubagentTranscript(p: string): boolean {
   return path.basename(path.dirname(p)) === 'subagents';
 }
 
+/** `<conversation>.jsonl` keeps its agents in `<conversation>/subagents/`. */
+export function subagentsFolder(transcript: string): string {
+  return path.join(transcript.slice(0, -'.jsonl'.length), 'subagents');
+}
+
 export class SessionUsageTracker {
   private tailers = new Map<string, TranscriptTailer>();
   private current?: string;
@@ -271,6 +276,8 @@ export class SessionUsageTracker {
   /** A fresh (non-resume) restart: the next run's context starts empty. */
   clearCurrent(): void {
     if (this.current === undefined) return;
+    // The old run is gone: its unfinished agents won't be heard from.
+    this.failAgents();
     this.current = undefined;
     this.syncAgentsTimer();
     this.updatedAt = Date.now();
@@ -337,8 +344,7 @@ export class SessionUsageTracker {
   private rosterOf(p: string): AgentRoster {
     let roster = this.rosters.get(p);
     if (!roster) {
-      // `<conversation>.jsonl` keeps its agents in `<conversation>/subagents/`.
-      roster = new AgentRoster(path.join(p.slice(0, -'.jsonl'.length), 'subagents'), { fs: this.fs });
+      roster = new AgentRoster(subagentsFolder(p), { fs: this.fs });
       this.rosters.set(p, roster);
     }
     return roster;
