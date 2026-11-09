@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, SessionViewMode } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { useGroups, type GhostFavorite } from '../../hooks/useGroups.js';
 import { useNgrok } from '../../hooks/useNgrok.js';
+import { useConfig } from '../../hooks/useConfig.js';
+import { useChatViewMode, writeViewMode } from '../../hooks/useChatViewMode.js';
 import { useNotificationPref, useDoneNotificationPref } from '../../hooks/useNotificationPref.js';
 import { useWaitingNotifications } from '../../hooks/useWaitingNotifications.js';
 import { api, setToken } from '../../services/api.js';
@@ -87,6 +89,17 @@ function Inner() {
   useWaitingNotifications(sessions, notify, notifyDone);
 
   const focused = focusedId ? sessions.find((s) => s.id === focusedId) ?? null : null;
+
+  // Terminal or Chat for the open session: the per-session choice shared with
+  // the desktop (same localStorage key), falling back to the app-wide
+  // defaultSessionView once the config has loaded.
+  const { config } = useConfig();
+  const [viewMode, setViewMode] = useChatViewMode(focusedId ?? '', config ? config.defaultSessionView ?? 'terminal' : null);
+  const openSession = (id: string, mode?: SessionViewMode) => {
+    if (mode && id === focusedId) setViewMode(mode);
+    else if (mode) writeViewMode(id, mode); // read when the session mounts
+    setFocusedId(id);
+  };
 
   // Mirror the open session into the URL as `#/session/<id>`.
   //
@@ -179,6 +192,8 @@ function Inner() {
       {focused ? (
         <Focus
           session={focused}
+          viewMode={viewMode}
+          onSetViewMode={setViewMode}
           onBack={() => setFocusedId(null)}
           onActions={() => setActionTarget(focused)}
         />
@@ -211,7 +226,7 @@ function Inner() {
       <ActionSheet
         session={actionTarget}
         isFavorite={actionTarget ? groups.isFavorite(actionTarget.id) : false}
-        onOpen={(id) => setFocusedId(id)}
+        onOpen={openSession}
         onMarkDone={handleMarkDone}
         onRestart={handleRestart}
         onToggleFavorite={(s) => groups.toggleFavorite(s)}

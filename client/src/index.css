@@ -581,6 +581,17 @@ body {
 .md-preview hr { border: none; border-top: 1px solid var(--line-2); margin: 1em 0; }
 .md-preview img { max-width: 100%; height: auto; }
 
+/* Chat on a phone (mobile Focus). Scoped by class, not viewport width: a narrow
+   desktop window keeps the desktop chat. */
+.mobile-chat .argus-chat-msg { padding-left: var(--s-3); padding-right: var(--s-3); }
+.mobile-chat .argus-chat-composer { padding: var(--s-2) var(--s-3) calc(var(--s-2) + env(safe-area-inset-bottom, 0px)); }
+/* 16px stops iOS zooming into the field; the highlight layer must match it. */
+.mobile-chat .argus-cmp-input,
+.mobile-chat .argus-cmp-content { font-size: 16px; }
+/* No hover on a phone: the copy button on code blocks is always there. */
+.mobile-chat .argus-chat-code-copy { opacity: 1; }
+.mobile-chat .argus-chat-prompt-wrap { padding-left: var(--s-3); padding-right: var(--s-3); }
+
 /* Commit FAB (mobile only) */
 .commit-fab {
   position: fixed;

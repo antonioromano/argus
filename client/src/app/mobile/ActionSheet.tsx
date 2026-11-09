@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { SquareTerminal, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
-import type { SessionInfo } from '@argus/shared';
+import { SquareTerminal, MessagesSquare, RotateCcw, Star, Trash2, CheckCircle2 } from 'lucide-react';
+import type { SessionInfo, SessionViewMode } from '@argus/shared';
+import { supportsChatView } from '../../utils/chat.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
@@ -10,7 +11,8 @@ import { Icon, Row, Stack, Text } from '../../components/primitives/index.js';
 interface ActionSheetProps {
   session: SessionInfo | null;
   isFavorite: boolean;
-  onOpen: (id: string) => void;
+  /** Open the session; `mode` also picks Terminal or Chat for it (Claude only). */
+  onOpen: (id: string, mode?: SessionViewMode) => void;
   onMarkDone?: (id: string) => void;
   onRestart: (id: string) => void;
   onToggleFavorite: (session: SessionInfo) => void;
@@ -83,7 +85,14 @@ export function ActionSheet({
           {shellLabel(session)}
         </Row>
 
-        <ActionRow icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
+        {supportsChatView(session.agentType) ? (
+          <>
+            <ActionRow icon={MessagesSquare} label="Open as chat" sub="The conversation, read from Claude's transcript" onClick={close(() => onOpen(session.id, 'chat'))} />
+            <ActionRow icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id, 'terminal'))} />
+          </>
+        ) : (
+          <ActionRow icon={SquareTerminal} label="Open terminal" onClick={close(() => onOpen(session.id))} />
+        )}
         {session.status === 'idle' && onMarkDone && (
           <ActionRow icon={CheckCircle2} label="Mark as done" sub="Move this session to done" done onClick={close(() => onMarkDone(session.id))} />
         )}

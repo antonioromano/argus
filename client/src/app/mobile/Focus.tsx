@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import type { SessionInfo } from '@argus/shared';
+import type { SessionInfo, SessionViewMode } from '@argus/shared';
 import { useSocket } from '../../hooks/useSocket.js';
 import { useTerminal } from '../../hooks/useTerminal.js';
 import { useTheme } from '../../context/theme-context.js';
+import { supportsChatView } from '../../utils/chat.js';
+import { ChatView } from '../ui/chat/ChatView.js';
 import { FocusHeader } from './FocusHeader.js';
 import { FocusTerminal } from './FocusTerminal.js';
 import { Diff } from './Diff.js';
@@ -12,28 +14,24 @@ import { Icon } from '../../components/primitives/index.js';
 
 interface FocusProps {
   session: SessionInfo;
+  /** Terminal or Chat for this session; null while the default is still loading. */
+  viewMode: SessionViewMode | null;
+  onSetViewMode: (mode: SessionViewMode) => void;
   onBack: () => void;
   onActions: () => void;
 }
 
-export function Focus({ session, onBack, onActions }: FocusProps) {
+export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: FocusProps) {
   const socket = useSocket();
-  const { theme } = useTheme();
-  const containerRef = useRef<HTMLDivElement>(null);
   const [showChanges, setShowChanges] = useState(false);
-  const [keyboardOpen, setKeyboardOpen] = useState(true);
 
-  // The input surface changes height when shown/hidden — refit the terminal.
-  useEffect(() => { window.dispatchEvent(new Event('terminal:refit')); }, [keyboardOpen]);
-
-  // Focus owns the terminal lifecycle so the on-screen keyboard can share the
-  // handle (DECCKM-aware arrows, local viewport scrolling).
-  const { terminalRef } = useTerminal(containerRef, {
-    sessionId: session.id,
-    socket,
-    theme,
-    readOnly: true,
-  });
+  // Chat is Claude only, chosen per session (same key as the desktop) and
+  // falling back to the app-wide defaultSessionView. A null mode means the
+  // config has not arrived: cover the body rather than flash the terminal and
+  // swap to the chat a moment later.
+  const chatCapable = supportsChatView(session.agentType);
+  const chatMode = chatCapable && viewMode === 'chat';
+  const viewPending = chatCapable && viewMode === null;
 
   // Lock the container to a fixed pixel height derived from visualViewport.height.
   //
@@ -43,7 +41,8 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
   //
   // Fix: always use vv.height as a fixed pixel value. Debounce updates by 150ms so
   // the toolbar animation (which fires many events over ~300ms) only causes ONE
-  // refit after it settles, never mid-gesture.
+  // refit after it settles, never mid-gesture. The chat rides the same height so
+  // its composer stays above the software keyboard.
   const vv0 = window.visualViewport;
   const [vvHeight, setVvHeight] = useState<number>(
     vv0 ? Math.round(vv0.height) : window.innerHeight,
@@ -72,6 +71,67 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
       clearTimeout(timer);
     };
   }, []);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: `${vvHeight}px`,
+        background: 'var(--bg-inset)',
+        overflow: 'hidden',
+      }}
+    >
+      <FocusHeader session={session} onBack={onBack} onActions={onActions} onShowChanges={() => setShowChanges(true)} />
+      {chatMode ? (
+        // Keyed so a session switch never reuses the other session's chat state.
+        <div key={`chat-${session.id}`} className="mobile-chat" style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+          <ChatView
+            session={session}
+            socket={socket}
+            onShowTerminal={() => onSetViewMode('terminal')}
+            // An interactive command (`/mcp`, `/config`, …) runs in the terminal: show it.
+            // The desktop keeps the chat see-through over a terminal sheet; a phone
+            // has no room for both.
+            onTerminalSheet={(open) => { if (open) onSetViewMode('terminal'); }}
+          />
+        </div>
+      ) : viewPending ? (
+        <div data-testid="view-pending" aria-hidden style={{ flex: 1, minHeight: 0, background: 'var(--bg-inset)' }} />
+      ) : (
+        <TerminalMode key={session.id} session={session} />
+      )}
+      {showChanges && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)' }}>
+          <Diff session={session} onBack={() => setShowChanges(false)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The terminal with its input surface. Mounted only while the session shows as
+ * a terminal: a phone in the room sizes the pty to itself (the server fits the
+ * smallest mobile viewer), which a phone reading the chat must not do.
+ */
+function TerminalMode({ session }: { session: SessionInfo }) {
+  const socket = useSocket();
+  const { theme } = useTheme();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(true);
+
+  // The input surface changes height when shown/hidden — refit the terminal.
+  useEffect(() => { window.dispatchEvent(new Event('terminal:refit')); }, [keyboardOpen]);
+
+  // This component owns the terminal lifecycle so the on-screen keyboard can
+  // share the handle (DECCKM-aware arrows, local viewport scrolling).
+  const { terminalRef } = useTerminal(containerRef, {
+    sessionId: session.id,
+    socket,
+    theme,
+    readOnly: true,
+  });
 
   // Landscape on a phone leaves ~380px of height. With the input surface docked
   // that left the terminal 8 rows (measured, iPhone 15 Pro over the tunnel) — and
@@ -137,17 +197,8 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
   }, [debugMode]);
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: `${vvHeight}px`,
-        background: 'var(--bg-inset)',
-        overflow: 'hidden',
-      }}
-    >
-      <FocusHeader session={session} onBack={onBack} onActions={onActions} onShowChanges={() => setShowChanges(true)} />
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+    <>
+      <div data-testid="mobile-terminal" style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <FocusTerminal containerRef={containerRef} />
         {debugMode && debugStats && (
           <div style={{
@@ -195,11 +246,6 @@ export function Focus({ session, onBack, onActions }: FocusProps) {
           <Icon icon={Keyboard} size="xl" />
         </button>
       )}
-      {showChanges && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 'var(--z-sheet)' }}>
-          <Diff session={session} onBack={() => setShowChanges(false)} />
-        </div>
-      )}
-    </div>
+    </>
   );
 }
