@@ -2798,7 +2798,8 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
   color: var(--fg-1);
   cursor: pointer;
 }
-.argus-chat-agent-row:hover { background: var(--bg-2); }
+.argus-chat-agent-row:not(.is-static):hover { background: var(--bg-2); }
+.argus-chat-agent-row.is-static { cursor: default; }
 .argus-chat-agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .argus-chat-agent-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .argus-chat-agent-meta { flex: none; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }

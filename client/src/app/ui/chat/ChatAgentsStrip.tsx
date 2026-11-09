@@ -17,8 +17,9 @@ export function AgentMark({ status }: { status: AgentRun['status'] }) {
  * Claude's own terminal UI lists them). Only top-level agents get a row; a
  * parent counts its nested ones. A row that stops stays AGENT_LINGER_MS with
  * its end mark, then leaves; agents already done when the strip mounts never show.
+ * Rows open the agent sheet through `onOpen`; without it they are plain rows, not buttons.
  */
-export function ChatAgentsStrip({ agents, onOpen }: { agents: AgentRun[]; onOpen: (agent: AgentRun) => void }) {
+export function ChatAgentsStrip({ agents, onOpen }: { agents: AgentRun[]; onOpen?: (agent: AgentRun) => void }) {
   const [tracked, setTracked] = useState(() => followRoster(new Map(), agents));
   // Follow the roster during render, so a row that just stopped never blinks out.
   const [seen, setSeen] = useState(agents);
@@ -77,12 +78,21 @@ export function ChatAgentsStrip({ agents, onOpen }: { agents: AgentRun[]; onOpen
     <div className="argus-chat-agents">
       {rows.map((a) => {
         const { head, meta } = agentRowParts(a, now, nested.get(a.id) ?? 0);
-        return (
-          <button key={a.id} type="button" className="argus-chat-agent-row" data-status={a.status} onClick={() => onOpen(a)}>
+        const content = (
+          <>
             <AgentMark status={a.status} />
             <span className="argus-chat-agent-head">{head}</span>
             <span className="argus-chat-agent-meta">{meta.map((m) => ` · ${m}`).join('')}</span>
+          </>
+        );
+        return onOpen ? (
+          <button key={a.id} type="button" className="argus-chat-agent-row" data-status={a.status} onClick={() => onOpen(a)}>
+            {content}
           </button>
+        ) : (
+          <div key={a.id} className="argus-chat-agent-row is-static" data-status={a.status}>
+            {content}
+          </div>
         );
       })}
     </div>

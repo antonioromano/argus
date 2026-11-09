@@ -147,4 +147,12 @@ describe('ChatAgentsStrip', () => {
     act(() => rows()[0].click());
     expect(onOpen).toHaveBeenCalledWith(a);
   });
+
+  it('without onOpen the rows are plain, not buttons', () => {
+    act(() => root.render(<ChatAgentsStrip agents={[agent()]} />));
+    expect(rows()).toHaveLength(1);
+    expect(container.querySelector('button')).toBeNull();
+    expect(rows()[0].classList.contains('is-static')).toBe(true);
+  });
 });
+

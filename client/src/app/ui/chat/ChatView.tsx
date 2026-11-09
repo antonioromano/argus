@@ -99,7 +99,6 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
  */
 export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet, onOpenAgent }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
-  const openAgent = (agent: AgentRun) => onOpenAgent?.(agent);
   const onOpenAgentRef = useRef(onOpenAgent);
   onOpenAgentRef.current = onOpenAgent;
   const canOpenAgent = onOpenAgent !== undefined;
@@ -486,7 +485,7 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
           />
         </div>
       )}
-      <ChatAgentsStrip agents={roster} onOpen={openAgent} />
+      <ChatAgentsStrip agents={roster} onOpen={onOpenAgent} />
       {aboveComposer}
       <ChatComposer
         sessionId={session.id}
