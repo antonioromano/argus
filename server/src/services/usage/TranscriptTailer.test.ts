@@ -329,3 +329,28 @@ test('an assistant entry that merely mentions "pr-link" still counts its usage',
   assert.equal(t.prUrl, undefined);
   rmSync(path.dirname(f), { recursive: true, force: true });
 });
+
+test('takeTaskNotifications yields the id, tool-use id and status of a task notification, from a plain user entry and from a queued_command attachment, once', async () => {
+  const f = tmpFile();
+  const ts = '2026-11-09T07:52:19.623Z';
+  const a = JSON.stringify({
+    type: 'user',
+    timestamp: ts,
+    message: { content: '<task-notification>\n<task-id>abc123</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>' },
+  });
+  const b = JSON.stringify({
+    type: 'attachment',
+    timestamp: ts,
+    attachment: { type: 'queued_command', prompt: '<task-notification>\n<task-id>def456</task-id>\n<status>failed</status>\n</task-notification>' },
+  });
+  writeFileSync(f, a + '\n' + b + '\n');
+  const t = new TranscriptTailer(f);
+  assert.equal(await t.poll(), false, 'notifications are not usage changes');
+  const at = Date.parse(ts);
+  assert.deepEqual(t.takeTaskNotifications(), [
+    { taskId: 'abc123', toolUseId: 'toolu_1', status: 'completed', at },
+    { taskId: 'def456', status: 'failed', at },
+  ]);
+  assert.deepEqual(t.takeTaskNotifications(), []);
+  rmSync(path.dirname(f), { recursive: true, force: true });
+});

@@ -69,6 +69,12 @@ export function isGithubPrUrl(v: unknown): v is string {
   return typeof v === 'string' && v.length <= 300 && PR_URL_RE.test(v);
 }
 
+/** A background agent's completion, as Claude Code records it in the main transcript. */
+export interface TaskNotification { taskId: string; toolUseId?: string; status: string; at: number }
+
+/** Notifications held between takeTaskNotifications() calls; the oldest drop off first. */
+const MAX_TASK_NOTIFICATIONS = 50;
+
 const zero = (): UsageCounters => ({ input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
 
@@ -84,6 +90,14 @@ export class TranscriptTailer extends JsonlTailer {
    * work happened in another repo than the session folder.
    */
   prUrls: string[] = [];
+  private taskNotifications: TaskNotification[] = [];
+
+  /** Notifications seen since the last call; cleared on return. */
+  takeTaskNotifications(): TaskNotification[] {
+    const out = this.taskNotifications;
+    this.taskNotifications = [];
+    return out;
+  }
 
   /** The PR this conversation last created or pushed to. */
   get prUrl(): string | undefined {
@@ -136,6 +150,7 @@ export class TranscriptTailer extends JsonlTailer {
     this.turns = 0;
     this.context = undefined;
     this.prUrls = [];
+    this.taskNotifications = [];
     return had;
   }
 
@@ -144,6 +159,8 @@ export class TranscriptTailer extends JsonlTailer {
     // A pr-link entry is not a usage change. Other lines that merely contain the
     // string (a Grep for it, say) fall through to the usage parse below.
     if (text.includes('"pr-link"') && this.prLink(text)) return false;
+    // A task notification is not a usage change either; note it and fall through.
+    if (text.includes('<task-notification>')) this.noteTask(text);
     // Cheap prefilter: most lines (user turns, tool results, attachments) carry no usage.
     if (!text.includes('"usage"') || !text.includes('"assistant"')) return false;
     let entry: any;
@@ -201,6 +218,36 @@ export class TranscriptTailer extends JsonlTailer {
     if (entry?.type !== 'pr-link') return false;
     if (isGithubPrUrl(entry.prUrl)) this.addPrUrl(entry.prUrl);
     return true;
+  }
+
+  /** Record a `<task-notification>` carried by a user entry or a queued_command attachment. */
+  private noteTask(text: string): void {
+    let entry: any;
+    try {
+      entry = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const content = entry?.message?.content;
+    const body: unknown =
+      typeof content === 'string'
+        ? content
+        : Array.isArray(content) && content[0]?.type === 'text'
+          ? content[0].text
+          : entry?.attachment?.type === 'queued_command'
+            ? entry.attachment.prompt
+            : undefined;
+    if (typeof body !== 'string' || !body.trimStart().startsWith('<task-notification>')) return;
+    const tag = (name: string): string | undefined => body.match(new RegExp(`<${name}>\\s*([^<]*?)\\s*</${name}>`))?.[1] || undefined;
+    const taskId = tag('task-id');
+    const status = tag('status');
+    if (!taskId || !status) return;
+    const toolUseId = tag('tool-use-id');
+    const ms = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
+    const n: TaskNotification = { taskId, status, at: Number.isFinite(ms) ? ms : Date.now() };
+    if (toolUseId) n.toolUseId = toolUseId;
+    this.taskNotifications.push(n);
+    if (this.taskNotifications.length > MAX_TASK_NOTIFICATIONS) this.taskNotifications.shift();
   }
 
   private addPrUrl(url: string): void {
