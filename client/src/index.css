@@ -1298,6 +1298,22 @@ body {
   padding: 0 var(--s-1);
   white-space: nowrap;
 }
+/* Running-agents count on a session. Static size, hover recolors only (no reflow). */
+.argus-agents-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  padding: 0 var(--s-1);
+  background: transparent;
+  white-space: nowrap;
+}
+button.argus-agents-chip { cursor: pointer; }
+button.argus-agents-chip:hover { background: var(--bg-3); }
 /* Plain Shell git context: ⎇ branch ↑ahead ↓behind ●changes (follows cd). */
 .argus-shell-git {
   flex-shrink: 1;

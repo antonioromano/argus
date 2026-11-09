@@ -3,6 +3,7 @@ import { ChevronLeft, MoreVertical, GitBranch } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { StatusPill, DirtyBadge, Icon, Row, Text } from '../../components/primitives/index.js';
 import { displayStatus } from '../../utils/displayStatus.js';
 
@@ -63,6 +64,7 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
       <Row align="stretch" justify="end" style={{ flexShrink: 0, minWidth: 86 }}>
         <StatusPill status={displayStatus(session)} size="sm" />
       </Row>
+      <AgentsChip count={session.agentsRunning ?? 0} />
       <button
         onClick={onShowChanges}
         aria-label="View changes"

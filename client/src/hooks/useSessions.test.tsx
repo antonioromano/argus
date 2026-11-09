@@ -97,6 +97,16 @@ describe('useSessions reconnect snapshot vs socket deltas', () => {
     expect(byId('a')!.initialPrompt).toBeUndefined();
   });
 
+  it('session:agents updates agents and agentsRunning', async () => {
+    await mountWith([sess('a', { status: 'running' })]);
+    const agents = [{ id: 'x1', agentType: 'general-purpose', description: 'd', background: false, depth: 1, status: 'running' }];
+    await act(async () => { socket.emit('session:agents', { sessionId: 'a', agents, agentsRunning: 1 }); });
+    expect(byId('a')!.agents).toEqual(agents);
+    expect(byId('a')!.agentsRunning).toBe(1);
+    await act(async () => { socket.emit('session:agents', { sessionId: 'a', agents: [], agentsRunning: 0 }); });
+    expect(byId('a')!.agentsRunning).toBe(0);
+  });
+
   it('a status delta received while the reconnect GET is in flight survives the snapshot', async () => {
     await mountWith([sess('a', { status: 'idle' })]);
 

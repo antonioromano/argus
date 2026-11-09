@@ -9,6 +9,7 @@ import { UsageChip } from '../ui/UsageChip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
 import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { workRoot } from '../../utils/workRoot.js';
@@ -395,6 +396,7 @@ export function Focus({
                 showPills && active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
               ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
               {showPills && <StaleChip staleDays={active.worktreeStaleDays} />}
+              {showPills && <AgentsChip count={active.agentsRunning ?? 0} />}
               {showPills && !inspectorShown && active.pr && <PrChip pr={active.pr} />}
               {!inspectorShown && usageMeter && shed < SHED.ctx && (
                 <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} omit={usageOmit(shed)} />

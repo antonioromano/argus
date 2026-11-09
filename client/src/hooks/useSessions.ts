@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { CreateSessionRequest, SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr, SessionPrSummary } from '@argus/shared';
+import type { CreateSessionRequest, SessionInfo, TerminalEngine, RunMode, ShellGitContext, SessionUsage, SessionStatusPayload, SessionPr, SessionPrSummary, AgentRun } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { api, ApiError } from '../services/api.js';
@@ -206,12 +206,17 @@ export function useSessions(socket: TypedSocket) {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, usage } : s)));
     };
 
+    const handleAgents = ({ sessionId, agents, agentsRunning }: { sessionId: string; agents: AgentRun[]; agentsRunning: number }) => {
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, agents, agentsRunning } : s)));
+    };
+
     const handleClaudeId = ({ sessionId, claudeSessionId }: { sessionId: string; claudeSessionId: string }) => {
       setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, claudeSessionId } : s)));
     };
 
     socket.on('session:status', handleStatus);
     socket.on('session:usage', handleUsage);
+    socket.on('session:agents', handleAgents);
     socket.on('session:claudeId', handleClaudeId);
     socket.on('session:exit', handleExit);
     socket.on('session:created', handleCreated);
@@ -228,6 +233,7 @@ export function useSessions(socket: TypedSocket) {
     return () => {
       socket.off('session:status', handleStatus);
       socket.off('session:usage', handleUsage);
+      socket.off('session:agents', handleAgents);
       socket.off('session:claudeId', handleClaudeId);
       socket.off('session:exit', handleExit);
       socket.off('session:created', handleCreated);

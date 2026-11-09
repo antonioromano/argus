@@ -14,6 +14,7 @@ import { ChipMarks } from '../ui/MinimizedChip.js';
 import { chipClass } from '../ui/chipFormat.js';
 import { ChainChip } from '../ui/ChainChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -913,6 +914,7 @@ function MosaicTileInner({
             </Tooltip>
           )}
           {showPills && <StaleChip staleDays={session.worktreeStaleDays} />}
+          {showPills && <AgentsChip count={session.agentsRunning ?? 0} />}
           {showPills && session.runMode === 'direct' && (
             <Tooltip content="Native terminal — stops when Argus quits">
               <span className="argus-tile-branch">Native</span>

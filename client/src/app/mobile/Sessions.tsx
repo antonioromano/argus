@@ -10,6 +10,7 @@ import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { PrChip } from '../ui/PrChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { usageMeterView } from '../../utils/usageFormat.js';
@@ -160,7 +161,7 @@ function SessionRow({ session, collides, onSelect, onAction }: { session: Sessio
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
   const { isDark } = useTheme();
   const edge = identityEdgeProps(session.color, isDark);
-  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage;
+  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage || (session.agentsRunning ?? 0) > 0;
   return (
     <Row
       data-identity-edge={edge['data-identity-edge']}
@@ -211,6 +212,7 @@ function SessionRow({ session, collides, onSelect, onAction }: { session: Sessio
             <div className="mobile-row-chips">
               {session.pr && <PrChip pr={session.pr} />}
               <StaleChip staleDays={session.worktreeStaleDays} />
+              <AgentsChip count={session.agentsRunning ?? 0} />
               <UsageChip agentType={session.agentType} usage={session.usage} view={MOBILE_METER} />
             </div>
           )}
