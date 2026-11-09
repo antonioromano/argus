@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AgentChatResponse, AgentRun, ChatMessage } from '@argus/shared';
-import { useAgentChat } from './useAgentChat.js';
+import { AGENT_CHAT_READ_EVERY_MS, useAgentChat } from './useAgentChat.js';
 
 const mocks = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../services/api.js', () => ({ api: { getAgentChat: mocks.get } }));
@@ -28,14 +28,17 @@ function Probe({ a }: { a: AgentRun | null }) {
 
 let container: HTMLDivElement; let root: Root;
 beforeEach(() => {
+  vi.useFakeTimers();
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   latest.v = null;
   mocks.get.mockReset();
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
 });
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); });
 
 const show = async (a: AgentRun | null) => { await act(async () => { root.render(<Probe a={a} />); }); };
+const wait = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+const stepped = (label: string, over: Partial<AgentRun> = {}) => agent({ lastStep: { name: 'Read', label, status: 'pending' }, ...over });
 
 describe('useAgentChat', () => {
   it('first reads from byte 0 and is loading until then', async () => {
@@ -49,11 +52,12 @@ describe('useAgentChat', () => {
     expect(latest.v!.messages.map((m) => m.id)).toEqual(['m1']);
   });
 
-  it('appends by id from the returned offset on the next roster change', async () => {
+  it('appends by id from the returned offset on the next step change', async () => {
     mocks.get.mockResolvedValueOnce(page([text('m1', 'hi')], 100));
     await show(agent());
+    await wait(AGENT_CHAT_READ_EVERY_MS);
     mocks.get.mockResolvedValueOnce(page([text('m1', 'hi again'), text('m2', 'more')], 180));
-    await show(agent({ outputTokens: 20 }));
+    await show(stepped('a.ts', { outputTokens: 20 }));
     expect(mocks.get).toHaveBeenLastCalledWith('s1', 'a1', 100);
     expect(latest.v!.messages.map((m) => m.id)).toEqual(['m1', 'm2']);
     expect(latest.v!.messages[0].blocks[0]).toEqual({ kind: 'text', text: 'hi again' });
@@ -62,6 +66,7 @@ describe('useAgentChat', () => {
   it('refetches from 0 while a tool step is still pending', async () => {
     mocks.get.mockResolvedValueOnce(page([pendingTool('m1')], 100));
     await show(agent());
+    await wait(AGENT_CHAT_READ_EVERY_MS);
     mocks.get.mockResolvedValueOnce(page([text('m1', 'done')], 150));
     await show(agent({ lastStep: { name: 'Read', label: 'a.ts', status: 'ok' } }));
     expect(mocks.get).toHaveBeenLastCalledWith('s1', 'a1', 0);
@@ -108,4 +113,58 @@ describe('useAgentChat', () => {
     expect(mocks.get).not.toHaveBeenCalled();
     expect(latest.v!.messages).toEqual([]);
   });
+
+  it('a token-only roster change reads nothing', async () => {
+    mocks.get.mockResolvedValue(page([text('m1', 'hi')], 100));
+    await show(stepped('a.ts'));
+    await wait(AGENT_CHAT_READ_EVERY_MS * 2);
+    for (const tokens of [20, 30, 40]) {
+      await show(stepped('a.ts', { outputTokens: tokens }));
+      await wait(AGENT_CHAT_READ_EVERY_MS);
+    }
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('two step changes 1 s apart: one read now, one trailing read', async () => {
+    mocks.get.mockResolvedValue(page([text('m1', 'hi')], 100));
+    await show(stepped('a.ts'));
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    await wait(AGENT_CHAT_READ_EVERY_MS);
+    await show(stepped('b.ts'));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await wait(1000);
+    await show(stepped('c.ts'));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await wait(AGENT_CHAT_READ_EVERY_MS - 1000 - 1);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await wait(1);
+    expect(mocks.get).toHaveBeenCalledTimes(3);
+    await wait(AGENT_CHAT_READ_EVERY_MS * 2);
+    expect(mocks.get).toHaveBeenCalledTimes(3);
+  });
+
+  it('the read on finish is not throttled', async () => {
+    mocks.get.mockResolvedValue(page([], 100));
+    await show(stepped('a.ts'));
+    await show(stepped('b.ts'));
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    await show(stepped('b.ts', { status: 'finished' }));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+    await wait(AGENT_CHAT_READ_EVERY_MS * 2);
+    expect(mocks.get).toHaveBeenCalledTimes(2); // the trailing read was folded into the final one
+  });
+
+  it('an unavailable transcript is not asked for again until the status changes', async () => {
+    mocks.get.mockResolvedValue(page([], 0, false));
+    await show(stepped('a.ts'));
+    for (const label of ['b.ts', 'c.ts']) {
+      await wait(AGENT_CHAT_READ_EVERY_MS);
+      await show(stepped(label));
+    }
+    await wait(AGENT_CHAT_READ_EVERY_MS);
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+    await show(stepped('c.ts', { status: 'failed' }));
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
 });
+

@@ -350,6 +350,27 @@ const CODEX_POLL_MS = 2_000;
 /** sessions.json is rewritten at most this often for usage-meter progress alone
  *  (every lifecycle change and shutdown persist it anyway). */
 const USAGE_PERSIST_MS = 30_000;
+/** The agent sheet's first read of a longer agent transcript covers only its last this many bytes. */
+export const AGENT_CHAT_FIRST_READ_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Where a read of `file`'s last `maxBytes` should start: 0 when the file is no
+ * longer than that, else just past the first newline at or after `size - maxBytes`
+ * (the end of the file when that window holds no newline).
+ */
+async function firstLineStartFrom(file: string, maxBytes: number): Promise<number> {
+  const { size } = await nodeTranscriptFs.stat(file);
+  if (size <= maxBytes) return 0;
+  const CHUNK = 64 * 1024;
+  // Start one byte early: a newline right before the window makes its first byte a line start.
+  for (let pos = size - maxBytes - 1; pos < size; pos += CHUNK) {
+    const buf = await nodeTranscriptFs.read(file, pos, Math.min(CHUNK, size - pos));
+    if (buf.length === 0) break;
+    const nl = buf.indexOf(0x0a);
+    if (nl !== -1) return pos + nl + 1;
+  }
+  return size;
+}
 /** A Stop hook can fire just before Claude's last transcript write lands; read
  *  once more shortly after so the turn's final numbers are not missed. */
 const USAGE_FOLLOWUP_MS = 1_500;
@@ -2528,7 +2549,19 @@ export class SessionManager {
       return unavailable; // listed by its meta, not written yet
     }
     const tail = new ChatTail(file, nodeTranscriptFs, { sidechain: true });
-    tail.seek(after);
+    // A first read (after 0) of a long agent transcript starts at the first line
+    // boundary within its last AGENT_CHAT_FIRST_READ_BYTES: the sheet shows what
+    // the agent is doing now, and a multi-MB transcript is not parsed whole each
+    // time the sheet starts over (it does so while a tool step is pending).
+    let start = after;
+    if (after === 0) {
+      try {
+        start = await firstLineStartFrom(file, AGENT_CHAT_FIRST_READ_BYTES);
+      } catch {
+        return unavailable;
+      }
+    }
+    tail.seek(start);
     try {
       await tail.poll();
     } catch {

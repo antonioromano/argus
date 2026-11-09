@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AgentRun, AgentSignalState } from '@argus/shared';
-import { SessionManager } from './SessionManager.js';
+import { AGENT_CHAT_FIRST_READ_BYTES, SessionManager } from './SessionManager.js';
 
 process.env.ARGUS_PTY_BACKEND = 'tmux'; // pin backend so a built argusd binary doesn't flip the default
 
@@ -309,6 +309,37 @@ test('agents: a restored meter whose offset is past a killed notification holds 
   tc.mock.timers.tick(DONE_GRACE_MS);
   assert.equal(s.status, 'done', 'no agent holds the done');
   assert.equal(statuses(emitted).at(-1), 'done');
+  s.usage.dispose();
+  t.done();
+});
+
+test('agents: the first agentChat read of a transcript over 4 MB returns only messages from its tail', async () => {
+  const t = transcriptDir();
+  const file = path.join(t.sub, `agent-${ID}.jsonl`);
+  const [, textLine] = readFileSync(file, 'utf8').split('\n');
+  const entry = JSON.parse(textLine);
+  const say = (id: string, text: string) =>
+    JSON.stringify({ ...entry, uuid: `u-${id}`, message: { ...entry.message, id, content: [{ type: 'text', text }] } }) + '\n';
+  const filler = 'x'.repeat(50_000);
+  let body = say('msg_old', 'OLDEST');
+  for (let i = 0; i < 100; i++) body += say(`msg_f${i}`, filler); // ~5 MB
+  body += say('msg_new', 'NEWEST');
+  writeFileSync(file, body);
+  assert.ok(Buffer.byteLength(body) > AGENT_CHAT_FIRST_READ_BYTES);
+
+  const { sm } = mgr([t.d]);
+  const s = inject(sm);
+  sm.applyAgentMeta('s', { transcriptPath: t.conv });
+  await s.usage.pollNow();
+  const first = await sm.agentChat('s', ID, 0);
+  assert.ok(first?.available);
+  const texts = first.messages.flatMap((m) => m.blocks.map((b) => (b.kind === 'text' ? b.text : '')));
+  assert.ok(texts.includes('NEWEST'), 'the tail is read');
+  assert.ok(!texts.includes('OLDEST'), 'the head is not');
+  assert.ok(first.messages.length < 100, `${first.messages.length} messages`);
+  assert.equal(first.offset, Buffer.byteLength(body));
+  // A continued read past the offset still works as before.
+  assert.deepEqual(await sm.agentChat('s', ID, first.offset), { available: true, messages: [], offset: first.offset });
   s.usage.dispose();
   t.done();
 });
