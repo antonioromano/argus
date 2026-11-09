@@ -93,8 +93,11 @@ function Inner() {
   // Terminal or Chat for the open session: the per-session choice shared with
   // the desktop (same localStorage key), falling back to the app-wide
   // defaultSessionView once the config has loaded.
-  const { config } = useConfig();
-  const [viewMode, setViewMode] = useChatViewMode(focusedId ?? '', config ? config.defaultSessionView ?? 'terminal' : null);
+  // A fetch that fails (a tunnel blip) must not leave the body blank for good:
+  // once the load is over with no config, the terminal is the default.
+  const { config, loading: configLoading } = useConfig();
+  const defaultView = config ? config.defaultSessionView ?? 'terminal' : configLoading ? null : 'terminal';
+  const [viewMode, setViewMode] = useChatViewMode(focusedId ?? '', defaultView);
   const openSession = (id: string, mode?: SessionViewMode) => {
     if (mode && id === focusedId) setViewMode(mode);
     else if (mode) writeViewMode(id, mode); // read when the session mounts
