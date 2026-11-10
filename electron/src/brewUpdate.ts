@@ -26,6 +26,13 @@ export type Phase2Opts = {
   logFile: string;
   lockFile: string;
   failMarker: string;
+  /**
+   * Absolute path of the running .app bundle. Relaunch opens this path, never
+   * `open -a Argus`: Launch Services resolves a bare name to any registered
+   * bundle with that name, and a stale copy (e.g. a local `dist/` build) can
+   * win, so the user lands in an old version right after updating.
+   */
+  appPath: string;
 };
 
 export function buildPhase2Script(o: Phase2Opts): string {
@@ -41,11 +48,11 @@ export function buildPhase2Script(o: Phase2Opts): string {
     `if ${buildCaskCurrentCheck(o.cask)}; then`,
     `  if [ $BREW_EXIT -ne 0 ]; then echo "[argus-update] $(date) upgrade exited $BREW_EXIT but ${o.cask} is current — treating as installed" >> "${o.logFile}"; fi`,
     `  echo "[argus-update] $(date) install ok, relaunching" >> "${o.logFile}"`,
-    `  open -a Argus`,
+    `  open "${o.appPath}"`,
     `else`,
     `  echo "[argus-update] $(date) install failed (exit $BREW_EXIT)" >> "${o.logFile}"`,
     `  echo "$BREW_EXIT" > "${o.failMarker}"`,
-    `  open -a Argus`,
+    `  open "${o.appPath}"`,
     `fi`,
   ].join('\n');
 }

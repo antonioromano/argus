@@ -43,6 +43,7 @@ function runPhase2(fake: Fake, opts: { lockExists?: boolean; markerExists?: bool
     logFile,
     lockFile,
     failMarker,
+    appPath: '/Applications/Argus.app',
   });
   try {
     spawnSync('/bin/sh', ['-c', script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
@@ -61,7 +62,7 @@ function runPhase2(fake: Fake, opts: { lockExists?: boolean; markerExists?: bool
 test('clean upgrade → relaunch, no marker', () => {
   const r = runPhase2({ upgradeExit: 0, outdatedExit: 0 });
   assert.equal(r.marker, null);
-  assert.match(r.opens, /-a Argus/);
+  assert.equal(r.opens.trim(), '/Applications/Argus.app');
   assert.equal(r.lockExistsAfter, false);
   assert.match(r.log, /install ok, relaunching/);
 });
@@ -70,14 +71,14 @@ test('upgrade exit 1 but cask current → success', () => {
   const r = runPhase2({ upgradeExit: 1, outdatedExit: 0 });
   assert.equal(r.marker, null);
   assert.match(r.log, /upgrade exited 1 but argus is current/);
-  assert.match(r.opens, /-a Argus/);
+  assert.equal(r.opens.trim(), '/Applications/Argus.app');
 });
 
 test('real failure writes marker', () => {
   const r = runPhase2({ upgradeExit: 1, outdatedExit: 1 });
   assert.equal(r.marker, '1');
   assert.match(r.log, /install failed \(exit 1\)/);
-  assert.match(r.opens, /-a Argus/);
+  assert.equal(r.opens.trim(), '/Applications/Argus.app');
   assert.equal(r.lockExistsAfter, false);
 });
 
@@ -89,7 +90,7 @@ test('marker from an earlier failure is cleared by a clean run', () => {
 test('exit 0 but still outdated writes marker', () => {
   const r = runPhase2({ upgradeExit: 0, outdatedExit: 1 });
   assert.equal(r.marker, '0');
-  assert.match(r.opens, /-a Argus/);
+  assert.equal(r.opens.trim(), '/Applications/Argus.app');
 });
 
 test('stderr noise does not mark failure', () => {
