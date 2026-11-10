@@ -99,6 +99,32 @@ describe('AgentRoster', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  test('an agent whose first line is larger than the version probe still runs', async () => {
+    const dir = folder();
+    // A long prompt: the first entry alone is past the 64 KB head the probe reads.
+    const lines = jsonlFrom(T0).split('\n').filter(Boolean);
+    const first = JSON.parse(lines[0]);
+    first.message = { role: 'user', content: 'x'.repeat(200 * 1024) };
+    writeFileSync(jsonlPath(dir), [JSON.stringify(first), ...lines.slice(1)].join('\n') + '\n');
+    const r = new AgentRoster(dir, { now: () => LAST });
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'running');
+    assert.equal(r.runningCount(), 1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('a pre-2.1.301 agent with a huge first line is still never running', async () => {
+    const dir = folder();
+    const lines = jsonlFrom(T0, '2.1.299').split('\n').filter(Boolean);
+    const first = JSON.parse(lines[0]);
+    first.message = { role: 'user', content: 'x'.repeat(200 * 1024) };
+    writeFileSync(jsonlPath(dir), [JSON.stringify(first), ...lines.slice(1)].join('\n') + '\n');
+    const r = new AgentRoster(dir, { now: () => LAST });
+    await r.poll();
+    assert.equal(r.agents()[0].status, 'finished');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test('finished flips when the meta gains the flag', async () => {
     const dir = folder();
     const r = new AgentRoster(dir, { now: () => LAST });

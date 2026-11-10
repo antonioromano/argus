@@ -38,6 +38,8 @@ const META_RE = new RegExp(`^agent-(${ID_PATTERN})\\.meta\\.json$`);
 const AGENT_ID_RE = new RegExp(`^${ID_PATTERN}$`);
 /** The head of a jsonl read to learn its writer's version; an older writer's agent is never tailed past it. */
 export const AGENT_VERSION_PROBE_BYTES = 64 * 1024;
+/** How far the probe reads for a first line longer than the head: the tailer's line cap. */
+export const AGENT_VERSION_FIRST_LINE_MAX = 32 * 1024 * 1024;
 /** A failing read is logged at most once per agent (or folder) per this long. */
 const WARN_EVERY_MS = 60_000;
 /** Task notifications remembered for agents not listed yet; the oldest drop off first. */
@@ -289,8 +291,15 @@ export class AgentRoster {
     try {
       if (tail.version === undefined) {
         // The version decides whether the flag will ever come: learn it from the head only.
-        await tail.poll(AGENT_VERSION_PROBE_BYTES - tail.readPosition);
-        if (tail.version === undefined && tail.readPosition >= AGENT_VERSION_PROBE_BYTES) {
+        // A first line longer than the head (a long prompt) is read to its end first, up to
+        // the tailer's own line cap: judging before any whole line arrived would call a
+        // current writer "older" and drop a running agent.
+        await tail.poll(Math.max(0, AGENT_VERSION_PROBE_BYTES - tail.readPosition));
+        if (tail.version === undefined && tail.lineOffset === 0 && tail.readPosition >= AGENT_VERSION_PROBE_BYTES) {
+          await tail.poll(Math.max(0, AGENT_VERSION_FIRST_LINE_MAX - tail.readPosition));
+        }
+        const judged = tail.lineOffset > 0 ? tail.readPosition >= AGENT_VERSION_PROBE_BYTES : tail.readPosition >= AGENT_VERSION_FIRST_LINE_MAX;
+        if (tail.version === undefined && judged) {
           agent.ended ??= { status: 'finished' }; // no version in the head: an older writer
           return;
         }

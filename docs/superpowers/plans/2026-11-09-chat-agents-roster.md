@@ -20,7 +20,7 @@
 - Copy: writing guide (`docs/design/writing-guide.md`): sentence case, the noun "agent"; pill label `AGENTS` (uppercase mono like the others); strip row `type · description · 33 s · 125k tokens · <last step>`; typing row "Claude is writing…"; chip "N agents"; stale row "no output for N min" after 5 min without a jsonl write.
 - Hover changes background only, never row size (project rule). Touch targets on the phone: `var(--row-h-touch)` (44px).
 - ESLint `argus/no-raw-style-scale`: no raw px/font/radius literals in style objects; use tokens.
-- Agent id regex for the route: `^[A-Za-z0-9]{6,64}$`; the agent file must resolve inside the session's own transcript folder.
+- Agent id regex for the route: `^[A-Za-z0-9][A-Za-z0-9-]{5,95}$` (named agents carry hyphens); the agent file must resolve inside the session's own transcript folder.
 - Status detector, `SessionStatus` and the hooks pipeline stay unchanged (D14).
 
 ## Review Focus
