@@ -10,10 +10,12 @@ import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { PrChip } from '../ui/PrChip.js';
 import { UsageChip } from '../ui/UsageChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { identityEdgeProps } from '../../utils/sessionIdentity.js';
 import { usageMeterView } from '../../utils/usageFormat.js';
 import { formatWaiting } from '../overlays/inboxItems.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 /** The phone has no settings of its own: the meter shows its default parts
  *  (context), without the account-wide plan usage. */
@@ -57,15 +59,15 @@ function discriminator(s: SessionInfo): string {
 }
 
 function byStatus(a: SessionInfo, b: SessionInfo): number {
-  const ra = STATUS_RANK[a.status] ?? 2;
-  const rb = STATUS_RANK[b.status] ?? 2;
+  const ra = STATUS_RANK[sortStatus(displayStatus(a))] ?? 2;
+  const rb = STATUS_RANK[sortStatus(displayStatus(b))] ?? 2;
   if (ra !== rb) return ra - rb;
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
 function Section({ title, color, sessions, ghosts, filter, collidingKeys, onSelect, onAction, onSpawnFavorite }: { title: string; color: string | null; sessions: SessionInfo[]; ghosts?: GhostFavorite[]; filter: StatusFilter; collidingKeys: Set<string>; onSelect: (id: string) => void; onAction: (s: SessionInfo) => void; onSpawnFavorite?: (ghost: GhostFavorite) => void }) {
   const [collapsed, setCollapsed] = useState(false);
-  const visible = filter === 'all' ? sessions : sessions.filter((s) => s.status === filter);
+  const visible = filter === 'all' ? sessions : sessions.filter((s) => sortStatus(displayStatus(s)) === filter);
   // Ghost (saved, spun-down) favourites have no status, so only surface them in the unfiltered view.
   const visibleGhosts = filter === 'all' ? (ghosts ?? []) : [];
   if (visible.length === 0 && visibleGhosts.length === 0) return null;
@@ -159,7 +161,7 @@ function SessionRow({ session, collides, onSelect, onAction }: { session: Sessio
   const folder = session.folderPath.split('/').filter(Boolean).pop() ?? session.folderPath;
   const { isDark } = useTheme();
   const edge = identityEdgeProps(session.color, isDark);
-  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage;
+  const hasChips = !!session.pr || session.worktreeStaleDays !== undefined || !!session.usage || (session.agentsRunning ?? 0) > 0;
   return (
     <Row
       data-identity-edge={edge['data-identity-edge']}
@@ -210,6 +212,7 @@ function SessionRow({ session, collides, onSelect, onAction }: { session: Sessio
             <div className="mobile-row-chips">
               {session.pr && <PrChip pr={session.pr} />}
               <StaleChip staleDays={session.worktreeStaleDays} />
+              <AgentsChip count={session.agentsRunning ?? 0} />
               <UsageChip agentType={session.agentType} usage={session.usage} view={MOBILE_METER} />
             </div>
           )}
@@ -219,7 +222,7 @@ function SessionRow({ session, collides, onSelect, onAction }: { session: Sessio
             </Text>
           )}
         </div>
-        <StatusPill status={session.status} size="sm" />
+        <StatusPill status={displayStatus(session)} size="sm" />
       </button>
       <button
         onClick={onAction}
@@ -255,7 +258,7 @@ export function Sessions({ sessions, grouped, publicUrl, onSelect, onAction, onS
     all: sessions.length,
     waiting: 0, running: 0, idle: 0, done: 0, exited: 0,
   };
-  for (const s of sessions) counts[s.status] += 1;
+  for (const s of sessions) counts[sortStatus(displayStatus(s))] += 1;
   const waiting = sessions.filter((s) => s.status === 'waiting');
 
   const collidingKeys = useMemo(() => {

@@ -1,4 +1,4 @@
-import { open, stat } from 'fs/promises';
+import { open, readdir, readFile, stat } from 'fs/promises';
 
 /**
  * Tolerant incremental reader of an append-only JSONL file: the shared core of
@@ -14,14 +14,18 @@ import { open, stat } from 'fs/promises';
 
 /** Minimal fs surface, injectable for tests. */
 export interface TranscriptFs {
-  stat(path: string): Promise<{ size: number; ino: number }>;
+  stat(path: string): Promise<{ size: number; ino: number; mtimeMs: number }>;
   read(path: string, position: number, length: number): Promise<Buffer>;
+  /** Entry names only; `[]` when the directory is missing. */
+  readdir(dir: string): Promise<string[]>;
+  /** Whole file as utf8; for small files (meta.json). */
+  readFile(path: string): Promise<string>;
 }
 
 export const nodeTranscriptFs: TranscriptFs = {
   async stat(path) {
     const s = await stat(path);
-    return { size: s.size, ino: s.ino };
+    return { size: s.size, ino: s.ino, mtimeMs: s.mtimeMs };
   },
   async read(path, position, length) {
     const fh = await open(path, 'r');
@@ -32,6 +36,18 @@ export const nodeTranscriptFs: TranscriptFs = {
     } finally {
       await fh.close();
     }
+  },
+  async readdir(dir) {
+    try {
+      return await readdir(dir);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return [];
+      throw err;
+    }
+  },
+  readFile(path) {
+    return readFile(path, 'utf8');
   },
 };
 
@@ -59,8 +75,33 @@ export abstract class JsonlTailer {
   /** Forget the subclass state (the file was rewritten). True when there was any. */
   protected abstract clear(): boolean;
 
-  /** Read whatever was appended since the last poll. Resolves true when the state changed. */
-  async poll(): Promise<boolean> {
+  /** Byte offset just past the last complete line read: where the next poll starts. */
+  get lineOffset(): number {
+    return this.offset;
+  }
+
+  /** Byte offset just past everything read so far, the carried unterminated line included. */
+  get readPosition(): number {
+    return this.offset + this.pendingBytes;
+  }
+
+  /**
+   * Start the next poll at `offset`, which must be a line boundary (a
+   * `lineOffset` from an earlier read): the bytes before it are never read.
+   * Any carried unterminated line is dropped with them.
+   */
+  seek(offset: number): void {
+    this.offset = offset;
+    this.pieces = [];
+    this.pendingBytes = 0;
+    this.dropping = false;
+  }
+
+  /**
+   * Read whatever was appended since the last poll, at most `maxBytes` of it
+   * (the rest is left for the next poll). Resolves true when the state changed.
+   */
+  async poll(maxBytes = Infinity): Promise<boolean> {
     let st: { size: number; ino: number };
     try {
       st = await this.fs.stat(this.path);
@@ -75,8 +116,9 @@ export abstract class JsonlTailer {
     this.ino = st.ino;
 
     let pos = this.offset + this.pendingBytes;
-    while (pos < st.size) {
-      const len = Math.min(READ_CHUNK, st.size - pos);
+    const end = Math.min(st.size, pos + Math.max(0, maxBytes));
+    while (pos < end) {
+      const len = Math.min(READ_CHUNK, end - pos);
       const chunk = await this.fs.read(this.path, pos, len);
       if (chunk.length === 0) break;
       pos += chunk.length;

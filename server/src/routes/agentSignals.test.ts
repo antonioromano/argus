@@ -11,6 +11,7 @@ const SECRET = 'test-secret-abc';
 const calls: Array<{ id: string; sig: any }> = [];
 const metas: Array<{ id: string; meta: any }> = [];
 const activity: Array<{ id: string; raw: string }> = [];
+const nudges: string[] = [];
 
 const fakeManager = {
   applyNativeSignal: (id: string, sig: any) => {
@@ -18,6 +19,9 @@ const fakeManager = {
   },
   applyAgentMeta: (id: string, meta: any) => {
     metas.push({ id, meta });
+  },
+  nudgeAgents: (id: string) => {
+    nudges.push(id);
   },
   recordActivityHook: (id: string, raw: string) => {
     activity.push({ id, raw });
@@ -225,4 +229,18 @@ test('activity: a body over the cap is refused (argus-signal sends at most 16 KB
   const res = await postActivity('sess-1', `${token}\n${'x'.repeat(64 * 1024)}`);
   assert.equal(res.status, 413);
   assert.equal(activity.length, 0);
+});
+
+test('a hook whose transcript_path is a subagent file neither sets the transcript nor moves the status', async () => {
+  calls.length = 0;
+  metas.length = 0;
+  nudges.length = 0;
+  const token = computeSignalToken(SECRET, 'sess-1');
+  const sub = '/Users/x/.claude/projects/p/conv/subagents/agent-x.jsonl';
+  const res = await post('sess-1', { token, state: 'running', claudeSessionId: '11111111-2222-3333-4444-555555555555', transcriptPath: sub });
+  assert.equal(res.status, 204);
+  assert.equal(calls.length, 0);
+  assert.ok(!metas.some((m) => m.meta.transcriptPath === sub));
+  assert.equal(metas.length, 0);
+  assert.deepEqual(nudges, ['sess-1']);
 });

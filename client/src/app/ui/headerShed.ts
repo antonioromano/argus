@@ -5,6 +5,7 @@ import { STATUS_LABELS } from '../../constants/status.js';
 import { describePr } from '../../utils/prFormat.js';
 import { describeShellGit } from '../../utils/shellGit.js';
 import { describeUsage, planFor, type UsageMeterState, type UsageRow } from '../../utils/usageFormat.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 /**
  * Header info shedding (Mosaic tile + Focus header). The actions group is
@@ -108,10 +109,11 @@ export function shedInfo(
   opts: { usageMeter?: UsageMeterState | null; chainCount?: number; branch?: boolean; gitAndPr?: boolean } = {},
 ): ShedRow[] {
   const { pills, status, ctx } = SHED;
-  const rows: ShedRow[] = [{ level: status, label: 'Status', value: STATUS_LABELS[session.status] }];
+  const rows: ShedRow[] = [{ level: status, label: 'Status', value: STATUS_LABELS[displayStatus(session)] }];
   if (opts.branch !== false && session.worktreeBranch) rows.push({ level: pills, label: 'Branch', value: session.worktreeBranch });
   if (session.runMode === 'direct') rows.push({ level: pills, label: 'Terminal', value: 'Native — stops when Argus quits' });
   if (session.worktreeStaleDays !== undefined) rows.push({ level: pills, label: 'Stale', value: `No commit for ${session.worktreeStaleDays} days` });
+  if (session.agentsRunning) rows.push({ level: pills, label: 'Agents', value: String(session.agentsRunning) });
   if (opts.chainCount) rows.push({ level: pills, label: 'Chains', value: String(opts.chainCount) });
   if (opts.gitAndPr !== false) {
     if (session.cwd && session.shellGit) rows.push({ level: pills, label: 'Git', value: describeShellGit(session.cwd, session.shellGit) });

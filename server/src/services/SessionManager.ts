@@ -30,6 +30,8 @@ import type {
   AppConfig,
   ActivityEvent,
   BackendHealth,
+  AgentRun,
+  AgentChatResponse,
 } from '@argus/shared';
 import { SESSION_NAME_MAX } from '../constants/session.js';
 import { ActivityStore } from './activity/ActivityStore.js';
@@ -82,7 +84,10 @@ import type { GitService } from './GitService.js';
 import { PrDiffError, PrWriteError, type PrStatusService } from './PrStatusService.js';
 import { prSummaryItem, summarizePrItems } from './prSummary.js';
 import { staleDays } from './worktreeLifecycle.js';
-import { SessionUsageTracker, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { SessionUsageTracker, subagentsFolder, transcriptRoots, type ChatSnapshot, type SessionUsageTrackerOpts, type SessionUsageTrackerState } from './usage/SessionUsageTracker.js';
+import { ChatTail } from './usage/ChatTail.js';
+import { nodeTranscriptFs } from './usage/JsonlTailer.js';
+import { isAgentId } from './usage/AgentRoster.js';
 import { conversationDirs, listClaudeConversations } from './usage/claudeConversations.js';
 import { PlanUsageStore, parseClaudeRateLimits } from './usage/PlanUsageStore.js';
 import {
@@ -251,6 +256,15 @@ interface ManagedSession {
    * producing a spurious idle→running→done cycle.
    */
   hasUserInputSinceIdle: boolean;
+  /** Claude only: the current transcript's agent roster and its running count (session:agents). */
+  agents?: AgentRun[];
+  agentsRunning?: number;
+  /**
+   * A run ended (running → idle) while agents were still running, so the done
+   * promotion was held rather than dropped: retryDonePromotion gives it back
+   * once the roster's running count reaches 0. Cleared when the status moves on.
+   */
+  doneHeldByAgents?: boolean;
   /** Plain Shell only: OSC 7 reader, last reported cwd, and that cwd's git state. */
   cwdParser?: OscCwdParser;
   cwd?: string;
@@ -285,6 +299,12 @@ interface ManagedSession {
   codex?: { spawnedAt: number; tailer?: CodexRolloutTailer; updatedAt: number };
   /** When the current pty was spawned (ms); measures exitedAfterMs. */
   spawnedAt?: number;
+  /**
+   * Claude only: when the current Claude process started (ms), for the agent
+   * roster's run-start rule. Unknown for a re-attached survivor whose start was
+   * never persisted (the rule then stays off).
+   */
+  runStartedAt?: number;
   /** The last run's exit, persisted so a restored exited session keeps it
    *  (the "couldn't find <cmd>" card needs code 127 + how soon it exited). */
   lastExit?: { exitCode: number; exitedAfterMs?: number };
@@ -330,6 +350,27 @@ const CODEX_POLL_MS = 2_000;
 /** sessions.json is rewritten at most this often for usage-meter progress alone
  *  (every lifecycle change and shutdown persist it anyway). */
 const USAGE_PERSIST_MS = 30_000;
+/** The agent sheet's first read of a longer agent transcript covers only its last this many bytes. */
+export const AGENT_CHAT_FIRST_READ_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Where a read of `file`'s last `maxBytes` should start: 0 when the file is no
+ * longer than that, else just past the first newline at or after `size - maxBytes`
+ * (the end of the file when that window holds no newline).
+ */
+async function firstLineStartFrom(file: string, maxBytes: number): Promise<number> {
+  const { size } = await nodeTranscriptFs.stat(file);
+  if (size <= maxBytes) return 0;
+  const CHUNK = 64 * 1024;
+  // Start one byte early: a newline right before the window makes its first byte a line start.
+  for (let pos = size - maxBytes - 1; pos < size; pos += CHUNK) {
+    const buf = await nodeTranscriptFs.read(file, pos, Math.min(CHUNK, size - pos));
+    if (buf.length === 0) break;
+    const nl = buf.indexOf(0x0a);
+    if (nl !== -1) return pos + nl + 1;
+  }
+  return size;
+}
 /** A Stop hook can fire just before Claude's last transcript write lands; read
  *  once more shortly after so the turn's final numbers are not missed. */
 const USAGE_FOLLOWUP_MS = 1_500;
@@ -610,6 +651,8 @@ export class SessionManager {
   });
   private preventSleepWhileRunning = false;
   private usagePersistTimer?: ReturnType<typeof setTimeout>;
+  /** Extra options for every Claude usage tracker (tests: transcript roots, poll intervals). */
+  private usageTrackerOpts: SessionUsageTrackerOpts = {};
   /** Usage meter on with its Plan usage part: Claude spawns get the status line
    *  wrapper. Applied at spawn, so it reaches new and restarted sessions. */
   private planUsageEnabled = false;
@@ -1558,6 +1601,9 @@ export class SessionManager {
       color: opts.color,
       emoji: opts.emoji,
       spawnedAt: Date.now(),
+      // A survivor keeps the start persisted with its meter (applyRestoredInsights);
+      // anything else is a new process, or none at all (restoreExited: its agents are dead).
+      runStartedAt: attachExisting ? undefined : Date.now(),
       lastExit: restoreExited ? opts.lastExit : undefined,
       // Chat (Claude only) shows it at once; the agent got it on its command line.
       initialPrompt: promptTail.length > 0 && resolvedAgentType === 'claude' ? clipInitialPrompt(opts.initialPrompt ?? '') : undefined,
@@ -1593,13 +1639,7 @@ export class SessionManager {
     ptyProcess.onExit(({ exitCode }) => {
       // A replaced pty's exit must not be reported as the session exiting.
       if (session.pty !== ptyProcess) return;
-      stateDetector.setExited();
-      this.setSuggestion(id, session, undefined);
-      this.flushOutput(id);
-      this.recordExit(session, exitCode);
-      this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
-      this.scheduleExitedTier(session, ptyProcess);
-      this.nudgeUsage(session, true);
+      this.onPtyExit(session, stateDetector, exitCode);
     });
 
     this.applyRestoredInsights(session, opts, attachExisting || restoreExited);
@@ -1726,6 +1766,8 @@ export class SessionManager {
     const wasTiered = session.exitedFrame !== undefined;
     session.exitedFrame = undefined;
     if (session.doneTimer) { clearTimeout(session.doneTimer); session.doneTimer = undefined; }
+    // A done held for the old run's agents is the old run's: failing them below must not promote it.
+    session.doneHeldByAgents = false;
     if (session.nativeRecheckTimer) { clearTimeout(session.nativeRecheckTimer); session.nativeRecheckTimer = undefined; }
     if (session.trimTimer) { clearTimeout(session.trimTimer); session.trimTimer = undefined; }
     if (session.shellGitTimer) { clearTimeout(session.shellGitTimer); session.shellGitTimer = undefined; }
@@ -1747,6 +1789,11 @@ export class SessionManager {
     session.initialPrompt = undefined;
     this.endStartup(session);
     session.startup = session.agentType === 'claude' ? { last: 'running', prompted: false, heuristicOk: true } : undefined;
+    // The old process's agents died with it, resumed or not; any agent first
+    // seen from now on that was last written before this point died with it too.
+    session.usage?.failAgents();
+    session.runStartedAt = Date.now();
+    session.usage?.setRunStartedAt(session.runStartedAt);
     // A fresh run starts with an empty context; a resume reopens the same one.
     if (!opts.resume) session.usage?.clearCurrent();
     this.startCodexUsage(session);
@@ -1841,13 +1888,7 @@ export class SessionManager {
 
     ptyProcess.onExit(({ exitCode }) => {
       if (session.pty !== ptyProcess) return;
-      stateDetector.setExited();
-      this.setSuggestion(id, session, undefined);
-      this.flushOutput(id);
-      this.recordExit(session, exitCode);
-      this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
-      this.scheduleExitedTier(session, ptyProcess);
-      this.nudgeUsage(session, true);
+      this.onPtyExit(session, stateDetector, exitCode);
     });
 
     this.emitStatus({ sessionId: id, status: 'running' });
@@ -1908,7 +1949,9 @@ export class SessionManager {
       // flagging — promoting it would raise a 'done' notification after every `ls`.
       // Nor is a turn the user stopped.
       if (!session.suppressDonePromotion && !interrupted && detected === 'idle' && session.status === 'running' && session.hasUserInputSinceIdle && session.agentType !== SHELL_AGENT_ID) {
-        status = 'done';
+        // Agents still running: plain idle now, done once they end (retryDonePromotion).
+        if (this.agentsHold(session)) session.doneHeldByAgents = true;
+        else status = 'done';
       }
     }
 
@@ -2055,7 +2098,14 @@ export class SessionManager {
   private tryPromoteDone(id: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
-    if (session.status !== 'running') return; // discard: status changed before the grace fired
+    // An idle that held its done for agents (retryDonePromotion) is promoted like a running one.
+    const held = session.status === 'idle' && session.doneHeldByAgents === true;
+    if (session.status !== 'running' && !held) return; // discard: status changed before the grace fired
+    if (this.agentsHold(session)) {
+      // An agent is still working: a held idle waits for retryDonePromotion; a running one checks again.
+      if (!held) this.armDoneGrace(session);
+      return;
+    }
     if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS || session.stateDetector.getStatus() === 'running') {
       this.armDoneGrace(session);
       return;
@@ -2064,6 +2114,27 @@ export class SessionManager {
     session.lastPrompt = undefined;
     this.refreshSleepPrevention();
     this.emitStatus({ sessionId: id, status: 'done', lastPrompt: undefined });
+  }
+
+  /** Agents of the current conversation are still running: a finished turn is not a finished session. */
+  private agentsHold(session: ManagedSession): boolean {
+    return (session.agentsRunning ?? 0) > 0;
+  }
+
+  /**
+   * The roster's last running agent ended. A session whose run ended while
+   * agents held its done promotion gets that promotion now, behind the usual
+   * grace (tryPromoteDone re-checks quiescence), under the same gates as the
+   * idle→done paths: still idle, not suppressed, user input since idle.
+   */
+  private retryDonePromotion(id: string): void {
+    const session = this.sessions.get(id);
+    if (!session?.doneHeldByAgents) return;
+    if (session.status !== 'idle' || session.suppressDonePromotion || !session.hasUserInputSinceIdle) {
+      session.doneHeldByAgents = false;
+      return;
+    }
+    this.armDoneGrace(session);
   }
 
   /**
@@ -2224,11 +2295,15 @@ export class SessionManager {
       session.status === 'running' &&
       session.hasUserInputSinceIdle
     ) {
-      if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) {
+      if (this.agentsHold(session)) {
+        // The main turn ended but its agents still run: plain idle, done once they end.
+        session.doneHeldByAgents = true;
+      } else if (session.stateDetector.msSinceLastFeed() < DONE_QUIET_MS) {
         this.armDoneGrace(session);
         return; // stay 'running' — a still-painting screen is not a finished session
+      } else {
+        status = 'done';
       }
-      status = 'done';
     }
 
     // 'done' is sticky vs a repeat idle; a native running/waiting is genuine new
@@ -2243,6 +2318,11 @@ export class SessionManager {
     }
     this.refreshSleepPrevention();
     this.emitStatus({ sessionId: id, status, lastPrompt: session.lastPrompt });
+  }
+
+  /** A subagent's hook fired: poll soon so the roster lists the new agent sooner. */
+  nudgeAgents(sessionId: string): void {
+    this.sessions.get(sessionId)?.usage?.schedule();
   }
 
   /**
@@ -2425,8 +2505,69 @@ export class SessionManager {
   }
 
   private usageTracker(session: ManagedSession): SessionUsageTracker {
-    session.usage ??= new SessionUsageTracker((usage) => this.onUsageChange(session, usage));
+    if (!session.usage) {
+      session.usage = new SessionUsageTracker((usage) => this.onUsageChange(session, usage), this.trackerOpts(session));
+      if (session.runStartedAt !== undefined) session.usage.setRunStartedAt(session.runStartedAt);
+    }
     return session.usage;
+  }
+
+  private trackerOpts(session: ManagedSession): SessionUsageTrackerOpts {
+    return { ...this.usageTrackerOpts, onAgents: (agents, running) => this.onAgentsChange(session, agents, running) };
+  }
+
+  /** The roster changed: keep it on the session, tell every client, and give back a held done. */
+  private onAgentsChange(session: ManagedSession, agents: AgentRun[], running: number): void {
+    if (this.sessions.get(session.id) !== session) return;
+    const was = session.agentsRunning ?? 0;
+    session.agents = agents;
+    session.agentsRunning = running;
+    this.io?.emit('session:agents', { sessionId: session.id, agents, agentsRunning: running });
+    if (was > 0 && running === 0) this.retryDonePromotion(session.id);
+  }
+
+  /**
+   * One page of an agent's own transcript (the agent sheet): the messages past
+   * byte `after`, and the offset to ask from next. Undefined for an unknown
+   * session or an agent the current roster does not list. The file is
+   * confined to the conversation's `subagents/` folder (a symlink out of it is
+   * refused as unavailable).
+   */
+  async agentChat(id: string, agentId: string, after: number): Promise<AgentChatResponse | undefined> {
+    const session = this.sessions.get(id);
+    if (!session || session.agentType !== 'claude' || !isAgentId(agentId)) return undefined;
+    if (!Number.isSafeInteger(after) || after < 0) return undefined;
+    const transcript = session.usage?.currentTranscript();
+    if (!transcript || !session.usage!.agentsSnapshot().agents.some((a) => a.id === agentId)) return undefined;
+    const unavailable: AgentChatResponse = { available: false, messages: [], offset: after };
+    const folder = subagentsFolder(transcript);
+    const file = resolveWithinBase(folder, path.join(folder, `agent-${agentId}.jsonl`));
+    if (!file) return unavailable;
+    try {
+      await nodeTranscriptFs.stat(file);
+    } catch {
+      return unavailable; // listed by its meta, not written yet
+    }
+    const tail = new ChatTail(file, nodeTranscriptFs, { sidechain: true });
+    // A first read (after 0) of a long agent transcript starts at the first line
+    // boundary within its last AGENT_CHAT_FIRST_READ_BYTES: the sheet shows what
+    // the agent is doing now, and a multi-MB transcript is not parsed whole each
+    // time the sheet starts over (it does so while a tool step is pending).
+    let start = after;
+    if (after === 0) {
+      try {
+        start = await firstLineStartFrom(file, AGENT_CHAT_FIRST_READ_BYTES);
+      } catch {
+        return unavailable;
+      }
+    }
+    tail.seek(start);
+    try {
+      await tail.poll();
+    } catch {
+      return unavailable; // unreadable (e.g. a directory by that name)
+    }
+    return { available: true, messages: tail.messages, offset: tail.lineOffset };
   }
 
   private onUsageChange(session: ManagedSession, usage: SessionUsage): void {
@@ -2713,6 +2854,7 @@ export class SessionManager {
     const payload: SessionStatusPayload = { ...base };
     const session = this.sessions.get(base.sessionId);
     if (session) {
+      if (base.status !== 'idle') session.doneHeldByAgents = false;
       this.trackStartup(session, base.status);
       if (session.startup) {
         payload.starting = true;
@@ -3358,7 +3500,10 @@ export class SessionManager {
     if (opts.claudeSessionId && isClaudeSessionId(opts.claudeSessionId)) session.claudeSessionId = opts.claudeSessionId;
     if (opts.usage) {
       try {
-        session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u));
+        session.usage = SessionUsageTracker.restore(opts.usage, (u) => this.onUsageChange(session, u), this.trackerOpts(session));
+        // A survivor's process started when the meter says; any other session started a new one (or none).
+        if (session.runStartedAt === undefined) session.runStartedAt = session.usage.runStart;
+        else session.usage.setRunStartedAt(session.runStartedAt);
         // A surviving agent kept writing while Argus was down — catch up.
         if (sameRun) session.usage.schedule();
         // A fresh agent starts an empty context, as a non-resume restart does.
@@ -3398,6 +3543,8 @@ export class SessionManager {
       cwd: session.cwd,
       shellGit: session.shellGit,
       usage: session.usage?.snapshot() ?? session.codex?.tailer?.snapshot(session.codex.updatedAt),
+      agents: session.agents,
+      agentsRunning: session.agentsRunning,
       claudeSessionId: session.claudeSessionId,
       waitingSince: session.status === 'waiting' ? session.waitingSince : undefined,
       promptOptions: session.status === 'waiting' ? session.promptOptions : undefined,
@@ -3531,6 +3678,20 @@ export class SessionManager {
   // Queued so concurrent create/destroy calls can't race two store.save()
   // writes and let a stale snapshot win. Each queued job reads `this.sessions`
   // only once it's its turn, so it always persists the latest state.
+  /** The session's current pty exited (both spawn paths). */
+  private onPtyExit(session: ManagedSession, stateDetector: StateDetector, exitCode: number): void {
+    const id = session.id;
+    stateDetector.setExited();
+    this.setSuggestion(id, session, undefined);
+    this.flushOutput(id);
+    this.recordExit(session, exitCode);
+    this.io?.to(id).emit('session:exit', { sessionId: id, exitCode });
+    this.scheduleExitedTier(session, session.pty);
+    // Its agents died with it: report them failed now, not after a poll that will never end them.
+    session.usage?.failAgents();
+    this.nudgeUsage(session, true);
+  }
+
   /** Keeps the exit for SessionInfo and the next restore; persisted best-effort. */
   private recordExit(session: ManagedSession, exitCode: number): void {
     session.lastExit = {

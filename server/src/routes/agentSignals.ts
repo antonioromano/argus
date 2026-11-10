@@ -1,3 +1,4 @@
+import { isSubagentTranscript } from '../services/usage/SessionUsageTracker.js';
 import { Router } from 'express';
 import express from 'express';
 import type { SessionManager } from '../services/SessionManager.js';
@@ -163,6 +164,13 @@ export function createAgentSignalRoutes(
     // not cost the state signal it rode in with.
     const claudeSessionId = isClaudeSessionId(body.claudeSessionId) ? body.claudeSessionId : undefined;
     const transcriptPath = isPlausibleTranscriptPath(body.transcriptPath) ? body.transcriptPath : undefined;
+    // A subagent's hook reports the agent's own transcript: it never becomes the
+    // session's and never moves its status (D13). It only nudges the roster.
+    if (transcriptPath !== undefined && isSubagentTranscript(transcriptPath)) {
+      manager.nudgeAgents(sessionId);
+      res.status(204).end();
+      return;
+    }
     const hasMeta = claudeSessionId !== undefined || transcriptPath !== undefined;
     if (hasMeta) manager.applyAgentMeta(sessionId, { claudeSessionId, transcriptPath });
 

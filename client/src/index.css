@@ -591,6 +591,8 @@ body {
 /* No hover on a phone: the copy button on code blocks is always there. */
 .mobile-chat .argus-chat-code-copy { opacity: 1; }
 .mobile-chat .argus-chat-prompt-wrap { padding-left: var(--s-3); padding-right: var(--s-3); }
+.mobile-chat .argus-chat-agents { padding-left: var(--s-3); padding-right: var(--s-3); }
+.mobile-chat .argus-chat-agent-row { min-height: var(--row-h-touch); }
 
 /* Commit FAB (mobile only) */
 .commit-fab {
@@ -684,6 +686,7 @@ body {
 /* === STATUS — pill / dot / bar share one data-status mapping === */
 .argus-status[data-status="waiting"] { --st-color: var(--status-waiting); --st-bg: var(--status-waiting-bg); }
 .argus-status[data-status="running"] { --st-color: var(--status-running); --st-bg: var(--status-running-bg); }
+.argus-status[data-status="agents"]  { --st-color: var(--status-running); --st-bg: var(--status-running-bg); }
 .argus-status[data-status="idle"]    { --st-color: var(--status-idle);    --st-bg: var(--status-idle-bg); }
 .argus-status[data-status="done"]    { --st-color: var(--status-done);    --st-bg: var(--status-done-bg); }
 .argus-status[data-status="exited"]  { --st-color: var(--status-exited);  --st-bg: var(--status-exited-bg); }
@@ -1297,6 +1300,22 @@ body {
   padding: 0 var(--s-1);
   white-space: nowrap;
 }
+/* Running-agents count on a session. Static size, hover recolors only (no reflow). */
+.argus-agents-chip {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  font-size: var(--t-micro);
+  color: var(--fg-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-1);
+  padding: 0 var(--s-1);
+  background: transparent;
+  white-space: nowrap;
+}
+button.argus-agents-chip { cursor: pointer; }
+button.argus-agents-chip:hover { background: var(--bg-3); }
 /* Plain Shell git context: ⎇ branch ↑ahead ↓behind ●changes (follows cd). */
 .argus-shell-git {
   flex-shrink: 1;
@@ -2550,6 +2569,10 @@ body {
 .argus-chat-msg.is-echo .argus-chat-body { border-style: dashed; }
 /* Sent, not in the transcript yet (F3): shown at once, settles when Claude records it. */
 .argus-chat-msg.is-pending .argus-chat-body { opacity: 0.7; }
+/* Claude is writing a reply the transcript does not hold yet (D11). */
+.argus-chat-typing { padding: var(--s-2) var(--s-4); font-size: var(--t-xs); color: var(--fg-3); opacity: 0.7; animation: argus-chat-typing-pulse 1.6s var(--ease) infinite; }
+@keyframes argus-chat-typing-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .argus-chat-typing { animation: none; } }
 /* Sent while Claude was running (F8): held in Claude Code's queue until it reads it. */
 .argus-chat-queued-row { display: flex; align-items: center; gap: var(--s-2); margin-top: 4px; }
 .argus-chat-queued { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-xs); color: var(--fg-3); cursor: default; }
@@ -2604,7 +2627,8 @@ body {
 .argus-chat-tool-summary { font-weight: 500; }
 .argus-chat-tool-caret { flex: none; color: var(--fg-3); transition: transform var(--dur-fast) var(--ease); }
 .argus-chat-tools.is-open > .argus-chat-tool-summary .argus-chat-tool-caret,
-.argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
+.argus-chat-tool-step.is-open > .argus-chat-tool-head .argus-chat-tool-caret,
+.argus-chat-tool-step.is-open > .argus-chat-tool-line > .argus-chat-tool-head .argus-chat-tool-caret { transform: rotate(90deg); }
 .argus-chat-tool-icon { flex: none; color: var(--fg-3); }
 .argus-chat-tool-verb { flex: none; color: var(--fg-3); }
 .argus-chat-tool-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2612,6 +2636,9 @@ body {
 .argus-chat-tool-mark.is-error { color: var(--danger); }
 .argus-chat-tool-mark.is-blocked { color: var(--warn); }
 .argus-chat-tool-spin { flex: none; color: var(--fg-3); animation: argus-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .argus-chat-tool-spin { animation: none; }
+}
 .argus-chat-tool-steps { display: flex; flex-direction: column; margin: 2px 0 0 5px; padding-left: var(--s-2); border-left: 1px solid var(--line-1); }
 .argus-chat-tool-step { min-width: 0; }
 .argus-chat-tool-step[data-status='error'] .argus-chat-tool-label,
@@ -2745,6 +2772,102 @@ body {
 .argus-chat-resume-empty { padding: var(--s-3); font-size: var(--t-sm); color: var(--fg-3); }
 /* What Claude Code waits for (ChatPromptCard). */
 .argus-chat-prompt-wrap { padding: var(--s-2) var(--s-4) 0; background: var(--bg-0); flex-shrink: 0; }
+/* Running agents (ChatAgentsStrip), where Claude's terminal UI lists them. Hover tints, never resizes. */
+.argus-chat-agents {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: var(--s-2) var(--s-4) 0;
+  background: var(--bg-0);
+}
+.argus-chat-agent-row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  min-height: 28px;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-1);
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.argus-chat-agent-row:not(.is-static):hover { background: var(--bg-2); }
+.argus-chat-agent-row.is-static { cursor: default; }
+.argus-chat-agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.argus-chat-agent-head { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-chat-agent-meta { flex: none; max-width: 55%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.argus-chat-tool-mark.is-done { color: var(--ok); }
+/* An Agent step whose agent is in the roster: its head, then "Open" (agent sheet). */
+.argus-chat-tool-line { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.argus-chat-tool-open {
+  all: unset;
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--s-1-5);
+  border-radius: var(--r-1);
+  font-size: var(--t-xs);
+  color: var(--accent);
+  cursor: pointer;
+}
+.argus-chat-tool-open:hover { background: var(--bg-2); }
+.argus-chat-tool-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Agent sheet: one agent's transcript, read-only. */
+.argus-agent-sheet-body { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; }
+.argus-agent-sheet-messages { display: flex; flex-direction: column; }
+.argus-agent-sheet-nested { display: flex; flex-direction: column; padding-bottom: var(--s-2); border-bottom: 1px solid var(--line-1); }
+.argus-agent-sheet-nested-title { color: var(--fg-3); margin-bottom: var(--s-1); }
+.argus-agent-sheet-nested-row { cursor: default; max-width: none; }
+.argus-agent-sheet-nested-row:hover { background: transparent; }
+/* Phone: full screen over the chat, with the Changes screen's header. */
+.argus-agent-screen { display: flex; flex-direction: column; background: var(--bg-0); }
+.argus-agent-screen-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+  min-height: 52px;
+  padding: env(safe-area-inset-top, 0px) var(--s-3) 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+}
+.argus-agent-screen-back {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: var(--row-h-touch);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-2);
+  color: var(--accent);
+  font-size: var(--t-tiny);
+  cursor: pointer;
+}
+.argus-agent-screen-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.argus-agent-screen-title, .argus-agent-screen-subtitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.argus-agent-screen-title { font-size: var(--t-sm); font-weight: 600; color: var(--fg-0); }
+.argus-agent-screen-subtitle { font-size: var(--t-xs); color: var(--fg-3); }
+.argus-agent-screen-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-3) calc(var(--s-3) + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
 /* Terminal sheet (F6): the Chat turns see-through below its bar, over the inset live terminal. */
 .argus-chat[data-sheet] { background: transparent; pointer-events: none; }
 .argus-chat[data-sheet] > :not(.argus-chat-sheet-bar) { visibility: hidden; }

@@ -10,6 +10,7 @@ import { api } from '../../services/api.js';
 import { Kbd, Tooltip, StatusPill, Icon, Stack, Row, Text, Spacer } from '../../components/primitives/index.js';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { displayLabel } from '../../utils/sessionLabel.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 const SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
@@ -697,7 +698,7 @@ function PalettePreviewPane({ command, fileResult, session, content, loading }: 
             {displayLabel(session)}
           </Text>
         </Row>
-        <StatusPill status={session.status} />
+        <StatusPill status={displayStatus(session)} />
         <DetailRow k="PATH" v={session.folderPath} mono />
         <DetailRow k="AGENT" v={session.agentType ?? 'shell'} />
         {session.hasGitChanges && <DetailRow k="GIT" v="uncommitted changes" />}

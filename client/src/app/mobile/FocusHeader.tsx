@@ -3,7 +3,9 @@ import { ChevronLeft, MoreVertical, GitBranch } from 'lucide-react';
 import { AgentGlyph } from '../ui/AgentGlyph.js';
 import { SessionIdentity } from '../ui/SessionIdentity.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { StatusPill, DirtyBadge, Icon, Row, Text } from '../../components/primitives/index.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 interface FocusHeaderProps {
   session: SessionInfo;
@@ -59,9 +61,11 @@ export function FocusHeader({ session, onBack, onActions, onShowChanges }: Focus
           status change (IDLE → RUNNING) used to widen it and truncate the session
           name mid-word — `bursttest` became `burst…` just because output started.
           Reserve the widest label's footprint so the title never reflows. */}
-      <Row align="stretch" justify="end" style={{ flexShrink: 0, minWidth: 86 }}>
-        <StatusPill status={session.status} size="sm" />
-      </Row>
+      <div style={{ flexShrink: 0, minWidth: 86, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 'var(--s-1)' }}>
+        <StatusPill status={displayStatus(session)} size="sm" />
+        {/* Stacked under the pill inside the same slot, so the title keeps its width when agents start. */}
+        <AgentsChip count={session.agentsRunning ?? 0} />
+      </div>
       <button
         onClick={onShowChanges}
         aria-label="View changes"

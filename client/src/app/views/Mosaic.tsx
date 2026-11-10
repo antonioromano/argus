@@ -14,6 +14,7 @@ import { ChipMarks } from '../ui/MinimizedChip.js';
 import { chipClass } from '../ui/chipFormat.js';
 import { ChainChip } from '../ui/ChainChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { canResume } from '../../utils/resume.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -56,6 +57,7 @@ import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
 import { formatCombo } from '../../keyboard/combo.js';
 import { useNativeTerminalAvailable, resolveTerminalEngine } from '../../hooks/useNativeEngine.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -669,13 +671,13 @@ function SortableMosaicTile(props: MosaicTileSharedProps) {
 
 function TileDragPreview({ session }: { session: SessionInfo; theme: 'dark' | 'light' }) {
   return (
-    <div className="argus-tile argus-tile-drag-overlay" data-status={session.status}>
+    <div className="argus-tile argus-tile-drag-overlay" data-status={displayStatus(session)}>
       <div className="argus-tile-header">
         <AgentGlyph agent={session.agentType} size={16} />
-        <StatusDot status={session.status} size={7} />
+        <StatusDot status={displayStatus(session)} size={7} />
         <span className="argus-tile-name" style={{ color: 'var(--fg-0)' }}>{shellLabel(session)}</span>
-        <span className="argus-tile-status argus-status" data-status={session.status}>
-          {STATUS_LABELS[session.status]}
+        <span className="argus-tile-status argus-status" data-status={displayStatus(session)}>
+          {STATUS_LABELS[displayStatus(session)]}
         </span>
       </div>
     </div>
@@ -700,7 +702,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
       {...listeners}
       {...attributes}
     >
-      <StatusDot status={session.status} size={6} />
+      <StatusDot status={displayStatus(session)} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
       {windowBadge && <span className="argus-chip-window-badge">{windowBadge}</span>}
@@ -714,7 +716,7 @@ function SortableChip({ session, onClick, isNew, windowBadge }: { session: Sessi
 function ChipDragPreview({ session }: { session: SessionInfo }) {
   return (
     <button type="button" className={chipClass(session, 'argus-chip-drag-overlay')}>
-      <StatusDot status={session.status} size={6} />
+      <StatusDot status={displayStatus(session)} size={6} />
       <AgentGlyph agent={session.agentType} size={14} />
       <span className="argus-chip-label">{session.name}</span>
       <ChipMarks session={session} />
@@ -853,7 +855,7 @@ function MosaicTileInner({
     <div
       ref={tileRootRef}
       className={tileClass}
-      data-status={session.status}
+      data-status={displayStatus(session)}
       style={{ ['--i' as string]: idx, ...(skipAnimation && !isRestoring ? { animation: 'none' } : {}) } as CSSProperties}
     >
       {(!isFocused || !windowFocused) && (
@@ -877,7 +879,7 @@ function MosaicTileInner({
               style={{ width: 7, height: 7, borderRadius: '50%', background: groupColor, flexShrink: 0 }}
             />
           )}
-          <StatusDot status={session.status} size={7} />
+          <StatusDot status={displayStatus(session)} size={7} />
           <SessionIdentity session={session} />
 
           {renaming ? (
@@ -912,6 +914,7 @@ function MosaicTileInner({
             </Tooltip>
           )}
           {showPills && <StaleChip staleDays={session.worktreeStaleDays} />}
+          {showPills && <AgentsChip count={session.agentsRunning ?? 0} />}
           {showPills && session.runMode === 'direct' && (
             <Tooltip content="Native terminal — stops when Argus quits">
               <span className="argus-tile-branch">Native</span>
@@ -934,8 +937,8 @@ function MosaicTileInner({
           )}
 
           {shed < SHED.status && (
-            <span className="argus-tile-status argus-status" data-status={session.status}>
-              {STATUS_LABELS[session.status]}
+            <span className="argus-tile-status argus-status" data-status={displayStatus(session)}>
+              {STATUS_LABELS[displayStatus(session)]}
             </span>
           )}
         </div>
@@ -987,14 +990,14 @@ function MosaicTileInner({
           />
         </div>
 
-        {runningIndicator === 'hairline' && session.status === 'running' && (
+        {runningIndicator === 'hairline' && sortStatus(displayStatus(session)) === 'running' && (
           <span className="argus-tile-prog" aria-hidden><i /></span>
         )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: 'flex', position: 'relative' }}>
         <ErrorBoundary key={session.id} label={session.name}>
-          <TerminalShell session={session} socket={socket} theme={theme} status={session.status} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} useNative={nativeEngine} dimmed={!isFocused || !windowFocused} />
+          <TerminalShell session={session} socket={socket} theme={theme} status={displayStatus(session)} autoFocus={autoFocus} onFocusChange={handleFocusChange} shortcuts={shortcuts} searchOpen={searchOpen} onOpenSearch={onOpenSearch ? handleOpenSearch : undefined} onCloseSearch={onCloseSearch} requestFocusToken={focusToken} useNative={nativeEngine} dimmed={!isFocused || !windowFocused} />
         </ErrorBoundary>
         {session.status === 'exited' && !nativeEngine && (
           <ExitedCard
@@ -1006,7 +1009,7 @@ function MosaicTileInner({
             {...exitedCardExitProps(session, agentDef)}
           />
         )}
-        {(modalOpen || overlayHidden) && <ModalPlaceholder status={session.status} />}
+        {(modalOpen || overlayHidden) && <ModalPlaceholder status={displayStatus(session)} />}
       </div>
     </div>
   );

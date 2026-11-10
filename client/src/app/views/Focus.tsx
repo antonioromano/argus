@@ -9,6 +9,7 @@ import { UsageChip } from '../ui/UsageChip.js';
 import { planFor, type UsageMeterState } from '../../utils/usageFormat.js';
 import { PrChip } from '../ui/PrChip.js';
 import { StaleChip } from '../ui/StaleChip.js';
+import { AgentsChip } from '../ui/AgentsChip.js';
 import { SHED, shedInfo, shedKey, shedRows, usageOmit, useHeaderShed } from '../ui/headerShed.js';
 import { ShedTooltip } from '../ui/ShedTooltip.js';
 import { workRoot } from '../../utils/workRoot.js';
@@ -16,6 +17,8 @@ import { ChipStrip } from '../ui/ChipStrip.js';
 import { ReplyBar } from '../ui/ReplyBar.js';
 import { TerminalShell } from '../ui/TerminalShell.js';
 import { ChatView, TERMINAL_SHEET_BAR_PX } from '../ui/chat/ChatView.js';
+import { ChatAgentSheet } from '../ui/chat/ChatAgentSheet.js';
+import { useOpenedAgent } from '../../hooks/useAgentChat.js';
 import { useChatViewMode, type SessionViewMode } from '../../hooks/useChatViewMode.js';
 import { supportsChatView } from '../../utils/chat.js';
 import { ExitedCard } from '../ui/ExitedCard.js';
@@ -49,6 +52,7 @@ import { ResizeDivider } from '../../components/ResizeDivider.js';
 import { ErrorBoundary } from '../../components/ErrorBoundary.js';
 import { isMaximizedPanel, type SidePanel } from '../types.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
+import { displayStatus, sortStatus } from '../../utils/displayStatus.js';
 
 const SIDE_PANEL_WIDTH_KEY = 'argus.focus.sidePanelWidth';
 const SIDE_PANEL_MIN = 240;
@@ -183,6 +187,7 @@ export function Focus({
   const [focusToken, setFocusToken] = useState(0);
   // The Chat's terminal sheet (F6) is open: inset the terminal below its bar and hand it the keyboard.
   const [chatSheet, setChatSheet] = useState(false);
+  const [openAgent, setOpenAgent] = useOpenedAgent(active);
   const onChatSheet = useCallback((open: boolean) => {
     setChatSheet(open);
     if (open) setFocusToken((t) => t + 1);
@@ -337,7 +342,7 @@ export function Focus({
                 so it can never push the actions after it out of view. */}
             <div ref={infoRef} className="argus-tile-info" data-testid="focus-info" data-shed={shed} style={{ gap: 'var(--s-3)' }}>
               <AgentGlyph agent={active.agentType} size={16} />
-              {shed < SHED.status ? <StatusPill status={active.status} /> : <StatusDot status={active.status} size={7} />}
+              {shed < SHED.status ? <StatusPill status={displayStatus(active)} /> : <StatusDot status={displayStatus(active)} size={7} />}
               <SessionIdentity session={active} />
               {renaming ? (
                 <SessionRenameInput
@@ -394,6 +399,7 @@ export function Focus({
                 showPills && active.cwd && active.shellGit && <ShellGitChip cwd={active.cwd} git={active.shellGit} />
               ) : active.hasGitChanges && <DirtyBadge onClick={() => onExpandDiff()} />)}
               {showPills && <StaleChip staleDays={active.worktreeStaleDays} />}
+              {showPills && <AgentsChip count={active.agentsRunning ?? 0} />}
               {showPills && !inspectorShown && active.pr && <PrChip pr={active.pr} />}
               {!inspectorShown && usageMeter && shed < SHED.ctx && (
                 <UsageChip agentType={active.agentType} usage={active.usage} plan={planFor(usageMeter.plans, active.agentType)} view={usageMeter} omit={usageOmit(shed)} />
@@ -458,7 +464,7 @@ export function Focus({
                 onClick={(e) => sessionMenu.openMenuAt(active, e.currentTarget, 'focus')}
               />
             </div>
-            {runningIndicator === 'hairline' && active.status === 'running' && (
+            {runningIndicator === 'hairline' && sortStatus(displayStatus(active)) === 'running' && (
               <span className="argus-tile-prog" aria-hidden><i /></span>
             )}
           </Row>
@@ -482,7 +488,7 @@ export function Focus({
                   session={active}
                   socket={socket}
                   theme={theme}
-                  status={active.status}
+                  status={displayStatus(active)}
                   focused={terminalFocused}
                   onFocusChange={setTerminalFocused}
                   // Entering Focus is a request to work in this shell: take
@@ -513,7 +519,7 @@ export function Focus({
                 />
               )}
               {/* The Chat paints over a hidden terminal, unless its see-through terminal sheet is open. */}
-              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={active.status} />}
+              {(modalOpen || overlayHidden) && (!chatMode || chatSheet) && <ModalPlaceholder status={displayStatus(active)} />}
               {viewPending && (
                 <div data-testid="view-pending" aria-hidden style={{ position: 'absolute', inset: 0, zIndex: 3, background: 'var(--bg-0)' }} />
               )}
@@ -531,7 +537,11 @@ export function Focus({
                   onShowTerminal={() => setViewMode('terminal')}
                   autoFocus
                   onTerminalSheet={onChatSheet}
+                  onOpenAgent={setOpenAgent}
                 />
+              )}
+              {chatMode && !maximized && openAgent && (
+                <ChatAgentSheet session={active} agent={openAgent} onClose={() => setOpenAgent(null)} />
               )}
             </div>
 

@@ -1,5 +1,6 @@
 import type { RunMode, SessionInfo, SessionPrEntry, TerminalEngine } from '@argus/shared';
 import type { IntroFlow } from './intro/intro.js';
+import { displayStatus, sortStatus } from '../utils/displayStatus.js';
 
 export type View = 'dashboard' | 'focus';
 
@@ -72,8 +73,8 @@ export function deriveCounts(sessions: SessionInfo[]): SessionCounts {
   return {
     total: sessions.length,
     waiting: sessions.filter((s) => s.status === 'waiting').length,
-    running: sessions.filter((s) => s.status === 'running').length,
-    idle: sessions.filter((s) => s.status === 'idle').length,
+    running: sessions.filter((s) => sortStatus(displayStatus(s)) === 'running').length,
+    idle: sessions.filter((s) => sortStatus(displayStatus(s)) === 'idle').length,
     done: sessions.filter((s) => s.status === 'done').length,
     exited: sessions.filter((s) => s.status === 'exited').length,
     dirty: sessions.filter((s) => !!s.hasGitChanges).length,

@@ -1,8 +1,8 @@
-import type { SessionStatus } from '@argus/shared';
+import type { DisplayStatus } from '../../utils/displayStatus.js';
 import { STATUS_PULSE, STATUS_LABELS } from '../../constants/status.js';
 
 interface StatusDotProps {
-  status: SessionStatus;
+  status: DisplayStatus;
   size?: number;
   /** Force pulse regardless of status default. */
   pulse?: boolean;

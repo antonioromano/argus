@@ -1,9 +1,9 @@
-import type { SessionStatus } from '@argus/shared';
+import type { DisplayStatus } from '../../utils/displayStatus.js';
 import { STATUS_LABELS } from '../../constants/status.js';
 import { StatusDot } from './StatusDot.js';
 
 interface StatusPillProps {
-  status: SessionStatus;
+  status: DisplayStatus;
   size?: 'sm' | 'md';
 }
 

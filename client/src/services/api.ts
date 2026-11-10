@@ -6,6 +6,8 @@ import type { SessionPrDiffResponse } from '@argus/shared';
 import type { SessionPrReadyRequest, SessionPrReadyResponse } from '@argus/shared';
 // Chat /resume picker (D1) — its own line too, for the same reason.
 import type { ClaudeConversation, ClaudeConversationsResponse } from '@argus/shared';
+// Agent sheet — its own line too, for the same reason.
+import type { AgentChatResponse } from '@argus/shared';
 // Typed error contract (plan 003) — its own line too, for the same reason.
 import type { ApiErrorBody, ArgusErrorCode } from '@argus/shared';
 import type { BackendHealth, SetSessionIdentityRequest } from '@argus/shared';
@@ -243,6 +245,12 @@ export const api = {
     const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/conversations`);
     const data: ClaudeConversationsResponse = await (await requireOk(res)).json();
     return data.conversations;
+  },
+
+  /** Agent sheet: one agent's own transcript as chat messages, from byte `after` (0, or a previous `offset`). */
+  getAgentChat: async (sessionId: string, agentId: string, after: number): Promise<AgentChatResponse> => {
+    const res = await authFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(agentId)}/chat?after=${after}`);
+    return (await requireOk(res)).json();
   },
 
   /** Chat view: save a clipboard image server-side; resolves the file's path. */

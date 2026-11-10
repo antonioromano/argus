@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
+import type { AgentRun, ChatMessage, ChatUpdate, SessionInfo } from '@argus/shared';
 import type { Socket } from 'socket.io-client';
 import { pruneChatDrafts } from './chatDrafts.js';
 import { api } from '../../../services/api.js';
@@ -83,6 +83,70 @@ describe('ChatView', () => {
     expect(emitted).toContainEqual(['session:chat:subscribe', 's1']);
     act(() => root.render(<></>));
     expect(emitted).toContainEqual(['session:chat:unsubscribe', 's1']);
+  });
+
+  it('shows the strip when the session has agents', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', agentType: 'pre-push-reviewer', description: 'Delta review of fix commit', background: false,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    const onOpenAgent = vi.fn();
+    act(() => {
+      root.render(<ChatView session={session({ agents: [running] })} socket={socket} onShowTerminal={vi.fn()} onOpenAgent={onOpenAgent} />);
+    });
+    fire('session:chat', update({ messages: [] }));
+    const strip = container.querySelector('.argus-chat-agents');
+    expect(strip?.textContent).toContain('Delta review of fix commit');
+    // Between the messages and the composer.
+    const composer = container.querySelector('.argus-chat-composer');
+    expect(strip!.compareDocumentPosition(composer!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => strip!.querySelector<HTMLButtonElement>('.argus-chat-agent-row')!.click());
+    expect(onOpenAgent).toHaveBeenCalledWith(running);
+  });
+
+  it('an Agent step with a roster match offers Open', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', toolUseId: 'toolu_a', agentType: 'Explore', description: 'Find callers', background: true,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    const onOpenAgent = vi.fn();
+    act(() => {
+      root.render(<ChatView session={session({ agents: [running] })} socket={socket} onShowTerminal={vi.fn()} onOpenAgent={onOpenAgent} />);
+    });
+    fire('session:chat', update({ messages: [
+      { id: 'm1', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_a', name: 'Agent', label: 'Find callers', status: 'pending' }] },
+      { id: 'm2', role: 'user', blocks: [{ kind: 'text', text: 'next' }] },
+      { id: 'm3', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_other', name: 'Agent', label: 'Unknown agent', status: 'ok' }] },
+    ] }));
+    const steps = Array.from(container.querySelectorAll('[data-testid="chat-tool-step"]'));
+    expect(steps).toHaveLength(2);
+    const open = steps[0].querySelector<HTMLButtonElement>('[data-testid="chat-tool-open-agent"]');
+    expect(open?.textContent).toContain('Open');
+    // No roster entry for the second call: nothing to open.
+    expect(steps[1].querySelector('[data-testid="chat-tool-open-agent"]')).toBeNull();
+    act(() => open!.click());
+    expect(onOpenAgent).toHaveBeenCalledWith(running);
+  });
+
+  it('offers no Open on Agent steps without an onOpenAgent host', () => {
+    const { socket, fire } = fakeSocket();
+    const running: AgentRun = {
+      id: 'a1', toolUseId: 'toolu_a', agentType: 'Explore', description: 'Find callers', background: true,
+      depth: 1, startedAt: Date.now(), status: 'running', outputTokens: 0,
+    };
+    render(session({ agents: [running] }), socket);
+    fire('session:chat', update({ messages: [
+      { id: 'm1', role: 'assistant', blocks: [{ kind: 'tool', id: 'toolu_a', name: 'Agent', label: 'Find callers', status: 'pending' }] },
+    ] }));
+    expect(container.querySelector('[data-testid="chat-tool-open-agent"]')).toBeNull();
+  });
+
+  it('shows no strip without agents', () => {
+    const { socket } = fakeSocket();
+    render(session(), socket);
+    expect(container.querySelector('.argus-chat-agents')).toBeNull();
   });
 
   it('falls back to the terminal while no transcript is readable', () => {
@@ -312,6 +376,17 @@ describe('ChatView', () => {
     act(() => { box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
     expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: 'hello' }]);
     expect(box.value).toBe('');
+  });
+
+  it('typing row appears for a running session with a recorded prompt and no agents', () => {
+    const { socket, fire } = fakeSocket();
+    render(session({ status: 'running', agentsRunning: 0 }), socket);
+    fire('session:chat', update({ messages: [{ id: 'u1', role: 'user', blocks: [{ kind: 'text', text: 'hi' }] }] }));
+    expect(container.querySelector('[data-testid="chat-typing"]')?.textContent).toBe('Claude is writing…');
+    render(session({ status: 'running', agentsRunning: 1 }), socket);
+    expect(container.querySelector('[data-testid="chat-typing"]')).toBeNull();
+    render(session({ status: 'waiting', agentsRunning: 0 }), socket);
+    expect(container.querySelector('[data-testid="chat-typing"]')).toBeNull();
   });
 
   it('disables the composer for an exited session', () => {

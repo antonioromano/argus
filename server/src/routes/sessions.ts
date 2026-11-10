@@ -4,12 +4,13 @@ import type { SessionManager } from '../services/SessionManager.js';
 import type { OrderStore } from '../persistence/OrderStore.js';
 import type { GroupStore } from '../persistence/GroupStore.js';
 import type { ConfigStore } from '../persistence/ConfigStore.js';
-import type { ClaudeConversationsResponse, CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
+import type { AgentChatResponse, ClaudeConversationsResponse, CreateSessionRequest, RenameSessionRequest, RestartSessionRequest, SessionGroup } from '@argus/shared';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validateFlags } from '../utils/flags.js';
 import { sendError } from '../errors/ArgusError.js';
 import { validateIdentity } from '../constants/sessionIdentity.js';
 import { isClaudeSessionId } from '../services/claudeSession.js';
+import { isAgentId } from '../services/usage/AgentRoster.js';
 
 // Enforce single-membership: a session id may appear in at most one group (first wins).
 function dedupeGroupMembership(groups: SessionGroup[]): SessionGroup[] {
@@ -92,6 +93,25 @@ export function createSessionRoutes(manager: SessionManager, orderStore: OrderSt
       return;
     }
     const body: ClaudeConversationsResponse = { conversations };
+    res.json(body);
+  }));
+
+  // One agent's own transcript (the agent sheet), from byte `after` (0 or a
+  // previous response's `offset`). The agent id becomes a file name, so only a
+  // bare Claude Code agent id gets through; the manager confines the file to
+  // the conversation's subagents folder (pathScope).
+  router.get('/:id/agents/:agentId/chat', asyncHandler(async (req, res) => {
+    const rawAfter = req.query.after ?? '0';
+    const after = typeof rawAfter === 'string' && /^\d{1,15}$/.test(rawAfter) ? Number(rawAfter) : NaN;
+    if (!isAgentId(req.params.agentId) || !Number.isSafeInteger(after)) {
+      res.status(400).json({ error: 'Invalid agent id or after' });
+      return;
+    }
+    const body: AgentChatResponse | undefined = await manager.agentChat(req.params.id, req.params.agentId, after);
+    if (!body) {
+      res.status(404).json({ error: 'Session or agent not found' });
+      return;
+    }
     res.json(body);
   }));
 

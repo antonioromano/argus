@@ -13,6 +13,7 @@ import { SessionIdentity } from './SessionIdentity.js';
 import { resolveIdentityColor } from '../../utils/sessionIdentity.js';
 import { useTheme } from '../../context/theme-context.js';
 import { insertionPoint } from '../../utils/reorder.js';
+import { displayStatus } from '../../utils/displayStatus.js';
 
 const OTHERS = '__others__';
 
@@ -635,7 +636,7 @@ function Leaf({
             : undefined,
         }}
       >
-        <StatusDot status={session.status} size={6} decorative />
+        <StatusDot status={displayStatus(session)} size={6} decorative />
         <AgentGlyph agent={session.agentType} size={12} />
         <SessionIdentity session={session} />
         {renaming ? (
