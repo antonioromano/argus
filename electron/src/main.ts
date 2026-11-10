@@ -5,7 +5,7 @@ import { existsSync, readFileSync, appendFileSync, unlinkSync } from 'fs';
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'fs/promises';
 import { createRequire } from 'module';
 import type { HelpActionResult, UpdateProgress } from '@argus/shared';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
@@ -244,7 +244,9 @@ function applyBrewUpdate(
  */
 function startPhase2(loginShell: string, logFile: string, lockFile: string): void {
   const failMarker = join(app.getPath('userData'), 'update.failed');
-  const script = buildPhase2Script({ cask: UPDATE_CASK, parentPid: process.pid, logFile, lockFile, failMarker });
+  // process.execPath = <bundle>.app/Contents/MacOS/Argus; brew reinstalls the cask at that same path.
+  const appPath = resolve(process.execPath, '../../..');
+  const script = buildPhase2Script({ cask: UPDATE_CASK, parentPid: process.pid, logFile, lockFile, failMarker, appPath });
 
   const child = spawn(loginShell, ['-l', '-c', script], { detached: true, stdio: 'ignore' });
   child.unref();
