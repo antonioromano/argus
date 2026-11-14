@@ -26,12 +26,14 @@ vi.mock('./keyboard/MobileKeyboard.js', () => ({
 // and what its "back to the terminal" paths do, matters.
 vi.mock('../ui/chat/ChatView.js', () => ({
   TERMINAL_SHEET_BAR_PX: 36,
-  ChatView: ({ session, onShowTerminal, onTerminalSheet, onOpenAgent }: {
-    session: SessionInfo; onShowTerminal: () => void; onTerminalSheet?: (open: boolean) => void; onOpenAgent?: (a: AgentRun) => void;
+  ChatView: ({ session, onShowTerminal, onTerminalSheet, onOpenAgent, sheetCloseRequest }: {
+    session: SessionInfo; onShowTerminal: () => void; onTerminalSheet?: (open: boolean, command?: string) => void;
+    onOpenAgent?: (a: AgentRun) => void; sheetCloseRequest?: number;
   }) => (
-    <section data-testid="chat-view">
+    <section data-testid="chat-view" data-close-request={sheetCloseRequest ?? 0}>
       <button type="button" data-testid="show-terminal" onClick={onShowTerminal} />
-      <button type="button" data-testid="sheet-open" onClick={() => onTerminalSheet?.(true)} />
+      <button type="button" data-testid="sheet-open" onClick={() => onTerminalSheet?.(true, 'usage')} />
+      <button type="button" data-testid="sheet-close" onClick={() => onTerminalSheet?.(false)} />
       <button type="button" data-testid="open-agent" onClick={() => onOpenAgent?.(session.agents![0])} />
     </section>
   ),
@@ -102,14 +104,56 @@ describe('mobile Focus view mode', () => {
     }
   });
 
-  it('switches to the terminal when the chat asks for it, or runs a command there', () => {
+  it('switches to the terminal when the chat asks for it', () => {
     const set = vi.fn();
     render(session(), 'chat', set);
     act(() => (q('[data-testid="show-terminal"]') as HTMLButtonElement).click());
     expect(set).toHaveBeenLastCalledWith('terminal');
-    act(() => (q('[data-testid="sheet-open"]') as HTMLButtonElement).click());
-    expect(set).toHaveBeenCalledTimes(2);
-    expect(set).toHaveBeenLastCalledWith('terminal');
+  });
+});
+
+describe('mobile Focus command terminal', () => {
+  const click = (id: string) => act(() => (q(`[data-testid="${id}"]`) as HTMLButtonElement).click());
+  const chatHidden = () => (q('[data-testid="chat-view"]')?.parentElement as HTMLElement).hidden;
+
+  it('shows the terminal for a command run from the chat, keeping the chat mounted and the stored choice', () => {
+    const set = vi.fn();
+    render(session(), 'chat', set);
+    click('sheet-open');
+    expect(q('[data-testid="mobile-terminal"]')).not.toBeNull();
+    // Still mounted, so it sees the command's dialog close.
+    expect(q('[data-testid="chat-view"]')).not.toBeNull();
+    expect(chatHidden()).toBe(true);
+    expect(q('[data-testid="command-terminal-bar"]')?.textContent).toContain('/usage');
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('goes back to the chat once the command is done', () => {
+    render(session(), 'chat');
+    click('sheet-open');
+    click('sheet-close');
+    expect(q('[data-testid="mobile-terminal"]')).toBeNull();
+    expect(q('[data-testid="command-terminal-bar"]')).toBeNull();
+    expect(chatHidden()).toBe(false);
+  });
+
+  it('Back to chat returns at once and asks the chat to close its sheet', () => {
+    render(session(), 'chat');
+    click('sheet-open');
+    act(() => (q('[data-testid="command-terminal-bar"] button') as HTMLButtonElement).click());
+    expect(q('[data-testid="mobile-terminal"]')).toBeNull();
+    expect(chatHidden()).toBe(false);
+    expect(q('[data-testid="chat-view"]')?.getAttribute('data-close-request')).toBe('1');
+  });
+
+  it('a terminal chosen from the menu stays when the command ends', () => {
+    const set = vi.fn();
+    render(session(), 'chat', set);
+    click('sheet-open');
+    render(session(), 'terminal', set);
+    expect(q('[data-testid="mobile-terminal"]')).not.toBeNull();
+    expect(q('[data-testid="chat-view"]')).toBeNull();
+    expect(q('[data-testid="command-terminal-bar"]')).toBeNull();
   });
 });
 
