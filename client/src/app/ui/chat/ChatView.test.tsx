@@ -977,10 +977,31 @@ describe('ChatView', () => {
       expect(emitted).toContainEqual(['session:chat:send', { sessionId: 's1', text: '/mcp' }]);
       expect(sheet()?.textContent).toContain('/mcp');
       expect(view().hasAttribute('data-sheet')).toBe(true);
-      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true, 'mcp');
     });
 
-    const settle = (fire: (ev: string, p: unknown) => void, atPrompt: boolean) => fire('session:chatAtPrompt', { sessionId: 's1', atPrompt });
+    it('closes when the host asks (the phone’s Back to chat), and opens again for the next command', () => {
+      const { socket, fire } = fakeSocket();
+      const onTerminalSheet = vi.fn();
+      const at = (closeRequest: number) =>
+        act(() => {
+          root.render(
+            <ChatView session={session()} socket={socket} onShowTerminal={vi.fn()} onTerminalSheet={onTerminalSheet} sheetCloseRequest={closeRequest} />,
+          );
+        });
+      at(0);
+      fire('session:chat', update({}));
+      type('/usage');
+      expect(sheet()).not.toBeNull();
+      at(1);
+      expect(sheet()).toBeNull();
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(false);
+      type('/usage');
+      expect(sheet()).not.toBeNull();
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true, 'usage');
+    });
+
+    const settle =(fire: (ev: string, p: unknown) => void, atPrompt: boolean) => fire('session:chatAtPrompt', { sessionId: 's1', atPrompt });
 
     it('closes on the first settle that shows the empty input box again, even off `waiting` (/config, /hooks)', () => {
       const { socket, fire } = fakeSocket();
@@ -1036,7 +1057,7 @@ describe('ChatView', () => {
       expect(onTerminalSheet).not.toHaveBeenCalled();
       mount(session({ status: 'idle' }), socket, onTerminalSheet);
       expect(sheet()?.textContent).toContain('/mcp');
-      expect(onTerminalSheet).toHaveBeenLastCalledWith(true);
+      expect(onTerminalSheet).toHaveBeenLastCalledWith(true, 'mcp');
       // The turn's last screen can still show the empty box: only after the picker does it count.
       settle(fire, true);
       expect(sheet()).not.toBeNull();

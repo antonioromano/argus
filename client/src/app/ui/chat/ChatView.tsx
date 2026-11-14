@@ -51,9 +51,14 @@ interface ChatViewProps {
    * The terminal sheet (F6) opened or closed. While it is open the Chat is see-through below
    * its bar: the host insets the terminal by TERMINAL_SHEET_BAR_PX and gives it the keyboard.
    */
-  onTerminalSheet?: (open: boolean) => void;
+  onTerminalSheet?: (open: boolean, command?: string) => void;
   /** A row of the agents strip was tapped. Without it the rows show but do nothing. */
   onOpenAgent?: (agent: AgentRun) => void;
+  /**
+   * Bumped by a host that closed the command's terminal itself (the phone's Back to chat):
+   * the sheet closes too, so the next interactive command opens it, and the host hears, again.
+   */
+  sheetCloseRequest?: number;
 }
 
 /**
@@ -97,7 +102,7 @@ function SuppressNativeUnder({ target }: { target: React.RefObject<HTMLDivElemen
  * transcript, rendered as messages, with a composer that types into the pty.
  * The terminal stays mounted underneath; this only covers it.
  */
-export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet, onOpenAgent }: ChatViewProps) {
+export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoFocus, onTerminalSheet, onOpenAgent, sheetCloseRequest = 0 }: ChatViewProps) {
   const chat = useChat(socket, session.id, true);
   const onOpenAgentRef = useRef(onOpenAgent);
   onOpenAgentRef.current = onOpenAgent;
@@ -227,11 +232,19 @@ export function ChatView({ session, socket, onShowTerminal, aboveComposer, autoF
   const onSheetRef = useRef(onTerminalSheet);
   onSheetRef.current = onTerminalSheet;
   const sheetOpen = sheet !== null;
+  const sheetRef = useRef(sheet);
+  sheetRef.current = sheet;
   useEffect(() => {
     if (!sheetOpen) return;
-    onSheetRef.current?.(true);
+    onSheetRef.current?.(true, sheetRef.current ?? undefined);
     return () => onSheetRef.current?.(false);
   }, [sheetOpen]);
+  // The host closed the command's terminal itself: so does the sheet (adjusted during render).
+  const [seenCloseRequest, setSeenCloseRequest] = useState(sheetCloseRequest);
+  if (sheetCloseRequest !== seenCloseRequest) {
+    setSeenCloseRequest(sheetCloseRequest);
+    setSheet(null);
+  }
 
   const userCount = useMemo(() => userCountOf(chat.messages), [chat.messages]);
   const queueSeq = chat.queue?.seq ?? 0;
