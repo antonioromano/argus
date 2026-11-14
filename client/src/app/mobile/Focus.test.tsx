@@ -121,6 +121,8 @@ describe('mobile Focus command terminal', () => {
     expect(chatBox().hidden).toBe(false);
     return chatBox().style.visibility === 'hidden';
   };
+  // Sized against the body under the header, as when shown: else it comes back short of the end.
+  const bodyOf = () => chatBox().parentElement as HTMLElement;
 
   it('shows the terminal for a command run from the chat, keeping the chat mounted and the stored choice', () => {
     const set = vi.fn();
@@ -130,6 +132,8 @@ describe('mobile Focus command terminal', () => {
     // Still mounted, so it sees the command's dialog close.
     expect(q('[data-testid="chat-view"]')).not.toBeNull();
     expect(chatHidden()).toBe(true);
+    expect(bodyOf().style.position).toBe('relative');
+    expect(bodyOf().contains(q('[data-testid="mobile-terminal"]'))).toBe(true);
     expect(q('[data-testid="command-terminal-bar"]')?.textContent).toContain('/usage');
     expect(set).not.toHaveBeenCalled();
   });

@@ -87,7 +87,6 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
   return (
     <div
       style={{
-        position: 'relative',
         display: 'flex',
         flexDirection: 'column',
         height: `${vvHeight}px`,
@@ -97,7 +96,9 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
     >
       <FocusHeader session={session} onBack={onBack} onActions={onActions} onShowChanges={() => setShowChanges(true)} />
       {chatMode ? (
-        <>
+        // The body below the header: the hidden chat is sized against it, so it keeps
+        // the height (and scroll position) it has when shown.
+        <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {commandTerminal && (
             <>
               <div
@@ -146,7 +147,7 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
               onOpenAgent={setOpenAgent}
             />
           </div>
-        </>
+        </div>
       ) : viewPending ? (
         <div data-testid="view-pending" aria-hidden style={{ flex: 1, minHeight: 0, background: 'var(--bg-inset)' }} />
       ) : (
