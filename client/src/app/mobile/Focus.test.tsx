@@ -114,7 +114,13 @@ describe('mobile Focus view mode', () => {
 
 describe('mobile Focus command terminal', () => {
   const click = (id: string) => act(() => (q(`[data-testid="${id}"]`) as HTMLButtonElement).click());
-  const chatHidden = () => (q('[data-testid="chat-view"]')?.parentElement as HTMLElement).hidden;
+  const chatBox = () => q('[data-testid="chat-view"]')?.parentElement as HTMLElement;
+  // Hidden by visibility only: display: none would drop the chat's scroll offset.
+  const chatHidden = () => {
+    expect(chatBox().style.display).not.toBe('none');
+    expect(chatBox().hidden).toBe(false);
+    return chatBox().style.visibility === 'hidden';
+  };
 
   it('shows the terminal for a command run from the chat, keeping the chat mounted and the stored choice', () => {
     const set = vi.fn();

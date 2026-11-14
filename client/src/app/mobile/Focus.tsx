@@ -87,6 +87,7 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
   return (
     <div
       style={{
+        position: 'relative',
         display: 'flex',
         flexDirection: 'column',
         height: `${vvHeight}px`,
@@ -124,11 +125,17 @@ export function Focus({ session, viewMode, onSetViewMode, onBack, onActions }: F
             </>
           )}
           {/* Keyed so a session switch never reuses the other session's chat state. */}
+          {/* Hidden by visibility, never display: none, which would drop its layout box and
+              with it the scroll offset: the chat comes back where the reader left it. */}
           <div
             key={`chat-${session.id}`}
             className="mobile-chat"
-            hidden={commandTerminal}
-            style={{ position: 'relative', flex: 1, minHeight: 0, display: commandTerminal ? 'none' : undefined }}
+            aria-hidden={commandTerminal || undefined}
+            style={
+              commandTerminal
+                ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' }
+                : { position: 'relative', flex: 1, minHeight: 0 }
+            }
           >
             <ChatView
               session={session}
