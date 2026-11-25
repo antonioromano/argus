@@ -1,4 +1,4 @@
-import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap, GitSummaryResponse, SessionPrsResponse } from '@argus/shared';
+import type { SessionInfo, CreateSessionRequest, RestartSessionRequest, PathCompletionResponse, DirectoryChildrenResponse, FileContentResponse, FileSearchResponse, FindInFilesResponse, GitDiffResponse, GitFileStatusResponse, NgrokStatus, NgrokStartResponse, AppConfig, AgentDetectionResponse, AuthStatus, AuthLoginResponse, UpdateStatus, UpdateApplyResponse, PatchSelectionRequest, PatchOperationResponse, CommitRequest, CommitResponse, GitLogResponse, WriteFileRequest, WriteFileResponse, GitBranchesResponse, DiffFileResponse, GitPullAndBranchResponse, StructuredDiffResponse, BlameResponse, ChangelistStateResponse, CommitSelectionState, FileCrudResponse, SessionGroup, WorktreeMergePreviewResponse, DefinitionResponse, ReferencesResponse, ResolveImportResponse, KeepAwakeStatus, ArgusWindow, WindowRegistryState, OrphanReport, OrphanKillResponse, SearchResponse, AutoApprovalFolder, AutoApprovalFolderState, AutoApprovalRule, AddAutoApprovalRuleRequest, WorktreeFinishInfo, WorktreeFinishResponse, WorktreeFinishStep, HandoffRequest, HandoffPreviewResponse, HandoffResponse, ActivityListResponse, SessionTemplate, SaveTemplateRequest, TemplateErrorResponse, TemplateListResponse, LaunchTemplateResponse , SessionChain, CreateChainRequest, ChainListResponse, ChainAuditResponse, ChainFire, PlanUsageMap, GitSummaryResponse, SessionPrsResponse, ProfilesResponse, ProfilesState } from '@argus/shared';
 
 // PR diff (B4) — kept on its own line, a line apart, so parallel edits to the import above don't conflict.
 import type { SessionPrDiffResponse } from '@argus/shared';
@@ -641,6 +641,20 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
+    });
+    return (await requireOk(res)).json();
+  },
+
+  getProfiles: async (): Promise<ProfilesResponse> => {
+    const res = await authFetch(`${API_BASE}/profiles`);
+    return (await requireOk(res)).json();
+  },
+
+  saveProfiles: async (state: ProfilesState): Promise<ProfilesState> => {
+    const res = await authFetch(`${API_BASE}/profiles`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
     });
     return (await requireOk(res)).json();
   },

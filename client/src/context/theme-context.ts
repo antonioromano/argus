@@ -16,6 +16,9 @@ export interface ThemeContextValue {
   /** Color theme (Argus, One, GitHub, …); each has a dark and a light half. */
   palette: PaletteId;
   setPalette: (p: PaletteId) => void;
+  /** When this window last changed mode or palette itself (0 = never); a
+   *  change arriving from another window does not count. */
+  localEditAt: number;
 }
 
 export const ThemeContext = createContext<ThemeContextValue>({
@@ -26,6 +29,7 @@ export const ThemeContext = createContext<ThemeContextValue>({
   toggle: () => {},
   palette: 'argus',
   setPalette: () => {},
+  localEditAt: 0,
 });
 
 export function useTheme(): ThemeContextValue {

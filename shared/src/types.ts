@@ -1456,6 +1456,8 @@ export interface ServerToClientEvents {
   'session:fsChanged': (payload: { sessionId: string; dirs: string[] }) => void;
   /** groups.json was rewritten server-side (beta F10 template launch); refetch. */
   'groups:changed': () => void;
+  /** profiles.json changed (any window): refetch /api/profiles. */
+  'profiles:changed': () => void;
   /** Beta F13: a chain was created, removed, armed, disarmed or fired; refetch. */
   'chains:changed': () => void;
   // Companion terminal responses
@@ -2106,3 +2108,69 @@ export interface AppInfo extends AppEnvironment {
 
 /** Outcome of a Help action; never carries the diagnostics text itself. */
 export type HelpActionResult = { ok: true } | { ok: false; error: string };
+
+// ─── Profiles ────────────────────────────────────────────────────────────────
+// A profile is a named bundle of look-and-feel choices (theme, density, text
+// size, session header, notifications). Switching profile applies its values to
+// AppConfig and to the device-local theme; later changes are written back into
+// the active profile. Stored server-side in profiles.json.
+
+/** AppConfig keys a profile carries. Server copy: server/src/constants/profiles.ts. */
+export const PROFILE_CONFIG_KEYS = [
+  'density',
+  'codeFontSize',
+  'uiFontSize',
+  'mosaicOrientation',
+  'mosaicWaitingStyle',
+  'showStatusBar',
+  'tileQuickAction',
+  'tileRunningIndicator',
+  'showUsageMeter',
+  'showPrStatus',
+  'defaultSessionView',
+  'notifyOnWaiting',
+  'notifyOnDone',
+  'notifyOnPrChecks',
+  'notificationSound',
+  'showTips',
+] as const;
+export type ProfileConfigKey = (typeof PROFILE_CONFIG_KEYS)[number];
+
+export interface ProfileSettings extends Partial<Pick<AppConfig, ProfileConfigKey>> {
+  /** Appearance: System / Dark / Light. Device-local in the renderer. */
+  themeMode?: 'system' | 'dark' | 'light';
+  /** Color theme id (argus, one, github, …). Device-local in the renderer. */
+  colorTheme?: string;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  /** An emoji, or '' to show the name's initials. */
+  avatar: string;
+  createdAt: number;
+  settings: ProfileSettings;
+}
+
+/**
+ * Where the first-run prompt stands. `pending`: never asked. `later`: the user
+ * deferred setup (the avatar carries a dot). `upgrade`: a profile was created
+ * from an existing user's settings and the one-time notice is still due.
+ * `done`: nothing more to show.
+ */
+export type ProfilePrompt = 'pending' | 'later' | 'upgrade' | 'done';
+
+export interface ProfilesState {
+  activeId: string | null;
+  profiles: Profile[];
+  prompt: ProfilePrompt;
+}
+
+export interface ProfilesResponse extends ProfilesState {
+  /** The OS account's full name, to prefill a first profile. */
+  suggestedName: string;
+}
+
+export const PROFILE_NAME_MAX = 40;
+export const PROFILE_AVATAR_MAX = 16;
+export const PROFILE_MAX = 20;

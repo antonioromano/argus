@@ -62,8 +62,10 @@ import { useMenuCommandHandlers } from '../commands/useMenuCommandHandlers.js';
 import { invokeMenu } from '../commands/menuBridge.js';
 import type { CommandContext } from '../commands/sources/index.js';
 import { UpdateSheet } from './overlays/UpdateSheet.js';
-import { QuickActionSheet } from './overlays/QuickActionSheet.js';
-import { shouldPromptQuickAction } from '../utils/quickActionPrompt.js';
+import { ProfileAvatar } from './profile/ProfileAvatar.js';
+import { ProfilePromptCard } from './profile/ProfilePromptCard.js';
+import { ProfileSheet } from './profile/ProfileSheet.js';
+import { useProfileController } from './profile/useProfileController.js';
 import { introConfigPatch, introDiscoveryPatch, introToShow } from './intro/intro.js';
 import { IntroSheet, type IntroResult } from './intro/IntroSheet.js';
 import { ShortcutsSheet } from './overlays/ShortcutsSheet.js';
@@ -222,7 +224,7 @@ function DesktopInner() {
   const keepAwake = useKeepAwake(socket);
   const backendHealth = useBackendHealth(socket);
   const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
-  const { config, updateConfig } = useConfig();
+  const { config, updateConfig, reload: reloadConfig, localEditAt: configEditAt } = useConfig();
   // Plan 009 S2: on by default; config loads after first paint, so treat
   // "not loaded yet" as on rather than flashing the bar in.
   const showStatusBar = config?.showStatusBar ?? true;
@@ -581,6 +583,10 @@ function DesktopInner() {
   // not pushed across windows, so a second writer would race on stale state.
   const isMainWindow = windowsApi.myWindowId === MAIN_WINDOW_ID;
   const disc = useDiscovery({ config, updateConfig, isMainWindow });
+  const profile = useProfileController({
+    socket, config, updateConfig, reloadConfig, configEditAt, isMainWindow,
+    introPending: !!pendingIntro || app.overlay?.kind === 'intro',
+  });
   const handleTipAction = useCallback((action: TipAction) => {
     if (action === 'inbox') openInbox();
     else if (action === 'broadcast') openBroadcast([]);
@@ -1096,6 +1102,13 @@ function DesktopInner() {
           New
         </Button>
       </Tooltip>
+      <ProfileAvatar
+        state={profile.state}
+        onSetup={profile.onSetup}
+        onSwitch={profile.onSwitch}
+        onEdit={profile.onEdit}
+        onNew={profile.onNew}
+      />
     </>
   );
 
@@ -1658,7 +1671,7 @@ function DesktopInner() {
         />
       )}
 
-      {/* One-time quick-action picker. Held back until config and the running
+      {/* One-time Welcome / What's new. Held back until config and the running
           version are both known, so it can never stamp itself away on boot. */}
       {app.overlay?.kind === 'intro' && updateStatus && (
         <IntroSheet
@@ -1673,12 +1686,29 @@ function DesktopInner() {
         />
       )}
 
-      {pendingIntro === null && shouldPromptQuickAction(config, updateStatus?.currentVersion) && (
-        <QuickActionSheet
-          version={updateStatus!.currentVersion}
-          onConfirm={(action, version) => {
-            void updateConfig({ tileQuickAction: action, quickActionPromptedAt: version });
-          }}
+      {/* Profiles: the first-run / upgrade card, then the steps sheet. They
+          replace the old one-time quick-action picker (the quick action is a
+          profile step now). */}
+      {profile.card && (
+        <ProfilePromptCard
+          kind={profile.card}
+          version={updateStatus?.currentVersion}
+          onOpen={profile.onCardOpen}
+          onLater={profile.onCardLater}
+        />
+      )}
+      {profile.sheet && profile.active && config && (
+        <ProfileSheet
+          key={`${profile.active.id}-${profile.sheet.mode}`}
+          mode={profile.sheet.mode}
+          profile={profile.active}
+          fromUpgrade={profile.sheet.fromUpgrade}
+          config={config}
+          onConfig={(patch) => { void updateConfig(patch); }}
+          onIdentity={profile.onIdentity}
+          onCancel={profile.onCancel}
+          onDone={profile.onDone}
+          onDelete={profile.onDelete}
         />
       )}
 
