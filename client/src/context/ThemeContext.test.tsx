@@ -63,3 +63,45 @@ describe('ThemeProvider → nativeTheme sync', () => {
     expect(ctx().theme).toBe('light');
   });
 });
+
+describe('ThemeProvider → color theme', () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.palette;
+    document.getElementById('argus-palettes')?.remove();
+  });
+
+  it('defaults to Argus with no palette attribute and no stylesheet', () => {
+    act(() => root.render(<ThemeProvider><Probe /></ThemeProvider>));
+    expect(ctx().palette).toBe('argus');
+    expect(document.documentElement.dataset.palette).toBeUndefined();
+    expect(document.getElementById('argus-palettes')).toBeNull();
+  });
+
+  it('applies, persists and clears a picked theme', () => {
+    act(() => root.render(<ThemeProvider><Probe /></ThemeProvider>));
+    act(() => ctx().setPalette('github'));
+    expect(ctx().palette).toBe('github');
+    expect(document.documentElement.dataset.palette).toBe('github');
+    expect(localStorage.getItem('theme-palette')).toBe('github');
+    expect(document.getElementById('argus-palettes')?.textContent).toContain(':root[data-palette="github"][data-theme="light"]');
+    act(() => ctx().setPalette('argus'));
+    expect(document.documentElement.dataset.palette).toBeUndefined();
+  });
+
+  it('restores the stored theme and ignores an unknown one', () => {
+    localStorage.setItem('theme-palette', 'solarized');
+    act(() => root.render(<ThemeProvider><Probe /></ThemeProvider>));
+    expect(ctx().palette).toBe('solarized');
+    act(() => root.unmount());
+    act(() => { root = createRoot(container); });
+    localStorage.setItem('theme-palette', 'monokai');
+    act(() => root.render(<ThemeProvider><Probe /></ThemeProvider>));
+    expect(ctx().palette).toBe('argus');
+  });
+
+  it('follows a theme picked in another window', () => {
+    act(() => root.render(<ThemeProvider><Probe /></ThemeProvider>));
+    act(() => { window.dispatchEvent(new StorageEvent('storage', { key: 'theme-palette', newValue: 'catppuccin' })); });
+    expect(ctx().palette).toBe('catppuccin');
+  });
+});

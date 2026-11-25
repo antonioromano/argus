@@ -18,8 +18,10 @@ import { useFontSettings } from '../context/font-settings-context.js';
 import { TERMINAL_SCROLLBACK } from '../constants/terminal.js';
 
 import '@xterm/xterm/css/xterm.css';
-import { TERMINAL_THEMES } from '../tokens/paint.js';
-import type { TerminalTheme } from '../tokens/paint.js';
+import { paintFor } from '../tokens/paint.js';
+import { useTheme } from '../context/theme-context.js';
+import type { TerminalPalette } from '../tokens/palettes.js';
+import type { PaletteId } from '../tokens/palettes.js';
 import { emitDiscovery } from '../app/discovery/discoveryEvents.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -65,8 +67,6 @@ interface UseTerminalOptions {
 // The palettes live in tokens/paint.ts, mirrored from tokens.css and checked
 // against it (and against WCAG AA) by tokens/contrast.test.ts. The native
 // overlay derives from these via toNativeTheme, so both engines move together.
-const DARK_THEME = TERMINAL_THEMES.dark;
-const LIGHT_THEME = TERMINAL_THEMES.light;
 
 /** Shape of the SwiftTerm-side theme payload (mirrors preload's NativeTerminalTheme). */
 export interface NativeTerminalTheme { background: string; foreground: string; cursor: string; ansi: string[] }
@@ -74,7 +74,7 @@ export interface NativeTerminalTheme { background: string; foreground: string; c
 // ANSI order matches xterm's own convention: black, red, green, yellow, blue,
 // magenta, cyan, white, then the bright variants — the same order SwiftTerm's
 // `installColors(_:)` expects (see OverlayController.setTheme).
-function toNativeTheme(t: TerminalTheme): NativeTerminalTheme {
+function toNativeTheme(t: TerminalPalette): NativeTerminalTheme {
   return {
     background: t.background,
     foreground: t.foreground,
@@ -86,16 +86,12 @@ function toNativeTheme(t: TerminalTheme): NativeTerminalTheme {
   };
 }
 
-// Native-overlay counterpart of DARK_THEME/LIGHT_THEME above, derived from
-// the SAME values rather than hand-copied ones so the xterm.js and SwiftTerm
-// paths can never visually drift apart.
-const NATIVE_DARK_THEME = toNativeTheme(DARK_THEME);
-const NATIVE_LIGHT_THEME = toNativeTheme(LIGHT_THEME);
-
-/** Native-terminal counterpart of the `theme` prop useTerminal takes — used by
- *  TerminalShellNativeHole to build the payload for electronNativeTerminal.setTheme. */
-export function nativeThemeFor(theme: 'dark' | 'light'): NativeTerminalTheme {
-  return theme === 'dark' ? NATIVE_DARK_THEME : NATIVE_LIGHT_THEME;
+/** Native-terminal counterpart of the theme useTerminal paints — used by
+ *  TerminalShellNativeHole to build the payload for electronNativeTerminal.setTheme.
+ *  Derived from the SAME palette as the xterm.js path, so the two engines can
+ *  never visually drift apart. */
+export function nativeThemeFor(theme: 'dark' | 'light', palette: PaletteId = 'argus'): NativeTerminalTheme {
+  return toNativeTheme(paintFor(palette, theme).terminal);
 }
 
 /** The slice of the native-terminal preload bridge this module drives directly. */
@@ -169,6 +165,10 @@ export function useTerminal(
   useEffect(() => { suspendResizeRef.current = suspendResize; }, [suspendResize]);
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
+  // Color theme from context, so every caller follows it without a prop.
+  const { palette } = useTheme();
+  const paletteRef = useRef(palette);
+  useEffect(() => { paletteRef.current = palette; }, [palette]);
   const { codeFontSize } = useFontSettings();
   // Read at create time via ref so a size change live-updates instead of rebuilding.
   const codeFontSizeRef = useRef(codeFontSize);
@@ -220,7 +220,7 @@ export function useTerminal(
       disableStdin: readOnly,
       fontSize: codeFontSizeRef.current,
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
-      theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
+      theme: paintFor(paletteRef.current, themeRef.current).terminal,
       allowProposedApi: true,
       scrollback: TERMINAL_SCROLLBACK,
       scrollSensitivity: 3,
@@ -650,10 +650,10 @@ export function useTerminal(
   useEffect(() => {
     const t = terminalRef.current;
     if (t) {
-      t.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+      t.options.theme = paintFor(palette, theme).terminal;
       t.refresh(0, t.rows - 1);
     }
-  }, [theme]);
+  }, [theme, palette]);
 
   // Update font size without recreating the terminal; refit so cols/rows recompute.
   useEffect(() => {

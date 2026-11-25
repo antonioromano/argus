@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { PAINT_ACCENT_SURFACES, PAINT_SURFACES, PAINT_SYNTAX, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS } from './paint.js';
+import { PAINT_ACCENT_SURFACES, PAINT_SURFACES, PAINT_SYNTAX, TERMINAL_THEMES, TERMINAL_SEARCH_DECORATIONS, paintFor } from './paint.js';
+import { PALETTE_IDS, derivedTheme, paletteStylesheet } from './palettes.js';
 import { GROUP_COLORS } from '../constants/groupColors.js';
 import { parseColor, over, contrastRatio, type Rgba } from './contrast.js';
 
@@ -30,20 +31,24 @@ const TOKENS: Record<Theme, Record<string, string>> = { dark: themeBlock('dark')
 const parse = parseColor;
 const contrast = contrastRatio;
 
-/** Resolve a token (or a literal) for a theme. */
-function color(theme: Theme, ref: string): Rgba {
+type Tokens = Record<string, string>;
+
+/** Resolve a token (or a literal) in a token set. */
+function colorIn(tokens: Tokens, ref: string, label: string): Rgba {
   if (!ref.startsWith('--')) return parse(ref);
-  const v = TOKENS[theme][ref];
-  if (!v) throw new Error(`${ref} is not defined in the ${theme} block`);
-  return v.startsWith('var(') ? color(theme, v.slice(4, -1)) : parse(v);
+  const v = tokens[ref];
+  if (!v) throw new Error(`${ref} is not defined in the ${label} block`);
+  return v.startsWith('var(') ? colorIn(tokens, v.slice(4, -1), label) : parse(v);
 }
+const color = (theme: Theme, ref: string): Rgba => colorIn(TOKENS[theme], ref, theme);
 
 /** A color, possibly a translucent tint layered on an opaque surface. */
 type Bg = string | [tint: string, surface: string];
-function resolveBg(theme: Theme, bg: Bg): Rgba {
-  if (typeof bg === 'string') return color(theme, bg);
-  return over(color(theme, bg[0]), color(theme, bg[1]));
+function resolveBgIn(tokens: Tokens, bg: Bg, label: string): Rgba {
+  if (typeof bg === 'string') return colorIn(tokens, bg, label);
+  return over(colorIn(tokens, bg[0], label), colorIn(tokens, bg[1], label));
 }
+const resolveBg = (theme: Theme, bg: Bg): Rgba => resolveBgIn(TOKENS[theme], bg, theme);
 
 interface Pair { area: string; fg: Bg; bg: Bg; min: number }
 
@@ -104,6 +109,69 @@ describe('color tokens meet WCAG AA', () => {
       expect(failing).toEqual([]);
     });
   }
+});
+
+// Every other color theme (tokens/palettes.ts) is held to the same pairs: its
+// derived vars layered over the tokens.css block for the same appearance.
+const paletteTokens = (id: (typeof PALETTE_IDS)[number], theme: Theme): Tokens =>
+  ({ ...TOKENS[theme], ...derivedTheme(id, theme)!.vars });
+
+describe('color themes meet WCAG AA', () => {
+  for (const id of PALETTE_IDS.filter((p) => p !== 'argus')) {
+    for (const theme of ['dark', 'light'] as const) {
+      const tokens = paletteTokens(id, theme);
+      const label = `${id} ${theme}`;
+      it(`${label}: every audited pair clears its threshold`, () => {
+        const failing = PAIRS
+          .map((p) => ({ ...p, ratio: Math.round(contrast(resolveBgIn(tokens, p.fg, label), resolveBgIn(tokens, p.bg, label)) * 100) / 100 }))
+          .filter((r) => r.ratio < r.min)
+          .map((r) => `${r.area}: ${JSON.stringify(r.fg)} on ${JSON.stringify(r.bg)} = ${r.ratio} < ${r.min}`);
+        expect(failing).toEqual([]);
+      });
+
+      it(`${label}: terminal palette and search highlights are readable`, () => {
+        const { terminal: t, search: d } = paintFor(id, theme);
+        const bg = parse(t.background);
+        expect(t.background).toBe(tokens['--bg-2']);
+        const skip = new Set(theme === 'dark' ? ['black'] : []);
+        const failing = Object.entries(t)
+          .filter(([k]) => !['background', 'selectionBackground', 'cursor'].includes(k) && !skip.has(k))
+          .map(([k, v]) => [k, contrast(parse(v), bg)] as const)
+          .filter(([, r]) => r < TEXT)
+          .map(([k, r]) => `${k} = ${r.toFixed(2)}`);
+        expect(failing).toEqual([]);
+        const fg = parse(t.foreground);
+        expect(contrast(fg, parse(t.selectionBackground))).toBeGreaterThanOrEqual(TEXT);
+        expect(contrast(fg, parse(d.matchBackground))).toBeGreaterThanOrEqual(TEXT);
+        expect(contrast(fg, parse(d.activeMatchBackground))).toBeGreaterThanOrEqual(TEXT);
+      });
+
+      it(`${label}: text stays AA on its translucent materials`, () => {
+        const mats = derivedTheme(id, theme)!.materials;
+        const withMats = { ...tokens, ...mats };
+        const failing: string[] = [];
+        const cases: [string, string][] = [
+          ...CHROME_MATERIALS.map((m): [string, string] => [m, NATIVE_MATERIAL[theme]]),
+          ...FLOATING_MATERIALS.flatMap((m) => SURFACES.map((s): [string, string] => [m, s])),
+        ];
+        for (const [material, backdrop] of cases) {
+          const bg = over(colorIn(withMats, material, label), colorIn(withMats, backdrop, label));
+          for (const [fg, min] of [['--fg-0', TEXT], ['--fg-1', TEXT], ['--fg-2', TEXT], ['--fg-3', TEXT], ['--fg-4', UI]] as const) {
+            const r = contrast(colorIn(withMats, fg, label), bg);
+            if (r < min) failing.push(`${fg} on ${material} over ${backdrop} = ${r.toFixed(2)} < ${min}`);
+          }
+        }
+        expect(failing).toEqual([]);
+      });
+    }
+  }
+
+  it('the generated stylesheet never sets a material outside a translucent window', () => {
+    const sheet = paletteStylesheet();
+    for (const rule of sheet.split('}')) {
+      if (rule.includes('--material-')) expect(rule).toContain('[data-material="translucent"]');
+    }
+  });
 });
 
 describe('paint tokens (xterm / Monaco) mirror tokens.css', () => {

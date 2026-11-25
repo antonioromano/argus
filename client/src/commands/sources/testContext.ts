@@ -28,6 +28,8 @@ export function stubContext(over: Partial<CommandContext> = {}): CommandContext 
     templatesEnabled: false,
     themeMode: 'system',
     setThemeMode: noop,
+    colorTheme: 'argus',
+    setColorTheme: noop,
     groups: [],
     activeGroupId: null,
     setActiveGroup: noop,

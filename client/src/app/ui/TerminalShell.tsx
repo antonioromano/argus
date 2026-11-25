@@ -15,7 +15,8 @@ import type { TerminalSearchEngine } from '../../components/terminal/TerminalSea
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
 import { terminalCopyFlavors } from '../../hooks/terminalRichCopy.js';
 import { scaledPx } from '../../components/primitives/index.js';
-import { TERMINAL_SEARCH_DECORATIONS, terminalBackground } from '../../tokens/paint.js';
+import { paintFor, terminalBackground } from '../../tokens/paint.js';
+import { useTheme } from '../../context/theme-context.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -148,6 +149,7 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // dependency.
   const [attachGeneration, setAttachGeneration] = useState(0);
   const { codeFontSize } = useFontSettings();
+  const { palette } = useTheme();
   const holeRef = useNativeOverlayRect(session.id, !failed, () => setFailed(true), () => setAttachGeneration((n) => n + 1), codeFontSize);
 
   // Applies Argus's terminal theme (the SAME colors useTerminal.ts's xterm.js
@@ -166,8 +168,8 @@ function TerminalShellNativeHole(props: TerminalShellProps) {
   // join that transition — ran ahead of it.
   useEffect(() => {
     (window as Window & { electronNativeTerminal?: NativeThemeBridge })
-      .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme));
-  }, [session.id, theme, attachGeneration]);
+      .electronNativeTerminal?.setTheme(session.id, nativeThemeFor(theme, palette));
+  }, [session.id, theme, palette, attachGeneration]);
 
   // `dimmed` when the caller tracks it (Mosaic), otherwise fall back to the
   // terminal's own focus — which is all the Focus view has.
@@ -415,13 +417,15 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   // renders), so this object stays referentially stable too. find/clear read
   // the current addon lazily; onResults goes through the fan-out above.
   // Highlights follow the theme through a ref so the engine keeps its identity.
-  const themeRef = useRef(theme);
+  const { palette } = useTheme();
+  const searchPaint = paintFor(palette, theme).search;
+  const searchPaintRef = useRef(searchPaint);
   // The last query the bar ran, so a theme switch can repaint its highlights.
   const lastSearchRef = useRef<{ term: string; options: { caseSensitive: boolean; regex: boolean } } | null>(null);
   const searchOpenRef = useRef(searchOpen);
   useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
   useEffect(() => {
-    themeRef.current = theme;
+    searchPaintRef.current = searchPaint;
     // xterm keeps a match's decoration colors from the find() that drew it, so
     // after a theme switch the old theme's highlight would sit under the new
     // foreground (dark→light: ~1.5:1). Redraw the open search in place —
@@ -430,14 +434,14 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
     const last = lastSearchRef.current;
     if (!addon || !last || !searchOpenRef.current) return;
     addon.clearDecorations();
-    addon.findNext(last.term, { ...last.options, decorations: TERMINAL_SEARCH_DECORATIONS[theme], incremental: true });
-  }, [theme, searchAddonRef]);
+    addon.findNext(last.term, { ...last.options, decorations: searchPaint, incremental: true });
+  }, [searchPaint, searchAddonRef]);
   const xtermSearchEngine = useMemo<TerminalSearchEngine>(() => ({
     find: (term, direction, options) => {
       const addon = searchAddonRef.current;
       if (!addon) return undefined;
       lastSearchRef.current = { term, options: { caseSensitive: options.caseSensitive, regex: options.regex } };
-      const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: TERMINAL_SEARCH_DECORATIONS[themeRef.current] };
+      const opts: ISearchOptions = { caseSensitive: options.caseSensitive, regex: options.regex, decorations: searchPaintRef.current };
       if (direction === 'next') addon.findNext(term, { ...opts, incremental: true });
       else addon.findPrevious(term, opts);
       return undefined;
@@ -510,7 +514,7 @@ function TerminalShellXterm({ session, socket, theme, status, focused, onFocusCh
   // whole-cell rounding (most visible at the bottom) blends in instead of
   // showing as a dark band. Same paint token as useTerminal.ts's palette,
   // itself --bg-2 — the tile card the terminal sits in.
-  const termBg = terminalBackground(theme);
+  const termBg = terminalBackground(theme, palette);
 
   return (
     <div

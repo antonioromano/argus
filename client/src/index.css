@@ -3533,3 +3533,48 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-checklist-toggle:focus-visible,
 .argus-checklist-x:focus-visible,
 .argus-checklist-act:focus-visible { outline: 1px solid var(--accent-edge); outline-offset: 2px; }
+
+/* Settings → Color theme (ColorThemePicker). A card per theme; the half that
+   matches the current appearance is full strength, the other recedes. Hover
+   changes background only (no reflow). */
+.argus-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--s-2);
+}
+.argus-theme-card {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-3);
+  background: var(--bg-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.argus-theme-card:hover { background: var(--bg-3); }
+.argus-theme-card:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; }
+.argus-theme-card[data-selected] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.argus-theme-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--fg-0);
+  font-size: var(--t-body);
+  font-weight: 500;
+}
+.argus-theme-card[data-selected] .argus-theme-card-head { color: var(--accent); }
+.argus-theme-card-mode { display: flex; flex-direction: column; gap: var(--s-1); opacity: 0.55; }
+.argus-theme-card-mode[data-current] { opacity: 1; }
+.argus-theme-swatches {
+  display: flex;
+  height: 14px;
+  border-radius: var(--r-1);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.argus-theme-swatches i { flex: 1; }
+.argus-theme-card-sub { font-family: var(--font-mono); font-size: var(--t-caption); color: var(--fg-3); }

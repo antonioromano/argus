@@ -1,5 +1,6 @@
 import type { AppConfig, KeepAwakeStatus, MenuCommandWire, NgrokTunnelStatus, SessionInfo } from '@argus/shared';
 import type { SessionMenuActions } from '../../app/ui/sessionMenu.js';
+import type { PaletteId } from '../../tokens/palettes.js';
 import type { ThemeMode } from '../../context/theme-context.js';
 import type { ShortcutActionId } from '../../keyboard/registry.js';
 import type { ResolvedShortcuts } from '../../keyboard/useShortcuts.js';
@@ -43,6 +44,8 @@ export interface CommandContext {
   // sources/settings.ts
   themeMode: ThemeMode;
   setThemeMode(mode: ThemeMode): void;
+  colorTheme: PaletteId;
+  setColorTheme(palette: PaletteId): void;
 
   // sources/live.ts
   groups: readonly { id: string; name: string }[];

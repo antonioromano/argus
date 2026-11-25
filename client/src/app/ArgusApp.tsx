@@ -214,7 +214,7 @@ function DesktopRoot() {
 const NO_SECTIONS: readonly string[] = [];
 
 function DesktopInner() {
-  const { theme, isDark, mode: themeMode, setMode: setThemeMode, toggle: toggleTheme } = useTheme();
+  const { theme, isDark, mode: themeMode, setMode: setThemeMode, toggle: toggleTheme, palette: colorTheme, setPalette: setColorTheme } = useTheme();
   const socket = useSocket();
   const socketConnected = useSocketStatus();
   const { sessions, loaded: sessionsLoaded, loadError: sessionsLoadError, retry: retrySessionsLoad, createSession, adoptSession, deleteSession, renameSession, reopenSession, hideSession, unhideSession, commitClose } = useSessions(socket);
@@ -1180,6 +1180,8 @@ function DesktopInner() {
     templatesEnabled,
     themeMode,
     setThemeMode,
+    colorTheme,
+    setColorTheme,
     groups: groups.groups,
     activeGroupId,
     setActiveGroup: (id) => { setActiveGroupId(id); if (id) app.exitFocus(); },

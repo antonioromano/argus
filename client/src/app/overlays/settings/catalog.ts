@@ -28,6 +28,7 @@ import {
   UI_FONT_PRESETS,
   VIEW_OPTIONS,
   WAITING_OPTIONS,
+  COLOR_THEME_OPTIONS,
 } from './options.js';
 
 type ConfigKey = keyof AppConfig;
@@ -77,6 +78,12 @@ const BASE: readonly SettingDescriptor[] = [
     label: 'Appearance', hint: 'Match the system or pick a fixed appearance',
     keywords: ['theme', 'dark', 'light', 'system', 'dark mode', 'light mode'],
     keys: [], kind: 'choice', options: THEME_OPTIONS, source: 'device',
+  },
+  {
+    id: 'device:colorTheme', pane: 'theme', section: 'Color theme',
+    label: 'Color theme', hint: 'Each theme has a dark and a light version; Appearance picks which one shows',
+    keywords: ['color theme', 'colour', 'palette', 'scheme', 'ide', 'one dark', 'one light', 'github', 'catppuccin', 'mocha', 'latte', 'solarized', 'darcula', 'intellij', 'jetbrains'],
+    keys: [], kind: 'choice', options: COLOR_THEME_OPTIONS, source: 'device',
   },
   {
     id: 'density', pane: 'theme', section: 'Density',

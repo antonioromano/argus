@@ -11,14 +11,13 @@ import { openExternal } from '../utils/openExternal.js';
 import { useFontSettings } from '../context/font-settings-context.js';
 
 import '@xterm/xterm/css/xterm.css';
-import { TERMINAL_THEMES } from '../tokens/paint.js';
+import { paintFor } from '../tokens/paint.js';
+import { useTheme } from '../context/theme-context.js';
 import { macLineEditSequence } from '../keyboard/terminalKeys.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 // Same palette (and --bg-2 surface) as the session terminals — see tokens/paint.ts.
-const DARK_THEME = TERMINAL_THEMES.dark;
-const LIGHT_THEME = TERMINAL_THEMES.light;
 
 interface UseCompanionTerminalOptions {
   sessionId: string;
@@ -35,6 +34,10 @@ export function useCompanionTerminal(
   const { sessionId, socket, theme } = options;
   const themeRef = useRef(theme);
   useEffect(() => { themeRef.current = theme; }, [theme]);
+  // Color theme from context, so every caller follows it without a prop.
+  const { palette } = useTheme();
+  const paletteRef = useRef(palette);
+  useEffect(() => { paletteRef.current = palette; }, [palette]);
   const { codeFontSize } = useFontSettings();
   const codeFontSizeRef = useRef(codeFontSize);
   useEffect(() => { codeFontSizeRef.current = codeFontSize; }, [codeFontSize]);
@@ -64,7 +67,7 @@ export function useCompanionTerminal(
       disableStdin: false,
       fontSize: codeFontSizeRef.current,
       fontFamily: '"SF Mono", ui-monospace, Menlo, Monaco, "Cascadia Code", monospace',
-      theme: themeRef.current === 'dark' ? DARK_THEME : LIGHT_THEME,
+      theme: paintFor(paletteRef.current, themeRef.current).terminal,
       allowProposedApi: true,
       scrollback: 5000,
       scrollSensitivity: 3,
@@ -231,10 +234,10 @@ export function useCompanionTerminal(
   useEffect(() => {
     const t = terminalRef.current;
     if (t) {
-      t.options.theme = theme === 'dark' ? DARK_THEME : LIGHT_THEME;
+      t.options.theme = paintFor(palette, theme).terminal;
       t.refresh(0, t.rows - 1);
     }
-  }, [theme]);
+  }, [theme, palette]);
 
   // Update font size without recreating the terminal; refit so cols/rows recompute.
   useEffect(() => {

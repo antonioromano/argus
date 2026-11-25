@@ -4,6 +4,7 @@ import { PANES, PANES_BY_ID, modifiedSettings } from '../../app/overlays/setting
 import { SETTINGS, isSettingVisible, type SettingDescriptor } from '../../app/overlays/settings/catalog.js';
 import { CODE_FONT_PRESETS, DEFAULT_CODE_FONT_PX, DEFAULT_UI_FONT_PX, UI_FONT_PRESETS } from '../../app/overlays/settings/options.js';
 import type { ThemeMode } from '../../context/theme-context.js';
+import { isPaletteId } from '../../tokens/palettes.js';
 import type { Command } from '../types.js';
 import type { CommandContext } from './context.js';
 
@@ -15,6 +16,7 @@ import type { CommandContext } from './context.js';
  */
 export const PALETTE_CHOICES: Readonly<Record<string, string>> = {
   'device:themeMode': 'Theme',
+  'device:colorTheme': 'Color theme',
   density: 'Density',
   codeFontSize: 'Code font size',
   uiFontSize: 'Interface font size',
@@ -31,6 +33,7 @@ const OWNED_ELSEWHERE = /^(shortcut|beta):/;
 
 function currentValue(ctx: CommandContext, s: SettingDescriptor): string {
   if (s.id === 'device:themeMode') return ctx.themeMode;
+  if (s.id === 'device:colorTheme') return ctx.colorTheme;
   const key = s.keys[0];
   const config = ctx.config ?? DEFAULT_CONFIG;
   return String(config[key] ?? DEFAULT_CONFIG[key]);
@@ -38,6 +41,7 @@ function currentValue(ctx: CommandContext, s: SettingDescriptor): string {
 
 function setChoice(ctx: CommandContext, s: SettingDescriptor, value: string): void {
   if (s.id === 'device:themeMode') { ctx.setThemeMode(value as ThemeMode); return; }
+  if (s.id === 'device:colorTheme') { if (isPaletteId(value)) ctx.setColorTheme(value); return; }
   const key = s.keys[0];
   const typed = typeof DEFAULT_CONFIG[key] === 'number' ? Number(value) : value;
   ctx.updateConfig({ [key]: typed } as Partial<AppConfig>);
