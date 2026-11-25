@@ -119,6 +119,9 @@ const DUPLICATED_CONSTS = [
   { name: 'TEMPLATE_PROMPT_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
   { name: 'TEMPLATE_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/templates.ts' },
   { name: 'CHAIN_PROMPT_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
+  { name: 'PROFILE_NAME_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/profiles.ts' },
+  { name: 'PROFILE_AVATAR_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/profiles.ts' },
+  { name: 'PROFILE_MAX', shared: 'shared/src/types.ts', server: 'server/src/constants/profiles.ts' },
   { name: 'CHAIN_MAX_FIRES_PER_HOUR', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
   { name: 'CHAIN_GLOBAL_MAX_FIRES_PER_HOUR', shared: 'shared/src/types.ts', server: 'server/src/constants/chains.ts' },
   // Renderer ↔ Electron main: main cannot import renderer code either.
@@ -173,15 +176,17 @@ console.log(`✔ dep-sync: ${DUPLICATED_CONSTS.length + DUPLICATED_REGEXES.lengt
  */
 function objectEntries(file, name) {
   const src = readFileSync(path.join(repoRoot, file), 'utf8');
-  const start = src.search(new RegExp(`export const ${name}\\b[^=]*=\\s*\\{`));
-  if (start === -1) return null;
+  // An object literal `= { … }` or an array literal `= [ … ]`.
+  const m = new RegExp(`export const ${name}\\b[^=]*=\\s*([\\{\\[])`).exec(src);
+  if (!m) return null;
 
-  const open = src.indexOf('{', start);
+  const open = m.index + m[0].length - 1;
+  const [o, c] = m[1] === '{' ? ['{', '}'] : ['[', ']'];
   let depth = 0;
   let end = -1;
   for (let i = open; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}' && --depth === 0) { end = i; break; }
+    if (src[i] === o) depth++;
+    else if (src[i] === c && --depth === 0) { end = i; break; }
   }
   if (end === -1) return null;
 
@@ -210,6 +215,7 @@ const DUPLICATED_OBJECTS = [
   { name: 'DEFAULT_CONFIG', shared: 'shared/src/types.ts', server: 'server/src/persistence/ConfigStore.ts' },
   { name: 'AUTO_APPROVAL_TOOLS', shared: 'shared/src/types.ts', server: 'server/src/constants/autoApproval.ts' },
   { name: 'SESSION_COLOR_KEYS', shared: 'shared/src/types.ts', server: 'server/src/constants/sessionIdentity.ts' },
+  { name: 'PROFILE_CONFIG_KEYS', shared: 'shared/src/types.ts', server: 'server/src/constants/profiles.ts' },
 ];
 
 const objectDrift = [];
