@@ -127,20 +127,6 @@ export function ContextMenu({ x, y, items, onClose, placement = 'below', anchor 
             }}
             className="argus-ctx-item"
             data-danger={entry.danger ? '' : undefined}
-            style={{
-              all: 'unset',
-              boxSizing: 'border-box',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--s-2)',
-              width: '100%',
-              padding: 'var(--s-1-5) var(--s-2)',
-              borderRadius: 'var(--r-2)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--t-tiny)',
-              color: entry.disabled ? 'var(--fg-4)' : 'var(--fg-1)',
-              cursor: entry.disabled ? 'default' : 'pointer',
-            }}
           >
             {Glyph && <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />}
             {entry.hint ? (

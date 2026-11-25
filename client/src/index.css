@@ -996,6 +996,63 @@ body {
   gap: 0;
   padding: 0;
 }
+/* "Move to" shelf over the top of the Mosaic while a tile is dragged
+   (WindowDropShelf). A zero-height sticky anchor, so it never resizes the
+   grid (that would SIGWINCH every terminal) and stays visible when scrolled. */
+.argus-window-shelf-anchor {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: var(--z-sticky);
+}
+.argus-window-shelf {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--s-2);
+  height: 64px;
+  padding: var(--s-2);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-2);
+  box-shadow: var(--shadow-pop);
+  animation: argus-fade-in var(--dur-fast) var(--ease);
+}
+.argus-window-shelf-label {
+  align-self: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: var(--font-mono);
+  font-size: var(--t-eyebrow);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+}
+.argus-window-target {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0 var(--s-3);
+  border: 1px dashed var(--line-3);
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-2);
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.argus-window-target[data-new] { flex: 0 0 180px; }
+.argus-window-target[data-over] {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.argus-window-target-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.argus-window-target-hint { color: var(--fg-4); white-space: nowrap; }
+.argus-window-target[data-over] .argus-window-target-hint { color: inherit; opacity: 0.75; }
+
 .argus-mosaic-minrow {
   display: flex;
   flex-wrap: wrap;

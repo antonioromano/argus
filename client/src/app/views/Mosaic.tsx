@@ -44,6 +44,8 @@ import {
   useSensors,
   closestCenter,
 } from '@dnd-kit/core';
+import { WindowDropShelf } from './WindowDropShelf.js';
+import { parseWindowDrop, tileCollision, type WindowDropTarget } from './windowDrop.js';
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -87,6 +89,10 @@ interface MosaicProps {
   onOpenSession: (id: string) => void;
   /** Dragged past the window edge and released outside → spawn a new window owning it. */
   onTearOff: (sessionId: string) => void;
+  /** Other windows, offered as drop targets on the "Move to" shelf while a tile is dragged. */
+  windowTargets?: WindowDropTarget[];
+  /** Dropped on a window's box on the shelf. */
+  onMoveToWindow?: (sessionId: string, windowId: string) => void;
   onCreate: () => void;
   onKill: (session: SessionInfo) => void;
   onRestart: (session: SessionInfo) => void;
@@ -140,7 +146,7 @@ const MAX_TILES = 12;
 // distinguishes tear-off from sloppy edge-adjacent in-grid drops.
 const TEAR_OFF_MARGIN = 40;
 
-export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, onCreate, onKill, onRestart, onResume, onMarkDone, onMerge, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad, onClearFilter, landingPromo }: MosaicProps) {
+export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilterIds, activeGroupId, groupColorOf, toggleMinimize, restoreFromFilter, restoreAll, isMinimized, isForeign, foreignLabel, onFocusForeign, onOpenSession, onTearOff, windowTargets, onMoveToWindow, onCreate, onKill, onRestart, onResume, onMarkDone, onMerge, chainCounts, onClone, onFocusDiff, onFocusExplorer, onFocusTerminal, mergingSessionId, onOpenDiff, shortcuts, searchSessionId, onRequestSearch, onCloseSearch, onActiveTerminalChange, notifiedTileId, waitingStyle = 'breathing', quickAction = DEFAULT_TILE_QUICK_ACTION, runningIndicator = 'hairline', orientation = 'horizontal', defaultTerminalEngine, usageMeter, customAgents, loadError, onRetryLoad, onClearFilter, landingPromo }: MosaicProps) {
   // Availability is resolved once here (not per-tile) so every tile agrees
   // while the async probe is in flight — a fresh per-tile hook call could
   // resolve availability at different times and momentarily disagree across
@@ -283,8 +289,14 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
   const handleTileOpenSearch = useCallback((id: string) => propCbRef.current.onRequestSearch?.(id), []);
   const handleTileCloseSearch = useCallback(() => propCbRef.current.onCloseSearch?.(), []);
 
+  const [shelfOpen, setShelfOpen] = useState(false);
+  const endTileDrag = () => { setActiveTileId(null); setShelfOpen(false); };
+
   const handleTileDragStart = (event: DragStartEvent) => {
     setActiveTileId(event.active.id as string);
+    // A keyboard drag can't aim at the shelf (its collision needs a pointer),
+    // so it only reorders and never shows it.
+    setShelfOpen(!(event.activatorEvent instanceof KeyboardEvent));
   };
 
   const handleTileDragEnd = (event: DragEndEvent) => {
@@ -304,19 +316,26 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
         x > window.innerWidth + TEAR_OFF_MARGIN || y > window.innerHeight + TEAR_OFF_MARGIN;
       if (out) {
         onTearOff(active.id as string);
-        setActiveTileId(null);
+        endTileDrag();
         return;
       }
     }
+    const drop = parseWindowDrop(over?.id);
+    if (drop) {
+      if (drop.kind === 'new') onTearOff(active.id as string);
+      else onMoveToWindow?.(active.id as string, drop.windowId);
+      endTileDrag();
+      return;
+    }
     if (!over || active.id === over.id) {
-      setActiveTileId(null);
+      endTileDrag();
       return;
     }
     const ids = sessions.map((s) => s.id);
     const oldIdx = ids.indexOf(active.id as string);
     const newIdx = ids.indexOf(over.id as string);
     onReorder(arrayMove(ids, oldIdx, newIdx));
-    setActiveTileId(null);
+    endTileDrag();
   };
 
   const handleChipDragStart = (event: DragStartEvent) => {
@@ -480,10 +499,12 @@ export function Mosaic({ sessions, onReorder, filter, socket, theme, groupFilter
       {activeTiles.length > 0 && (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={tileCollision}
           onDragStart={handleTileDragStart}
           onDragEnd={handleTileDragEnd}
+          onDragCancel={endTileDrag}
         >
+          {shelfOpen && <WindowDropShelf targets={windowTargets ?? []} />}
           <SortableContext items={activeTileIds} strategy={rectSortingStrategy}>
             <div
               className="argus-mosaic"

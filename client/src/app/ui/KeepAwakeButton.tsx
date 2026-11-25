@@ -52,21 +52,6 @@ const armedPill: React.CSSProperties = {
   ...noDrag,
 };
 
-/** Compact (status bar): a text-height control, no fixed hit box, so the bar
- *  stays one line. Armed it only changes colour; the width is the countdown's. */
-const compactBtn = (active: boolean): React.CSSProperties => ({
-  all: 'unset',
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 'var(--s-1)',
-  height: '100%',
-  padding: '0 var(--s-1-5)',
-  borderRadius: 'var(--r-1)',
-  color: active ? 'var(--accent)' : 'var(--fg-3)',
-  cursor: 'pointer',
-  fontVariantNumeric: 'tabular-nums',
-});
-
 /**
  * "Keep this Mac awake" for a chosen window — the Amphetamine gesture.
  *
@@ -154,7 +139,12 @@ function KeepAwakeButtonInner({ status, onArm, onDisarm, compact = false }: Keep
         <button
           ref={btnRef}
           onClick={openMenu}
-          style={compact ? compactBtn(active) : active ? armedPill : idleBtn}
+          // Compact rides the status bar's own button class, so it gets the same
+          // hover and focus ring as its neighbours; inline styles can't hover.
+          type="button"
+          className={compact ? 'argus-statusbar-item argus-statusbar-btn' : undefined}
+          data-tone={compact && active ? 'accent' : undefined}
+          style={compact ? undefined : active ? armedPill : idleBtn}
           aria-label={tooltip}
           data-compact={compact || undefined}
         >
