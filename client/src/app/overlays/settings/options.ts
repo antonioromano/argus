@@ -13,6 +13,11 @@ import type {
   TileRunningIndicator,
 } from '@argus/shared';
 import type { ThemeMode } from '../../../context/theme-context.js';
+import { PALETTE_IDS, paletteLabel, type PaletteId } from '../../../tokens/palettes.js';
+
+/** Color themes, in picker order. Each has a dark and a light half. */
+export const COLOR_THEME_OPTIONS: readonly { value: PaletteId; label: string }[] =
+  PALETTE_IDS.map((value) => ({ value, label: paletteLabel(value) }));
 
 export const THEME_OPTIONS: readonly { value: ThemeMode; label: string }[] = [
   { value: 'system', label: 'System' },

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from 'react';
 import type { AppearanceSnapshot } from '@argus/shared';
-import type { Theme } from '../context/theme-context.js';
+import { useTheme, type Theme } from '../context/theme-context.js';
 import { pickFocusAccent } from '../utils/focusAccent.js';
 
 /** The preload's `electronAppearance` bridge (absent in the browser and /mobile). */
@@ -44,6 +44,7 @@ export function useSystemAppearance(
   theme: Theme,
   { titlebarH = 44 }: SystemAppearanceOptions = {},
 ): void {
+  const { palette } = useTheme();
   const [snap, setSnap] = useState<AppearanceSnapshot | null>(() => {
     const s = appearanceBridge()?.snapshot();
     return isSnapshot(s) ? s : null;
@@ -62,11 +63,11 @@ export function useSystemAppearance(
     root.dataset.material = snap.material;
     root.dataset.contrast = snap.contrast;
     root.dataset.windowActive = String(snap.active);
-    const accent = pickFocusAccent(snap.accent, theme);
+    const accent = pickFocusAccent(snap.accent, theme, palette);
     if (accent) root.style.setProperty(ACCENT_VAR, accent);
     else root.style.removeProperty(ACCENT_VAR);
     root.style.setProperty(INSET_VAR, `${snap.titlebarInset}px`);
-  }, [snap, theme]);
+  }, [snap, theme, palette]);
 
   useEffect(() => {
     appearanceBridge()?.setTitlebarHeight?.(titlebarH);

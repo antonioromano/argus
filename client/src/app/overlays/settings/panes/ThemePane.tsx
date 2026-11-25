@@ -1,7 +1,8 @@
 import { Section, SettingRow, Segmented, Toggle } from '../../../../components/primitives/index.js';
 import { useTheme } from '../../../../context/theme-context.js';
 import { WaitingStylePreview } from '../../../ui/WaitingStylePreview.js';
-import { SettingField } from '../SettingField.js';
+import { SettingAnchor, SettingField } from '../SettingField.js';
+import { ColorThemePicker } from './ColorThemePicker.js';
 import {
   CODE_FONT_PRESETS,
   DENSITY_OPTIONS,
@@ -16,12 +17,12 @@ import {
 import type { PaneProps } from '../types.js';
 
 /**
- * How Argus looks: theme and window material, density, font sizes, mosaic
+ * How Argus looks: appearance and color theme, window material, density, font sizes, mosaic
  * layout, the waiting cue and the status bar (with its clock). Typography and Toolbar were their own panes (two keys each);
  * they are the same subject, and together still fit a screen.
  */
 export function ThemePane({ config, onSave }: PaneProps) {
-  const { mode, setMode } = useTheme();
+  const { mode, setMode, theme, palette, setPalette } = useTheme();
   const showClock = config.showClock ?? false;
 
   return (
@@ -30,6 +31,13 @@ export function ThemePane({ config, onSave }: PaneProps) {
         <SettingField id="device:themeMode">
           <Segmented label="Theme" value={mode} options={THEME_OPTIONS} onChange={setMode} />
         </SettingField>
+      </Section>
+
+      {/* Bare: the cards are their own frames; a card around cards is a double border. */}
+      <Section title="Color theme" bare>
+        <SettingAnchor id="device:colorTheme">
+          <ColorThemePicker value={palette} theme={theme} onChange={setPalette} />
+        </SettingAnchor>
       </Section>
 
       <Section title="Density">

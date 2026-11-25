@@ -7,6 +7,8 @@
  * mirrored value drifts from tokens.css or if any pair here drops below WCAG AA.
  */
 
+import { derivedTheme, type PaletteId, type TerminalPalette } from './palettes.js';
+
 export type ThemeName = 'dark' | 'light';
 
 /** Mirrors of tokens.css surface tokens, for canvas/engine-painted surfaces. */
@@ -37,8 +39,8 @@ export const PAINT_SYNTAX = {
 } as const satisfies Record<ThemeName, Record<'fg' | 'kw' | 'str' | 'num' | 'fn' | 'cm' | 'pn', string>>;
 
 /** Cell background a terminal paints, for the frame around it to match. */
-export function terminalBackground(theme: ThemeName): string {
-  return PAINT_SURFACES[theme].terminal;
+export function terminalBackground(theme: ThemeName, palette: PaletteId = 'argus'): string {
+  return palette === 'argus' ? PAINT_SURFACES[theme].terminal : paintFor(palette, theme).surfaces.terminal;
 }
 
 // Tokyo Night palette on the --bg-2 surface. brightBlack is what CLIs use for
@@ -109,3 +111,34 @@ export const TERMINAL_SEARCH_DECORATIONS = {
     activeMatchColorOverviewRuler: '#e0af68',
   },
 } as const;
+
+// ─── Color themes (tokens/palettes.ts) ───────────────────────────────────────
+
+/** Everything an engine-painted surface needs for one theme and appearance. */
+export interface Paint {
+  surfaces: { terminal: string; inset: string };
+  accent: { panel: string; card: string; brand: string };
+  syntax: Record<'fg' | 'kw' | 'str' | 'num' | 'fn' | 'cm' | 'pn', string>;
+  terminal: TerminalPalette;
+  search: { matchBackground: string; matchOverviewRuler: string; activeMatchBackground: string; activeMatchColorOverviewRuler: string };
+}
+
+const ARGUS_PAINT: Record<ThemeName, Paint> = {
+  dark: { surfaces: PAINT_SURFACES.dark, accent: PAINT_ACCENT_SURFACES.dark, syntax: PAINT_SYNTAX.dark, terminal: TERMINAL_THEMES.dark, search: TERMINAL_SEARCH_DECORATIONS.dark },
+  light: { surfaces: PAINT_SURFACES.light, accent: PAINT_ACCENT_SURFACES.light, syntax: PAINT_SYNTAX.light, terminal: TERMINAL_THEMES.light, search: TERMINAL_SEARCH_DECORATIONS.light },
+};
+
+/** Paint for a theme in one appearance. Argus reads the constants above; the
+ *  other themes read the same derived values their CSS was generated from. */
+export function paintFor(palette: PaletteId, theme: ThemeName): Paint {
+  const d = derivedTheme(palette, theme);
+  if (!d) return ARGUS_PAINT[theme];
+  const v = d.vars;
+  return {
+    surfaces: { terminal: v['--bg-2'], inset: v['--bg-inset'] },
+    accent: { panel: v['--bg-1'], card: v['--bg-2'], brand: v['--accent'] },
+    syntax: { fg: v['--fg-1'], kw: v['--syn-kw'], str: v['--syn-str'], num: v['--syn-num'], fn: v['--syn-fn'], cm: v['--syn-cm'], pn: v['--syn-pn'] },
+    terminal: d.terminal,
+    search: d.search,
+  };
+}

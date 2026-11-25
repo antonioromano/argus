@@ -162,3 +162,12 @@ describe('plan 008 tokens', () => {
     expect(decl('--material-window', translucent)).toBe('transparent');
   });
 });
+
+describe('theme switch', () => {
+  it('suppresses transitions only, never animations (removing animation:none restarts them all)', () => {
+    const m = /\[data-theme-switching\][^{]*\{([^}]*)\}/.exec(CSS);
+    expect(m, 'data-theme-switching rule').not.toBeNull();
+    expect(m![1]).toContain('transition: none');
+    expect(m![1]).not.toMatch(/animation/);
+  });
+});

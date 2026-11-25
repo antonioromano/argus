@@ -6,6 +6,7 @@ import { useCompanionTerminal } from '../../hooks/useCompanionTerminal.js';
 import { shellLabel } from '../../utils/sessionLabel.js';
 import { Icon, Row, Text } from '../../components/primitives/index.js';
 import { terminalBackground } from '../../tokens/paint.js';
+import { useTheme } from '../../context/theme-context.js';
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -28,7 +29,8 @@ export function CompanionTerminalPanel({
 }: CompanionTerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { terminalAlive } = useCompanionTerminal(containerRef, { sessionId: session.id, socket, theme });
-  const termBg = terminalBackground(theme);
+  const { palette } = useTheme();
+  const termBg = terminalBackground(theme, palette);
 
   return (
     <aside

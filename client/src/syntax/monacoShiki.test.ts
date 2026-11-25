@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { PALETTE_IDS } from '../tokens/palettes.js';
 import { describe, it, expect, vi } from 'vitest';
 import type * as Monaco from 'monaco-editor';
 import { attachShikiToMonaco, monacoTheme, monacoThemeName, registeredMonacoLanguage, MONACO_GRAMMARS } from './monacoShiki.js';
@@ -32,11 +33,15 @@ describe('monacoTheme', () => {
 });
 
 describe('attachShikiToMonaco', () => {
-  it('defines both themes, waits for a language, then installs a slot tokenizer', async () => {
+  it('defines every theme in both appearances, waits for a language, then installs a slot tokenizer', async () => {
     const { monaco, themes, encountered, providers } = fakeMonaco();
     attachShikiToMonaco(monaco);
     attachShikiToMonaco(monaco); // idempotent
-    expect([...themes.keys()]).toEqual([monacoThemeName('dark'), monacoThemeName('light')]);
+    expect([...themes.keys()]).toEqual(
+      PALETTE_IDS.flatMap((p) => [monacoThemeName('dark', p), monacoThemeName('light', p)]),
+    );
+    expect(monacoThemeName('dark')).toBe('argus-dark');
+    expect(monacoThemeName('light', 'github')).toBe('argus-github-light');
     expect([...encountered.keys()]).toEqual(Object.keys(MONACO_GRAMMARS));
     expect(providers.size).toBe(0); // nothing loaded until a model uses it
 

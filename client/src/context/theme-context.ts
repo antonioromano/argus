@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import type { PaletteId } from '../tokens/palettes.js';
 
 // The resolved (applied) theme — what actually gets written to the DOM
 export type Theme = 'dark' | 'light';
@@ -12,6 +13,9 @@ export interface ThemeContextValue {
   mode: ThemeMode;      // user's stored preference (system/dark/light)
   setMode: (m: ThemeMode) => void;
   toggle: () => void;   // backwards compat: cycles dark↔light (bypasses system mode)
+  /** Color theme (Argus, One, GitHub, …); each has a dark and a light half. */
+  palette: PaletteId;
+  setPalette: (p: PaletteId) => void;
 }
 
 export const ThemeContext = createContext<ThemeContextValue>({
@@ -20,6 +24,8 @@ export const ThemeContext = createContext<ThemeContextValue>({
   mode: 'system',
   setMode: () => {},
   toggle: () => {},
+  palette: 'argus',
+  setPalette: () => {},
 });
 
 export function useTheme(): ThemeContextValue {

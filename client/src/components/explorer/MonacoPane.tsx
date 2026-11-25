@@ -5,6 +5,7 @@ import { registerSymbolProviders, addSymbolEditorActions } from './registerSymbo
 import { retainModel, releaseModel } from './monacoModelRefs.js';
 import { useFontSettings } from '../../context/font-settings-context.js';
 import { noteEditorFocused, noteEditorBlurred } from '../../utils/editorFocusReporting.js';
+import { useTheme } from '../../context/theme-context.js';
 import { attachShikiToMonaco, monacoThemeName, registeredMonacoLanguage } from '../../syntax/monacoShiki.js';
 
 // Use locally-bundled Monaco rather than the default CDN loader (works offline / in Electron).
@@ -36,6 +37,7 @@ const FLASH_MS = 1400;
 const MIN_REVEAL_HEIGHT = 80;
 
 export function MonacoPane({ value, onChange, language: mappedLanguage, theme, readOnly, onSaveShortcut, path, revealLine, revealNonce }: MonacoPaneProps) {
+  const { palette } = useTheme();
   // Extensions langFromPath doesn't map still get whatever Monaco registers for them.
   const language = mappedLanguage === 'plaintext' ? registeredMonacoLanguage(monaco, path) : mappedLanguage;
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -155,7 +157,7 @@ export function MonacoPane({ value, onChange, language: mappedLanguage, theme, r
       path={path}
       keepCurrentModel
       language={language}
-      theme={monacoThemeName(theme)}
+      theme={monacoThemeName(theme, palette)}
       onChange={(v) => onChange(v ?? '')}
       onMount={(editor, monacoInstance) => {
         editorRef.current = editor;

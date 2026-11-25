@@ -14,7 +14,8 @@ import type * as Monaco from 'monaco-editor';
 import type { StateStack } from 'shiki/textmate';
 
 type Textmate = typeof import('shiki/textmate');
-import { PAINT_SURFACES, PAINT_SYNTAX, type ThemeName } from '../tokens/paint.js';
+import { paintFor, type ThemeName } from '../tokens/paint.js';
+import { PALETTE_IDS, type PaletteId } from '../tokens/palettes.js';
 import { CLASSIFIER_THEME, SYN_SLOTS, highlighterFor, loadLang, slotForColor, type SynSlot } from './highlighter.js';
 
 /** Monaco language id → Shiki grammar. `typescript`/`javascript` take the
@@ -46,8 +47,8 @@ export function registeredMonacoLanguage(monaco: typeof Monaco, filePath: string
   return match?.id ?? 'plaintext';
 }
 
-export function monacoThemeName(theme: ThemeName): string {
-  return theme === 'dark' ? 'argus-dark' : 'argus-light';
+export function monacoThemeName(theme: ThemeName, palette: PaletteId = 'argus'): string {
+  return palette === 'argus' ? `argus-${theme}` : `argus-${palette}-${theme}`;
 }
 
 // Monarch token prefixes → slot, so the pre-Shiki fallback (and languages
@@ -60,8 +61,9 @@ const MONARCH_RULES: [string, SynSlot][] = [
 
 const hex = (c: string) => c.replace('#', '');
 
-export function monacoTheme(theme: ThemeName): Monaco.editor.IStandaloneThemeData {
-  const p = PAINT_SYNTAX[theme];
+export function monacoTheme(theme: ThemeName, palette: PaletteId = 'argus'): Monaco.editor.IStandaloneThemeData {
+  const paint = paintFor(palette, theme);
+  const p = paint.syntax;
   return {
     base: theme === 'dark' ? 'vs-dark' : 'vs',
     inherit: true,
@@ -70,11 +72,14 @@ export function monacoTheme(theme: ThemeName): Monaco.editor.IStandaloneThemeDat
       // Shiki slots last so they win over any Monarch prefix they share.
       ...SYN_SLOTS.map((slot) => ({ token: slot, foreground: hex(p[slot]), ...(slot === 'cm' ? { fontStyle: 'italic' } : {}) })),
     ],
-    // Dark sits on the --bg-inset well; light keeps vs's white (== --bg-2),
-    // which the explorer's pre-paint background matches.
+    // Dark sits on the --bg-inset well; Argus light keeps vs's white (== --bg-2),
+    // which the explorer's pre-paint background matches. Other light themes
+    // paint their own card color.
     colors: theme === 'dark'
-      ? { 'editor.background': PAINT_SURFACES.dark.inset, 'editor.foreground': p.fg }
-      : { 'editor.foreground': p.fg },
+      ? { 'editor.background': paint.surfaces.inset, 'editor.foreground': p.fg }
+      : palette === 'argus'
+        ? { 'editor.foreground': p.fg }
+        : { 'editor.background': paint.surfaces.terminal, 'editor.foreground': p.fg },
   };
 }
 
@@ -123,8 +128,11 @@ let attached = false;
 export function attachShikiToMonaco(monaco: typeof Monaco): void {
   if (attached) return;
   attached = true;
-  monaco.editor.defineTheme(monacoThemeName('dark'), monacoTheme('dark'));
-  monaco.editor.defineTheme(monacoThemeName('light'), monacoTheme('light'));
+  for (const palette of PALETTE_IDS) {
+    for (const theme of ['dark', 'light'] as const) {
+      monaco.editor.defineTheme(monacoThemeName(theme, palette), monacoTheme(theme, palette));
+    }
+  }
   for (const [monacoId, lang] of Object.entries(MONACO_GRAMMARS)) {
     monaco.languages.onLanguageEncountered(monacoId, () => {
       void Promise.all([loadLang(lang), import('shiki/textmate')]).then(([ok, tm]) => {
