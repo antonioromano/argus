@@ -1,4 +1,5 @@
 import type { Profile, ProfilePrompt, ProfileSettings, ProfilesState } from '@argus/shared';
+import { isUsageMeterParts, isWarnThresholds } from '../utils/usageMeter.js';
 import { PROFILE_AVATAR_MAX, PROFILE_CONFIG_KEYS, PROFILE_MAX, PROFILE_NAME_MAX } from '../constants/profiles.js';
 
 const PROMPTS: readonly ProfilePrompt[] = ['pending', 'welcome', 'later', 'upgrade', 'done'];
@@ -6,28 +7,14 @@ const ID_RE = /^[\w-]{1,64}$/;
 /** Every key a profile may carry: the AppConfig keys plus the two device-local theme keys. */
 const SETTING_KEYS = new Set<string>([...PROFILE_CONFIG_KEYS, 'themeMode', 'colorTheme']);
 
-const PART_IDS = new Set(['ctx', 'plan', 'tok', 'model']);
-
-/** The usage meter's parts: each known part at most once, as { id, on }. */
+/** The usage meter's parts, exactly as PUT /api/config accepts them, copied out to { id, on }. */
 function sanitizeParts(v: unknown): { id: string; on: boolean }[] | null {
-  if (!Array.isArray(v) || v.length > PART_IDS.size) return null;
-  const seen = new Set<string>();
-  const out: { id: string; on: boolean }[] = [];
-  for (const p of v) {
-    if (!p || typeof p !== 'object') return null;
-    const { id, on } = p as Record<string, unknown>;
-    if (typeof id !== 'string' || !PART_IDS.has(id) || seen.has(id) || typeof on !== 'boolean') return null;
-    seen.add(id);
-    out.push({ id, on });
-  }
-  return out;
+  return isUsageMeterParts(v) ? v.map((p) => ({ id: p.id, on: p.on })) : null;
 }
 
-/** A warning threshold pair: two finite numbers. */
+/** A warning threshold pair, exactly as PUT /api/config accepts it. */
 function sanitizeThresholds(v: unknown): { amber: number; red: number } | null {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
-  const { amber, red } = v as Record<string, unknown>;
-  return typeof amber === 'number' && Number.isFinite(amber) && typeof red === 'number' && Number.isFinite(red) ? { amber, red } : null;
+  return isWarnThresholds(v) ? { amber: v.amber, red: v.red } : null;
 }
 
 /** The few profile keys whose value is structured rather than primitive. */
@@ -39,9 +26,9 @@ const STRUCTURED: Record<string, (v: unknown) => unknown> = {
 
 /**
  * Keep only allowlisted keys: primitives, plus the usage meter's parts and
- * thresholds in their exact shapes. The config route applies the full per-key
- * validation when a profile is switched to, so this only has to stop a profile
- * from smuggling other structure or unknown keys into storage.
+ * thresholds, which must pass the config route's own validators. The config
+ * route rejects a whole patch when one key is invalid, so a stored value it
+ * would refuse would make the entire profile fail to apply on switch.
  */
 export function sanitizeSettings(raw: unknown): ProfileSettings {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};

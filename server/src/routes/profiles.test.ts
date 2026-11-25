@@ -77,9 +77,13 @@ test('PUT keeps the welcome prompt', async (t) => {
 
 test('PUT keeps the usage meter in its exact shape and drops malformed values', async (t) => {
   const s = setup(); t.after(s.close);
-  const good = { usageMeterParts: [{ id: 'plan', on: true }, { id: 'ctx', on: false }], usageWarnContext: { amber: 60, red: 85 } };
+  const good = {
+    usageMeterParts: [{ id: 'plan', on: true }, { id: 'ctx', on: false }, { id: 'tok', on: false }, { id: 'model', on: true }],
+    usageWarnContext: { amber: 60, red: 85 },
+  };
   await s.call('PUT', { activeId: 'a', profiles: [profile('a', { settings: { ...good, usageWarnPlan: { amber: 'x', red: 9 } } })], prompt: 'done' });
   assert.deepEqual(s.stored().profiles[0].settings, good);
-  await s.call('PUT', { activeId: 'a', profiles: [profile('a', { settings: { usageMeterParts: [{ id: 'evil', on: true }], usageWarnContext: [1, 2] } })], prompt: 'done' });
+  // What PUT /api/config would refuse is refused here too: a partial parts list, out-of-range thresholds.
+  await s.call('PUT', { activeId: 'a', profiles: [profile('a', { settings: { usageMeterParts: [{ id: 'ctx', on: true }], usageWarnContext: { amber: 500, red: 9 }, usageWarnPlan: [1, 2] } })], prompt: 'done' });
   assert.deepEqual(s.stored().profiles[0].settings, {});
 });
