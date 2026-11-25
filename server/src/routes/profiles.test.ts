@@ -68,3 +68,9 @@ test('PUT rejects a body that is not a state', async (t) => {
   assert.equal(r.status, 400);
   assert.equal(s.changed(), 0);
 });
+
+test('PUT keeps the welcome prompt', async (t) => {
+  const s = setup(); t.after(s.close);
+  await s.call('PUT', { activeId: null, profiles: [], prompt: 'welcome' });
+  assert.equal(s.stored().prompt, 'welcome');
+});

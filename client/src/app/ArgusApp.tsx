@@ -585,7 +585,8 @@ function DesktopInner() {
   const disc = useDiscovery({ config, updateConfig, isMainWindow });
   const profile = useProfileController({
     socket, config, updateConfig, reloadConfig, configEditAt, isMainWindow,
-    introPending: !!pendingIntro || app.overlay?.kind === 'intro',
+    // Until the running version is known the intro cannot be ruled out.
+    introPending: !updateStatus || !!pendingIntro || app.overlay?.kind === 'intro',
   });
   const handleTipAction = useCallback((action: TipAction) => {
     if (action === 'inbox') openInbox();

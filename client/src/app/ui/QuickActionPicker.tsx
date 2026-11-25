@@ -152,18 +152,10 @@ export function QuickActionPicker({ value, onChange, defaultAction }: QuickActio
                 aria-selected={selected}
                 className="argus-ctx-item"
                 onClick={() => { setOpen(false); onChange(id); }}
-                style={{
-                  all: 'unset',
-                  boxSizing: 'border-box',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--s-2)',
-                  width: '100%',
-                  padding: 'var(--s-1-5) var(--s-2)',
-                  borderRadius: 'var(--r-2)',
-                  cursor: 'pointer',
-                  color: selected ? 'var(--accent)' : 'var(--fg-1)',
-                }}
+                // Base look comes from .argus-ctx-item; an inline `all: unset` /
+                // `color` would outrank its :hover. Only the font (inherited, as
+                // before) and the selected color stay inline.
+                style={{ fontFamily: 'inherit', ...(selected ? { color: 'var(--accent)' } : {}) }}
               >
                 <Icon icon={Glyph} size="md" style={{ flexShrink: 0 }} />
                 <span style={{ flex: 1, minWidth: 0 }}>

@@ -2153,12 +2153,13 @@ export interface Profile {
 }
 
 /**
- * Where the first-run prompt stands. `pending`: never asked. `later`: the user
+ * Where the first-run prompt stands. `pending`: not classified yet (first
+ * launch with profiles). `welcome`: a new user; the Welcome card is due. `later`: the user
  * deferred setup (the avatar carries a dot). `upgrade`: a profile was created
  * from an existing user's settings and the one-time notice is still due.
  * `done`: nothing more to show.
  */
-export type ProfilePrompt = 'pending' | 'later' | 'upgrade' | 'done';
+export type ProfilePrompt = 'pending' | 'welcome' | 'later' | 'upgrade' | 'done';
 
 export interface ProfilesState {
   activeId: string | null;

@@ -5,7 +5,7 @@ import { useProfiles } from '../../hooks/useProfiles.js';
 import { useTheme } from '../../context/theme-context.js';
 import { offerUndo } from '../../utils/undoable.js';
 import {
-  activeProfile, configPatch, currentSettings, makeProfile, needsUpgradeProfile, profileCardToShow,
+  activeProfile, classifyFirstLaunch, configPatch, currentSettings, makeProfile, profileCardToShow,
   sameSettings, themeOf, uniqueName, type ProfileCard,
 } from './profileModel.js';
 import type { ProfileSheetMode } from './ProfileSheet.js';
@@ -50,6 +50,9 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
   // While a profile is being applied, config and theme pass through mixed
   // states; the sync below must not write those into the profile.
   const applying = useRef(0);
+  // Local edits up to this time are already in the profile (or were made by
+  // apply itself, i.e. ARE the profile) and must not be written back.
+  const syncedAt = useRef(0);
   const apply = useCallback(async (settings: ProfileSettings) => {
     applying.current++;
     try {
@@ -60,6 +63,7 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
       if (Object.keys(patch).length > 0) await updateConfig(patch);
     } finally {
       applying.current--;
+      syncedAt.current = Date.now() + 1;
     }
   }, [setMode, setPalette, updateConfig]);
 
@@ -69,11 +73,12 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
   // write it back over a newer profile.
   const active = activeProfile(state);
   const editAt = Math.max(configEditAt, themeEditAt);
-  const syncedAt = useRef(0);
   useEffect(() => {
     if (!config || !active || applying.current > 0 || editAt <= syncedAt.current) return;
     const now = currentSettings(config, mode, palette);
-    if (sameSettings(now, active.settings)) return;
+    // Nothing to write: this edit is accounted for. Otherwise a later
+    // profile change from another window would look like a local edit here.
+    if (sameSettings(now, active.settings)) { syncedAt.current = editAt; return; }
     const id = active.id;
     const t = setTimeout(() => {
       if (applying.current > 0) return;
@@ -85,10 +90,15 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
 
   // Someone who used Argus before profiles: their current setup becomes their
   // first profile, and a one-time notice says so.
-  const upgraded = useRef(false);
+  // A new user is marked `welcome` right away (persisted), before the intro can
+  // stamp introSeen and make them look like an existing one.
+  const classified = useRef(false);
   useEffect(() => {
-    if (!isMainWindow || upgraded.current || !needsUpgradeProfile(state, config) || !config || !state) return;
-    upgraded.current = true;
+    if (!isMainWindow || classified.current) return;
+    const who = classifyFirstLaunch(state, config);
+    if (!who || !config || !state) return;
+    classified.current = true;
+    if (who === 'new') { void save({ ...state, prompt: 'welcome' }); return; }
     const p = makeProfile(suggestedName || 'My profile', currentSettings(config, mode, palette), Date.now());
     void save({ activeId: p.id, profiles: [p], prompt: 'upgrade' });
   }, [isMainWindow, state, config, suggestedName, mode, palette, save]);
@@ -108,17 +118,19 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
   const switchTo = useCallback(async (id: string) => {
     const target = state?.profiles.find((p) => p.id === id);
     if (!state || !target) return;
-    await save({ ...state, activeId: id });
+    // Config first, then the switch: another window reloads config when it sees
+    // the new activeId, and must find the new values already there.
     await apply(target.settings);
+    await save({ ...state, activeId: id });
   }, [state, save, apply]);
 
   const cancelSetup = useCallback(async () => {
     const r = sheet?.restore;
     setSheet(null);
     if (!r) return;
-    const prompt = r.firstRun && r.state.prompt === 'pending' ? 'later' : r.state.prompt;
-    await save({ ...r.state, prompt });
+    const prompt = r.firstRun && (r.state.prompt === 'pending' || r.state.prompt === 'welcome') ? 'later' : r.state.prompt;
     await apply(r.settings);
+    await save({ ...r.state, prompt });
   }, [sheet, save, apply]);
 
   const finish = useCallback(() => {
@@ -139,18 +151,18 @@ export function useProfileController({ socket, config, updateConfig, reloadConfi
     const gone = active;
     const next = state.profiles.find((p) => p.id !== gone.id)!;
     setSheet(null);
-    await save({ ...state, activeId: next.id, profiles: state.profiles.filter((p) => p.id !== gone.id) });
     await apply(next.settings);
+    await save({ ...state, activeId: next.id, profiles: state.profiles.filter((p) => p.id !== gone.id) });
     offerUndo({
       message: `Deleted profile ${gone.name}`,
       undo: async () => {
-        await save(before);
         await apply(gone.settings);
+        await save(before);
       },
     });
   }, [state, active, save, apply]);
 
-  const card: ProfileCard = isMainWindow && !sheet ? profileCardToShow(state, config, introPending) : null;
+  const card: ProfileCard = isMainWindow && !sheet ? profileCardToShow(state, introPending) : null;
 
   return {
     state,

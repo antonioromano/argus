@@ -1,7 +1,7 @@
 import type { Profile, ProfilePrompt, ProfileSettings, ProfilesState } from '@argus/shared';
 import { PROFILE_AVATAR_MAX, PROFILE_CONFIG_KEYS, PROFILE_MAX, PROFILE_NAME_MAX } from '../constants/profiles.js';
 
-const PROMPTS: readonly ProfilePrompt[] = ['pending', 'later', 'upgrade', 'done'];
+const PROMPTS: readonly ProfilePrompt[] = ['pending', 'welcome', 'later', 'upgrade', 'done'];
 const ID_RE = /^[\w-]{1,64}$/;
 /** Every key a profile may carry: the AppConfig keys plus the two device-local theme keys. */
 const SETTING_KEYS = new Set<string>([...PROFILE_CONFIG_KEYS, 'themeMode', 'colorTheme']);

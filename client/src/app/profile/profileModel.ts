@@ -72,18 +72,20 @@ export function isExistingUser(config: AppConfig): boolean {
 export type ProfileCard = 'welcome' | 'upgrade' | null;
 
 /**
- * The corner card to show, if any. Never while another first-run surface (the
- * intro) is pending, and never in a profile-less state that is about to be
- * turned into an upgrade profile (an existing user on `pending`).
+ * First launch with profiles (`pending`, no profile): classify the user once
+ * and persist it, so closing the intro (which stamps introSeen) can never turn
+ * a brand-new user into an "existing" one. Returns null when there is nothing
+ * to classify.
  */
-export function profileCardToShow(state: ProfilesState | null, config: AppConfig | null, introPending: boolean): ProfileCard {
-  if (!state || !config || introPending) return null;
-  if (state.prompt === 'upgrade') return 'upgrade';
-  if (state.prompt === 'pending' && state.profiles.length === 0 && !isExistingUser(config)) return 'welcome';
-  return null;
+export function classifyFirstLaunch(state: ProfilesState | null, config: AppConfig | null): 'existing' | 'new' | null {
+  if (!state || !config || state.prompt !== 'pending' || state.profiles.length > 0) return null;
+  return isExistingUser(config) ? 'existing' : 'new';
 }
 
-/** An existing user with no profile yet: build one from what they have now. */
-export function needsUpgradeProfile(state: ProfilesState | null, config: AppConfig | null): boolean {
-  return !!state && !!config && state.prompt === 'pending' && state.profiles.length === 0 && isExistingUser(config);
+/** The corner card to show, if any; never while the intro is up or due. */
+export function profileCardToShow(state: ProfilesState | null, introPending: boolean): ProfileCard {
+  if (!state || introPending) return null;
+  if (state.prompt === 'upgrade') return 'upgrade';
+  if (state.prompt === 'welcome' && state.profiles.length === 0) return 'welcome';
+  return null;
 }

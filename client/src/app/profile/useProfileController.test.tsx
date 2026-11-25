@@ -67,6 +67,8 @@ afterEach(() => {
 
 describe('useProfileController', () => {
   it('welcomes a new user; setup creates the first profile from the current look', async () => {
+    await flush();
+    expect(server.state.prompt).toBe('welcome');
     expect(out.ctl.card).toBe('welcome');
     await act(async () => { out.ctl.onCardOpen(); });
     await flush();
@@ -77,6 +79,31 @@ describe('useProfileController', () => {
     act(() => out.ctl.onDone());
     await flush();
     expect(server.state.prompt).toBe('done');
+  });
+
+  it('a new user stays new after the intro stamps introSeen (no upgrade card)', async () => {
+    await flush();
+    act(() => { config = { ...config, introSeen: 'release-0.30', quickActionPromptedAt: '0.35.0' }; rerender(); });
+    await flush();
+    expect(server.state.prompt).toBe('welcome');
+    expect(server.state.profiles).toHaveLength(0);
+    expect(out.ctl.card).toBe('welcome');
+  });
+
+  it('a no-op local edit does not let a later remote profile change be written back', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.state = { activeId: 'a', prompt: 'done', profiles: [{ id: 'a', name: 'Home', avatar: '', createdAt: 1, settings: { ...((await import('./profileModel.js')).currentSettings(config, 'dark', 'argus')) } }] };
+    await serverChanged();
+    // A local edit outside the profile's keys: nothing to write.
+    await act(async () => { await updateConfig({ ptyBackend: 'tmux' } as Partial<AppConfig>); });
+    await act(async () => { vi.advanceTimersByTime(600); });
+    // Another window changes the profile; this window's config is not refreshed.
+    server.state = { ...server.state, profiles: [{ ...server.state.profiles[0], settings: { ...server.state.profiles[0].settings, density: 'compact' } }] };
+    await serverChanged();
+    await act(async () => { vi.advanceTimersByTime(600); });
+    await flush();
+    expect(server.state.profiles[0].settings.density).toBe('compact');
+    vi.useRealTimers();
   });
 
   it('cancel drops the new profile and puts the look back', async () => {

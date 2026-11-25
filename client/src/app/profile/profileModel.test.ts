@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DEFAULT_CONFIG, type AppConfig, type ProfilesState } from '@argus/shared';
 import {
   activeProfile, avatarText, configPatch, currentSettings, initials, isExistingUser, makeProfile,
-  needsUpgradeProfile, profileCardToShow, sameSettings, themeOf, uniqueName,
+  classifyFirstLaunch, profileCardToShow, sameSettings, themeOf, uniqueName,
 } from './profileModel.js';
 
 const cfg = (patch: Partial<AppConfig> = {}): AppConfig => ({ ...structuredClone(DEFAULT_CONFIG), ...patch });
@@ -75,18 +75,23 @@ describe('first run', () => {
     expect(isExistingUser(cfg({ quickActionPromptedAt: '0.20.0' }))).toBe(true);
   });
 
-  it('welcomes a new user once nothing else is pending', () => {
-    expect(profileCardToShow(state(), cfg(), false)).toBe('welcome');
-    expect(profileCardToShow(state(), cfg(), true)).toBeNull();
-    expect(profileCardToShow(state({ prompt: 'later' }), cfg(), false)).toBeNull();
-    expect(profileCardToShow(null, cfg(), false)).toBeNull();
+  it('classifies the first launch once: new, existing, or nothing to do', () => {
+    expect(classifyFirstLaunch(state(), cfg())).toBe('new');
+    expect(classifyFirstLaunch(state(), cfg({ introSeen: 'release-0.30' }))).toBe('existing');
+    expect(classifyFirstLaunch(state({ prompt: 'welcome' }), cfg({ introSeen: 'release-0.30' }))).toBeNull();
+    expect(classifyFirstLaunch(state({ profiles: [makeProfile('Me', {}, 1)] }), cfg())).toBeNull();
+    expect(classifyFirstLaunch(null, cfg())).toBeNull();
   });
 
-  it('gives an existing user an upgrade profile, then the upgrade notice', () => {
-    const old = cfg({ introSeen: 'release-0.30' });
-    expect(profileCardToShow(state(), old, false)).toBeNull();
-    expect(needsUpgradeProfile(state(), old)).toBe(true);
-    expect(needsUpgradeProfile(state(), cfg())).toBe(false);
-    expect(profileCardToShow(state({ prompt: 'upgrade', profiles: [makeProfile('Me', {}, 1)] }), old, false)).toBe('upgrade');
+  it('shows the Welcome card for a classified new user, never while the intro is up', () => {
+    expect(profileCardToShow(state({ prompt: 'welcome' }), false)).toBe('welcome');
+    expect(profileCardToShow(state({ prompt: 'welcome' }), true)).toBeNull();
+    expect(profileCardToShow(state(), false)).toBeNull();
+    expect(profileCardToShow(state({ prompt: 'later' }), false)).toBeNull();
+    expect(profileCardToShow(null, false)).toBeNull();
+  });
+
+  it('shows the upgrade notice when due', () => {
+    expect(profileCardToShow(state({ prompt: 'upgrade', profiles: [makeProfile('Me', {}, 1)] }), false)).toBe('upgrade');
   });
 });
