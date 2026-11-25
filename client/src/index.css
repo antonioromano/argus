@@ -3578,3 +3578,110 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 }
 .argus-theme-swatches i { flex: 1; }
 .argus-theme-card-sub { font-family: var(--font-mono); font-size: var(--t-caption); color: var(--fg-3); }
+.argus-theme-grid[data-compact] .argus-theme-card { gap: var(--s-1-5); padding: var(--s-2) var(--s-3); }
+.argus-theme-grid[data-compact] .argus-theme-card-mode { gap: 0; }
+.argus-theme-grid[data-compact] .argus-theme-swatches { height: 12px; }
+
+/* ── Profile (app/profile) ─────────────────────────────────────────────────
+   The avatar sits after New in the toolbar; the corner card is bottom-right
+   (the tip card owns bottom-left), under toasts. */
+.argus-avatar {
+  all: unset;
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--ctl-h-md);
+  height: var(--ctl-h-md);
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--fg-on-accent);
+  font-family: var(--font-mono);
+  font-size: var(--t-caption);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: box-shadow var(--dur-fast) var(--ease);
+}
+.argus-avatar:hover { box-shadow: 0 0 0 2px var(--accent-edge); }
+.argus-avatar:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: 2px; }
+.argus-avatar[data-empty] { background: transparent; color: var(--fg-3); border: 1px dashed var(--line-control); }
+.argus-avatar[data-size="lg"] { width: 40px; height: 40px; font-size: var(--t-body); cursor: default; }
+.argus-avatar[data-size="lg"]:hover { box-shadow: none; }
+.argus-avatar-pip {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-1);
+}
+.argus-profile-card {
+  position: fixed;
+  right: var(--s-4);
+  bottom: calc(var(--s-4) + var(--statusbar-offset, 0px));
+  z-index: var(--z-pop);
+  width: 380px;
+  max-width: calc(100vw - 2 * var(--s-4));
+  box-sizing: border-box;
+  padding: var(--s-5);
+  background: var(--material-sheet);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-pop);
+  animation: argus-fade-in var(--dur-base) var(--ease);
+}
+.argus-profile-card h3 { margin: var(--s-1-5) 0 var(--s-2); font-size: var(--t-title); font-weight: 600; color: var(--fg-0); letter-spacing: var(--tracking-tight); }
+.argus-profile-card p { margin: 0 0 var(--s-3); color: var(--fg-2); font-size: var(--t-body); line-height: var(--lh-body); }
+.argus-profile-card-chips { display: flex; flex-wrap: wrap; gap: var(--s-1-5); margin-bottom: var(--s-4); }
+.argus-profile-card-chips span { font-family: var(--font-mono); font-size: var(--t-caption); padding: 2px var(--s-2); border-radius: var(--r-2); background: var(--bg-3); color: var(--fg-2); }
+.argus-profile-card-actions { display: flex; justify-content: flex-end; gap: var(--s-2); }
+
+/* The sheet body: Settings' two columns, sized so no step scrolls. */
+.argus-profile-body {
+  display: flex;
+  align-items: stretch;
+  height: min(560px, calc(92vh - 240px));
+  margin: calc(-1 * var(--s-5)) calc(-1 * var(--s-6));
+}
+.argus-profile-nav {
+  width: 216px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-3) var(--s-2);
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-2);
+}
+.argus-profile-nav .eyebrow { padding: var(--s-2) var(--s-3) var(--s-1-5); color: var(--fg-4); }
+.argus-profile-nav-done { color: var(--status-done); display: inline-flex; }
+.argus-profile-main { flex: 1; min-width: 0; overflow: auto; padding: var(--s-5) var(--s-7) var(--s-4); }
+.argus-profile-main > div { width: 640px; max-width: 100%; }
+.argus-profile-title { font-size: var(--t-title); margin: 0 0 var(--s-1); font-weight: 600; letter-spacing: var(--tracking-tight); }
+.argus-profile-purpose { margin: 0 0 var(--s-4); color: var(--fg-3); font-size: var(--t-small); }
+.argus-profile-emojis { display: flex; gap: var(--s-1-5); }
+.argus-profile-emoji {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-lg);
+  height: var(--ctl-h-lg);
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  font-size: var(--t-body);
+  cursor: pointer;
+}
+.argus-profile-emoji:hover { background: var(--bg-3); }
+.argus-profile-emoji[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.argus-profile-emoji[data-initials] { background: var(--accent); color: var(--fg-on-accent); font-family: var(--font-mono); font-size: var(--t-caption); font-weight: 600; }
+.argus-profile-note { margin: var(--s-2) 0 0; color: var(--fg-3); font-size: var(--t-small); }
+.argus-profile-summary { font-family: var(--font-mono); font-size: var(--t-body); color: var(--fg-1); }

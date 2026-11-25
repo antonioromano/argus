@@ -15,6 +15,8 @@ interface ColorThemePickerProps {
   /** The appearance showing now; its half of each card is marked. */
   theme: Mode;
   onChange: (palette: PaletteId) => void;
+  /** Swatches only, no half names: for the profile's one-screen Theme step. */
+  compact?: boolean;
 }
 
 /**
@@ -23,9 +25,9 @@ interface ColorThemePickerProps {
  * function, waiting). Appearance (System / Dark / Light) still decides which
  * half is on screen, so a pick here follows macOS when Appearance is System.
  */
-export function ColorThemePicker({ value, theme, onChange }: ColorThemePickerProps) {
+export function ColorThemePicker({ value, theme, onChange, compact = false }: ColorThemePickerProps) {
   return (
-    <div className="argus-theme-grid" role="group" aria-label="Color theme">
+    <div className="argus-theme-grid" data-compact={compact || undefined} role="group" aria-label="Color theme">
       {PALETTE_IDS.map((id) => {
         const selected = id === value;
         return (
@@ -43,12 +45,12 @@ export function ColorThemePicker({ value, theme, onChange }: ColorThemePickerPro
             </span>
             {(['dark', 'light'] as const).map((mode) => (
               <span key={mode} className="argus-theme-card-mode" data-current={mode === theme || undefined}>
-                <span className="argus-theme-swatches" aria-hidden>
+                <span className="argus-theme-swatches" aria-hidden title={compact ? paletteModeName(id, mode) : undefined}>
                   {paletteSwatches(id, mode, argusSwatches(mode)).map((c, i) => (
                     <i key={i} style={{ background: c }} />
                   ))}
                 </span>
-                <span className="argus-theme-card-sub">{paletteModeName(id, mode)}</span>
+                {!compact && <span className="argus-theme-card-sub">{paletteModeName(id, mode)}</span>}
               </span>
             ))}
           </button>

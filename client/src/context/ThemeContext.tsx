@@ -48,6 +48,7 @@ function resolveTheme(mode: ThemeMode, systemIsDark: boolean): Theme {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<ThemeMode>(getInitialMode);
   const [palette, setPaletteState] = useState<PaletteId>(getInitialPalette);
+  const [localEditAt, setLocalEditAt] = useState(0);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
   );
@@ -80,6 +81,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === PALETTE_KEY && isPaletteId(e.newValue)) setPaletteState(e.newValue);
+      if (e.key === 'theme-mode' && (e.newValue === 'dark' || e.newValue === 'light' || e.newValue === 'system')) setModeState(e.newValue);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -116,12 +118,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // applies them.
     suppressTransitionsForSwap();
     setModeState(m);
+    setLocalEditAt(Date.now());
     localStorage.setItem('theme-mode', m);
   }, []);
 
   const setPalette = useCallback((p: PaletteId) => {
     suppressTransitionsForSwap();
     setPaletteState(p);
+    setLocalEditAt(Date.now());
     localStorage.setItem(PALETTE_KEY, p);
   }, []);
 
@@ -132,7 +136,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme, setMode]);
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', mode, setMode, toggle, palette, setPalette }}>
+    <ThemeContext.Provider value={{ theme, isDark: theme === 'dark', mode, setMode, toggle, palette, setPalette, localEditAt }}>
       {children}
     </ThemeContext.Provider>
   );

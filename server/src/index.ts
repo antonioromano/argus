@@ -24,6 +24,9 @@ import { isBetaEnabled } from './utils/betaFlags.js';
 import { createHandoffRoutes } from './routes/handoff.js';
 import { createTemplateRoutes } from './routes/templates.js';
 import { TemplateStore } from './persistence/TemplateStore.js';
+import { createProfileRoutes } from './routes/profiles.js';
+import { ProfileStore } from './persistence/ProfileStore.js';
+import { accountName } from './services/accountName.js';
 import { ChainStore } from './persistence/ChainStore.js';
 import { ChainEngine } from './services/chains/ChainEngine.js';
 import { createChainRoutes } from './routes/chains.js';
@@ -507,6 +510,11 @@ app.use('/api/sessions', createChatImageRoutes({
 }));
 // Beta F10 session templates: /api/templates CRUD + launch (404 while the flag is off).
 // Own file (templates.json), never config.json; deliberately no deep-link path.
+app.use('/api/profiles', createProfileRoutes({
+  store: new ProfileStore(path.join(dataDir, 'profiles.json')),
+  suggestedName: accountName,
+  onChanged: () => io.emit('profiles:changed'),
+}));
 app.use('/api/templates', createTemplateRoutes({
   isEnabled: () => isBetaEnabled(currentConfig, 'betaSessionTemplates'),
   store: new TemplateStore(path.join(dataDir, 'templates.json')),
