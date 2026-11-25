@@ -574,6 +574,12 @@ function DesktopInner() {
   // from re-opening it right after the user closes it.
   const pendingIntro = introToShow(config, updateStatus?.currentVersion);
   const introAutoShownRef = useRef(false);
+  // The update check gave up (failed or slow): the profile card was released
+  // without the intro. A late answer must not open the intro over a profile
+  // setup already under way; it shows on the next launch instead.
+  useEffect(() => {
+    if (updateCheckSettled && !updateStatus) introAutoShownRef.current = true;
+  }, [updateCheckSettled, updateStatus]);
   useEffect(() => {
     if (!pendingIntro || introAutoShownRef.current || app.overlay) return;
     introAutoShownRef.current = true;
