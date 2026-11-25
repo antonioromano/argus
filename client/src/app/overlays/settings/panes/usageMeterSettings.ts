@@ -1,4 +1,4 @@
-import type { UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
+import type { PlanUsage, SessionUsage, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
 
 export const PART_LABELS: Record<UsageMeterPartId, string> = {
   ctx: 'Context',
@@ -29,3 +29,33 @@ export function stepThreshold(t: UsageWarnThresholds, which: 'amber' | 'red', de
   return { amber: t.amber < red ? t.amber : Math.max(5, red - STEP), red };
 }
 
+
+export type PreviewAgent = 'claude' | 'codex' | 'gemini';
+
+/** Synthetic meter for the preview tile — never real data. */
+export function previewData(agent: PreviewAgent, ctxPct: number, planPct: number, now: number): { usage: SessionUsage; plan: PlanUsage } {
+  const codex = agent === 'codex';
+  const window = codex ? 258_400 : 200_000;
+  const contextTokens = Math.round((window * ctxPct) / 100);
+  return {
+    usage: {
+      inputTokens: 1_200_000,
+      outputTokens: 310_000,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 18_400_000,
+      totalTokens: 19_910_000,
+      model: codex ? 'gpt-5.5' : 'claude-opus-5-5',
+      contextTokens,
+      contextWindow: window,
+      contextPct: ctxPct,
+      updatedAt: now,
+    },
+    plan: codex
+      ? { observedAt: now, primary: { usedPct: planPct, windowMinutes: 43_200, resetsAt: now + 6 * 86_400_000 } }
+      : {
+          observedAt: now,
+          primary: { usedPct: planPct, windowMinutes: 300, resetsAt: now + (2 * 60 + 19) * 60_000 },
+          secondary: { usedPct: Math.round(planPct * 0.4), windowMinutes: 10_080, resetsAt: now + 4 * 86_400_000 },
+        },
+  };
+}

@@ -35,9 +35,9 @@ const navItems = () => Array.from(document.querySelectorAll('.argus-profile-nav 
 describe('ProfileSheet', () => {
   it('guides through every step with Continue, then finishes', () => {
     const p = render('setup');
-    expect(navItems()).toEqual(['You', 'Theme', 'Look', 'Session header', 'Sessions', 'Notifications', 'Done']);
-    expect(document.body.textContent).toContain('Step 1 of 7');
-    for (let i = 0; i < 5; i++) act(() => button('Continue').click());
+    expect(navItems()).toEqual(['You', 'Theme', 'Look', 'Session header', 'Usage meter', 'Sessions', 'Notifications', 'Done']);
+    expect(document.body.textContent).toContain('Step 1 of 8');
+    for (let i = 0; i < 6; i++) act(() => button('Continue').click());
     act(() => button('Finish').click());
     expect(document.body.textContent).toContain('All set, Ada');
     act(() => button('Start using Argus').click());
@@ -67,6 +67,15 @@ describe('ProfileSheet', () => {
     render('edit', { onDelete });
     act(() => button('Delete profile').click());
     expect(onDelete).toHaveBeenCalled();
+  });
+
+  it('builds the usage meter: switch and thresholds apply live', () => {
+    const p = render('edit');
+    act(() => (Array.from(document.querySelectorAll('.argus-profile-nav .settings-nav-item')).find((b) => b.textContent?.trim() === 'Usage meter') as HTMLButtonElement).click());
+    expect(document.body.textContent).toContain('Click to hide · drag to reorder');
+    const row = Array.from(document.querySelectorAll('.setting-row')).find((r) => r.querySelector('.setting-row-label')?.textContent === 'Show usage meter')!;
+    act(() => (row.querySelector('label > span') as HTMLElement).click());
+    expect(p.onConfig).toHaveBeenCalledWith({ showUsageMeter: false });
   });
 
   it('sets the avatar', () => {

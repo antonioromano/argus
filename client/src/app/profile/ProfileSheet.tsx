@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Bell, Check, Flag, LayoutGrid, Palette, PanelTop, SlidersHorizontal, UserRound, type LucideIcon } from 'lucide-react';
+import { Bell, Check, Flag, Gauge, LayoutGrid, Palette, PanelTop, SlidersHorizontal, UserRound, type LucideIcon } from 'lucide-react';
 import { DEFAULT_CONFIG, type AppConfig, type Profile } from '@argus/shared';
 import { Button, Icon, Section, Segmented, SettingRow, Sheet, TextInput, Toggle } from '../../components/primitives/index.js';
 import { useTheme } from '../../context/theme-context.js';
@@ -7,6 +7,10 @@ import { ColorThemePicker } from '../overlays/settings/panes/ColorThemePicker.js
 import { QuickActionPreview } from '../overlays/QuickActionSheet.js';
 import { QuickActionPicker } from '../ui/QuickActionPicker.js';
 import { WaitingStylePreview } from '../ui/WaitingStylePreview.js';
+import { UsageChip } from '../ui/UsageChip.js';
+import { ThresholdSteppers, UsagePartPills } from '../overlays/settings/panes/ShellHeaderPane.js';
+import { previewData } from '../overlays/settings/panes/usageMeterSettings.js';
+import { DEFAULT_WARN_CONTEXT, DEFAULT_WARN_PLAN, normalizeParts, usageMeterView } from '../../utils/usageFormat.js';
 import { DEFAULT_TILE_QUICK_ACTION, tileActionMeta } from '../../constants/tileActions.js';
 import {
   CODE_FONT_PRESETS, DEFAULT_CODE_FONT_PX, DEFAULT_UI_FONT_PX, DENSITY_OPTIONS, INDICATOR_OPTIONS,
@@ -36,7 +40,7 @@ interface ProfileSheetProps {
   onDelete?: () => void;
 }
 
-type StepId = 'you' | 'theme' | 'look' | 'header' | 'sessions' | 'notify' | 'done';
+type StepId = 'you' | 'theme' | 'look' | 'header' | 'usage' | 'sessions' | 'notify' | 'done';
 interface Step { id: StepId; label: string; icon: LucideIcon; purpose?: string }
 
 const STEPS: Step[] = [
@@ -44,6 +48,7 @@ const STEPS: Step[] = [
   { id: 'theme', label: 'Theme', icon: Palette, purpose: 'Colors for the whole app, terminals and editor included.' },
   { id: 'look', label: 'Look', icon: SlidersHorizontal, purpose: 'How dense the interface is and how big text reads.' },
   { id: 'header', label: 'Session header', icon: PanelTop, purpose: 'What every session header shows.' },
+  { id: 'usage', label: 'Usage meter', icon: Gauge, purpose: 'The usage chip in Claude and Codex headers: what it shows, and when it turns amber or red.' },
   { id: 'sessions', label: 'Sessions', icon: LayoutGrid, purpose: 'How sessions are laid out, opened, and how a waiting one stands out.' },
   { id: 'notify', label: 'Notifications', icon: Bell, purpose: 'When Argus should interrupt you, while it is in the background.' },
   { id: 'done', label: 'Done', icon: Flag },
@@ -192,14 +197,13 @@ function StepBody({ id, profile, fromUpgrade, config, onConfig, onIdentity }: {
           <SettingRow label="Running indicator" hint="A hairline while an agent works">
             <Segmented label="Running indicator" value={v('tileRunningIndicator')} options={INDICATOR_OPTIONS} onChange={(tileRunningIndicator) => onConfig({ tileRunningIndicator })} />
           </SettingRow>
-          <SettingRow label="Usage meter" hint="Context and plan usage (Claude, Codex)">
-            <Toggle checked={v('showUsageMeter')} onChange={(showUsageMeter) => onConfig({ showUsageMeter })} />
-          </SettingRow>
           <SettingRow label="Pull request status" hint="PR state and CI checks">
             <Toggle checked={v('showPrStatus')} onChange={(showPrStatus) => onConfig({ showPrStatus })} />
           </SettingRow>
         </Card>
       );
+    case 'usage':
+      return <UsageStep config={config} onConfig={onConfig} />;
     case 'sessions':
       return (
         <Card>
@@ -250,6 +254,52 @@ function StepBody({ id, profile, fromUpgrade, config, onConfig, onIdentity }: {
         </>
       );
   }
+}
+
+/**
+ * The usage meter, built with the same controls as Settings → Session header:
+ * a live header with the chip (and sliders to try the warning colors), the
+ * switch, the parts (click to hide, drag to reorder) and the two thresholds.
+ */
+function UsageStep({ config, onConfig }: { config: AppConfig; onConfig: (patch: Partial<AppConfig>) => void }) {
+  const [ctx, setCtx] = useState(47);
+  const [plan, setPlan] = useState(20);
+  const [now] = useState(() => Date.now());
+  const on = config.showUsageMeter !== false;
+  const view = usageMeterView(config);
+  const sample = previewData('claude', ctx, plan, now);
+  const action = config.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION;
+  return (
+    <Card>
+      <SettingRow label="Live preview" hint="Drag the sliders to try the warning colors">
+        <div className="argus-profile-usage-preview">
+          <QuickActionPreview
+            action={action}
+            runningIndicator={config.tileRunningIndicator ?? 'hairline'}
+            chip={view && <UsageChip agentType="claude" usage={sample.usage} plan={sample.plan} view={view} now={now} />}
+          />
+          <div className="argus-profile-usage-sim">
+            <label>Context <input type="range" min={1} max={100} value={ctx} aria-label="Simulated context %" onChange={(e) => setCtx(Number(e.target.value))} /> {ctx}%</label>
+            <label>Plan <input type="range" min={1} max={100} value={plan} aria-label="Simulated plan usage %" onChange={(e) => setPlan(Number(e.target.value))} /> {plan}%</label>
+          </div>
+        </div>
+      </SettingRow>
+      <SettingRow label="Show usage meter" hint="Gemini doesn’t report usage">
+        <Toggle checked={on} onChange={(showUsageMeter) => onConfig({ showUsageMeter })} />
+      </SettingRow>
+      <div className="argus-usage-nest" data-off={!on} aria-disabled={!on}>
+        <SettingRow label="Show" hint="Click to hide · drag to reorder">
+          <UsagePartPills parts={normalizeParts(config.usageMeterParts)} onChange={(usageMeterParts) => onConfig({ usageMeterParts })} />
+        </SettingRow>
+        <SettingRow label="Context warning" hint="As a session’s context fills">
+          <ThresholdSteppers name="Context" value={config.usageWarnContext ?? DEFAULT_WARN_CONTEXT} onChange={(usageWarnContext) => onConfig({ usageWarnContext })} />
+        </SettingRow>
+        <SettingRow label="Plan warning" hint="As you near your plan’s limit">
+          <ThresholdSteppers name="Plan usage" value={config.usageWarnPlan ?? DEFAULT_WARN_PLAN} onChange={(usageWarnPlan) => onConfig({ usageWarnPlan })} />
+        </SettingRow>
+      </div>
+    </Card>
+  );
 }
 
 function Card({ children }: { children: ReactNode }) {
