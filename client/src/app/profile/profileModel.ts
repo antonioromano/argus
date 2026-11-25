@@ -29,9 +29,15 @@ export function themeOf(settings: ProfileSettings): { mode?: ThemeMode; palette?
   };
 }
 
+/** By value, including the usage meter's parts and thresholds (objects). */
 export function sameSettings(a: ProfileSettings, b: ProfileSettings): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const k of keys) if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+  for (const k of keys) {
+    const x = (a as Record<string, unknown>)[k];
+    const y = (b as Record<string, unknown>)[k];
+    if (x === y) continue;
+    if (typeof x !== 'object' || typeof y !== 'object' || JSON.stringify(x) !== JSON.stringify(y)) return false;
+  }
   return true;
 }
 

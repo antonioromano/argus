@@ -74,3 +74,12 @@ test('PUT keeps the welcome prompt', async (t) => {
   await s.call('PUT', { activeId: null, profiles: [], prompt: 'welcome' });
   assert.equal(s.stored().prompt, 'welcome');
 });
+
+test('PUT keeps the usage meter in its exact shape and drops malformed values', async (t) => {
+  const s = setup(); t.after(s.close);
+  const good = { usageMeterParts: [{ id: 'plan', on: true }, { id: 'ctx', on: false }], usageWarnContext: { amber: 60, red: 85 } };
+  await s.call('PUT', { activeId: 'a', profiles: [profile('a', { settings: { ...good, usageWarnPlan: { amber: 'x', red: 9 } } })], prompt: 'done' });
+  assert.deepEqual(s.stored().profiles[0].settings, good);
+  await s.call('PUT', { activeId: 'a', profiles: [profile('a', { settings: { usageMeterParts: [{ id: 'evil', on: true }], usageWarnContext: [1, 2] } })], prompt: 'done' });
+  assert.deepEqual(s.stored().profiles[0].settings, {});
+});

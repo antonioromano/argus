@@ -3685,3 +3685,7 @@ button.argus-agents-chip:hover { background: var(--bg-3); }
 .argus-profile-emoji[data-initials] { background: var(--accent); color: var(--fg-on-accent); font-family: var(--font-mono); font-size: var(--t-caption); font-weight: 600; }
 .argus-profile-note { margin: var(--s-2) 0 0; color: var(--fg-3); font-size: var(--t-small); }
 .argus-profile-summary { font-family: var(--font-mono); font-size: var(--t-body); color: var(--fg-1); }
+.argus-profile-usage-preview { width: 380px; display: flex; flex-direction: column; gap: var(--s-2); }
+.argus-profile-usage-sim { display: flex; gap: var(--s-3); font-family: var(--font-mono); font-size: var(--t-caption); color: var(--fg-3); }
+.argus-profile-usage-sim label { display: inline-flex; align-items: center; gap: var(--s-1-5); font-variant-numeric: tabular-nums; }
+.argus-profile-usage-sim input { width: 90px; }

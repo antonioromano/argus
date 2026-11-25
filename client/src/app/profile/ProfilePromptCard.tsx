@@ -8,7 +8,7 @@ interface ProfilePromptCardProps {
   onLater: () => void;
 }
 
-const STEPS = ['Theme', 'Look', 'Session header', 'Sessions', 'Notifications'];
+const STEPS = ['Theme', 'Look', 'Session header', 'Usage meter', 'Sessions', 'Notifications'];
 
 /**
  * First-run (or first-after-upgrade) invitation to the profile. A corner card,

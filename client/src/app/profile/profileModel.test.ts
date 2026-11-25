@@ -39,6 +39,9 @@ describe('profile settings', () => {
     expect(sameSettings({ density: 'compact' }, { density: 'compact' })).toBe(true);
     expect(sameSettings({ density: 'compact' }, { density: 'default' })).toBe(false);
     expect(sameSettings({ density: 'compact' }, {})).toBe(false);
+    const parts = [{ id: 'ctx' as const, on: true }];
+    expect(sameSettings({ usageMeterParts: parts }, { usageMeterParts: [{ id: 'ctx', on: true }] })).toBe(true);
+    expect(sameSettings({ usageMeterParts: parts }, { usageMeterParts: [{ id: 'ctx', on: false }] })).toBe(false);
   });
 });
 

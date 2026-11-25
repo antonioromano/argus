@@ -1,11 +1,11 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from 'react';
-import type { PlanUsage, SessionUsage, UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
+import type { UsageMeterPart, UsageMeterPartId, UsageWarnThresholds } from '@argus/shared';
 import { Section, SettingRow, Segmented, Toggle, Row, Text } from '../../../../components/primitives/index.js';
 import { QuickActionPreview } from '../../QuickActionSheet.js';
 import { QuickActionPicker } from '../../../ui/QuickActionPicker.js';
 import { UsageChip } from '../../../ui/UsageChip.js';
 import { DEFAULT_TILE_QUICK_ACTION } from '../../../../constants/tileActions.js';
-import { PART_LABELS, STEP, movePart, stepThreshold } from './usageMeterSettings.js';
+import { PART_LABELS, STEP, movePart, previewData, stepThreshold, type PreviewAgent } from './usageMeterSettings.js';
 import { usageMeterView, normalizeParts, DEFAULT_USAGE_PARTS, DEFAULT_WARN_CONTEXT, DEFAULT_WARN_PLAN } from '../../../../utils/usageFormat.js';
 import type { PaneProps } from '../types.js';
 import { SettingField } from '../SettingField.js';
@@ -83,7 +83,7 @@ function Stepper({ label, value, onStep, min, max }: { label: string; value: num
   );
 }
 
-function ThresholdSteppers({ value, onChange, name }: { value: UsageWarnThresholds; onChange: (t: UsageWarnThresholds) => void; name: string }) {
+export function ThresholdSteppers({ value, onChange, name }: { value: UsageWarnThresholds; onChange: (t: UsageWarnThresholds) => void; name: string }) {
   return (
     <Row as="span" align="stretch" gap={3} role="group" aria-label={`${name} warning`}>
       <Stepper label="amber" value={value.amber} min={5} max={98} onStep={(d) => onChange(stepThreshold(value, 'amber', d))} />
@@ -92,40 +92,11 @@ function ThresholdSteppers({ value, onChange, name }: { value: UsageWarnThreshol
   );
 }
 
-type PreviewAgent = 'claude' | 'codex' | 'gemini';
 const PREVIEW_AGENTS: readonly { value: PreviewAgent; label: string }[] = [
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
   { value: 'gemini', label: 'Gemini' },
 ];
-
-/** Synthetic meter for the preview tile — never real data. */
-function previewData(agent: PreviewAgent, ctxPct: number, planPct: number, now: number): { usage: SessionUsage; plan: PlanUsage } {
-  const codex = agent === 'codex';
-  const window = codex ? 258_400 : 200_000;
-  const contextTokens = Math.round((window * ctxPct) / 100);
-  return {
-    usage: {
-      inputTokens: 1_200_000,
-      outputTokens: 310_000,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 18_400_000,
-      totalTokens: 19_910_000,
-      model: codex ? 'gpt-5.5' : 'claude-opus-5-5',
-      contextTokens,
-      contextWindow: window,
-      contextPct: ctxPct,
-      updatedAt: now,
-    },
-    plan: codex
-      ? { observedAt: now, primary: { usedPct: planPct, windowMinutes: 43_200, resetsAt: now + 6 * 86_400_000 } }
-      : {
-          observedAt: now,
-          primary: { usedPct: planPct, windowMinutes: 300, resetsAt: now + (2 * 60 + 19) * 60_000 },
-          secondary: { usedPct: Math.round(planPct * 0.4), windowMinutes: 10_080, resetsAt: now + 4 * 86_400_000 },
-        },
-  };
-}
 
 export function ShellHeaderPane({ config, onSave }: PaneProps) {
   const action = config.tileQuickAction ?? DEFAULT_TILE_QUICK_ACTION;

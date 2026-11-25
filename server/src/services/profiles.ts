@@ -6,18 +6,55 @@ const ID_RE = /^[\w-]{1,64}$/;
 /** Every key a profile may carry: the AppConfig keys plus the two device-local theme keys. */
 const SETTING_KEYS = new Set<string>([...PROFILE_CONFIG_KEYS, 'themeMode', 'colorTheme']);
 
+const PART_IDS = new Set(['ctx', 'plan', 'tok', 'model']);
+
+/** The usage meter's parts: each known part at most once, as { id, on }. */
+function sanitizeParts(v: unknown): { id: string; on: boolean }[] | null {
+  if (!Array.isArray(v) || v.length > PART_IDS.size) return null;
+  const seen = new Set<string>();
+  const out: { id: string; on: boolean }[] = [];
+  for (const p of v) {
+    if (!p || typeof p !== 'object') return null;
+    const { id, on } = p as Record<string, unknown>;
+    if (typeof id !== 'string' || !PART_IDS.has(id) || seen.has(id) || typeof on !== 'boolean') return null;
+    seen.add(id);
+    out.push({ id, on });
+  }
+  return out;
+}
+
+/** A warning threshold pair: two finite numbers. */
+function sanitizeThresholds(v: unknown): { amber: number; red: number } | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const { amber, red } = v as Record<string, unknown>;
+  return typeof amber === 'number' && Number.isFinite(amber) && typeof red === 'number' && Number.isFinite(red) ? { amber, red } : null;
+}
+
+/** The few profile keys whose value is structured rather than primitive. */
+const STRUCTURED: Record<string, (v: unknown) => unknown> = {
+  usageMeterParts: sanitizeParts,
+  usageWarnContext: sanitizeThresholds,
+  usageWarnPlan: sanitizeThresholds,
+};
+
 /**
- * Keep only allowlisted keys holding primitive values. The config route applies
- * the full per-key validation when a profile is switched to, so this only has
- * to stop a profile from smuggling structure or unknown keys into storage.
+ * Keep only allowlisted keys: primitives, plus the usage meter's parts and
+ * thresholds in their exact shapes. The config route applies the full per-key
+ * validation when a profile is switched to, so this only has to stop a profile
+ * from smuggling other structure or unknown keys into storage.
  */
 export function sanitizeSettings(raw: unknown): ProfileSettings {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const out: Record<string, string | number | boolean> = {};
+  const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!SETTING_KEYS.has(k)) continue;
+    if (STRUCTURED[k]) {
+      const clean = STRUCTURED[k](v);
+      if (clean !== null) out[k] = clean;
+      continue;
+    }
     if (typeof v === 'string' ? v.length <= 64 : typeof v === 'number' ? Number.isFinite(v) : typeof v === 'boolean') {
-      out[k] = v as string | number | boolean;
+      out[k] = v;
     }
   }
   return out as ProfileSettings;
