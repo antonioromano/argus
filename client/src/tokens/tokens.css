@@ -535,12 +535,17 @@ body {
 
    Suppressing transitions for the swap is what makes it instant everywhere at
    once: without this, every `transition: background/color` below would animate
-   the change on its own schedule. Set by ThemeContext for two frames. */
+   the change on its own schedule. Set by ThemeContext for two frames.
+
+   Transitions only. `animation: none` here used to restart every CSS animation
+   when the attribute came off: open sheets replayed their entrance (Settings
+   looked reopened) and every fade-in started over from transparent, so the
+   whole app blinked. A running animation picks up the new token values by
+   itself, so it needs no suppressing. */
 [data-theme-switching] *,
 [data-theme-switching] *::before,
 [data-theme-switching] *::after {
   transition: none !important;
-  animation: none !important;
 }
 
 /* Window hidden in tray — freeze all looping animations so they stop repainting
