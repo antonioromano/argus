@@ -111,6 +111,24 @@
 
 /* === CONTEXT MENU ITEMS === */
 .argus-ctx-sep { height: var(--hairline); background: var(--line-2); margin: var(--s-1) var(--s-1-5); }
-.argus-ctx-item { transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+/* The item's base look lives here, not inline: an inline `all: unset` / `color`
+   outranks every stylesheet rule, so the :hover below never painted. */
+.argus-ctx-item {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: var(--s-1-5) var(--s-2);
+  border-radius: var(--r-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--fg-1);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.argus-ctx-item:disabled { color: var(--fg-4); cursor: default; }
+.argus-ctx-item:focus-visible { outline: 2px solid var(--sys-accent); outline-offset: -2px; }
 .argus-ctx-item:not(:disabled):hover { background: var(--bg-3); color: var(--accent); }
 .argus-ctx-item[data-danger]:not(:disabled):hover { background: var(--danger-bg); color: var(--danger); }
