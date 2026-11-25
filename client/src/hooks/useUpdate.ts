@@ -12,13 +12,23 @@ export interface UpdateFailure {
   upToDate?: boolean;
 }
 
+/** Longest a first-run surface waits on the update check. */
+const CHECK_SETTLE_MS = 8000;
+
 export function useUpdate(socket: TypedSocket) {
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [failure, setFailure] = useState<UpdateFailure | null>(null);
+  // The first check has answered, failed, or taken too long. Callers that only
+  // wait for it (first-run surfaces) use this, so a slow or failing GitHub
+  // check never holds them back for the whole session.
+  const [checkSettled, setCheckSettled] = useState(false);
 
   useEffect(() => {
-    api.checkUpdate().then(setStatus).catch(console.error);
+    const settle = () => setCheckSettled(true);
+    const timer = setTimeout(settle, CHECK_SETTLE_MS);
+    api.checkUpdate().then(setStatus).catch(console.error).finally(() => { clearTimeout(timer); settle(); });
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -38,5 +48,5 @@ export function useUpdate(socket: TypedSocket) {
   // Called before a fresh apply / retry so stale progress or errors don't linger.
   const resetUpdateState = useCallback(() => { setProgress(null); setFailure(null); }, []);
 
-  return { status, progress, failure, resetUpdateState };
+  return { status, progress, failure, resetUpdateState, checkSettled };
 }

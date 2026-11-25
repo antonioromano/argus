@@ -223,7 +223,7 @@ function DesktopInner() {
   const ngrok = useNgrok(socket);
   const keepAwake = useKeepAwake(socket);
   const backendHealth = useBackendHealth(socket);
-  const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState } = useUpdate(socket);
+  const { status: updateStatus, progress: updateProgress, failure: updateFailure, resetUpdateState, checkSettled: updateCheckSettled } = useUpdate(socket);
   const { config, updateConfig, reload: reloadConfig, localEditAt: configEditAt } = useConfig();
   // Plan 009 S2: on by default; config loads after first paint, so treat
   // "not loaded yet" as on rather than flashing the bar in.
@@ -585,8 +585,9 @@ function DesktopInner() {
   const disc = useDiscovery({ config, updateConfig, isMainWindow });
   const profile = useProfileController({
     socket, config, updateConfig, reloadConfig, configEditAt, isMainWindow,
-    // Until the running version is known the intro cannot be ruled out.
-    introPending: !updateStatus || !!pendingIntro || app.overlay?.kind === 'intro',
+    // Until the update check settles the intro (which needs the running
+    // version) cannot be ruled out; a failed or slow check stops the wait.
+    introPending: (!updateStatus && !updateCheckSettled) || !!pendingIntro || app.overlay?.kind === 'intro',
   });
   const handleTipAction = useCallback((action: TipAction) => {
     if (action === 'inbox') openInbox();
