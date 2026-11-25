@@ -304,6 +304,15 @@ function DesktopInner() {
   const app = useAppView();
   const windowsApi = useWindows(socket);
   const mosaicVis = useMosaicVisibility(windowsApi.myWindowId, windowsApi.isForeign);
+  // Drop targets for the Mosaic's "Move to" shelf: every other window, with
+  // how many sessions it owns now.
+  const windowDropTargets = useMemo(() => windowsApi.windows
+    .filter((w) => w.id !== windowsApi.myWindowId)
+    .map((w) => ({
+      id: w.id,
+      label: w.label,
+      sessionCount: sessions.filter((s) => windowsApi.ownerOf(s.id) === w.id).length,
+    })), [windowsApi, sessions]);
 
   // Any action that would put a foreign-owned session into this window's focus
   // view (or select it there) instead jumps to the window that owns it —
@@ -1302,6 +1311,8 @@ function DesktopInner() {
               onFocusForeign={onFocusForeign}
               onOpenSession={openSessionGuarded}
               onTearOff={(id) => { void windowsApi.moveToNewWindow(id).catch(console.error); }}
+              windowTargets={windowDropTargets}
+              onMoveToWindow={(id, windowId) => { void windowsApi.moveToWindow(id, windowId).catch(console.error); }}
               onCreate={() => app.openOverlay({ kind: 'create' })}
               onKill={requestKill}
               onRestart={setPendingRestart}
