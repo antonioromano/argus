@@ -149,6 +149,20 @@ describe('Sidebar — click on the background toggles it', () => {
     expect(container.querySelector('aside')!.getAttribute('data-animating')).toBeNull();
   });
 
+  it('a press that starts on the resize handle and ends on blank space does not toggle', () => {
+    renderWith();
+    const aside = container.querySelector('aside')!;
+    const handle = aside.querySelector('[data-sidebar-no-toggle][title^="Drag to resize"]')!;
+    act(() => { handle.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); });
+    click(aside);
+    expect(aside.getAttribute('data-animating')).toBeNull();
+    expect(isCollapsed()).toBe(false);
+    // The next genuine background click still toggles.
+    act(() => { aside.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); });
+    click(aside);
+    expect(aside.getAttribute('data-animating')).not.toBeNull();
+  });
+
   it('clicks inside the inspector or the checklist do not toggle', () => {
     renderWith();
     click(container.querySelector('[data-testid="inspector-stub"]')!);

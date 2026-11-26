@@ -415,7 +415,7 @@ function GroupNode({
       </Row>
 
       {picking && (
-        <Row align="stretch" gap={1.5} style={swatchRowStyle}>
+        <Row align="stretch" gap={1.5} style={swatchRowStyle} data-sidebar-no-toggle>
           {GROUP_COLORS.map((c) => (
             <Tooltip key={c.key} content={c.label}>
               <button
@@ -536,7 +536,7 @@ function OthersNode({
       </Row>
 
       {picking && (
-        <Row align="stretch" gap={1.5} style={swatchRowStyle}>
+        <Row align="stretch" gap={1.5} style={swatchRowStyle} data-sidebar-no-toggle>
           {GROUP_COLORS.map((c) => (
             <Tooltip key={c.key} content={c.label}>
               <button

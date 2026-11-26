@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
-import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import type { ReactNode, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
@@ -241,7 +241,16 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
   // rows, section headers (they stop propagation themselves), nav rows,
   // controls, and the panels hosted inside (inspector, checklist), whose
   // blank areas are content, not chrome.
+  // A click fires on the common ancestor of press and release, so a drag that
+  // starts on a control (the resize handle) and ends on blank space lands on
+  // <aside> as a plain click. Remember whether the press began on a control.
+  const pressOnControl = useRef(false);
+  const onAsidePointerDown = (e: ReactPointerEvent<HTMLElement>) => {
+    pressOnControl.current = !!(e.target as HTMLElement).closest(NO_TOGGLE_SELECTOR);
+  };
+
   const onAsideClick = (e: ReactMouseEvent<HTMLElement>) => {
+    if (pressOnControl.current) { pressOnControl.current = false; return; }
     const target = e.target as HTMLElement;
     // React bubbles portal events (menus, popovers) through here; only real
     // DOM descendants count.
@@ -317,6 +326,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       // that same transition, or every mousemove would animate 180ms behind the
       // cursor.
       style={collapsed ? undefined : { width, transition: resizing ? 'none' : undefined }}
+      onPointerDownCapture={onAsidePointerDown}
       onClick={onAsideClick}
     >
       <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} position="right">
