@@ -38,6 +38,8 @@ interface SessionTreeProps {
   onOpenSession: (id: string) => void;
   onToggleFavorite: (session: SessionInfo) => void;
   onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
+  /** Un-star a closed favourite (it has no live session to toggle). */
+  onRemoveGhostFavorite: (ghost: GhostFavorite) => void;
   isFavorite: (sessionId: string) => boolean;
   onToggleFavoritesCollapsed: () => void;
   othersFolderName?: string;
@@ -49,7 +51,7 @@ export function SessionTree({
   grouped, activeGroupId, isDark,
   onAssign, onReorderOthers, onToggleCollapsed, onFilterGroup, onCreateGroup,
   onRenameGroup, onSetColor, onSetOthersColor, onDeleteGroup, onKillGroup, onKillOthers,
-  onOpenSession, onToggleFavorite, onSpawnFromFavorite, isFavorite, onToggleFavoritesCollapsed,
+  onOpenSession, onToggleFavorite, onSpawnFromFavorite, onRemoveGhostFavorite, isFavorite, onToggleFavoritesCollapsed,
   othersFolderName = 'Others',
   onCreateSession,
 }: SessionTreeProps) {
@@ -114,6 +116,7 @@ export function SessionTree({
           onChevron={onToggleFavoritesCollapsed}
           onOpenSession={onOpenSession}
           onSpawnFromFavorite={onSpawnFromFavorite}
+          onRemoveGhostFavorite={onRemoveGhostFavorite}
           onToggleFavorite={onToggleFavorite}
           isFavorite={isFavorite}
         />
@@ -207,7 +210,7 @@ function FavoritesNode({
   favorites, dropping, starColor,
   onDragOverGroup, onDragLeaveGroup, onDrop, onDragStartLeaf,
   leafDrop, onLeafDragOver, onLeafDragLeave, onLeafDrop,
-  onChevron, onOpenSession, onSpawnFromFavorite, onToggleFavorite, isFavorite,
+  onChevron, onOpenSession, onSpawnFromFavorite, onRemoveGhostFavorite, onToggleFavorite, isFavorite,
 }: {
   favorites: GroupedSessions['favorites'] & object;
   dropping: boolean;
@@ -223,6 +226,7 @@ function FavoritesNode({
   onChevron: () => void;
   onOpenSession: (id: string) => void;
   onSpawnFromFavorite: (session: SessionInfo | null, meta?: FavoriteEntryMeta, ghostId?: string) => void;
+  onRemoveGhostFavorite: (ghost: GhostFavorite) => void;
   onToggleFavorite: (session: SessionInfo) => void;
   isFavorite: (sessionId: string) => boolean;
 }) {
@@ -273,7 +277,9 @@ function FavoritesNode({
             <GhostLeaf
               key={item.id}
               ghost={item}
+              starColor={starColor}
               onSpawn={() => onSpawnFromFavorite(null, item.meta, item.id)}
+              onRemove={() => onRemoveGhostFavorite(item)}
             />
           );
         }
@@ -702,7 +708,9 @@ function Leaf({
 }
 
 /* ---------- ghost leaf ---------- */
-function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => void }) {
+function GhostLeaf({ ghost, starColor, onSpawn, onRemove }: {
+  ghost: GhostFavorite; starColor: string; onSpawn: () => void; onRemove: () => void;
+}) {
   const [hover, setHover] = useState(false);
   const label = ghost.meta.name || ghost.meta.folderPath.split('/').pop() || ghost.meta.folderPath;
   return (
@@ -730,11 +738,29 @@ function GhostLeaf({ ghost, onSpawn }: { ghost: GhostFavorite; onSpawn: () => vo
         <Text mono size="caption" tone="faint" truncate style={{ flex: 1, fontStyle: 'italic' }}>
           {label}
         </Text>
+        {/* Star in the same column as a live favourite's star: the way to
+            un-favourite a closed session, which has no live row to toggle. */}
         <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
+          <Tooltip content="Remove from Favourites">
+            <button
+              type="button"
+              aria-label={`Remove ${label} from Favourites`}
+              onClick={(e) => { e.stopPropagation(); onRemove(); }}
+              // The row respawns on Enter/Space; this button's keys remove instead.
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }}
+              style={{
+                all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', padding: 'var(--s-0-5)', borderRadius: 'var(--r-2)',
+                color: starColor,
+              }}
+            >
+              <Icon icon={Star} size="sm" fill="currentColor" style={{ color: starColor }} />
+            </button>
+          </Tooltip>
+        </span>
+        {/* Respawn hint in Leaf's session-actions slot so ghost and live rows align. */}
+        <span aria-hidden style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
           <Icon icon={RotateCcw} size="sm" style={{ color: 'var(--fg-3)', opacity: hover ? 1 : 0.6 }} />
         </span>
-        {/* Matches Leaf's session-actions slot so ghost and live rows align. */}
-        <span aria-hidden style={{ width: 18, flexShrink: 0 }} />
       </Row>
     </Tooltip>
   );

@@ -39,7 +39,7 @@ function render(extra: { onCreateSession?: () => void } = {}) {
           onKillOthers={vi.fn()}
           onOpenSession={vi.fn()}
           onToggleFavorite={vi.fn()}
-          onSpawnFromFavorite={vi.fn()}
+          onSpawnFromFavorite={vi.fn()} onRemoveGhostFavorite={vi.fn()}
           isFavorite={() => false}
           onToggleFavoritesCollapsed={vi.fn()}
           {...extra}
@@ -126,7 +126,7 @@ describe('SessionTree row — session actions ⋯', () => {
             onAssign={vi.fn()} onReorderOthers={vi.fn()} onToggleCollapsed={vi.fn()} onFilterGroup={vi.fn()}
             onCreateGroup={vi.fn()} onRenameGroup={vi.fn()} onSetColor={vi.fn()} onSetOthersColor={vi.fn()}
             onDeleteGroup={vi.fn()} onKillGroup={vi.fn()} onKillOthers={vi.fn()}
-            onOpenSession={onOpenSession} onToggleFavorite={vi.fn()} onSpawnFromFavorite={vi.fn()}
+            onOpenSession={onOpenSession} onToggleFavorite={vi.fn()} onSpawnFromFavorite={vi.fn()} onRemoveGhostFavorite={vi.fn()}
             isFavorite={() => false} onToggleFavoritesCollapsed={vi.fn()}
           />
         </SessionMenuContext.Provider>,
@@ -160,5 +160,43 @@ describe('SessionTree row — session actions ⋯', () => {
     const { more, onOpenSession } = renderRow();
     act(() => { more.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
     expect(onOpenSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionTree favourites — closed (ghost) entry', () => {
+  function renderGhost() {
+    const onSpawnFromFavorite = vi.fn();
+    const onRemoveGhostFavorite = vi.fn();
+    const ghost = { ghost: true as const, id: 'gone', meta: { folderPath: '/tmp/beta', name: 'beta', agentType: 'claude', flags: [] } };
+    act(() => {
+      root.render(
+        <SessionTree
+          grouped={{ favorites: { collapsed: false, items: [ghost] }, groups: [], others: [], othersColor: null }}
+          activeGroupId={null}
+          isDark
+          onAssign={vi.fn()} onReorderOthers={vi.fn()} onToggleCollapsed={vi.fn()} onFilterGroup={vi.fn()}
+          onCreateGroup={vi.fn()} onRenameGroup={vi.fn()} onSetColor={vi.fn()} onSetOthersColor={vi.fn()}
+          onDeleteGroup={vi.fn()} onKillGroup={vi.fn()} onKillOthers={vi.fn()}
+          onOpenSession={vi.fn()} onToggleFavorite={vi.fn()} onSpawnFromFavorite={onSpawnFromFavorite}
+          onRemoveGhostFavorite={onRemoveGhostFavorite}
+          isFavorite={() => true} onToggleFavoritesCollapsed={vi.fn()}
+        />,
+      );
+    });
+    return { ghost, onSpawnFromFavorite, onRemoveGhostFavorite };
+  }
+
+  it('can be removed from Favourites with its star, without respawning', () => {
+    const { ghost, onSpawnFromFavorite, onRemoveGhostFavorite } = renderGhost();
+    click(container.querySelector('[aria-label="Remove beta from Favourites"]')!);
+    expect(onRemoveGhostFavorite).toHaveBeenCalledWith(ghost);
+    expect(onSpawnFromFavorite).not.toHaveBeenCalled();
+  });
+
+  it('still respawns when the row itself is clicked', () => {
+    const { onSpawnFromFavorite, onRemoveGhostFavorite } = renderGhost();
+    click(container.querySelector('[aria-label="Respawn beta"]')!);
+    expect(onSpawnFromFavorite).toHaveBeenCalledTimes(1);
+    expect(onRemoveGhostFavorite).not.toHaveBeenCalled();
   });
 });

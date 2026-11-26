@@ -203,6 +203,33 @@ export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEv
     });
   }, [commit]);
 
+  /** Undo for removing a closed (ghost) favourite: puts the entry back at its
+   *  old position with its saved launch meta, recreating the group if the
+   *  removal had emptied it. No-op when the id is already a favourite. */
+  const restoreFavorite = useCallback((id: string, meta: FavoriteEntryMeta, index: number) => {
+    setGroups((prev) => {
+      const favGroup = prev.find((g) => g.id === FAVORITES_GROUP_ID);
+      if (favGroup?.sessionIds.includes(id)) return prev;
+      let next: SessionGroup[];
+      if (favGroup) {
+        const ids = [...favGroup.sessionIds];
+        ids.splice(Math.min(Math.max(index, 0), ids.length), 0, id);
+        next = prev.map((g) =>
+          g.id === FAVORITES_GROUP_ID
+            ? { ...g, sessionIds: ids, entryMeta: { ...(g.entryMeta ?? {}), [id]: meta } }
+            : g,
+        );
+      } else {
+        next = [
+          { id: FAVORITES_GROUP_ID, name: 'Favourites', color: 'amber', collapsed: false, sessionIds: [id], entryMeta: { [id]: meta } },
+          ...prev,
+        ];
+      }
+      commit(next);
+      return next;
+    });
+  }, [commit]);
+
   const toggleFavorite = useCallback((session: SessionInfo) => {
     setGroups((prev) => {
       const favGroup = prev.find((g) => g.id === FAVORITES_GROUP_ID);
@@ -322,5 +349,6 @@ export function useGroups(socket?: Socket<ServerToClientEvents, ClientToServerEv
     isFavorite,
     toggleFavorite,
     removeFromFavorites,
+    restoreFavorite,
   };
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { SessionGroup } from '@argus/shared';
+import { FAVORITES_GROUP_ID } from '@argus/shared';
 import { useGroups } from './useGroups.js';
 
 declare global { var IS_REACT_ACT_ENVIRONMENT: boolean | undefined; }
@@ -59,5 +60,29 @@ describe('restoreGroup', () => {
   it('is a no-op when the group already exists', () => {
     act(() => probe.hook!.restoreGroup(probe.hook!.groups[0], 2));
     expect(probe.hook!.groups.map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('restoreFavorite', () => {
+  const meta = (name: string) => ({ folderPath: `/tmp/${name}`, name, agentType: 'claude' as const, flags: [] as string[] });
+  const fav = () => probe.hook!.groups.find((x) => x.id === FAVORITES_GROUP_ID);
+
+  it('puts a removed closed favourite back at its position with its meta', () => {
+    act(() => probe.hook!.restoreFavorite('x', meta('x'), 0));
+    act(() => probe.hook!.restoreFavorite('y', meta('y'), 1));
+    act(() => probe.hook!.restoreFavorite('z', meta('z'), 2));
+    act(() => probe.hook!.removeFromFavorites('y'));
+    expect(fav()!.sessionIds).toEqual(['x', 'z']);
+    act(() => probe.hook!.restoreFavorite('y', meta('y'), 1));
+    expect(fav()!.sessionIds).toEqual(['x', 'y', 'z']);
+    expect(fav()!.entryMeta!.y).toEqual(meta('y'));
+  });
+
+  it('recreates the Favourites group when the removal emptied it', () => {
+    act(() => probe.hook!.restoreFavorite('x', meta('x'), 0));
+    act(() => probe.hook!.removeFromFavorites('x'));
+    expect(fav()).toBeUndefined();
+    act(() => probe.hook!.restoreFavorite('x', meta('x'), 0));
+    expect(fav()!.sessionIds).toEqual(['x']);
   });
 });

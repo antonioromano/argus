@@ -8,7 +8,7 @@ import { useSocket, useSocketStatus, reconnectSocket } from '../hooks/useSocket.
 import { useSessions } from '../hooks/useSessions.js';
 import { useSessionOrder } from '../hooks/useSessionOrder.js';
 import { useMosaicOrder } from '../hooks/useMosaicOrder.js';
-import { useGroups, OTHERS_GROUP_ID } from '../hooks/useGroups.js';
+import { useGroups, OTHERS_GROUP_ID, type GhostFavorite } from '../hooks/useGroups.js';
 import { useConfig } from '../hooks/useConfig.js';
 import { useNgrok } from '../hooks/useNgrok.js';
 import { useKeepAwake } from '../hooks/useKeepAwake.js';
@@ -496,6 +496,18 @@ function DesktopInner() {
     deleteGroup(id);
     offerUndo({ message: `Deleted group ${group.name}`, undo: () => restoreGroup(group, index) });
   }, [deleteGroup, restoreGroup]);
+
+  // A closed favourite (ghost) has no live session to un-star from, so the
+  // tree's star on that row lands here. Its saved launch meta is the only copy,
+  // hence the Undo toast.
+  const { removeFromFavorites, restoreFavorite } = groups;
+  const removeGhostFavoriteWithUndo = useCallback((ghost: GhostFavorite) => {
+    const fav = groupsListRef.current.find((g) => g.id === FAVORITES_GROUP_ID);
+    const index = fav ? fav.sessionIds.indexOf(ghost.id) : -1;
+    removeFromFavorites(ghost.id);
+    const label = ghost.meta.name || ghost.meta.folderPath.split('/').pop() || ghost.meta.folderPath;
+    offerUndo({ message: `Removed ${label} from Favourites`, undo: () => restoreFavorite(ghost.id, ghost.meta, index) });
+  }, [removeFromFavorites, restoreFavorite]);
 
   // Debug action: write a full diagnostics dump for the session to disk, then
   // toast the path so it can be copied and handed to an external tool.
@@ -1304,6 +1316,7 @@ function DesktopInner() {
               onOpenSession={openSessionGuarded}
               onToggleFavorite={groups.toggleFavorite}
               onSpawnFromFavorite={handleSpawnFromFavorite}
+              onRemoveGhostFavorite={removeGhostFavoriteWithUndo}
               isFavorite={groups.isFavorite}
               onToggleFavoritesCollapsed={() => groups.toggleCollapsed(FAVORITES_GROUP_ID)}
               othersFolderName={config?.othersFolderName ?? 'Others'}
