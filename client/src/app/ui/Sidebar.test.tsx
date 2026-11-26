@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Sidebar } from './Sidebar.js';
@@ -95,5 +95,65 @@ describe('Sidebar — width and density', () => {
     localStorage.setItem('argus-sidebar-width', '300');
     renderAt('compact');
     expect(width()).toBe('300px');
+  });
+});
+
+describe('Sidebar — click on the background toggles it', () => {
+  function renderWith(sessionTree = <div data-testid="tree" />) {
+    const selected: string[] = [];
+    act(() => root.render(
+      <Sidebar
+        onSelect={(k) => selected.push(k)}
+        sessionTree={sessionTree}
+        inspector={inspector}
+        checklist={<div data-testid="checklist">checklist</div>}
+      />,
+    ));
+    return selected;
+  }
+  const click = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  const isCollapsed = () => container.querySelector('aside')!.hasAttribute('data-collapsed');
+
+  it('expands a collapsed sidebar when its blank area is clicked', () => {
+    localStorage.setItem('argus-sidebar-collapsed', '1');
+    renderWith();
+    click(container.querySelector('aside')!);
+    expect(isCollapsed()).toBe(false);
+  });
+
+  it('collapses an expanded sidebar when an eyebrow label is clicked', () => {
+    vi.useFakeTimers();
+    try {
+      renderWith();
+      click([...container.querySelectorAll('.eyebrow')].find((e) => e.textContent === 'System')!);
+      act(() => { vi.runAllTimers(); });
+      expect(isCollapsed()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a nav row selects without toggling', () => {
+    const selected = renderWith();
+    click([...container.querySelectorAll('.argus-sidebar-row')].find((b) => b.textContent?.includes('Settings'))!);
+    expect(selected).toEqual(['settings']);
+    expect(isCollapsed()).toBe(false);
+    expect(container.querySelector('aside')!.getAttribute('data-animating')).toBeNull();
+  });
+
+  it('a session row opens without toggling', () => {
+    const onOpen = vi.fn();
+    renderWith(<div role="button" data-testid="shell" onClick={onOpen}><span data-testid="shell-label">alpha</span></div>);
+    click(container.querySelector('[data-testid="shell-label"]')!);
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('aside')!.getAttribute('data-animating')).toBeNull();
+  });
+
+  it('clicks inside the inspector or the checklist do not toggle', () => {
+    renderWith();
+    click(container.querySelector('[data-testid="inspector-stub"]')!);
+    click(container.querySelector('[data-testid="checklist"]')!);
+    expect(container.querySelector('aside')!.getAttribute('data-animating')).toBeNull();
+    expect(isCollapsed()).toBe(false);
   });
 });

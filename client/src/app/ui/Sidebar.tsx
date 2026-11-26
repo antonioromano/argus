@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
@@ -236,6 +236,23 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     else doCollapse();
   };
 
+  // Clicking the sidebar's own background toggles it, like the collapse
+  // button. Anything that does something on click keeps its click: session
+  // rows, section headers (they stop propagation themselves), nav rows,
+  // controls, and the panels hosted inside (inspector, checklist), whose
+  // blank areas are content, not chrome.
+  const onAsideClick = (e: ReactMouseEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement;
+    // React bubbles portal events (menus, popovers) through here; only real
+    // DOM descendants count.
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest(NO_TOGGLE_SELECTOR)) return;
+    // Finishing a text selection in the sidebar is not a click on the background.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && e.currentTarget.contains(sel.anchorNode)) return;
+    toggleCollapsed();
+  };
+
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     dragRef.current = { startX: e.clientX, startWidth: width };
@@ -300,6 +317,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
       // that same transition, or every mousemove would animate 180ms behind the
       // cursor.
       style={collapsed ? undefined : { width, transition: resizing ? 'none' : undefined }}
+      onClick={onAsideClick}
     >
       <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} position="right">
         <button
@@ -327,7 +345,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
         </Fragment>
       ))}
 
-      {checklist}
+      {checklist && <div data-sidebar-no-toggle style={{ display: 'contents' }}>{checklist}</div>}
       {inspector && !collapsed
         ? <div className="argus-sidebar-inspector">{inspector}</div>
         : <Spacer />}
@@ -368,6 +386,7 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
           and the handle disappears with the sidebar when it collapses. */}
       {!collapsed && (
         <div
+          data-sidebar-no-toggle
           onDoubleClick={() => setWidth(null)}
           title="Drag to resize · double-click to reset"
           style={{
@@ -386,6 +405,13 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
     </aside>
   );
 }
+
+/** Click targets inside the sidebar that must not toggle it. */
+const NO_TOGGLE_SELECTOR = [
+  'button', 'a', 'input', 'textarea', 'select', 'label', '[contenteditable]',
+  '[role="button"]', '[role="menuitem"]', '[role="option"]', '[role="tab"]',
+  '.argus-sidebar-inspector', '[data-sidebar-no-toggle]',
+].join(', ');
 
 function Row({ item, active, collapsed, onClick }: { item: Item; active: boolean; collapsed: boolean; onClick: () => void }) {
   const Glyph = item.icon;
