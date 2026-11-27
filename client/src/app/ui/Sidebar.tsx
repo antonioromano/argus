@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, Fragment } from 'react';
 import type { ReactNode, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { SquareTerminal, Search, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { SquareTerminal, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { SidebarKey, SessionCounts } from '../types.js';
 import { Kbd, StatusDot, Tooltip, Icon, Spacer } from '../../components/primitives/index.js';
 import { ResizeDivider } from '../../components/ResizeDivider.js';
@@ -309,7 +309,6 @@ export function Sidebar({ active = 'sessions', counts = {}, onSelect, version, n
 
   const pilot: Item[] = [
     { id: 'sessions', icon: SquareTerminal, label: 'Sessions', count: counts.total, highlight: !!counts.waiting },
-    { id: 'palette',  icon: Search,         label: 'Find & Jump', kbd: '⌘K' },
   ];
 
   const tools: Item[] = [

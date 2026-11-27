@@ -56,7 +56,6 @@ export type MaximizablePanel =
 
 export type SidebarKey =
   | 'sessions'
-  | 'palette'
   | 'settings';
 
 export interface SessionCounts {

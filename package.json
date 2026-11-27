@@ -35,6 +35,7 @@
   "dependencies": {
     "@vscode/ripgrep": "^1.18.0",
     "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/headless": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",

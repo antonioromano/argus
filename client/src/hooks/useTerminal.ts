@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { enableUnicode11 } from './unicodeWidths.js';
 import { SearchAddon } from '@xterm/addon-search';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents, SessionStatus, SessionReplay } from '@argus/shared';
@@ -248,6 +249,7 @@ export function useTerminal(
     });
 
     terminal.loadAddon(fitAddon);
+    enableUnicode11(terminal);
     // Not WebLinksAddon: it reads a logical line off `isWrapped`, which agent CLIs
     // never set — they wrap their own transcript and end every row with a real \n,
     // so a URL broken over two rows opened truncated. See terminalLinks.ts.

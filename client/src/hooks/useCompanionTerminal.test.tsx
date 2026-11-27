@@ -7,6 +7,8 @@ declare global {
 }
 
 // Fake xterm: fit() moves the grid to the container's real size.
+// The mocked Terminal has no unicode service.
+vi.mock('./unicodeWidths.js', () => ({ enableUnicode11: () => {} }));
 vi.mock('@xterm/xterm', () => {
   class Terminal {
     cols = 80;

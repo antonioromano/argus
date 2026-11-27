@@ -41,14 +41,14 @@ function render(collapsedChanges: boolean[] = [], expandRequest = 0) {
 }
 
 describe('Sidebar — Session Inspector (stacked layout)', () => {
-  it('sits between the Pilot rows (shells + Find & Jump) and System', () => {
+  it('sits between the Pilot rows (shells) and System', () => {
     render();
     const aside = container.querySelector('aside')!;
     const order = Array.from(aside.querySelectorAll('[data-testid="tree"], .argus-sidebar-row, .argus-sidebar-inspector, .eyebrow'))
       .filter((el) => !el.closest('.argus-sidebar-inspector') || el.classList.contains('argus-sidebar-inspector'))
       .map((el) => el.classList.contains('argus-sidebar-inspector') ? 'inspector'
         : el.getAttribute('data-testid') ?? el.textContent);
-    expect(order).toEqual(['Pilot', 'Sessions', 'tree', 'Find & Jump⌘K', 'inspector', 'System', 'Settings']);
+    expect(order).toEqual(['Pilot', 'Sessions', 'tree', 'inspector', 'System', 'Settings']);
   });
 
   it('is not rendered while the sidebar is collapsed, and reports the state', () => {

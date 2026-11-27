@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 
 // Minimal xterm stand-in: the lifecycle under test is the effect's deferred
 // join/resize, not rendering, and jsdom can't host a real xterm anyway.
+// The mocked Terminal has no unicode service.
+vi.mock('./unicodeWidths.js', () => ({ enableUnicode11: () => {} }));
 vi.mock('@xterm/xterm', () => {
   const disposable = () => ({ dispose: () => {} });
   class Terminal {

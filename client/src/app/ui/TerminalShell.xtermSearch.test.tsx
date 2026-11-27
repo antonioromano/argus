@@ -8,6 +8,8 @@ import type { SessionInfo } from '@argus/shared';
 // dispose() mirrors xterm: a disposed addon's emitter never fires again.
 const addons: Array<{ listeners: Set<(r: any) => void>; disposed: boolean; fire(i: number, n: number): void; calls: Array<[string, ...any[]]> }> = [];
 
+// The mocked Terminal has no unicode service.
+vi.mock('../../hooks/unicodeWidths.js', () => ({ enableUnicode11: () => {} }));
 vi.mock('@xterm/xterm', () => {
   const disposable = () => ({ dispose: () => {} });
   class Terminal {

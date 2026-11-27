@@ -11,6 +11,7 @@ import type {
 // StateDetector.ts — see the comment there).
 import xtermHeadless from '@xterm/headless';
 import serializeAddon from '@xterm/addon-serialize';
+import unicode11Addon from '@xterm/addon-unicode11';
 
 const Terminal = (xtermHeadless as unknown as {
   Terminal: new (opts?: ITerminalOptions & ITerminalInitOnlyOptions) => XTerminal;
@@ -24,6 +25,22 @@ interface ISerializeAddon {
 const SerializeAddon = (serializeAddon as unknown as {
   SerializeAddon: new () => ISerializeAddon;
 }).SerializeAddon;
+
+const Unicode11Addon = (unicode11Addon as unknown as {
+  Unicode11Addon: new () => { activate(t: XTerminal): void; dispose(): void };
+}).Unicode11Addon;
+
+/**
+ * Switch an emulator to Unicode 11 character widths. xterm defaults to its
+ * Unicode 6 table, which gives emoji like 👉 / ✅ one column; Claude Code
+ * (string-width), SwiftTerm and the client xterm give them two. With the old
+ * table, text an agent drew after an emoji landed a column left and stale cells
+ * stayed at the line end, so tables looked broken until a full repaint.
+ */
+export function enableUnicode11(term: XTerminal): void {
+  term.loadAddon(new Unicode11Addon() as unknown as Parameters<XTerminal['loadAddon']>[0]);
+  term.unicode.activeVersion = '11';
+}
 
 /** Mouse-mode truth derived from the tracked DEC private modes (R6). */
 export interface ReplayModes {
@@ -183,6 +200,7 @@ export class TerminalMirror {
     const term = new Terminal({ cols, rows, allowProposedApi: true, scrollback: this.scrollback });
     const addon = new SerializeAddon();
     term.loadAddon(addon as unknown as Parameters<XTerminal['loadAddon']>[0]);
+    enableUnicode11(term);
     this._term = term;
     this.serializer = addon;
     this.registerModeScanner(term);

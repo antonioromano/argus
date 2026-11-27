@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Terminal as XTerminal, ITerminalOptions, ITerminalInitOnlyOptions } from '@xterm/headless';
 import xtermHeadless from '@xterm/headless';
-import { TerminalMirror } from './TerminalMirror.js';
+import { TerminalMirror, enableUnicode11 } from './TerminalMirror.js';
 
 const Terminal = (xtermHeadless as unknown as {
   Terminal: new (opts?: ITerminalOptions & ITerminalInitOnlyOptions) => XTerminal;
@@ -15,8 +15,12 @@ const SCROLLBACK = 200;
 const write = (t: XTerminal, data: string): Promise<void> =>
   new Promise((resolve) => t.write(data, () => resolve()));
 
-const freshTerm = (): XTerminal =>
-  new Terminal({ cols: COLS, rows: ROWS, scrollback: SCROLLBACK, allowProposedApi: true });
+// Replay targets (client xterm, SwiftTerm) use Unicode 11 widths, like the mirror.
+const freshTerm = (): XTerminal => {
+  const t = new Terminal({ cols: COLS, rows: ROWS, scrollback: SCROLLBACK, allowProposedApi: true });
+  enableUnicode11(t);
+  return t;
+};
 
 interface RowSnap {
   text: string;
@@ -460,5 +464,35 @@ test('serialize() is never cached while a write is still being parsed', async ()
   m.serialize();
   await pending;
   assert.match(m.serialize(), /in flight/);
+  m.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// Unicode widths — the mirror must agree with the agent and the renderers.
+// Claude Code (string-width), SwiftTerm and xterm's Unicode 11 table all give
+// emoji like 👉 / ✅ two columns. xterm's default Unicode 6 table gives them one,
+// so text after an emoji landed a column left of where the agent drew it and
+// left stale cells at the line end — garbled tables until a full repaint.
+// ---------------------------------------------------------------------------
+
+test('emoji take two columns, matching the agent and the renderers', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  for (const ch of ['👉', '✅', '🚀']) {
+    await m.feed(`\x1b[H\x1b[2K${ch}X`);
+    await m.afterWrite();
+    const line = m.term.buffer.active.getLine(0)!;
+    assert.equal(line.getCell(2)?.getChars(), 'X', `${ch} should be 2 columns wide`);
+  }
+  m.dispose();
+});
+
+test('emoji widths survive hibernate → wake', async () => {
+  const m = new TerminalMirror(COLS, ROWS, SCROLLBACK);
+  await m.feed('ready\r\n');
+  await m.afterWrite();
+  if (m.canHibernate()) m.hibernate();
+  await m.feed('\x1b[H\x1b[2K✅X');
+  await m.afterWrite();
+  assert.equal(m.term.buffer.active.getLine(0)!.getCell(2)?.getChars(), 'X');
   m.dispose();
 });

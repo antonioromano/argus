@@ -1075,9 +1075,6 @@ function DesktopInner() {
         setFilter('');
         app.exitFocus();
         return;
-      case 'palette':
-        app.openOverlay({ kind: 'palette' });
-        return;
       case 'settings':
         app.openOverlay({ kind: 'settings' });
         return;

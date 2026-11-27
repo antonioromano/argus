@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { enableUnicode11 } from './unicodeWidths.js';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '@argus/shared';
 import { isPrimaryModifier } from '../utils/platform.js';
@@ -89,6 +90,7 @@ export function useCompanionTerminal(
     });
 
     terminal.loadAddon(fitAddon);
+    enableUnicode11(terminal);
     // Plain-text URLs, rejoined across the line breaks agent CLIs write themselves
     // (see useTerminal / terminalLinks.ts).
     terminal.registerLinkProvider(createTerminalLinkProvider(terminal, openExternal));

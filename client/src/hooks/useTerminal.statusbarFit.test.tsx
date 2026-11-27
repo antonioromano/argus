@@ -9,6 +9,8 @@ import { createRoot, type Root } from 'react-dom/client';
 
 let height = 600;
 
+// The mocked Terminal has no unicode service.
+vi.mock('./unicodeWidths.js', () => ({ enableUnicode11: () => {} }));
 vi.mock('@xterm/xterm', () => {
   const disposable = () => ({ dispose: () => {} });
   class Terminal {
